@@ -16,8 +16,36 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Skipped jobs count as passing for required checks, unlike workflows skipped by a paths filter
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - "crates/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "rustfmt.toml"
+              - ".github/workflows/ci.yml"
+            web:
+              - "web/**"
+              - ".github/workflows/ci.yml"
+
   rust-fmt:
     name: Rust format
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +57,8 @@ jobs:
 
   rust-lint:
     name: Rust clippy
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +70,8 @@ jobs:
 
   rust-test:
     name: Rust tests
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -66,6 +98,8 @@ jobs:
 
   rust-build:
     name: Rust release build
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,6 +109,8 @@ jobs:
 
   web:
     name: Web check, test, build
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:

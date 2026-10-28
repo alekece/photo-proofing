@@ -1,6 +1,6 @@
 # Contributing
 
-Every command below is run from the repository root and is the same one CI runs (`.github/workflows/ci.yml`).
+Every command below is run from the repository root and is the same one CI runs (`.github/workflows/ci.yml`; Rust and web jobs run only when their own files change).
 
 ## Prerequisites
 
