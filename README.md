@@ -19,7 +19,7 @@ Check the API: `curl localhost:8080/api/v1/health` returns `{"status":"ok"}`. Th
 Checks:
 
 ```sh
-cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+cargo +nightly fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 pnpm --dir web check && pnpm --dir web test && pnpm --dir web build
 ```
 

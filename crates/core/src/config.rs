@@ -46,11 +46,13 @@ impl From<LogLevel> for LevelFilter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::path::PathBuf;
+
     use clap::Parser;
     use clap_config_fallback::ConfigParser;
-    use std::path::PathBuf;
     use tracing::level_filters::LevelFilter;
+
+    use super::*;
 
     #[derive(Parser, ConfigParser)]
     struct TestCli {

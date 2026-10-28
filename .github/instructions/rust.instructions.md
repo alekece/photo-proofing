@@ -19,6 +19,7 @@ applyTo: "**/*.rs"
 - Order types, traits, implementations, and free functions logically; keep related declarations together.
 - Avoid unnecessary wrapper modules, re-exports, and indirection.
 - Place `use` declarations at the top of their containing module scope, including `mod tests`. Never put imports inside functions, blocks, or `impl` bodies.
+- Group imports in three blank-line-separated blocks, in this order: `std`/`core`/`alloc`, external dependencies, then `crate`/`super`/`self`. Keep each block sorted.
 
 ## Naming
 
