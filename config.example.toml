@@ -4,3 +4,7 @@
 host = "127.0.0.1"
 port = 8080
 log_level = "info"
+# Upload limits (env: EG_UPLOAD_MAX_FILES, EG_UPLOAD_MAX_FILE_BYTES, EG_UPLOAD_MAX_MEGAPIXELS).
+upload_max_files = 100
+upload_max_file_bytes = 104857600 # 100 MiB
+upload_max_megapixels = 100

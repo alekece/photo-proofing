@@ -1,3 +1,5 @@
+pub mod upload;
+
 use clap::{Args, ValueEnum};
 use clap_config_fallback::ConfigArgs;
 use serde::{Deserialize, Serialize};
