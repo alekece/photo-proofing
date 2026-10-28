@@ -609,6 +609,7 @@ dependencies = [
  "clap",
  "clap-config-fallback",
  "serde",
+ "strum",
  "tempfile",
  "tracing",
 ]

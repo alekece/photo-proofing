@@ -1,8 +1,7 @@
-use std::fmt;
-
 use clap::{Args, ValueEnum};
 use clap_config_fallback::ConfigArgs;
 use serde::{Deserialize, Serialize};
+use strum::Display;
 use tracing::level_filters::LevelFilter;
 
 /// Network binding shared by every process that listens for connections.
@@ -22,24 +21,15 @@ pub struct LogConfig {
 
 /// Typed so that a misspelled level fails at startup instead of silently
 /// disabling logs.
-#[derive(ValueEnum, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(ValueEnum, Display, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum LogLevel {
     Error,
     Warn,
     Info,
     Debug,
     Trace,
-}
-
-impl fmt::Display for LogLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let value = self
-            .to_possible_value()
-            .expect("every LogLevel variant is a possible value");
-
-        f.write_str(value.get_name())
-    }
 }
 
 impl From<LogLevel> for LevelFilter {
