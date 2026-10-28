@@ -10,6 +10,8 @@ clap-config-fallback.workspace = true
 tracing.workspace = true
 serde = { version = "1", features = ["derive"] }
 strum = { version = "0.28.0", features = ["derive"] }
+uuid = "1.29.0"
+derive_more = { version = "2.1.1", features = ["display", "from"] }
 
 [dev-dependencies]
 tempfile = "3"
