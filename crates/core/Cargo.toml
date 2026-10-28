@@ -10,6 +10,13 @@ clap-config-fallback.workspace = true
 tracing.workspace = true
 serde = { version = "1", features = ["derive"] }
 strum = { version = "0.28.0", features = ["derive"] }
+argon2 = "0.6.0"
+secrecy = "0.10.3"
+sha2 = "0.11.1"
+thiserror = "2.0.21"
+getrandom = "0.4.3"
+base64 = "0.23.1"
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt"] }
