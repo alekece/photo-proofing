@@ -36,6 +36,10 @@ docker compose up --build --wait
 
 Health checks: API polls `/api/v1/health`, web fetches `/`, PostgreSQL uses `pg_isready`, the proxy serves `/proxy-health`, and the worker (no HTTP listener) is healthy while `eg-image-worker` is PID 1. The frontend image runs the Vite dev server, since there is no production adapter yet.
 
+### Backup and restore
+
+`scripts/backup-postgres.sh` dumps the database and `scripts/restore-postgres.sh` restores into a new database; see [docs/operations/BACKUP_AND_RESTORE.md](docs/operations/BACKUP_AND_RESTORE.md) for the steps and known limits (private-object backup is not covered yet).
+
 ### Configuration
 
 Settings come from, in order of precedence: command-line flag, environment variable (`EG_HOST`, `EG_PORT`, `EG_LOG_LEVEL`), optional TOML file, default. Copy `config.example.toml` to `config.toml` (gitignored) and pass it with `--config config.toml` or `EG_CONFIG`. Never commit real secrets.

@@ -1,0 +1,51 @@
+name: Backup and restore
+
+on:
+  pull_request:
+    paths:
+      - "scripts/**"
+      - ".github/workflows/backup-restore.yml"
+  push:
+    branches: [develop, main]
+    paths:
+      - "scripts/**"
+      - ".github/workflows/backup-restore.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-restore-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  restore-test:
+    name: Controlled restore test (PostgreSQL 17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: eg
+          POSTGRES_PASSWORD: eg-ci-only
+          POSTGRES_DB: eg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U eg -d eg"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 client tools
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Shellcheck
+        run: shellcheck -x scripts/*.sh scripts/lib/*.sh
+      - name: Backup and controlled restore test
+        env:
+          DATABASE_URL: postgres://eg:eg-ci-only@localhost:5432/eg
+        run: scripts/test-backup-restore.sh
