@@ -1,0 +1,6 @@
+# Copy to config.toml (gitignored) and pass with --config or EG_CONFIG.
+# Precedence: CLI flag > environment variable > config file > default.
+# Placeholders only: never commit real secrets.
+host = "127.0.0.1"
+port = 8080
+log_level = "info"
