@@ -45,19 +45,19 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_USER: enoam
-          POSTGRES_PASSWORD: enoam-ci-only
-          POSTGRES_DB: enoam_test
+          POSTGRES_USER: eg
+          POSTGRES_PASSWORD: eg-ci-only
+          POSTGRES_DB: eg_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U enoam -d enoam_test"
+          --health-cmd "pg_isready -U eg -d eg_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
       # Throwaway CI database; not a real credential
-      DATABASE_URL: postgres://enoam:enoam-ci-only@localhost:5432/enoam_test
+      DATABASE_URL: postgres://eg:eg-ci-only@localhost:5432/eg_test
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

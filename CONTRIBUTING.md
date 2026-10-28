@@ -49,7 +49,7 @@ pnpm --dir web test
 Tests that need PostgreSQL read `DATABASE_URL` and fail when it is unset. Point it at a throwaway local database, for example:
 
 ```sh
-export DATABASE_URL=postgres://USER:PASSWORD@localhost:5432/enoam_test
+export DATABASE_URL=postgres://USER:PASSWORD@localhost:5432/eg_test
 ```
 
 CI provides a Postgres 17 service container and sets `DATABASE_URL` for the test job. Test fixtures must be synthetic: never use client photos, names, or other client assets.
