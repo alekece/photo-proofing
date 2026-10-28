@@ -6,3 +6,11 @@ publish.workspace = true
 
 [dependencies]
 eg-core.workspace = true
+sqlx.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

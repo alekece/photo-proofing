@@ -14,6 +14,14 @@ cargo run -p eg-image-worker       # image worker (idle until job queue work lan
 pnpm --dir web install && pnpm --dir web dev   # frontend on http://localhost:5173
 ```
 
+Database tests need PostgreSQL and read `DATABASE_URL`; they fail when it is unset. Migrations in `crates/database/migrations` are forward-only and applied by `eg_database::run_migrations`.
+
+```sh
+docker run --rm -d --name eg-pg -p 5432:5432 -e POSTGRES_PASSWORD=dev postgres:17
+DATABASE_URL=postgres://postgres:dev@localhost:5432/postgres cargo test -p eg-database
+docker stop eg-pg
+```
+
 Check the API: `curl localhost:8080/api/v1/health` returns `{"status":"ok"}`. The frontend dev server proxies `/api` to the API. Routes: `/dashboard` and `/g/<gallery>`.
 
 Checks (import grouping needs nightly rustfmt):
