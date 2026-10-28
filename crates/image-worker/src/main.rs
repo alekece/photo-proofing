@@ -22,6 +22,7 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_max_level(cli.log.log_level)
         .init();
+
     tracing::info!("image worker started");
 
     let mut sigterm = signal(SignalKind::terminate())?;

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use actix_web::{App, HttpServer};
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
-use eg_api::app::configure;
+use eg_api::app::configure_routes;
 use eg_core::config::{LogConfig, ServerConfig};
 
 #[derive(Parser, ConfigParser)]
@@ -25,8 +25,10 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_max_level(cli.log.log_level)
         .init();
+
     tracing::info!(host = %cli.server.host, port = cli.server.port, "api starting");
-    HttpServer::new(|| App::new().configure(configure))
+
+    HttpServer::new(|| App::new().configure(configure_routes))
         .bind((cli.server.host.as_str(), cli.server.port))?
         .run()
         .await
