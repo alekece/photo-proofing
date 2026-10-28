@@ -1,0 +1,8 @@
+.git
+.worktrees
+target
+**/node_modules
+web/.svelte-kit
+web/build
+.env
+config.toml
