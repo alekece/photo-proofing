@@ -6,7 +6,7 @@ use eg_core::config::LogConfig;
 use tokio::signal::unix::{SignalKind, signal};
 
 #[derive(Parser, ConfigParser)]
-#[command(name = "eg-image-worker", about = "Enoam Gallery image worker")]
+#[command(name = "eg-image-worker", about = "Gallery image worker")]
 struct Cli {
     /// Optional TOML config file; see config.example.toml.
     #[arg(long, env = "EG_CONFIG")]

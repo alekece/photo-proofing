@@ -7,7 +7,7 @@ use eg_api::app::configure_routes;
 use eg_core::config::{LogConfig, ServerConfig};
 
 #[derive(Parser, ConfigParser)]
-#[command(name = "eg-api", about = "Enoam Gallery API")]
+#[command(name = "eg-api", about = "Gallery API")]
 struct Cli {
     /// Optional TOML config file; see config.example.toml.
     #[arg(long, env = "EG_CONFIG")]
