@@ -1,0 +1,16 @@
+[package]
+name = "eg-api"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+eg-core.workspace = true
+eg-database.workspace = true
+actix-web.workspace = true
+clap.workspace = true
+clap-config-fallback.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
