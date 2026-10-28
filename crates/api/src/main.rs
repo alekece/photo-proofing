@@ -5,7 +5,6 @@ use clap::Parser;
 use clap_config_fallback::ConfigParser;
 use eg_api::app::configure;
 use eg_core::config::{LogConfig, ServerConfig};
-use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, ConfigParser)]
 #[command(name = "eg-api", about = "Enoam Gallery API")]
@@ -24,7 +23,7 @@ struct Cli {
 async fn main() -> std::io::Result<()> {
     let cli = Cli::parse_with_config();
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::new(&cli.log.log_level))
+        .with_max_level(cli.log.log_level)
         .init();
     tracing::info!(host = %cli.server.host, port = cli.server.port, "api starting");
     HttpServer::new(|| App::new().configure(configure))

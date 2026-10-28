@@ -4,7 +4,6 @@ use clap::Parser;
 use clap_config_fallback::ConfigParser;
 use eg_core::config::LogConfig;
 use tokio::signal::unix::{SignalKind, signal};
-use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, ConfigParser)]
 #[command(name = "eg-image-worker", about = "Enoam Gallery image worker")]
@@ -21,7 +20,7 @@ struct Cli {
 async fn main() -> std::io::Result<()> {
     let cli = Cli::parse_with_config();
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::new(&cli.log.log_level))
+        .with_max_level(cli.log.log_level)
         .init();
     tracing::info!("image worker started");
 

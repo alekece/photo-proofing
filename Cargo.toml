@@ -10,9 +10,8 @@ publish = false
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
 clap-config-fallback = { version = "0.1", features = ["derive"] }
-thiserror = "2"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 actix-web = "4"
 eg-core = { path = "crates/core" }

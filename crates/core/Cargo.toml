@@ -7,7 +7,7 @@ publish.workspace = true
 [dependencies]
 clap.workspace = true
 clap-config-fallback.workspace = true
-thiserror.workspace = true
+tracing.workspace = true
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
