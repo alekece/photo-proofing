@@ -1,0 +1,43 @@
+# cargo-deny policy: `cargo deny check` (see CONTRIBUTING.md, "Security checks")
+
+[graph]
+all-features = true
+
+[advisories]
+# RustSec advisories (vulnerabilities, unmaintained, unsound, yanked) fail the check
+yanked = "deny"
+unmaintained = "all"
+ignore = [
+    # h2 0.3.x is pulled in by actix-http 3.x; the fix only exists in h2 >= 0.4.16, so it cannot
+    # be reached with `cargo update`. Low severity (memory growth on undrained streams).
+    # Remove once actix-http moves to h2 0.4.
+    "RUSTSEC-2026-0258",
+]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+]
+unused-allowed-license = "allow"
+confidence-threshold = 0.9
+
+[licenses.private]
+# Workspace crates are `publish = false` and carry no licence field
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

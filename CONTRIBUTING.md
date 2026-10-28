@@ -77,6 +77,20 @@ cargo build --workspace --release
 pnpm --dir web build
 ```
 
+## Security checks
+
+CI runs these in `.github/workflows/security.yml` on pull requests, pushes to `develop`/`main` and weekly.
+
+```sh
+cargo install cargo-deny --locked
+cargo deny check                          # RustSec advisories, licences (policy in deny.toml), sources
+pnpm --dir web audit --prod --audit-level high   # fails on high+ production advisories
+pnpm --dir web audit --dev --audit-level high    # dev tooling; informational in CI
+gitleaks git --redact --verbose .         # secrets in full git history (install: https://github.com/gitleaks/gitleaks)
+```
+
+Dependabot (`.github/dependabot.yml`) opens weekly grouped update PRs. Any `deny.toml` exception needs a comment explaining why.
+
 ## Commits
 
 Use [Conventional Commits](https://www.conventionalcommits.org/). `CHANGELOG.md` is generated at release; do not edit it.
