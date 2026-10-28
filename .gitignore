@@ -29,3 +29,4 @@ rustc-ice-*.txt
 node_modules
 /web/.svelte-kit
 /web/build
+/.env
