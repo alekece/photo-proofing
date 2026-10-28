@@ -10,6 +10,7 @@ applyTo: "**/*.rs"
 - Prefer typed configuration to ambiguous flags or parameters.
 - Prefer methods when behavior belongs to a type; use builders when they clarify or validate construction.
 - Keep visibility narrow and derive traits only when useful.
+- Prefer small, widely adopted community crates over hand-written boilerplate (string conversions, `From`/`Display`-style impls, builders) when a derive covers it.
 - Follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/) checklist items relevant to the change.
 
 ## Code Organization
