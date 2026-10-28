@@ -46,7 +46,7 @@ impl From<LogLevel> for LevelFilter {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{fs, iter, path::PathBuf};
 
     use clap::Parser;
     use clap_config_fallback::ConfigParser;
@@ -66,7 +66,7 @@ mod tests {
     }
 
     fn parse(args: &[&str]) -> Result<TestCli, clap::Error> {
-        TestCli::try_parse_with_config_from(std::iter::once("test").chain(args.iter().copied()))
+        TestCli::try_parse_with_config_from(iter::once("test").chain(args.iter().copied()))
     }
 
     #[test]
@@ -81,7 +81,7 @@ mod tests {
     fn config_file_overrides_default() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("c.toml");
-        std::fs::write(&path, "port = 9000\n").unwrap();
+        fs::write(&path, "port = 9000\n").unwrap();
         let cli = parse(&["--config", path.to_str().unwrap()]).unwrap();
         assert_eq!(cli.server.port, 9000);
     }
@@ -90,7 +90,7 @@ mod tests {
     fn cli_overrides_config_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("c.toml");
-        std::fs::write(&path, "port = 9000\n").unwrap();
+        fs::write(&path, "port = 9000\n").unwrap();
         let cli = parse(&["--config", path.to_str().unwrap(), "--port", "9200"]).unwrap();
         assert_eq!(cli.server.port, 9200);
     }
@@ -105,7 +105,7 @@ mod tests {
     fn log_level_is_read_from_config_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("c.toml");
-        std::fs::write(&path, "log_level = \"debug\"\n").unwrap();
+        fs::write(&path, "log_level = \"debug\"\n").unwrap();
 
         let cli = parse(&["--config", path.to_str().unwrap()]).unwrap();
 

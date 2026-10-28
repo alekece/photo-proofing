@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{io::Result as IoResult, path::PathBuf};
 
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
@@ -17,7 +17,7 @@ struct Cli {
 }
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> IoResult<()> {
     let cli = Cli::parse_with_config();
     tracing_subscriber::fmt()
         .with_max_level(cli.log.log_level)
