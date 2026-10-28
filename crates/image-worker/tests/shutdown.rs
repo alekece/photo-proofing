@@ -1,5 +1,8 @@
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::{
+    process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant},
+};
 
 #[test]
 fn exits_cleanly_on_sigterm() {
@@ -8,7 +11,7 @@ fn exits_cleanly_on_sigterm() {
         .stdout(Stdio::piped())
         .spawn()
         .expect("worker binary should spawn");
-    std::thread::sleep(Duration::from_millis(700));
+    thread::sleep(Duration::from_millis(700));
     unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
 
     let start = Instant::now();
@@ -24,7 +27,7 @@ fn exits_cleanly_on_sigterm() {
             assert!(text.contains("image worker stopping"), "{text}");
             return;
         }
-        std::thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(50));
     }
     child.kill().expect("hung worker should be killable");
     child.wait().expect("killed worker should be reaped");

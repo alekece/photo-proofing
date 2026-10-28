@@ -21,6 +21,7 @@ applyTo: "**/*.rs"
 - Place `use` declarations at the top of their containing module scope, including `mod tests`. Never put imports inside functions, blocks, or `impl` bodies.
 - Group imports in three blank-line-separated blocks, in this order: `std`/`core`/`alloc`, external dependencies, then `crate`/`super`/`self`. Keep each block sorted.
 - Import types and refer to them by name; do not write fully qualified paths for types in signatures or bodies. When two types share a name, alias one at import (`use a::Error as AError`) instead of qualifying it.
+- For functions, import the parent module and call through it (`use std::fs;` then `fs::write(..)`) rather than writing the full path or importing the function itself.
 
 ## Naming
 
