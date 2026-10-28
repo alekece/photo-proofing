@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-fmt:
+    name: Rust format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rustfmt.toml uses group_imports, which only nightly rustfmt supports
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - run: cargo +nightly fmt --check
+
+  rust-lint:
+    name: Rust clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  rust-test:
+    name: Rust tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: enoam
+          POSTGRES_PASSWORD: enoam-ci-only
+          POSTGRES_DB: enoam_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U enoam -d enoam_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Throwaway CI database; not a real credential
+      DATABASE_URL: postgres://enoam:enoam-ci-only@localhost:5432/enoam_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  rust-build:
+    name: Rust release build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --workspace --release
+
+  web:
+    name: Web check, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm build

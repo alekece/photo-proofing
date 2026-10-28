@@ -4,7 +4,7 @@ Self-hosted private proofing and delivery workspace for one photographer. See [d
 
 ## Local development
 
-Prerequisites: a recent stable Rust toolchain, Node.js, and pnpm. Docker Compose, PostgreSQL, and CI are not set up yet.
+Prerequisites: a recent stable Rust toolchain, Node.js, and pnpm. Docker Compose and PostgreSQL are not set up yet (coming with #25 and #14). Full command reference (start, stop, reset, test, lint, formatting, build): [CONTRIBUTING.md](CONTRIBUTING.md). CI runs the same checks.
 
 Run each process in its own terminal:
 
@@ -16,7 +16,7 @@ pnpm --dir web install && pnpm --dir web dev   # frontend on http://localhost:51
 
 Check the API: `curl localhost:8080/api/v1/health` returns `{"status":"ok"}`. The frontend dev server proxies `/api` to the API. Routes: `/dashboard` and `/g/<gallery>`.
 
-Checks:
+Checks (import grouping needs nightly rustfmt):
 
 ```sh
 cargo +nightly fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
