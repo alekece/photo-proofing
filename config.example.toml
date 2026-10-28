@@ -4,3 +4,11 @@
 host = "127.0.0.1"
 port = 8080
 log_level = "info"
+
+# Job queue (env: EG_QUEUE_*). Heartbeat interval must be shorter than the lease.
+queue_base_backoff_secs = 5
+queue_backoff_factor = 2
+queue_max_backoff_secs = 300
+queue_max_attempts = 5
+queue_lease_secs = 60
+queue_heartbeat_interval_secs = 20
