@@ -4,3 +4,6 @@
 host = "127.0.0.1"
 port = 8080
 log_level = "info"
+# Final rendition validation (env: EG_FINALS_MAX_BYTES, EG_FINALS_MAX_MEGAPIXELS)
+finals_max_bytes = 104857600
+finals_max_megapixels = 100
