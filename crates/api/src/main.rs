@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{io::Result as IoResult, path::PathBuf};
 
 use actix_web::{App, HttpServer};
 use clap::Parser;
@@ -20,7 +20,7 @@ struct Cli {
 }
 
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> IoResult<()> {
     let cli = Cli::parse_with_config();
     tracing_subscriber::fmt()
         .with_max_level(cli.log.log_level)
