@@ -27,8 +27,10 @@ eg_check_db_name "$database"
 
 # Dumps contain private data: owner-only directory and file.
 umask 077
-mkdir -p "$output_dir"
-chmod 700 "$output_dir"
+if [[ ! -d "$output_dir" ]]; then
+  mkdir -p "$output_dir"
+  chmod 700 "$output_dir"
+fi
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 final="$output_dir/${database}-${stamp}.dump"
