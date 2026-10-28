@@ -9,16 +9,17 @@
 //! number of photos whose favourite state differs from when the notification
 //! was opened: add-then-remove nets out to zero.
 
-mod service;
-mod store;
-
 use std::{collections::HashSet, time::SystemTime};
 
 use derive_more::{Display, From};
-pub use service::NotificationService;
-pub use store::{InMemoryStore, NotificationStore};
 use strum::{Display as StrumDisplay, EnumString};
 use uuid::Uuid;
+
+mod service;
+mod store;
+
+pub use service::NotificationService;
+pub use store::{InMemoryStore, NotificationStore};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
 pub struct GalleryId(Uuid);
@@ -61,13 +62,21 @@ impl Clock for SystemClock {
 
 /// Proof of an authenticated photographer session.
 ///
-/// Notification queries require it. Only the authentication layer should
-/// construct it; [`ClientSession`] has no conversion to it.
+/// Notification queries require it. The constructor is crate-private so
+/// share-link code cannot forge it; the authentication layer will get a
+/// controlled way to issue it when sessions are wired in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Photographer(());
 
 impl Photographer {
-    pub fn authenticated() -> Self {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "issued by the auth layer once sessions are wired in"
+        )
+    )]
+    pub(crate) fn authenticated() -> Self {
         Self(())
     }
 }
@@ -77,7 +86,14 @@ impl Photographer {
 pub struct ClientSession(());
 
 impl ClientSession {
-    pub fn validated() -> Self {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "issued by the auth layer once sessions are wired in"
+        )
+    )]
+    pub(crate) fn validated() -> Self {
         Self(())
     }
 }
