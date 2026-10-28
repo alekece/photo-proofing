@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use strum::Display;
 use tracing::level_filters::LevelFilter;
 
+pub mod proof;
+
 /// Network binding shared by every process that listens for connections.
 #[derive(Args, ConfigArgs, Debug, Clone)]
 pub struct ServerConfig {
