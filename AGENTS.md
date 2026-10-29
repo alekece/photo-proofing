@@ -72,10 +72,22 @@ Nightly rustfmt is required for the repository's import-grouping settings. Follo
 
 - Start work from a product journey and a bounded user-visible slice. Existing scaffolding and historical designs do not automatically define current product scope.
 - `README.md` owns the product overview, current implementation status, setup/run/verification instructions, and documentation navigation. Keep claims aligned with actual code and configuration.
-- `docs/SPECIFICATIONS.md` is the authoritative, evolving product requirements document. Update it when product behavior or established constraints change; distinguish MVP restrictions, future scope, and permanent exclusions.
+- `docs/SPECIFICATIONS.md` is the authoritative, evolving product requirements document. Update it when product behavior or established constraints change; distinguish MVP restrictions, future scope, and permanent exclusions. Obtain explicit user approval before changing product requirements or release scope.
 - `docs/releases/` owns release scope and acceptance criteria, referencing product requirements rather than duplicating the PRD. Record the accepted PRD commit/tag at release completion and preserve completed releases as historical records.
 - `docs/adr/` records significant architectural decisions, their alternatives, and consequences. Do not create an ADR for every dependency or restate the PRD.
-- Preserve approved designs in `docs/superpowers/specs/`. If later requirements change, explicitly identify superseded decisions; the current PRD owns current product requirements.
-- Keep implementation plans in `docs/superpowers/plans/` through implementation and PR review. Before merge, retain lasting decisions/evidence in permanent documents or the PR, then remove the relevant plans. Permanent documents must not depend on links to temporary plan files.
-- Use Superpowers brainstorming to resolve consequential new decisions before implementation, then an approved design and implementation plan as appropriate. Keep routine implementation choices proportional to the task.
+- Commit approved designs in `docs/superpowers/specs/` as durable records. If later requirements change, explicitly identify superseded decisions; the current PRD owns current product requirements.
+- Commit implementation plans in `docs/superpowers/plans/` on the working branch and retain them through implementation, PR review, and corrections. After review and corrections, retain lasting decisions/evidence in permanent documents or the PR, then remove the relevant plans before requesting final merge approval. Permanent documents must not depend on links to temporary plan files.
 - Do not add duplicate harness-specific guidance or synchronization tooling. This file is the shared repository policy.
+
+### Superpowers delivery workflow
+
+1. Use Superpowers brainstorming to explore the outcome, scope, and approaches. Brainstorming may begin without a GitHub issue; keep routine implementation choices proportional to the task.
+2. Write a design specification and obtain explicit user approval of the written design before implementation. Approval of an approach alone does not approve the written design.
+3. Before implementation planning, identify or create a focused GitHub issue describing motivation, observable acceptance criteria, constraints, and references. Issues describe outcomes rather than implementation task lists. Link the issue from the design.
+4. Use Superpowers writing-plans to create an implementation plan from the approved design, referencing the design and issue.
+5. Implement only the approved specification, following the plan, in an isolated worktree. Use Git Flow branch types with the issue number at the start of the descriptive name, for example `feature/61-development-workflow`. Default to implementation in the current session with one fresh reviewer at the end; task-by-task subagents are optional. If worktree creation fails, resolve the blocker rather than implementing in the main checkout.
+6. Run relevant checks and request independent review by a fresh agent or subagent. Review both correctness and compliance with the approved design. Address material findings and verify corrections before delivery; if independent review is unavailable, report the blocker rather than substituting author self-review.
+7. Create a PR referencing the original issue, with a summary of changes, verification evidence, and material limitations. Keep the worktree available through PR review and corrections.
+8. After review and corrections, complete the plan cleanup described above and request explicit user approval of the final changes before merging. Prefer squash merges. Never merge automatically or substitute a local merge for PR delivery.
+
+These repository rules take precedence over skill defaults that allow implementation without isolation or local merge delivery. Do not add issue templates, custom commands, or workflow automation without a concrete need and approval.
