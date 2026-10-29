@@ -1,10 +1,12 @@
-//! Secrets handled by the authentication endpoints: session tokens and password hashes.
+//! Secrets handled by the authentication endpoints: session tokens, passwords and hashes.
 //!
 //! Each secret has one type that owns its encoding, so call sites cannot hash a raw string
-//! that was never validated or store a token instead of its digest.
+//! that was never validated or store a token instead of its digest. None of them implements
+//! `Debug` for the raw value, so they cannot leak through logging.
 
 use std::str::FromStr;
 
+use actix_web::HttpRequest;
 use argon2::{
     Argon2, PasswordHasher, PasswordVerifier,
     password_hash::{PasswordHash as PhcHash, SaltString},
@@ -12,10 +14,26 @@ use argon2::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use derive_more::{Display, Error};
 use rand::RngCore;
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 const TOKEN_BYTES: usize = 32;
 const TOKEN_ENCODED_LEN: usize = 43;
+
+/// The cookie value is not a canonical 32-byte token.
+#[derive(Debug, Display, Error)]
+#[display("malformed session token")]
+pub struct ParseTokenError;
+
+/// The password length is outside the accepted range.
+#[derive(Debug, Display, Error)]
+#[display("password must be 12–128 characters")]
+pub struct ParsePasswordError;
+
+/// The password could not be hashed.
+#[derive(Debug, Display, Error)]
+#[display("password hashing failed")]
+pub struct HashError;
 
 /// The opaque random value carried by the session cookie.
 ///
@@ -28,17 +46,19 @@ pub struct SessionToken(String);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TokenHash([u8; 32]);
 
-/// The cookie value is not a canonical 32-byte token.
-#[derive(Debug, Display, Error)]
-#[display("malformed session token")]
-pub struct ParseTokenError;
-
 impl SessionToken {
+    pub const COOKIE_NAME: &str = "pp_session";
+
     pub fn generate() -> Self {
         let mut bytes = [0u8; TOKEN_BYTES];
         rand::rng().fill_bytes(&mut bytes);
 
         Self(URL_SAFE_NO_PAD.encode(bytes))
+    }
+
+    /// The request's session cookie, or `None` when absent or malformed.
+    pub fn from_request(request: &HttpRequest) -> Option<Self> {
+        request.cookie(Self::COOKIE_NAME)?.value().parse().ok()
     }
 
     pub fn as_str(&self) -> &str {
@@ -47,12 +67,6 @@ impl SessionToken {
 
     pub fn digest(&self) -> TokenHash {
         TokenHash(Sha256::digest(self.0.as_bytes()).into())
-    }
-}
-
-impl TokenHash {
-    pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
     }
 }
 
@@ -75,17 +89,40 @@ impl FromStr for SessionToken {
     }
 }
 
+impl TokenHash {
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+/// A password of 12–128 characters, kept exactly as typed: no trimming or normalization.
+#[derive(Deserialize)]
+#[serde(try_from = "String")]
+pub struct Password(String);
+
+impl Password {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for Password {
+    type Error = ParsePasswordError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if !(12..=128).contains(&value.chars().count()) {
+            return Err(ParsePasswordError);
+        }
+
+        Ok(Self(value))
+    }
+}
+
 /// Argon2id hash with a fresh random salt, stored as a PHC string.
 ///
-/// Passwords are hashed exactly as typed: no trimming or normalization. Hashing is CPU and
-/// memory heavy; callers run it off the async executor.
+/// Hashing is CPU and memory heavy; callers run it off the async executor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PasswordHash(String);
-
-/// The password could not be hashed.
-#[derive(Debug, Display, Error)]
-#[display("password hashing failed")]
-pub struct HashError;
 
 impl PasswordHash {
     pub fn new(password: &str) -> Result<Self, HashError> {
@@ -143,6 +180,14 @@ mod tests {
                 .parse::<SessionToken>()
                 .is_err()
         );
+    }
+
+    #[test]
+    fn passwords_must_be_12_to_128_characters() {
+        assert!(Password::try_from("x".repeat(11)).is_err());
+        assert!(Password::try_from("x".repeat(12)).is_ok());
+        assert!(Password::try_from("x".repeat(128)).is_ok());
+        assert!(Password::try_from("x".repeat(129)).is_err());
     }
 
     #[test]

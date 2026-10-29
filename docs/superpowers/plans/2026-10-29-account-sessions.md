@@ -37,7 +37,7 @@
 
 - core: config.rs (with config/duration.rs and config/origin.rs validated types) plus config tests; auth.rs for AccountId, WorkspaceId and authenticated identity if shared by database/API. No secret-bearing Debug/Serialize types.
 - database: lib.rs, auth.rs (with its tests), migrations/0001_accounts_sessions.sql; no generic repository trait.
-- API: routes/auth.rs for handlers and AuthError, credentials.rs for session-token and password-hash types, state.rs for AppState (policy, limiter), server.rs for the Api init/run type; lib.rs mounts routes; tests/auth.rs. Preserve health tests.
+- API: routes/auth.rs for handlers and AuthError, credentials.rs for session-token and password-hash types, state.rs for AppState (policy, limiter), server.rs for the Api init/run type; lib.rs mounts routes; HTTP tests live inline in routes/auth.rs and routes/health.rs.
 - web: lib/auth.ts (nonsecret client types/calls/activity helper), lib/server/auth.ts (SSR status), routes/login/+page.server.ts and +page.svelte, dashboard/+page.server.ts and +page.svelte; focused unit/route tests and actual browser integration tests. app.css, layout and minimal shadcn component/config files only as needed.
 - runtime/docs: Cargo manifests/lock, web package manifest/lock, config.example.toml, .env.example, docker-compose.yml, docker/web.Dockerfile only for matching existing Node 24 baseline, README, SPECIFICATIONS, MVP release, ADR 0002, earlier approved design supersession note, and #63 text.
 

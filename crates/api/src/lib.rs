@@ -11,7 +11,7 @@ pub mod state;
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/v1")
-            .route("/health", web::get().to(routes::health::report_health))
+            .service(routes::health::report_health)
             .configure(routes::auth::configure),
     );
 }

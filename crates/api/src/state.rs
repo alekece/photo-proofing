@@ -10,29 +10,22 @@ use std::{
     time::{Duration, Instant},
 };
 
+use actix_web::cookie::{Cookie, SameSite};
 use derive_more::{Display, Error, From};
-use pp_core::config::{AuthConfig, SessionConfig, duration::NonZeroDuration, origin::AppOrigin};
+use pp_core::{
+    config::{AuthConfig, SessionConfig},
+    time::NonZeroDuration,
+    url::Origin,
+};
 use pp_database::auth::AuthStore;
 use time::{OffsetDateTime, error::ConversionRange};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::credentials::{HashError, PasswordHash};
+use crate::credentials::{HashError, PasswordHash, SessionToken};
 
 /// Argon2 is memory heavy, so only this many hashes run at once; further requests are refused
 /// instead of queued.
 const HASH_SLOTS: usize = 2;
-
-/// Authentication policy, storage and abuse controls.
-pub struct AppState {
-    store: AuthStore,
-    origin: AppOrigin,
-    idle_timeout: NonZeroDuration,
-    // The same span as `idle_timeout` in the `time` crate's type, converted once at startup.
-    session_lifetime: time::Duration,
-    hash_slots: Arc<Semaphore>,
-    failed_attempts: AttemptLimiter,
-    dummy_hash: PasswordHash,
-}
 
 /// Startup failure while building [`AppState`].
 #[derive(Debug, Display, Error, From)]
@@ -41,6 +34,18 @@ pub enum StateError {
     SessionLifetime(ConversionRange),
     #[display("password hashing unavailable")]
     Hashing(HashError),
+}
+
+/// Authentication policy, storage and abuse controls.
+pub struct AppState {
+    store: AuthStore,
+    origin: Origin,
+    idle_timeout: NonZeroDuration,
+    // The same span as `idle_timeout` in the `time` crate's type, converted once at startup.
+    session_lifetime: time::Duration,
+    hash_slots: Arc<Semaphore>,
+    failed_attempts: AttemptLimiter,
+    dummy_hash: PasswordHash,
 }
 
 impl AppState {
@@ -66,23 +71,33 @@ impl AppState {
         &self.store
     }
 
-    /// The only `Origin` accepted on state-changing requests.
-    pub fn origin(&self) -> &AppOrigin {
-        &self.origin
+    /// True only for the exact configured origin; a missing header is not allowed.
+    pub fn allows_origin(&self, header: Option<&str>) -> bool {
+        header == Some(self.origin.as_str())
     }
 
     pub fn idle_timeout(&self) -> Duration {
         self.idle_timeout.get()
     }
 
-    /// Lifetime of the session cookie, identical to the idle timeout.
-    pub fn session_lifetime(&self) -> time::Duration {
-        self.session_lifetime
-    }
-
     /// Expiry of a session created or renewed at `now`; `None` only if it overflows time.
     pub fn session_expiry(&self, now: OffsetDateTime) -> Option<OffsetDateTime> {
         now.checked_add(self.session_lifetime)
+    }
+
+    /// The session cookie for `token`, living as long as the idle timeout.
+    ///
+    /// `Secure` stays off because the trusted-LAN trial runs over plain HTTP (see ADR 0002).
+    pub fn session_cookie(&self, token: &SessionToken) -> Cookie<'static> {
+        self.cookie(token.as_str())
+    }
+
+    /// A cookie that makes the browser drop the session cookie.
+    pub fn removal_cookie(&self) -> Cookie<'static> {
+        let mut cookie = self.cookie("");
+        cookie.make_removal();
+
+        cookie
     }
 
     /// Hash verified for unknown emails so they cost as much as known ones.
@@ -103,6 +118,16 @@ impl AppState {
     /// Only failed credential attempts count, so successful sign-ins never lock anyone out.
     pub fn record_failure(&self, peer: IpAddr) {
         self.failed_attempts.record(peer);
+    }
+
+    fn cookie(&self, value: &str) -> Cookie<'static> {
+        Cookie::build(SessionToken::COOKIE_NAME, value.to_owned())
+            .path("/")
+            .http_only(true)
+            .same_site(SameSite::Lax)
+            .secure(false)
+            .max_age(self.session_lifetime)
+            .finish()
     }
 }
 

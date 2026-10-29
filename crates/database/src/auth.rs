@@ -4,7 +4,10 @@
 //! `expires_at`. Revoking deletes the row, so copied tokens stop working immediately.
 //! Expiry is sliding: renewal pushes `expires_at` forward, with no maximum age.
 
-use pp_core::auth::{AccountId, Identity, WorkspaceId};
+use pp_core::{
+    auth::{AccountId, Identity, WorkspaceId},
+    email::Email,
+};
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -53,7 +56,7 @@ impl AuthStore {
     /// setups safe, and a conflict rolls back the newly inserted workspace as well.
     pub async fn create_account(
         &self,
-        email: &str,
+        email: &Email,
         password_hash: &str,
         token_hash: &[u8; 32],
         expires_at: OffsetDateTime,
@@ -68,7 +71,7 @@ impl AuthStore {
             .await?;
 
         let inserted = sqlx::query("INSERT INTO accounts(id,workspace_id,email,password_hash) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING")
-            .bind(account_id).bind(workspace_id).bind(email).bind(password_hash).execute(&mut *tx).await?.rows_affected();
+            .bind(account_id).bind(workspace_id).bind(email.as_str()).bind(password_hash).execute(&mut *tx).await?.rows_affected();
 
         if inserted == 0 {
             tx.rollback().await?;
@@ -90,9 +93,9 @@ impl AuthStore {
         }))
     }
 
-    pub async fn account_by_email(&self, email: &str) -> Result<Option<Account>, sqlx::Error> {
+    pub async fn account_by_email(&self, email: &Email) -> Result<Option<Account>, sqlx::Error> {
         sqlx::query_as("SELECT id,password_hash FROM accounts WHERE email=$1")
-            .bind(email)
+            .bind(email.as_str())
             .fetch_optional(&self.pool)
             .await
     }
@@ -183,6 +186,9 @@ mod tests {
 
     use super::*;
 
+    fn email(value: &str) -> Email {
+        value.parse().unwrap()
+    }
     #[sqlx::test(migrations = "./migrations")]
     async fn setup_session_and_revocation_are_persistent(pool: PgPool) {
         let store = AuthStore::new(pool.clone());
@@ -192,7 +198,7 @@ mod tests {
 
         let identity = store
             .create_account(
-                "person@example.test",
+                &email("person@example.test"),
                 "hash",
                 &[1; 32],
                 now + Duration::days(30),
@@ -205,7 +211,7 @@ mod tests {
         assert!(
             store
                 .create_account(
-                    "other@example.test",
+                    &email("other@example.test"),
                     "hash",
                     &[2; 32],
                     now + Duration::days(30)
@@ -263,9 +269,10 @@ mod tests {
         let a = AuthStore::new(pool.clone());
         let b = a.clone();
         let expiry = OffsetDateTime::now_utc() + Duration::days(30);
+        let (email_a, email_b) = (email("a@example.test"), email("b@example.test"));
         let (a, b) = tokio::join!(
-            a.create_account("a@example.test", "hash", &[1; 32], expiry),
-            b.create_account("b@example.test", "hash", &[2; 32], expiry)
+            a.create_account(&email_a, "hash", &[1; 32], expiry),
+            b.create_account(&email_b, "hash", &[2; 32], expiry)
         );
 
         assert_eq!(
@@ -289,7 +296,12 @@ mod tests {
         let now = OffsetDateTime::now_utc();
 
         store
-            .create_account("a@example.test", "hash", &[1; 32], now + Duration::days(1))
+            .create_account(
+                &email("a@example.test"),
+                "hash",
+                &[1; 32],
+                now + Duration::days(1),
+            )
             .await
             .unwrap();
 
@@ -309,7 +321,12 @@ mod tests {
         let store = AuthStore::new(pool);
         let now = OffsetDateTime::now_utc();
         let id = store
-            .create_account("a@example.test", "hash", &[1; 32], now + Duration::days(1))
+            .create_account(
+                &email("a@example.test"),
+                "hash",
+                &[1; 32],
+                now + Duration::days(1),
+            )
             .await
             .unwrap()
             .unwrap();

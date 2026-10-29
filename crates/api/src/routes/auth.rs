@@ -11,33 +11,35 @@
 //!
 //! The cookie holds a random opaque [`SessionToken`]; only its digest is stored, so a database
 //! leak does not yield usable sessions. Every state-changing request must carry the exact
-//! configured `Origin`, which is the CSRF defence for this cookie-authenticated API. Policy
-//! and limiter state live in [`AppState`].
+//! configured `Origin` ([`SameOrigin`]), which is the CSRF defence for this
+//! cookie-authenticated API. Sign-in routes also pass the failed-attempt limiter ([`Attempt`]).
+//! Request bodies are validated while being parsed ([`Credentials`]), and policy and limiter
+//! state live in [`AppState`].
 
 use std::{
+    future::{self, Ready},
     net::{IpAddr, Ipv4Addr},
     time::Duration,
 };
 
 use actix_web::{
-    HttpRequest, HttpResponse, ResponseError,
-    cookie::{Cookie, SameSite},
+    FromRequest, HttpRequest, HttpResponse, ResponseError,
+    dev::Payload,
     error::JsonPayloadError,
+    get,
     http::{StatusCode, header},
-    web,
+    post, web,
 };
 use derive_more::{Display, Error};
-use email_address::EmailAddress;
-use pp_core::auth::Identity;
+use pp_core::{auth::Identity, email::Email};
 use serde::{Deserialize, Serialize, Serializer, ser::Error as _};
+use serde_json::error::Category;
 use time::OffsetDateTime;
 
 use crate::{
-    credentials::{PasswordHash, SessionToken, TokenHash},
+    credentials::{Password, PasswordHash, SessionToken, TokenHash},
     state::AppState,
 };
-
-const COOKIE_NAME: &str = "pp_session";
 
 /// A safe, client-facing failure: the status and a fixed message that never echoes input or
 /// internal details. Rendered as `{"error": message}` with `Cache-Control: no-store`.
@@ -96,15 +98,20 @@ impl AuthError {
 
 impl From<JsonPayloadError> for AuthError {
     fn from(error: JsonPayloadError) -> Self {
-        let status = match error {
+        match error {
             JsonPayloadError::Overflow { .. } | JsonPayloadError::OverflowKnownLength { .. } => {
-                StatusCode::PAYLOAD_TOO_LARGE
+                Self::new(StatusCode::PAYLOAD_TOO_LARGE, "invalid credential request")
             }
-            JsonPayloadError::ContentType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            _ => StatusCode::BAD_REQUEST,
-        };
-
-        Self::new(status, "invalid credential request")
+            JsonPayloadError::ContentType => Self::new(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "invalid credential request",
+            ),
+            // Well-formed JSON whose email or password failed validation while parsing.
+            JsonPayloadError::Deserialize(error) if error.classify() == Category::Data => {
+                Self::invalid_input()
+            }
+            _ => Self::new(StatusCode::BAD_REQUEST, "invalid credential request"),
+        }
     }
 }
 
@@ -120,52 +127,106 @@ impl ResponseError for AuthError {
     }
 }
 
-/// Request body as sent by the browser; becomes a [`SignIn`] once it passes validation.
+/// Request body of `setup` and `login`. Parsing normalizes the email and bounds the password,
+/// so a handler only ever sees valid credentials.
 #[derive(Deserialize)]
 struct Credentials {
-    email: String,
-    password: String,
-}
-
-/// Credentials with a normalized (trimmed, lowercased) email and a password within bounds.
-struct SignIn {
-    email: String,
-    password: String,
-}
-
-impl TryFrom<Credentials> for SignIn {
-    type Error = AuthError;
-
-    fn try_from(credentials: Credentials) -> Result<Self, Self::Error> {
-        let email = credentials.email.trim().to_lowercase();
-
-        if email.len() > 254
-            || !EmailAddress::is_valid(&email)
-            || !(12..=128).contains(&credentials.password.chars().count())
-        {
-            return Err(AuthError::invalid_input());
-        }
-
-        Ok(Self {
-            email,
-            password: credentials.password,
-        })
-    }
+    email: Email,
+    password: Password,
 }
 
 #[derive(Serialize)]
 struct AuthStatus {
     setup_available: bool,
     identity: Option<Identity>,
-    #[serde(rename = "idle_timeout_ms", serialize_with = "serialize_millis")]
-    idle_timeout: Duration,
+    #[serde(rename = "idle_timeout_ms")]
+    idle_timeout: Millis,
 }
 
-/// The web app consumes the timeout as integer milliseconds, so convert only on the wire.
-fn serialize_millis<S: Serializer>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error> {
-    let millis = u64::try_from(duration.as_millis()).map_err(S::Error::custom)?;
+/// A duration that the web app consumes as integer milliseconds; the conversion happens only
+/// on the wire.
+struct Millis(Duration);
 
-    serializer.serialize_u64(millis)
+impl Serialize for Millis {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let millis = u64::try_from(self.0.as_millis()).map_err(S::Error::custom)?;
+
+        serializer.serialize_u64(millis)
+    }
+}
+
+/// Extractor that rejects state-changing requests whose `Origin` is not the configured one.
+///
+/// List it before the body extractor so a cross-origin request is refused before its payload
+/// is read.
+struct SameOrigin;
+
+impl FromRequest for SameOrigin {
+    type Error = AuthError;
+    type Future = Ready<Result<Self, AuthError>>;
+
+    fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
+        let Some(state) = request.app_data::<web::Data<AppState>>() else {
+            return future::ready(Err(AuthError::unavailable()));
+        };
+
+        let origin = request
+            .headers()
+            .get(header::ORIGIN)
+            .and_then(|value| value.to_str().ok());
+
+        if !state.allows_origin(origin) {
+            return future::ready(Err(AuthError::forbidden_origin()));
+        }
+
+        future::ready(Ok(Self))
+    }
+}
+
+/// Extractor for a sign-in request from a peer that is still under the failed-attempt limit.
+///
+/// Handlers report a failed credential check with [`fail`](Self::fail); only failures count.
+struct Attempt {
+    peer: IpAddr,
+}
+
+impl Attempt {
+    fn peer_of(request: &HttpRequest) -> IpAddr {
+        request
+            .peer_addr()
+            .map(|addr| addr.ip())
+            .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST))
+    }
+
+    fn fail(&self, state: &AppState) {
+        state.record_failure(self.peer);
+    }
+
+    /// Counts a request whose body was rejected, before any handler ran.
+    fn fail_request(request: &HttpRequest) {
+        if let Some(state) = request.app_data::<web::Data<AppState>>() {
+            state.record_failure(Self::peer_of(request));
+        }
+    }
+}
+
+impl FromRequest for Attempt {
+    type Error = AuthError;
+    type Future = Ready<Result<Self, AuthError>>;
+
+    fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
+        let Some(state) = request.app_data::<web::Data<AppState>>() else {
+            return future::ready(Err(AuthError::unavailable()));
+        };
+
+        let peer = Self::peer_of(request);
+
+        if !state.allow_attempt(peer) {
+            return future::ready(Err(AuthError::limited()));
+        }
+
+        future::ready(Ok(Self { peer }))
+    }
 }
 
 /// Registers the auth routes; credential bodies are capped at 4 KiB.
@@ -175,17 +236,26 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .app_data(
                 web::JsonConfig::default()
                     .limit(4096)
-                    .error_handler(|error, _| AuthError::from(error).into()),
+                    .error_handler(|error, request| {
+                        // Only bodies that parse but fail validation count as guesses; size and
+                        // content-type rejections are cheap and never reach credential checks.
+                        if matches!(error, JsonPayloadError::Deserialize(_)) {
+                            Attempt::fail_request(request);
+                        }
+
+                        AuthError::from(error).into()
+                    }),
             )
-            .route("/status", web::get().to(status))
-            .route("/setup", web::post().to(setup))
-            .route("/login", web::post().to(login))
-            .route("/logout", web::post().to(logout))
-            .route("/renew", web::post().to(renew)),
+            .service(report_status)
+            .service(setup)
+            .service(login)
+            .service(logout)
+            .service(renew),
     );
 }
 
-async fn status(
+#[get("/status")]
+async fn report_status(
     state: web::Data<AppState>,
     request: HttpRequest,
 ) -> Result<HttpResponse, AuthError> {
@@ -195,10 +265,10 @@ async fn status(
         .await
         .map_err(|_| AuthError::unavailable())?;
 
-    let identity = match session_hash(&request) {
-        Some(hash) => state
+    let identity = match SessionToken::from_request(&request) {
+        Some(token) => state
             .store()
-            .authenticate(hash.as_bytes(), OffsetDateTime::now_utc())
+            .authenticate(token.digest().as_bytes(), OffsetDateTime::now_utc())
             .await
             .map_err(|_| AuthError::unavailable())?,
         None => None,
@@ -209,27 +279,25 @@ async fn status(
         .json(AuthStatus {
             setup_available,
             identity,
-            idle_timeout: state.idle_timeout(),
+            idle_timeout: Millis(state.idle_timeout()),
         }))
 }
 
+#[post("/setup")]
 async fn setup(
     state: web::Data<AppState>,
-    request: HttpRequest,
-    input: web::Json<Credentials>,
+    _: SameOrigin,
+    _attempt: Attempt,
+    credentials: web::Json<Credentials>,
 ) -> Result<HttpResponse, AuthError> {
-    check_origin(&state, &request)?;
-    check_attempt_allowed(&state, &request)?;
-
-    let SignIn { email, password } = SignIn::try_from(input.into_inner())
-        .inspect_err(|_| state.record_failure(peer_ip(&request)))?;
+    let Credentials { email, password } = credentials.into_inner();
     let permit = state
         .try_acquire_hash_slot()
         .ok_or_else(AuthError::limited)?;
 
     let password_hash = web::block(move || {
         let _permit = permit;
-        PasswordHash::new(&password)
+        PasswordHash::new(password.as_str())
     })
     .await
     .map_err(|_| AuthError::unavailable())?
@@ -238,14 +306,16 @@ async fn setup(
     // Concurrent setups can both reach here; the database allows only one account and
     // `create_account` returns `None` to the loser, which becomes the 409 below.
     let token = SessionToken::generate();
-    let now = OffsetDateTime::now_utc();
+    let expires_at = state
+        .session_expiry(OffsetDateTime::now_utc())
+        .ok_or_else(AuthError::unavailable)?;
     let id = state
         .store()
         .create_account(
             &email,
             password_hash.as_str(),
             token.digest().as_bytes(),
-            session_expiry(&state, now)?,
+            expires_at,
         )
         .await
         .map_err(|_| AuthError::unavailable())?
@@ -253,20 +323,19 @@ async fn setup(
 
     Ok(HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, "no-store"))
-        .cookie(session_cookie(&state, token.as_str()))
+        .cookie(state.session_cookie(&token))
         .json(id))
 }
 
+#[post("/login")]
 async fn login(
     state: web::Data<AppState>,
     request: HttpRequest,
-    input: web::Json<Credentials>,
+    _: SameOrigin,
+    attempt: Attempt,
+    credentials: web::Json<Credentials>,
 ) -> Result<HttpResponse, AuthError> {
-    check_origin(&state, &request)?;
-    check_attempt_allowed(&state, &request)?;
-
-    let SignIn { email, password } = SignIn::try_from(input.into_inner())
-        .inspect_err(|_| state.record_failure(peer_ip(&request)))?;
+    let Credentials { email, password } = credentials.into_inner();
     let account = state
         .store()
         .account_by_email(&email)
@@ -283,13 +352,13 @@ async fn login(
 
     let valid = web::block(move || {
         let _permit = permit;
-        stored_hash.verify(&password)
+        stored_hash.verify(password.as_str())
     })
     .await
     .map_err(|_| AuthError::unavailable())?;
 
     let Some(account) = account.filter(|_| valid) else {
-        state.record_failure(peer_ip(&request));
+        attempt.fail(&state);
 
         return Err(AuthError::invalid_login());
     };
@@ -297,6 +366,9 @@ async fn login(
     let token = SessionToken::generate();
     let hash = token.digest();
     let now = OffsetDateTime::now_utc();
+    let expires_at = state
+        .session_expiry(now)
+        .ok_or_else(AuthError::unavailable)?;
 
     // Expired rows are removed in small batches on the request path, so no background job is needed.
     state
@@ -310,8 +382,11 @@ async fn login(
         .create_session(
             account.id,
             hash.as_bytes(),
-            session_expiry(&state, now)?,
-            session_hash(&request).as_ref().map(TokenHash::as_bytes),
+            expires_at,
+            SessionToken::from_request(&request)
+                .map(|token| token.digest())
+                .as_ref()
+                .map(TokenHash::as_bytes),
         )
         .await
         .map_err(|_| AuthError::unavailable())?;
@@ -325,45 +400,45 @@ async fn login(
 
     Ok(HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, "no-store"))
-        .cookie(session_cookie(&state, token.as_str()))
+        .cookie(state.session_cookie(&token))
         .json(id))
 }
 
+#[post("/logout")]
 async fn logout(
     state: web::Data<AppState>,
     request: HttpRequest,
+    _: SameOrigin,
 ) -> Result<HttpResponse, AuthError> {
-    check_origin(&state, &request)?;
-
-    if let Some(hash) = session_hash(&request) {
+    if let Some(token) = SessionToken::from_request(&request) {
         state
             .store()
-            .revoke(hash.as_bytes())
+            .revoke(token.digest().as_bytes())
             .await
             .map_err(|_| AuthError::unavailable())?;
     }
 
-    let mut cookie = session_cookie(&state, "");
-    cookie.make_removal();
-
     Ok(HttpResponse::NoContent()
         .insert_header((header::CACHE_CONTROL, "no-store"))
-        .cookie(cookie)
+        .cookie(state.removal_cookie())
         .finish())
 }
 
+#[post("/renew")]
 async fn renew(
     state: web::Data<AppState>,
     request: HttpRequest,
+    _: SameOrigin,
 ) -> Result<HttpResponse, AuthError> {
-    check_origin(&state, &request)?;
-
-    let token = session_token(&request).ok_or_else(AuthError::unauthorized)?;
+    let token = SessionToken::from_request(&request).ok_or_else(AuthError::unauthorized)?;
     let now = OffsetDateTime::now_utc();
+    let expires_at = state
+        .session_expiry(now)
+        .ok_or_else(AuthError::unavailable)?;
 
     state
         .store()
-        .renew(token.digest().as_bytes(), now, session_expiry(&state, now)?)
+        .renew(token.digest().as_bytes(), now, expires_at)
         .await
         .map_err(|_| AuthError::unavailable())?
         .ok_or_else(AuthError::unauthorized)?;
@@ -375,58 +450,291 @@ async fn renew(
 
     Ok(HttpResponse::NoContent()
         .insert_header((header::CACHE_CONTROL, "no-store"))
-        .cookie(session_cookie(&state, token.as_str()))
+        .cookie(state.session_cookie(&token))
         .finish())
 }
 
-/// The cookie's token, or `None` when absent or malformed.
-fn session_token(request: &HttpRequest) -> Option<SessionToken> {
-    request.cookie(COOKIE_NAME)?.value().parse().ok()
-}
+#[cfg(test)]
+mod tests {
+    use std::iter;
 
-fn session_hash(request: &HttpRequest) -> Option<TokenHash> {
-    session_token(request).map(|token| token.digest())
-}
+    use actix_web::{App, test};
+    use pp_core::config::{AuthConfig, SessionConfig};
+    use pp_database::auth::AuthStore;
+    use sqlx::PgPool;
 
-fn check_origin(state: &AppState, request: &HttpRequest) -> Result<(), AuthError> {
-    let origin = request
-        .headers()
-        .get(header::ORIGIN)
-        .and_then(|value| value.to_str().ok());
+    use super::*;
+    use crate::configure_routes;
 
-    if origin != Some(state.origin().as_str()) {
-        return Err(AuthError::forbidden_origin());
+    const ORIGIN: &str = "http://localhost:5173";
+
+    fn app_state(pool: PgPool) -> AppState {
+        let session = SessionConfig {
+            idle_timeout: "1h".parse().unwrap(),
+        };
+        let auth = AuthConfig {
+            app_origin: ORIGIN.parse().unwrap(),
+        };
+
+        AppState::new(AuthStore::new(pool), session, auth).unwrap()
     }
 
-    Ok(())
-}
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn login_cookie_logout_and_copied_token_denial(pool: PgPool) {
+        let state = app_state(pool);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
 
-fn peer_ip(request: &HttpRequest) -> IpAddr {
-    request
-        .peer_addr()
-        .map(|addr| addr.ip())
-        .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST))
-}
+        let request = test::TestRequest::post()
+            .uri("/api/v1/auth/setup")
+            .insert_header(("Origin", ORIGIN))
+            .set_json(
+                serde_json::json!({"email":" Person@Example.test ","password":"a long test password"}),
+            )
+            .to_request();
+        let response = test::call_service(&app, request).await;
 
-fn check_attempt_allowed(state: &AppState, request: &HttpRequest) -> Result<(), AuthError> {
-    if !state.allow_attempt(peer_ip(request)) {
-        return Err(AuthError::limited());
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let cookie = response
+            .response()
+            .cookies()
+            .find(|c| c.name() == "pp_session")
+            .unwrap()
+            .into_owned();
+
+        assert_eq!(cookie.http_only(), Some(true));
+        assert_eq!(cookie.path(), Some("/"));
+        assert!(cookie.max_age().unwrap().whole_seconds() > 0);
+
+        let request = test::TestRequest::post()
+            .uri("/api/v1/auth/renew")
+            .insert_header(("Origin", ORIGIN))
+            .cookie(cookie.clone())
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, request).await.status(),
+            StatusCode::NO_CONTENT
+        );
+
+        let request = test::TestRequest::post()
+            .uri("/api/v1/auth/logout")
+            .insert_header(("Origin", ORIGIN))
+            .cookie(cookie.clone())
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, request).await.status(),
+            StatusCode::NO_CONTENT
+        );
+
+        let request = test::TestRequest::post()
+            .uri("/api/v1/auth/renew")
+            .insert_header(("Origin", ORIGIN))
+            .cookie(cookie)
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, request).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        let request = test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .insert_header(("Origin", ORIGIN))
+            .set_json(
+                serde_json::json!({"email":"person@example.test","password":"a long test password"}),
+            )
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, request).await.status(),
+            StatusCode::OK
+        );
     }
 
-    Ok(())
-}
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn origin_and_missing_session_fail_closed(pool: PgPool) {
+        let state = app_state(pool);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
 
-fn session_expiry(state: &AppState, now: OffsetDateTime) -> Result<OffsetDateTime, AuthError> {
-    state.session_expiry(now).ok_or_else(AuthError::unavailable)
-}
+        for origin in [None, Some("null"), Some("http://evil.test")] {
+            let mut req = test::TestRequest::post().uri("/api/v1/auth/logout");
 
-/// `Secure` stays off because the trusted-LAN trial runs over plain HTTP (see ADR 0002).
-fn session_cookie(state: &AppState, value: &str) -> Cookie<'static> {
-    Cookie::build(COOKIE_NAME, value.to_owned())
-        .path("/")
-        .http_only(true)
-        .same_site(SameSite::Lax)
-        .secure(false)
-        .max_age(state.session_lifetime())
-        .finish()
+            if let Some(value) = origin {
+                req = req.insert_header(("Origin", value));
+            }
+
+            assert_eq!(
+                test::call_service(&app, req.to_request()).await.status(),
+                StatusCode::FORBIDDEN
+            );
+        }
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/renew")
+            .insert_header(("Origin", ORIGIN))
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, req).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn passive_status_does_not_renew_and_expired_sessions_fail(pool: PgPool) {
+        let state = app_state(pool.clone());
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/setup")
+            .insert_header(("Origin", ORIGIN))
+            .set_json(
+                serde_json::json!({"email":"a@example.test","password":"a long test password"}),
+            )
+            .to_request();
+        let res = test::call_service(&app, req).await;
+        let cookie = res.response().cookies().next().unwrap().into_owned();
+        let before: OffsetDateTime = sqlx::query_scalar("SELECT expires_at FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        let req = test::TestRequest::get()
+            .uri("/api/v1/auth/status")
+            .cookie(cookie.clone())
+            .to_request();
+        let res = test::call_service(&app, req).await;
+
+        assert_eq!(res.headers().get("Cache-Control").unwrap(), "no-store");
+        assert!(res.response().cookies().next().is_none());
+
+        let json: serde_json::Value = test::read_body_json(res).await;
+
+        assert!(json["identity"].is_object());
+        assert_eq!(json["idle_timeout_ms"], 3_600_000);
+        assert!(!json.to_string().contains(cookie.value()));
+
+        let after: OffsetDateTime = sqlx::query_scalar("SELECT expires_at FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(before, after);
+
+        sqlx::query("UPDATE sessions SET expires_at=now()-interval '1 second'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/renew")
+            .insert_header(("Origin", ORIGIN))
+            .cookie(cookie)
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, req).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        pool.close().await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/v1/auth/status")
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, req).await.status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn requests_have_bounded_bodies_and_attempts(pool: PgPool) {
+        let state = app_state(pool);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .insert_header(("Origin", ORIGIN))
+            .insert_header(("Content-Type", "text/plain"))
+            .set_payload("secret")
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, req).await.status(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .insert_header(("Origin", ORIGIN))
+            .set_json(serde_json::json!({"email":"a@example.test","password":"x".repeat(5000)}))
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, req).await.status(),
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+
+        for attempt in 0..11 {
+            let req = test::TestRequest::post()
+                .uri("/api/v1/auth/login")
+                .insert_header(("Origin", ORIGIN))
+                .set_json(serde_json::json!({"email":"invalid","password":"short"}))
+                .to_request();
+            let expected = if attempt < 10 {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::TOO_MANY_REQUESTS
+            };
+
+            assert_eq!(test::call_service(&app, req).await.status(), expected);
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn successful_logins_do_not_use_the_attempt_limit(pool: PgPool) {
+        let state = app_state(pool);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let credentials =
+            serde_json::json!({"email":"a@example.test","password":"correct horse battery"});
+
+        for action in iter::once("setup").chain(iter::repeat_n("login", 11)) {
+            let req = test::TestRequest::post()
+                .uri(&format!("/api/v1/auth/{action}"))
+                .insert_header(("Origin", ORIGIN))
+                .set_json(&credentials)
+                .to_request();
+
+            assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
+        }
+    }
 }
