@@ -1,6 +1,6 @@
 # Development Workflow Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make the approved Superpowers delivery workflow explicit in shared repository documentation.
 
@@ -34,9 +34,13 @@
 
 **Interfaces:** Consumes the approved design; produces shared agent policy and its contributor summary.
 
-- [ ] Read the approved design and existing workflow section; confirm the missing rules against the five review conditions above.
-- [ ] Extend AGENTS.md with the approved sequence, issue timing/links, explicit approval gates, Git Flow branch types with issue-prefixed names (for example feature/61-development-workflow), session implementation default, isolated worktree requirement, fresh review, PR delivery, and plan lifecycle. Preserve existing Rust policy and document ownership.
-- [ ] Replace the README contribution summary with a concise workflow overview linking the shared policy. Avoid restating the full rules.
-- [ ] Verify with git diff --check and inspect the complete diff. Check Markdown local links, each approved workflow requirement, and unchanged product/release documents. Expected: clean whitespace, valid links, complete scope, no unrelated changes. Do not add prose tests or run application suites for this documentation-only change.
+- [x] Read the approved design and existing workflow section; confirm the missing rules against the five review conditions above.
+- [x] Extend AGENTS.md with the approved sequence, issue timing/links, explicit approval gates, Git Flow branch types with issue-prefixed names (for example feature/61-development-workflow), session implementation default, isolated worktree requirement, fresh review, PR delivery, and plan lifecycle. Preserve existing Rust policy and document ownership.
+- [x] Replace the README contribution summary with a concise workflow overview linking the shared policy. Avoid restating the full rules.
+- [x] Verify with git diff --check and inspect the complete diff. Check Markdown local links, each approved workflow requirement, and unchanged product/release documents. Expected: clean whitespace, valid links, complete scope, no unrelated changes. Do not add prose tests or run application suites for this documentation-only change.
 - [ ] Commit the approved design, plan, and policy changes on the issue branch. Request a fresh read-only review of the full branch against the design and five review conditions; address material findings and repeat relevant checks.
 - [ ] Push and create a PR referencing #61 with verification evidence. Keep this plan through review and corrections. Do not merge; remove the plan only at the pre-merge stage before requesting final approval.
+
+## Verification record
+
+Independent fresh-agent review of a0fbf32...871a333 found no findings. Author and reviewer verified 12 local Markdown links/anchors, preserved Rust guidance, unchanged product/release documents, four-file scope, and clean whitespace. Application suites were skipped for this prose-only change. PR publication is the remaining delivery step; plan cleanup stays pending until PR review and corrections are complete.
