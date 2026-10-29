@@ -8,7 +8,7 @@ The planned MVP is a local-network workflow trial with replaceable JPEG photos, 
 
 Development is restarting around the [product specifications](docs/SPECIFICATIONS.md) and [MVP scope and acceptance checklist](docs/releases/MVP.md). These documents describe the target product, not completed features.
 
-The repository currently contains an Actix API health endpoint, configuration/logging support, an idle worker process, a database crate placeholder, notification domain code, a dashboard shell, and a mock-backed client gallery/viewer. Authentication, persistent galleries, the durable queue, actual uploads/processing, and delivery are not complete. SQLx, Tailwind, shadcn-svelte, and SSE are agreed implementation choices, not installed features.
+The repository supports one-time photographer account setup, email/password login, a protected dashboard, and persistent revocable sessions backed by SQLx/PostgreSQL. Auth screens use Tailwind and selected shadcn-svelte components. Configuration/logging, API health, an idle worker, in-memory notification domain code, and a mock-backed client gallery/viewer also exist. Persistent galleries, the durable queue, uploads/processing, delivery, and SSE are not implemented.
 
 - [Product specifications](docs/SPECIFICATIONS.md): requirements, constraints, and exclusions.
 - [MVP release](docs/releases/MVP.md): first-release scope and acceptance evidence to collect.
@@ -22,8 +22,8 @@ For local development:
 
 - A current stable Rust toolchain supporting edition 2024.
 - Nightly rustfmt for the repository's import-grouping configuration: `rustup toolchain install nightly --component rustfmt`.
-- Node.js 24 and pnpm 10.13.1, matching the frontend CI setup. With Corepack available: `corepack enable` and `corepack prepare pnpm@10.13.1 --activate`.
-- PostgreSQL 17 when running database-backed work/tests; the current database crate is a placeholder. Compose supplies a development PostgreSQL service.
+- Node.js 24.15 or newer in the Node 24 line (required by the frontend lockfile) and pnpm 10.13.1, matching the frontend CI setup. With Corepack available: `corepack enable` and `corepack prepare pnpm@10.13.1 --activate`.
+- PostgreSQL 17 for application account/session storage and database tests. Compose supplies a development service.
 
 For the container stack, use Docker with Compose and BuildKit support. The worker currently uses Unix signal handling; use a Unix environment or the Linux containers for it.
 
@@ -47,7 +47,7 @@ docker compose up --build --wait
 docker compose ps
 ```
 
-Open `http://localhost:8000`. The proxy forwards `/api` to the API and other paths to the frontend. Check the API health endpoint:
+Open `http://localhost:8000/login` and create the installation's single account. Subsequent visits offer sign-in. Use that exact origin; `PP_APP_ORIGIN` must match the scheme, hostname, and port used by the browser. The proxy forwards `/api` to the API and other paths to the frontend. Check the API health endpoint:
 
 ```sh
 curl http://localhost:8000/api/v1/health
@@ -66,6 +66,8 @@ docker compose down
 This preserves the named PostgreSQL volume. `docker compose down -v` deletes that volume and its database contents. The current stack does not yet configure persistent photo storage; that is required before implementing uploads.
 
 ### Native development
+
+Start a local PostgreSQL 17 instance first, or start only the Compose database with `docker compose up -d postgres`. Native defaults use the sample account/database from `.env.example` at port 5432. Set `PP_DATABASE_URL` when using another database or port. The API connects and applies embedded migrations before listening; it fails startup if the database is unavailable.
 
 Install frontend dependencies:
 
@@ -87,7 +89,7 @@ Defaults: API at `http://127.0.0.1:8080`, frontend at `http://localhost:5173`. T
 curl http://127.0.0.1:8080/api/v1/health
 ```
 
-No API database connection or migrations are wired up by merely starting the current placeholder database crate. Do not use real client photos or credentials to evaluate the mock scaffold.
+Open `http://localhost:5173/login` for native setup/sign-in. Account setup closes after the first account, including concurrent attempts. Sign out revokes that particular session, including any copy of its cookie; independent sessions remain signed in. The current HTTP trial sends passwords and cookies unencrypted: use a trusted network and synthetic credentials that you do not reuse. Do not use real client photos.
 
 ## Configuration
 
@@ -97,9 +99,23 @@ Rust process settings use this precedence: CLI flags, environment variables, opt
 cargo run -p pp-api -- --config config.toml
 ```
 
-API settings include `PP_HOST`, `PP_PORT`, and `PP_LOG_LEVEL`; both Rust processes accept `PP_CONFIG` and logging configuration. Use `--help` for process-specific flags. Frontend development proxy target: `PP_API_PROXY_TARGET` (default `http://127.0.0.1:8080`).
+API settings include `PP_HOST`, `PP_PORT`, `PP_LOG_LEVEL`, `PP_DATABASE_URL`, `PP_APP_ORIGIN`, and `PP_SESSION_IDLE_TIMEOUT`; both Rust processes accept `PP_CONFIG` and logging configuration. Use `--help` for process-specific flags. Frontend development proxy target: `PP_API_PROXY_TARGET` (default `http://127.0.0.1:8080`). Server-side auth checks use `PP_API_INTERNAL_URL` with the same native default; Compose sets it to `http://api:8080`. These frontend settings use its Node runtime, not the Rust TOML file.
 
-Compose reads its development settings from [.env.example](.env.example)/`.env`: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `PP_LOG_LEVEL`, and the `PP_*_PORT` variables. The native Rust TOML configuration is separate; copying it does not configure Compose.
+Session configuration uses human-readable durations through the existing configuration parser:
+
+```toml
+[session]
+idle_timeout = "30d"
+
+[auth]
+app_origin = "http://localhost:5173"
+```
+
+Equivalent overrides: `PP_SESSION_IDLE_TIMEOUT="12h"` or `--session-idle-timeout "1h 30m"`. The timeout must be at least one second and fit cookie/timestamp arithmetic. Sessions persist across browser restarts. User navigation/interactions renew them with coalescing; passive status requests/background traffic do not. There is no absolute age limit or Remember me checkbox. A timeout change applies to new logins and subsequent renewals. See [ADR 0002](docs/adr/0002-account-sessions.md).
+
+Auth mutations require the configured exact Origin; other/missing origins are rejected, including on login/setup. Browser API calls send their HttpOnly cookie automatically. Credential bodies, hashing concurrency, and sign-in attempts are bounded. The in-process limit is 10 credential attempts per peer IP per minute; behind the current proxy this may be shared by all clients, and it resets on API restart. Arbitrary forwarded IP headers are not trusted.
+
+Compose reads its development settings from [.env.example](.env.example)/`.env`: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `PP_LOG_LEVEL`, `PP_APP_ORIGIN`, `PP_SESSION_IDLE_TIMEOUT`, and the `PP_*_PORT` variables. Changing a published proxy port requires updating `PP_APP_ORIGIN` to match. If database credentials contain URL-special characters, supply a correctly encoded connection URL rather than treating it as plain text. The native Rust TOML configuration is separate; copying it does not configure Compose.
 
 ## Verify and build
 
@@ -120,13 +136,26 @@ pnpm --dir web test
 pnpm --dir web build
 ```
 
-Database-backed tests introduced later should use a throwaway database through `DATABASE_URL`; CI already provisions PostgreSQL 17 for Rust tests. For example, after creating a dedicated test database:
+Database-backed tests use disposable SQLx databases through a test-role `DATABASE_URL` (the role must have permission to create databases); CI already provisions PostgreSQL 17 for Rust tests. For example, after creating a dedicated test database:
 
 ```sh
 export DATABASE_URL=postgres://USER:PASSWORD@localhost:5432/pp_test
 ```
 
-This variable is not currently a complete application database setup procedure. Keep test fixtures synthetic and keep original trial photos elsewhere. Backup/restore tooling is excluded from MVP, but persistence across normal restarts is required.
+`DATABASE_URL` is for SQLx tests; application settings use `PP_DATABASE_URL`. Keep test fixtures synthetic and keep original trial photos elsewhere. Backup/restore tooling is excluded from MVP, but persistence across normal restarts is required.
+
+The focused real-browser auth test expects an isolated running frontend/API and disposable database. With services using `http://localhost:15163` and API port 18063:
+
+```sh
+# API terminal: set PP_DATABASE_URL to your disposable database URL too.
+PP_PORT=18063 PP_APP_ORIGIN=http://localhost:15163 cargo run -p pp-api
+# Frontend terminal:
+PP_API_INTERNAL_URL=http://127.0.0.1:18063 PP_API_PROXY_TARGET=http://127.0.0.1:18063 pnpm --dir web dev --host 127.0.0.1 --port 15163
+# Test terminal (defaults to /usr/bin/google-chrome; override for your installed browser):
+PP_E2E_URL=http://localhost:15163 pnpm --dir web test:auth
+```
+
+Use a fresh disposable database to exercise initial setup; reruns verify its persisted `trial@example.test` account with synthetic test credentials. The harness does not reset databases. For the short-idle scenario, start the API with `PP_SESSION_IDLE_TIMEOUT=10s` and run with `PP_E2E_IDLE_MS=10000`; otherwise that scenario is explicitly skipped. `PP_BROWSER_PATH` selects a Chrome/Chromium binary. Browser artifacts go to `/tmp/pp63-playwright-results` by default, override with `PP_E2E_OUTPUT`. Unit/component tests do not substitute for this browser/API/database check. Compose proxy and persistence checks are additional integration evidence, not automatic release acceptance.
 
 For a Rust build-output reset, use `cargo clean`. Frontend generated state lives under `web/node_modules`, `web/.svelte-kit`, and `web/build`; reinstall dependencies after removing dependency state. Do not confuse resetting build outputs with deleting persistent database or photo data.
 
