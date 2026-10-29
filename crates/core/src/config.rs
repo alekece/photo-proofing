@@ -1,11 +1,13 @@
-use std::time::Duration;
-
 use clap::{Args, ValueEnum};
 use clap_config_fallback::ConfigArgs;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use tracing::level_filters::LevelFilter;
-use url::Url;
+
+use self::{duration::NonZeroDuration, origin::AppOrigin};
+
+pub mod duration;
+pub mod origin;
 
 /// Network binding shared by every process that listens for connections.
 #[derive(Args, ConfigArgs, Debug, Clone)]
@@ -50,24 +52,12 @@ impl From<LogLevel> for LevelFilter {
 /// Persistent session inactivity policy, shared by API validation and renewal.
 #[derive(Args, ConfigArgs, Clone)]
 pub struct SessionConfig {
-    #[arg(long = "session-idle-timeout", env = "PP_SESSION_IDLE_TIMEOUT", default_value = "30d", value_parser = humantime::parse_duration)]
-    #[config(value_format = humantime::format_duration)]
-    pub idle_timeout: Duration,
-}
-
-impl SessionConfig {
-    /// Rejects timeouts that are zero or too large to represent as session timestamps.
-    pub fn validate(&self) -> Result<(), String> {
-        let seconds = self.idle_timeout.as_secs();
-
-        if seconds == 0 || seconds > i64::MAX as u64 / 1_000_000 {
-            return Err(
-                "session idle timeout must be at least 1s and fit timestamp arithmetic".into(),
-            );
-        }
-
-        Ok(())
-    }
+    #[arg(
+        long = "session-idle-timeout",
+        env = "PP_SESSION_IDLE_TIMEOUT",
+        default_value = "30d"
+    )]
+    pub idle_timeout: NonZeroDuration,
 }
 
 /// Database connection settings. Deliberately not Debug: URLs may contain passwords.
@@ -90,34 +80,12 @@ pub struct AuthConfig {
         env = "PP_APP_ORIGIN",
         default_value = "http://localhost:5173"
     )]
-    pub app_origin: String,
-}
-
-impl AuthConfig {
-    /// Accepts only a canonical origin (scheme, host, optional port), so the exact-match
-    /// Origin check cannot be defeated by a path, trailing slash or credentials.
-    pub fn validate(&self) -> Result<(), String> {
-        let url = Url::parse(&self.app_origin).map_err(|_| "invalid application origin")?;
-
-        if !matches!(url.scheme(), "http" | "https")
-            || url.host_str().is_none()
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.path() != "/"
-            || url.query().is_some()
-            || url.fragment().is_some()
-            || url.origin().ascii_serialization() != self.app_origin
-        {
-            return Err("application origin must be an exact HTTP(S) origin without a path".into());
-        }
-
-        Ok(())
-    }
+    pub app_origin: AppOrigin,
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, iter, path::PathBuf};
+    use std::{env, fs, iter, path::PathBuf, process::Command, time::Duration};
 
     use clap::Parser;
     use clap_config_fallback::ConfigParser;
@@ -134,6 +102,15 @@ mod tests {
         server: ServerConfig,
         #[command(flatten)]
         log: LogConfig,
+        #[command(flatten)]
+        #[config(no_flatten)]
+        session: SessionConfig,
+        #[command(flatten)]
+        #[config(no_flatten)]
+        auth: AuthConfig,
+        #[command(flatten)]
+        #[config(no_flatten)]
+        database: DatabaseConfig,
     }
 
     fn parse(args: &[&str]) -> Result<TestCli, clap::Error> {
@@ -191,5 +168,87 @@ mod tests {
     #[test]
     fn log_level_converts_to_level_filter() {
         assert_eq!(LevelFilter::from(LogLevel::Warn), LevelFilter::WARN);
+    }
+
+    #[test]
+    fn session_and_auth_defaults_apply() {
+        let cli = parse(&[]).unwrap();
+
+        assert_eq!(
+            cli.session.idle_timeout.get(),
+            Duration::from_secs(30 * 86400)
+        );
+        assert_eq!(cli.auth.app_origin.as_str(), "http://localhost:5173");
+    }
+
+    #[test]
+    fn sectioned_human_durations_and_cli_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.toml");
+        fs::write(&path, "[session]\nidle_timeout = '1h 30m'\n").unwrap();
+        let args = ["--config", path.to_str().unwrap()];
+
+        let cli = parse(&args).unwrap();
+
+        assert_eq!(cli.session.idle_timeout.get(), Duration::from_secs(5400));
+
+        let cli = parse(&[args[0], args[1], "--session-idle-timeout", "2h"]).unwrap();
+
+        assert_eq!(cli.session.idle_timeout.get(), Duration::from_secs(7200));
+    }
+
+    #[test]
+    fn invalid_session_timeouts_and_origins_are_rejected_at_parse_time() {
+        for value in ["-1s", "nonsense", "0s", "500ms", "999999999999999s"] {
+            assert!(
+                parse(&["--session-idle-timeout", value]).is_err(),
+                "{value}"
+            );
+        }
+
+        for origin in [
+            "null",
+            "ftp://localhost",
+            "http://localhost/path",
+            "http://user:pass@localhost",
+        ] {
+            assert!(parse(&["--app-origin", origin]).is_err(), "{origin}");
+        }
+    }
+
+    #[test]
+    fn environment_precedence_is_process_isolated() {
+        if env::var_os("PP63_CONFIG_CHILD").is_some() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("c.toml");
+            fs::write(&path, "[session]\nidle_timeout = '1h'\n").unwrap();
+            let args = ["--config", path.to_str().unwrap()];
+
+            let cli = parse(&args).unwrap();
+
+            assert_eq!(cli.session.idle_timeout.get(), Duration::from_secs(7200));
+
+            let cli = parse(&[args[0], args[1], "--session-idle-timeout", "3h"]).unwrap();
+
+            assert_eq!(cli.session.idle_timeout.get(), Duration::from_secs(10800));
+
+            return;
+        }
+
+        let output = Command::new(env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "config::tests::environment_precedence_is_process_isolated",
+            ])
+            .env("PP63_CONFIG_CHILD", "1")
+            .env("PP_SESSION_IDLE_TIMEOUT", "2h")
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
     }
 }

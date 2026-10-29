@@ -11,7 +11,7 @@ tracing.workspace = true
 serde = { version = "1", features = ["derive"] }
 strum = { version = "0.28.0", features = ["derive"] }
 uuid = { version = "1.29.0", features = ["serde"] }
-derive_more = { version = "2.1.1", features = ["display", "from"] }
+derive_more.workspace = true
 humantime = "2.4.0"
 url = "2.5.8"
 
