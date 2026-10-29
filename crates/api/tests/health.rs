@@ -1,5 +1,5 @@
 use actix_web::{App, http::StatusCode, test};
-use pp_api::app::configure_routes;
+use pp_api::configure_routes;
 
 #[actix_web::test]
 async fn health_returns_ok_json() {

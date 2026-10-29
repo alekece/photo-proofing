@@ -1,4 +1,17 @@
-pub mod app;
-mod health;
+//! Gallery HTTP API: route wiring, authentication state and the [`server::Api`] runner.
 
-pub mod auth;
+use actix_web::web;
+
+pub mod credentials;
+pub mod routes;
+pub mod server;
+pub mod state;
+
+/// Mounts every HTTP route under `/api/v1`.
+pub fn configure_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/api/v1")
+            .route("/health", web::get().to(routes::health::report_health))
+            .configure(routes::auth::configure),
+    );
+}

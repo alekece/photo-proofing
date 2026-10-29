@@ -35,9 +35,9 @@
 
 ## File map
 
-- core: config.rs plus config tests; auth.rs for AccountId, WorkspaceId and authenticated identity if shared by database/API. No secret-bearing Debug/Serialize types.
-- database: lib.rs, auth.rs, migrations/0001_accounts_sessions.sql, tests/auth.rs; no generic repository trait.
-- API: auth.rs for handlers/state/service, auth/credentials.rs for hashing/token handling and auth/session.rs for cookie/identity boundary if size warrants; main.rs/app.rs wiring and tests/auth.rs. Preserve health tests.
+- core: config.rs (with config/duration.rs and config/origin.rs validated types) plus config tests; auth.rs for AccountId, WorkspaceId and authenticated identity if shared by database/API. No secret-bearing Debug/Serialize types.
+- database: lib.rs, auth.rs (with its tests), migrations/0001_accounts_sessions.sql; no generic repository trait.
+- API: routes/auth.rs for handlers and AuthError, credentials.rs for session-token and password-hash types, state.rs for AppState (policy, limiter), server.rs for the Api init/run type; lib.rs mounts routes; tests/auth.rs. Preserve health tests.
 - web: lib/auth.ts (nonsecret client types/calls/activity helper), lib/server/auth.ts (SSR status), routes/login/+page.server.ts and +page.svelte, dashboard/+page.server.ts and +page.svelte; focused unit/route tests and actual browser integration tests. app.css, layout and minimal shadcn component/config files only as needed.
 - runtime/docs: Cargo manifests/lock, web package manifest/lock, config.example.toml, .env.example, docker-compose.yml, docker/web.Dockerfile only for matching existing Node 24 baseline, README, SPECIFICATIONS, MVP release, ADR 0002, earlier approved design supersession note, and #63 text.
 
@@ -61,7 +61,7 @@
 
 ## Task 3: Authentication endpoints and revocable cookies
 
-**Interfaces:** configure_routes retains public /api/v1/health and registers /api/v1/auth/{status,setup,login,logout,renew}. AuthState owns AuthStore, validated config, and bounded hashing/attempt controls. status JSON: {setup_available: bool, identity: {account_id,workspace_id}|null}; setup/login return identity JSON and Set-Cookie, renew returns 204 and refreshed cookie, logout returns 204 and removal cookie. Errors use safe JSON messages with 400 validation, 401 authentication, 403 origin, 409 setup closed, 413 size, 415 content type, 429 attempts, and 503 unavailable dependencies.
+**Interfaces:** configure_routes retains public /api/v1/health and registers /api/v1/auth/{status,setup,login,logout,renew}. AppState owns AuthStore, validated config, and bounded hashing/attempt controls. status JSON: {setup_available: bool, identity: {account_id,workspace_id}|null}; setup/login return identity JSON and Set-Cookie, renew returns 204 and refreshed cookie, logout returns 204 and removal cookie. Errors use safe JSON messages with 400 validation, 401 authentication, 403 origin, 409 setup closed, 413 size, 415 content type, 429 attempts, and 503 unavailable dependencies.
 
 - [ ] Write API tests first for the approved setup/login/status/renew/logout contract, protected renewal denial, cookie attributes, generic bad-login behavior, no-store, original-cookie replacement, exact Origin checks including missing/null/foreign, malformed JSON, secret-free errors, and no renewal on GET status. Include database outage, setup race, logout failure, and expired/copy/race cases from Review Focus.
 - [ ] Verify crate compatibility and add established password hashing, randomness, digest, token encoding, and email validation dependencies. Normalize email, accept 12–128 Unicode password characters without trimming; bound bodies to 4 KiB and email to 254 bytes. Encode the 32 random token bytes with URL-safe unpadded base64; reject noncanonical/oversized cookies. Token cookie name pp_session, host-only Path=/, HttpOnly, SameSite=Lax, persistent Max-Age, Secure=false for accepted HTTP trial. Never derive Debug for tokens/password inputs.

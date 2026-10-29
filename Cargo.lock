@@ -1635,6 +1635,7 @@ dependencies = [
  "base64",
  "clap",
  "clap-config-fallback",
+ "derive_more",
  "email_address",
  "pp-core",
  "pp-database",

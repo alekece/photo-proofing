@@ -1,23 +1,26 @@
-use std::{iter, time::Duration};
+use std::iter;
 
 use actix_web::{App, http::StatusCode, test, web};
-use pp_api::{app::configure_routes, auth::AuthState};
+use pp_api::{configure_routes, state::AppState};
 use pp_core::config::{AuthConfig, SessionConfig};
 use pp_database::auth::AuthStore;
 use sqlx::PgPool;
 
+#[expect(clippy::unwrap_used, reason = "fixture values are constants")]
+fn app_state(pool: PgPool) -> AppState {
+    let session = SessionConfig {
+        idle_timeout: "1h".parse().unwrap(),
+    };
+    let auth = AuthConfig {
+        app_origin: "http://localhost:5173".parse().unwrap(),
+    };
+
+    AppState::new(AuthStore::new(pool), session, auth).unwrap()
+}
+
 #[sqlx::test(migrations = "../database/migrations")]
 async fn login_cookie_logout_and_copied_token_denial(pool: PgPool) {
-    let state = AuthState::new(
-        AuthStore::new(pool),
-        SessionConfig {
-            idle_timeout: Duration::from_secs(3600),
-        },
-        AuthConfig {
-            app_origin: "http://localhost:5173".into(),
-        },
-    )
-    .unwrap();
+    let state = app_state(pool);
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(state))
@@ -96,16 +99,7 @@ async fn login_cookie_logout_and_copied_token_denial(pool: PgPool) {
 
 #[sqlx::test(migrations = "../database/migrations")]
 async fn origin_and_missing_session_fail_closed(pool: PgPool) {
-    let state = AuthState::new(
-        AuthStore::new(pool),
-        SessionConfig {
-            idle_timeout: Duration::from_secs(3600),
-        },
-        AuthConfig {
-            app_origin: "http://localhost:5173".into(),
-        },
-    )
-    .unwrap();
+    let state = app_state(pool);
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(state))
@@ -139,16 +133,7 @@ async fn origin_and_missing_session_fail_closed(pool: PgPool) {
 
 #[sqlx::test(migrations = "../database/migrations")]
 async fn passive_status_does_not_renew_and_expired_sessions_fail(pool: PgPool) {
-    let state = AuthState::new(
-        AuthStore::new(pool.clone()),
-        SessionConfig {
-            idle_timeout: Duration::from_secs(3600),
-        },
-        AuthConfig {
-            app_origin: "http://localhost:5173".into(),
-        },
-    )
-    .unwrap();
+    let state = app_state(pool.clone());
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(state))
@@ -180,6 +165,7 @@ async fn passive_status_does_not_renew_and_expired_sessions_fail(pool: PgPool) {
     let json: serde_json::Value = test::read_body_json(res).await;
 
     assert!(json["identity"].is_object());
+    assert_eq!(json["idle_timeout_ms"], 3_600_000);
     assert!(!json.to_string().contains(cookie.value()));
 
     let after: time::OffsetDateTime = sqlx::query_scalar("SELECT expires_at FROM sessions")
@@ -219,16 +205,7 @@ async fn passive_status_does_not_renew_and_expired_sessions_fail(pool: PgPool) {
 
 #[sqlx::test(migrations = "../database/migrations")]
 async fn requests_have_bounded_bodies_and_attempts(pool: PgPool) {
-    let state = AuthState::new(
-        AuthStore::new(pool),
-        SessionConfig {
-            idle_timeout: Duration::from_secs(3600),
-        },
-        AuthConfig {
-            app_origin: "http://localhost:5173".into(),
-        },
-    )
-    .unwrap();
+    let state = app_state(pool);
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(state))
@@ -277,16 +254,7 @@ async fn requests_have_bounded_bodies_and_attempts(pool: PgPool) {
 
 #[sqlx::test(migrations = "../database/migrations")]
 async fn successful_logins_do_not_use_the_attempt_limit(pool: PgPool) {
-    let state = AuthState::new(
-        AuthStore::new(pool),
-        SessionConfig {
-            idle_timeout: Duration::from_secs(3600),
-        },
-        AuthConfig {
-            app_origin: "http://localhost:5173".into(),
-        },
-    )
-    .unwrap();
+    let state = app_state(pool);
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(state))
