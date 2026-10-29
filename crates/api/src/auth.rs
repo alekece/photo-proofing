@@ -39,11 +39,14 @@ impl AuthState {
     pub fn new(store: AuthStore, session: SessionConfig, auth: AuthConfig) -> Result<Self, String> {
         session.validate()?;
         auth.validate()?;
+
         let delta = time::Duration::try_from(session.idle_timeout)
             .map_err(|_| "session timeout overflow")?;
+
         OffsetDateTime::now_utc()
             .checked_add(delta)
             .ok_or("session timeout exceeds timestamp range")?;
+
         Ok(Self {
             store,
             origin: auth.app_origin,
@@ -67,6 +70,7 @@ impl AuthState {
                 "request origin is not allowed",
             ));
         }
+
         Ok(())
     }
 
@@ -77,15 +81,21 @@ impl AuthState {
             .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
         let mut attempts = self.attempts.lock().map_err(|_| unavailable())?;
         let now = Instant::now();
+
         attempts.retain(|_, (start, _)| now.duration_since(*start) < Duration::from_secs(60));
+
         if attempts.len() >= 1024 && !attempts.contains_key(&peer) {
             return Err(limited());
         }
+
         let entry = attempts.entry(peer).or_insert((now, 0));
+
         if entry.1 >= 10 {
             return Err(limited());
         }
+
         entry.1 += 1;
+
         Ok(())
     }
 
@@ -119,6 +129,7 @@ impl ResponseError for AuthError {
     fn status_code(&self) -> StatusCode {
         self.0
     }
+
     fn error_response(&self) -> HttpResponse {
         HttpResponse::build(self.0)
             .insert_header((header::CACHE_CONTROL, "no-store"))
@@ -132,18 +143,21 @@ fn unavailable() -> AuthError {
         "authentication service unavailable",
     )
 }
+
 fn limited() -> AuthError {
     AuthError(
         StatusCode::TOO_MANY_REQUESTS,
         "too many sign-in attempts; try again later",
     )
 }
+
 fn unauthorized() -> AuthError {
     AuthError(
         StatusCode::UNAUTHORIZED,
         "session expired or sign-in required",
     )
 }
+
 fn request_hash(request: &HttpRequest) -> Option<[u8; 32]> {
     credentials::token_hash(request.cookie(COOKIE_NAME)?.value())
 }
@@ -157,6 +171,7 @@ struct Credentials {
 impl Credentials {
     fn validate(&self) -> Result<String, AuthError> {
         let email = self.email.trim().to_lowercase();
+
         if email.len() > 254
             || !EmailAddress::is_valid(&email)
             || !(12..=128).contains(&self.password.chars().count())
@@ -166,6 +181,7 @@ impl Credentials {
                 "enter a valid email and a password of 12–128 characters",
             ));
         }
+
         Ok(email)
     }
 }
@@ -212,6 +228,7 @@ async fn status(
         .setup_available()
         .await
         .map_err(|_| unavailable())?;
+
     let identity = match request_hash(&request) {
         Some(hash) => state
             .store
@@ -220,8 +237,10 @@ async fn status(
             .map_err(|_| unavailable())?,
         None => None,
     };
+
     let idle_timeout_ms =
         u64::try_from(state.idle_timeout.as_millis()).map_err(|_| unavailable())?;
+
     Ok(HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, "no-store"))
         .json(AuthStatus {
@@ -238,6 +257,7 @@ async fn setup(
 ) -> Result<HttpResponse, AuthError> {
     state.check_origin(&request)?;
     state.allow_attempt(&request)?;
+
     let email = input.validate()?;
     let permit = state
         .hash_slots
@@ -245,6 +265,7 @@ async fn setup(
         .try_acquire_owned()
         .map_err(|_| limited())?;
     let password = input.into_inner().password;
+
     let password_hash = web::block(move || {
         let _permit = permit;
         credentials::hash_password(&password)
@@ -252,6 +273,7 @@ async fn setup(
     .await
     .map_err(|_| unavailable())?
     .map_err(|_| unavailable())?;
+
     let (token, hash) = credentials::new_token();
     let now = OffsetDateTime::now_utc();
     let id = state
@@ -263,6 +285,7 @@ async fn setup(
             StatusCode::CONFLICT,
             "initial setup is already complete",
         ))?;
+
     Ok(HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, "no-store"))
         .cookie(state.cookie(token)?)
@@ -276,6 +299,7 @@ async fn login(
 ) -> Result<HttpResponse, AuthError> {
     state.check_origin(&request)?;
     state.allow_attempt(&request)?;
+
     let email = input.validate()?;
     let account = state
         .store
@@ -292,18 +316,22 @@ async fn login(
         .clone()
         .try_acquire_owned()
         .map_err(|_| limited())?;
+
     let valid = web::block(move || {
         let _permit = permit;
         credentials::verify_password(&password, &encoded)
     })
     .await
     .map_err(|_| unavailable())?;
+
     let account = account.filter(|_| valid).ok_or(AuthError(
         StatusCode::UNAUTHORIZED,
         "invalid email or password",
     ))?;
+
     let (token, hash) = credentials::new_token();
     let now = OffsetDateTime::now_utc();
+
     state
         .store
         .cleanup_expired(now, 100)
@@ -319,12 +347,14 @@ async fn login(
         )
         .await
         .map_err(|_| unavailable())?;
+
     let id = state
         .store
         .authenticate(&hash, now)
         .await
         .map_err(|_| unavailable())?
         .ok_or_else(unavailable)?;
+
     Ok(HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, "no-store"))
         .cookie(state.cookie(token)?)
@@ -336,11 +366,14 @@ async fn logout(
     request: HttpRequest,
 ) -> Result<HttpResponse, AuthError> {
     state.check_origin(&request)?;
+
     if let Some(hash) = request_hash(&request) {
         state.store.revoke(&hash).await.map_err(|_| unavailable())?;
     }
+
     let mut cookie = state.cookie(String::new())?;
     cookie.make_removal();
+
     Ok(HttpResponse::NoContent()
         .insert_header((header::CACHE_CONTROL, "no-store"))
         .cookie(cookie)
@@ -354,6 +387,7 @@ async fn renew(
     state.check_origin(&request)?;
     let hash = request_hash(&request).ok_or_else(unauthorized)?;
     let now = OffsetDateTime::now_utc();
+
     state
         .store
         .renew(&hash, now, state.expires_at(now)?)
@@ -370,6 +404,7 @@ async fn renew(
         .ok_or_else(unauthorized)?
         .value()
         .to_owned();
+
     Ok(HttpResponse::NoContent()
         .insert_header((header::CACHE_CONTROL, "no-store"))
         .cookie(state.cookie(token)?)

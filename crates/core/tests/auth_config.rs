@@ -24,6 +24,7 @@ struct Cli {
 #[test]
 fn defaults_and_sectioned_human_durations() {
     let defaults = Cli::try_parse_with_config_from(["test"]).unwrap();
+
     assert_eq!(
         defaults.session.idle_timeout,
         Duration::from_secs(30 * 86400)
@@ -36,10 +37,13 @@ fn defaults_and_sectioned_human_durations() {
     fs::write(&file, "[session]\nidle_timeout = '1h 30m'\n").unwrap();
     let args = ["test", "--config", file.to_str().unwrap()];
     let parsed = Cli::try_parse_with_config_from(args).unwrap();
+
     assert_eq!(parsed.session.idle_timeout, Duration::from_secs(5400));
+
     let overridden =
         Cli::try_parse_with_config_from(args.into_iter().chain(["--session-idle-timeout", "2h"]))
             .unwrap();
+
     assert_eq!(overridden.session.idle_timeout, Duration::from_secs(7200));
 }
 
@@ -50,10 +54,13 @@ fn invalid_durations_and_origins_fail() {
             Cli::try_parse_with_config_from(["test", "--session-idle-timeout", value]).is_err()
         );
     }
+
     for value in ["0s", "500ms", "999999999999999s"] {
         let parsed = Cli::try_parse_with_config_from(["test", "--session-idle-timeout", value]);
+
         assert!(parsed.is_err() || parsed.unwrap().session.validate().is_err());
     }
+
     for origin in [
         "null",
         "ftp://localhost",
@@ -61,6 +68,7 @@ fn invalid_durations_and_origins_fail() {
         "http://user:pass@localhost",
     ] {
         let parsed = Cli::try_parse_with_config_from(["test", "--app-origin", origin]).unwrap();
+
         assert!(parsed.auth.validate().is_err(), "{origin}");
     }
 }
@@ -73,20 +81,26 @@ fn environment_precedence_is_process_isolated() {
         fs::write(&file, "[session]\nidle_timeout = '1h'\n").unwrap();
         let args = ["test", "--config", file.to_str().unwrap()];
         let parsed = Cli::try_parse_with_config_from(args).unwrap();
+
         assert_eq!(parsed.session.idle_timeout, Duration::from_secs(7200));
+
         let parsed = Cli::try_parse_with_config_from(
             args.into_iter().chain(["--session-idle-timeout", "3h"]),
         )
         .unwrap();
+
         assert_eq!(parsed.session.idle_timeout, Duration::from_secs(10800));
+
         return;
     }
+
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "environment_precedence_is_process_isolated"])
         .env("PP63_CONFIG_CHILD", "1")
         .env("PP_SESSION_IDLE_TIMEOUT", "2h")
         .output()
         .unwrap();
+
     assert!(
         output.status.success(),
         "{}",

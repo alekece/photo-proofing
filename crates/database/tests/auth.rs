@@ -6,7 +6,9 @@ use time::{Duration, OffsetDateTime};
 async fn setup_session_and_revocation_are_persistent(pool: PgPool) {
     let store = AuthStore::new(pool.clone());
     let now = OffsetDateTime::now_utc();
+
     assert!(store.setup_available().await.unwrap());
+
     let identity = store
         .create_account(
             "person@example.test",
@@ -17,6 +19,7 @@ async fn setup_session_and_revocation_are_persistent(pool: PgPool) {
         .await
         .unwrap()
         .unwrap();
+
     assert!(!store.setup_available().await.unwrap());
     assert!(
         store
@@ -41,11 +44,13 @@ async fn setup_session_and_revocation_are_persistent(pool: PgPool) {
             .unwrap()
             .is_none()
     );
+
     store
         .renew(&[1; 32], now, now + Duration::days(40))
         .await
         .unwrap()
         .unwrap();
+
     assert!(
         store
             .authenticate(&[1; 32], now + Duration::days(31))
@@ -53,7 +58,9 @@ async fn setup_session_and_revocation_are_persistent(pool: PgPool) {
             .unwrap()
             .is_some()
     );
+
     store.revoke(&[1; 32]).await.unwrap();
+
     assert!(
         store
             .renew(&[1; 32], now, now + Duration::days(50))
@@ -79,10 +86,12 @@ async fn concurrent_setup_leaves_one_workspace_and_account(pool: PgPool) {
         a.create_account("a@example.test", "hash", &[1; 32], expiry),
         b.create_account("b@example.test", "hash", &[2; 32], expiry)
     );
+
     assert_eq!(
         usize::from(a.unwrap().is_some()) + usize::from(b.unwrap().is_some()),
         1
     );
+
     for table in ["accounts", "workspaces", "sessions"] {
         let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
             .fetch_one(&pool)
@@ -100,12 +109,15 @@ async fn renewal_and_logout_cannot_resurrect_session(pool: PgPool) {
         .create_account("a@example.test", "hash", &[1; 32], now + Duration::days(1))
         .await
         .unwrap();
+
     let (renew, revoke) = tokio::join!(
         store.renew(&[1; 32], now, now + Duration::days(2)),
         store.revoke(&[1; 32])
     );
+
     renew.unwrap();
     revoke.unwrap();
+
     assert!(store.authenticate(&[1; 32], now).await.unwrap().is_none());
 }
 
@@ -118,6 +130,7 @@ async fn replacing_one_login_does_not_revoke_another(pool: PgPool) {
         .await
         .unwrap()
         .unwrap();
+
     store
         .create_session(id.account_id.0, &[2; 32], now + Duration::days(1), None)
         .await
@@ -131,6 +144,7 @@ async fn replacing_one_login_does_not_revoke_another(pool: PgPool) {
         )
         .await
         .unwrap();
+
     assert!(store.authenticate(&[1; 32], now).await.unwrap().is_none());
     assert!(store.authenticate(&[2; 32], now).await.unwrap().is_some());
     assert!(store.authenticate(&[3; 32], now).await.unwrap().is_some());

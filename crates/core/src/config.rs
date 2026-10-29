@@ -58,11 +58,13 @@ pub struct SessionConfig {
 impl SessionConfig {
     pub fn validate(&self) -> Result<(), String> {
         let seconds = self.idle_timeout.as_secs();
+
         if seconds == 0 || seconds > i64::MAX as u64 / 1_000_000 {
             return Err(
                 "session idle timeout must be at least 1s and fit timestamp arithmetic".into(),
             );
         }
+
         Ok(())
     }
 }
@@ -91,6 +93,7 @@ pub struct AuthConfig {
 impl AuthConfig {
     pub fn validate(&self) -> Result<(), String> {
         let url = Url::parse(&self.app_origin).map_err(|_| "invalid application origin")?;
+
         if !matches!(url.scheme(), "http" | "https")
             || url.host_str().is_none()
             || !url.username().is_empty()
@@ -102,6 +105,7 @@ impl AuthConfig {
         {
             return Err("application origin must be an exact HTTP(S) origin without a path".into());
         }
+
         Ok(())
     }
 }

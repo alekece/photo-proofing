@@ -41,15 +41,18 @@ async fn main() -> IoResult<()> {
 
     cli.session.validate().map_err(IoError::other)?;
     cli.auth.validate().map_err(IoError::other)?;
+
     let pool = PgPoolOptions::new()
         .max_connections(10)
         .connect(&cli.database.url)
         .await
         .map_err(|_| IoError::other("database connection failed"))?;
+
     MIGRATOR
         .run(&pool)
         .await
         .map_err(|_| IoError::other("database migration failed"))?;
+
     let state = web::Data::new(
         AuthState::new(AuthStore::new(pool), cli.session, cli.auth).map_err(IoError::other)?,
     );

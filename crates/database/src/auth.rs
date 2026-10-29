@@ -51,16 +51,21 @@ impl AuthStore {
         let mut tx = self.pool.begin().await?;
         let workspace_id = Uuid::new_v4();
         let account_id = Uuid::new_v4();
+
         sqlx::query("INSERT INTO workspaces(id) VALUES ($1)")
             .bind(workspace_id)
             .execute(&mut *tx)
             .await?;
+
         let inserted = sqlx::query("INSERT INTO accounts(id,workspace_id,email,password_hash) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING")
             .bind(account_id).bind(workspace_id).bind(email).bind(password_hash).execute(&mut *tx).await?.rows_affected();
+
         if inserted == 0 {
             tx.rollback().await?;
+
             return Ok(None);
         }
+
         sqlx::query("INSERT INTO sessions(token_hash,account_id,expires_at) VALUES ($1,$2,$3)")
             .bind(token_hash.as_slice())
             .bind(account_id)
@@ -68,6 +73,7 @@ impl AuthStore {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
+
         Ok(Some(Identity {
             account_id: AccountId(account_id),
             workspace_id: WorkspaceId(workspace_id),
@@ -89,6 +95,7 @@ impl AuthStore {
         replaced_hash: Option<&[u8; 32]>,
     ) -> Result<(), sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+
         if let Some(hash) = replaced_hash {
             sqlx::query("DELETE FROM sessions WHERE token_hash=$1 AND account_id=$2")
                 .bind(hash.as_slice())
@@ -96,12 +103,14 @@ impl AuthStore {
                 .execute(&mut *tx)
                 .await?;
         }
+
         sqlx::query("INSERT INTO sessions(token_hash,account_id,expires_at) VALUES ($1,$2,$3)")
             .bind(token_hash.as_slice())
             .bind(account_id)
             .bind(expires_at)
             .execute(&mut *tx)
             .await?;
+
         tx.commit().await
     }
 
@@ -112,6 +121,7 @@ impl AuthStore {
     ) -> Result<Option<Identity>, sqlx::Error> {
         let row: Option<IdentityRow> = sqlx::query_as("SELECT a.id AS account_id,a.workspace_id FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>$2")
             .bind(token_hash.as_slice()).bind(now).fetch_optional(&self.pool).await?;
+
         Ok(row.map(Into::into))
     }
 
@@ -124,6 +134,7 @@ impl AuthStore {
         // UPDATE, never UPSERT: a revoked session must not be recreated by renewal.
         let row: Option<IdentityRow> = sqlx::query_as("UPDATE sessions s SET expires_at=GREATEST(s.expires_at,$3) FROM accounts a WHERE s.account_id=a.id AND s.token_hash=$1 AND s.expires_at>$2 RETURNING a.id AS account_id,a.workspace_id")
             .bind(token_hash.as_slice()).bind(now).bind(expires_at).fetch_optional(&self.pool).await?;
+
         Ok(row.map(Into::into))
     }
 
@@ -132,6 +143,7 @@ impl AuthStore {
             .bind(token_hash.as_slice())
             .execute(&self.pool)
             .await?;
+
         Ok(())
     }
 
@@ -141,6 +153,7 @@ impl AuthStore {
         limit: i64,
     ) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE expires_at<=$1 ORDER BY expires_at LIMIT $2)").bind(now).bind(limit).execute(&self.pool).await?;
+
         Ok(())
     }
 }
