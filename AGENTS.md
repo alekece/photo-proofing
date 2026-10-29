@@ -42,7 +42,11 @@ This file is the shared repository policy for Codex, GitHub Copilot coding agent
 
 - Favor readable code over cleverness. Use intermediate values and guard clauses when they help.
 - Use `Option`/`Result` and iterator combinators for natural transformations; use `for`/`while` for side effects, async work, or clearer control flow.
-- Separate meaningful logical steps with blank lines, especially local declarations from the processing that follows. No mechanical spacing between closely related statements.
+- Use vertical whitespace so structure is easy to scan. Always put a blank line:
+  - before and after every control-flow block (`if`, `match`, `for`, `while`, `loop`);
+  - after a group of `let` declarations, before the code that uses them;
+  - before `return`, unless it is the only statement in its scope.
+- Beyond those rules, group remaining statements into reasonable logical blocks with blank lines, using judgment; do not space out closely related statements mechanically.
 - Propagate recoverable errors with `Result` and `?`, preserving useful context at abstraction boundaries and distinguishing failures from violated invariants.
 - Respect the configured Clippy lints. `unwrap` and `expect` are allowed in tests; production exceptions require a narrow lint allowance and an explanation of the established invariant. Prefer `expect` when its message adds useful context.
 
