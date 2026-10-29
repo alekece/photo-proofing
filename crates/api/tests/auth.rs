@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{iter, time::Duration};
 
 use actix_web::{App, http::StatusCode, test, web};
 use pp_api::{app::configure_routes, auth::AuthState};
@@ -272,5 +272,37 @@ async fn requests_have_bounded_bodies_and_attempts(pool: PgPool) {
         };
 
         assert_eq!(test::call_service(&app, req).await.status(), expected);
+    }
+}
+
+#[sqlx::test(migrations = "../database/migrations")]
+async fn successful_logins_do_not_use_the_attempt_limit(pool: PgPool) {
+    let state = AuthState::new(
+        AuthStore::new(pool),
+        SessionConfig {
+            idle_timeout: Duration::from_secs(3600),
+        },
+        AuthConfig {
+            app_origin: "http://localhost:5173".into(),
+        },
+    )
+    .unwrap();
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(state))
+            .configure(configure_routes),
+    )
+    .await;
+    let credentials =
+        serde_json::json!({"email":"a@example.test","password":"correct horse battery"});
+
+    for action in iter::once("setup").chain(iter::repeat_n("login", 11)) {
+        let req = test::TestRequest::post()
+            .uri(&format!("/api/v1/auth/{action}"))
+            .insert_header(("Origin", "http://localhost:5173"))
+            .set_json(&credentials)
+            .to_request();
+
+        assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
     }
 }

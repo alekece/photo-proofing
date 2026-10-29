@@ -74,29 +74,37 @@ impl AuthState {
         Ok(())
     }
 
-    fn allow_attempt(&self, request: &HttpRequest) -> Result<(), AuthError> {
-        let peer = request
+    fn peer_ip(request: &HttpRequest) -> IpAddr {
+        request
             .peer_addr()
             .map(|addr| addr.ip())
-            .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
+            .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST))
+    }
+
+    fn allow_attempt(&self, request: &HttpRequest) -> Result<(), AuthError> {
+        let peer = Self::peer_ip(request);
         let mut attempts = self.attempts.lock().map_err(|_| unavailable())?;
         let now = Instant::now();
 
         attempts.retain(|_, (start, _)| now.duration_since(*start) < Duration::from_secs(60));
 
-        if attempts.len() >= 1024 && !attempts.contains_key(&peer) {
+        let failures = attempts.get(&peer).map_or(0, |(_, count)| *count);
+
+        if failures >= 10 || (attempts.len() >= 1024 && !attempts.contains_key(&peer)) {
             return Err(limited());
         }
-
-        let entry = attempts.entry(peer).or_insert((now, 0));
-
-        if entry.1 >= 10 {
-            return Err(limited());
-        }
-
-        entry.1 += 1;
 
         Ok(())
+    }
+
+    /// Only failed credential attempts count, so successful sign-ins never lock anyone out.
+    fn record_failure(&self, request: &HttpRequest) {
+        if let Ok(mut attempts) = self.attempts.lock() {
+            attempts
+                .entry(Self::peer_ip(request))
+                .or_insert((Instant::now(), 0))
+                .1 += 1;
+        }
     }
 
     fn expires_at(&self, now: OffsetDateTime) -> Result<OffsetDateTime, AuthError> {
@@ -258,7 +266,9 @@ async fn setup(
     state.check_origin(&request)?;
     state.allow_attempt(&request)?;
 
-    let email = input.validate()?;
+    let email = input
+        .validate()
+        .inspect_err(|_| state.record_failure(&request))?;
     let permit = state
         .hash_slots
         .clone()
@@ -300,7 +310,9 @@ async fn login(
     state.check_origin(&request)?;
     state.allow_attempt(&request)?;
 
-    let email = input.validate()?;
+    let email = input
+        .validate()
+        .inspect_err(|_| state.record_failure(&request))?;
     let account = state
         .store
         .account_by_email(&email)
@@ -324,10 +336,14 @@ async fn login(
     .await
     .map_err(|_| unavailable())?;
 
-    let account = account.filter(|_| valid).ok_or(AuthError(
-        StatusCode::UNAUTHORIZED,
-        "invalid email or password",
-    ))?;
+    let Some(account) = account.filter(|_| valid) else {
+        state.record_failure(&request);
+
+        return Err(AuthError(
+            StatusCode::UNAUTHORIZED,
+            "invalid email or password",
+        ));
+    };
 
     let (token, hash) = credentials::new_token();
     let now = OffsetDateTime::now_utc();
