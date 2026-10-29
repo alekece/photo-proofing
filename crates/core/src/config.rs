@@ -54,7 +54,6 @@ mod tests {
     use clap::Parser;
     use clap_config_fallback::ConfigParser;
     use tracing::level_filters::LevelFilter;
-    use url::Url;
 
     use super::*;
 
