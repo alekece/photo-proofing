@@ -54,6 +54,7 @@ This file is the shared repository policy for Codex, GitHub Copilot coding agent
 
 - Comments explain *why* (invariants, tradeoffs), not *what*.
 - Document public APIs when their purpose, contract, or constraints need explanation; add examples when helpful.
+- Write documentation while implementing, not afterward, and treat it as part of "done" before requesting review or opening a PR. Reviewers should not have to reverse-engineer intent: document new public items whose contract is non-obvious (errors, invariants, security or concurrency guarantees), and give a module whose behavior spans several functions or files a short `//!` overview of the flow and where each guarantee is enforced. Add a brief *why* comment at non-obvious spots, such as deliberate tradeoffs, ordering that matters, and security-sensitive choices.
 - Place documentation comments before all other attributes on the item.
 - Keep documentation concise and current; avoid redundant comments and decorative headers.
 
@@ -90,7 +91,7 @@ Nightly rustfmt is required for the repository's import-grouping settings. Follo
 3. Before implementation planning, identify or create a focused GitHub issue describing motivation, observable acceptance criteria, constraints, and references. Issues describe outcomes rather than implementation task lists. Link the issue from the design.
 4. Use Superpowers writing-plans to create an implementation plan from the approved design, referencing the design and issue.
 5. Implement only the approved specification, following the plan, in an isolated worktree. Use Git Flow branch types with the issue number at the start of the descriptive name, for example `feature/61-development-workflow`. Default to implementation in the current session with one fresh reviewer at the end; task-by-task subagents are optional. If worktree creation fails, resolve the blocker rather than implementing in the main checkout.
-6. Run relevant checks and request independent review by a fresh agent or subagent. Review both correctness and compliance with the approved design. Address material findings and verify corrections before delivery; if independent review is unavailable, report the blocker rather than substituting author self-review.
+6. Confirm the code is documented as described in Comments and Docs, run relevant checks, and request independent review by a fresh agent or subagent. Review both correctness and compliance with the approved design. Address material findings and verify corrections before delivery; if independent review is unavailable, report the blocker rather than substituting author self-review.
 7. Create a PR referencing the original issue, with a summary of changes, verification evidence, and material limitations. Keep the worktree available through PR review and corrections.
 8. After review and corrections, complete the plan cleanup described above and request explicit user approval of the final changes before merging. Prefer squash merges. Never merge automatically or substitute a local merge for PR delivery.
 
