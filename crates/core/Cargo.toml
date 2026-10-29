@@ -12,6 +12,8 @@ serde = { version = "1", features = ["derive"] }
 strum = { version = "0.28.0", features = ["derive"] }
 uuid = "1.29.0"
 derive_more = { version = "2.1.1", features = ["display", "from"] }
+humantime = "2.4.0"
+url = "2.5.8"
 
 [dev-dependencies]
 tempfile = "3"
