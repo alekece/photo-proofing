@@ -47,6 +47,65 @@ impl From<LogLevel> for LevelFilter {
     }
 }
 
+/// Persistent session inactivity policy, shared by API validation and renewal.
+#[derive(Args, ConfigArgs, Clone)]
+pub struct SessionConfig {
+    #[arg(long = "session-idle-timeout", env = "PP_SESSION_IDLE_TIMEOUT", default_value = "30d", value_parser = humantime::parse_duration)]
+    #[config(value_format = humantime::format_duration)]
+    pub idle_timeout: Duration,
+}
+
+impl SessionConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        let seconds = self.idle_timeout.as_secs();
+        if seconds == 0 || seconds > i64::MAX as u64 / 1_000_000 {
+            return Err(
+                "session idle timeout must be at least 1s and fit timestamp arithmetic".into(),
+            );
+        }
+        Ok(())
+    }
+}
+
+/// Database connection settings. Deliberately not Debug: URLs may contain passwords.
+#[derive(Args, ConfigArgs, Clone)]
+pub struct DatabaseConfig {
+    #[arg(
+        long = "database-url",
+        env = "PP_DATABASE_URL",
+        default_value = "postgres://pp:pp-local-only@127.0.0.1:5432/pp"
+    )]
+    pub url: String,
+}
+
+#[derive(Args, ConfigArgs, Clone)]
+pub struct AuthConfig {
+    #[arg(
+        long = "app-origin",
+        env = "PP_APP_ORIGIN",
+        default_value = "http://localhost:5173"
+    )]
+    pub app_origin: String,
+}
+
+impl AuthConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        let url = Url::parse(&self.app_origin).map_err(|_| "invalid application origin")?;
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.path() != "/"
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || url.origin().ascii_serialization() != self.app_origin
+        {
+            return Err("application origin must be an exact HTTP(S) origin without a path".into());
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, iter, path::PathBuf};
@@ -123,64 +182,5 @@ mod tests {
     #[test]
     fn log_level_converts_to_level_filter() {
         assert_eq!(LevelFilter::from(LogLevel::Warn), LevelFilter::WARN);
-    }
-}
-
-/// Persistent session inactivity policy, shared by API validation and renewal.
-#[derive(Args, ConfigArgs, Clone)]
-pub struct SessionConfig {
-    #[arg(long = "session-idle-timeout", env = "PP_SESSION_IDLE_TIMEOUT", default_value = "30d", value_parser = humantime::parse_duration)]
-    #[config(value_format = humantime::format_duration)]
-    pub idle_timeout: Duration,
-}
-
-impl SessionConfig {
-    pub fn validate(&self) -> Result<(), String> {
-        let seconds = self.idle_timeout.as_secs();
-        if seconds == 0 || seconds > i64::MAX as u64 / 1_000_000 {
-            return Err(
-                "session idle timeout must be at least 1s and fit timestamp arithmetic".into(),
-            );
-        }
-        Ok(())
-    }
-}
-
-/// Database connection settings. Deliberately not Debug: URLs may contain passwords.
-#[derive(Args, ConfigArgs, Clone)]
-pub struct DatabaseConfig {
-    #[arg(
-        long = "database-url",
-        env = "PP_DATABASE_URL",
-        default_value = "postgres://pp:pp-local-only@127.0.0.1:5432/pp"
-    )]
-    pub url: String,
-}
-
-#[derive(Args, ConfigArgs, Clone)]
-pub struct AuthConfig {
-    #[arg(
-        long = "app-origin",
-        env = "PP_APP_ORIGIN",
-        default_value = "http://localhost:5173"
-    )]
-    pub app_origin: String,
-}
-
-impl AuthConfig {
-    pub fn validate(&self) -> Result<(), String> {
-        let url = Url::parse(&self.app_origin).map_err(|_| "invalid application origin")?;
-        if !matches!(url.scheme(), "http" | "https")
-            || url.host_str().is_none()
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.path() != "/"
-            || url.query().is_some()
-            || url.fragment().is_some()
-            || url.origin().ascii_serialization() != self.app_origin
-        {
-            return Err("application origin must be an exact HTTP(S) origin without a path".into());
-        }
-        Ok(())
     }
 }
