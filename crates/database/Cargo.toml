@@ -6,3 +6,6 @@ publish.workspace = true
 
 [dependencies]
 pp-core.workspace = true
+
+[lints]
+workspace = true

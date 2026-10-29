@@ -16,3 +16,6 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 libc = "0.2"
+
+[lints]
+workspace = true

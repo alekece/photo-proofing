@@ -15,3 +15,6 @@ derive_more = { version = "2.1.1", features = ["display", "from"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[lints]
+workspace = true

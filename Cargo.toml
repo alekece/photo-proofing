@@ -16,3 +16,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 actix-web = "4"
 pp-core = { path = "crates/core" }
 pp-database = { path = "crates/database" }
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
