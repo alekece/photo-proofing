@@ -4,6 +4,10 @@ use derive_more::{Display, Error};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+#[derive(Debug, Display, Error)]
+#[display("application origin must be an exact HTTP(S) origin without a path")]
+pub struct ParseOriginError;
+
 /// The browser-visible origin of the app, in canonical form (`scheme://host[:port]`, no
 /// trailing slash).
 ///
@@ -12,19 +16,15 @@ use url::Url;
 /// `Origin` request header.
 #[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
-pub struct AppOrigin(String);
+pub struct Origin(String);
 
-impl AppOrigin {
+impl Origin {
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
-#[derive(Debug, Display, Error)]
-#[display("application origin must be an exact HTTP(S) origin without a path")]
-pub struct ParseOriginError;
-
-impl FromStr for AppOrigin {
+impl FromStr for Origin {
     type Err = ParseOriginError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
@@ -46,7 +46,7 @@ impl FromStr for AppOrigin {
     }
 }
 
-impl TryFrom<String> for AppOrigin {
+impl TryFrom<String> for Origin {
     type Error = ParseOriginError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -54,8 +54,8 @@ impl TryFrom<String> for AppOrigin {
     }
 }
 
-impl From<AppOrigin> for String {
-    fn from(origin: AppOrigin) -> Self {
+impl From<Origin> for String {
+    fn from(origin: Origin) -> Self {
         origin.0
     }
 }
@@ -67,7 +67,7 @@ mod tests {
     #[test]
     fn accepts_canonical_origins() {
         for value in ["http://localhost:5173", "https://photos.example.test"] {
-            assert_eq!(value.parse::<AppOrigin>().unwrap().as_str(), value);
+            assert_eq!(value.parse::<Origin>().unwrap().as_str(), value);
         }
     }
 
@@ -83,7 +83,7 @@ mod tests {
             "http://user:pass@localhost",
             "HTTP://localhost",
         ] {
-            assert!(value.parse::<AppOrigin>().is_err(), "{value}");
+            assert!(value.parse::<Origin>().is_err(), "{value}");
         }
     }
 }

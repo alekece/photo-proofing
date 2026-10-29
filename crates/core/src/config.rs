@@ -4,10 +4,7 @@ use serde::{Deserialize, Serialize};
 use strum::Display;
 use tracing::level_filters::LevelFilter;
 
-use self::{duration::NonZeroDuration, origin::AppOrigin};
-
-pub mod duration;
-pub mod origin;
+use crate::{time::NonZeroDuration, url::Origin};
 
 /// Network binding shared by every process that listens for connections.
 #[derive(Args, ConfigArgs, Debug, Clone)]
@@ -80,7 +77,7 @@ pub struct AuthConfig {
         env = "PP_APP_ORIGIN",
         default_value = "http://localhost:5173"
     )]
-    pub app_origin: AppOrigin,
+    pub app_origin: Origin,
 }
 
 #[cfg(test)]

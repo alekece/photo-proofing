@@ -4,6 +4,19 @@ use derive_more::{Display, Error, From};
 use humantime::DurationError;
 use serde::{Deserialize, Serialize};
 
+/// The duration is outside the supported range.
+#[derive(Debug, Display, Error)]
+#[display("duration must be between 1s and 1000 years")]
+pub struct DurationRangeError;
+
+#[derive(Debug, Display, Error, From)]
+pub enum ParseNonZeroDurationError {
+    #[display("invalid duration: {_0}")]
+    Syntax(DurationError),
+    #[display("{_0}")]
+    Range(DurationRangeError),
+}
+
 /// A configured span of time that is safe to use for expiry arithmetic.
 ///
 /// The bounds are enforced once, at construction: at least one second (cookie `Max-Age`
@@ -22,19 +35,6 @@ impl NonZeroDuration {
     pub fn get(self) -> Duration {
         self.0
     }
-}
-
-/// The duration is outside the supported range.
-#[derive(Debug, Display, Error)]
-#[display("duration must be between 1s and 1000 years")]
-pub struct DurationRangeError;
-
-#[derive(Debug, Display, Error, From)]
-pub enum ParseNonZeroDurationError {
-    #[display("invalid duration: {_0}")]
-    Syntax(DurationError),
-    #[display("{_0}")]
-    Range(DurationRangeError),
 }
 
 impl fmt::Display for NonZeroDuration {
