@@ -5,7 +5,11 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+tokio.workspace = true
 pp-core.workspace = true
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "time", "migrate", "macros"] }
+time = { version = "0.3", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 
 [lints]
 workspace = true
