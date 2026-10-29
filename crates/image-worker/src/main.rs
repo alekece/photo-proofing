@@ -2,14 +2,14 @@ use std::{io::Result as IoResult, path::PathBuf};
 
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
-use eg_core::config::LogConfig;
+use pp_core::config::LogConfig;
 use tokio::signal::unix::{SignalKind, signal};
 
 #[derive(Parser, ConfigParser)]
-#[command(name = "eg-image-worker", about = "Gallery image worker")]
+#[command(name = "pp-image-worker", about = "Gallery image worker")]
 struct Cli {
     /// Optional TOML config file; see config.example.toml.
-    #[arg(long, env = "EG_CONFIG")]
+    #[arg(long, env = "PP_CONFIG")]
     #[config(path)]
     config: Option<PathBuf>,
     #[command(flatten)]

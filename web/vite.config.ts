@@ -21,7 +21,7 @@ export default defineConfig({
 	],
 	server: {
 		proxy: {
-			'/api': process.env.EG_API_PROXY_TARGET ?? 'http://127.0.0.1:8080'
+			'/api': process.env.PP_API_PROXY_TARGET ?? 'http://127.0.0.1:8080'
 		}
 	},
 	test: {

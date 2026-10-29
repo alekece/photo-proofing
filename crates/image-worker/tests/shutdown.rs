@@ -6,7 +6,7 @@ use std::{
 
 #[test]
 fn exits_cleanly_on_sigterm() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_eg-image-worker"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pp-image-worker"))
         .stderr(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()

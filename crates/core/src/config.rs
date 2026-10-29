@@ -7,15 +7,15 @@ use tracing::level_filters::LevelFilter;
 /// Network binding shared by every process that listens for connections.
 #[derive(Args, ConfigArgs, Debug, Clone)]
 pub struct ServerConfig {
-    #[arg(long, env = "EG_HOST", default_value = "127.0.0.1")]
+    #[arg(long, env = "PP_HOST", default_value = "127.0.0.1")]
     pub host: String,
-    #[arg(long, env = "EG_PORT", default_value_t = 8080)]
+    #[arg(long, env = "PP_PORT", default_value_t = 8080)]
     pub port: u16,
 }
 
 #[derive(Args, ConfigArgs, Debug, Clone)]
 pub struct LogConfig {
-    #[arg(long, env = "EG_LOG_LEVEL", value_enum, default_value_t = LogLevel::Info)]
+    #[arg(long, env = "PP_LOG_LEVEL", value_enum, default_value_t = LogLevel::Info)]
     pub log_level: LogLevel,
 }
 
@@ -56,7 +56,7 @@ mod tests {
 
     #[derive(Parser, ConfigParser)]
     struct TestCli {
-        #[arg(long, env = "EG_CONFIG")]
+        #[arg(long, env = "PP_CONFIG")]
         #[config(path)]
         config: Option<PathBuf>,
         #[command(flatten)]

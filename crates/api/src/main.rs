@@ -3,14 +3,14 @@ use std::{io::Result as IoResult, path::PathBuf};
 use actix_web::{App, HttpServer};
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
-use eg_api::app::configure_routes;
-use eg_core::config::{LogConfig, ServerConfig};
+use pp_api::app::configure_routes;
+use pp_core::config::{LogConfig, ServerConfig};
 
 #[derive(Parser, ConfigParser)]
-#[command(name = "eg-api", about = "Gallery API")]
+#[command(name = "pp-api", about = "Gallery API")]
 struct Cli {
     /// Optional TOML config file; see config.example.toml.
-    #[arg(long, env = "EG_CONFIG")]
+    #[arg(long, env = "PP_CONFIG")]
     #[config(path)]
     config: Option<PathBuf>,
     #[command(flatten)]

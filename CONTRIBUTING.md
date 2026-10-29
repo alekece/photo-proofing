@@ -20,8 +20,8 @@ cp config.example.toml config.toml   # optional, gitignored; never commit real s
 Run each process in its own terminal; stop it with `Ctrl-C`.
 
 ```sh
-cargo run -p eg-api                # API on 127.0.0.1:8080
-cargo run -p eg-image-worker       # image worker
+cargo run -p pp-api                # API on 127.0.0.1:8080
+cargo run -p pp-image-worker       # image worker
 pnpm --dir web dev                 # frontend on http://localhost:5173
 ```
 
@@ -49,7 +49,7 @@ pnpm --dir web test
 Tests that need PostgreSQL read `DATABASE_URL` and fail when it is unset. Point it at a throwaway local database, for example:
 
 ```sh
-export DATABASE_URL=postgres://USER:PASSWORD@localhost:5432/eg_test
+export DATABASE_URL=postgres://USER:PASSWORD@localhost:5432/pp_test
 ```
 
 CI provides a Postgres 17 service container and sets `DATABASE_URL` for the test job. Test fixtures must be synthetic: never use client photos, names, or other client assets.

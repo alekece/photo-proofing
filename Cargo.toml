@@ -14,5 +14,5 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 actix-web = "4"
-eg-core = { path = "crates/core" }
-eg-database = { path = "crates/database" }
+pp-core = { path = "crates/core" }
+pp-database = { path = "crates/database" }

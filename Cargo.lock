@@ -594,14 +594,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "eg-api"
+name = "pp-api"
 version = "0.1.0"
 dependencies = [
  "actix-web",
  "clap",
  "clap-config-fallback",
- "eg-core",
- "eg-database",
+ "pp-core",
+ "pp-database",
  "serde",
  "serde_json",
  "tracing",
@@ -609,7 +609,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "eg-core"
+name = "pp-core"
 version = "0.1.0"
 dependencies = [
  "clap",
@@ -623,20 +623,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "eg-database"
+name = "pp-database"
 version = "0.1.0"
 dependencies = [
- "eg-core",
+ "pp-core",
 ]
 
 [[package]]
-name = "eg-image-worker"
+name = "pp-image-worker"
 version = "0.1.0"
 dependencies = [
  "clap",
  "clap-config-fallback",
- "eg-core",
- "eg-database",
+ "pp-core",
+ "pp-database",
  "libc",
  "serde",
  "tokio",

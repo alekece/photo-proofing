@@ -1,17 +1,17 @@
 # Local development stack. Start with: docker compose up --build --wait
-name: ${COMPOSE_PROJECT_NAME:-enoam-gallery}
+name: ${COMPOSE_PROJECT_NAME:-photo-proofing}
 
 services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-eg}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eg-local-only}
-      POSTGRES_DB: ${POSTGRES_DB:-eg}
+      POSTGRES_USER: ${POSTGRES_USER:-pp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pp-local-only}
+      POSTGRES_DB: ${POSTGRES_DB:-pp}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:${EG_POSTGRES_HOST_PORT:-5432}:5432"
+      - "127.0.0.1:${PP_POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -23,9 +23,9 @@ services:
       context: .
       dockerfile: docker/api.Dockerfile
     environment:
-      EG_LOG_LEVEL: ${EG_LOG_LEVEL:-info}
+      PP_LOG_LEVEL: ${PP_LOG_LEVEL:-info}
     ports:
-      - "127.0.0.1:${EG_API_HOST_PORT:-8080}:8080"
+      - "127.0.0.1:${PP_API_HOST_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -35,7 +35,7 @@ services:
       context: .
       dockerfile: docker/worker.Dockerfile
     environment:
-      EG_LOG_LEVEL: ${EG_LOG_LEVEL:-info}
+      PP_LOG_LEVEL: ${PP_LOG_LEVEL:-info}
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,7 +45,7 @@ services:
       context: .
       dockerfile: docker/web.Dockerfile
     ports:
-      - "127.0.0.1:${EG_WEB_HOST_PORT:-5173}:5173"
+      - "127.0.0.1:${PP_WEB_HOST_PORT:-5173}:5173"
     depends_on:
       api:
         condition: service_healthy
@@ -55,7 +55,7 @@ services:
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
     ports:
-      - "127.0.0.1:${EG_PROXY_PORT:-8000}:80"
+      - "127.0.0.1:${PP_PROXY_PORT:-8000}:80"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/proxy-health"]
       interval: 5s

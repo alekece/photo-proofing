@@ -1,12 +1,12 @@
 [package]
-name = "eg-image-worker"
+name = "pp-image-worker"
 version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-eg-core.workspace = true
-eg-database.workspace = true
+pp-core.workspace = true
+pp-database.workspace = true
 clap.workspace = true
 clap-config-fallback.workspace = true
 serde = { version = "1", features = ["derive"] }
