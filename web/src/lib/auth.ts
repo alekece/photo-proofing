@@ -17,6 +17,7 @@ export class AuthError extends Error {
 	}
 }
 
+/** Same-origin JSON call to the auth API; the HttpOnly cookie is handled by the browser, never read here. */
 export async function authRequest(
 	action: 'setup' | 'login' | 'logout' | 'renew',
 	input?: { email: string; password: string },

@@ -3,6 +3,8 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 
+/// Argon2id hash with a fresh random salt, encoded as a PHC string. Passwords are hashed
+/// exactly as typed: no trimming or normalization.
 pub(super) fn hash_password(password: &str) -> Result<String, ()> {
     let mut salt = [0u8; 16];
     rand::rng().fill_bytes(&mut salt);
@@ -15,6 +17,7 @@ pub(super) fn hash_password(password: &str) -> Result<String, ()> {
         .map_err(|_| ())
 }
 
+/// Returns `false` for a malformed stored hash instead of erroring, so it reads as a failed login.
 pub(super) fn verify_password(password: &str, encoded: &str) -> bool {
     PasswordHash::new(encoded).is_ok_and(|hash| {
         Argon2::default()
@@ -23,6 +26,7 @@ pub(super) fn verify_password(password: &str, encoded: &str) -> bool {
     })
 }
 
+/// Returns the raw cookie token and its SHA-256 digest. Only the digest is ever stored.
 pub(super) fn new_token() -> (String, [u8; 32]) {
     let mut bytes = [0u8; 32];
     rand::rng().fill_bytes(&mut bytes);
@@ -33,6 +37,8 @@ pub(super) fn new_token() -> (String, [u8; 32]) {
     (token, hash)
 }
 
+/// Digest of a cookie token, or `None` unless it is the canonical encoding of 32 bytes, so
+/// malformed cookies are rejected before touching the database.
 pub(super) fn token_hash(token: &str) -> Option<[u8; 32]> {
     if token.len() != 43 {
         return None;

@@ -1,3 +1,18 @@
+//! Account setup and cookie-backed session endpoints under `/api/v1/auth`.
+//!
+//! - `GET /status` is passive: it reports whether setup is open and who the cookie identifies,
+//!   but never extends a session, so polling cannot keep one alive.
+//! - `POST /setup` creates the only account and its first session, hashing the password off
+//!   the async executor. Setup closes once an account exists.
+//! - `POST /login` verifies credentials and issues a new session token. Unknown emails are
+//!   verified against a dummy hash so response time does not reveal which emails exist.
+//! - `POST /renew` extends the idle expiry; the browser calls it only on real user activity.
+//! - `POST /logout` deletes the session row, which invalidates every copy of the cookie.
+//!
+//! The cookie holds a random opaque token; only its SHA-256 digest is stored, so a database
+//! leak does not yield usable sessions. Every state-changing request must carry the exact
+//! configured `Origin`, which is the CSRF defence for this cookie-authenticated API.
+
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr},
@@ -26,6 +41,7 @@ mod credentials;
 
 const COOKIE_NAME: &str = "pp_session";
 
+/// Shared authentication policy and limiter state, created once at startup.
 pub struct AuthState {
     store: AuthStore,
     origin: String,
@@ -36,6 +52,8 @@ pub struct AuthState {
 }
 
 impl AuthState {
+    /// Fails fast on an unusable origin or idle timeout, so cookie and expiry arithmetic
+    /// cannot fail later on the request path for configuration reasons.
     pub fn new(store: AuthStore, session: SessionConfig, auth: AuthConfig) -> Result<Self, String> {
         session.validate()?;
         auth.validate()?;
@@ -81,6 +99,9 @@ impl AuthState {
             .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST))
     }
 
+    /// Rejects a peer that already failed 10 times in the last minute. State is in-process,
+    /// bounded to 1024 peers, and resets on restart. Behind a proxy every client shares the
+    /// proxy's address, so they share one allowance.
     fn allow_attempt(&self, request: &HttpRequest) -> Result<(), AuthError> {
         let peer = Self::peer_ip(request);
         let mut attempts = self.attempts.lock().map_err(|_| unavailable())?;
@@ -112,6 +133,7 @@ impl AuthState {
         now.checked_add(delta).ok_or_else(unavailable)
     }
 
+    /// `Secure` stays off because the trusted-LAN trial runs over plain HTTP (see ADR 0002).
     fn cookie(&self, token: String) -> Result<Cookie<'static>, AuthError> {
         let max_age = time::Duration::try_from(self.idle_timeout).map_err(|_| unavailable())?;
         Ok(Cookie::build(COOKIE_NAME, token)
@@ -201,6 +223,7 @@ struct AuthStatus {
     idle_timeout_ms: u64,
 }
 
+/// Registers the auth routes; credential bodies are capped at 4 KiB.
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/auth")
@@ -284,6 +307,8 @@ async fn setup(
     .map_err(|_| unavailable())?
     .map_err(|_| unavailable())?;
 
+    // Concurrent setups can both reach here; the database allows only one account and
+    // `create_account` returns `None` to the loser, which becomes the 409 below.
     let (token, hash) = credentials::new_token();
     let now = OffsetDateTime::now_utc();
     let id = state
@@ -318,6 +343,7 @@ async fn login(
         .account_by_email(&email)
         .await
         .map_err(|_| unavailable())?;
+    // Verify against a dummy hash when the email is unknown so both cases cost the same.
     let encoded = account
         .as_ref()
         .map(|a| a.password_hash.clone())
@@ -348,11 +374,13 @@ async fn login(
     let (token, hash) = credentials::new_token();
     let now = OffsetDateTime::now_utc();
 
+    // Expired rows are removed in small batches on the request path, so no background job is needed.
     state
         .store
         .cleanup_expired(now, 100)
         .await
         .map_err(|_| unavailable())?;
+    // A request still carrying an old cookie replaces that session instead of piling up rows.
     state
         .store
         .create_session(

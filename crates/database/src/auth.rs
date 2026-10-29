@@ -1,3 +1,9 @@
+//! Persistence for the single account and its revocable sessions.
+//!
+//! A session is a row keyed by the SHA-256 digest of the cookie token, with an absolute
+//! `expires_at`. Revoking deletes the row, so copied tokens stop working immediately.
+//! Expiry is sliding: renewal pushes `expires_at` forward, with no maximum age.
+
 use pp_core::auth::{AccountId, Identity, WorkspaceId};
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
@@ -34,13 +40,16 @@ impl AuthStore {
         Self { pool }
     }
 
+    /// True while no account exists, i.e. while the login page should offer setup.
     pub async fn setup_available(&self) -> Result<bool, sqlx::Error> {
         sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM accounts)")
             .fetch_one(&self.pool)
             .await
     }
 
-    /// A conflict rolls back the newly inserted workspace as well as the account.
+    /// Creates the workspace, account and first session in one transaction. Returns `None`
+    /// when an account already exists; the `singleton` unique column makes concurrent
+    /// setups safe, and a conflict rolls back the newly inserted workspace as well.
     pub async fn create_account(
         &self,
         email: &str,
@@ -87,6 +96,9 @@ impl AuthStore {
             .await
     }
 
+    /// Inserts a session, first deleting `replaced_hash` (the caller's previous session on
+    /// the same account) so repeated logins from one browser do not accumulate rows.
+    /// Other devices' sessions are untouched.
     pub async fn create_session(
         &self,
         account_id: Uuid,
@@ -114,6 +126,7 @@ impl AuthStore {
         tx.commit().await
     }
 
+    /// Read-only: identifies the session owner if it has not expired. Never extends expiry.
     pub async fn authenticate(
         &self,
         token_hash: &[u8; 32],
@@ -125,6 +138,8 @@ impl AuthStore {
         Ok(row.map(Into::into))
     }
 
+    /// Extends a live session and returns its owner, or `None` if it is expired or revoked.
+    /// `GREATEST` means a late or out-of-order renewal can never shorten the expiry.
     pub async fn renew(
         &self,
         token_hash: &[u8; 32],
@@ -138,6 +153,7 @@ impl AuthStore {
         Ok(row.map(Into::into))
     }
 
+    /// Deletes the session; copies of its cookie stop authenticating at once. Idempotent.
     pub async fn revoke(&self, token_hash: &[u8; 32]) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM sessions WHERE token_hash=$1")
             .bind(token_hash.as_slice())
@@ -147,6 +163,8 @@ impl AuthStore {
         Ok(())
     }
 
+    /// Housekeeping only: expired sessions already fail `authenticate`, so deleting at most
+    /// `limit` per call just bounds table growth without long locks.
     pub async fn cleanup_expired(
         &self,
         now: OffsetDateTime,
