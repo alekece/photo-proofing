@@ -9,6 +9,7 @@ use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+/// Data access for the account and its sessions; see the module docs for the session model.
 #[derive(Clone)]
 pub struct AuthStore {
     pool: PgPool,

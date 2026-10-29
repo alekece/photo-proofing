@@ -56,6 +56,7 @@ pub struct SessionConfig {
 }
 
 impl SessionConfig {
+    /// Rejects timeouts that are zero or too large to represent as session timestamps.
     pub fn validate(&self) -> Result<(), String> {
         let seconds = self.idle_timeout.as_secs();
 
@@ -80,6 +81,8 @@ pub struct DatabaseConfig {
     pub url: String,
 }
 
+/// The browser-visible origin of the app. The API compares it byte-for-byte with the
+/// `Origin` header of state-changing requests, so it must match the URL users actually open.
 #[derive(Args, ConfigArgs, Clone)]
 pub struct AuthConfig {
     #[arg(
@@ -91,6 +94,8 @@ pub struct AuthConfig {
 }
 
 impl AuthConfig {
+    /// Accepts only a canonical origin (scheme, host, optional port), so the exact-match
+    /// Origin check cannot be defeated by a path, trailing slash or credentials.
     pub fn validate(&self) -> Result<(), String> {
         let url = Url::parse(&self.app_origin).map_err(|_| "invalid application origin")?;
 
