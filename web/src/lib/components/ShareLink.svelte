@@ -1,7 +1,8 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
-	import { shareGallery, type Gallery } from '#lib/gallery/api.js';
+	import { GalleryApiError, shareGallery, type Gallery } from '#lib/gallery/api.js';
 
 	let {
 		gallery,
@@ -23,7 +24,11 @@
 		failed = false;
 		try {
 			token = (await share(gallery.id)).share_token;
-		} catch {
+		} catch (error) {
+			if (error instanceof GalleryApiError && error.status === 401) {
+				await goto('/login?expired=1', { refreshAll: true });
+				return;
+			}
 			failed = true;
 		} finally {
 			sharing = false;

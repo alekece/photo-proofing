@@ -1,7 +1,10 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Gallery } from '#lib/gallery/api.js';
+
+vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
+import { goto } from '$app/navigation';
+import { GalleryApiError, type Gallery } from '#lib/gallery/api.js';
 import ShareLink from './ShareLink.svelte';
 
 const token = 'A'.repeat(22);
@@ -74,6 +77,16 @@ describe('ShareLink', () => {
 		expect(screen.queryByLabelText('Client link')).toBeNull();
 		await user.click(screen.getByRole('button', { name: 'Share' }));
 		expect(await screen.findByLabelText('Client link')).toBeTruthy();
+	});
+
+	it('sends an expired session to sign-in instead of offering a retry', async () => {
+		const share = vi.fn().mockRejectedValue(new GalleryApiError(401, 'unauthorized'));
+		render(ShareLink, { gallery: gallery(), origin: 'https://pp.test', share });
+		await userEvent.setup().click(screen.getByRole('button', { name: 'Share' }));
+		await vi.waitFor(() =>
+			expect(goto).toHaveBeenCalledWith('/login?expired=1', { refreshAll: true })
+		);
+		expect(screen.queryByRole('alert')).toBeNull();
 	});
 
 	it('is reachable by keyboard', async () => {
