@@ -9,9 +9,7 @@
 //! route, they must carry the configured `Origin`, which the API-wide middleware checks.
 
 use actix_web::{
-    Responder, get,
-    http::StatusCode,
-    patch, post,
+    HttpResponse, get, patch, post,
     web::{self, Data, Json, Path, Query, ServiceConfig},
 };
 use pp_database::gallery::{GalleryChanges, GalleryId, GallerySort};
@@ -19,7 +17,7 @@ use serde::Deserialize;
 
 use crate::{
     api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
-    response::ResponderExt,
+    response::ResponseBuilderExt,
 };
 
 #[derive(Deserialize)]
@@ -43,10 +41,10 @@ pub fn configure(cfg: &mut ServiceConfig) {
 async fn create_gallery(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-) -> Result<impl Responder, ErrorResponse> {
+) -> Result<HttpResponse, ErrorResponse> {
     let gallery = state.galleries().create(identity.workspace_id).await?;
 
-    Ok(Json(gallery).no_store().with_status(StatusCode::CREATED))
+    Ok(HttpResponse::Created().no_store().json(gallery))
 }
 
 #[get("")]
@@ -54,13 +52,13 @@ async fn list_galleries(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     query: Query<ListQuery>,
-) -> Result<impl Responder, ErrorResponse> {
+) -> Result<HttpResponse, ErrorResponse> {
     let galleries = state
         .galleries()
         .list(identity.workspace_id, query.sort)
         .await?;
 
-    Ok(Json(galleries).no_store())
+    Ok(HttpResponse::Ok().no_store().json(galleries))
 }
 
 #[get("/{id}")]
@@ -68,14 +66,14 @@ async fn show_gallery(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: Path<GalleryId>,
-) -> Result<impl Responder, ErrorResponse> {
+) -> Result<HttpResponse, ErrorResponse> {
     let gallery = state
         .galleries()
         .get(identity.workspace_id, id.into_inner())
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(Json(gallery).no_store())
+    Ok(HttpResponse::Ok().no_store().json(gallery))
 }
 
 #[patch("/{id}")]
@@ -84,14 +82,14 @@ async fn update_gallery(
     Authenticated(identity): Authenticated,
     id: Path<GalleryId>,
     changes: Json<GalleryChanges>,
-) -> Result<impl Responder, ErrorResponse> {
+) -> Result<HttpResponse, ErrorResponse> {
     let gallery = state
         .galleries()
         .update(identity.workspace_id, id.into_inner(), &changes)
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(Json(gallery).no_store())
+    Ok(HttpResponse::Ok().no_store().json(gallery))
 }
 
 #[cfg(test)]

@@ -23,7 +23,7 @@ use actix_web::{
     HttpResponse, ResponseError,
     error::JsonPayloadError,
     get,
-    http::{StatusCode, header},
+    http::StatusCode,
     post,
     web::{self, Data, Json, JsonConfig, ServiceConfig},
 };
@@ -40,6 +40,7 @@ use crate::{
         session_token::{SessionToken, TokenHash},
     },
     request::RequestExt,
+    response::ResponseBuilderExt,
 };
 
 /// A safe, client-facing failure: each variant has a fixed message that never echoes input
@@ -100,7 +101,7 @@ impl ResponseError for AuthError {
 
     fn error_response(&self) -> HttpResponse {
         HttpResponse::build(self.status_code())
-            .insert_header((header::CACHE_CONTROL, "no-store"))
+            .no_store()
             .json(serde_json::json!({"error": self.to_string()}))
     }
 }
@@ -170,13 +171,11 @@ async fn report_status(
         None => None,
     };
 
-    Ok(HttpResponse::Ok()
-        .insert_header((header::CACHE_CONTROL, "no-store"))
-        .json(AuthStatus {
-            setup_available,
-            identity,
-            idle_timeout: state.idle_timeout().into(),
-        }))
+    Ok(HttpResponse::Ok().no_store().json(AuthStatus {
+        setup_available,
+        identity,
+        idle_timeout: state.idle_timeout().into(),
+    }))
 }
 
 #[post("/setup")]
@@ -215,7 +214,7 @@ async fn setup(
         .ok_or(AuthError::SetupClosed)?;
 
     Ok(HttpResponse::Ok()
-        .insert_header((header::CACHE_CONTROL, "no-store"))
+        .no_store()
         .cookie(state.session_cookie(&token))
         .json(id))
 }
@@ -277,7 +276,7 @@ async fn login(
         .map_err(|_| AuthError::Unavailable)?;
 
     Ok(HttpResponse::Ok()
-        .insert_header((header::CACHE_CONTROL, "no-store"))
+        .no_store()
         .cookie(state.session_cookie(&token))
         .json(account.identity()))
 }
@@ -296,7 +295,7 @@ async fn logout(
     }
 
     Ok(HttpResponse::NoContent()
-        .insert_header((header::CACHE_CONTROL, "no-store"))
+        .no_store()
         .cookie(state.removal_cookie())
         .finish())
 }
@@ -316,7 +315,7 @@ async fn renew(state: Data<ApiState>, session: SessionToken) -> Result<HttpRespo
     state.delete_expired_sessions(now).await;
 
     Ok(HttpResponse::NoContent()
-        .insert_header((header::CACHE_CONTROL, "no-store"))
+        .no_store()
         .cookie(state.session_cookie(&session))
         .finish())
 }

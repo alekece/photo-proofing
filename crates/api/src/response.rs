@@ -1,14 +1,15 @@
-//! Helpers for the successful responses shared by every route.
+//! Helpers for building the HTTP responses shared by every route.
 
-use actix_web::{CustomizeResponder, Responder, http::header};
+use actix_web::{HttpResponseBuilder, http::header};
 
-/// Adds the response headers that every route shares to any [`Responder`].
-pub(crate) trait ResponderExt: Responder + Sized {
+/// Adds the headers that every route shares to a response under construction.
+pub(crate) trait ResponseBuilderExt {
     /// Forbids caching: every response here is specific to the session.
-    fn no_store(self) -> CustomizeResponder<Self> {
-        self.customize()
-            .insert_header((header::CACHE_CONTROL, "no-store"))
-    }
+    fn no_store(&mut self) -> &mut Self;
 }
 
-impl<T: Responder> ResponderExt for T {}
+impl ResponseBuilderExt for HttpResponseBuilder {
+    fn no_store(&mut self) -> &mut Self {
+        self.insert_header((header::CACHE_CONTROL, "no-store"))
+    }
+}

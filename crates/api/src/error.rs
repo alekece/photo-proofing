@@ -4,16 +4,12 @@
 //! `{"error": message}` plus a `"context"` array of extra details when a conversion has any,
 //! such as the setting that failed validation.
 
-use actix_web::{
-    HttpResponse, ResponseError,
-    error::JsonPayloadError,
-    http::{StatusCode, header},
-};
+use actix_web::{HttpResponse, ResponseError, error::JsonPayloadError, http::StatusCode};
 use pp_database::{SqlError, gallery::GalleryError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::routes::auth::AuthError;
+use crate::{response::ResponseBuilderExt, routes::auth::AuthError};
 
 #[derive(Debug, Error, Serialize, Deserialize)]
 #[error("{message}")]
@@ -55,9 +51,7 @@ impl ResponseError for ErrorResponse {
     }
 
     fn error_response(&self) -> HttpResponse {
-        HttpResponse::build(self.status)
-            .insert_header((header::CACHE_CONTROL, "no-store"))
-            .json(self)
+        HttpResponse::build(self.status).no_store().json(self)
     }
 }
 
