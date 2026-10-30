@@ -58,6 +58,12 @@ client gallery, and client 404.
     finals or while finals are uploading.
   - After delivery the gallery is live: finals changes reach the client
     silently. There is no publish step.
+- **Delivered edits:** finals can be added or removed at any time. Removing
+  every final leaves the client an empty delivered gallery (no revert, no 404).
+- **Share is one-way:** a shared gallery cannot be un-shared. Archive is how
+  access is cut (the client then sees the 404).
+- **Hero photo:** defaults to the first photo; the photographer can select and
+  change it at any time, including after sharing and delivery.
 - **Preview:** the only way to see the client view from the gallery page. It
   opens the real client view in an overlay with a Desktop/Phone toggle;
   delivered galleries preview the delivered view with download arrows and
@@ -81,13 +87,31 @@ client gallery, and client 404.
 
 1. FR-04: the empty-gallery share warning is replaced by a disabled Share
    button.
-2. Delivery has no publish step; finals edits go live immediately.
+2. Delivery has no publish step; finals edits go live immediately, and an
+   empty finals set after delivery is allowed (conflicts with FR-10/AC-04).
 3. FR-11: the notification panel has a single "Mark all as read" link rather
    than a separate Mark as read control.
 4. The New gallery dialog asks for a title only.
 5. The client "photos coming soon" page is dropped, since a gallery cannot be
    shared without ready photos.
 6. Photo ordering is out of the MVP unless specified.
+
+## Calls made without the owner (check these)
+
+- Failed uploads show a Retry on the tile (PRD FR-05); not mocked.
+- The server re-checks that every final is ready when Deliver is pressed; the
+  disabled button is not the only guard.
+- Preview loads the client view through an authenticated photographer-only
+  route, so it works before sharing; its hearts and downloads never create
+  client activity or notifications in the real product (the prototype counts
+  them only for demonstration).
+- Favorites Download exports the client's selection as a ZIP of originals
+  (FR-09), disabled when the selection is empty.
+- The Settings page (workspace watermark, account) is a separate slice, ordered
+  before watermark processing; until then the watermark toggle is hidden or
+  inert.
+- Notifications: clicking a gallery's notification marks that gallery's
+  activity read; "Mark all as read" clears the rest.
 
 ## Left to the builder
 
