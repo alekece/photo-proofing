@@ -6,6 +6,7 @@
 	--color-muted-foreground: var(--muted-foreground);
 	--color-panel: var(--panel);
 	--color-border: var(--border);
+	--color-border-strong: var(--border-strong);
 	--color-danger: var(--danger);
 	--color-info: var(--info);
 }

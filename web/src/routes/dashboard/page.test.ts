@@ -3,7 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('$app/navigation', () => ({ afterNavigate: vi.fn(), beforeNavigate: vi.fn(), goto: vi.fn() }));
+vi.mock('$app/navigation', () => ({
+	afterNavigate: vi.fn(),
+	beforeNavigate: vi.fn(),
+	goto: vi.fn()
+}));
 const state = vi.hoisted(() => ({ navigating: { to: null as null | { route: { id: string } } } }));
 vi.mock('$app/state', () => state);
 import { goto } from '$app/navigation';
@@ -43,7 +47,9 @@ describe('dashboard', () => {
 			props: props([gallery(), gallery({ id: 'g2', title: 'Portraits', layout: 'masonry' })])
 		});
 		expect(screen.getByRole('heading', { name: 'Wedding' })).toBeTruthy();
-		expect(screen.getByRole('link', { name: /Portraits/ }).getAttribute('href')).toBe('/dashboard/g2');
+		expect(screen.getByRole('link', { name: /Portraits/ }).getAttribute('href')).toBe(
+			'/dashboard/g2'
+		);
 		expect(container.textContent).toMatch(/Masonry · Edited/);
 		expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
 			'Last edited',
@@ -71,24 +77,42 @@ describe('dashboard', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('shows a friendly empty state and an error state', async () => {
+	it('shows the golden-hour empty state without a search box, and an error state', async () => {
 		const { container, unmount } = render(Dashboard, { props: props([]) });
-		expect(screen.getByText('Create your first gallery')).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'Golden hour, no clients.' })).toBeTruthy();
+		expect(screen.queryByRole('searchbox', { name: 'Search galleries' })).toBeNull();
 		expect((await axe(container)).violations).toEqual([]);
 		unmount();
 		render(Dashboard, { props: props(null) });
 		expect(screen.getByRole('alert').textContent).toMatch(/Couldn’t load/);
 	});
 
-	it('creates a gallery once and opens it', async () => {
+	it('opens the new gallery dialog instead of creating immediately', async () => {
+		const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+		vi.stubGlobal('fetch', fetcher);
+		render(Dashboard, { props: props([]) });
+		expect(screen.queryByRole('dialog')).toBeNull();
+		await userEvent.setup().click(screen.getByRole('button', { name: 'New gallery' }));
+		expect(screen.getByRole('dialog', { name: 'New gallery' })).toBeTruthy();
+		expect(fetcher.mock.calls.filter(([url]) => url === '/api/v1/galleries')).toHaveLength(0);
+		await userEvent.setup().click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(screen.queryByRole('dialog')).toBeNull();
+	});
+
+	it('creates a titled gallery once and opens it', async () => {
 		let resolve!: (response: Response) => void;
 		const fetcher = vi.fn().mockReturnValue(new Promise<Response>((r) => (resolve = r)));
 		vi.stubGlobal('fetch', fetcher);
 		const user = userEvent.setup();
 		render(Dashboard, { props: props([]) });
 		await user.click(screen.getByRole('button', { name: 'New gallery' }));
+		await user.type(screen.getByLabelText('Title'), 'Martin wedding');
+		await user.click(screen.getByRole('button', { name: 'Create gallery' }));
 		const busy = screen.getByRole('button', { name: 'Creating…' }) as HTMLButtonElement;
 		expect(busy.disabled).toBe(true);
+		fetcher.mockResolvedValue(
+			new Response(JSON.stringify(gallery({ id: 'new-id' })), { status: 200 })
+		);
 		resolve(new Response(JSON.stringify(gallery({ id: 'new-id' })), { status: 201 }));
 		await waitFor(() => expect(goto).toHaveBeenCalledWith('/dashboard/new-id'));
 		expect(fetcher.mock.calls.filter(([url]) => url === '/api/v1/galleries')).toHaveLength(1);
@@ -98,11 +122,51 @@ describe('dashboard', () => {
 		);
 	});
 
-	it('reports a failed creation', async () => {
+	it('reports a failed creation inside the dialog', async () => {
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 500 })));
+		const user = userEvent.setup();
 		render(Dashboard, { props: props([]) });
-		await userEvent.setup().click(screen.getByRole('button', { name: 'New gallery' }));
+		await user.click(screen.getByRole('button', { name: 'New gallery' }));
+		await user.type(screen.getByLabelText('Title'), 'Martin wedding');
+		await user.click(screen.getByRole('button', { name: 'Create gallery' }));
 		expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t create/);
 		expect(goto).not.toHaveBeenCalled();
+	});
+
+	describe('search', () => {
+		const galleries = [
+			gallery({ id: 'a', title: 'Martin Wedding' }),
+			gallery({ id: 'b', title: 'axb' }),
+			gallery({ id: 'c', title: 'a.b' }),
+			gallery({ id: 'd', title: null })
+		];
+		const search = async (text: string) => {
+			render(Dashboard, { props: props(galleries) });
+			await userEvent
+				.setup()
+				.type(screen.getByRole('searchbox', { name: 'Search galleries' }), text);
+		};
+		const titles = () => screen.queryAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+
+		it('filters cards by title, ignoring case', async () => {
+			await search('martin');
+			expect(titles()).toEqual(['Martin Wedding']);
+		});
+
+		it('treats regex characters literally', async () => {
+			await search('a.b');
+			expect(titles()).toEqual(['a.b']);
+		});
+
+		it('matches untitled galleries by their displayed name', async () => {
+			await search('untitled');
+			expect(titles()).toEqual(['Untitled gallery']);
+		});
+
+		it('shows a no-match state and keeps the search box', async () => {
+			await search('zzz');
+			expect(screen.getByRole('heading', { name: 'No galleries match' })).toBeTruthy();
+			expect(screen.getByRole('searchbox', { name: 'Search galleries' })).toBeTruthy();
+		});
 	});
 });
