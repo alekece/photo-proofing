@@ -12,10 +12,12 @@ use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::Repository;
+
 /// Data access for the account and its sessions; see the module docs for the session model.
-#[derive(Clone)]
-pub struct AuthStore {
-    pool: PgPool,
+#[derive(Clone, Copy)]
+pub struct AuthStore<'db> {
+    pool: &'db PgPool,
 }
 
 #[derive(FromRow)]
@@ -39,15 +41,19 @@ impl From<IdentityRow> for Identity {
     }
 }
 
-impl AuthStore {
-    pub fn new(pool: PgPool) -> Self {
+impl<'db> Repository<'db> for AuthStore<'db> {
+    type Options = ();
+
+    fn open(pool: &'db PgPool, (): Self::Options) -> Self {
         Self { pool }
     }
+}
 
+impl AuthStore<'_> {
     /// True while no account exists, i.e. while the login page should offer setup.
     pub async fn setup_available(&self) -> Result<bool, sqlx::Error> {
         sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM accounts)")
-            .fetch_one(&self.pool)
+            .fetch_one(self.pool)
             .await
     }
 
@@ -96,7 +102,7 @@ impl AuthStore {
     pub async fn account_by_email(&self, email: &Email) -> Result<Option<Account>, sqlx::Error> {
         sqlx::query_as("SELECT id,password_hash FROM accounts WHERE email=$1")
             .bind(email.as_str())
-            .fetch_optional(&self.pool)
+            .fetch_optional(self.pool)
             .await
     }
 
@@ -137,7 +143,7 @@ impl AuthStore {
         now: OffsetDateTime,
     ) -> Result<Option<Identity>, sqlx::Error> {
         let row: Option<IdentityRow> = sqlx::query_as("SELECT a.id AS account_id,a.workspace_id FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>$2")
-            .bind(token_hash.as_slice()).bind(now).fetch_optional(&self.pool).await?;
+            .bind(token_hash.as_slice()).bind(now).fetch_optional(self.pool).await?;
 
         Ok(row.map(Into::into))
     }
@@ -152,7 +158,7 @@ impl AuthStore {
     ) -> Result<Option<Identity>, sqlx::Error> {
         // UPDATE, never UPSERT: a revoked session must not be recreated by renewal.
         let row: Option<IdentityRow> = sqlx::query_as("UPDATE sessions s SET expires_at=GREATEST(s.expires_at,$3) FROM accounts a WHERE s.account_id=a.id AND s.token_hash=$1 AND s.expires_at>$2 RETURNING a.id AS account_id,a.workspace_id")
-            .bind(token_hash.as_slice()).bind(now).bind(expires_at).fetch_optional(&self.pool).await?;
+            .bind(token_hash.as_slice()).bind(now).bind(expires_at).fetch_optional(self.pool).await?;
 
         Ok(row.map(Into::into))
     }
@@ -161,7 +167,7 @@ impl AuthStore {
     pub async fn revoke(&self, token_hash: &[u8; 32]) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM sessions WHERE token_hash=$1")
             .bind(token_hash.as_slice())
-            .execute(&self.pool)
+            .execute(self.pool)
             .await?;
 
         Ok(())
@@ -174,7 +180,7 @@ impl AuthStore {
         now: OffsetDateTime,
         limit: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE expires_at<=$1 ORDER BY expires_at LIMIT $2)").bind(now).bind(limit).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE expires_at<=$1 ORDER BY expires_at LIMIT $2)").bind(now).bind(limit).execute(self.pool).await?;
 
         Ok(())
     }
@@ -185,13 +191,16 @@ mod tests {
     use time::Duration;
 
     use super::*;
+    use crate::Database;
 
     fn email(value: &str) -> Email {
         value.parse().unwrap()
     }
+
     #[sqlx::test(migrations = "./migrations")]
     async fn setup_session_and_revocation_are_persistent(pool: PgPool) {
-        let store = AuthStore::new(pool.clone());
+        let database = Database::new(pool.clone());
+        let store = database.repository::<AuthStore>();
         let now = OffsetDateTime::now_utc();
 
         assert!(store.setup_available().await.unwrap());
@@ -256,7 +265,8 @@ mod tests {
                 .is_none()
         );
         assert!(
-            AuthStore::new(pool)
+            Database::new(pool)
+                .repository::<AuthStore>()
                 .authenticate(&[1; 32], now)
                 .await
                 .unwrap()
@@ -266,8 +276,9 @@ mod tests {
 
     #[sqlx::test(migrations = "./migrations")]
     async fn concurrent_setup_leaves_one_workspace_and_account(pool: PgPool) {
-        let a = AuthStore::new(pool.clone());
-        let b = a.clone();
+        let database = Database::new(pool.clone());
+        let a = database.repository::<AuthStore>();
+        let b = a;
         let expiry = OffsetDateTime::now_utc() + Duration::days(30);
         let (email_a, email_b) = (email("a@example.test"), email("b@example.test"));
         let (a, b) = tokio::join!(
@@ -292,7 +303,8 @@ mod tests {
 
     #[sqlx::test(migrations = "./migrations")]
     async fn renewal_and_logout_cannot_resurrect_session(pool: PgPool) {
-        let store = AuthStore::new(pool);
+        let database = Database::new(pool);
+        let store = database.repository::<AuthStore>();
         let now = OffsetDateTime::now_utc();
 
         store
@@ -318,7 +330,8 @@ mod tests {
 
     #[sqlx::test(migrations = "./migrations")]
     async fn replacing_one_login_does_not_revoke_another(pool: PgPool) {
-        let store = AuthStore::new(pool);
+        let database = Database::new(pool);
+        let store = database.repository::<AuthStore>();
         let now = OffsetDateTime::now_utc();
         let id = store
             .create_account(

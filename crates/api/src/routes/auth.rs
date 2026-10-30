@@ -460,7 +460,7 @@ mod tests {
 
     use actix_web::{App, test};
     use pp_core::config::{AuthConfig, SessionConfig};
-    use pp_database::auth::AuthStore;
+    use pp_database::Database;
     use sqlx::PgPool;
 
     use super::*;
@@ -476,7 +476,7 @@ mod tests {
             app_origin: ORIGIN.parse().unwrap(),
         };
 
-        AppState::new(AuthStore::new(pool), session, auth).unwrap()
+        AppState::new(Database::new(pool), session, auth).unwrap()
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

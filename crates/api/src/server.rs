@@ -2,7 +2,7 @@ use std::io::{Error as IoError, Result as IoResult};
 
 use actix_web::{App, HttpServer, web};
 use pp_core::config::{AuthConfig, DatabaseConfig, ServerConfig, SessionConfig};
-use pp_database::{MIGRATOR, PgPoolOptions, auth::AuthStore};
+use pp_database::{Database, MIGRATOR, PgPoolOptions};
 
 use crate::{configure_routes, state::AppState};
 
@@ -33,7 +33,7 @@ impl Api {
             .await
             .map_err(|_| IoError::other("database migration failed"))?;
 
-        let state = AppState::new(AuthStore::new(pool), session, auth).map_err(IoError::other)?;
+        let state = AppState::new(Database::new(pool), session, auth).map_err(IoError::other)?;
 
         Ok(Self {
             server,

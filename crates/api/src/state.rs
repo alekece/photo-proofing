@@ -17,7 +17,7 @@ use pp_core::{
     time::NonZeroDuration,
     url::Origin,
 };
-use pp_database::auth::AuthStore;
+use pp_database::{Database, auth::AuthStore};
 use time::{OffsetDateTime, error::ConversionRange};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -38,7 +38,7 @@ pub enum StateError {
 
 /// Authentication policy, storage and abuse controls.
 pub struct AppState {
-    store: AuthStore,
+    database: Database,
     origin: Origin,
     idle_timeout: NonZeroDuration,
     // The same span as `idle_timeout` in the `time` crate's type, converted once at startup.
@@ -50,12 +50,12 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(
-        store: AuthStore,
+        database: Database,
         session: SessionConfig,
         auth: AuthConfig,
     ) -> Result<Self, StateError> {
         Ok(Self {
-            store,
+            database,
             origin: auth.app_origin,
             idle_timeout: session.idle_timeout,
             // `NonZeroDuration` bounds the timeout far below the `time` and timestamp limits,
@@ -67,8 +67,8 @@ impl AppState {
         })
     }
 
-    pub fn store(&self) -> &AuthStore {
-        &self.store
+    pub fn store(&self) -> AuthStore<'_> {
+        self.database.repository()
     }
 
     /// True only for the exact configured origin; a missing header is not allowed.
