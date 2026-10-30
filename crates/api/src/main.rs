@@ -1,4 +1,7 @@
-use std::{io::Result as IoResult, path::PathBuf};
+use std::{
+    io::{Error as IoError, Result as IoResult},
+    path::PathBuf,
+};
 
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
@@ -26,5 +29,11 @@ async fn main() -> IoResult<()> {
         .with_max_level(cli.log.log_level)
         .init();
 
-    Api::init(cli.api).await?.run().await
+    // Rendered with `Display` so startup failures read as messages, not enum variants.
+    Api::init(cli.api)
+        .await
+        .map_err(|error| IoError::other(error.to_string()))?
+        .run()
+        .await
+        .map_err(|error| IoError::other(error.to_string()))
 }

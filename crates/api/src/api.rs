@@ -1,9 +1,4 @@
-use std::{
-    io::{Error as IoError, Result as IoResult},
-    net::IpAddr,
-    sync::Arc,
-    time::Duration,
-};
+use std::{io::Error as IoError, net::IpAddr, sync::Arc, time::Duration};
 
 use actix_web::{
     App, HttpServer,
@@ -30,13 +25,24 @@ use crate::{
 /// instead of queued.
 const HASH_SLOTS: usize = 2;
 
-/// Startup failure while building [`ApiState`].
+/// Failure to start or run the [`Api`].
+///
+/// Connection and migration errors are deliberately not carried as sources: they can embed
+/// the database URL, which holds credentials.
 #[derive(Debug, Display, Error, From)]
-pub enum ApiStateError {
+pub enum ApiError {
+    #[display("database connection failed")]
+    #[from(skip)]
+    Connection,
+    #[display("database migration failed")]
+    #[from(skip)]
+    Migration,
     #[display("session idle timeout is out of range")]
     SessionLifetime(ConversionRange),
     #[display("password hashing unavailable")]
     Hashing(HashError),
+    #[display("server failed")]
+    Serve(IoError),
 }
 
 /// Process-wide state shared by every request handler.
@@ -62,7 +68,7 @@ impl ApiState {
         session: SessionConfig,
         auth: AuthConfig,
         limiter: LimiterConfig,
-    ) -> Result<Self, ApiStateError> {
+    ) -> Result<Self, ApiError> {
         Ok(Self {
             database,
             origin: auth.app_origin,
@@ -165,25 +171,21 @@ pub struct Api {
 }
 
 impl Api {
-    pub async fn init(config: ApiConfig) -> IoResult<Self> {
+    pub async fn init(config: ApiConfig) -> Result<Self, ApiError> {
         let pool = PgPoolOptions::new()
             .max_connections(10)
             .connect(config.database.url.as_str())
             .await
-            .map_err(|_| IoError::other("database connection failed"))?;
+            .map_err(|_| ApiError::Connection)?;
 
-        MIGRATOR
-            .run(&pool)
-            .await
-            .map_err(|_| IoError::other("database migration failed"))?;
+        MIGRATOR.run(&pool).await.map_err(|_| ApiError::Migration)?;
 
         let state = ApiState::new(
             Database::new(pool),
             config.session,
             config.auth,
             config.limiter,
-        )
-        .map_err(IoError::other)?;
+        )?;
 
         Ok(Self {
             http: config.http,
@@ -192,7 +194,7 @@ impl Api {
     }
 
     /// Serves until the process is stopped.
-    pub async fn run(self) -> IoResult<()> {
+    pub async fn run(self) -> Result<(), ApiError> {
         tracing::info!(host = %self.http.host, port = self.http.port, "api starting");
 
         let state = self.state;
@@ -204,7 +206,9 @@ impl Api {
         })
         .bind((self.http.host.as_str(), self.http.port))?
         .run()
-        .await
+        .await?;
+
+        Ok(())
     }
 }
 
