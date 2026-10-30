@@ -3,11 +3,14 @@
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
-	import Placeholder from '#lib/components/Placeholder.svelte';
+	import { authRequest } from '#lib/auth.js';
+	import AppHeader from '#lib/components/AppHeader.svelte';
+	import PressAgainButton from '#lib/components/PressAgainButton.svelte';
 	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import {
 		GalleryApiError,
+		shareGallery,
 		updateGallery,
 		type GalleryChanges,
 		type GalleryLayout
@@ -16,6 +19,13 @@
 	import type { PageData } from './$types';
 
 	const DEBOUNCE = 600;
+	const TABS = [
+		{ id: 'photos', label: 'Photos' },
+		{ id: 'favorites', label: 'Favorites' },
+		{ id: 'finals', label: 'Finals' }
+	] as const;
+
+	type TabId = (typeof TABS)[number]['id'];
 
 	let { data }: { data: PageData } = $props();
 	// svelte-ignore state_referenced_locally
@@ -30,6 +40,12 @@
 	let layout = $state<GalleryLayout>(data.gallery.layout);
 	// svelte-ignore state_referenced_locally
 	let watermark = $state(data.gallery.watermark_enabled);
+	// svelte-ignore state_referenced_locally
+	let shareToken = $state(data.gallery.share_token);
+	let sharing = $state(false);
+	let shareFailed = $state(false);
+	let signOutError = $state('');
+	let tab = $state<TabId>('photos');
 	let inflight = $state(0);
 	let justSaved = $state(false);
 	// Attempted values of fields whose last save failed; cleared per field on that field's success.
@@ -156,67 +172,126 @@
 			includedInvalid = false;
 		} else saveIncluded();
 	}
+	async function startSharing() {
+		sharing = true;
+		shareFailed = false;
+		try {
+			shareToken = (await shareGallery(saved.id)).share_token;
+		} catch (error) {
+			if (error instanceof GalleryApiError && error.status === 401) {
+				await goto('/login?expired=1', { refreshAll: true });
+
+				return;
+			}
+
+			shareFailed = true;
+		} finally {
+			sharing = false;
+		}
+	}
+	async function logout() {
+		signOutError = '';
+		try {
+			await authRequest('logout');
+			await goto('/login', { refreshAll: true });
+		} catch (error) {
+			signOutError = error instanceof Error ? error.message : 'Unable to sign out. Please try again.';
+		}
+	}
+	function moveTab(event: KeyboardEvent) {
+		const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+		if (step === undefined) return;
+
+		event.preventDefault();
+
+		const index = TABS.findIndex(({ id }) => id === tab);
+		const next = TABS[(index + step + TABS.length) % TABS.length].id;
+
+		tab = next;
+		document.getElementById(`tab-${next}`)?.focus();
+	}
 	function retry() {
 		for (const [key, value] of Object.entries(failed)) void save({ [key]: value });
 	}
 </script>
 
 <svelte:head><title>{saved.title ?? UNTITLED_GALLERY} — PhotoProofing</title></svelte:head>
-<main class="mx-auto grid max-w-5xl gap-6 p-6">
-	<a href="/dashboard" class="text-sm underline underline-offset-4">← All galleries</a>
+<AppHeader back={{ href: '/dashboard', label: 'All galleries' }} onsignout={logout} />
+<main class="mx-auto grid max-w-6xl gap-6 p-6">
+	{#if signOutError}<p role="alert" class="text-danger">{signOutError}</p>{/if}
 
-	<div class="aspect-[3/1] overflow-hidden rounded-xl">
-		<Placeholder background="sheet" icon label="Your hero photo will appear here" />
-	</div>
-
-	<div class="flex flex-wrap items-center gap-3">
-		<label class="sr-only" for="title">Gallery title</label>
-		<input
-			id="title"
-			class="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 text-2xl font-semibold hover:border-input focus:border-ring focus:outline-none"
-			bind:value={title}
-			placeholder={UNTITLED_GALLERY}
-			maxlength={TITLE_MAX}
-			oninput={editTitle}
-			onblur={(event) => leaveTitle(event)}
-			onkeydown={(event) => {
-				if (event.key === 'Enter') {
-					event.preventDefault();
-					leaveTitle();
-				}
-			}}
-		/>
-		<div class="flex items-center gap-2 text-sm" role="status" aria-live="polite">
-			{#if inflight > 0}
-				<span>Saving…</span>
-			{:else if hasFailures}
-				<span>Couldn’t save</span>
-				<!-- mousedown would blur the edited field, which reverts a failed value before the click -->
-				<Button
-					variant="outline"
-					size="sm"
-					data-retry
-					onmousedown={(event) => event.preventDefault()}
-					onclick={retry}
-				>Retry</Button>
-			{:else if justSaved}
-				<span>Saved</span>
+	<div class="flex flex-wrap items-start justify-between gap-4">
+		<div class="grid min-w-0 flex-1 gap-1">
+			<div class="flex flex-wrap items-center gap-3">
+				<label class="sr-only" for="title">Gallery title</label>
+				<input
+					id="title"
+					class="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 font-serif text-3xl hover:border-border-strong focus:border-foreground focus:outline-none"
+					bind:value={title}
+					placeholder={UNTITLED_GALLERY}
+					maxlength={TITLE_MAX}
+					oninput={editTitle}
+					onblur={(event) => leaveTitle(event)}
+					onkeydown={(event) => {
+						if (event.key === 'Enter') {
+							event.preventDefault();
+							leaveTitle();
+						}
+					}}
+				/>
+				<div class="flex items-center gap-2 text-sm" role="status" aria-live="polite">
+					{#if inflight > 0}
+						<span>Saving…</span>
+					{:else if hasFailures}
+						<span>Couldn’t save</span>
+						<!-- mousedown would blur the edited field, which reverts a failed value before the click -->
+						<Button
+							variant="outline"
+							size="sm"
+							data-retry
+							onmousedown={(event) => event.preventDefault()}
+							onclick={retry}
+						>Retry</Button>
+					{:else if justSaved}
+						<span>Saved</span>
+					{/if}
+				</div>
+			</div>
+			<p class="px-2 text-sm text-muted-foreground">
+				{#if shareToken}<span>Shared</span>{:else}<span>Draft · not shared</span>{/if}
+			</p>
+		</div>
+		<div class="flex flex-wrap items-center gap-2">
+			{#if shareToken}
+				<Button disabled title="Delivering finished photos arrives with a later release">
+					Deliver to client
+				</Button>
+			{:else}
+				<PressAgainButton
+					label="Share gallery"
+					confirmLabel="Press again to share"
+					onconfirm={startSharing}
+					disabled={sharing}
+				/>
 			{/if}
 		</div>
 	</div>
+	{#if shareFailed}
+		<p class="text-sm text-danger" role="alert">Couldn’t share the gallery. Please try again.</p>
+	{/if}
+	{#if shareToken}
+		<div class="grid gap-1">
+			<h2 class="text-sm font-medium">Client link</h2>
+			<ShareLink token={shareToken} origin={page.url.origin} />
+		</div>
+	{/if}
 
-	<div class="grid gap-6 md:grid-cols-[1fr_20rem]">
-		<section
-			class="grid min-h-48 place-items-center rounded-xl border border-dashed p-8 text-center text-muted-foreground"
-			aria-label="Photos"
+	<div class="grid gap-6 md:grid-cols-[20rem_1fr]">
+		<aside
+			class="grid content-start gap-5 rounded-lg border border-border bg-panel p-4"
+			aria-label="Gallery settings"
 		>
-			Photos will be added here
-		</section>
-
-		<aside class="grid content-start gap-5 rounded-xl border p-4" aria-label="Gallery settings">
-			<ShareLink gallery={saved} origin={page.url.origin} />
-
-			<h2 class="font-medium">Settings</h2>
+			<h2 class="text-lg">Settings</h2>
 
 			<fieldset class="grid gap-2">
 				<legend class="mb-1 text-sm font-medium">Layout</legend>
@@ -244,13 +319,15 @@
 				</div>
 			</fieldset>
 
+			<p class="text-sm text-muted-foreground">Hero photo: set once photos are added.</p>
+
 			<div class="grid gap-2">
 				<label for="expiry" class="text-sm font-medium">Expiry</label>
 				<div class="flex gap-2">
 					<input
 						id="expiry"
 						type="date"
-						class="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-sm"
+						class="min-w-0 flex-1 rounded-md border border-border-strong bg-white px-2 py-1 text-sm"
 						value={expiryDay}
 						onchange={(event) => {
 							expiryDay = event.currentTarget.value;
@@ -265,7 +342,9 @@
 					{expiryDay ? 'Ends at the end of this day.' : 'No expiry.'}
 				</p>
 				{#if expired}
-					<p class="text-xs text-amber-700">This date is in the past, so the gallery is already expired.</p>
+					<p class="text-xs text-amber-800">
+						This date is in the past, so the gallery is already expired.
+					</p>
 				{/if}
 			</div>
 
@@ -277,19 +356,24 @@
 					min="1"
 					step="1"
 					placeholder="Unlimited"
-					class="rounded-md border bg-background px-2 py-1 text-sm"
+					class="rounded-md border border-border-strong bg-white px-2 py-1 text-sm"
 					bind:value={included}
 					oninput={editIncluded}
 					onblur={leaveIncluded}
 					aria-invalid={includedInvalid}
 					aria-describedby="included-help"
 				/>
-				<p id="included-help" class="text-xs {includedInvalid ? 'text-destructive' : 'text-muted-foreground'}">
+				<p
+					id="included-help"
+					class="text-xs {includedInvalid ? 'text-danger' : 'text-muted-foreground'}"
+				>
 					{includedInvalid ? 'Enter a whole number of at least 1.' : 'Leave empty for unlimited.'}
 				</p>
 			</div>
 
-			<label class="flex items-center gap-2 text-sm font-medium">
+			<label
+				class="flex items-center gap-2 border-t border-border pt-4 text-sm font-medium"
+			>
 				<input
 					type="checkbox"
 					bind:checked={watermark}
@@ -297,8 +381,73 @@
 				/>
 				Watermark
 			</label>
-
-			<p class="text-sm text-muted-foreground">Hero photo: set once photos are added.</p>
 		</aside>
+
+		<section class="min-w-0">
+			<div
+				role="tablist"
+				aria-label="Gallery content"
+				class="mb-4 flex gap-6 border-b border-border-strong"
+			>
+				{#each TABS as { id, label } (id)}
+					<button
+						type="button"
+						role="tab"
+						id={`tab-${id}`}
+						aria-selected={tab === id}
+						aria-controls={`panel-${id}`}
+						tabindex={tab === id ? 0 : -1}
+						class="border-b-2 px-0 pb-2 text-xs tracking-[0.2em] uppercase {tab === id
+							? 'border-foreground text-foreground'
+							: 'border-transparent text-muted-foreground'}"
+						onclick={() => (tab = id)}
+						onkeydown={moveTab}
+					>
+						{label}
+					</button>
+				{/each}
+			</div>
+			<div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} class="grid gap-4">
+				{#if tab === 'photos'}
+					<div class="flex justify-end">
+						<Button
+							variant="outline"
+							size="sm"
+							disabled
+							title="Photo upload arrives with a later release"
+						>
+							+ Upload
+						</Button>
+					</div>
+					<p class="rounded-lg border border-dashed border-border-strong p-12 text-center text-muted-foreground">
+						No photos yet. Drop JPEGs here to start.
+					</p>
+				{:else if tab === 'favorites'}
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<span class="text-sm text-muted-foreground">Client selection</span>
+						<Button size="sm" disabled title="Downloads arrive with a later release">
+							Download
+						</Button>
+					</div>
+					<p class="rounded-lg border border-dashed border-border-strong p-12 text-center text-muted-foreground">
+						No favorites yet. The client’s selection will appear here.
+					</p>
+				{:else}
+					<div class="flex justify-end">
+						<Button
+							variant="outline"
+							size="sm"
+							disabled
+							title="Uploading finished photos arrives with a later release"
+						>
+							+ Add finished photos
+						</Button>
+					</div>
+					<p class="rounded-lg border border-dashed border-border-strong p-12 text-center text-muted-foreground">
+						No finished photos yet. Drop the edited JPEGs here.
+					</p>
+				{/if}
+			</div>
+		</section>
 	</div>
 </main>
