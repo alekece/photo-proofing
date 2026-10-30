@@ -24,7 +24,7 @@ impl Api {
     ) -> IoResult<Self> {
         let pool = PgPoolOptions::new()
             .max_connections(10)
-            .connect(&database.url)
+            .connect(database.url.as_str())
             .await
             .map_err(|_| IoError::other("database connection failed"))?;
 

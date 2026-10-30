@@ -1,9 +1,23 @@
 use actix_web::{HttpResponse, Responder, get};
+use serde::Serialize;
+
+#[derive(Serialize)]
+#[serde(rename_all = "lowercase")]
+enum HealthStatus {
+    Ok,
+}
+
+#[derive(Serialize)]
+struct Health {
+    status: HealthStatus,
+}
 
 /// Unauthenticated liveness probe; reveals nothing about configuration or dependencies.
 #[get("/health")]
 pub async fn report_health() -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
+    HttpResponse::Ok().json(Health {
+        status: HealthStatus::Ok,
+    })
 }
 
 #[cfg(test)]

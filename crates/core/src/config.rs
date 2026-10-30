@@ -3,6 +3,7 @@ use clap_config_fallback::ConfigArgs;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use tracing::level_filters::LevelFilter;
+use url::Url;
 
 use crate::{time::NonZeroDuration, url::Origin};
 
@@ -65,7 +66,7 @@ pub struct DatabaseConfig {
         env = "PP_DATABASE_URL",
         default_value = "postgres://pp:pp-local-only@127.0.0.1:5432/pp"
     )]
-    pub url: String,
+    pub url: Url,
 }
 
 /// The browser-visible origin of the app. The API compares it byte-for-byte with the
@@ -215,7 +216,7 @@ mod tests {
 
     #[test]
     fn environment_precedence_is_process_isolated() {
-        if env::var_os("PP63_CONFIG_CHILD").is_some() {
+        if env::var_os("PP_TEST_CONFIG_CHILD").is_some() {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("c.toml");
             fs::write(&path, "[session]\nidle_timeout = '1h'\n").unwrap();
@@ -237,7 +238,7 @@ mod tests {
                 "--exact",
                 "config::tests::environment_precedence_is_process_isolated",
             ])
-            .env("PP63_CONFIG_CHILD", "1")
+            .env("PP_TEST_CONFIG_CHILD", "1")
             .env("PP_SESSION_IDLE_TIMEOUT", "2h")
             .output()
             .unwrap();
