@@ -1,10 +1,8 @@
-use std::{
-    future::{self, Ready},
-    str::FromStr,
-};
+use std::future::{self, Ready};
 
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web};
-use pp_database::types::{ParseTokenError, RandomToken};
+use derive_more::FromStr;
+use pp_core::types::token::Token;
 use sha2::{Digest, Sha256};
 
 use crate::{api::ApiState, routes::auth::AuthError};
@@ -16,12 +14,12 @@ const DIGEST_BYTES: usize = 32;
 ///
 /// 256 bits, far beyond what online or offline guessing can reach, and the size of a SHA-256
 /// digest so [`TokenHash`] stores it without truncation. Only the hash is ever stored.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SessionToken(RandomToken<DIGEST_BYTES>);
+#[derive(Debug, Clone, PartialEq, Eq, FromStr)]
+pub(crate) struct SessionToken(Token<DIGEST_BYTES>);
 
 impl SessionToken {
     pub fn generate() -> Self {
-        Self(RandomToken::generate())
+        Self(Token::generate())
     }
 
     pub fn as_str(&self) -> &str {
@@ -30,14 +28,6 @@ impl SessionToken {
 
     pub fn digest(&self) -> TokenHash {
         TokenHash(Sha256::digest(self.as_str().as_bytes()).into())
-    }
-}
-
-impl FromStr for SessionToken {
-    type Err = ParseTokenError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        value.parse().map(Self)
     }
 }
 

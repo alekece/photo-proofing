@@ -10,12 +10,13 @@
 use std::num::NonZeroUsize;
 
 use derive_more::{Display, Error};
+use pp_core::types::timestamp::Timestamp;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
 use uuid::Uuid;
 
 pub use self::share::{ShareToken, SharedGallery};
-use crate::{Repository, auth::WorkspaceId, types::Timestamp};
+use crate::{Repository, auth::WorkspaceId};
 
 mod share;
 

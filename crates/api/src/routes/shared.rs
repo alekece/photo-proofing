@@ -2,8 +2,8 @@
 //!
 //! - `GET /{token}` returns the title, layout and expiry of the gallery behind the link.
 //!
-//! No session is involved. Malformed, unknown and expired links are the same 404, and a
-//! malformed one never reaches the database. The link is a bearer credential: any access log
+//! No session is involved. Malformed, unknown and expired links are the same 404 (a malformed
+//! token fails to deserialize into [`ShareToken`], so it never reaches the database). The link is a bearer credential: any access log
 //! added later must redact `/shared/` paths.
 
 use actix_web::{
@@ -22,12 +22,11 @@ pub fn configure(cfg: &mut ServiceConfig) {
 #[get("/{token}")]
 async fn show_shared_gallery(
     state: Data<ApiState>,
-    token: Path<String>,
+    token: Path<ShareToken>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let token: ShareToken = token.parse().map_err(|_| ErrorResponse::not_found())?;
     let gallery = state
         .galleries()
-        .find_shared(&token)
+        .find_shared(&token.into_inner())
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 

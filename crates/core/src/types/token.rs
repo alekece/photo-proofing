@@ -1,13 +1,9 @@
-//! Value types shared by several tables.
-
 use std::{fmt, str::FromStr};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use derive_more::{Display, Error};
 use rand::RngCore;
-use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
-use sqlx::Type;
-use time::{OffsetDateTime, UtcOffset};
+use serde::{Deserialize, Serialize};
 
 /// The text is not a canonical random token.
 #[derive(Debug, Display, Error)]
@@ -18,12 +14,12 @@ pub struct ParseTokenError;
 ///
 /// It is a bearer credential, so [`Debug`](fmt::Debug) never prints it. Parsing accepts only
 /// the canonical encoding, so malformed values are rejected before touching the database.
-#[derive(Clone, PartialEq, Eq, Serialize, Type)]
-#[serde(transparent)]
-#[sqlx(transparent)]
-pub struct RandomToken<const BYTES: usize>(String);
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
+#[serde(try_from = "String")]
+pub struct Token<const BYTES: usize>(String);
 
-impl<const BYTES: usize> RandomToken<BYTES> {
+impl<const BYTES: usize> Token<BYTES> {
     /// Length of the encoded form: 6 bits per character, rounded up.
     const ENCODED_LEN: usize = (BYTES * 8).div_ceil(6);
 
@@ -40,13 +36,13 @@ impl<const BYTES: usize> RandomToken<BYTES> {
     }
 }
 
-impl<const BYTES: usize> fmt::Debug for RandomToken<BYTES> {
+impl<const BYTES: usize> fmt::Debug for Token<BYTES> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("RandomToken(..)")
+        formatter.write_str("Token(..)")
     }
 }
 
-impl<const BYTES: usize> FromStr for RandomToken<BYTES> {
+impl<const BYTES: usize> FromStr for Token<BYTES> {
     type Err = ParseTokenError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
@@ -65,23 +61,11 @@ impl<const BYTES: usize> FromStr for RandomToken<BYTES> {
     }
 }
 
-/// A point in time that is read and written as an RFC 3339 string.
-///
-/// Parsing normalizes to UTC and rejects instants whose UTC year is outside 0000-9999: such a
-/// value would panic when sqlx converts it for Postgres and could not be written back as
-/// RFC 3339.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Type)]
-#[serde(transparent)]
-#[sqlx(transparent)]
-pub struct Timestamp(#[serde(with = "time::serde::rfc3339")] pub OffsetDateTime);
+impl<const BYTES: usize> TryFrom<String> for Token<BYTES> {
+    type Error = ParseTokenError;
 
-impl<'de> Deserialize<'de> for Timestamp {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        time::serde::rfc3339::deserialize(deserializer)?
-            .checked_to_offset(UtcOffset::UTC)
-            .filter(|instant| instant.year() >= 0)
-            .map(Self)
-            .ok_or_else(|| D::Error::custom("timestamp out of range"))
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
     }
 }
 
@@ -89,14 +73,14 @@ impl<'de> Deserialize<'de> for Timestamp {
 mod tests {
     use super::*;
 
-    type Token = RandomToken<16>;
+    type Token16 = Token<16>;
 
     #[test]
     fn parsing_accepts_only_canonical_tokens() {
-        let token = Token::generate();
+        let token = Token16::generate();
 
         assert_eq!(token.as_str().len(), 22);
-        assert_eq!(token.as_str().parse::<Token>().unwrap(), token);
+        assert_eq!(token.as_str().parse::<Token16>().unwrap(), token);
 
         // The last character of a 16-byte token only carries 2 of its 6 bits, so 'B' (000001)
         // decodes to the same bytes as 'A' but is not canonical.
@@ -111,13 +95,13 @@ mod tests {
             &format!("{}=", "A".repeat(21)),
             non_canonical.as_str(),
         ] {
-            assert!(invalid.parse::<Token>().is_err(), "{invalid:?}");
+            assert!(invalid.parse::<Token16>().is_err(), "{invalid:?}");
         }
     }
 
     #[test]
     fn debug_does_not_print_the_token() {
-        let token = Token::generate();
+        let token = Token16::generate();
 
         assert!(!format!("{token:?}").contains(token.as_str()));
     }

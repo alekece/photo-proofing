@@ -187,7 +187,7 @@ Not discussed with the user; please correct any you disagree with.
 ## Left to the builder
 
 - Exact names and module placement of `ShareToken`, `SharedGallery` and
-  the shared `RandomToken` used by `SessionToken` and `ShareToken`.
+  the shared `Token` (in `pp-core`) used by `SessionToken` and `ShareToken`.
 - Masonry implementation technique (CSS columns or a script), as long as keyboard
   order and the viewer stay accessible.
 - Exact copy wording, spacing and the browser-matrix choice for clipboard

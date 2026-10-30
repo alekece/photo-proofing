@@ -1850,15 +1850,19 @@ dependencies = [
 name = "pp-core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "clap",
  "clap-config-fallback",
  "derive_more",
  "email_address",
  "humantime",
+ "rand 0.9.5",
  "serde",
  "serde_json",
+ "sqlx",
  "strum",
  "tempfile",
+ "time",
  "tracing",
  "url",
  "uuid",
@@ -1868,10 +1872,8 @@ dependencies = [
 name = "pp-database"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
  "derive_more",
  "pp-core",
- "rand 0.9.5",
  "serde",
  "serde_json",
  "serde_with",
