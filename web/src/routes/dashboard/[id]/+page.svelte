@@ -55,24 +55,32 @@
 		};
 	});
 
+	// Latest save number per field: only the newest save of a field may update its state.
+	const latestSave: Record<string, number> = {};
+	let saveCount = 0;
+
 	async function save(changes: GalleryChanges) {
+		const keys = Object.keys(changes) as (keyof GalleryChanges)[];
+		const number = ++saveCount;
+		for (const key of keys) latestSave[key] = number;
+		const isLatest = (key: keyof GalleryChanges) => latestSave[key] === number;
 		inflight++;
 		justSaved = false;
 		void activity();
 		try {
 			const result = await updateGallery(saved.id, changes);
-			saved = { ...saved, updated_at: result.updated_at };
-			for (const key of Object.keys(changes) as (keyof GalleryChanges)[]) {
-				saved = { ...saved, [key]: result[key] };
+			const current = keys.filter(isLatest);
+			for (const key of current) {
+				saved = { ...saved, [key]: result[key], updated_at: result.updated_at };
+				delete failed[key];
 			}
-			for (const key of Object.keys(changes) as (keyof GalleryChanges)[]) delete failed[key];
-			justSaved = true;
+			if (current.length > 0) justSaved = true;
 		} catch (error) {
 			if (error instanceof GalleryApiError && error.status === 401) {
 				await goto('/login?expired=1', { refreshAll: true });
 				return;
 			}
-			failed = { ...failed, ...changes };
+			for (const key of keys.filter(isLatest)) failed = { ...failed, [key]: changes[key] };
 		} finally {
 			inflight--;
 		}
@@ -108,9 +116,13 @@
 		if (title.trim() === '') cancel('title');
 		else debounce('title', saveTitle);
 	}
-	function leaveTitle() {
+	/** Focus moving to Retry is not leaving for good: the user is about to retry the attempt. */
+	const goingToRetry = (event: FocusEvent) =>
+		event.relatedTarget instanceof HTMLElement && event.relatedTarget.dataset.retry !== undefined;
+	function leaveTitle(event?: FocusEvent) {
 		cancel('title');
-		if ('title' in failed) {
+		if (failed.title !== undefined && failed.title === title.trim()) {
+			if (event && goingToRetry(event)) return;
 			delete failed.title;
 			title = saved.title;
 		} else if (title.trim() === '') title = saved.title;
@@ -136,9 +148,10 @@
 	function editIncluded() {
 		debounce('included_photos', saveIncluded);
 	}
-	function leaveIncluded() {
+	function leaveIncluded(event: FocusEvent) {
 		cancel('included_photos');
-		if ('included_photos' in failed) {
+		if (failed.included_photos !== undefined && failed.included_photos === included) {
+			if (goingToRetry(event)) return;
 			delete failed.included_photos;
 			included = saved.included_photos;
 			includedInvalid = false;
@@ -165,7 +178,7 @@
 			bind:value={title}
 			maxlength={TITLE_MAX}
 			oninput={editTitle}
-			onblur={leaveTitle}
+			onblur={(event) => leaveTitle(event)}
 			onkeydown={(event) => {
 				if (event.key === 'Enter') {
 					event.preventDefault();
@@ -182,6 +195,7 @@
 				<Button
 					variant="outline"
 					size="sm"
+					data-retry
 					onmousedown={(event) => event.preventDefault()}
 					onclick={retry}
 				>Retry</Button>

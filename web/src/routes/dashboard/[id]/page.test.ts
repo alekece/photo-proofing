@@ -124,7 +124,7 @@ describe('gallery page', () => {
 		expect(await screen.findByText('Couldn’t save')).toBeTruthy();
 		expect(title.value).toBe('Wedding!');
 		await user.click(title);
-		await user.tab();
+		await user.click(document.body);
 		expect(title.value).toBe('Wedding');
 		expect(screen.queryByText('Couldn’t save')).toBeNull();
 
@@ -137,6 +137,83 @@ describe('gallery page', () => {
 		expect(await screen.findByText('Saved')).toBeTruthy();
 		expect(title.value).toBe('Wedding?');
 		expect(retried()).toHaveLength(1);
+	});
+
+	// Gallery PATCHes stay pending until the test settles them, in any order.
+	const deferApi = () => {
+		const pending: ((status: number) => void)[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				const status = await new Promise<number>((resolve) => pending.push(resolve));
+				return status === 200
+					? new Response(JSON.stringify({ ...base, ...JSON.parse(init?.body as string) }))
+					: new Response('{}', { status });
+			})
+		);
+		return pending;
+	};
+
+	it('ignores a stale failure after a newer save of the same field succeeded', async () => {
+		const pending = deferApi();
+		const user = userEvent.setup();
+		open();
+		await user.click(screen.getByLabelText('Watermark'));
+		await user.click(screen.getByLabelText('Watermark'));
+		await waitFor(() => expect(pending).toHaveLength(2));
+		pending[1](200);
+		pending[0](500);
+		expect(await screen.findByText('Saved')).toBeTruthy();
+		expect(screen.queryByText('Couldn’t save')).toBeNull();
+	});
+
+	it('ignores a stale success after a newer save of the same field failed', async () => {
+		const pending = deferApi();
+		const user = userEvent.setup();
+		open();
+		await user.click(screen.getByLabelText('Watermark'));
+		await user.click(screen.getByLabelText('Watermark'));
+		await waitFor(() => expect(pending).toHaveLength(2));
+		pending[1](500);
+		pending[0](200);
+		expect(await screen.findByText('Couldn’t save')).toBeTruthy();
+		expect(screen.queryByText('Saved')).toBeNull();
+	});
+
+	it('saves an edited title normally when leaving the field after a failure', async () => {
+		const patches = stubApi(500);
+		const user = userEvent.setup();
+		open();
+		const title = screen.getByLabelText('Gallery title') as HTMLInputElement;
+		await user.type(title, '!');
+		await user.tab();
+		expect(await screen.findByText('Couldn’t save')).toBeTruthy();
+		const ok = stubApi();
+		await user.type(title, '?');
+		await user.tab();
+		expect(await screen.findByText('Saved')).toBeTruthy();
+		expect(title.value).toBe('Wedding!?');
+		expect(JSON.parse(ok()[0][1]?.body as string)).toEqual({ title: 'Wedding!?' });
+		expect(patches()).toHaveLength(1);
+	});
+
+	it('lets keyboard users Tab from a failed title to Retry', async () => {
+		stubApi(500);
+		const user = userEvent.setup();
+		open();
+		const title = screen.getByLabelText('Gallery title') as HTMLInputElement;
+		await user.type(title, '!');
+		await user.tab();
+		await screen.findByText('Couldn’t save');
+		const ok = stubApi();
+		await user.click(title);
+		await user.tab();
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Retry' }));
+		expect(title.value).toBe('Wedding!');
+		await user.keyboard('{Enter}');
+		expect(await screen.findByText('Saved')).toBeTruthy();
+		expect(ok()).toHaveLength(1);
 	});
 
 	it('redirects to sign-in when the session expired', async () => {
