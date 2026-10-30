@@ -301,6 +301,7 @@ mod tests {
             (json!({"layout": "carousel"}), None),
             (json!({"unknown": 1}), None),
             (json!({"expires_at": "tomorrow"}), None),
+            (json!({"expires_at": "9999-12-31T23:59:59-01:00"}), None),
         ] {
             let (status, error) = call(&app, patch(&id, &cookie, body.clone())).await;
 
