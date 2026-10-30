@@ -41,11 +41,11 @@ pub enum ApiError {
     #[display("database migration failed")]
     #[from(skip)]
     Migration,
-    #[display("session idle timeout is out of range")]
+    #[display("session idle timeout is out of range: {_0}")]
     SessionLifetime(ConversionRange),
-    #[display("password hashing unavailable")]
+    #[display("password hashing unavailable: {_0}")]
     Hashing(HashError),
-    #[display("server failed")]
+    #[display("server failed: {_0}")]
     Serve(IoError),
 }
 
