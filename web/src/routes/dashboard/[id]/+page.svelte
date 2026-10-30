@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import Placeholder from '#lib/components/Placeholder.svelte';
+	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import {
 		GalleryApiError,
@@ -213,6 +215,8 @@
 		</section>
 
 		<aside class="grid content-start gap-5 rounded-xl border p-4" aria-label="Gallery settings">
+			<ShareLink gallery={saved} origin={page.url.origin} />
+
 			<h2 class="font-medium">Settings</h2>
 
 			<fieldset class="grid gap-2">

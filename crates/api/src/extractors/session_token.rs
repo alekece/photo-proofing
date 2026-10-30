@@ -1,72 +1,29 @@
-use std::{
-    future::{self, Ready},
-    str::FromStr,
-};
+use std::future::{self, Ready};
 
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web};
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use derive_more::{Display, Error};
-use rand::RngCore;
+use derive_more::{Deref, FromStr};
+use pp_core::types::token::Token;
 use sha2::{Digest, Sha256};
 
 use crate::{api::ApiState, routes::auth::AuthError};
 
-/// Random bytes in a session token: 256 bits, far beyond what online or offline guessing can
-/// reach, and the size of a SHA-256 digest so [`TokenHash`] stores it without truncation.
-const TOKEN_BYTES: usize = 32;
-
-/// Length of [`TOKEN_BYTES`] bytes in unpadded base64: 6 bits per character, rounded up.
-const TOKEN_ENCODED_LEN: usize = (TOKEN_BYTES * 8).div_ceil(6);
-
 /// Size of a SHA-256 digest.
 const DIGEST_BYTES: usize = 32;
 
-/// The cookie value is not a canonical 32-byte token.
-#[derive(Debug, Display, Error)]
-#[display("malformed session token")]
-pub struct ParseTokenError;
-
 /// The opaque random value carried by the session cookie.
 ///
-/// Only its [`TokenHash`] is ever stored. Parsing accepts the canonical URL-safe base64 of
-/// exactly 32 bytes, so malformed cookies are rejected before touching the database.
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct SessionToken(String);
+/// 256 bits, far beyond what online or offline guessing can reach, and the size of a SHA-256
+/// digest so [`TokenHash`] stores it without truncation. Only the hash is ever stored.
+#[derive(Debug, Clone, PartialEq, Eq, Deref, FromStr)]
+pub(crate) struct SessionToken(Token<DIGEST_BYTES>);
 
 impl SessionToken {
     pub fn generate() -> Self {
-        let mut bytes = [0u8; TOKEN_BYTES];
-
-        rand::rng().fill_bytes(&mut bytes);
-
-        Self(URL_SAFE_NO_PAD.encode(bytes))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
+        Self(Token::generate())
     }
 
     pub fn digest(&self) -> TokenHash {
-        TokenHash(Sha256::digest(self.0.as_bytes()).into())
-    }
-}
-
-impl FromStr for SessionToken {
-    type Err = ParseTokenError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        if value.len() != TOKEN_ENCODED_LEN {
-            return Err(ParseTokenError);
-        }
-
-        let decoded = URL_SAFE_NO_PAD.decode(value).map_err(|_| ParseTokenError)?;
-
-        // Re-encoding rejects non-canonical trailing bits that decode to the same bytes.
-        if decoded.len() != TOKEN_BYTES || URL_SAFE_NO_PAD.encode(&decoded) != value {
-            return Err(ParseTokenError);
-        }
-
-        Ok(Self(value.to_owned()))
+        TokenHash(Sha256::digest(self.as_str().as_bytes()).into())
     }
 }
 
@@ -111,19 +68,5 @@ mod tests {
 
         assert_eq!(parsed.digest(), token.digest());
         assert_ne!(SessionToken::generate().as_str(), token.as_str());
-    }
-
-    #[test]
-    fn malformed_tokens_are_rejected() {
-        assert_eq!(TOKEN_ENCODED_LEN, 43);
-        assert!("bad".parse::<SessionToken>().is_err());
-        assert!("a".repeat(1000).parse::<SessionToken>().is_err());
-        assert!("A".repeat(43).parse::<SessionToken>().is_ok());
-        // The final character carries non-zero padding bits, so it is not canonical.
-        assert!(
-            format!("{}B", "A".repeat(42))
-                .parse::<SessionToken>()
-                .is_err()
-        );
     }
 }

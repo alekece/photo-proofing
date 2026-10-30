@@ -1,11 +1,3 @@
-export type GalleryState =
-	| 'draft'
-	| 'proofing'
-	| 'selection_received'
-	| 'retouching'
-	| 'delivery'
-	| 'expired';
-
 export interface Proof {
 	id: string;
 	alt: string;
@@ -13,25 +5,10 @@ export interface Proof {
 	previewUrl: string;
 }
 
-export interface GalleryRecord {
-	title: string;
-	state: GalleryState;
-	/** ISO 8601 access expiry. */
-	expiresAt: string;
-	proofs: Proof[];
+/** What the private link reveals to a client; mirrors the API's `SharedGallery`. */
+export interface SharedGallery {
+	title: string | null;
+	layout: 'grid' | 'masonry';
+	/** ISO 8601 access expiry; `null` means the link never expires. */
+	expires_at: string | null;
 }
-
-export interface GrantedGalleryView {
-	access: 'granted';
-	title: string;
-	state: Exclude<GalleryState, 'draft' | 'expired'>;
-	expiresAt: string;
-	proofs: Proof[];
-}
-
-/** Deliberately carries no gallery data so it cannot leak anything. */
-export interface UnavailableGalleryView {
-	access: 'unavailable';
-}
-
-export type ClientGalleryView = GrantedGalleryView | UnavailableGalleryView;

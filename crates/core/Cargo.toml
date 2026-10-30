@@ -15,6 +15,14 @@ derive_more.workspace = true
 humantime = "2.4.0"
 url = { version = "2.5.8", features = ["serde"] }
 email_address = "0.2"
+base64 = "0.22"
+rand = "0.9"
+time = { version = "0.3", features = ["serde-well-known"] }
+sqlx = { version = "0.8", default-features = false, features = ["derive"], optional = true }
+
+[features]
+# Database encodings for the types in `types`.
+sqlx = ["dep:sqlx"]
 
 [dev-dependencies]
 tempfile = "3"

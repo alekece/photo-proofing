@@ -17,6 +17,7 @@ const gallery = (over: Partial<Gallery> = {}): Gallery => ({
 	expires_at: null,
 	included_photos: null,
 	watermark_enabled: false,
+	share_token: null,
 	created_at: '2026-01-01T10:00:00Z',
 	updated_at: '2026-01-02T10:00:00Z',
 	...over
