@@ -40,7 +40,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
         web::scope("/galleries")
             .service(create_gallery)
             .service(list_galleries)
-            .service(fetch_shared_gallery)
+            .service(show_shared_gallery)
             .service(show_gallery)
             .service(update_gallery)
             .service(share_gallery),
@@ -118,7 +118,7 @@ async fn share_gallery(
 }
 
 #[get("/shared/{token}")]
-async fn fetch_shared_gallery(
+async fn show_shared_gallery(
     state: Data<ApiState>,
     token: Path<ShareToken>,
 ) -> Result<HttpResponse, ErrorResponse> {
