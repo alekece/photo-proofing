@@ -12,13 +12,15 @@ use std::num::NonZeroUsize;
 use derive_more::{Display, Error};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
-use time::{OffsetDateTime, UtcOffset};
 use uuid::Uuid;
 
-use crate::{Repository, auth::WorkspaceId};
+use crate::{Repository, auth::WorkspaceId, types::Timestamp};
 
 /// Postgres SQLSTATE for a string containing a NUL byte.
 const INVALID_BYTE_SEQUENCE: &str = "22021";
+
+/// The CHECK constraint bounding the title length; see the migration.
+const TITLE_LENGTH_CONSTRAINT: &str = "galleries_title_length";
 
 /// A setting that failed validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
@@ -32,9 +34,9 @@ pub enum GallerySetting {
 #[derive(Debug, Display, Error)]
 pub enum GalleryError {
     #[display("{_0} exceeds its length limit")]
-    LengthOverflowViolation(#[error(not(source))] GallerySetting),
+    LengthOverflow(#[error(not(source))] GallerySetting),
     #[display("{_0} contains characters the database cannot store")]
-    InvalidCharactersViolation(#[error(not(source))] GallerySetting),
+    InvalidCharacters(#[error(not(source))] GallerySetting),
     #[display("database error: {_0}")]
     Database(sqlx::Error),
 }
@@ -43,9 +45,7 @@ impl GalleryError {
     /// The setting that caused a validation failure, if it was one.
     pub fn setting(&self) -> Option<GallerySetting> {
         match self {
-            Self::LengthOverflowViolation(setting) | Self::InvalidCharactersViolation(setting) => {
-                Some(*setting)
-            }
+            Self::LengthOverflow(setting) | Self::InvalidCharacters(setting) => Some(*setting),
             Self::Database(_) => None,
         }
     }
@@ -56,11 +56,11 @@ impl From<sqlx::Error> for GalleryError {
     fn from(error: sqlx::Error) -> Self {
         let violation = error.as_database_error().and_then(|db| {
             match (db.constraint(), db.code().as_deref()) {
-                (Some("galleries_title_length"), _) => {
-                    Some(Self::LengthOverflowViolation(GallerySetting::Title))
+                (Some(TITLE_LENGTH_CONSTRAINT), _) => {
+                    Some(Self::LengthOverflow(GallerySetting::Title))
                 }
                 (_, Some(INVALID_BYTE_SEQUENCE)) => {
-                    Some(Self::InvalidCharactersViolation(GallerySetting::Title))
+                    Some(Self::InvalidCharacters(GallerySetting::Title))
                 }
                 _ => None,
             }
@@ -83,26 +83,6 @@ pub enum GalleryLayout {
     #[default]
     Grid,
     Masonry,
-}
-
-/// A point in time that is read and written as an RFC 3339 string.
-///
-/// Parsing normalizes to UTC and rejects instants whose UTC year is outside 0000-9999: such a
-/// value would panic when sqlx converts it for Postgres and could not be written back as
-/// RFC 3339.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Type)]
-#[serde(transparent)]
-#[sqlx(transparent)]
-pub struct Timestamp(#[serde(with = "time::serde::rfc3339")] pub OffsetDateTime);
-
-impl<'de> Deserialize<'de> for Timestamp {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        time::serde::rfc3339::deserialize(deserializer)?
-            .checked_to_offset(UtcOffset::UTC)
-            .filter(|instant| instant.year() >= 0)
-            .map(Self)
-            .ok_or_else(|| D::Error::custom("timestamp out of range"))
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -161,7 +141,7 @@ pub struct GalleryChanges {
     pub title: Option<Option<String>>,
     #[serde(
         default,
-        deserialize_with = "supplied",
+        deserialize_with = "deserialize_present",
         skip_serializing_if = "Option::is_none"
     )]
     pub layout: Option<GalleryLayout>,
@@ -179,7 +159,7 @@ pub struct GalleryChanges {
     pub included_photos: Option<Option<NonZeroUsize>>,
     #[serde(
         default,
-        deserialize_with = "supplied",
+        deserialize_with = "deserialize_present",
         skip_serializing_if = "Option::is_none"
     )]
     pub watermark_enabled: Option<bool>,
@@ -191,8 +171,11 @@ impl GalleryChanges {
     }
 }
 
-/// Deserializes a present value as `Some`, failing on `null` instead of treating it as absent.
-fn supplied<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+/// Deserializes a supplied value as `Some` and rejects `null`.
+///
+/// Plain `Option<T>` fields treat `null` like a missing field, so `{"layout": null}` would
+/// silently change nothing; settings that cannot be cleared fail instead.
+fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
@@ -306,9 +289,7 @@ impl GalleryRepository<'_> {
                 count
                     .map(|count| i32::try_from(count.get()))
                     .transpose()
-                    .map_err(|_| {
-                        GalleryError::LengthOverflowViolation(GallerySetting::IncludedPhotos)
-                    })
+                    .map_err(|_| GalleryError::LengthOverflow(GallerySetting::IncludedPhotos))
             })
             .transpose()?;
 
@@ -485,7 +466,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GalleryError::LengthOverflowViolation(GallerySetting::Title))
+            Err(GalleryError::LengthOverflow(GallerySetting::Title))
         ));
 
         let result = store
@@ -494,9 +475,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GalleryError::InvalidCharactersViolation(
-                GallerySetting::Title
-            ))
+            Err(GalleryError::InvalidCharacters(GallerySetting::Title))
         ));
 
         let widest = "é".repeat(255);
@@ -515,9 +494,7 @@ mod tests {
 
         assert!(matches!(
             store.update(workspace, id, &oversized).await,
-            Err(GalleryError::LengthOverflowViolation(
-                GallerySetting::IncludedPhotos
-            ))
+            Err(GalleryError::LengthOverflow(GallerySetting::IncludedPhotos))
         ));
     }
 

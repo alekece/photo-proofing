@@ -18,17 +18,13 @@ use crate::routes::auth::AuthError;
 #[derive(Debug, Error, Serialize, Deserialize)]
 #[error("{message}")]
 pub(crate) struct ErrorResponse {
-    #[serde(skip, default = "internal_server_error")]
+    #[serde(skip)]
     status: StatusCode,
     #[serde(rename = "error")]
     message: String,
     /// Details a client may act on; the first entry is the most specific subject.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     context: Vec<String>,
-}
-
-fn internal_server_error() -> StatusCode {
-    StatusCode::INTERNAL_SERVER_ERROR
 }
 
 impl ErrorResponse {

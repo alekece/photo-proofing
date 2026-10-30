@@ -1,40 +1,14 @@
-//! Successful JSON responses shared by every route.
+//! Helpers for the successful responses shared by every route.
 
-use actix_web::{
-    HttpRequest, HttpResponse, Responder,
-    body::BoxBody,
-    http::{StatusCode, header},
-};
-use serde::Serialize;
+use actix_web::{CustomizeResponder, Responder, http::header};
 
-/// A JSON body that must never be cached: every response here is specific to the session.
-pub(crate) struct NoStore<T> {
-    status: StatusCode,
-    body: T,
-}
-
-impl<T> NoStore<T> {
-    pub fn ok(body: T) -> Self {
-        Self {
-            status: StatusCode::OK,
-            body,
-        }
-    }
-
-    pub fn created(body: T) -> Self {
-        Self {
-            status: StatusCode::CREATED,
-            body,
-        }
-    }
-}
-
-impl<T: Serialize> Responder for NoStore<T> {
-    type Body = BoxBody;
-
-    fn respond_to(self, _: &HttpRequest) -> HttpResponse {
-        HttpResponse::build(self.status)
+/// Adds the response headers that every route shares to any [`Responder`].
+pub(crate) trait ResponderExt: Responder + Sized {
+    /// Forbids caching: every response here is specific to the session.
+    fn no_store(self) -> CustomizeResponder<Self> {
+        self.customize()
             .insert_header((header::CACHE_CONTROL, "no-store"))
-            .json(self.body)
     }
 }
+
+impl<T: Responder> ResponderExt for T {}

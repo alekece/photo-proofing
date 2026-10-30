@@ -8,7 +8,7 @@ use std::{
 use actix_web::{
     App, HttpServer,
     cookie::{Cookie, SameSite, time::Duration as CookieMaxAge, time::error::ConversionRange},
-    web,
+    web::{self, Data, JsonConfig, PathConfig, QueryConfig, ServiceConfig},
 };
 use derive_more::{Display, Error, From};
 use pp_core::url::Origin;
@@ -28,6 +28,10 @@ use crate::{
     middlewares::origin::SameOrigin,
     routes,
 };
+
+/// Largest accepted JSON body: credentials and gallery changesets are a handful of short
+/// fields, so this is well above any valid request.
+pub(crate) const JSON_LIMIT: usize = 4096;
 
 /// Argon2 is memory heavy, so only this many hashes run at once; further requests are refused
 /// instead of queued.
@@ -179,7 +183,7 @@ impl ApiState {
 /// unknown state.
 pub struct Api {
     http: HttpConfig,
-    state: web::Data<ApiState>,
+    state: Data<ApiState>,
 }
 
 impl Api {
@@ -201,7 +205,7 @@ impl Api {
 
         Ok(Self {
             http: config.http,
-            state: web::Data::new(state),
+            state: Data::new(state),
         })
     }
 
@@ -224,29 +228,22 @@ impl Api {
     }
 }
 
-/// Largest accepted JSON body: credentials and gallery changesets are a handful of short
-/// fields, so this is well above any valid request.
-const JSON_LIMIT: usize = 4096;
-
 /// Mounts every HTTP route under `/api/v1`, behind the same-origin check, with the shared
 /// request-parsing error responses. A scope may override those, as `/auth` does for its
 /// JSON bodies.
-pub fn configure_routes(cfg: &mut web::ServiceConfig) {
+pub fn configure_routes(cfg: &mut ServiceConfig) {
     cfg.service(
         web::scope("/api/v1")
             .wrap(SameOrigin)
             .app_data(
-                web::JsonConfig::default()
+                JsonConfig::default()
                     .limit(JSON_LIMIT)
                     .error_handler(|error, _| ErrorResponse::from(error).into()),
             )
             .app_data(
-                web::QueryConfig::default()
-                    .error_handler(|_, _| ErrorResponse::bad_request().into()),
+                QueryConfig::default().error_handler(|_, _| ErrorResponse::bad_request().into()),
             )
-            .app_data(
-                web::PathConfig::default().error_handler(|_, _| ErrorResponse::not_found().into()),
-            )
+            .app_data(PathConfig::default().error_handler(|_, _| ErrorResponse::not_found().into()))
             .service(routes::health::report_health)
             .configure(routes::auth::configure)
             .configure(routes::galleries::configure),

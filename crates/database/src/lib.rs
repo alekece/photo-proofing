@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod gallery;
+pub mod types;
 
 pub use sqlx::{Error as SqlError, PgPool, postgres::PgPoolOptions};
 

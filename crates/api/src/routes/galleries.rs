@@ -8,12 +8,18 @@
 //! A gallery of another workspace is a 404, never a 403, so ids reveal nothing. Like every state-changing
 //! route, they must carry the configured `Origin`, which the API-wide middleware checks.
 
-use actix_web::{get, patch, post, web};
-use pp_database::gallery::{Gallery, GalleryChanges, GalleryId, GallerySort};
+use actix_web::{
+    Responder, get,
+    http::StatusCode,
+    patch, post,
+    web::{self, Data, Json, Path, Query, ServiceConfig},
+};
+use pp_database::gallery::{GalleryChanges, GalleryId, GallerySort};
 use serde::Deserialize;
 
 use crate::{
-    api::ApiState, error::ErrorResponse, extractors::identity::Authenticated, response::NoStore,
+    api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
+    response::ResponderExt,
 };
 
 #[derive(Deserialize)]
@@ -23,7 +29,7 @@ struct ListQuery {
 }
 
 /// Registers the gallery routes.
-pub fn configure(cfg: &mut web::ServiceConfig) {
+pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(
         web::scope("/galleries")
             .service(create_gallery)
@@ -35,57 +41,57 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 #[post("")]
 async fn create_gallery(
-    state: web::Data<ApiState>,
+    state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-) -> Result<NoStore<Gallery>, ErrorResponse> {
+) -> Result<impl Responder, ErrorResponse> {
     let gallery = state.galleries().create(identity.workspace_id).await?;
 
-    Ok(NoStore::created(gallery))
+    Ok(Json(gallery).no_store().with_status(StatusCode::CREATED))
 }
 
 #[get("")]
 async fn list_galleries(
-    state: web::Data<ApiState>,
+    state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    query: web::Query<ListQuery>,
-) -> Result<NoStore<Vec<Gallery>>, ErrorResponse> {
+    query: Query<ListQuery>,
+) -> Result<impl Responder, ErrorResponse> {
     let galleries = state
         .galleries()
         .list(identity.workspace_id, query.sort)
         .await?;
 
-    Ok(NoStore::ok(galleries))
+    Ok(Json(galleries).no_store())
 }
 
 #[get("/{id}")]
 async fn show_gallery(
-    state: web::Data<ApiState>,
+    state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    id: web::Path<GalleryId>,
-) -> Result<NoStore<Gallery>, ErrorResponse> {
+    id: Path<GalleryId>,
+) -> Result<impl Responder, ErrorResponse> {
     let gallery = state
         .galleries()
         .get(identity.workspace_id, id.into_inner())
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(NoStore::ok(gallery))
+    Ok(Json(gallery).no_store())
 }
 
 #[patch("/{id}")]
 async fn update_gallery(
-    state: web::Data<ApiState>,
+    state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    id: web::Path<GalleryId>,
-    changes: web::Json<GalleryChanges>,
-) -> Result<NoStore<Gallery>, ErrorResponse> {
+    id: Path<GalleryId>,
+    changes: Json<GalleryChanges>,
+) -> Result<impl Responder, ErrorResponse> {
     let gallery = state
         .galleries()
         .update(identity.workspace_id, id.into_inner(), &changes)
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(NoStore::ok(gallery))
+    Ok(Json(gallery).no_store())
 }
 
 #[cfg(test)]
@@ -178,7 +184,7 @@ mod tests {
     async fn creating_listing_and_patching_round_trip(pool: PgPool) {
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(app_state(pool)))
+                .app_data(Data::new(app_state(pool)))
                 .configure(configure_routes),
         )
         .await;
@@ -251,10 +257,32 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
+    async fn responses_are_never_cached(pool: PgPool) {
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(app_state(pool)))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let created = test::call_service(&app, post_gallery(&cookie).to_request()).await;
+
+        assert_eq!(created.status(), StatusCode::CREATED);
+        assert_eq!(created.headers().get("Cache-Control").unwrap(), "no-store");
+
+        let request = test::TestRequest::get()
+            .uri("/api/v1/galleries")
+            .cookie(cookie);
+        let listed = test::call_service(&app, request.to_request()).await;
+
+        assert_eq!(listed.headers().get("Cache-Control").unwrap(), "no-store");
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
     async fn invalid_changes_and_requests_are_rejected(pool: PgPool) {
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(app_state(pool)))
+                .app_data(Data::new(app_state(pool)))
                 .configure(configure_routes),
         )
         .await;
@@ -339,7 +367,7 @@ mod tests {
     async fn session_and_origin_are_required(pool: PgPool) {
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(app_state(pool)))
+                .app_data(Data::new(app_state(pool)))
                 .configure(configure_routes),
         )
         .await;
@@ -383,7 +411,7 @@ mod tests {
         let state = app_state(pool.clone());
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(state))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;

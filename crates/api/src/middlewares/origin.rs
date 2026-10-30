@@ -10,7 +10,7 @@ use actix_web::{
     body::{EitherBody, MessageBody},
     dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready},
     http::header,
-    web,
+    web::Data,
 };
 
 use crate::{api::ApiState, error::ErrorResponse, routes::auth::AuthError};
@@ -54,16 +54,14 @@ where
 
     fn call(&self, request: ServiceRequest) -> Self::Future {
         let allowed = request.method().is_safe()
-            || request
-                .app_data::<web::Data<ApiState>>()
-                .is_some_and(|state| {
-                    let origin = request
-                        .headers()
-                        .get(header::ORIGIN)
-                        .and_then(|value| value.to_str().ok());
+            || request.app_data::<Data<ApiState>>().is_some_and(|state| {
+                let origin = request
+                    .headers()
+                    .get(header::ORIGIN)
+                    .and_then(|value| value.to_str().ok());
 
-                    state.allows_origin(origin)
-                });
+                state.allows_origin(origin)
+            });
 
         if !allowed {
             let response = request

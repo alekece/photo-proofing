@@ -1,6 +1,6 @@
 use std::{future::Future, pin::Pin, time::SystemTime};
 
-use actix_web::{FromRequest, HttpRequest, dev::Payload, web};
+use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
 use pp_database::auth::Identity;
 
 use crate::{api::ApiState, extractors::session_token::SessionToken, routes::auth::AuthError};
@@ -17,7 +17,7 @@ impl FromRequest for Authenticated {
 
     fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
         let token = SessionToken::from_request(request, payload);
-        let state = request.app_data::<web::Data<ApiState>>().cloned();
+        let state = request.app_data::<Data<ApiState>>().cloned();
 
         Box::pin(async move {
             let state = state.ok_or(AuthError::Unavailable)?;
