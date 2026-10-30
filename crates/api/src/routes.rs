@@ -3,4 +3,3 @@
 pub mod auth;
 pub mod galleries;
 pub mod health;
-pub mod shared;
