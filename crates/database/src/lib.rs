@@ -1,6 +1,7 @@
 //! PostgreSQL persistence and versioned application migrations.
 
 pub mod auth;
+pub mod gallery;
 
 pub use sqlx::{PgPool, postgres::PgPoolOptions};
 
