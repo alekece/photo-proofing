@@ -33,6 +33,10 @@ right matters more than the visible page.
 
 - No SSE or live updates. Split out to #80, because no events exist until
   uploads and processing (#66) do.
+- No photographer preview of the client page. Agreed as a separate issue, #81,
+  after this one; it is not in the current PRD.
+- No live refresh of the empty client page: a manual browser reload is accepted.
+  The normal flow is upload first, then share, so clients see all photos.
 - No photos, thumbnails, hero image or ready-proof listing. Those arrive with
   #66; this slice defines no photo contract beyond what the page needs now.
 - No link rotation, unshare, passcodes, client accounts, email or SMS.
