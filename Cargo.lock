@@ -1673,6 +1673,7 @@ name = "pp-database"
 version = "0.1.0"
 dependencies = [
  "pp-core",
+ "serde",
  "sqlx",
  "time",
  "tokio",

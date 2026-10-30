@@ -4,15 +4,33 @@
 //! `expires_at`. Revoking deletes the row, so copied tokens stop working immediately.
 //! Expiry is sliding: renewal pushes `expires_at` forward, with no maximum age.
 
-use pp_core::{
-    auth::{AccountId, Identity, WorkspaceId},
-    email::Email,
-};
-use sqlx::{FromRow, PgPool};
+use pp_core::email::Email;
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, PgPool, Type};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::Repository;
+
+/// Identifies the single photographer account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(transparent)]
+#[sqlx(transparent)]
+pub struct AccountId(pub Uuid);
+
+/// Owner of galleries and settings. Kept separate from [`AccountId`] so collaborators can
+/// later join a workspace without changing who owns its data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(transparent)]
+#[sqlx(transparent)]
+pub struct WorkspaceId(pub Uuid);
+
+/// Who a valid session belongs to; the only thing protected operations should trust.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, FromRow)]
+pub struct Identity {
+    pub account_id: AccountId,
+    pub workspace_id: WorkspaceId,
+}
 
 /// Data access for the account and its sessions; see the module docs for the session model.
 #[derive(Clone, Copy)]
@@ -22,31 +40,16 @@ pub struct AuthRepository<'db> {
 
 #[derive(FromRow)]
 pub struct Account {
-    pub id: Uuid,
-    pub workspace_id: Uuid,
+    pub id: AccountId,
+    pub workspace_id: WorkspaceId,
     pub password_hash: String,
 }
 
 impl Account {
     pub fn identity(&self) -> Identity {
         Identity {
-            account_id: AccountId(self.id),
-            workspace_id: WorkspaceId(self.workspace_id),
-        }
-    }
-}
-
-#[derive(FromRow)]
-struct IdentityRow {
-    account_id: Uuid,
-    workspace_id: Uuid,
-}
-
-impl From<IdentityRow> for Identity {
-    fn from(row: IdentityRow) -> Self {
-        Self {
-            account_id: AccountId(row.account_id),
-            workspace_id: WorkspaceId(row.workspace_id),
+            account_id: self.id,
+            workspace_id: self.workspace_id,
         }
     }
 }
@@ -78,8 +81,8 @@ impl AuthRepository<'_> {
         expires_at: OffsetDateTime,
     ) -> Result<Option<Identity>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
-        let workspace_id = Uuid::new_v4();
-        let account_id = Uuid::new_v4();
+        let workspace_id = WorkspaceId(Uuid::new_v4());
+        let account_id = AccountId(Uuid::new_v4());
 
         sqlx::query("INSERT INTO workspaces(id) VALUES ($1)")
             .bind(workspace_id)
@@ -104,8 +107,8 @@ impl AuthRepository<'_> {
         tx.commit().await?;
 
         Ok(Some(Identity {
-            account_id: AccountId(account_id),
-            workspace_id: WorkspaceId(workspace_id),
+            account_id,
+            workspace_id,
         }))
     }
 
@@ -121,7 +124,7 @@ impl AuthRepository<'_> {
     /// Other devices' sessions are untouched.
     pub async fn create_session(
         &self,
-        account_id: Uuid,
+        account_id: AccountId,
         token_hash: &[u8; 32],
         expires_at: OffsetDateTime,
         replaced_hash: Option<&[u8; 32]>,
@@ -152,10 +155,8 @@ impl AuthRepository<'_> {
         token_hash: &[u8; 32],
         now: OffsetDateTime,
     ) -> Result<Option<Identity>, sqlx::Error> {
-        let row: Option<IdentityRow> = sqlx::query_as("SELECT a.id AS account_id,a.workspace_id FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>$2")
-            .bind(token_hash.as_slice()).bind(now).fetch_optional(self.pool).await?;
-
-        Ok(row.map(Into::into))
+        sqlx::query_as("SELECT a.id AS account_id,a.workspace_id FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>$2")
+            .bind(token_hash.as_slice()).bind(now).fetch_optional(self.pool).await
     }
 
     /// Extends a live session and returns its owner, or `None` if it is expired or revoked.
@@ -167,10 +168,8 @@ impl AuthRepository<'_> {
         expires_at: OffsetDateTime,
     ) -> Result<Option<Identity>, sqlx::Error> {
         // UPDATE, never UPSERT: a revoked session must not be recreated by renewal.
-        let row: Option<IdentityRow> = sqlx::query_as("UPDATE sessions s SET expires_at=GREATEST(s.expires_at,$3) FROM accounts a WHERE s.account_id=a.id AND s.token_hash=$1 AND s.expires_at>$2 RETURNING a.id AS account_id,a.workspace_id")
-            .bind(token_hash.as_slice()).bind(now).bind(expires_at).fetch_optional(self.pool).await?;
-
-        Ok(row.map(Into::into))
+        sqlx::query_as("UPDATE sessions s SET expires_at=GREATEST(s.expires_at,$3) FROM accounts a WHERE s.account_id=a.id AND s.token_hash=$1 AND s.expires_at>$2 RETURNING a.id AS account_id,a.workspace_id")
+            .bind(token_hash.as_slice()).bind(now).bind(expires_at).fetch_optional(self.pool).await
     }
 
     /// Deletes the session; copies of its cookie stop authenticating at once. Idempotent.
@@ -355,12 +354,12 @@ mod tests {
             .unwrap();
 
         store
-            .create_session(id.account_id.0, &[2; 32], now + Duration::days(1), None)
+            .create_session(id.account_id, &[2; 32], now + Duration::days(1), None)
             .await
             .unwrap();
         store
             .create_session(
-                id.account_id.0,
+                id.account_id,
                 &[3; 32],
                 now + Duration::days(1),
                 Some(&[1; 32]),

@@ -31,7 +31,8 @@ use actix_web::{
     middleware::{Next, from_fn},
     post, web,
 };
-use pp_core::{auth::Identity, email::Email, time::Millis};
+use pp_core::{email::Email, time::Millis};
+use pp_database::auth::Identity;
 use serde::{Deserialize, Serialize};
 use serde_json::error::Category;
 use time::OffsetDateTime;
