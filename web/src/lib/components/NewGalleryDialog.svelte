@@ -29,11 +29,17 @@
 		field?.focus();
 	});
 
+	// Closing the dialog before it unmounts is what returns focus to the button that opened it.
+	function dismiss() {
+		if (typeof dialog.close === 'function') dialog.close();
+		onclose();
+	}
+
 	function onkeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
 
 		event.preventDefault();
-		onclose();
+		dismiss();
 	}
 
 	async function submit(event: SubmitEvent) {
@@ -105,7 +111,7 @@
 			{/if}
 		</div>
 		<div class="flex justify-end gap-2">
-			<Button variant="ghost" onclick={onclose} disabled={creating}>Cancel</Button>
+			<Button variant="ghost" onclick={dismiss} disabled={creating}>Cancel</Button>
 			<Button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create gallery'}</Button>
 		</div>
 	</form>

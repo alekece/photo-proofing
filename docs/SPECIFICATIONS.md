@@ -39,7 +39,7 @@ One workspace groups galleries, settings, and activity. The MVP has one photogra
 
 ### FR-03
 
-**Gallery configuration.** The photographer can configure title, hero photo, layout, optional expiry, optional included photo count, and watermark enablement. Offer uniform grid by default and masonry, sharing viewer and selection controls. Exact title validation, initial hero choice, and empty-hero behavior are technical/product defaults to resolve in the gallery design; they must not prevent the empty-sharing journey. The included count is informational, editable after sharing, and optional; no value means unlimited selection. The New gallery dialog asks for a title only; every other setting is configured on the gallery page.
+**Gallery configuration.** The photographer can configure title, hero photo, layout, optional expiry, optional included photo count, and watermark enablement. Offer uniform grid by default and masonry, sharing viewer and selection controls. Exact title validation, initial hero choice, and empty-hero behavior are technical/product defaults to resolve in the gallery design; they must not block sharing once a photo is ready. The included count is informational, editable after sharing, and optional; no value means unlimited selection. The New gallery dialog asks for a title only; every other setting is configured on the gallery page.
 
 ### FR-04
 
