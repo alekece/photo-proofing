@@ -9,7 +9,7 @@
 use std::num::NonZeroUsize;
 
 use derive_more::{Display, Error, From};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -114,7 +114,11 @@ where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
 {
-    T::deserialize(deserializer).map(Some)
+    // Going through `Option` makes `null` a data error for every `T`; deserializing `T`
+    // directly makes some types (enums) report it as a syntax error instead.
+    Option::<T>::deserialize(deserializer)?
+        .map(Some)
+        .ok_or_else(|| D::Error::custom("null is not allowed"))
 }
 
 /// Ordering of [`GalleryRepository::list`]; ties always break on the gallery id.
@@ -267,15 +271,16 @@ impl GalleryRepository<'_> {
 
 /// Maps a validation failure to the setting that caused it; anything else stays a database error.
 fn invalid_setting(error: sqlx::Error) -> GalleryError {
-    let setting = error.as_database_error().and_then(|db| {
-        match (db.constraint(), db.code().as_deref()) {
-            (Some("galleries_title_length"), _) | (_, Some(INVALID_BYTE_SEQUENCE)) => {
-                Some(Setting::Title)
-            }
-            (Some("galleries_included_photos_positive"), _) => Some(Setting::IncludedPhotos),
-            _ => None,
-        }
-    });
+    let setting =
+        error
+            .as_database_error()
+            .and_then(|db| match (db.constraint(), db.code().as_deref()) {
+                (Some("galleries_title_length"), _) | (_, Some(INVALID_BYTE_SEQUENCE)) => {
+                    Some(Setting::Title)
+                }
+                (Some("galleries_included_photos_positive"), _) => Some(Setting::IncludedPhotos),
+                _ => None,
+            });
 
     setting.map_or(GalleryError::Database(error), GalleryError::Invalid)
 }
@@ -315,9 +320,18 @@ mod tests {
         assert_eq!(gallery.expires_at, None);
         assert_eq!(gallery.included_photos, None);
         assert!(!gallery.watermark_enabled);
-        assert_eq!(store.get(mine, gallery.id).await.unwrap(), Some(gallery.clone()));
+        assert_eq!(
+            store.get(mine, gallery.id).await.unwrap(),
+            Some(gallery.clone())
+        );
         assert_eq!(store.get(other, gallery.id).await.unwrap(), None);
-        assert!(store.list(other, GallerySort::Updated).await.unwrap().is_empty());
+        assert!(
+            store
+                .list(other, GallerySort::Updated)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(
             store
                 .update(other, gallery.id, &changes(json!({"title": "Stolen"})))
@@ -325,7 +339,10 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        assert_eq!(store.get(mine, gallery.id).await.unwrap().unwrap().title, DEFAULT_TITLE);
+        assert_eq!(
+            store.get(mine, gallery.id).await.unwrap().unwrap().title,
+            DEFAULT_TITLE
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -390,7 +407,10 @@ mod tests {
                 .update(workspace, id, &changes(json!({"title": title})))
                 .await;
 
-            assert!(matches!(result, Err(GalleryError::Invalid(Setting::Title))), "{title:?}");
+            assert!(
+                matches!(result, Err(GalleryError::Invalid(Setting::Title))),
+                "{title:?}"
+            );
         }
 
         let widest = "é".repeat(255);
@@ -423,7 +443,10 @@ mod tests {
             json!({"layout": "carousel"}),
             json!({"colour": "red"}),
         ] {
-            assert!(serde_json::from_value::<GalleryChanges>(body.clone()).is_err(), "{body}");
+            assert!(
+                serde_json::from_value::<GalleryChanges>(body.clone()).is_err(),
+                "{body}"
+            );
         }
 
         assert!(changes(json!({})).is_empty());
@@ -445,7 +468,11 @@ mod tests {
         assert_eq!(unchanged, gallery);
 
         let edited = store
-            .update(workspace, gallery.id, &changes(json!({"watermark_enabled": true})))
+            .update(
+                workspace,
+                gallery.id,
+                &changes(json!({"watermark_enabled": true})),
+            )
             .await
             .unwrap()
             .unwrap();
@@ -473,26 +500,35 @@ mod tests {
 
         // The oldest gallery becomes the most recently edited.
         store
-            .update(workspace, ids[0], &changes(json!({"watermark_enabled": true})))
+            .update(
+                workspace,
+                ids[0],
+                &changes(json!({"watermark_enabled": true})),
+            )
             .await
             .unwrap();
 
-        let titles = |sort| {
-            let store = store;
-
-            async move {
-                store
-                    .list(workspace, sort)
-                    .await
-                    .unwrap()
-                    .into_iter()
-                    .map(|gallery| gallery.title)
-                    .collect::<Vec<_>>()
-            }
+        let titles = |sort| async move {
+            store
+                .list(workspace, sort)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|gallery| gallery.title)
+                .collect::<Vec<_>>()
         };
 
-        assert_eq!(titles(GallerySort::Updated).await, ["banana", "cherry", "Apple"]);
-        assert_eq!(titles(GallerySort::Created).await, ["cherry", "Apple", "banana"]);
-        assert_eq!(titles(GallerySort::Title).await, ["Apple", "banana", "cherry"]);
+        assert_eq!(
+            titles(GallerySort::Updated).await,
+            ["banana", "cherry", "Apple"]
+        );
+        assert_eq!(
+            titles(GallerySort::Created).await,
+            ["cherry", "Apple", "banana"]
+        );
+        assert_eq!(
+            titles(GallerySort::Title).await,
+            ["Apple", "banana", "cherry"]
+        );
     }
 }

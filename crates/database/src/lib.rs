@@ -3,7 +3,7 @@
 pub mod auth;
 pub mod gallery;
 
-pub use sqlx::{PgPool, postgres::PgPoolOptions};
+pub use sqlx::{Error as SqlError, PgPool, postgres::PgPoolOptions};
 
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 

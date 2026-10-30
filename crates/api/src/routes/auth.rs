@@ -11,7 +11,7 @@
 //!
 //! The cookie holds a random opaque [`SessionToken`]; only its digest is stored, so a database
 //! leak does not yield usable sessions. Every state-changing request must carry the exact
-//! configured `Origin`, which [`require_same_origin`] enforces as the CSRF defence for this
+//! configured `Origin`, which [`require_same_origin`](crate::origin::require_same_origin) enforces as the CSRF defence for this
 //! cookie-authenticated API before any extractor reads the request. Sign-in routes also pass
 //! the failed-attempt limiter ([`Attempt`]). Request bodies are validated while being parsed
 //! ([`Credentials`]), and policy and limiter state live in [`ApiState`].
@@ -19,13 +19,11 @@
 use std::time::SystemTime;
 
 use actix_web::{
-    Error, HttpResponse, ResponseError,
-    body::{EitherBody, MessageBody},
-    dev::{ServiceRequest, ServiceResponse},
+    HttpResponse, ResponseError,
     error::JsonPayloadError,
     get,
     http::{StatusCode, header},
-    middleware::{Next, from_fn},
+    middleware::from_fn,
     post, web,
 };
 use pp_core::{email::Email, time::Millis};
@@ -40,6 +38,7 @@ use crate::{
         attempt::Attempt,
         session_token::{SessionToken, TokenHash},
     },
+    origin::require_same_origin,
     request::RequestExt,
 };
 
@@ -120,33 +119,6 @@ struct AuthStatus {
     identity: Option<Identity>,
     #[serde(rename = "idle_timeout_ms")]
     idle_timeout: Millis,
-}
-
-/// Rejects state-changing requests whose `Origin` is not the configured one, before their
-/// payload is read.
-async fn require_same_origin<B: MessageBody + 'static>(
-    request: ServiceRequest,
-    next: Next<B>,
-) -> Result<ServiceResponse<EitherBody<B>>, Error> {
-    let allowed = request.method().is_safe()
-        || request
-            .app_data::<web::Data<ApiState>>()
-            .is_some_and(|state| {
-                let origin = request
-                    .headers()
-                    .get(header::ORIGIN)
-                    .and_then(|value| value.to_str().ok());
-
-                state.allows_origin(origin)
-            });
-
-    if !allowed {
-        return Ok(request
-            .error_response(AuthError::ForbiddenOrigin)
-            .map_into_right_body());
-    }
-
-    Ok(next.call(request).await?.map_into_left_body())
 }
 
 /// Registers the auth routes; credential bodies are capped at 4 KiB.

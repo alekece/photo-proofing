@@ -26,6 +26,7 @@ sha2 = "0.10"
 workspace = true
 
 [dev-dependencies]
+actix-http = "3"
 tempfile = "3"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros"] }
 tokio.workspace = true

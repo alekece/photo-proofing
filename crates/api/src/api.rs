@@ -12,7 +12,9 @@ use actix_web::{
 };
 use derive_more::{Display, Error, From};
 use pp_core::url::Origin;
-use pp_database::{Database, MIGRATOR, PgPoolOptions, auth::AuthRepository};
+use pp_database::{
+    Database, MIGRATOR, PgPoolOptions, auth::AuthRepository, gallery::GalleryRepository,
+};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
@@ -88,6 +90,10 @@ impl ApiState {
     }
 
     pub fn store(&self) -> AuthRepository<'_> {
+        self.database.repository()
+    }
+
+    pub fn galleries(&self) -> GalleryRepository<'_> {
         self.database.repository()
     }
 
@@ -221,6 +227,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/v1")
             .service(routes::health::report_health)
-            .configure(routes::auth::configure),
+            .configure(routes::auth::configure)
+            .configure(routes::galleries::configure),
     );
 }
