@@ -13,4 +13,4 @@ mod middlewares;
 mod request;
 mod response;
 #[cfg(test)]
-mod testing;
+mod tests;

@@ -14,7 +14,7 @@ use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
 use uuid::Uuid;
 
-pub use self::share::{ParseShareTokenError, ShareToken, SharedGallery};
+pub use self::share::{ShareToken, SharedGallery};
 use crate::{Repository, auth::WorkspaceId, types::Timestamp};
 
 mod share;

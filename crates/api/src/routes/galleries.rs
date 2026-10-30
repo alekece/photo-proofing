@@ -120,7 +120,7 @@ mod tests {
     use super::*;
     use crate::{
         api::configure_routes,
-        testing::{ORIGIN, app_state, call, other_workspace, sign_up},
+        tests::{ORIGIN, app_state, call, other_workspace, sign_up},
     };
 
     fn patch(id: &str, cookie: &Cookie<'static>, body: Value) -> test::TestRequest {

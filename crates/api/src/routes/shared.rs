@@ -2,15 +2,17 @@
 //!
 //! - `GET /{token}` returns the title, layout and expiry of the gallery behind the link.
 //!
-//! No session is involved. Unknown, malformed and expired links are the same 404; see
-//! [`SharedAccess`].
+//! No session is involved. Malformed, unknown and expired links are the same 404, and a
+//! malformed one never reaches the database. The link is a bearer credential: any access log
+//! added later must redact `/shared/` paths.
 
 use actix_web::{
     HttpResponse, get,
-    web::{self, ServiceConfig},
+    web::{self, Data, Path, ServiceConfig},
 };
+use pp_database::gallery::ShareToken;
 
-use crate::{extractors::shared_access::SharedAccess, response::ResponseBuilderExt};
+use crate::{api::ApiState, error::ErrorResponse, response::ResponseBuilderExt};
 
 /// Registers the shared-gallery routes.
 pub fn configure(cfg: &mut ServiceConfig) {
@@ -18,8 +20,18 @@ pub fn configure(cfg: &mut ServiceConfig) {
 }
 
 #[get("/{token}")]
-async fn show_shared_gallery(SharedAccess(gallery): SharedAccess) -> HttpResponse {
-    HttpResponse::Ok().no_store().no_referrer().json(gallery)
+async fn show_shared_gallery(
+    state: Data<ApiState>,
+    token: Path<String>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let token: ShareToken = token.parse().map_err(|_| ErrorResponse::not_found())?;
+    let gallery = state
+        .galleries()
+        .find_shared(&token)
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
+
+    Ok(HttpResponse::Ok().no_store().no_referrer().json(gallery))
 }
 
 #[cfg(test)]
@@ -34,7 +46,7 @@ mod tests {
 
     use crate::{
         api::configure_routes,
-        testing::{ORIGIN, app_state, call, other_workspace, sign_up},
+        tests::{ORIGIN, app_state, call, other_workspace, sign_up},
     };
 
     async fn shared_gallery(pool: &PgPool, changes: Value) -> String {

@@ -121,11 +121,12 @@ not edited in place):
   body. Unknown token, malformed token and expired gallery are byte-identical
   responses. Responses are `Cache-Control: no-store` and
   `Referrer-Policy: no-referrer`.
-- A `SharedAccess` extractor (in `crates/api/src/extractors/`) resolves the path
-  token to a granted access and is the single place that later client routes
-  extend with archive, deletion, delivery state and downloads.
+- The shared route parses the path token and looks the gallery up by it; no
+  separate access layer exists yet. Later client routes can extract one when
+  they need archive, deletion, delivery state or downloads. (Revised after PR
+  review: an earlier draft had a `SharedAccess` extractor.)
 - No request logging exists today, so nothing logs the token. `ShareToken`'s
-  `Debug` is redacted and the extractor documents that any access log added
+  `Debug` is redacted and the route documents that any access log added
   later must redact `/shared/` paths.
 
 ### Web
@@ -186,7 +187,7 @@ Not discussed with the user; please correct any you disagree with.
 ## Left to the builder
 
 - Exact names and module placement of `ShareToken`, `SharedGallery` and
-  `SharedAccess`; whether to share a generator with `SessionToken`.
+  the shared `RandomToken` used by `SessionToken` and `ShareToken`.
 - Masonry implementation technique (CSS columns or a script), as long as keyboard
   order and the viewer stay accessible.
 - Exact copy wording, spacing and the browser-matrix choice for clipboard
