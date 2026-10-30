@@ -23,7 +23,17 @@ pub struct AuthStore<'db> {
 #[derive(FromRow)]
 pub struct Account {
     pub id: Uuid,
+    pub workspace_id: Uuid,
     pub password_hash: String,
+}
+
+impl Account {
+    pub fn identity(&self) -> Identity {
+        Identity {
+            account_id: AccountId(self.id),
+            workspace_id: WorkspaceId(self.workspace_id),
+        }
+    }
 }
 
 #[derive(FromRow)]
@@ -100,7 +110,7 @@ impl AuthStore<'_> {
     }
 
     pub async fn account_by_email(&self, email: &Email) -> Result<Option<Account>, sqlx::Error> {
-        sqlx::query_as("SELECT id,password_hash FROM accounts WHERE email=$1")
+        sqlx::query_as("SELECT id,workspace_id,password_hash FROM accounts WHERE email=$1")
             .bind(email.as_str())
             .fetch_optional(self.pool)
             .await

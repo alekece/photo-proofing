@@ -46,7 +46,7 @@ pub enum StateError {
 /// Built once at startup from validated configuration, so request handlers never re-check
 /// configuration and cannot fail for configuration reasons. It holds the authentication
 /// policy, storage and abuse controls.
-pub struct AppState {
+pub(crate) struct AppState {
     database: Database,
     origin: Origin,
     idle_timeout: NonZeroDuration,
@@ -108,6 +108,14 @@ impl AppState {
         cookie.make_removal();
 
         cookie
+    }
+
+    /// Best-effort removal of a small batch of expired sessions. They already fail
+    /// authentication, so a failure here is logged and must never fail the caller's request.
+    pub async fn delete_expired_sessions(&self, now: OffsetDateTime) {
+        if let Err(error) = self.store().cleanup_expired(now, 100).await {
+            tracing::warn!(%error, "expired session cleanup failed");
+        }
     }
 
     /// Hash verified for unknown emails so they cost as much as known ones.

@@ -6,7 +6,6 @@
 
 use std::str::FromStr;
 
-use actix_web::HttpRequest;
 use argon2::{
     Argon2, PasswordHasher, PasswordVerifier,
     password_hash::{PasswordHash as PhcHash, SaltString},
@@ -40,7 +39,7 @@ pub struct HashError;
 /// Only its [`TokenHash`] is ever stored. Parsing accepts the canonical URL-safe base64 of
 /// exactly 32 bytes, so malformed cookies are rejected before touching the database.
 #[derive(Clone, PartialEq, Eq)]
-pub struct SessionToken(String);
+pub(crate) struct SessionToken(String);
 
 /// SHA-256 digest of a [`SessionToken`]: the database key for a session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,11 +53,6 @@ impl SessionToken {
         rand::rng().fill_bytes(&mut bytes);
 
         Self(URL_SAFE_NO_PAD.encode(bytes))
-    }
-
-    /// The request's session cookie, or `None` when absent or malformed.
-    pub fn from_request(request: &HttpRequest) -> Option<Self> {
-        request.cookie(Self::COOKIE_NAME)?.value().parse().ok()
     }
 
     pub fn as_str(&self) -> &str {

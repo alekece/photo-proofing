@@ -2,7 +2,7 @@ use std::{fmt, str::FromStr, time::Duration};
 
 use derive_more::{Display, Error, From};
 use humantime::DurationError;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer, ser::Error as _};
 
 /// The duration is outside the supported range.
 #[derive(Debug, Display, Error)]
@@ -77,9 +77,29 @@ impl From<NonZeroDuration> for String {
     }
 }
 
+/// A duration that is serialized as an integer number of milliseconds, for clients that
+/// consume durations as plain numbers. The conversion happens only on the wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, From)]
+pub struct Millis(Duration);
+
+impl Serialize for Millis {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let millis = u64::try_from(self.0.as_millis()).map_err(S::Error::custom)?;
+
+        serializer.serialize_u64(millis)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serializes_durations_as_milliseconds() {
+        let json = serde_json::to_string(&Millis(Duration::from_millis(1500))).unwrap();
+
+        assert_eq!(json, "1500");
+    }
 
     #[test]
     fn parses_human_durations() {

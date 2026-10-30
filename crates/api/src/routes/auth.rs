@@ -11,28 +11,28 @@
 //!
 //! The cookie holds a random opaque [`SessionToken`]; only its digest is stored, so a database
 //! leak does not yield usable sessions. Every state-changing request must carry the exact
-//! configured `Origin` ([`SameOrigin`]), which is the CSRF defence for this
-//! cookie-authenticated API. Sign-in routes also pass the failed-attempt limiter ([`Attempt`]).
-//! Request bodies are validated while being parsed ([`Credentials`]), and policy and limiter
-//! state live in [`AppState`].
+//! configured `Origin`, which [`require_same_origin`] enforces as the CSRF defence for this
+//! cookie-authenticated API before any extractor reads the request. Sign-in routes also pass
+//! the failed-attempt limiter ([`Attempt`]). Request bodies are validated while being parsed
+//! ([`Credentials`]), and policy and limiter state live in [`AppState`].
 
 use std::{
     future::{self, Ready},
     net::{IpAddr, Ipv4Addr},
-    time::Duration,
 };
 
 use actix_web::{
-    FromRequest, HttpRequest, HttpResponse, ResponseError,
-    dev::Payload,
+    Error, FromRequest, HttpRequest, HttpResponse, ResponseError,
+    body::{EitherBody, MessageBody},
+    dev::{Payload, ServiceRequest, ServiceResponse},
     error::JsonPayloadError,
     get,
     http::{StatusCode, header},
+    middleware::{Next, from_fn},
     post, web,
 };
-use derive_more::{Display, Error};
-use pp_core::{auth::Identity, email::Email};
-use serde::{Deserialize, Serialize, Serializer, ser::Error as _};
+use pp_core::{auth::Identity, email::Email, time::Millis};
+use serde::{Deserialize, Serialize};
 use serde_json::error::Category;
 use time::OffsetDateTime;
 
@@ -41,89 +41,66 @@ use crate::{
     credentials::{Password, PasswordHash, SessionToken, TokenHash},
 };
 
-/// A safe, client-facing failure: the status and a fixed message that never echoes input or
-/// internal details. Rendered as `{"error": message}` with `Cache-Control: no-store`.
-#[derive(Debug, Display, Error)]
-#[display("{message}")]
-struct AuthError {
-    status: StatusCode,
-    message: &'static str,
-}
-
-impl AuthError {
-    const fn new(status: StatusCode, message: &'static str) -> Self {
-        Self { status, message }
-    }
-
-    const fn unavailable() -> Self {
-        Self::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "authentication service unavailable",
-        )
-    }
-
-    const fn limited() -> Self {
-        Self::new(
-            StatusCode::TOO_MANY_REQUESTS,
-            "too many sign-in attempts; try again later",
-        )
-    }
-
-    const fn unauthorized() -> Self {
-        Self::new(
-            StatusCode::UNAUTHORIZED,
-            "session expired or sign-in required",
-        )
-    }
-
-    const fn forbidden_origin() -> Self {
-        Self::new(StatusCode::FORBIDDEN, "request origin is not allowed")
-    }
-
-    const fn invalid_input() -> Self {
-        Self::new(
-            StatusCode::BAD_REQUEST,
-            "enter a valid email and a password of 12–128 characters",
-        )
-    }
-
-    const fn invalid_login() -> Self {
-        Self::new(StatusCode::UNAUTHORIZED, "invalid email or password")
-    }
-
-    const fn setup_closed() -> Self {
-        Self::new(StatusCode::CONFLICT, "initial setup is already complete")
-    }
+/// A safe, client-facing failure: each variant has a fixed message that never echoes input
+/// or internal details. Rendered as `{"error": message}` with `Cache-Control: no-store`.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum AuthError {
+    #[error("authentication service unavailable")]
+    Unavailable,
+    #[error("too many sign-in attempts; try again later")]
+    Limited,
+    #[error("session expired or sign-in required")]
+    Unauthorized,
+    #[error("request origin is not allowed")]
+    ForbiddenOrigin,
+    #[error("enter a valid email and a password of 12–128 characters")]
+    InvalidInput,
+    #[error("invalid email or password")]
+    InvalidLogin,
+    #[error("initial setup is already complete")]
+    SetupClosed,
+    #[error("invalid credential request")]
+    PayloadTooLarge,
+    #[error("invalid credential request")]
+    UnsupportedMediaType,
+    #[error("invalid credential request")]
+    MalformedRequest,
 }
 
 impl From<JsonPayloadError> for AuthError {
     fn from(error: JsonPayloadError) -> Self {
         match error {
             JsonPayloadError::Overflow { .. } | JsonPayloadError::OverflowKnownLength { .. } => {
-                Self::new(StatusCode::PAYLOAD_TOO_LARGE, "invalid credential request")
+                Self::PayloadTooLarge
             }
-            JsonPayloadError::ContentType => Self::new(
-                StatusCode::UNSUPPORTED_MEDIA_TYPE,
-                "invalid credential request",
-            ),
+            JsonPayloadError::ContentType => Self::UnsupportedMediaType,
             // Well-formed JSON whose email or password failed validation while parsing.
             JsonPayloadError::Deserialize(error) if error.classify() == Category::Data => {
-                Self::invalid_input()
+                Self::InvalidInput
             }
-            _ => Self::new(StatusCode::BAD_REQUEST, "invalid credential request"),
+            _ => Self::MalformedRequest,
         }
     }
 }
 
 impl ResponseError for AuthError {
     fn status_code(&self) -> StatusCode {
-        self.status
+        match self {
+            Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Limited => StatusCode::TOO_MANY_REQUESTS,
+            Self::Unauthorized | Self::InvalidLogin => StatusCode::UNAUTHORIZED,
+            Self::ForbiddenOrigin => StatusCode::FORBIDDEN,
+            Self::InvalidInput | Self::MalformedRequest => StatusCode::BAD_REQUEST,
+            Self::SetupClosed => StatusCode::CONFLICT,
+            Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        }
     }
 
     fn error_response(&self) -> HttpResponse {
-        HttpResponse::build(self.status)
+        HttpResponse::build(self.status_code())
             .insert_header((header::CACHE_CONTROL, "no-store"))
-            .json(serde_json::json!({"error": self.message}))
+            .json(serde_json::json!({"error": self.to_string()}))
     }
 }
 
@@ -143,70 +120,51 @@ struct AuthStatus {
     idle_timeout: Millis,
 }
 
-/// A duration that the web app consumes as integer milliseconds; the conversion happens only
-/// on the wire.
-struct Millis(Duration);
+/// Rejects state-changing requests whose `Origin` is not the configured one, before their
+/// payload is read.
+async fn require_same_origin<B: MessageBody + 'static>(
+    request: ServiceRequest,
+    next: Next<B>,
+) -> Result<ServiceResponse<EitherBody<B>>, Error> {
+    let allowed = request.method().is_safe()
+        || request
+            .app_data::<web::Data<AppState>>()
+            .is_some_and(|state| {
+                let origin = request
+                    .headers()
+                    .get(header::ORIGIN)
+                    .and_then(|value| value.to_str().ok());
 
-impl Serialize for Millis {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let millis = u64::try_from(self.0.as_millis()).map_err(S::Error::custom)?;
+                state.allows_origin(origin)
+            });
 
-        serializer.serialize_u64(millis)
+    if !allowed {
+        return Ok(request
+            .error_response(AuthError::ForbiddenOrigin)
+            .map_into_right_body());
     }
-}
 
-/// Extractor that rejects state-changing requests whose `Origin` is not the configured one.
-///
-/// List it before the body extractor so a cross-origin request is refused before its payload
-/// is read.
-struct SameOrigin;
-
-impl FromRequest for SameOrigin {
-    type Error = AuthError;
-    type Future = Ready<Result<Self, AuthError>>;
-
-    fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
-        let Some(state) = request.app_data::<web::Data<AppState>>() else {
-            return future::ready(Err(AuthError::unavailable()));
-        };
-
-        let origin = request
-            .headers()
-            .get(header::ORIGIN)
-            .and_then(|value| value.to_str().ok());
-
-        if !state.allows_origin(origin) {
-            return future::ready(Err(AuthError::forbidden_origin()));
-        }
-
-        future::ready(Ok(Self))
-    }
+    Ok(next.call(request).await?.map_into_left_body())
 }
 
 /// Extractor for a sign-in request from a peer that is still under the failed-attempt limit.
 ///
-/// Handlers report a failed credential check with [`fail`](Self::fail); only failures count.
+/// Handlers report a failed credential check with
+/// [`AppState::record_failure`]`(attempt.peer())`; only failures count.
 struct Attempt {
     peer: IpAddr,
 }
 
 impl Attempt {
+    fn peer(&self) -> IpAddr {
+        self.peer
+    }
+
     fn peer_of(request: &HttpRequest) -> IpAddr {
         request
             .peer_addr()
             .map(|addr| addr.ip())
             .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST))
-    }
-
-    fn fail(&self, state: &AppState) {
-        state.record_failure(self.peer);
-    }
-
-    /// Counts a request whose body was rejected, before any handler ran.
-    fn fail_request(request: &HttpRequest) {
-        if let Some(state) = request.app_data::<web::Data<AppState>>() {
-            state.record_failure(Self::peer_of(request));
-        }
     }
 }
 
@@ -216,16 +174,32 @@ impl FromRequest for Attempt {
 
     fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
         let Some(state) = request.app_data::<web::Data<AppState>>() else {
-            return future::ready(Err(AuthError::unavailable()));
+            return future::ready(Err(AuthError::Unavailable));
         };
 
         let peer = Self::peer_of(request);
 
         if !state.allow_attempt(peer) {
-            return future::ready(Err(AuthError::limited()));
+            return future::ready(Err(AuthError::Limited));
         }
 
         future::ready(Ok(Self { peer }))
+    }
+}
+
+/// The request's session cookie, or [`AuthError::Unauthorized`] when it is absent or
+/// malformed. Handlers that accept a missing cookie take `Option<SessionToken>`.
+impl FromRequest for SessionToken {
+    type Error = AuthError;
+    type Future = Ready<Result<Self, AuthError>>;
+
+    fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
+        future::ready(
+            request
+                .cookie(Self::COOKIE_NAME)
+                .and_then(|cookie| cookie.value().parse().ok())
+                .ok_or(AuthError::Unauthorized),
+        )
     }
 }
 
@@ -233,14 +207,17 @@ impl FromRequest for Attempt {
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/auth")
+            .wrap(from_fn(require_same_origin))
             .app_data(
                 web::JsonConfig::default()
                     .limit(4096)
                     .error_handler(|error, request| {
                         // Only bodies that parse but fail validation count as guesses; size and
                         // content-type rejections are cheap and never reach credential checks.
-                        if matches!(error, JsonPayloadError::Deserialize(_)) {
-                            Attempt::fail_request(request);
+                        if matches!(error, JsonPayloadError::Deserialize(_))
+                            && let Some(state) = request.app_data::<web::Data<AppState>>()
+                        {
+                            state.record_failure(Attempt::peer_of(request));
                         }
 
                         AuthError::from(error).into()
@@ -257,20 +234,20 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 #[get("/status")]
 async fn report_status(
     state: web::Data<AppState>,
-    request: HttpRequest,
+    session: Option<SessionToken>,
 ) -> Result<HttpResponse, AuthError> {
     let setup_available = state
         .store()
         .setup_available()
         .await
-        .map_err(|_| AuthError::unavailable())?;
+        .map_err(|_| AuthError::Unavailable)?;
 
-    let identity = match SessionToken::from_request(&request) {
+    let identity = match session {
         Some(token) => state
             .store()
             .authenticate(token.digest().as_bytes(), OffsetDateTime::now_utc())
             .await
-            .map_err(|_| AuthError::unavailable())?,
+            .map_err(|_| AuthError::Unavailable)?,
         None => None,
     };
 
@@ -279,36 +256,33 @@ async fn report_status(
         .json(AuthStatus {
             setup_available,
             identity,
-            idle_timeout: Millis(state.idle_timeout()),
+            idle_timeout: state.idle_timeout().into(),
         }))
 }
 
 #[post("/setup")]
 async fn setup(
     state: web::Data<AppState>,
-    _: SameOrigin,
     _attempt: Attempt,
     credentials: web::Json<Credentials>,
 ) -> Result<HttpResponse, AuthError> {
     let Credentials { email, password } = credentials.into_inner();
-    let permit = state
-        .try_acquire_hash_slot()
-        .ok_or_else(AuthError::limited)?;
+    let permit = state.try_acquire_hash_slot().ok_or(AuthError::Limited)?;
 
     let password_hash = web::block(move || {
         let _permit = permit;
         PasswordHash::new(password.as_str())
     })
     .await
-    .map_err(|_| AuthError::unavailable())?
-    .map_err(|_| AuthError::unavailable())?;
+    .map_err(|_| AuthError::Unavailable)?
+    .map_err(|_| AuthError::Unavailable)?;
 
     // Concurrent setups can both reach here; the database allows only one account and
     // `create_account` returns `None` to the loser, which becomes the 409 below.
     let token = SessionToken::generate();
     let expires_at = state
         .session_expiry(OffsetDateTime::now_utc())
-        .ok_or_else(AuthError::unavailable)?;
+        .ok_or(AuthError::Unavailable)?;
     let id = state
         .store()
         .create_account(
@@ -318,8 +292,8 @@ async fn setup(
             expires_at,
         )
         .await
-        .map_err(|_| AuthError::unavailable())?
-        .ok_or(AuthError::setup_closed())?;
+        .map_err(|_| AuthError::Unavailable)?
+        .ok_or(AuthError::SetupClosed)?;
 
     Ok(HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, "no-store"))
@@ -330,8 +304,7 @@ async fn setup(
 #[post("/login")]
 async fn login(
     state: web::Data<AppState>,
-    request: HttpRequest,
-    _: SameOrigin,
+    session: Option<SessionToken>,
     attempt: Attempt,
     credentials: web::Json<Credentials>,
 ) -> Result<HttpResponse, AuthError> {
@@ -340,42 +313,35 @@ async fn login(
         .store()
         .account_by_email(&email)
         .await
-        .map_err(|_| AuthError::unavailable())?;
+        .map_err(|_| AuthError::Unavailable)?;
     // Verify against a dummy hash when the email is unknown so both cases cost the same.
     let stored_hash = account.as_ref().map_or_else(
         || state.dummy_hash().clone(),
         |account| PasswordHash::unchecked_new(account.password_hash.clone()),
     );
-    let permit = state
-        .try_acquire_hash_slot()
-        .ok_or_else(AuthError::limited)?;
+    let permit = state.try_acquire_hash_slot().ok_or(AuthError::Limited)?;
 
     let valid = web::block(move || {
         let _permit = permit;
         stored_hash.verify(password.as_str())
     })
     .await
-    .map_err(|_| AuthError::unavailable())?;
+    .map_err(|_| AuthError::Unavailable)?;
 
     let Some(account) = account.filter(|_| valid) else {
-        attempt.fail(&state);
+        state.record_failure(attempt.peer());
 
-        return Err(AuthError::invalid_login());
+        return Err(AuthError::InvalidLogin);
     };
 
     let token = SessionToken::generate();
     let hash = token.digest();
     let now = OffsetDateTime::now_utc();
-    let expires_at = state
-        .session_expiry(now)
-        .ok_or_else(AuthError::unavailable)?;
+    let expires_at = state.session_expiry(now).ok_or(AuthError::Unavailable)?;
 
     // Expired rows are removed in small batches on the request path, so no background job is needed.
-    state
-        .store()
-        .cleanup_expired(now, 100)
-        .await
-        .map_err(|_| AuthError::unavailable())?;
+    state.delete_expired_sessions(now).await;
+
     // A request still carrying an old cookie replaces that session instead of piling up rows.
     state
         .store()
@@ -383,39 +349,31 @@ async fn login(
             account.id,
             hash.as_bytes(),
             expires_at,
-            SessionToken::from_request(&request)
+            session
                 .map(|token| token.digest())
                 .as_ref()
                 .map(TokenHash::as_bytes),
         )
         .await
-        .map_err(|_| AuthError::unavailable())?;
-
-    let id = state
-        .store()
-        .authenticate(hash.as_bytes(), now)
-        .await
-        .map_err(|_| AuthError::unavailable())?
-        .ok_or_else(AuthError::unavailable)?;
+        .map_err(|_| AuthError::Unavailable)?;
 
     Ok(HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, "no-store"))
         .cookie(state.session_cookie(&token))
-        .json(id))
+        .json(account.identity()))
 }
 
 #[post("/logout")]
 async fn logout(
     state: web::Data<AppState>,
-    request: HttpRequest,
-    _: SameOrigin,
+    session: Option<SessionToken>,
 ) -> Result<HttpResponse, AuthError> {
-    if let Some(token) = SessionToken::from_request(&request) {
+    if let Some(token) = session {
         state
             .store()
             .revoke(token.digest().as_bytes())
             .await
-            .map_err(|_| AuthError::unavailable())?;
+            .map_err(|_| AuthError::Unavailable)?;
     }
 
     Ok(HttpResponse::NoContent()
@@ -427,30 +385,23 @@ async fn logout(
 #[post("/renew")]
 async fn renew(
     state: web::Data<AppState>,
-    request: HttpRequest,
-    _: SameOrigin,
+    session: SessionToken,
 ) -> Result<HttpResponse, AuthError> {
-    let token = SessionToken::from_request(&request).ok_or_else(AuthError::unauthorized)?;
     let now = OffsetDateTime::now_utc();
-    let expires_at = state
-        .session_expiry(now)
-        .ok_or_else(AuthError::unavailable)?;
+    let expires_at = state.session_expiry(now).ok_or(AuthError::Unavailable)?;
 
     state
         .store()
-        .renew(token.digest().as_bytes(), now, expires_at)
+        .renew(session.digest().as_bytes(), now, expires_at)
         .await
-        .map_err(|_| AuthError::unavailable())?
-        .ok_or_else(AuthError::unauthorized)?;
-    state
-        .store()
-        .cleanup_expired(now, 100)
-        .await
-        .map_err(|_| AuthError::unavailable())?;
+        .map_err(|_| AuthError::Unavailable)?
+        .ok_or(AuthError::Unauthorized)?;
+
+    state.delete_expired_sessions(now).await;
 
     Ok(HttpResponse::NoContent()
         .insert_header((header::CACHE_CONTROL, "no-store"))
-        .cookie(state.session_cookie(&token))
+        .cookie(state.session_cookie(&session))
         .finish())
 }
 
