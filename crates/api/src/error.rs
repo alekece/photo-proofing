@@ -1,7 +1,8 @@
 //! The client-facing error shared by every route.
 //!
 //! Messages are fixed strings that never echo input or internal details. The body is
-//! `{"error": message}` plus `"field"` when one setting caused a validation failure.
+//! `{"error": message}` plus a `"context"` array of extra details when a conversion has any,
+//! such as the setting that failed validation.
 
 use actix_web::{
     HttpResponse, ResponseError,
@@ -9,16 +10,25 @@ use actix_web::{
     http::{StatusCode, header},
 };
 use pp_database::{SqlError, gallery::GalleryError};
-use serde_json::{Map, Value, json};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::routes::auth::AuthError;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error, Serialize, Deserialize)]
 #[error("{message}")]
 pub(crate) struct ErrorResponse {
+    #[serde(skip, default = "internal_server_error")]
     status: StatusCode,
+    #[serde(rename = "error")]
     message: String,
-    field: Option<String>,
+    /// Details a client may act on; the first entry is the most specific subject.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    context: Vec<String>,
+}
+
+fn internal_server_error() -> StatusCode {
+    StatusCode::INTERNAL_SERVER_ERROR
 }
 
 impl ErrorResponse {
@@ -26,7 +36,7 @@ impl ErrorResponse {
         Self {
             status,
             message: message.into(),
-            field: None,
+            context: Vec::new(),
         }
     }
 
@@ -49,17 +59,9 @@ impl ResponseError for ErrorResponse {
     }
 
     fn error_response(&self) -> HttpResponse {
-        let mut body = Map::new();
-
-        body.insert("error".into(), json!(&self.message));
-
-        if let Some(field) = &self.field {
-            body.insert("field".into(), Value::String(field.clone()));
-        }
-
         HttpResponse::build(self.status)
             .insert_header((header::CACHE_CONTROL, "no-store"))
-            .json(body)
+            .json(self)
     }
 }
 
@@ -71,13 +73,14 @@ impl From<AuthError> for ErrorResponse {
 
 impl From<GalleryError> for ErrorResponse {
     fn from(error: GalleryError) -> Self {
-        match error {
-            GalleryError::Invalid(setting) => Self {
-                status: StatusCode::UNPROCESSABLE_ENTITY,
-                message: "invalid gallery setting".into(),
-                field: Some(setting.to_string()),
-            },
-            GalleryError::Database(_) => Self::unavailable(),
+        let Some(setting) = error.setting() else {
+            return Self::unavailable();
+        };
+
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            message: "invalid gallery setting".into(),
+            context: vec![setting.to_string(), error.to_string()],
         }
     }
 }

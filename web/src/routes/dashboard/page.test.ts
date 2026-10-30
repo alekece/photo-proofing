@@ -54,6 +54,13 @@ describe('dashboard', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
+	it('shows the untitled text for a gallery without a title', () => {
+		render(Dashboard, { props: props([gallery({ title: null })]) });
+		expect(screen.getByRole('heading', { name: 'Untitled gallery' }).className).toMatch(
+			/text-muted-foreground/
+		);
+	});
+
 	it('shows loading placeholders while the sort change loads', async () => {
 		state.navigating.to = { route: { id: '/dashboard' } };
 		const { container } = render(Dashboard, { props: props([gallery()]) });

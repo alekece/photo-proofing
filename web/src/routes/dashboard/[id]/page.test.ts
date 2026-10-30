@@ -53,19 +53,26 @@ describe('gallery page', () => {
 		expect(init?.keepalive).toBe(true);
 	});
 
-	it('saves the title on blur and reverts an emptied title', async () => {
+	it('saves the title on blur and sends null for an emptied title', async () => {
 		const patches = stubApi();
 		const user = userEvent.setup();
 		open();
 		const title = screen.getByLabelText('Gallery title') as HTMLInputElement;
 		await user.clear(title);
 		await user.tab();
-		expect(title.value).toBe('Wedding');
-		expect(patches()).toHaveLength(0);
-		await user.type(title, ' II');
-		await user.tab();
 		await waitFor(() => expect(patches()).toHaveLength(1));
-		expect(JSON.parse(patches()[0][1]?.body as string)).toEqual({ title: 'Wedding II' });
+		expect(JSON.parse(patches()[0][1]?.body as string)).toEqual({ title: null });
+		expect(title.placeholder).toBe('Untitled gallery');
+		await user.type(title, 'Wedding II');
+		await user.tab();
+		await waitFor(() => expect(patches()).toHaveLength(2));
+		expect(JSON.parse(patches()[1][1]?.body as string)).toEqual({ title: 'Wedding II' });
+	});
+
+	it('shows the untitled text for a gallery without a title', () => {
+		open({ title: null });
+		expect((screen.getByLabelText('Gallery title') as HTMLInputElement).value).toBe('');
+		expect(document.title).toMatch(/^Untitled gallery/);
 	});
 
 	it('debounces title typing into one save', async () => {

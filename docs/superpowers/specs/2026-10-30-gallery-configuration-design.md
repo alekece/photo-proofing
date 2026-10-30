@@ -19,8 +19,9 @@ persisted gallery slice; photo upload (#66) and the client flow build on it.
 - An unset included-photo count means unlimited selection. Editing or clearing
   it never deletes favorites (none exist yet; the contract is documented for
   later slices).
-- "New gallery" immediately creates a gallery titled "Untitled gallery" and
-  opens it; the title is edited inline.
+- "New gallery" immediately creates an untitled gallery and opens it; the
+  title is edited inline. The default text ("Untitled gallery") is the front
+  end's placeholder, not stored data. *(PR review: supersedes the stored default.)*
 - Settings autosave per field with visible saving, saved and error states.
 - Dashboard lists galleries as cards with sort options.
 - A reusable placeholder component for empty and loading areas: media, tables
@@ -65,7 +66,7 @@ New migration creating `galleries`:
 | --- | --- | --- |
 | `id` | uuid | primary key; `GalleryId` newtype |
 | `workspace_id` | uuid | FK to workspaces, ownership; indexed |
-| `title` | text | trimmed; CHECK `char_length(title)` between 1 and 255 |
+| `title` | text, nullable | trimmed, blank means none; CHECK `char_length(title)` between 1 and 255 |
 | `layout` | enum | `grid` (default) or `masonry` |
 | `expires_at` | timestamptz null | null means no expiry |
 | `included_photos` | integer null | null means unlimited; when set, at least 1 (CHECK) |
@@ -98,7 +99,7 @@ repository.
 All routes require a session (a new `Identity` extractor) and use the
 session's `workspace_id`.
 
-- `POST /galleries`: no body; creates "Untitled gallery" with defaults,
+- `POST /galleries`: no body; creates an untitled gallery (`title` null) with defaults,
   returns 201 and the gallery.
 - `GET /galleries?sort=`: `sort` is `updated` (default), `created` or `title`;
   unknown values return 400. Updated and created sort newest first; title sorts
@@ -127,7 +128,7 @@ converts into it with `From`, and the gallery routes add their own variants
   added") and an empty photo area. On narrow screens the panel stacks below.
 - Autosave: toggles and pickers save immediately; title and numeric fields
   debounce. Each save shows saving, saved, or "couldn't save, retry" (see
-  Author's calls). An emptied title reverts on blur.
+  Author's calls). An emptied title is saved as no title.
 - Page reads use SvelteKit server `fetch` with the browser cookie; autosave
   writes go from the browser through the proxy (see Author's calls).
 
@@ -159,9 +160,11 @@ These were settled by the author, not discussed, and can be overridden:
   added later without a migration. A past date shows a warning but is allowed.
 - **Concurrency:** last write wins per field. No version or `If-Match`; a
   single photographer rarely edits one gallery from two places in the MVP.
-- **Validation:** PATCH rejects `null` for `title`, `layout` and
-  `watermark_enabled`, unknown keys and wrong types with 422. The 422 body is
-  `{ "field": "<name>", "message": "<reason>" }`.
+- **Validation:** PATCH rejects `null` for `layout` and
+  `watermark_enabled`, unknown keys and wrong types with 422; `null` or a blank
+  `title` clears it. Error bodies are `{ "error": "<message>", "context"?: [..] }`;
+  for a setting violation `context[0]` is the setting name. *(PR review:
+  supersedes `{field, message}`.)*
 - **Failed save:** the field keeps the user's attempted value with an inline
   "couldn't save, retry" action; "revert" happens only when the user leaves the
   field or discards it. (This replaces the earlier "returns to the last saved
@@ -178,8 +181,8 @@ These were settled by the author, not discussed, and can be overridden:
   removed in the client-flow slice.
 - **Browser to API:** autosave writes go from the browser to `/api/v1/...`
   through the existing proxy, like `authRequest`; reads for pages use SvelteKit
-  server `fetch`. The `Origin` check (`require_same_origin`) is generalised and
-  applied to the gallery routes as well as `/auth`.
+  server `fetch`. The `Origin` check is a `SameOrigin` middleware on the whole
+  `/api/v1` scope.
 - **Identity:** a new extractor resolves the session to `Identity`
   (`account_id`, `workspace_id`) so handlers do not call `authenticate`
   themselves. Gallery routes share one generic response error with

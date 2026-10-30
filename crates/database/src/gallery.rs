@@ -3,12 +3,13 @@
 //! Every query is scoped by `workspace_id`, so a gallery of another workspace is
 //! indistinguishable from a missing one. Settings are edited through a [`GalleryChanges`]
 //! changeset: a missing field keeps the stored value and, for optional settings, an explicit
-//! `null` clears it. Value limits live in the database as CHECK constraints, which are the
-//! single authority; violations surface as [`GalleryError::Invalid`].
+//! `null` clears it. A gallery has no title until one is set; the default text belongs to the
+//! front end, which knows the viewer's language. Value limits live in the database as CHECK constraints, which are the
+//! single authority; violations surface as [`GalleryError`] variants.
 
 use std::num::NonZeroUsize;
 
-use derive_more::{Display, Error, From};
+use derive_more::{Display, Error};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
 use time::{OffsetDateTime, UtcOffset};
@@ -16,11 +17,58 @@ use uuid::Uuid;
 
 use crate::{Repository, auth::WorkspaceId};
 
-/// Title given to a gallery created without any input.
-pub const DEFAULT_TITLE: &str = "Untitled gallery";
-
 /// Postgres SQLSTATE for a string containing a NUL byte.
 const INVALID_BYTE_SEQUENCE: &str = "22021";
+
+/// A setting that failed validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+pub enum GallerySetting {
+    #[display("title")]
+    Title,
+    #[display("included_photos")]
+    IncludedPhotos,
+}
+
+#[derive(Debug, Display, Error)]
+pub enum GalleryError {
+    #[display("{_0} exceeds its length limit")]
+    LengthOverflowViolation(#[error(not(source))] GallerySetting),
+    #[display("{_0} contains characters the database cannot store")]
+    InvalidCharactersViolation(#[error(not(source))] GallerySetting),
+    #[display("database error: {_0}")]
+    Database(sqlx::Error),
+}
+
+impl GalleryError {
+    /// The setting that caused a validation failure, if it was one.
+    pub fn setting(&self) -> Option<GallerySetting> {
+        match self {
+            Self::LengthOverflowViolation(setting) | Self::InvalidCharactersViolation(setting) => {
+                Some(*setting)
+            }
+            Self::Database(_) => None,
+        }
+    }
+}
+
+/// Maps a validation failure to the setting that caused it; anything else stays a database error.
+impl From<sqlx::Error> for GalleryError {
+    fn from(error: sqlx::Error) -> Self {
+        let violation = error.as_database_error().and_then(|db| {
+            match (db.constraint(), db.code().as_deref()) {
+                (Some("galleries_title_length"), _) => {
+                    Some(Self::LengthOverflowViolation(GallerySetting::Title))
+                }
+                (_, Some(INVALID_BYTE_SEQUENCE)) => {
+                    Some(Self::InvalidCharactersViolation(GallerySetting::Title))
+                }
+                _ => None,
+            }
+        });
+
+        violation.unwrap_or(Self::Database(error))
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(transparent)]
@@ -31,7 +79,7 @@ pub struct GalleryId(pub Uuid);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "lowercase")]
 #[sqlx(type_name = "gallery_layout", rename_all = "lowercase")]
-pub enum Layout {
+pub enum GalleryLayout {
     #[default]
     Grid,
     Masonry,
@@ -60,8 +108,9 @@ impl<'de> Deserialize<'de> for Timestamp {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Gallery {
     pub id: GalleryId,
-    pub title: String,
-    pub layout: Layout,
+    /// `None` means the gallery has no title yet.
+    pub title: Option<String>,
+    pub layout: GalleryLayout,
     /// `None` means the gallery never expires.
     pub expires_at: Option<Timestamp>,
     /// `None` means selection is unlimited.
@@ -101,18 +150,38 @@ impl FromRow<'_, PgRow> for Gallery {
 /// For the optional settings the outer `Option` says whether the field was supplied and the
 /// inner one is the new value, so `Some(None)` clears it. Non-optional settings reject `null`
 /// and unknown fields are refused, so a typo never silently does nothing.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GalleryChanges {
-    #[serde(default, deserialize_with = "supplied")]
-    pub title: Option<String>,
-    #[serde(default, deserialize_with = "supplied")]
-    pub layout: Option<Layout>,
-    #[serde(default, with = "serde_with::rust::double_option")]
+    #[serde(
+        default,
+        with = "serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub title: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "supplied",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub layout: Option<GalleryLayout>,
+    #[serde(
+        default,
+        with = "serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub expires_at: Option<Option<Timestamp>>,
-    #[serde(default, with = "serde_with::rust::double_option")]
+    #[serde(
+        default,
+        with = "serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub included_photos: Option<Option<NonZeroUsize>>,
-    #[serde(default, deserialize_with = "supplied")]
+    #[serde(
+        default,
+        deserialize_with = "supplied",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub watermark_enabled: Option<bool>,
 }
 
@@ -153,27 +222,9 @@ impl GallerySort {
         match self {
             Self::Updated => "updated_at DESC, id",
             Self::Created => "created_at DESC, id",
-            Self::Title => "lower(title), id",
+            Self::Title => "lower(title) NULLS LAST, id",
         }
     }
-}
-
-/// A setting that failed validation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
-pub enum Setting {
-    #[display("title")]
-    Title,
-    #[display("included_photos")]
-    IncludedPhotos,
-}
-
-#[derive(Debug, Display, Error, From)]
-pub enum GalleryError {
-    #[display("invalid {_0}")]
-    #[from(skip)]
-    Invalid(#[error(not(source))] Setting),
-    #[display("database error: {_0}")]
-    Database(sqlx::Error),
 }
 
 /// Data access for galleries; see the module docs.
@@ -190,18 +241,18 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
     }
 }
 
-const COLUMNS: &str =
-    "id,title,layout,expires_at,included_photos,watermark_enabled,created_at,updated_at";
-
 impl GalleryRepository<'_> {
-    /// Creates a gallery with the default title and settings.
+    const COLUMNS: &'static str =
+        "id,title,layout,expires_at,included_photos,watermark_enabled,created_at,updated_at";
+
+    /// Creates an untitled gallery with the default settings.
     pub async fn create(&self, workspace_id: WorkspaceId) -> Result<Gallery, sqlx::Error> {
         sqlx::query_as(&format!(
-            "INSERT INTO galleries(id,workspace_id,title) VALUES ($1,$2,$3) RETURNING {COLUMNS}"
+            "INSERT INTO galleries(id,workspace_id) VALUES ($1,$2) RETURNING {}",
+            Self::COLUMNS
         ))
         .bind(GalleryId(Uuid::new_v4()))
         .bind(workspace_id)
-        .bind(DEFAULT_TITLE)
         .fetch_one(self.pool)
         .await
     }
@@ -212,7 +263,8 @@ impl GalleryRepository<'_> {
         sort: GallerySort,
     ) -> Result<Vec<Gallery>, sqlx::Error> {
         sqlx::query_as(&format!(
-            "SELECT {COLUMNS} FROM galleries WHERE workspace_id=$1 ORDER BY {}",
+            "SELECT {} FROM galleries WHERE workspace_id=$1 ORDER BY {}",
+            Self::COLUMNS,
             sort.order_by()
         ))
         .bind(workspace_id)
@@ -226,7 +278,8 @@ impl GalleryRepository<'_> {
         id: GalleryId,
     ) -> Result<Option<Gallery>, sqlx::Error> {
         sqlx::query_as(&format!(
-            "SELECT {COLUMNS} FROM galleries WHERE id=$1 AND workspace_id=$2"
+            "SELECT {} FROM galleries WHERE id=$1 AND workspace_id=$2",
+            Self::COLUMNS
         ))
         .bind(id)
         .bind(workspace_id)
@@ -235,7 +288,7 @@ impl GalleryRepository<'_> {
     }
 
     /// Applies `changes` and returns the gallery, or `None` if the workspace has no such
-    /// gallery. The title is trimmed first. An empty changeset only reads, so it does not
+    /// gallery. The title is trimmed, and a blank one clears it. An empty changeset only reads, so it does not
     /// count as an edit.
     pub async fn update(
         &self,
@@ -253,24 +306,35 @@ impl GalleryRepository<'_> {
                 count
                     .map(|count| i32::try_from(count.get()))
                     .transpose()
-                    .map_err(|_| GalleryError::Invalid(Setting::IncludedPhotos))
+                    .map_err(|_| {
+                        GalleryError::LengthOverflowViolation(GallerySetting::IncludedPhotos)
+                    })
             })
             .transpose()?;
 
+        let title = changes.title.as_ref().map(|title| {
+            title
+                .as_deref()
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+        });
+
         sqlx::query_as(&format!(
             "UPDATE galleries SET
-                title = COALESCE($3, title),
-                layout = COALESCE($4, layout),
-                expires_at = CASE WHEN $5 THEN $6 ELSE expires_at END,
-                included_photos = CASE WHEN $7 THEN $8 ELSE included_photos END,
-                watermark_enabled = COALESCE($9, watermark_enabled),
+                title = CASE WHEN $3 THEN $4 ELSE title END,
+                layout = COALESCE($5, layout),
+                expires_at = CASE WHEN $6 THEN $7 ELSE expires_at END,
+                included_photos = CASE WHEN $8 THEN $9 ELSE included_photos END,
+                watermark_enabled = COALESCE($10, watermark_enabled),
                 updated_at = now()
              WHERE id=$1 AND workspace_id=$2
-             RETURNING {COLUMNS}"
+             RETURNING {}",
+            Self::COLUMNS
         ))
         .bind(id)
         .bind(workspace_id)
-        .bind(changes.title.as_deref().map(str::trim))
+        .bind(title.is_some())
+        .bind(title.flatten())
         .bind(changes.layout)
         .bind(changes.expires_at.is_some())
         .bind(changes.expires_at.flatten())
@@ -279,24 +343,8 @@ impl GalleryRepository<'_> {
         .bind(changes.watermark_enabled)
         .fetch_optional(self.pool)
         .await
-        .map_err(invalid_setting)
+        .map_err(GalleryError::from)
     }
-}
-
-/// Maps a validation failure to the setting that caused it; anything else stays a database error.
-fn invalid_setting(error: sqlx::Error) -> GalleryError {
-    let setting =
-        error
-            .as_database_error()
-            .and_then(|db| match (db.constraint(), db.code().as_deref()) {
-                (Some("galleries_title_length"), _) | (_, Some(INVALID_BYTE_SEQUENCE)) => {
-                    Some(Setting::Title)
-                }
-                (Some("galleries_included_photos_positive"), _) => Some(Setting::IncludedPhotos),
-                _ => None,
-            });
-
-    setting.map_or(GalleryError::Database(error), GalleryError::Invalid)
 }
 
 #[cfg(test)]
@@ -329,8 +377,8 @@ mod tests {
         let (mine, other) = (workspace(&pool).await, workspace(&pool).await);
         let gallery = store.create(mine).await.unwrap();
 
-        assert_eq!(gallery.title, DEFAULT_TITLE);
-        assert_eq!(gallery.layout, Layout::Grid);
+        assert_eq!(gallery.title, None);
+        assert_eq!(gallery.layout, GalleryLayout::Grid);
         assert_eq!(gallery.expires_at, None);
         assert_eq!(gallery.included_photos, None);
         assert!(!gallery.watermark_enabled);
@@ -355,7 +403,7 @@ mod tests {
         );
         assert_eq!(
             store.get(mine, gallery.id).await.unwrap().unwrap().title,
-            DEFAULT_TITLE
+            None
         );
     }
 
@@ -382,8 +430,8 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(set.title, "Wedding");
-        assert_eq!(set.layout, Layout::Masonry);
+        assert_eq!(set.title.as_deref(), Some("Wedding"));
+        assert_eq!(set.layout, GalleryLayout::Masonry);
         assert!(set.expires_at.is_some());
         assert_eq!(set.included_photos, NonZeroUsize::new(25));
         assert!(set.watermark_enabled);
@@ -396,7 +444,7 @@ mod tests {
 
         assert_eq!(cleared.expires_at, None);
         assert_eq!(cleared.included_photos, NonZeroUsize::new(25));
-        assert_eq!(cleared.title, "Wedding");
+        assert_eq!(cleared.title.as_deref(), Some("Wedding"));
 
         let cleared = store
             .update(workspace, id, &changes(json!({"included_photos": null})))
@@ -405,7 +453,22 @@ mod tests {
             .unwrap();
 
         assert_eq!(cleared.included_photos, None);
-        assert_eq!(cleared.layout, Layout::Masonry);
+        assert_eq!(cleared.layout, GalleryLayout::Masonry);
+
+        for blank in [json!(null), json!(""), json!("   ")] {
+            let untitled = store
+                .update(workspace, id, &changes(json!({"title": blank})))
+                .await
+                .unwrap()
+                .unwrap();
+
+            assert_eq!(untitled.title, None);
+
+            store
+                .update(workspace, id, &changes(json!({"title": "Again"})))
+                .await
+                .unwrap();
+        }
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -416,16 +479,25 @@ mod tests {
         let id = store.create(workspace).await.unwrap().id;
         let long = "é".repeat(256);
 
-        for title in ["", "   ", long.as_str(), "nul\u{0}byte"] {
-            let result = store
-                .update(workspace, id, &changes(json!({"title": title})))
-                .await;
+        let result = store
+            .update(workspace, id, &changes(json!({"title": long})))
+            .await;
 
-            assert!(
-                matches!(result, Err(GalleryError::Invalid(Setting::Title))),
-                "{title:?}"
-            );
-        }
+        assert!(matches!(
+            result,
+            Err(GalleryError::LengthOverflowViolation(GallerySetting::Title))
+        ));
+
+        let result = store
+            .update(workspace, id, &changes(json!({"title": "nul\u{0}byte"})))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(GalleryError::InvalidCharactersViolation(
+                GallerySetting::Title
+            ))
+        ));
 
         let widest = "é".repeat(255);
         let updated = store
@@ -434,7 +506,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(updated.title.chars().count(), 255);
+        assert_eq!(updated.title.unwrap().chars().count(), 255);
 
         let oversized = GalleryChanges {
             included_photos: Some(NonZeroUsize::new(usize::MAX)),
@@ -443,14 +515,15 @@ mod tests {
 
         assert!(matches!(
             store.update(workspace, id, &oversized).await,
-            Err(GalleryError::Invalid(Setting::IncludedPhotos))
+            Err(GalleryError::LengthOverflowViolation(
+                GallerySetting::IncludedPhotos
+            ))
         ));
     }
 
     #[test]
     fn changeset_parsing_rejects_nulls_unknown_fields_and_bad_counts() {
         for body in [
-            json!({"title": null}),
             json!({"layout": null}),
             json!({"watermark_enabled": null}),
             json!({"included_photos": 0}),
@@ -467,6 +540,14 @@ mod tests {
 
         assert!(changes(json!({})).is_empty());
         assert!(!changes(json!({"included_photos": null})).is_empty());
+        assert!(!changes(json!({"title": null})).is_empty());
+
+        let partial = changes(json!({"title": null, "watermark_enabled": true}));
+
+        assert_eq!(
+            serde_json::to_value(&partial).unwrap(),
+            json!({"title": null, "watermark_enabled": true})
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -530,7 +611,7 @@ mod tests {
                 .await
                 .unwrap()
                 .into_iter()
-                .map(|gallery| gallery.title)
+                .map(|gallery| gallery.title.unwrap_or_default())
                 .collect::<Vec<_>>()
         };
 
@@ -545,6 +626,13 @@ mod tests {
         assert_eq!(
             titles(GallerySort::Title).await,
             ["Apple", "banana", "cherry"]
+        );
+
+        store.create(workspace).await.unwrap();
+
+        assert_eq!(
+            titles(GallerySort::Title).await,
+            ["Apple", "banana", "cherry", ""]
         );
     }
 }

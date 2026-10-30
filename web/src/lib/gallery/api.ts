@@ -3,7 +3,7 @@ export type GallerySort = 'updated' | 'created' | 'title';
 
 export interface Gallery {
 	id: string;
-	title: string;
+	title: string | null;
 	layout: GalleryLayout;
 	expires_at: string | null;
 	included_photos: number | null;
@@ -14,7 +14,7 @@ export interface Gallery {
 
 /** Subset of settings sent by a PATCH: a missing key is kept, `null` clears the optional ones. */
 export interface GalleryChanges {
-	title?: string;
+	title?: string | null;
 	layout?: GalleryLayout;
 	expires_at?: string | null;
 	included_photos?: number | null;
@@ -25,6 +25,7 @@ export class GalleryApiError extends Error {
 	constructor(
 		public status: number,
 		message: string,
+		/** The setting a 422 is about (`context[0]` of the error body). */
 		public field?: string
 	) {
 		super(message);
@@ -42,7 +43,9 @@ async function galleryRequest(path: string, init: RequestInit, fetcher: typeof f
 		throw new GalleryApiError(
 			response.status,
 			typeof data.error === 'string' ? data.error : 'Unable to complete the request.',
-			typeof data.field === 'string' ? data.field : undefined
+			Array.isArray(data.context) && typeof data.context[0] === 'string'
+				? data.context[0]
+				: undefined
 		);
 	}
 	return (await response.json()) as Gallery;

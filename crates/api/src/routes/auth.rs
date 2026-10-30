@@ -11,8 +11,9 @@
 //!
 //! The cookie holds a random opaque [`SessionToken`]; only its digest is stored, so a database
 //! leak does not yield usable sessions. Every state-changing request must carry the exact
-//! configured `Origin`, which [`require_same_origin`](crate::origin::require_same_origin) enforces as the CSRF defence for this
-//! cookie-authenticated API before any extractor reads the request. Sign-in routes also pass
+//! configured `Origin`, which the API-wide [`SameOrigin`](crate::middlewares::origin::SameOrigin)
+//! middleware enforces as the CSRF defence for this cookie-authenticated API before any
+//! extractor reads the request. Sign-in routes also pass
 //! the failed-attempt limiter ([`Attempt`]). Request bodies are validated while being parsed
 //! ([`Credentials`]), and policy and limiter state live in [`ApiState`].
 
@@ -23,7 +24,6 @@ use actix_web::{
     error::JsonPayloadError,
     get,
     http::{StatusCode, header},
-    middleware::from_fn,
     post, web,
 };
 use pp_core::{email::Email, time::Millis};
@@ -38,7 +38,6 @@ use crate::{
         attempt::Attempt,
         session_token::{SessionToken, TokenHash},
     },
-    origin::require_same_origin,
     request::RequestExt,
 };
 
@@ -125,7 +124,6 @@ struct AuthStatus {
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/auth")
-            .wrap(from_fn(require_same_origin))
             .app_data(
                 web::JsonConfig::default()
                     .limit(4096)

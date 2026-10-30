@@ -7,7 +7,7 @@
 	import Placeholder from '#lib/components/Placeholder.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import { createGallery, type GallerySort } from '#lib/gallery/api.js';
-	import { formatEdited } from '#lib/gallery/format.js';
+	import { formatEdited, UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -116,7 +116,9 @@
 							<Placeholder background="sheet" icon label="Your hero photo will appear here" />
 						</div>
 						<div class="grid gap-1 p-4">
-							<h2 class="truncate font-medium">{gallery.title}</h2>
+							<h2 class="truncate font-medium" class:text-muted-foreground={gallery.title === null}>
+								{gallery.title ?? UNTITLED_GALLERY}
+							</h2>
 							<p class="text-sm text-muted-foreground">
 								{gallery.layout === 'masonry' ? 'Masonry' : 'Grid'} · Edited {formatEdited(
 									gallery.updated_at

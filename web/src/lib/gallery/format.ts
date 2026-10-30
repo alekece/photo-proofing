@@ -1,3 +1,6 @@
+/** Shown wherever a gallery has no title; the server stores `null`. */
+export const UNTITLED_GALLERY = 'Untitled gallery';
+
 const pad = (value: number) => String(value).padStart(2, '0');
 
 /** Short "last edited" text: relative for the last day, otherwise a local date. */

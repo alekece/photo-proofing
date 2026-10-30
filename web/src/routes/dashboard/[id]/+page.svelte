@@ -10,7 +10,7 @@
 		type GalleryChanges,
 		type GalleryLayout
 	} from '#lib/gallery/api.js';
-	import { endOfLocalDay, toLocalDate } from '#lib/gallery/format.js';
+	import { endOfLocalDay, toLocalDate, UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
 
 	const DEBOUNCE = 600;
@@ -20,7 +20,7 @@
 	// svelte-ignore state_referenced_locally
 	let saved = $state(data.gallery);
 	// svelte-ignore state_referenced_locally
-	let title = $state(data.gallery.title);
+	let title = $state(data.gallery.title ?? '');
 	// svelte-ignore state_referenced_locally
 	let expiryDay = $state(data.gallery.expires_at ? toLocalDate(data.gallery.expires_at) : '');
 	// svelte-ignore state_referenced_locally
@@ -108,25 +108,23 @@
 		}
 	}
 	function saveTitle() {
-		const value = title.trim();
-		if (value === '' || value === saved.title) return;
+		const value = title.trim() || null;
+		if (value === saved.title) return;
 		void save({ title: value });
 	}
 	function editTitle() {
-		if (title.trim() === '') cancel('title');
-		else debounce('title', saveTitle);
+		debounce('title', saveTitle);
 	}
 	/** Focus moving to Retry is not leaving for good: the user is about to retry the attempt. */
 	const goingToRetry = (event: FocusEvent) =>
 		event.relatedTarget instanceof HTMLElement && event.relatedTarget.dataset.retry !== undefined;
 	function leaveTitle(event?: FocusEvent) {
 		cancel('title');
-		if (failed.title !== undefined && failed.title === title.trim()) {
+		if (failed.title !== undefined && failed.title === (title.trim() || null)) {
 			if (event && goingToRetry(event)) return;
 			delete failed.title;
-			title = saved.title;
-		} else if (title.trim() === '') title = saved.title;
-		else saveTitle();
+			title = saved.title ?? '';
+		} else saveTitle();
 	}
 	function setLayout(value: GalleryLayout) {
 		layout = value;
@@ -162,7 +160,7 @@
 	}
 </script>
 
-<svelte:head><title>{saved.title} — PhotoProofing</title></svelte:head>
+<svelte:head><title>{saved.title ?? UNTITLED_GALLERY} — PhotoProofing</title></svelte:head>
 <main class="mx-auto grid max-w-5xl gap-6 p-6">
 	<a href="/dashboard" class="text-sm underline underline-offset-4">← All galleries</a>
 
@@ -176,6 +174,7 @@
 			id="title"
 			class="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 text-2xl font-semibold hover:border-input focus:border-ring focus:outline-none"
 			bind:value={title}
+			placeholder={UNTITLED_GALLERY}
 			maxlength={TITLE_MAX}
 			oninput={editTitle}
 			onblur={(event) => leaveTitle(event)}

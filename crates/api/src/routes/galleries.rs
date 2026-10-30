@@ -1,26 +1,20 @@
 //! Gallery endpoints under `/api/v1/galleries`, scoped to the session's workspace.
 //!
-//! - `POST /` creates a gallery with the default title and settings.
+//! - `POST /` creates an untitled gallery with the default settings.
 //! - `GET /?sort=updated|created|title` lists the workspace's galleries.
 //! - `GET /{id}` returns one gallery.
 //! - `PATCH /{id}` applies a [`GalleryChanges`] changeset and returns the updated gallery.
 //!
-//! A gallery of another workspace is a 404, never a 403, so ids reveal nothing. Like the auth
-//! routes, state-changing requests must carry the configured `Origin`.
+//! A gallery of another workspace is a 404, never a 403, so ids reveal nothing. Like every state-changing
+//! route, they must carry the configured `Origin`, which the API-wide middleware checks.
 
-use actix_web::{
-    HttpRequest, HttpResponse, error::JsonPayloadError, get, middleware::from_fn, patch, post, web,
-};
-use pp_database::gallery::{GalleryChanges, GalleryId, GallerySort};
-use serde::{Deserialize, Serialize};
+use actix_web::{get, patch, post, web};
+use pp_database::gallery::{Gallery, GalleryChanges, GalleryId, GallerySort};
+use serde::Deserialize;
 
 use crate::{
-    api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
-    origin::require_same_origin,
+    api::ApiState, error::ErrorResponse, extractors::identity::Authenticated, response::NoStore,
 };
-
-/// A changeset is a handful of settings; this bounds the body well above any valid one.
-const CHANGES_LIMIT: usize = 4096;
 
 #[derive(Deserialize)]
 struct ListQuery {
@@ -32,22 +26,6 @@ struct ListQuery {
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/galleries")
-            .wrap(from_fn(require_same_origin))
-            .app_data(
-                web::JsonConfig::default()
-                    .limit(CHANGES_LIMIT)
-                    .error_handler(|error: JsonPayloadError, _: &HttpRequest| {
-                        ErrorResponse::from(error).into()
-                    }),
-            )
-            .app_data(
-                web::QueryConfig::default()
-                    .error_handler(|_, _: &HttpRequest| ErrorResponse::bad_request().into()),
-            )
-            .app_data(
-                web::PathConfig::default()
-                    .error_handler(|_, _: &HttpRequest| ErrorResponse::not_found().into()),
-            )
             .service(create_gallery)
             .service(list_galleries)
             .service(show_gallery)
@@ -55,20 +33,14 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     );
 }
 
-fn no_store<T: Serialize>(mut response: actix_web::HttpResponseBuilder, body: &T) -> HttpResponse {
-    response
-        .insert_header((actix_web::http::header::CACHE_CONTROL, "no-store"))
-        .json(body)
-}
-
 #[post("")]
 async fn create_gallery(
     state: web::Data<ApiState>,
     Authenticated(identity): Authenticated,
-) -> Result<HttpResponse, ErrorResponse> {
+) -> Result<NoStore<Gallery>, ErrorResponse> {
     let gallery = state.galleries().create(identity.workspace_id).await?;
 
-    Ok(no_store(HttpResponse::Created(), &gallery))
+    Ok(NoStore::created(gallery))
 }
 
 #[get("")]
@@ -76,13 +48,13 @@ async fn list_galleries(
     state: web::Data<ApiState>,
     Authenticated(identity): Authenticated,
     query: web::Query<ListQuery>,
-) -> Result<HttpResponse, ErrorResponse> {
+) -> Result<NoStore<Vec<Gallery>>, ErrorResponse> {
     let galleries = state
         .galleries()
         .list(identity.workspace_id, query.sort)
         .await?;
 
-    Ok(no_store(HttpResponse::Ok(), &galleries))
+    Ok(NoStore::ok(galleries))
 }
 
 #[get("/{id}")]
@@ -90,14 +62,14 @@ async fn show_gallery(
     state: web::Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: web::Path<GalleryId>,
-) -> Result<HttpResponse, ErrorResponse> {
+) -> Result<NoStore<Gallery>, ErrorResponse> {
     let gallery = state
         .galleries()
         .get(identity.workspace_id, id.into_inner())
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(no_store(HttpResponse::Ok(), &gallery))
+    Ok(NoStore::ok(gallery))
 }
 
 #[patch("/{id}")]
@@ -106,14 +78,14 @@ async fn update_gallery(
     Authenticated(identity): Authenticated,
     id: web::Path<GalleryId>,
     changes: web::Json<GalleryChanges>,
-) -> Result<HttpResponse, ErrorResponse> {
+) -> Result<NoStore<Gallery>, ErrorResponse> {
     let gallery = state
         .galleries()
         .update(identity.workspace_id, id.into_inner(), &changes)
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(no_store(HttpResponse::Ok(), &gallery))
+    Ok(NoStore::ok(gallery))
 }
 
 #[cfg(test)]
@@ -215,7 +187,7 @@ mod tests {
         let (status, created) = call(&app, post_gallery(&cookie)).await;
 
         assert_eq!(status, StatusCode::CREATED);
-        assert_eq!(created["title"], "Untitled gallery");
+        assert_eq!(created["title"], Value::Null);
         assert_eq!(created["layout"], "grid");
         assert_eq!(created["expires_at"], Value::Null);
         assert_eq!(created["included_photos"], Value::Null);
@@ -249,6 +221,10 @@ mod tests {
         assert_eq!(cleared["expires_at"], Value::Null);
         assert_eq!(cleared["included_photos"], 30);
         assert_eq!(cleared["title"], "Wedding");
+
+        let (_, untitled) = call(&app, patch(&id, &cookie, json!({"title": "  "}))).await;
+
+        assert_eq!(untitled["title"], Value::Null);
 
         let request = test::TestRequest::get()
             .uri("/api/v1/galleries/")
@@ -288,14 +264,12 @@ mod tests {
         let long = "x".repeat(256);
 
         for (body, field) in [
-            (json!({"title": "   "}), Some("title")),
             (json!({"title": long}), Some("title")),
             (json!({"included_photos": 0}), None),
             (
                 json!({"included_photos": u64::MAX}),
                 Some("included_photos"),
             ),
-            (json!({"title": null}), None),
             (json!({"layout": null}), None),
             (json!({"watermark_enabled": null}), None),
             (json!({"layout": "carousel"}), None),
@@ -306,7 +280,11 @@ mod tests {
             let (status, error) = call(&app, patch(&id, &cookie, body.clone())).await;
 
             assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-            assert_eq!(error["field"].as_str(), field, "{body}");
+            assert_eq!(
+                error["context"].get(0).and_then(Value::as_str),
+                field,
+                "{body}"
+            );
         }
 
         let (status, _) = call(
@@ -354,7 +332,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(after["title"], "Untitled gallery");
+        assert_eq!(after["title"], Value::Null);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
