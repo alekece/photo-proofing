@@ -21,7 +21,6 @@ argon2 = "0.5"
 base64 = "0.22"
 rand = "0.9"
 sha2 = "0.10"
-time = { version = "0.3", features = ["serde"] }
 
 [lints]
 workspace = true

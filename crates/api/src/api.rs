@@ -1,14 +1,18 @@
-use std::{io::Error as IoError, net::IpAddr, sync::Arc, time::Duration};
+use std::{
+    io::Error as IoError,
+    net::IpAddr,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use actix_web::{
     App, HttpServer,
-    cookie::{Cookie, SameSite},
+    cookie::{Cookie, SameSite, time::Duration as CookieMaxAge, time::error::ConversionRange},
     web,
 };
 use derive_more::{Display, Error, From};
 use pp_core::url::Origin;
 use pp_database::{Database, MIGRATOR, PgPoolOptions, auth::AuthRepository};
-use time::{Duration as TimeDuration, OffsetDateTime, error::ConversionRange};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
@@ -55,8 +59,8 @@ pub(crate) struct ApiState {
     origin: Origin,
     idle_timeout: CookieDuration,
     cookie_name: CookieName,
-    // The same span as `idle_timeout` in the `time` crate's type, converted once at startup.
-    session_lifetime: TimeDuration,
+    // The same span as `idle_timeout` in the cookie crate's type, converted once at startup.
+    cookie_max_age: CookieMaxAge,
     hash_slots: Arc<Semaphore>,
     failed_attempts: AttemptLimiter,
     dummy_hash: PasswordHash,
@@ -74,9 +78,9 @@ impl ApiState {
             origin: auth.app_origin,
             idle_timeout: session.idle_timeout,
             cookie_name: session.cookie_name,
-            // `CookieDuration` bounds the timeout far below the `time` and timestamp limits,
+            // `CookieDuration` bounds the timeout far below the cookie and timestamp limits,
             // so adding it to the current time cannot overflow for centuries.
-            session_lifetime: TimeDuration::try_from(session.idle_timeout.get())?,
+            cookie_max_age: CookieMaxAge::try_from(session.idle_timeout.get())?,
             hash_slots: Arc::new(Semaphore::new(HASH_SLOTS)),
             failed_attempts: AttemptLimiter::new(limiter),
             dummy_hash: PasswordHash::generate()?,
@@ -102,8 +106,8 @@ impl ApiState {
     }
 
     /// Expiry of a session created or renewed at `now`; `None` only if it overflows time.
-    pub fn session_expiry(&self, now: OffsetDateTime) -> Option<OffsetDateTime> {
-        now.checked_add(self.session_lifetime)
+    pub fn session_expiry(&self, now: SystemTime) -> Option<SystemTime> {
+        now.checked_add(self.idle_timeout.get())
     }
 
     /// The session cookie for `token`, living as long as the idle timeout.
@@ -124,7 +128,7 @@ impl ApiState {
 
     /// Best-effort removal of a small batch of expired sessions. They already fail
     /// authentication, so a failure here is logged and must never fail the caller's request.
-    pub async fn delete_expired_sessions(&self, now: OffsetDateTime) {
+    pub async fn delete_expired_sessions(&self, now: SystemTime) {
         if let Err(error) = self.store().cleanup_expired(now, 100).await {
             tracing::warn!(%error, "expired session cleanup failed");
         }
@@ -156,7 +160,7 @@ impl ApiState {
             .http_only(true)
             .same_site(SameSite::Lax)
             .secure(false)
-            .max_age(self.session_lifetime)
+            .max_age(self.cookie_max_age)
             .finish()
     }
 }

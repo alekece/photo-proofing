@@ -4,6 +4,8 @@
 //! `expires_at`. Revoking deletes the row, so copied tokens stop working immediately.
 //! Expiry is sliding: renewal pushes `expires_at` forward, with no maximum age.
 
+use std::time::SystemTime;
+
 use pp_core::email::Email;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Type};
@@ -78,7 +80,7 @@ impl AuthRepository<'_> {
         email: &Email,
         password_hash: &str,
         token_hash: &[u8; 32],
-        expires_at: OffsetDateTime,
+        expires_at: SystemTime,
     ) -> Result<Option<Identity>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let workspace_id = WorkspaceId(Uuid::new_v4());
@@ -101,7 +103,7 @@ impl AuthRepository<'_> {
         sqlx::query("INSERT INTO sessions(token_hash,account_id,expires_at) VALUES ($1,$2,$3)")
             .bind(token_hash.as_slice())
             .bind(account_id)
-            .bind(expires_at)
+            .bind(OffsetDateTime::from(expires_at))
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
@@ -126,7 +128,7 @@ impl AuthRepository<'_> {
         &self,
         account_id: AccountId,
         token_hash: &[u8; 32],
-        expires_at: OffsetDateTime,
+        expires_at: SystemTime,
         replaced_hash: Option<&[u8; 32]>,
     ) -> Result<(), sqlx::Error> {
         let mut tx = self.pool.begin().await?;
@@ -142,7 +144,7 @@ impl AuthRepository<'_> {
         sqlx::query("INSERT INTO sessions(token_hash,account_id,expires_at) VALUES ($1,$2,$3)")
             .bind(token_hash.as_slice())
             .bind(account_id)
-            .bind(expires_at)
+            .bind(OffsetDateTime::from(expires_at))
             .execute(&mut *tx)
             .await?;
 
@@ -153,10 +155,10 @@ impl AuthRepository<'_> {
     pub async fn authenticate(
         &self,
         token_hash: &[u8; 32],
-        now: OffsetDateTime,
+        now: SystemTime,
     ) -> Result<Option<Identity>, sqlx::Error> {
         sqlx::query_as("SELECT a.id AS account_id,a.workspace_id FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>$2")
-            .bind(token_hash.as_slice()).bind(now).fetch_optional(self.pool).await
+            .bind(token_hash.as_slice()).bind(OffsetDateTime::from(now)).fetch_optional(self.pool).await
     }
 
     /// Extends a live session and returns its owner, or `None` if it is expired or revoked.
@@ -164,12 +166,12 @@ impl AuthRepository<'_> {
     pub async fn renew(
         &self,
         token_hash: &[u8; 32],
-        now: OffsetDateTime,
-        expires_at: OffsetDateTime,
+        now: SystemTime,
+        expires_at: SystemTime,
     ) -> Result<Option<Identity>, sqlx::Error> {
         // UPDATE, never UPSERT: a revoked session must not be recreated by renewal.
         sqlx::query_as("UPDATE sessions s SET expires_at=GREATEST(s.expires_at,$3) FROM accounts a WHERE s.account_id=a.id AND s.token_hash=$1 AND s.expires_at>$2 RETURNING a.id AS account_id,a.workspace_id")
-            .bind(token_hash.as_slice()).bind(now).bind(expires_at).fetch_optional(self.pool).await
+            .bind(token_hash.as_slice()).bind(OffsetDateTime::from(now)).bind(OffsetDateTime::from(expires_at)).fetch_optional(self.pool).await
     }
 
     /// Deletes the session; copies of its cookie stop authenticating at once. Idempotent.
@@ -184,12 +186,8 @@ impl AuthRepository<'_> {
 
     /// Housekeeping only: expired sessions already fail `authenticate`, so deleting at most
     /// `limit` per call just bounds table growth without long locks.
-    pub async fn cleanup_expired(
-        &self,
-        now: OffsetDateTime,
-        limit: i64,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE expires_at<=$1 ORDER BY expires_at LIMIT $2)").bind(now).bind(limit).execute(self.pool).await?;
+    pub async fn cleanup_expired(&self, now: SystemTime, limit: i64) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE expires_at<=$1 ORDER BY expires_at LIMIT $2)").bind(OffsetDateTime::from(now)).bind(limit).execute(self.pool).await?;
 
         Ok(())
     }
@@ -197,10 +195,14 @@ impl AuthRepository<'_> {
 
 #[cfg(test)]
 mod tests {
-    use time::Duration;
+    use std::time::Duration;
 
     use super::*;
     use crate::Database;
+
+    fn days(count: u64) -> Duration {
+        Duration::from_secs(count * 24 * 60 * 60)
+    }
 
     fn email(value: &str) -> Email {
         value.parse().unwrap()
@@ -210,7 +212,7 @@ mod tests {
     async fn setup_session_and_revocation_are_persistent(pool: PgPool) {
         let database = Database::new(pool.clone());
         let store = database.repository::<AuthRepository>();
-        let now = OffsetDateTime::now_utc();
+        let now = SystemTime::now();
 
         assert!(store.setup_available().await.unwrap());
 
@@ -219,7 +221,7 @@ mod tests {
                 &email("person@example.test"),
                 "hash",
                 &[1; 32],
-                now + Duration::days(30),
+                now + days(30),
             )
             .await
             .unwrap()
@@ -232,7 +234,7 @@ mod tests {
                     &email("other@example.test"),
                     "hash",
                     &[2; 32],
-                    now + Duration::days(30)
+                    now + days(30)
                 )
                 .await
                 .unwrap()
@@ -244,21 +246,21 @@ mod tests {
         );
         assert!(
             store
-                .authenticate(&[1; 32], now + Duration::days(30))
+                .authenticate(&[1; 32], now + days(30))
                 .await
                 .unwrap()
                 .is_none()
         );
 
         store
-            .renew(&[1; 32], now, now + Duration::days(40))
+            .renew(&[1; 32], now, now + days(40))
             .await
             .unwrap()
             .unwrap();
 
         assert!(
             store
-                .authenticate(&[1; 32], now + Duration::days(31))
+                .authenticate(&[1; 32], now + days(31))
                 .await
                 .unwrap()
                 .is_some()
@@ -268,7 +270,7 @@ mod tests {
 
         assert!(
             store
-                .renew(&[1; 32], now, now + Duration::days(50))
+                .renew(&[1; 32], now, now + days(50))
                 .await
                 .unwrap()
                 .is_none()
@@ -288,7 +290,7 @@ mod tests {
         let database = Database::new(pool.clone());
         let a = database.repository::<AuthRepository>();
         let b = a;
-        let expiry = OffsetDateTime::now_utc() + Duration::days(30);
+        let expiry = SystemTime::now() + days(30);
         let (email_a, email_b) = (email("a@example.test"), email("b@example.test"));
         let (a, b) = tokio::join!(
             a.create_account(&email_a, "hash", &[1; 32], expiry),
@@ -314,20 +316,15 @@ mod tests {
     async fn renewal_and_logout_cannot_resurrect_session(pool: PgPool) {
         let database = Database::new(pool);
         let store = database.repository::<AuthRepository>();
-        let now = OffsetDateTime::now_utc();
+        let now = SystemTime::now();
 
         store
-            .create_account(
-                &email("a@example.test"),
-                "hash",
-                &[1; 32],
-                now + Duration::days(1),
-            )
+            .create_account(&email("a@example.test"), "hash", &[1; 32], now + days(1))
             .await
             .unwrap();
 
         let (renew, revoke) = tokio::join!(
-            store.renew(&[1; 32], now, now + Duration::days(2)),
+            store.renew(&[1; 32], now, now + days(2)),
             store.revoke(&[1; 32])
         );
 
@@ -341,29 +338,19 @@ mod tests {
     async fn replacing_one_login_does_not_revoke_another(pool: PgPool) {
         let database = Database::new(pool);
         let store = database.repository::<AuthRepository>();
-        let now = OffsetDateTime::now_utc();
+        let now = SystemTime::now();
         let id = store
-            .create_account(
-                &email("a@example.test"),
-                "hash",
-                &[1; 32],
-                now + Duration::days(1),
-            )
+            .create_account(&email("a@example.test"), "hash", &[1; 32], now + days(1))
             .await
             .unwrap()
             .unwrap();
 
         store
-            .create_session(id.account_id, &[2; 32], now + Duration::days(1), None)
+            .create_session(id.account_id, &[2; 32], now + days(1), None)
             .await
             .unwrap();
         store
-            .create_session(
-                id.account_id,
-                &[3; 32],
-                now + Duration::days(1),
-                Some(&[1; 32]),
-            )
+            .create_session(id.account_id, &[3; 32], now + days(1), Some(&[1; 32]))
             .await
             .unwrap();
 

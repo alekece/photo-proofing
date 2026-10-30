@@ -16,6 +16,8 @@
 //! the failed-attempt limiter ([`Attempt`]). Request bodies are validated while being parsed
 //! ([`Credentials`]), and policy and limiter state live in [`ApiState`].
 
+use std::time::SystemTime;
+
 use actix_web::{
     Error, HttpResponse, ResponseError,
     body::{EitherBody, MessageBody},
@@ -30,7 +32,6 @@ use pp_core::{email::Email, time::Millis};
 use pp_database::auth::Identity;
 use serde::{Deserialize, Serialize};
 use serde_json::error::Category;
-use time::OffsetDateTime;
 
 use crate::{
     api::ApiState,
@@ -190,7 +191,7 @@ async fn report_status(
     let identity = match session {
         Some(token) => state
             .store()
-            .authenticate(token.digest().as_bytes(), OffsetDateTime::now_utc())
+            .authenticate(token.digest().as_bytes(), SystemTime::now())
             .await
             .map_err(|_| AuthError::Unavailable)?,
         None => None,
@@ -226,7 +227,7 @@ async fn setup(
     // `create_account` returns `None` to the loser, which becomes the 409 below.
     let token = SessionToken::generate();
     let expires_at = state
-        .session_expiry(OffsetDateTime::now_utc())
+        .session_expiry(SystemTime::now())
         .ok_or(AuthError::Unavailable)?;
     let id = state
         .store()
@@ -281,7 +282,7 @@ async fn login(
 
     let token = SessionToken::generate();
     let hash = token.digest();
-    let now = OffsetDateTime::now_utc();
+    let now = SystemTime::now();
     let expires_at = state.session_expiry(now).ok_or(AuthError::Unavailable)?;
 
     // Expired rows are removed in small batches on the request path, so no background job is needed.
@@ -332,7 +333,7 @@ async fn renew(
     state: web::Data<ApiState>,
     session: SessionToken,
 ) -> Result<HttpResponse, AuthError> {
-    let now = OffsetDateTime::now_utc();
+    let now = SystemTime::now();
     let expires_at = state.session_expiry(now).ok_or(AuthError::Unavailable)?;
 
     state
@@ -518,10 +519,11 @@ mod tests {
             .to_request();
         let res = test::call_service(&app, req).await;
         let cookie = res.response().cookies().next().unwrap().into_owned();
-        let before: OffsetDateTime = sqlx::query_scalar("SELECT expires_at FROM sessions")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let before: f64 =
+            sqlx::query_scalar("SELECT extract(epoch FROM expires_at)::float8 FROM sessions")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         let req = test::TestRequest::get()
             .uri("/api/v1/auth/status")
@@ -538,10 +540,11 @@ mod tests {
         assert_eq!(json["idle_timeout_ms"], 3_600_000);
         assert!(!json.to_string().contains(cookie.value()));
 
-        let after: OffsetDateTime = sqlx::query_scalar("SELECT expires_at FROM sessions")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let after: f64 =
+            sqlx::query_scalar("SELECT extract(epoch FROM expires_at)::float8 FROM sessions")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         assert_eq!(before, after);
 
