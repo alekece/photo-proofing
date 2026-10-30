@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { GalleryApiError, updateGallery } from './api';
+import { GalleryApiError, shareGallery, updateGallery } from './api';
 
 describe('gallery API errors', () => {
 	it('reads the failing setting from context[0] of a 422', async () => {
@@ -14,5 +14,17 @@ describe('gallery API errors', () => {
 			field: 'title'
 		});
 		await expect(updateGallery('g1', {}, fetcher)).rejects.toBeInstanceOf(GalleryApiError);
+	});
+});
+
+describe('shareGallery', () => {
+	it('posts to the share path and returns the gallery with its link token', async () => {
+		const gallery = { id: 'g 1', share_token: 'A'.repeat(22) };
+		const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(gallery)));
+		expect(await shareGallery('g 1', fetcher)).toEqual(gallery);
+		expect(fetcher).toHaveBeenCalledWith(
+			'/api/v1/galleries/g%201/share',
+			expect.objectContaining({ method: 'POST' })
+		);
 	});
 });

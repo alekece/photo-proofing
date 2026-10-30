@@ -8,6 +8,8 @@ export interface Gallery {
 	expires_at: string | null;
 	included_photos: number | null;
 	watermark_enabled: boolean;
+	/** The private client link's token once shared; the link never changes afterwards. */
+	share_token: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -65,4 +67,9 @@ export function updateGallery(
 		{ method: 'PATCH', body: JSON.stringify(changes), keepalive: true },
 		fetcher
 	);
+}
+
+/** Creates the private link on first call and returns the same one afterwards. */
+export function shareGallery(id: string, fetcher: typeof fetch = fetch): Promise<Gallery> {
+	return galleryRequest(`/${encodeURIComponent(id)}/share`, { method: 'POST' }, fetcher);
 }

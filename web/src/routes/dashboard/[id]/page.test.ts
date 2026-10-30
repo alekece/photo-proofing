@@ -4,6 +4,7 @@ import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$app/navigation', () => ({ afterNavigate: vi.fn(), beforeNavigate: vi.fn(), goto: vi.fn() }));
+vi.mock('$app/state', () => ({ page: { url: new URL('https://pp.test/dashboard/g1') } }));
 import { goto } from '$app/navigation';
 import type { Gallery } from '#lib/gallery/api.js';
 import GalleryPage from './+page.svelte';
@@ -15,6 +16,7 @@ const base: Gallery = {
 	expires_at: null,
 	included_photos: 5,
 	watermark_enabled: false,
+	share_token: null,
 	created_at: '2026-01-01T10:00:00Z',
 	updated_at: '2026-01-02T10:00:00Z'
 };
@@ -40,6 +42,13 @@ afterEach(() => {
 });
 
 describe('gallery page', () => {
+	it('renders the share control with a link built from the page origin', () => {
+		open({ share_token: 'B'.repeat(22) });
+		expect((screen.getByLabelText('Client link') as HTMLInputElement).value).toBe(
+			`https://pp.test/g/${'B'.repeat(22)}`
+		);
+	});
+
 	it('sends only the changed field and shows Saved', async () => {
 		const patches = stubApi();
 		open();
