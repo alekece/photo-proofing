@@ -14,7 +14,14 @@ const open = async (slug: string) =>
 describe('route shells', () => {
 	it('dashboard renders its heading', () => {
 		render(Dashboard, {
-			props: { data: { identity: { account_id: 'account', workspace_id: 'workspace' }, idleTimeoutMs: 2592000000 } }
+			props: {
+				data: {
+					identity: { account_id: 'account', workspace_id: 'workspace' },
+					idleTimeoutMs: 2592000000,
+					galleries: [],
+					sort: 'updated'
+				}
+			}
 		});
 		expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeTruthy();
 	});
