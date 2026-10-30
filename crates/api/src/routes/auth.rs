@@ -11,22 +11,21 @@
 //!
 //! The cookie holds a random opaque [`SessionToken`]; only its digest is stored, so a database
 //! leak does not yield usable sessions. Every state-changing request must carry the exact
-//! configured `Origin`, which [`require_same_origin`] enforces as the CSRF defence for this
-//! cookie-authenticated API before any extractor reads the request. Sign-in routes also pass
+//! configured `Origin`, which the API-wide [`SameOrigin`](crate::middlewares::origin::SameOrigin)
+//! middleware enforces as the CSRF defence for this cookie-authenticated API before any
+//! extractor reads the request. Sign-in routes also pass
 //! the failed-attempt limiter ([`Attempt`]). Request bodies are validated while being parsed
 //! ([`Credentials`]), and policy and limiter state live in [`ApiState`].
 
 use std::time::SystemTime;
 
 use actix_web::{
-    Error, HttpResponse, ResponseError,
-    body::{EitherBody, MessageBody},
-    dev::{ServiceRequest, ServiceResponse},
+    HttpResponse, ResponseError,
     error::JsonPayloadError,
     get,
-    http::{StatusCode, header},
-    middleware::{Next, from_fn},
-    post, web,
+    http::StatusCode,
+    post,
+    web::{self, Data, Json, JsonConfig, ServiceConfig},
 };
 use pp_core::{email::Email, time::Millis};
 use pp_database::auth::Identity;
@@ -34,13 +33,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::error::Category;
 
 use crate::{
-    api::ApiState,
+    api::{ApiState, JSON_LIMIT},
     credentials::{Password, PasswordHash},
     extractors::{
         attempt::Attempt,
         session_token::{SessionToken, TokenHash},
     },
     request::RequestExt,
+    response::ResponseBuilderExt,
 };
 
 /// A safe, client-facing failure: each variant has a fixed message that never echoes input
@@ -101,7 +101,7 @@ impl ResponseError for AuthError {
 
     fn error_response(&self) -> HttpResponse {
         HttpResponse::build(self.status_code())
-            .insert_header((header::CACHE_CONTROL, "no-store"))
+            .no_store()
             .json(serde_json::json!({"error": self.to_string()}))
     }
 }
@@ -122,46 +122,20 @@ struct AuthStatus {
     idle_timeout: Millis,
 }
 
-/// Rejects state-changing requests whose `Origin` is not the configured one, before their
-/// payload is read.
-async fn require_same_origin<B: MessageBody + 'static>(
-    request: ServiceRequest,
-    next: Next<B>,
-) -> Result<ServiceResponse<EitherBody<B>>, Error> {
-    let allowed = request.method().is_safe()
-        || request
-            .app_data::<web::Data<ApiState>>()
-            .is_some_and(|state| {
-                let origin = request
-                    .headers()
-                    .get(header::ORIGIN)
-                    .and_then(|value| value.to_str().ok());
-
-                state.allows_origin(origin)
-            });
-
-    if !allowed {
-        return Ok(request
-            .error_response(AuthError::ForbiddenOrigin)
-            .map_into_right_body());
-    }
-
-    Ok(next.call(request).await?.map_into_left_body())
-}
-
 /// Registers the auth routes; credential bodies are capped at 4 KiB.
-pub fn configure(cfg: &mut web::ServiceConfig) {
+pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(
         web::scope("/auth")
-            .wrap(from_fn(require_same_origin))
             .app_data(
-                web::JsonConfig::default()
-                    .limit(4096)
+                JsonConfig::default()
+                    .limit(JSON_LIMIT)
                     .error_handler(|error, request| {
-                        // Only bodies that parse but fail validation count as guesses; size and
-                        // content-type rejections are cheap and never reach credential checks.
+                        // The extractor rejects a malformed credential body before any handler
+                        // runs, so this is the only place that can count it as a guess. Only bodies
+                        // that parse but fail validation count; size and content-type rejections are
+                        // cheap and never reach credential checks.
                         if matches!(error, JsonPayloadError::Deserialize(_))
-                            && let Some(state) = request.app_data::<web::Data<ApiState>>()
+                            && let Some(state) = request.app_data::<Data<ApiState>>()
                         {
                             state.record_failure(request.peer_ip());
                         }
@@ -179,7 +153,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 #[get("/status")]
 async fn report_status(
-    state: web::Data<ApiState>,
+    state: Data<ApiState>,
     session: Option<SessionToken>,
 ) -> Result<HttpResponse, AuthError> {
     let setup_available = state
@@ -197,20 +171,18 @@ async fn report_status(
         None => None,
     };
 
-    Ok(HttpResponse::Ok()
-        .insert_header((header::CACHE_CONTROL, "no-store"))
-        .json(AuthStatus {
-            setup_available,
-            identity,
-            idle_timeout: state.idle_timeout().into(),
-        }))
+    Ok(HttpResponse::Ok().no_store().json(AuthStatus {
+        setup_available,
+        identity,
+        idle_timeout: state.idle_timeout().into(),
+    }))
 }
 
 #[post("/setup")]
 async fn setup(
-    state: web::Data<ApiState>,
+    state: Data<ApiState>,
     _attempt: Attempt,
-    credentials: web::Json<Credentials>,
+    credentials: Json<Credentials>,
 ) -> Result<HttpResponse, AuthError> {
     let Credentials { email, password } = credentials.into_inner();
     let permit = state.try_acquire_hash_slot().ok_or(AuthError::Limited)?;
@@ -242,17 +214,17 @@ async fn setup(
         .ok_or(AuthError::SetupClosed)?;
 
     Ok(HttpResponse::Ok()
-        .insert_header((header::CACHE_CONTROL, "no-store"))
+        .no_store()
         .cookie(state.session_cookie(&token))
         .json(id))
 }
 
 #[post("/login")]
 async fn login(
-    state: web::Data<ApiState>,
+    state: Data<ApiState>,
     session: Option<SessionToken>,
     attempt: Attempt,
-    credentials: web::Json<Credentials>,
+    credentials: Json<Credentials>,
 ) -> Result<HttpResponse, AuthError> {
     let Credentials { email, password } = credentials.into_inner();
     let account = state
@@ -304,14 +276,14 @@ async fn login(
         .map_err(|_| AuthError::Unavailable)?;
 
     Ok(HttpResponse::Ok()
-        .insert_header((header::CACHE_CONTROL, "no-store"))
+        .no_store()
         .cookie(state.session_cookie(&token))
         .json(account.identity()))
 }
 
 #[post("/logout")]
 async fn logout(
-    state: web::Data<ApiState>,
+    state: Data<ApiState>,
     session: Option<SessionToken>,
 ) -> Result<HttpResponse, AuthError> {
     if let Some(token) = session {
@@ -323,16 +295,13 @@ async fn logout(
     }
 
     Ok(HttpResponse::NoContent()
-        .insert_header((header::CACHE_CONTROL, "no-store"))
+        .no_store()
         .cookie(state.removal_cookie())
         .finish())
 }
 
 #[post("/renew")]
-async fn renew(
-    state: web::Data<ApiState>,
-    session: SessionToken,
-) -> Result<HttpResponse, AuthError> {
+async fn renew(state: Data<ApiState>, session: SessionToken) -> Result<HttpResponse, AuthError> {
     let now = SystemTime::now();
     let expires_at = state.session_expiry(now).ok_or(AuthError::Unavailable)?;
 
@@ -346,7 +315,7 @@ async fn renew(
     state.delete_expired_sessions(now).await;
 
     Ok(HttpResponse::NoContent()
-        .insert_header((header::CACHE_CONTROL, "no-store"))
+        .no_store()
         .cookie(state.session_cookie(&session))
         .finish())
 }
@@ -392,7 +361,7 @@ mod tests {
         let state = app_state(pool);
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(state))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;
@@ -471,7 +440,7 @@ mod tests {
         let state = app_state(pool);
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(state))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;
@@ -505,7 +474,7 @@ mod tests {
         let state = app_state(pool.clone());
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(state))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;
@@ -581,7 +550,7 @@ mod tests {
         let state = app_state(pool);
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(state))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;
@@ -630,7 +599,7 @@ mod tests {
         let state = app_state(pool);
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(state))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;

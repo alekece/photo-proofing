@@ -8,7 +8,7 @@ The planned MVP is a local-network workflow trial with replaceable JPEG photos, 
 
 Development is restarting around the [product specifications](docs/SPECIFICATIONS.md) and [MVP scope and acceptance checklist](docs/releases/MVP.md). These documents describe the target product, not completed features.
 
-The repository supports one-time photographer account setup, email/password login, a protected dashboard, and persistent revocable sessions backed by SQLx/PostgreSQL. Auth screens use Tailwind and selected shadcn-svelte components. Configuration/logging, API health, an idle worker, in-memory notification domain code, and a mock-backed client gallery/viewer also exist. Persistent galleries, the durable queue, uploads/processing, delivery, and SSE are not implemented.
+The repository supports one-time photographer account setup, email/password login, a protected dashboard, persistent revocable sessions, and persistent galleries with autosaved settings (title, layout, expiry, included photo count, watermark flag) backed by SQLx/PostgreSQL. Auth screens use Tailwind and selected shadcn-svelte components. Configuration/logging, API health, an idle worker, in-memory notification domain code, and a mock-backed client gallery/viewer also exist. Photo upload and the hero picker, the durable queue, uploads/processing, delivery, and SSE are not implemented.
 
 - [Product specifications](docs/SPECIFICATIONS.md): requirements, constraints, and exclusions.
 - [MVP release](docs/releases/MVP.md): first-release scope and acceptance evidence to collect.
@@ -83,7 +83,7 @@ cargo run -p pp-image-worker
 pnpm --dir web dev
 ```
 
-Defaults: API at `http://127.0.0.1:8080`, frontend at `http://localhost:5173`. The frontend proxies `/api` to the API. The dashboard is at `/dashboard`; `/g/<gallery>` currently uses mock gallery data, not uploaded client galleries.
+Defaults: API at `http://127.0.0.1:8080`, frontend at `http://localhost:5173`. The frontend proxies `/api` to the API. The dashboard, which lists and creates galleries, is at `/dashboard`; `/g/<gallery>` currently uses mock gallery data, not uploaded client galleries.
 
 ```sh
 curl http://127.0.0.1:8080/api/v1/health

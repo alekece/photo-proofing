@@ -1,8 +1,10 @@
 //! PostgreSQL persistence and versioned application migrations.
 
 pub mod auth;
+pub mod gallery;
+pub mod types;
 
-pub use sqlx::{PgPool, postgres::PgPoolOptions};
+pub use sqlx::{Error as SqlError, PgPool, postgres::PgPoolOptions};
 
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
