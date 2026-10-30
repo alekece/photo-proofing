@@ -43,7 +43,7 @@ describe('route shells', () => {
 describe('client gallery route', () => {
 	it('shows a neutral unavailable page without gallery data', () => {
 		const { container } = open(null);
-		expect(screen.getByRole('heading', { name: /isn't available/ })).toBeTruthy();
+		expect(screen.getByRole('heading', { level: 1, name: 'Focus not locked' })).toBeTruthy();
 		expect(container.textContent).toMatch(/contact your photographer/i);
 		expect(container.textContent).not.toMatch(/expired|Sample session/i);
 		expect(screen.queryAllByRole('img')).toHaveLength(0);
@@ -99,8 +99,20 @@ describe('ClientGallery', () => {
 });
 
 describe('AccessUnavailable', () => {
+	it('shows the viewfinder page with a heading and the next step', () => {
+		render(AccessUnavailable);
+		expect(screen.getByRole('heading', { level: 1 })).toBeTruthy();
+		expect(screen.getByText(/Please contact your photographer\./)).toBeTruthy();
+	});
+
 	it('does not reveal why the link failed', () => {
 		const { container } = render(AccessUnavailable);
-		expect(container.textContent).not.toMatch(/expired/i);
+		const content = `${container.textContent} ${container.innerHTML}`;
+		expect(content).not.toMatch(/expired|archived|deleted|shared|token/i);
+	});
+
+	it('has no axe violations', async () => {
+		const { container } = render(AccessUnavailable);
+		expect((await axe(container)).violations).toEqual([]);
 	});
 });

@@ -34,5 +34,14 @@
 	}
 	h1 {
 		margin: 0;
+		font-family: var(--serif);
+		font-weight: 400;
+		font-size: 2rem;
+		text-align: center;
+	}
+	p {
+		margin: 0;
+		text-align: center;
+		color: var(--muted-foreground);
 	}
 </style>
