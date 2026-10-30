@@ -1,10 +1,12 @@
-use std::{io::Result as IoResult, path::PathBuf};
+use std::{
+    io::{Error as IoError, Result as IoResult},
+    path::PathBuf,
+};
 
-use actix_web::{App, HttpServer};
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
-use pp_api::app::configure_routes;
-use pp_core::config::{LogConfig, ServerConfig};
+use pp_api::{api::Api, config::ApiConfig};
+use pp_core::config::LogConfig;
 
 #[derive(Parser, ConfigParser)]
 #[command(name = "pp-api", about = "Gallery API")]
@@ -14,22 +16,24 @@ struct Cli {
     #[config(path)]
     config: Option<PathBuf>,
     #[command(flatten)]
-    server: ServerConfig,
-    #[command(flatten)]
     log: LogConfig,
+    #[command(flatten)]
+    api: ApiConfig,
 }
 
 #[actix_web::main]
 async fn main() -> IoResult<()> {
     let cli = Cli::parse_with_config();
+
     tracing_subscriber::fmt()
         .with_max_level(cli.log.log_level)
         .init();
 
-    tracing::info!(host = %cli.server.host, port = cli.server.port, "api starting");
-
-    HttpServer::new(|| App::new().configure(configure_routes))
-        .bind((cli.server.host.as_str(), cli.server.port))?
+    // Rendered with `Display` so startup failures read as messages, not enum variants.
+    Api::init(cli.api)
+        .await
+        .map_err(|error| IoError::other(error.to_string()))?
         .run()
         .await
+        .map_err(|error| IoError::other(error.to_string()))
 }

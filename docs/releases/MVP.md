@@ -12,7 +12,7 @@ A photographer can prepare and share JPEG proofs, receive a shared client select
 
 ## Included scope
 
-- One photographer account/workspace per installation; one-time setup, email/password, logout, Remember me ([FR-01–FR-02](../SPECIFICATIONS.md#fr-01)).
+- One photographer account/workspace per installation; one-time setup, email/password, logout, persistent sliding sessions ([FR-01–FR-02](../SPECIFICATIONS.md#fr-01)).
 - Title, hero, two layouts, optional expiry, editable optional included photo allowance, and watermark enablement ([FR-03](../SPECIFICATIONS.md#fr-03)).
 - Empty/progressively populated proofing shares through one private link and one client selection ([FR-04](../SPECIFICATIONS.md#fr-04)).
 - JPEG uploads, separate transfer/processing progress, failed-file retry, reduced previews, and optional workspace text/logo watermark ([FR-05–FR-07](../SPECIFICATIONS.md#fr-05)).
@@ -37,7 +37,7 @@ Run with synthetic/replaceable photos whose originals are retained elsewhere. Th
 ### Setup and access
 
 - [ ] On an empty installation, create the photographer account through the login URL; subsequent and concurrent setup attempts cannot create another initial account. Verify email/password login and logout ([FR-01](../SPECIFICATIONS.md#fr-01)).
-- [ ] Remember me supports browser-restart persistence; unchecked uses a session cookie. Server expiry and logout invalidate access in both cases, including protected event/media endpoints ([FR-01](../SPECIFICATIONS.md#fr-01), [NF-01](../SPECIFICATIONS.md#nf-01)).
+- [ ] A persistent session survives browser restart. Verify the configurable inactivity timeout (default 30 days), activity-driven renewal with no absolute lifetime cap, and that background traffic does not renew it. Server expiry and logout invalidate access, including copied session tokens and protected event/media endpoints ([FR-01](../SPECIFICATIONS.md#fr-01), [NF-01](../SPECIFICATIONS.md#nf-01)).
 - [ ] Reach the application from a supported mobile browser and another desktop browser on the local network after the deployment design establishes LAN configuration; do not treat localhost access as proof of this ([NF-03](../SPECIFICATIONS.md#nf-03), [TC-02](../SPECIFICATIONS.md#tc-02)).
 
 ### Prepare, process, and share

@@ -20,7 +20,7 @@ One workspace groups galleries, settings, and activity. The MVP has one photogra
 
 ## User Journeys
 
-1. **Set up:** the photographer deploys locally, creates the first account through the login page, and signs in with email/password. They may choose Remember me.
+1. **Set up:** the photographer deploys locally, creates the first account through the login page, and signs in with email/password. The session persists across browser restarts until inactivity expiry or logout.
 2. **Prepare and share:** create a gallery, choose its title, hero, layout, optional expiry, optional included photo count, and watermark enablement. Upload JPEGs and share the private link. Sharing an empty gallery is allowed after a warning; only ready photos appear to clients.
 3. **Choose and review:** the client adds/removes favorites over one or more visits. The photographer sees activity on gallery cards and in grouped notifications. Additional photos beyond the included allowance remain selectable.
 4. **Export:** the photographer requests a ZIP of the current selection. The application displays preparation status and initiates the download when ready. Retouching happens outside PhotoProofing; favorites remain editable until delivery.
@@ -31,7 +31,7 @@ One workspace groups galleries, settings, and activity. The MVP has one photogra
 
 ### FR-01
 
-**Account setup and sessions.** An installation with no account offers one-time account creation through its normal login URL. Setup must create only one initial account, including under concurrent requests. Registration closes afterward. Email/password sign-in, logout, and Remember me are required for MVP. Remember me permits persistence across browser restarts; otherwise use a browser-session cookie. Both have bounded server-side expiry, and logout invalidates the session. Browser session restoration is not controlled by the application. Exact lifetimes belong in authentication design. Google sign-in and password recovery are not MVP features.
+**Account setup and sessions.** An installation with no account offers one-time account creation through its normal login URL. Setup must create only one initial account, including under concurrent requests. Registration closes afterward. Email/password sign-in and logout are required for MVP. Use one persistent cookie-backed session policy without a Remember me control. The operator can configure a human-readable inactivity timeout, defaulting to 30 days. Authenticated user activity renews expiry; passive status checks, background polling, SSE, and keep-alives do not. No absolute lifetime limit applies. Server-side expiry remains authoritative, and logout invalidates the session, including copied tokens, without logging out independent sessions on other devices. Google sign-in and password recovery are not MVP features.
 
 ### FR-02
 
@@ -144,4 +144,4 @@ These product-wide guarantees guide release-specific acceptance; they are requir
 - **AC-05 — Activity truth:** counts represent distinct current delivered-photo download requests, not confirmed saves; notifications group unread activity by gallery and follow explicit read actions. New activity after reading becomes unread. See FR-11–FR-12.
 - **AC-06 — Recovery and deletion:** restart/retry does not lose accepted jobs or corrupt/duplicate published results; stale jobs cannot recreate a deleted gallery's accessible assets. Expiry/archive delete nothing. See FR-13, NF-02, TC-03–TC-04.
 - **AC-07 — Responsive use:** the complete photographer/client journey is usable in mobile and desktop browsers, including keyboard interaction and visible processing/failure states. Representative trial galleries remain operable within defined implementation resource limits. See NF-03–NF-04.
-- **AC-08 — Setup and updates:** only one initial account is created, Remember me and logout follow their session contracts, and an SSE reconnect restores authoritative state without leaking inaccessible gallery data. See FR-01–FR-02, NF-01, TC-05.
+- **AC-08 — Setup and updates:** only one initial account is created, persistent sessions, activity renewal, inactivity expiry, and logout follow their contracts, and an SSE reconnect restores authoritative state without leaking inaccessible gallery data. See FR-01–FR-02, NF-01, TC-05.

@@ -1,7 +1,9 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('$app/navigation', () => ({ afterNavigate: vi.fn(), goto: vi.fn() }));
 import { loadClientGallery } from '#lib/gallery/load.js';
 import Dashboard from './dashboard/+page.svelte';
 import Gallery from './g/[gallery]/+page.svelte';
@@ -11,7 +13,9 @@ const open = async (slug: string) =>
 
 describe('route shells', () => {
 	it('dashboard renders its heading', () => {
-		render(Dashboard);
+		render(Dashboard, {
+			props: { data: { identity: { account_id: 'account', workspace_id: 'workspace' }, idleTimeoutMs: 2592000000 } }
+		});
 		expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeTruthy();
 	});
 });

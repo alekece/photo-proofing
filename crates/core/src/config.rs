@@ -3,15 +3,7 @@ use clap_config_fallback::ConfigArgs;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use tracing::level_filters::LevelFilter;
-
-/// Network binding shared by every process that listens for connections.
-#[derive(Args, ConfigArgs, Debug, Clone)]
-pub struct ServerConfig {
-    #[arg(long, env = "PP_HOST", default_value = "127.0.0.1")]
-    pub host: String,
-    #[arg(long, env = "PP_PORT", default_value_t = 8080)]
-    pub port: u16,
-}
+use url::Url;
 
 #[derive(Args, ConfigArgs, Debug, Clone)]
 pub struct LogConfig {
@@ -44,6 +36,17 @@ impl From<LogLevel> for LevelFilter {
     }
 }
 
+/// Database connection settings. Deliberately not Debug: URLs may contain passwords.
+#[derive(Args, ConfigArgs, Clone)]
+pub struct DatabaseConfig {
+    #[arg(
+        long = "database-url",
+        env = "PP_DATABASE_URL",
+        default_value = "postgres://pp:pp-local-only@127.0.0.1:5432/pp"
+    )]
+    pub url: Url,
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, iter, path::PathBuf};
@@ -60,9 +63,10 @@ mod tests {
         #[config(path)]
         config: Option<PathBuf>,
         #[command(flatten)]
-        server: ServerConfig,
-        #[command(flatten)]
         log: LogConfig,
+        #[command(flatten)]
+        #[config(no_flatten)]
+        database: DatabaseConfig,
     }
 
     fn parse(args: &[&str]) -> Result<TestCli, clap::Error> {
@@ -70,35 +74,13 @@ mod tests {
     }
 
     #[test]
-    fn defaults_apply_without_config_file() {
-        let cli = parse(&[]).unwrap();
-        assert_eq!(cli.server.host, "127.0.0.1");
-        assert_eq!(cli.server.port, 8080);
-        assert_eq!(cli.log.log_level, LogLevel::Info);
+    fn log_level_defaults_to_info() {
+        assert_eq!(parse(&[]).unwrap().log.log_level, LogLevel::Info);
     }
 
     #[test]
-    fn config_file_overrides_default() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("c.toml");
-        fs::write(&path, "port = 9000\n").unwrap();
-        let cli = parse(&["--config", path.to_str().unwrap()]).unwrap();
-        assert_eq!(cli.server.port, 9000);
-    }
-
-    #[test]
-    fn cli_overrides_config_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("c.toml");
-        fs::write(&path, "port = 9000\n").unwrap();
-        let cli = parse(&["--config", path.to_str().unwrap(), "--port", "9200"]).unwrap();
-        assert_eq!(cli.server.port, 9200);
-    }
-
-    #[test]
-    fn invalid_port_is_rejected() {
-        assert!(parse(&["--port", "abc"]).is_err());
-        assert!(parse(&["--port", "70000"]).is_err());
+    fn database_url_is_validated_at_parse_time() {
+        assert!(parse(&["--database-url", "not a url"]).is_err());
     }
 
     #[test]

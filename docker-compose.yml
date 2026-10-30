@@ -24,6 +24,9 @@ services:
       dockerfile: docker/api.Dockerfile
     environment:
       PP_LOG_LEVEL: ${PP_LOG_LEVEL:-info}
+      PP_DATABASE_URL: postgres://${POSTGRES_USER:-pp}:${POSTGRES_PASSWORD:-pp-local-only}@postgres:5432/${POSTGRES_DB:-pp}
+      PP_APP_ORIGIN: ${PP_APP_ORIGIN:-http://localhost:8000}
+      PP_SESSION_IDLE_TIMEOUT: ${PP_SESSION_IDLE_TIMEOUT:-30d}
     ports:
       - "127.0.0.1:${PP_API_HOST_PORT:-8080}:8080"
     depends_on:
@@ -41,6 +44,8 @@ services:
         condition: service_healthy
 
   web:
+    environment:
+      PP_API_INTERNAL_URL: http://api:8080
     build:
       context: .
       dockerfile: docker/web.Dockerfile

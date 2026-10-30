@@ -2,6 +2,8 @@
 
 Status: Approved in conversation, including the release-history and delivery-readiness defaults. This document consolidates the brainstorming decisions; it does not claim that the product features are implemented.
 
+The Remember me/session-cookie decision in this historical design is superseded by the approved [account-session design](2026-10-29-account-sessions-design.md). Other decisions remain historical context; the current PRD owns requirements.
+
 ## Intent and scope
 
 Restart development around a small, complete photographer-to-client workflow. The MVP is a locally deployed, local-network trial with replaceable data, usually 50–100 JPEG photos per gallery. That range is a sizing expectation, not a hard limit. The photographer keeps source photos elsewhere. Billing is outside this repository's product scope.

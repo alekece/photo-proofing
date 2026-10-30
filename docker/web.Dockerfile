@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Dev-oriented: serves the SvelteKit dev server (the project has no production adapter yet).
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
 RUN corepack enable && corepack prepare pnpm@10.13.1 --activate
 WORKDIR /app
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml web/.npmrc ./
