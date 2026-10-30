@@ -116,7 +116,7 @@ not edited in place):
 - `POST /api/v1/galleries/{id}/share` (authenticated, same-origin): creates the
   token if missing and returns the updated `Gallery`. Idempotent. Another
   workspace's gallery is a 404, like the other gallery routes.
-- `GET /api/v1/shared/{token}` (no authentication): returns
+- `GET /api/v1/galleries/shared/{token}` (no authentication): returns
   `{ title, layout, expires_at }` or a 404 with the standard `ErrorResponse`
   body. Unknown token, malformed token and expired gallery are byte-identical
   responses. Responses are `Cache-Control: no-store` and
@@ -127,12 +127,12 @@ not edited in place):
   review: an earlier draft had a `SharedAccess` extractor.)
 - No request logging exists today, so nothing logs the token. `ShareToken`'s
   `Debug` is redacted and the route documents that any access log added
-  later must redact `/shared/` paths.
+  later must redact `/galleries/shared/` paths.
 
 ### Web
 
 - `/g/[gallery]` is renamed to `/g/[token]`; its server load calls
-  `GET /api/v1/shared/{token}` and maps a 404 (or any failure to resolve) to
+  `GET /api/v1/galleries/shared/{token}` and maps a 404 (or any failure to resolve) to
   the unavailable page. The page keeps `no-referrer` and `noindex` metadata.
 - Delete the mock data (`lib/mock`), the client-side access mirror
   (`gallery/access.ts`) and the superseded states (`draft`,

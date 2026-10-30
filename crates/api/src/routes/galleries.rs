@@ -7,11 +7,11 @@
 //! - `POST /{id}/share` creates the gallery's private link if it has none and returns the
 //!   gallery; sharing again returns the same link.
 //!
-//! - `GET /api/v1/shared/{token}` is public: it returns the title, layout and expiry of the
+//! - `GET /shared/{token}` is public: it returns the title, layout and expiry of the
 //!   gallery behind a private link. Malformed, unknown and expired links are the same 404 (a
 //!   malformed token fails to deserialize into [`ShareToken`], so it never reaches the
 //!   database). The link is a bearer credential: any access log added later must redact
-//!   `/shared/` paths.
+//!   `/galleries/shared/` paths.
 //!
 //! A gallery of another workspace is a 404, never a 403, so ids reveal nothing. Like every state-changing
 //! route, they must carry the configured `Origin`, which the API-wide middleware checks.
@@ -36,10 +36,11 @@ struct ListQuery {
 
 /// Registers the gallery routes.
 pub fn configure(cfg: &mut ServiceConfig) {
-    cfg.service(fetch_shared_gallery).service(
+    cfg.service(
         web::scope("/galleries")
             .service(create_gallery)
             .service(list_galleries)
+            .service(fetch_shared_gallery)
             .service(show_gallery)
             .service(update_gallery)
             .service(share_gallery),
@@ -512,7 +513,7 @@ mod tests {
     }
 
     fn get(token: &str) -> test::TestRequest {
-        test::TestRequest::get().uri(&format!("/api/v1/shared/{token}"))
+        test::TestRequest::get().uri(&format!("/api/v1/galleries/shared/{token}"))
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

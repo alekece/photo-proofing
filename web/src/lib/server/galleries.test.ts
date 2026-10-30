@@ -9,7 +9,7 @@ describe('getSharedGallery', () => {
 		const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(gallery)));
 		expect(await getSharedGallery(fetcher, token)).toEqual(gallery);
 		expect(fetcher).toHaveBeenCalledWith(
-			expect.stringContaining(`/api/v1/shared/${token}`),
+			expect.stringContaining(`/api/v1/galleries/shared/${token}`),
 			expect.objectContaining({
 				headers: {},
 				cache: 'no-store',

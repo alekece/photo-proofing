@@ -57,7 +57,7 @@ export async function getSharedGallery(
 	let response: Response;
 	try {
 		response = await fetcher(
-			`${env.PP_API_INTERNAL_URL ?? 'http://127.0.0.1:8080'}/api/v1/shared/${encodeURIComponent(token)}`,
+			`${env.PP_API_INTERNAL_URL ?? 'http://127.0.0.1:8080'}/api/v1/galleries/shared/${encodeURIComponent(token)}`,
 			{ headers: {}, cache: 'no-store', redirect: 'error' }
 		);
 	} catch {
