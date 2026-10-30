@@ -50,6 +50,7 @@ describe('gallery page', () => {
 		expect(url).toBe('/api/v1/galleries/g1');
 		expect(init?.method).toBe('PATCH');
 		expect(JSON.parse(init?.body as string)).toEqual({ layout: 'masonry' });
+		expect(init?.keepalive).toBe(true);
 	});
 
 	it('saves the title on blur and reverts an emptied title', async () => {
@@ -90,6 +91,52 @@ describe('gallery page', () => {
 		await user.click(screen.getByRole('button', { name: 'Retry' }));
 		expect(await screen.findByText('Saved')).toBeTruthy();
 		expect(patches()).toHaveLength(1);
+	});
+
+	it('keeps a failed title visible when a later save succeeds elsewhere', async () => {
+		const patches = stubApi(500);
+		const user = userEvent.setup();
+		open();
+		await user.type(screen.getByLabelText('Gallery title'), ' II');
+		await user.click(screen.getByLabelText('Watermark'));
+		await waitFor(() => expect(patches()).toHaveLength(2));
+		stubApi();
+		await user.click(screen.getByLabelText('Masonry'));
+		await waitFor(() => expect(screen.queryByText('Saving…')).toBeNull());
+		expect(screen.queryByText('Saved')).toBeNull();
+		expect(screen.getByText('Couldn’t save')).toBeTruthy();
+		const retried = stubApi();
+		await user.click(screen.getByRole('button', { name: 'Retry' }));
+		expect(await screen.findByText('Saved')).toBeTruthy();
+		expect(retried().map(([, init]) => JSON.parse(init?.body as string))).toEqual([
+			{ title: 'Wedding II' },
+			{ watermark_enabled: true }
+		]);
+	});
+
+	it('reverts a failed title when leaving the field, but Retry still works while focused', async () => {
+		stubApi(500);
+		const user = userEvent.setup();
+		open();
+		const title = screen.getByLabelText('Gallery title') as HTMLInputElement;
+		await user.type(title, '!');
+		await user.tab();
+		expect(await screen.findByText('Couldn’t save')).toBeTruthy();
+		expect(title.value).toBe('Wedding!');
+		await user.click(title);
+		await user.tab();
+		expect(title.value).toBe('Wedding');
+		expect(screen.queryByText('Couldn’t save')).toBeNull();
+
+		await user.type(title, '?');
+		await user.tab();
+		expect(await screen.findByText('Couldn’t save')).toBeTruthy();
+		const retried = stubApi();
+		await user.click(title);
+		await user.click(screen.getByRole('button', { name: 'Retry' }));
+		expect(await screen.findByText('Saved')).toBeTruthy();
+		expect(title.value).toBe('Wedding?');
+		expect(retried()).toHaveLength(1);
 	});
 
 	it('redirects to sign-in when the session expired', async () => {

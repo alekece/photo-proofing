@@ -4,6 +4,8 @@ import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$app/navigation', () => ({ afterNavigate: vi.fn(), beforeNavigate: vi.fn(), goto: vi.fn() }));
+const state = vi.hoisted(() => ({ navigating: { to: null as null | { route: { id: string } } } }));
+vi.mock('$app/state', () => state);
 import { goto } from '$app/navigation';
 import type { Gallery } from '#lib/gallery/api.js';
 import Dashboard from './+page.svelte';
@@ -28,7 +30,10 @@ const props = (galleries: Gallery[] | null, sort = 'updated') => ({
 	} as never
 });
 
-beforeEach(() => vi.mocked(goto).mockClear());
+beforeEach(() => {
+	vi.mocked(goto).mockClear();
+	state.navigating.to = null;
+});
 afterEach(() => vi.unstubAllGlobals());
 
 describe('dashboard', () => {
@@ -46,6 +51,15 @@ describe('dashboard', () => {
 		]);
 		await userEvent.setup().selectOptions(screen.getByLabelText('Sort by'), 'title');
 		expect(goto).toHaveBeenCalledWith('?sort=title', expect.anything());
+		expect((await axe(container)).violations).toEqual([]);
+	});
+
+	it('shows loading placeholders while the sort change loads', async () => {
+		state.navigating.to = { route: { id: '/dashboard' } };
+		const { container } = render(Dashboard, { props: props([gallery()]) });
+		expect(screen.getByRole('status').textContent).toBe('Loading galleries…');
+		expect(screen.queryByRole('heading', { name: 'Wedding' })).toBeNull();
+		expect(container.querySelectorAll('.pp-breathe')).toHaveLength(3);
 		expect((await axe(container)).violations).toEqual([]);
 	});
 

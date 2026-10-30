@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
+	import { navigating } from '$app/state';
 	import { authRequest } from '#lib/auth.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import Placeholder from '#lib/components/Placeholder.svelte';
@@ -14,6 +15,8 @@
 	let message = $state('');
 	let creating = $state(false);
 	let createError = $state('');
+	// Only a same-page navigation (changing the sort) shows the loading cards.
+	let loading = $derived(navigating.to?.route.id === '/dashboard');
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
 	afterNavigate(() => {
 		void activity();
@@ -71,16 +74,7 @@
 	{#if message}<p role="alert">{message}</p>{/if}
 	{#if createError}<p role="alert">{createError}</p>{/if}
 
-	{#if data.galleries === null}
-		<p role="alert">Couldn’t load your galleries. Please reload the page to try again.</p>
-	{:else if data.galleries.length === 0}
-		<section class="grid justify-items-center gap-3 rounded-xl border border-dashed p-12 text-center">
-			<h2 class="text-lg font-medium">Create your first gallery</h2>
-			<p class="text-muted-foreground">
-				Galleries hold the photos you share with a client. Start one and set it up in a minute.
-			</p>
-		</section>
-	{:else}
+	{#if loading || (data.galleries && data.galleries.length > 0)}
 		<div class="flex items-center gap-2">
 			<label for="sort" class="text-sm">Sort by</label>
 			<select
@@ -94,6 +88,26 @@
 				<option value="title">Title</option>
 			</select>
 		</div>
+	{/if}
+	{#if loading}
+		<p class="sr-only" role="status">Loading galleries…</p>
+		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
+			{#each [1, 2, 3] as n (n)}
+				<li class="aspect-[3/2] overflow-hidden rounded-xl border">
+					<Placeholder background="sheet" loading />
+				</li>
+			{/each}
+		</ul>
+	{:else if data.galleries === null}
+		<p role="alert">Couldn’t load your galleries. Please reload the page to try again.</p>
+	{:else if data.galleries.length === 0}
+		<section class="grid justify-items-center gap-3 rounded-xl border border-dashed p-12 text-center">
+			<h2 class="text-lg font-medium">Create your first gallery</h2>
+			<p class="text-muted-foreground">
+				Galleries hold the photos you share with a client. Start one and set it up in a minute.
+			</p>
+		</section>
+	{:else}
 		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 			{#each data.galleries as gallery (gallery.id)}
 				<li class="overflow-hidden rounded-xl border bg-card focus-within:ring-2 focus-within:ring-ring">

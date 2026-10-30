@@ -4,6 +4,7 @@ import { axe } from 'vitest-axe';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('$app/navigation', () => ({ afterNavigate: vi.fn(), goto: vi.fn() }));
+vi.mock('$app/state', () => ({ navigating: { to: null } }));
 import { loadClientGallery } from '#lib/gallery/load.js';
 import Dashboard from './dashboard/+page.svelte';
 import Gallery from './g/[gallery]/+page.svelte';

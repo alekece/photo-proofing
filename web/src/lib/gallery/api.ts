@@ -59,7 +59,7 @@ export function updateGallery(
 ): Promise<Gallery> {
 	return galleryRequest(
 		`/${encodeURIComponent(id)}`,
-		{ method: 'PATCH', body: JSON.stringify(changes) },
+		{ method: 'PATCH', body: JSON.stringify(changes), keepalive: true },
 		fetcher
 	);
 }

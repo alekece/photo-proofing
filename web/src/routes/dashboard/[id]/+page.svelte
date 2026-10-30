@@ -31,7 +31,9 @@
 	let watermark = $state(data.gallery.watermark_enabled);
 	let inflight = $state(0);
 	let justSaved = $state(false);
-	let failed = $state<GalleryChanges | null>(null);
+	// Attempted values of fields whose last save failed; cleared per field on that field's success.
+	let failed = $state<GalleryChanges>({});
+	let hasFailures = $derived(Object.keys(failed).length > 0);
 	let includedInvalid = $state(false);
 	const timers = new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => void }>();
 
@@ -56,7 +58,6 @@
 	async function save(changes: GalleryChanges) {
 		inflight++;
 		justSaved = false;
-		failed = null;
 		void activity();
 		try {
 			const result = await updateGallery(saved.id, changes);
@@ -64,13 +65,14 @@
 			for (const key of Object.keys(changes) as (keyof GalleryChanges)[]) {
 				saved = { ...saved, [key]: result[key] };
 			}
+			for (const key of Object.keys(changes) as (keyof GalleryChanges)[]) delete failed[key];
 			justSaved = true;
 		} catch (error) {
 			if (error instanceof GalleryApiError && error.status === 401) {
 				await goto('/login?expired=1', { refreshAll: true });
 				return;
 			}
-			failed = changes;
+			failed = { ...failed, ...changes };
 		} finally {
 			inflight--;
 		}
@@ -108,7 +110,10 @@
 	}
 	function leaveTitle() {
 		cancel('title');
-		if (title.trim() === '') title = saved.title;
+		if ('title' in failed) {
+			delete failed.title;
+			title = saved.title;
+		} else if (title.trim() === '') title = saved.title;
 		else saveTitle();
 	}
 	function setLayout(value: GalleryLayout) {
@@ -133,10 +138,14 @@
 	}
 	function leaveIncluded() {
 		cancel('included_photos');
-		saveIncluded();
+		if ('included_photos' in failed) {
+			delete failed.included_photos;
+			included = saved.included_photos;
+			includedInvalid = false;
+		} else saveIncluded();
 	}
 	function retry() {
-		if (failed) void save(failed);
+		for (const [key, value] of Object.entries(failed)) void save({ [key]: value });
 	}
 </script>
 
@@ -167,9 +176,15 @@
 		<div class="flex items-center gap-2 text-sm" role="status" aria-live="polite">
 			{#if inflight > 0}
 				<span>Saving…</span>
-			{:else if failed}
+			{:else if hasFailures}
 				<span>Couldn’t save</span>
-				<Button variant="outline" size="sm" onclick={retry}>Retry</Button>
+				<!-- mousedown would blur the edited field, which reverts a failed value before the click -->
+				<Button
+					variant="outline"
+					size="sm"
+					onmousedown={(event) => event.preventDefault()}
+					onclick={retry}
+				>Retry</Button>
 			{:else if justSaved}
 				<span>Saved</span>
 			{/if}
