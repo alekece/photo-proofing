@@ -229,8 +229,7 @@ impl Api {
 }
 
 /// Mounts every HTTP route under `/api/v1`, behind the same-origin check, with the shared
-/// request-parsing error responses. A scope may override those, as `/auth` does for its
-/// JSON bodies.
+/// request-parsing error responses.
 pub fn configure_routes(cfg: &mut ServiceConfig) {
     cfg.service(
         web::scope("/api/v1")

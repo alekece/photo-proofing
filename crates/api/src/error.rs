@@ -9,7 +9,9 @@ use pp_database::{SqlError, gallery::GalleryError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{response::ResponseBuilderExt, routes::auth::AuthError};
+use crate::{
+    middlewares::failed_guess::FailedGuess, response::ResponseBuilderExt, routes::auth::AuthError,
+};
 
 #[derive(Debug, Error, Serialize, Deserialize)]
 #[error("{message}")]
@@ -21,6 +23,9 @@ pub(crate) struct ErrorResponse {
     /// Details a client may act on; the first entry is the most specific subject.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     context: Vec<String>,
+    /// Whether the error answers a credential guess, so the sign-in routes count it.
+    #[serde(skip)]
+    guess: bool,
 }
 
 impl ErrorResponse {
@@ -29,6 +34,7 @@ impl ErrorResponse {
             status,
             message: message.into(),
             context: Vec::new(),
+            guess: false,
         }
     }
 
@@ -53,16 +59,25 @@ impl ResponseError for ErrorResponse {
     fn error_response(&self) -> HttpResponse {
         // Sent on every error so a rejected private link cannot be told apart from another by
         // its headers.
-        HttpResponse::build(self.status)
+        let response = HttpResponse::build(self.status)
             .no_store()
             .no_referrer()
-            .json(self)
+            .json(self);
+
+        if self.guess {
+            return FailedGuess::mark(response);
+        }
+
+        response
     }
 }
 
 impl From<AuthError> for ErrorResponse {
     fn from(error: AuthError) -> Self {
-        Self::new(error.status_code(), error.to_string())
+        Self {
+            guess: error.is_guess(),
+            ..Self::new(error.status_code(), error.to_string())
+        }
     }
 }
 
@@ -76,6 +91,7 @@ impl From<GalleryError> for ErrorResponse {
             status: StatusCode::UNPROCESSABLE_ENTITY,
             message: "invalid gallery setting".into(),
             context: vec![setting.to_string(), error.to_string()],
+            guess: false,
         }
     }
 }
@@ -96,11 +112,12 @@ impl From<JsonPayloadError> for ErrorResponse {
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 "expected a JSON request body",
             ),
-            // Well-formed JSON with an unknown key, a null for a required setting or a value
-            // outside its type.
-            JsonPayloadError::Deserialize(error) if error.is_data() => {
-                Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid gallery settings")
-            }
+            // Well-formed JSON with an unknown key, a null for a required field or a value
+            // outside its type or validation. On a sign-in route this is a credential guess.
+            JsonPayloadError::Deserialize(error) if error.is_data() => Self {
+                guess: true,
+                ..Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid request body")
+            },
             _ => Self::bad_request(),
         }
     }
