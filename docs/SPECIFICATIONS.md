@@ -12,8 +12,8 @@ The first release tests this complete workflow on a local network with replaceab
 
 ## Target Users
 
-- **Photographer:** sets up the installation, manages galleries and watermark settings, reviews shared client activity, exports selections, and publishes finished photos.
-- **Client:** accesses a gallery through its private link, selects favorites, and downloads the published finished photos. Several people may act as the same client; they share one selection.
+- **Photographer:** sets up the installation, manages galleries and watermark settings, reviews shared client activity, exports selections, and delivers finished photos.
+- **Client:** accesses a gallery through its private link, selects favorites, and downloads the delivered finished photos. Several people may act as the same client; they share one selection.
 - **Installation operator:** runs the application and its persistent storage. For the MVP this is the photographer. This persona does not introduce an application permission role.
 
 One workspace groups galleries, settings, and activity. The MVP has one photographer account and one workspace per installation. Additional accounts in that workspace are future scope; role management, per-person client selections, and workspace switching are not implied.
@@ -21,10 +21,10 @@ One workspace groups galleries, settings, and activity. The MVP has one photogra
 ## User Journeys
 
 1. **Set up:** the photographer deploys locally, creates the first account through the login page, and signs in with email/password. The session persists across browser restarts until inactivity expiry or logout.
-2. **Prepare and share:** create a gallery, choose its title, hero, layout, optional expiry, optional included photo count, and watermark enablement. Upload JPEGs and share the private link. Sharing an empty gallery is allowed after a warning; only ready photos appear to clients.
+2. **Prepare and share:** create a gallery, choose its title, hero, layout, optional expiry, optional included photo count, and watermark enablement. Upload JPEGs and share the private link once at least one photo is ready. Only ready photos appear to clients.
 3. **Choose and review:** the client adds/removes favorites over one or more visits. The photographer sees activity on gallery cards and in grouped notifications. Additional photos beyond the included allowance remain selectable.
 4. **Export:** the photographer requests a ZIP of the current selection. The application displays preparation status and initiates the download when ready. Retouching happens outside PhotoProofing; favorites remain editable until delivery.
-5. **Deliver and update:** upload an independent set of finished photos, review privately, and click Deliver. At the same link, clients now see finished photos, cannot edit favorites, and can download individually or together. Later delivery edits remain private until published again.
+5. **Deliver and update:** upload an independent set of finished photos, review privately, and click Deliver. At the same link, clients now see finished photos, cannot edit favorites, and can download individually or together. Later additions and removals reach clients without a further publish step.
 6. **End access:** expiry or archive blocks access without deleting data. Extending expiry or restoring an archive can restore access at the same link. Confirmed deletion removes the gallery and its assets.
 
 ## Functional Requirements
@@ -39,11 +39,11 @@ One workspace groups galleries, settings, and activity. The MVP has one photogra
 
 ### FR-03
 
-**Gallery configuration.** The photographer can configure title, hero photo, layout, optional expiry, optional included photo count, and watermark enablement. Offer uniform grid by default and masonry, sharing viewer and selection controls. Exact title validation, initial hero choice, and empty-hero behavior are technical/product defaults to resolve in the gallery design; they must not prevent the empty-sharing journey. The included count is informational, editable after sharing, and optional; no value means unlimited selection.
+**Gallery configuration.** The photographer can configure title, hero photo, layout, optional expiry, optional included photo count, and watermark enablement. Offer uniform grid by default and masonry, sharing viewer and selection controls. Exact title validation, initial hero choice, and empty-hero behavior are technical/product defaults to resolve in the gallery design; they must not prevent the empty-sharing journey. The included count is informational, editable after sharing, and optional; no value means unlimited selection. The New gallery dialog asks for a title only; every other setting is configured on the gallery page.
 
 ### FR-04
 
-**Private sharing.** Share gallery creates an unguessable private link; MVP sharing is copying that link. Anyone possessing it can act on the gallery's one shared selection while access is permitted. No viewer account or access code is required for MVP. Sharing works before photos are uploaded or ready, with an empty-gallery warning and a useful client empty state. The photographer may add/remove proofing photos after sharing. Only fully processed photos appear. Removing a selected photo requires confirmation and removes it from the selection. Shared access must still respect expiry, archive, deletion, and finished-delivery state.
+**Private sharing.** Share gallery creates an unguessable private link; MVP sharing is copying that link. Anyone possessing it can act on the gallery's one shared selection while access is permitted. No viewer account or access code is required for MVP. Sharing requires at least one ready photo: Share gallery is disabled until then, so clients never see an empty gallery. The photographer may add/remove proofing photos after sharing. Only fully processed photos appear. Removing a selected photo requires confirmation and removes it from the selection. Shared access must still respect expiry, archive, deletion, and finished-delivery state.
 
 ### FR-05
 
@@ -59,7 +59,7 @@ One workspace groups galleries, settings, and activity. The MVP has one photogra
 
 ### FR-08
 
-**Favorites and allowance.** Persist each favorite change immediately in the shared gallery selection; clients can edit across visits until finished delivery is published. Do not require submission, a client confirmation button, or a retouching phase. Downloading a selection does not lock it. When an included count is configured, allow overflow and show selected/extra counts (for example, 13 selected, 10 included, 3 extra). Changing the included count never deletes favorites or prevents additional choices. Reaching it does not mean the client is finished. Do not introduce prices, invoices, payment checks, or billing workflows.
+**Favorites and allowance.** Persist each favorite change immediately in the shared gallery selection; clients can edit across visits until finished photos are delivered. Do not require submission, a client confirmation button, or a retouching phase. Downloading a selection does not lock it. When an included count is configured, allow overflow and show selected/extra counts (for example, 13 selected, 10 included, 3 extra). Changing the included count never deletes favorites or prevents additional choices. Reaching it does not mean the client is finished. Do not introduce prices, invoices, payment checks, or billing workflows.
 
 ### FR-09
 
@@ -67,15 +67,15 @@ One workspace groups galleries, settings, and activity. The MVP has one photogra
 
 ### FR-10
 
-**Finished delivery.** Finished photos form an independent set, with no required count, filename match, or mapping to favorites. Upload privately, individually or in batches, review, then click Deliver to publish at the existing private link. Publication requires at least one finished photo and every photo in the intended draft delivery set to be ready. Pending/failed files must finish, be retried, or be removed before publication; do not silently omit them. After publication, clients see only finished photos, cannot change favorites, and can download one photo or the whole published set as a ZIP. Subsequent additions/removals remain private until Deliver publishes the update; clients retain the previously published set in the meantime. Publication must not expose incomplete results or prematurely remove files from the current published set. Restore from archive does not revert delivery to proofing; withdrawal to proofing is not an MVP feature.
+**Finished delivery.** Finished photos form an independent set, with no required count, filename match, or mapping to favorites. Upload privately, individually or in batches, review, then click Deliver to make them available at the existing private link. Deliver requires at least one finished photo and every photo in the set to be ready; it stays disabled while any file is uploading, pending, or failed. After delivery, clients see only finished photos, cannot change favorites, and can download one photo or the whole delivered set as a ZIP. There is no separate publish step: later additions and removals reach clients without notice, and a photo is exposed only once it is ready. Removing every finished photo after delivery is allowed and leaves clients an empty delivered gallery, with no revert to proofing and no unavailable page. Restore from archive does not revert delivery to proofing; withdrawal to proofing is not an MVP feature.
 
 ### FR-11
 
-**Client activity indicators.** Gallery cards show current selected counts, included/extra counts where applicable, and distinct finished-photo download counts. Downloaded means the client requested a download, not proof of successful saving. Repeated requests for one photo do not increase its distinct count. A full-gallery request counts the files included in that download. Show All downloaded only for a nonempty currently published set whose photos have all been requested. Reading notifications does not clear activity counts. Default: counts refer to the current published photo identities; newly added photos start undownloaded, and removed photos no longer contribute. Replacement identity semantics will be defined in delivery design.
+**Client activity indicators.** Gallery cards show current selected counts, included/extra counts where applicable, and distinct finished-photo download counts. Downloaded means the client requested a download, not proof of successful saving. Repeated requests for one photo do not increase its distinct count. A full-gallery request counts the files included in that download. Show All downloaded only for a nonempty currently delivered set whose photos have all been requested. Reading notifications does not clear activity counts. Default: counts refer to the current delivered photo identities; newly added photos start undownloaded, and removed photos no longer contribute. Replacement identity semantics will be defined in delivery design.
 
 ### FR-12
 
-**Grouped notifications.** The top bar reports selection changes and finished-photo download activity. Maintain one unread notification per gallery, accumulating activity until read. Later activity creates a new unread notification after the prior one is read. Read state is workspace-wide. Opening the notification panel alone does not mark anything read. Clicking a notification opens its gallery and marks it read; a separate Mark as read control clears unread state without navigation. Opening a gallery by another route does not implicitly mark it read. Details must describe the relevant activity rather than treating every favorite change as a separate unread item.
+**Grouped notifications.** The top bar reports selection changes and finished-photo download activity. Maintain one unread notification per gallery, accumulating activity until read. Later activity creates a new unread notification after the prior one is read. Read state is workspace-wide. Opening the notification panel alone does not mark anything read. Clicking a notification opens its gallery and marks that gallery's notification read; the panel's single Mark all as read link clears every remaining unread notification without navigation. Opening a gallery by another route does not implicitly mark it read. Details must describe the relevant activity rather than treating every favorite change as a separate unread item.
 
 ### FR-13
 
@@ -127,7 +127,7 @@ The [MVP release document](releases/MVP.md) defines delivery scope and acceptanc
 
 **Future product direction:** built-in email/SMS sharing, Google sign-in, additional photo formats including RAW, collaborator accounts in a workspace, and isolated-installation SaaS provisioning with private setup links. These have no committed release dates.
 
-**Deferred possibilities, subject to need:** password recovery, backup/restore tooling, client confirmation of selection, access codes, configurable metadata policies, resumable uploads, object storage, and more gallery layouts. They are not automatically promised for the next release.
+**Deferred possibilities, subject to need:** password recovery, backup/restore tooling, client confirmation of selection, access codes, configurable metadata policies, resumable uploads, object storage, more gallery layouts, and manual photo ordering (out of the MVP unless a design specifies it). They are not automatically promised for the next release.
 
 **Permanent exclusion:** billing, pricing, invoices, payment processing, and enforcement of payment status. Included/extra photo counts are proofing information only.
 
@@ -138,9 +138,9 @@ Detailed database schemas, API contracts, cookie lifetimes, event formats, uploa
 These product-wide guarantees guide release-specific acceptance; they are requirements, not evidence that implementation is complete.
 
 - **AC-01 — Access boundaries:** unshared/expired/archived/deleted galleries and draft delivery files cannot be retrieved by clients through page, media, download, or event routes. A valid proofing link never grants access to uploaded proofing originals. Photographer access remains available for nondeleted galleries. See FR-04, FR-06, FR-10, FR-13, NF-01.
-- **AC-02 — Stable source files:** selection ZIP entries preserve uploaded originals; finished individual and ZIP downloads preserve the published uploaded files. Generated previews are separate derivatives with correct orientation/color and without source identifying metadata. See FR-05–FR-06, FR-09–FR-10.
+- **AC-02 — Stable source files:** selection ZIP entries preserve uploaded originals; finished individual and ZIP downloads preserve the delivered uploaded files. Generated previews are separate derivatives with correct orientation/color and without source identifying metadata. See FR-05–FR-06, FR-09–FR-10.
 - **AC-03 — Selection consistency:** shared favorites persist across visits, informational allowance changes never erase/block choices, and a ZIP reflects the selection at request time without locking the live selection. After delivery, favorite changes are rejected by the server. See FR-08–FR-10, NF-02.
-- **AC-04 — Publication:** proofing can be shared empty and populated progressively; delivery requires a nonempty ready set and switches clients to that complete set. Unpublished updates leave the current delivery intact. Archive/restore does not change proofing/delivery state. See FR-04, FR-10, FR-13.
+- **AC-04 — Delivery:** proofing can be shared once at least one photo is ready and populated progressively; delivery requires a nonempty ready set and switches clients to that set. After delivery, finished-photo additions and removals reach clients without a publish step, and an empty finished set is allowed. Archive/restore does not change proofing/delivery state. See FR-04, FR-10, FR-13.
 - **AC-05 — Activity truth:** counts represent distinct current delivered-photo download requests, not confirmed saves; notifications group unread activity by gallery and follow explicit read actions. New activity after reading becomes unread. See FR-11–FR-12.
 - **AC-06 — Recovery and deletion:** restart/retry does not lose accepted jobs or corrupt/duplicate published results; stale jobs cannot recreate a deleted gallery's accessible assets. Expiry/archive delete nothing. See FR-13, NF-02, TC-03–TC-04.
 - **AC-07 — Responsive use:** the complete photographer/client journey is usable in mobile and desktop browsers, including keyboard interaction and visible processing/failure states. Representative trial galleries remain operable within defined implementation resource limits. See NF-03–NF-04.

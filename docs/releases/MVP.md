@@ -8,16 +8,16 @@ At release completion, record the release identifier/date, the accepted PRD comm
 
 ## Goal
 
-A photographer can prepare and share JPEG proofs, receive a shared client selection, export selected originals for external retouching, and publish finished photos for download through the same link. Try the complete journey on the local network with replaceable data and representative galleries of 50–100 photos.
+A photographer can prepare and share JPEG proofs, receive a shared client selection, export selected originals for external retouching, and deliver finished photos for download through the same link. Try the complete journey on the local network with replaceable data and representative galleries of 50–100 photos.
 
 ## Included scope
 
 - One photographer account/workspace per installation; one-time setup, email/password, logout, persistent sliding sessions ([FR-01–FR-02](../SPECIFICATIONS.md#fr-01)).
 - Title, hero, two layouts, optional expiry, editable optional included photo allowance, and watermark enablement ([FR-03](../SPECIFICATIONS.md#fr-03)).
-- Empty/progressively populated proofing shares through one private link and one client selection ([FR-04](../SPECIFICATIONS.md#fr-04)).
+- Progressively populated proofing shares through one private link and one client selection, once a photo is ready ([FR-04](../SPECIFICATIONS.md#fr-04)).
 - JPEG uploads, separate transfer/processing progress, failed-file retry, reduced previews, and optional workspace text/logo watermark ([FR-05–FR-07](../SPECIFICATIONS.md#fr-05)).
 - Editable favorites with informational overflow, and one-click selection ZIP preparation/download ([FR-08–FR-09](../SPECIFICATIONS.md#fr-08)).
-- Private preparation and explicit publication of independent finished-photo sets, later updates, individual/ZIP client downloads ([FR-10](../SPECIFICATIONS.md#fr-10)).
+- Private preparation and explicit delivery of independent finished-photo sets, later updates, individual/ZIP client downloads ([FR-10](../SPECIFICATIONS.md#fr-10)).
 - Gallery-card activity and top-bar grouped selection/download notifications with explicit reads ([FR-11–FR-12](../SPECIFICATIONS.md#fr-11)).
 - Expiry, archive/restore, confirmed deletion, persistent local storage, durable processing, and SSE updates ([FR-13](../SPECIFICATIONS.md#fr-13), [NF-01–NF-04](../SPECIFICATIONS.md#nf-01), [TC-01–TC-05](../SPECIFICATIONS.md#tc-01)).
 - Responsive photographer and client journeys in mobile and desktop browsers.
@@ -42,8 +42,8 @@ Run with synthetic/replaceable photos whose originals are retained elsewhere. Th
 
 ### Prepare, process, and share
 
-- [ ] Create a gallery with title/hero, switch between default uniform grid and masonry, and set/clear expiry and included photo count ([FR-03](../SPECIFICATIONS.md#fr-03)).
-- [ ] Share an empty gallery after a warning; the link opens a useful empty state, with no client account or code required ([FR-04](../SPECIFICATIONS.md#fr-04)).
+- [ ] Create a gallery from the title-only New gallery dialog, then set hero, switch between default uniform grid and masonry, and set/clear expiry and included photo count ([FR-03](../SPECIFICATIONS.md#fr-03)).
+- [ ] Share gallery is disabled while the gallery has no ready photo; once one is ready, sharing opens the private link with no client account or code required ([FR-04](../SPECIFICATIONS.md#fr-04)).
 - [ ] Upload a representative 50–100-JPEG gallery; observe transfer progress separately from processing. Navigate away and return to the current processing state. Ready previews appear progressively at the shared link; pending/failed photos never appear as ready ([FR-04–FR-05](../SPECIFICATIONS.md#fr-04), [NF-04](../SPECIFICATIONS.md#nf-04)).
 - [ ] Reject non-JPEG, malformed, and over-limit photo inputs. Simulate interrupted upload and processing failure: retain successful files, clean incomplete files, and allow retry without duplicates ([FR-05](../SPECIFICATIONS.md#fr-05), [NF-01–NF-02](../SPECIFICATIONS.md#nf-01)).
 - [ ] Save watermark text, logo, and both; verify gallery enable/disable behavior. Check previews preserve orientation/color, reduce usable resolution/quality, and omit source identifying/GPS metadata. Original bytes remain unchanged ([FR-06–FR-07](../SPECIFICATIONS.md#fr-06)).
@@ -58,15 +58,15 @@ Run with synthetic/replaceable photos whose originals are retained elsewhere. Th
 
 ### Deliver and update
 
-- [ ] Upload finished JPEGs individually and in batches, using a smaller, equal, or larger set than the selection without mapping requirements. Unpublished files remain inaccessible to clients ([FR-10](../SPECIFICATIONS.md#fr-10), [NF-01](../SPECIFICATIONS.md#nf-01)).
-- [ ] Prevent Deliver for an empty set or a set containing unfinished/failed photos. After retrying/removing those files, publish the complete intended set ([FR-10](../SPECIFICATIONS.md#fr-10)).
-- [ ] At the same private link, show only the published finished photos; reject client favorite changes. Individual downloads and the all-photo ZIP preserve the uploaded finished-file bytes, including metadata ([FR-06](../SPECIFICATIONS.md#fr-06), [FR-10](../SPECIFICATIONS.md#fr-10)).
-- [ ] Add/remove finished photos after delivery: clients retain the existing set while edits are private, then see the complete new set after explicit publication. No intermediate set or incomplete file is exposed ([FR-10](../SPECIFICATIONS.md#fr-10), [NF-02](../SPECIFICATIONS.md#nf-02)).
+- [ ] Upload finished JPEGs individually and in batches, using a smaller, equal, or larger set than the selection without mapping requirements. Undelivered files remain inaccessible to clients ([FR-10](../SPECIFICATIONS.md#fr-10), [NF-01](../SPECIFICATIONS.md#nf-01)).
+- [ ] Prevent Deliver for an empty set or a set containing unfinished/failed photos. After retrying/removing those files, deliver the complete intended set ([FR-10](../SPECIFICATIONS.md#fr-10)).
+- [ ] At the same private link, show only the delivered finished photos; reject client favorite changes. Individual downloads and the all-photo ZIP preserve the uploaded finished-file bytes, including metadata ([FR-06](../SPECIFICATIONS.md#fr-06), [FR-10](../SPECIFICATIONS.md#fr-10)).
+- [ ] Add/remove finished photos after delivery: clients see the changes without a publish step, with no intermediate set or incomplete file exposed. Removing every finished photo leaves clients an empty delivered gallery ([FR-10](../SPECIFICATIONS.md#fr-10), [NF-02](../SPECIFICATIONS.md#nf-02)).
 
 ### Activity and notifications
 
 - [ ] Selection edits and finished-photo download requests update gallery-card activity and accumulate in one unread top-bar notification per gallery. Repeated downloads do not inflate distinct-photo counts; an all-photo request covers its included files ([FR-11–FR-12](../SPECIFICATIONS.md#fr-11)).
-- [ ] Opening the panel or navigating independently to the gallery does not clear unread status. Clicking the notification navigates and marks it read; Mark as read clears it without navigation. Subsequent activity creates a new unread notification ([FR-12](../SPECIFICATIONS.md#fr-12)).
+- [ ] Opening the panel or navigating independently to the gallery does not clear unread status. Clicking the notification navigates and marks that gallery's notification read; the single Mark all as read link clears the rest without navigation. Subsequent activity creates a new unread notification ([FR-12](../SPECIFICATIONS.md#fr-12)).
 - [ ] Read state belongs to the workspace, not a browser. Delivered-set updates recalculate relevant counts: newly added photos start undownloaded and removed photos no longer contribute. All downloaded is never inferred from an empty set or claimed as proof of a saved file ([FR-02](../SPECIFICATIONS.md#fr-02), [FR-11](../SPECIFICATIONS.md#fr-11)).
 
 ### Lifecycle and recovery
