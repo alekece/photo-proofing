@@ -1,9 +1,9 @@
 # MVP page designs
 
-Status: draft, pending approval. Visual references live in
+Status: approved. Visual references live in
 `docs/superpowers/specs/assets/pages/` (HTML is the source of truth, see its
 README). Product requirements: `docs/SPECIFICATIONS.md` and
-`docs/releases/MVP.md`. No GitHub issue yet.
+`docs/releases/MVP.md`. Issue: #84.
 
 ## Intent
 
