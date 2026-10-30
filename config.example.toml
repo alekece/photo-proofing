@@ -14,3 +14,8 @@ url = "postgres://pp:pp-local-only@127.0.0.1:5432/pp"
 
 [auth]
 app_origin = "http://localhost:5173"
+
+[limiter]
+max_failures = 10
+window = "1m"
+max_peers = 1024

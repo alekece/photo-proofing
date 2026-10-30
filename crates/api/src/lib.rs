@@ -1,5 +1,5 @@
 //! Gallery HTTP API: route wiring, process-wide authentication state and the
-//! [`server::Api`] runner.
+//! [`api::Api`] runner.
 
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
@@ -8,23 +8,21 @@ use actix_web::{
     web,
 };
 use derive_more::{Display, Error, From};
-use pp_core::{
-    config::{AuthConfig, SessionConfig},
-    time::CookieDuration,
-    url::Origin,
-};
+use pp_core::url::Origin;
 use pp_database::{Database, auth::AuthRepository};
 use time::{Duration as TimeDuration, OffsetDateTime, error::ConversionRange};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
+    config::{AuthConfig, CookieDuration, LimiterConfig, SessionConfig},
     credentials::{HashError, PasswordHash, SessionToken},
     limiter::AttemptLimiter,
 };
 
+pub mod api;
+pub mod config;
 pub mod credentials;
 pub mod routes;
-pub mod server;
 
 mod limiter;
 
@@ -32,7 +30,7 @@ mod limiter;
 /// instead of queued.
 const HASH_SLOTS: usize = 2;
 
-/// Startup failure while building [`AppState`].
+/// Startup failure while building [`ApiState`].
 #[derive(Debug, Display, Error, From)]
 pub enum StateError {
     #[display("session idle timeout is out of range")]
@@ -46,7 +44,7 @@ pub enum StateError {
 /// Built once at startup from validated configuration, so request handlers never re-check
 /// configuration and cannot fail for configuration reasons. It holds the authentication
 /// policy, storage and abuse controls.
-pub(crate) struct AppState {
+pub(crate) struct ApiState {
     database: Database,
     origin: Origin,
     idle_timeout: CookieDuration,
@@ -57,11 +55,12 @@ pub(crate) struct AppState {
     dummy_hash: PasswordHash,
 }
 
-impl AppState {
+impl ApiState {
     pub fn new(
         database: Database,
         session: SessionConfig,
         auth: AuthConfig,
+        limiter: LimiterConfig,
     ) -> Result<Self, StateError> {
         Ok(Self {
             database,
@@ -71,7 +70,7 @@ impl AppState {
             // so adding it to the current time cannot overflow for centuries.
             session_lifetime: TimeDuration::try_from(session.idle_timeout.get())?,
             hash_slots: Arc::new(Semaphore::new(HASH_SLOTS)),
-            failed_attempts: AttemptLimiter::default(),
+            failed_attempts: AttemptLimiter::new(limiter),
             dummy_hash: PasswordHash::generate()?,
         })
     }

@@ -24,10 +24,6 @@ pub enum ParseBoundedDurationError {
     Range(DurationRangeError),
 }
 
-/// Longest [`CookieDuration`]: far beyond any sensible policy, yet small enough that adding it
-/// to the current time cannot overflow a timestamp.
-const MAX_COOKIE_SECS: u64 = 1000 * 365 * 24 * 60 * 60;
-
 /// A span of time that lasts at least `MIN` and at most `MAX` whole seconds.
 ///
 /// The bounds are enforced once, at construction, so consumers need no further checks. Parsed
@@ -36,10 +32,6 @@ const MAX_COOKIE_SECS: u64 = 1000 * 365 * 24 * 60 * 60;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct BoundedDuration<const MIN: u64, const MAX: u64>(Duration);
-
-/// How long a cookie may live: at least one second, because `Max-Age` has whole-second
-/// resolution and anything shorter would round to an instant expiry.
-pub type CookieDuration = BoundedDuration<1, MAX_COOKIE_SECS>;
 
 impl<const MIN: u64, const MAX: u64> BoundedDuration<MIN, MAX> {
     const MIN_DURATION: Duration = Duration::from_secs(MIN);
@@ -110,6 +102,8 @@ impl Serialize for Millis {
 mod tests {
     use super::*;
 
+    type Positive = BoundedDuration<1, 1_000_000_000>;
+
     #[test]
     fn serializes_durations_as_milliseconds() {
         let json = serde_json::to_string(&Millis(Duration::from_millis(1500))).unwrap();
@@ -120,11 +114,11 @@ mod tests {
     #[test]
     fn parses_human_durations() {
         assert_eq!(
-            "1h 30m".parse::<CookieDuration>().unwrap().get(),
+            "1h 30m".parse::<Positive>().unwrap().get(),
             Duration::from_secs(5400)
         );
         assert_eq!(
-            "1500ms".parse::<CookieDuration>().unwrap().get(),
+            "1500ms".parse::<Positive>().unwrap().get(),
             Duration::from_millis(1500)
         );
     }
@@ -132,7 +126,7 @@ mod tests {
     #[test]
     fn rejects_unusable_durations() {
         for value in ["0s", "500ms", "999999999999999s", "-1s", "nonsense", ""] {
-            assert!(value.parse::<CookieDuration>().is_err(), "{value}");
+            assert!(value.parse::<Positive>().is_err(), "{value}");
         }
     }
 
@@ -152,11 +146,8 @@ mod tests {
 
     #[test]
     fn displays_in_a_form_that_parses_back() {
-        let duration: CookieDuration = "30d".parse().unwrap();
+        let duration: Positive = "30d".parse().unwrap();
 
-        assert_eq!(
-            duration.to_string().parse::<CookieDuration>().unwrap(),
-            duration
-        );
+        assert_eq!(duration.to_string().parse::<Positive>().unwrap(), duration);
     }
 }

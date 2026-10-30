@@ -14,7 +14,7 @@
 //! configured `Origin`, which [`require_same_origin`] enforces as the CSRF defence for this
 //! cookie-authenticated API before any extractor reads the request. Sign-in routes also pass
 //! the failed-attempt limiter ([`Attempt`]). Request bodies are validated while being parsed
-//! ([`Credentials`]), and policy and limiter state live in [`AppState`].
+//! ([`Credentials`]), and policy and limiter state live in [`ApiState`].
 
 use std::{
     future::{self, Ready},
@@ -38,7 +38,7 @@ use serde_json::error::Category;
 use time::OffsetDateTime;
 
 use crate::{
-    AppState,
+    ApiState,
     credentials::{Password, PasswordHash, SessionToken, TokenHash},
 };
 
@@ -129,7 +129,7 @@ async fn require_same_origin<B: MessageBody + 'static>(
 ) -> Result<ServiceResponse<EitherBody<B>>, Error> {
     let allowed = request.method().is_safe()
         || request
-            .app_data::<web::Data<AppState>>()
+            .app_data::<web::Data<ApiState>>()
             .is_some_and(|state| {
                 let origin = request
                     .headers()
@@ -151,7 +151,7 @@ async fn require_same_origin<B: MessageBody + 'static>(
 /// Extractor for a sign-in request from a peer that is still under the failed-attempt limit.
 ///
 /// Handlers report a failed credential check with
-/// [`AppState::record_failure`]`(attempt.peer())`; only failures count.
+/// [`ApiState::record_failure`]`(attempt.peer())`; only failures count.
 struct Attempt {
     peer: IpAddr,
 }
@@ -174,7 +174,7 @@ impl FromRequest for Attempt {
     type Future = Ready<Result<Self, AuthError>>;
 
     fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
-        let Some(state) = request.app_data::<web::Data<AppState>>() else {
+        let Some(state) = request.app_data::<web::Data<ApiState>>() else {
             return future::ready(Err(AuthError::Unavailable));
         };
 
@@ -216,7 +216,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
                         // Only bodies that parse but fail validation count as guesses; size and
                         // content-type rejections are cheap and never reach credential checks.
                         if matches!(error, JsonPayloadError::Deserialize(_))
-                            && let Some(state) = request.app_data::<web::Data<AppState>>()
+                            && let Some(state) = request.app_data::<web::Data<ApiState>>()
                         {
                             state.record_failure(Attempt::peer_of(request));
                         }
@@ -234,7 +234,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 #[get("/status")]
 async fn report_status(
-    state: web::Data<AppState>,
+    state: web::Data<ApiState>,
     session: Option<SessionToken>,
 ) -> Result<HttpResponse, AuthError> {
     let setup_available = state
@@ -263,7 +263,7 @@ async fn report_status(
 
 #[post("/setup")]
 async fn setup(
-    state: web::Data<AppState>,
+    state: web::Data<ApiState>,
     _attempt: Attempt,
     credentials: web::Json<Credentials>,
 ) -> Result<HttpResponse, AuthError> {
@@ -304,7 +304,7 @@ async fn setup(
 
 #[post("/login")]
 async fn login(
-    state: web::Data<AppState>,
+    state: web::Data<ApiState>,
     session: Option<SessionToken>,
     attempt: Attempt,
     credentials: web::Json<Credentials>,
@@ -366,7 +366,7 @@ async fn login(
 
 #[post("/logout")]
 async fn logout(
-    state: web::Data<AppState>,
+    state: web::Data<ApiState>,
     session: Option<SessionToken>,
 ) -> Result<HttpResponse, AuthError> {
     if let Some(token) = session {
@@ -385,7 +385,7 @@ async fn logout(
 
 #[post("/renew")]
 async fn renew(
-    state: web::Data<AppState>,
+    state: web::Data<ApiState>,
     session: SessionToken,
 ) -> Result<HttpResponse, AuthError> {
     let now = OffsetDateTime::now_utc();
@@ -408,27 +408,37 @@ async fn renew(
 
 #[cfg(test)]
 mod tests {
-    use std::iter;
+    use std::{
+        iter,
+        num::{NonZeroU32, NonZeroUsize},
+    };
 
     use actix_web::{App, test};
-    use pp_core::config::{AuthConfig, SessionConfig};
     use pp_database::Database;
     use sqlx::PgPool;
 
     use super::*;
-    use crate::configure_routes;
+    use crate::{
+        config::{AuthConfig, LimiterConfig, SessionConfig},
+        configure_routes,
+    };
 
     const ORIGIN: &str = "http://localhost:5173";
 
-    fn app_state(pool: PgPool) -> AppState {
+    fn app_state(pool: PgPool) -> ApiState {
         let session = SessionConfig {
             idle_timeout: "1h".parse().unwrap(),
         };
         let auth = AuthConfig {
             app_origin: ORIGIN.parse().unwrap(),
         };
+        let limiter = LimiterConfig {
+            max_failures: NonZeroU32::new(10).unwrap(),
+            window: "1m".parse().unwrap(),
+            max_peers: NonZeroUsize::new(1024).unwrap(),
+        };
 
-        AppState::new(Database::new(pool), session, auth).unwrap()
+        ApiState::new(Database::new(pool), session, auth, limiter).unwrap()
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
