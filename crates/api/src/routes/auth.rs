@@ -37,8 +37,8 @@ use serde_json::error::Category;
 use time::OffsetDateTime;
 
 use crate::{
+    AppState,
     credentials::{Password, PasswordHash, SessionToken, TokenHash},
-    state::AppState,
 };
 
 /// A safe, client-facing failure: the status and a fixed message that never echoes input or
@@ -344,7 +344,7 @@ async fn login(
     // Verify against a dummy hash when the email is unknown so both cases cost the same.
     let stored_hash = account.as_ref().map_or_else(
         || state.dummy_hash().clone(),
-        |account| PasswordHash::from_stored(account.password_hash.clone()),
+        |account| PasswordHash::unchecked_new(account.password_hash.clone()),
     );
     let permit = state
         .try_acquire_hash_slot()

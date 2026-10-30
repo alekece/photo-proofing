@@ -4,7 +4,7 @@ use actix_web::{App, HttpServer, web};
 use pp_core::config::{AuthConfig, DatabaseConfig, ServerConfig, SessionConfig};
 use pp_database::{Database, MIGRATOR, PgPoolOptions};
 
-use crate::{configure_routes, state::AppState};
+use crate::{AppState, configure_routes};
 
 /// The API process: [`init`](Self::init) connects and prepares everything the server needs
 /// (database, migrations, authentication state), so [`run`](Self::run) only serves requests.

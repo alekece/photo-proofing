@@ -137,9 +137,15 @@ impl PasswordHash {
             .map_err(|_| HashError)
     }
 
+    /// Hash of a random password nobody knows, for verifications that must cost as much as a
+    /// real one but can never succeed.
+    pub fn generate() -> Result<Self, HashError> {
+        Self::new(SessionToken::generate().as_str())
+    }
+
     /// Wraps a PHC string read from storage. It is not parsed here: a malformed value simply
     /// fails [`verify`](Self::verify), which reads as a failed login.
-    pub fn from_stored(encoded: String) -> Self {
+    pub fn unchecked_new(encoded: String) -> Self {
         Self(encoded)
     }
 
@@ -202,6 +208,6 @@ mod tests {
 
     #[test]
     fn a_malformed_stored_hash_fails_verification() {
-        assert!(!PasswordHash::from_stored("not a hash".into()).verify("anything"));
+        assert!(!PasswordHash::unchecked_new("not a hash".into()).verify("anything"));
     }
 }
