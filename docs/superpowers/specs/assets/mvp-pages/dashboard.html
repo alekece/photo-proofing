@@ -1,0 +1,134 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>dashboard</title><style>body{margin:0;padding:16px;font-family:system-ui,sans-serif;background:#fff}</style></head><body><h2>Dashboard: final v2 (populated, empty, no results, new gallery)</h2>
+<p class="subtitle">Search, filter and sort all work. Tick "Simulate no galleries" for the first-run empty state. Search "zzz" or pick Archived for the no-results states. "+ New gallery" opens a title-only dialog. The bell opens the notification panel.</p>
+
+<style>
+  .pg{background:#f4efe8;color:#2b2420;font-family:Georgia,serif;border-radius:8px;overflow:hidden;min-height:560px;position:relative}
+  .top{display:flex;justify-content:space-between;align-items:center;padding:16px 28px;border-bottom:1px solid #e0d6c8}
+  .r{display:flex;gap:18px;align-items:center;font:11px system-ui;letter-spacing:.15em;text-transform:uppercase}
+  .bellb{position:relative;cursor:pointer;display:flex;padding:4px}
+  .dot{position:absolute;top:1px;right:1px;width:8px;height:8px;border-radius:50%;background:#b5381f}
+  .head{display:flex;justify-content:space-between;align-items:flex-end;padding:26px 28px 14px}
+  .head h2{margin:0;font-weight:400;font-size:28px}
+  .acts{display:flex;gap:10px;align-items:center;position:relative}
+  .btn{background:#2b2420;color:#f4efe8;padding:8px 18px;border-radius:99px;font:12px system-ui;letter-spacing:.08em;cursor:pointer}
+  .btn.ghost{background:transparent;color:#2b2420;border:1px solid #2b2420}
+  .flt{border:1px solid #d6c9b8;border-radius:99px;padding:7px 14px;font:12px system-ui;background:#fbf8f3;cursor:pointer;display:flex;gap:6px;align-items:center}
+  .srch{border:1px solid #d6c9b8;border-radius:99px;padding:6px 14px;background:#fbf8f3;display:flex;gap:6px;align-items:center;width:170px}
+  .srch input{border:0;background:transparent;outline:0;font:12px system-ui;color:#2b2420;width:100%}
+  .menu{position:absolute;top:36px;background:#fff;border:1px solid #e0d6c8;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.08);font:12px system-ui;padding:6px 0;width:170px;z-index:4;display:none}
+  .menu.open{display:block}
+  .menu div{padding:7px 16px;cursor:pointer}.menu div:hover{background:#faf6f0}
+  .menu .on{background:#f4efe8;font-weight:600}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:6px 28px 28px}
+  .ph{aspect-ratio:3/2;border-radius:2px;position:relative;cursor:pointer}
+  .badge{position:absolute;top:8px;left:8px;background:rgba(244,239,232,.92);font:10px system-ui;letter-spacing:.12em;text-transform:uppercase;padding:3px 9px;border-radius:99px}
+  .new{position:absolute;top:8px;right:8px;background:#b5381f;color:#fff;font:10px system-ui;padding:3px 9px;border-radius:99px}
+  .t{margin-top:8px;font-size:15px}
+  .m{font:11px system-ui;color:#7a6c5f;margin-top:2px}
+  .empty{text-align:center;padding:90px 28px;display:none}
+  .empty h3{font-weight:400;font-size:24px;margin:18px 0 8px}
+  .empty p{font:13px system-ui;color:#7a6c5f;margin:0 0 22px}
+  .empty .ic{display:inline-flex;width:64px;height:64px;border-radius:50%;background:#ece3d6;align-items:center;justify-content:center}
+  .panel{position:absolute;top:56px;right:20px;width:360px;background:#fff;border:1px solid #e0d6c8;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.12);display:none;font-family:system-ui;z-index:6}
+  .panel.open{display:block}
+  .pnh{padding:14px 16px;border-bottom:1px solid #eee;font-size:13px;display:flex;justify-content:space-between}
+  .n{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid #f1ebe2;cursor:pointer;align-items:flex-start}
+  .n:hover{background:#faf6f0}
+  .th{width:44px;height:44px;border-radius:3px;flex:none}
+  .nb{flex:1;font-size:13px;line-height:1.35}.nb small{display:block;color:#7a6c5f;font-size:11px;margin-top:3px}
+  .u{width:8px;height:8px;border-radius:50%;background:#b5381f;margin-top:6px;flex:none}
+  .none{display:none;padding:28px 16px;text-align:center;color:#7a6c5f;font-size:13px}
+  .modalbg{position:absolute;inset:0;background:rgba(43,36,32,.45);display:none;align-items:center;justify-content:center;z-index:8}
+  .modalbg.open{display:flex}
+  .modal{background:#fbf8f3;border-radius:10px;padding:26px;width:380px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+  .modal h3{margin:0 0 4px;font-weight:400;font-size:22px}
+  .modal p{margin:0 0 16px;font:12px system-ui;color:#7a6c5f}
+  .modal input{width:100%;box-sizing:border-box;border:1px solid #d6c9b8;border-radius:8px;padding:10px 12px;font:14px system-ui;background:#fff;outline:0}
+  .modal .row{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+  .btn.dis{opacity:.4;pointer-events:none}
+</style>
+
+<div style="margin-bottom:10px;font:12px system-ui"><label><input type="checkbox" id="none0"> Simulate no galleries</label></div>
+<div class="pg" id="pg">
+  <div class="top"><span style="font-size:18px">PhotoProofing</span>
+    <span class="r"><span class="bellb" id="bell"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2b2420" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="dot" id="dot"></span></span><span>Settings</span><span>Sign out</span></span></div>
+  <div class="head"><h2>Galleries</h2>
+    <span class="acts" id="acts">
+      <span class="srch"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9a8c7d" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" placeholder="Search title"></span>
+      <span class="flt" id="fbtn"><span id="flab">All galleries</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+      <span class="flt" id="sbtn"><span id="slab">Newest created</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+      <span class="btn" id="newb">+ New gallery</span>
+      <div class="menu" id="fmenu" style="right:200px"><div class="on">All galleries</div><div>Proofing</div><div>Delivered</div><div>Not shared</div><div>Archived</div></div>
+      <div class="menu" id="smenu" style="right:120px"><div class="on">Newest created</div><div>Oldest created</div><div>Recently updated</div><div>Title A–Z</div></div>
+    </span></div>
+  <div class="grid" id="grid"></div>
+
+  <div class="empty" id="e0" style="background:linear-gradient(180deg,#f7e3c4,#f4efe8 75%)">
+    <svg width="150" height="80" viewBox="0 0 130 70"><circle cx="65" cy="62" r="34" fill="#f2a33a" opacity=".85"/><path d="M0 62h130" stroke="#2b2420" stroke-width="1.5"/></svg>
+    <h3>Golden hour, no clients.</h3><p>The light is perfect and the dashboard is empty.<br>Quick, make a gallery before the sun moves.</p>
+    <span class="btn" id="newb2">+ Create your first gallery</span>
+  </div>
+  <div class="empty" id="e1">
+    <span class="ic"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7a6c5f" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+    <h3 id="e1t">No galleries match</h3><p id="e1p">Try a different title or filter.</p>
+    <span class="btn ghost" id="clr">Clear search and filter</span>
+  </div>
+
+  <div class="panel" id="panel">
+    <div class="pnh"><span>Notifications</span><a href="#" id="all" style="color:#2b2420;text-decoration:underline">Mark all as read</a></div>
+    <div class="n"><span class="th" style="background:linear-gradient(135deg,#c9b8a6,#6b7f8e)"></span><div class="nb"><b>Martin wedding</b><br>Selection changed: 9 added, 2 removed. 12 favorites now.<small>2 min ago</small></div><span class="u"></span></div>
+    <div class="n"><span class="th" style="background:linear-gradient(135deg,#9db4a0,#3d5a4a)"></span><div class="nb"><b>Autumn family</b><br>Finished photos downloaded 3 times, once as a ZIP.<small>1 h ago</small></div><span class="u"></span></div>
+    <div class="none" id="nn">You're all caught up.</div>
+  </div>
+
+  <div class="modalbg" id="mb"><div class="modal"><h3>New gallery</h3><p>Give it a title. You can change it any time, and nothing is shared until you say so.</p>
+    <input id="ti" placeholder="e.g. Martin wedding"><div class="row"><span class="btn ghost" id="cx">Cancel</span><span class="btn dis" id="cr">Create gallery</span></div></div></div>
+</div>
+
+<script>
+(function(){
+  var D=[
+   {t:'Martin wedding',s:'Proofing',c:'#c9b8a6',c2:'#6b7f8e',m:'86 photos · expires in 5 days',n:'12 new favorites',cr:4,up:1},
+   {t:'Autumn family',s:'Delivered',c:'#9db4a0',c2:'#3d5a4a',m:'54 photos',n:'3 downloads',cr:3,up:2},
+   {t:'Studio portraits',s:'Not shared',c:'#e0c3b0',c2:'#a0624a',m:'Uploading · 18 of 40 ready',cr:2,up:3},
+   {t:'Coastal elopement',s:'Proofing',c:'#b8c4d6',c2:'#4a5a7a',m:'62 photos · no favorites yet',cr:1,up:4},
+   {t:'Newborn Léa',s:'Archived',c:'#d9d1c0',c2:'#8f8a6a',m:'40 photos · archived',cr:0,up:0}
+  ];
+  var f='All galleries',so='Newest created',$=function(i){return document.getElementById(i);};
+  function fits(g){var q=$('q').value.trim().toLowerCase();if(q&&g.t.toLowerCase().indexOf(q)<0)return false;
+    if(f==='All galleries')return g.s!=='Archived';return g.s===f;}
+  function draw(){
+    var none=$('none0').checked,list=none?[]:D.filter(fits);
+    list.sort(function(a,b){return so==='Oldest created'?a.cr-b.cr:so==='Recently updated'?b.up===0?-1:a.up-b.up:so==='Title A–Z'?a.t.localeCompare(b.t):b.cr-a.cr;});
+    $('grid').innerHTML=list.map(function(g){return '<div><div class="ph" style="background:linear-gradient(135deg,'+g.c+','+g.c2+')"><span class="badge">'+g.s+'</span>'+(g.n?'<span class="new">'+g.n+'</span>':'')+'</div><div class="t">'+g.t+'</div><div class="m">'+g.m+'</div></div>';}).join('');
+    $('grid').style.display=list.length?'':'none';
+    $('e0').style.display=none?'block':'none';
+    var nm=!none&&!list.length;$('e1').style.display=nm?'block':'none';
+    if(nm){var q=$('q').value.trim();$('e1t').textContent=q?'No galleries match “'+q+'”':'No '+f.toLowerCase()+' galleries';$('e1p').textContent=q?'Try a different title or filter.':'Nothing here yet.';}
+    $('acts').style.display=none?'none':'flex';
+  }
+  function menu(btn,m,lab,set){
+    btn.onclick=function(e){e.stopPropagation();var o=m.classList.contains('open');close();if(!o)m.classList.add('open');};
+    Array.prototype.forEach.call(m.children,function(d){d.onclick=function(){Array.prototype.forEach.call(m.children,function(x){x.classList.remove('on');});d.classList.add('on');lab.textContent=d.textContent;set(d.textContent);close();draw();};});
+  }
+  function close(){$('fmenu').classList.remove('open');$('smenu').classList.remove('open');}
+  document.addEventListener('click',close);
+  menu($('fbtn'),$('fmenu'),$('flab'),function(v){f=v;});
+  menu($('sbtn'),$('smenu'),$('slab'),function(v){so=v;});
+  $('q').oninput=draw;$('none0').onchange=draw;
+  $('clr').onclick=function(){$('q').value='';f='All galleries';$('flab').textContent=f;Array.prototype.forEach.call($('fmenu').children,function(x,i){x.classList.toggle('on',i===0);});draw();};
+  function openM(){$('mb').classList.add('open');$('ti').value='';$('cr').classList.add('dis');setTimeout(function(){$('ti').focus();},0);}
+  $('newb').onclick=openM;$('newb2').onclick=openM;$('cx').onclick=function(){$('mb').classList.remove('open');};
+  $('ti').oninput=function(){$('cr').classList.toggle('dis',!$('ti').value.trim());};
+  $('ti').onkeydown=function(e){if(e.key==='Escape')$('mb').classList.remove('open');if(e.key==='Enter'&&$('ti').value.trim())$('cr').click();};
+  $('cr').onclick=function(){var v=$('ti').value.trim();if(!v)return;D.push({t:v,s:'Not shared',c:'#d8c3ae',c2:'#8a6e58',m:'No photos yet',cr:9,up:9});$('none0').checked=false;$('mb').classList.remove('open');so='Newest created';$('slab').textContent=so;draw();};
+  var panel=$('panel');
+  $('bell').onclick=function(e){e.stopPropagation();panel.classList.toggle('open');};
+  panel.onclick=function(e){e.stopPropagation();};
+  function upd(){var n=panel.querySelectorAll('.n').length;$('all').style.visibility=n?'visible':'hidden';$('dot').style.display=n?'':'none';$('nn').style.display=n?'none':'block';}
+  Array.prototype.forEach.call(panel.querySelectorAll('.n'),function(r){r.onclick=function(){r.remove();upd();};});
+  $('all').onclick=function(e){e.preventDefault();Array.prototype.forEach.call(panel.querySelectorAll('.n'),function(r){r.remove();});upd();};
+  draw();upd();
+})();
+</script>
+</body></html>
