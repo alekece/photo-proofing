@@ -10,10 +10,10 @@ use actix_web::{
 use derive_more::{Display, Error, From};
 use pp_core::{
     config::{AuthConfig, SessionConfig},
-    time::NonZeroDuration,
+    time::CookieDuration,
     url::Origin,
 };
-use pp_database::{Database, auth::AuthStore};
+use pp_database::{Database, auth::AuthRepository};
 use time::{Duration as TimeDuration, OffsetDateTime, error::ConversionRange};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -49,7 +49,7 @@ pub enum StateError {
 pub(crate) struct AppState {
     database: Database,
     origin: Origin,
-    idle_timeout: NonZeroDuration,
+    idle_timeout: CookieDuration,
     // The same span as `idle_timeout` in the `time` crate's type, converted once at startup.
     session_lifetime: TimeDuration,
     hash_slots: Arc<Semaphore>,
@@ -67,7 +67,7 @@ impl AppState {
             database,
             origin: auth.app_origin,
             idle_timeout: session.idle_timeout,
-            // `NonZeroDuration` bounds the timeout far below the `time` and timestamp limits,
+            // `CookieDuration` bounds the timeout far below the `time` and timestamp limits,
             // so adding it to the current time cannot overflow for centuries.
             session_lifetime: TimeDuration::try_from(session.idle_timeout.get())?,
             hash_slots: Arc::new(Semaphore::new(HASH_SLOTS)),
@@ -76,7 +76,7 @@ impl AppState {
         })
     }
 
-    pub fn store(&self) -> AuthStore<'_> {
+    pub fn store(&self) -> AuthRepository<'_> {
         self.database.repository()
     }
 

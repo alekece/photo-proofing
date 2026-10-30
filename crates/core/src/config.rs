@@ -5,7 +5,7 @@ use strum::Display;
 use tracing::level_filters::LevelFilter;
 use url::Url;
 
-use crate::{time::NonZeroDuration, url::Origin};
+use crate::{time::CookieDuration, url::Origin};
 
 /// Network binding shared by every process that listens for connections.
 #[derive(Args, ConfigArgs, Debug, Clone)]
@@ -55,7 +55,7 @@ pub struct SessionConfig {
         env = "PP_SESSION_IDLE_TIMEOUT",
         default_value = "30d"
     )]
-    pub idle_timeout: NonZeroDuration,
+    pub idle_timeout: CookieDuration,
 }
 
 /// Database connection settings. Deliberately not Debug: URLs may contain passwords.

@@ -6,73 +6,89 @@ use serde::{Deserialize, Serialize, Serializer, ser::Error as _};
 
 /// The duration is outside the supported range.
 #[derive(Debug, Display, Error)]
-#[display("duration must be between 1s and 1000 years")]
-pub struct DurationRangeError;
+#[display(
+    "duration must be between {} and {}",
+    humantime::format_duration(*min),
+    humantime::format_duration(*max)
+)]
+pub struct DurationRangeError {
+    min: Duration,
+    max: Duration,
+}
 
 #[derive(Debug, Display, Error, From)]
-pub enum ParseNonZeroDurationError {
+pub enum ParseBoundedDurationError {
     #[display("invalid duration: {_0}")]
     Syntax(DurationError),
     #[display("{_0}")]
     Range(DurationRangeError),
 }
 
-/// A configured span of time that is safe to use for expiry arithmetic.
+/// Longest [`CookieDuration`]: far beyond any sensible policy, yet small enough that adding it
+/// to the current time cannot overflow a timestamp.
+const MAX_COOKIE_SECS: u64 = 1000 * 365 * 24 * 60 * 60;
+
+/// A span of time that lasts at least `MIN` and at most `MAX` whole seconds.
 ///
-/// The bounds are enforced once, at construction: at least one second (cookie `Max-Age`
-/// has whole-second resolution, so anything shorter would round to an instant expiry) and
-/// at most 1000 years, far beyond any sensible policy yet small enough that adding it to
-/// the current time cannot overflow a timestamp. Consumers therefore need no further
-/// checks. Parsed from and displayed as a human duration such as `30d` or `1h 30m`.
+/// The bounds are enforced once, at construction, so consumers need no further checks. Parsed
+/// from and displayed as a human duration such as `30d` or `1h 30m`. Const generics cannot be
+/// [`Duration`]s, which is why the bounds are expressed in seconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
-pub struct NonZeroDuration(Duration);
+pub struct BoundedDuration<const MIN: u64, const MAX: u64>(Duration);
 
-impl NonZeroDuration {
-    const MIN: Duration = Duration::from_secs(1);
-    const MAX: Duration = Duration::from_secs(1000 * 365 * 24 * 60 * 60);
+/// How long a cookie may live: at least one second, because `Max-Age` has whole-second
+/// resolution and anything shorter would round to an instant expiry.
+pub type CookieDuration = BoundedDuration<1, MAX_COOKIE_SECS>;
+
+impl<const MIN: u64, const MAX: u64> BoundedDuration<MIN, MAX> {
+    const MIN_DURATION: Duration = Duration::from_secs(MIN);
+    const MAX_DURATION: Duration = Duration::from_secs(MAX);
 
     pub fn get(self) -> Duration {
         self.0
     }
 }
 
-impl fmt::Display for NonZeroDuration {
+impl<const MIN: u64, const MAX: u64> fmt::Display for BoundedDuration<MIN, MAX> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&humantime::format_duration(self.0), f)
     }
 }
 
-impl TryFrom<Duration> for NonZeroDuration {
+impl<const MIN: u64, const MAX: u64> TryFrom<Duration> for BoundedDuration<MIN, MAX> {
     type Error = DurationRangeError;
 
     fn try_from(duration: Duration) -> Result<Self, Self::Error> {
-        if !(Self::MIN..=Self::MAX).contains(&duration) {
-            return Err(DurationRangeError);
+        if !(Self::MIN_DURATION..=Self::MAX_DURATION).contains(&duration) {
+            return Err(DurationRangeError {
+                min: Self::MIN_DURATION,
+                max: Self::MAX_DURATION,
+            });
         }
 
         Ok(Self(duration))
     }
 }
 
-impl FromStr for NonZeroDuration {
-    type Err = ParseNonZeroDurationError;
+impl<const MIN: u64, const MAX: u64> FromStr for BoundedDuration<MIN, MAX> {
+    type Err = ParseBoundedDurationError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         Ok(humantime::parse_duration(value)?.try_into()?)
     }
 }
 
-impl TryFrom<String> for NonZeroDuration {
-    type Error = ParseNonZeroDurationError;
+impl<const MIN: u64, const MAX: u64> TryFrom<String> for BoundedDuration<MIN, MAX> {
+    type Error = ParseBoundedDurationError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         value.parse()
     }
 }
 
-impl From<NonZeroDuration> for String {
-    fn from(duration: NonZeroDuration) -> Self {
+impl<const MIN: u64, const MAX: u64> From<BoundedDuration<MIN, MAX>> for String {
+    fn from(duration: BoundedDuration<MIN, MAX>) -> Self {
         duration.to_string()
     }
 }
@@ -104,11 +120,11 @@ mod tests {
     #[test]
     fn parses_human_durations() {
         assert_eq!(
-            "1h 30m".parse::<NonZeroDuration>().unwrap().get(),
+            "1h 30m".parse::<CookieDuration>().unwrap().get(),
             Duration::from_secs(5400)
         );
         assert_eq!(
-            "1500ms".parse::<NonZeroDuration>().unwrap().get(),
+            "1500ms".parse::<CookieDuration>().unwrap().get(),
             Duration::from_millis(1500)
         );
     }
@@ -116,16 +132,30 @@ mod tests {
     #[test]
     fn rejects_unusable_durations() {
         for value in ["0s", "500ms", "999999999999999s", "-1s", "nonsense", ""] {
-            assert!(value.parse::<NonZeroDuration>().is_err(), "{value}");
+            assert!(value.parse::<CookieDuration>().is_err(), "{value}");
         }
     }
 
     #[test]
+    fn bounds_come_from_the_type_parameters() {
+        type Short = BoundedDuration<2, 3>;
+
+        assert!("2s".parse::<Short>().is_ok());
+        assert!("3s".parse::<Short>().is_ok());
+        assert!("1s".parse::<Short>().is_err());
+        assert!("4s".parse::<Short>().is_err());
+        assert_eq!(
+            "4s".parse::<Short>().unwrap_err().to_string(),
+            "duration must be between 2s and 3s"
+        );
+    }
+
+    #[test]
     fn displays_in_a_form_that_parses_back() {
-        let duration: NonZeroDuration = "30d".parse().unwrap();
+        let duration: CookieDuration = "30d".parse().unwrap();
 
         assert_eq!(
-            duration.to_string().parse::<NonZeroDuration>().unwrap(),
+            duration.to_string().parse::<CookieDuration>().unwrap(),
             duration
         );
     }
