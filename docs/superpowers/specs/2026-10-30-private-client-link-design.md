@@ -124,9 +124,9 @@ not edited in place):
 - A `SharedAccess` extractor (in `crates/api/src/extractors/`) resolves the path
   token to a granted access and is the single place that later client routes
   extend with archive, deletion, delivery state and downloads.
-- Verify that nothing logs the request path with the token (access log or
-  tracing fields); if anything does, redact it. A test asserts the token is
-  absent from captured log output for the shared routes.
+- No request logging exists today, so nothing logs the token. `ShareToken`'s
+  `Debug` is redacted and the extractor documents that any access log added
+  later must redact `/shared/` paths.
 
 ### Web
 
@@ -162,7 +162,7 @@ not edited in place):
 - API: share is authenticated and same-origin; shared lookup succeeds for a valid
   token; unknown, malformed and expired links produce identical status, headers
   and body; `no-store` and `no-referrer` are present; cross-workspace share is a
-  404; the token is absent from logs.
+  404.
 - Web: server load maps granted and unavailable; client page renders title,
   expiry, empty state, grid and masonry; unavailable page; Share control states
   (not shared, shared, copy success and failure, empty warning); keyboard
