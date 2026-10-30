@@ -97,7 +97,7 @@ mod tests {
 
         // The last character of a 16-byte token only carries 2 of its 6 bits, so 'B' (000001)
         // decodes to the same bytes as 'A' but is not canonical.
-        let non_canonical = format!("{}B", &"A".repeat(21));
+        let non_canonical = format!("{}B", "A".repeat(21));
 
         for invalid in [
             "",
