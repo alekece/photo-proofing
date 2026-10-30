@@ -4,6 +4,8 @@
 //! - `GET /?sort=updated|created|title` lists the workspace's galleries.
 //! - `GET /{id}` returns one gallery.
 //! - `PATCH /{id}` applies a [`GalleryChanges`] changeset and returns the updated gallery.
+//! - `POST /{id}/share` creates the gallery's private link if it has none and returns the
+//!   gallery; sharing again returns the same link.
 //!
 //! A gallery of another workspace is a 404, never a 403, so ids reveal nothing. Like every state-changing
 //! route, they must carry the configured `Origin`, which the API-wide middleware checks.
@@ -33,7 +35,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(create_gallery)
             .service(list_galleries)
             .service(show_gallery)
-            .service(update_gallery),
+            .service(update_gallery)
+            .service(share_gallery),
     );
 }
 
@@ -92,76 +95,33 @@ async fn update_gallery(
     Ok(HttpResponse::Ok().no_store().json(gallery))
 }
 
+#[post("/{id}/share")]
+async fn share_gallery(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    id: Path<GalleryId>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let gallery = state
+        .galleries()
+        .share(identity.workspace_id, id.into_inner())
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
+
+    Ok(HttpResponse::Ok().no_store().json(gallery))
+}
+
 #[cfg(test)]
 mod tests {
-    use std::num::{NonZeroU32, NonZeroUsize};
-
-    use actix_web::{
-        App,
-        cookie::Cookie,
-        dev::{Service, ServiceResponse},
-        http::StatusCode,
-        test,
-    };
-    use pp_database::Database;
+    use actix_web::{App, cookie::Cookie, http::StatusCode, test};
+    use pp_database::{Database, gallery::GalleryRepository};
     use serde_json::{Value, json};
     use sqlx::PgPool;
 
     use super::*;
     use crate::{
         api::configure_routes,
-        config::{AuthConfig, LimiterConfig, SessionConfig},
+        testing::{ORIGIN, app_state, call, other_workspace, sign_up},
     };
-
-    const ORIGIN: &str = "http://localhost:5173";
-
-    fn app_state(pool: PgPool) -> ApiState {
-        let session = SessionConfig {
-            idle_timeout: "1h".parse().unwrap(),
-            cookie_name: "pp_session".parse().unwrap(),
-        };
-        let auth = AuthConfig {
-            app_origin: ORIGIN.parse().unwrap(),
-        };
-        let limiter = LimiterConfig {
-            max_failures: NonZeroU32::new(10).unwrap(),
-            window: "1m".parse().unwrap(),
-            max_peers: NonZeroUsize::new(1024).unwrap(),
-        };
-
-        ApiState::new(Database::new(pool), session, auth, limiter).unwrap()
-    }
-
-    async fn call<S>(app: &S, request: test::TestRequest) -> (StatusCode, Value)
-    where
-        S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
-    {
-        let response = test::call_service(app, request.to_request()).await;
-        let status = response.status();
-        let bytes = test::read_body(response).await;
-        let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-
-        (status, body)
-    }
-
-    async fn sign_up<S>(app: &S) -> Cookie<'static>
-    where
-        S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
-    {
-        let request = test::TestRequest::post()
-            .uri("/api/v1/auth/setup")
-            .insert_header(("Origin", ORIGIN))
-            .set_json(json!({"email": "person@example.test", "password": "a long test password"}))
-            .to_request();
-        let response = test::call_service(app, request).await;
-
-        response
-            .response()
-            .cookies()
-            .find(|cookie| cookie.name() == "pp_session")
-            .unwrap()
-            .into_owned()
-    }
 
     fn patch(id: &str, cookie: &Cookie<'static>, body: Value) -> test::TestRequest {
         test::TestRequest::patch()
@@ -443,5 +403,67 @@ mod tests {
         let (_, list) = call(&app, request).await;
 
         assert!(list.as_array().unwrap().is_empty());
+    }
+
+    fn share(
+        id: &str,
+        cookie: Option<&Cookie<'static>>,
+        origin: Option<&str>,
+    ) -> test::TestRequest {
+        let mut request = test::TestRequest::post().uri(&format!("/api/v1/galleries/{id}/share"));
+
+        if let Some(cookie) = cookie {
+            request = request.cookie(cookie.clone());
+        }
+
+        if let Some(origin) = origin {
+            request = request.insert_header(("Origin", origin));
+        }
+
+        request
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn sharing_returns_the_same_link_and_requires_session_and_origin(pool: PgPool) {
+        let foreign = Database::new(pool.clone())
+            .repository::<GalleryRepository>()
+            .create(other_workspace(&pool).await)
+            .await
+            .unwrap();
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(app_state(pool)))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let (_, created) = call(&app, post_gallery(&cookie)).await;
+        let id = created["id"].as_str().unwrap();
+
+        assert_eq!(created["share_token"], Value::Null);
+
+        let (status, first) = call(&app, share(id, Some(&cookie), Some(ORIGIN))).await;
+        let (_, second) = call(&app, share(id, Some(&cookie), Some(ORIGIN))).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(first["share_token"].as_str().map(str::len), Some(22));
+        assert_eq!(first["share_token"], second["share_token"]);
+
+        let (status, _) = call(&app, share(id, None, Some(ORIGIN))).await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let (status, _) = call(&app, share(id, Some(&cookie), None)).await;
+
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let foreign_id = foreign.id.0.to_string();
+        let (status, _) = call(&app, share(&foreign_id, Some(&cookie), Some(ORIGIN))).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = call(&app, share("not-a-uuid", Some(&cookie), Some(ORIGIN))).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 }

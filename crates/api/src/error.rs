@@ -51,7 +51,12 @@ impl ResponseError for ErrorResponse {
     }
 
     fn error_response(&self) -> HttpResponse {
-        HttpResponse::build(self.status).no_store().json(self)
+        // Sent on every error so a rejected private link cannot be told apart from another by
+        // its headers.
+        HttpResponse::build(self.status)
+            .no_store()
+            .no_referrer()
+            .json(self)
     }
 }
 

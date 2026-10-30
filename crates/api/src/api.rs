@@ -246,6 +246,7 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
             .app_data(PathConfig::default().error_handler(|_, _| ErrorResponse::not_found().into()))
             .service(routes::health::report_health)
             .configure(routes::auth::configure)
-            .configure(routes::galleries::configure),
+            .configure(routes::galleries::configure)
+            .configure(routes::shared::configure),
     );
 }

@@ -4,3 +4,4 @@
 pub mod attempt;
 pub mod identity;
 pub mod session_token;
+pub mod shared_access;
