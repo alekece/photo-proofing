@@ -16,7 +16,7 @@ use crate::Repository;
 
 /// Data access for the account and its sessions; see the module docs for the session model.
 #[derive(Clone, Copy)]
-pub struct AuthStore<'db> {
+pub struct AuthRepository<'db> {
     pool: &'db PgPool,
 }
 
@@ -51,7 +51,7 @@ impl From<IdentityRow> for Identity {
     }
 }
 
-impl<'db> Repository<'db> for AuthStore<'db> {
+impl<'db> Repository<'db> for AuthRepository<'db> {
     type Options = ();
 
     fn open(pool: &'db PgPool, (): Self::Options) -> Self {
@@ -59,7 +59,7 @@ impl<'db> Repository<'db> for AuthStore<'db> {
     }
 }
 
-impl AuthStore<'_> {
+impl AuthRepository<'_> {
     /// True while no account exists, i.e. while the login page should offer setup.
     pub async fn setup_available(&self) -> Result<bool, sqlx::Error> {
         sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM accounts)")
@@ -210,7 +210,7 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn setup_session_and_revocation_are_persistent(pool: PgPool) {
         let database = Database::new(pool.clone());
-        let store = database.repository::<AuthStore>();
+        let store = database.repository::<AuthRepository>();
         let now = OffsetDateTime::now_utc();
 
         assert!(store.setup_available().await.unwrap());
@@ -276,7 +276,7 @@ mod tests {
         );
         assert!(
             Database::new(pool)
-                .repository::<AuthStore>()
+                .repository::<AuthRepository>()
                 .authenticate(&[1; 32], now)
                 .await
                 .unwrap()
@@ -287,7 +287,7 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn concurrent_setup_leaves_one_workspace_and_account(pool: PgPool) {
         let database = Database::new(pool.clone());
-        let a = database.repository::<AuthStore>();
+        let a = database.repository::<AuthRepository>();
         let b = a;
         let expiry = OffsetDateTime::now_utc() + Duration::days(30);
         let (email_a, email_b) = (email("a@example.test"), email("b@example.test"));
@@ -314,7 +314,7 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn renewal_and_logout_cannot_resurrect_session(pool: PgPool) {
         let database = Database::new(pool);
-        let store = database.repository::<AuthStore>();
+        let store = database.repository::<AuthRepository>();
         let now = OffsetDateTime::now_utc();
 
         store
@@ -341,7 +341,7 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn replacing_one_login_does_not_revoke_another(pool: PgPool) {
         let database = Database::new(pool);
-        let store = database.repository::<AuthStore>();
+        let store = database.repository::<AuthRepository>();
         let now = OffsetDateTime::now_utc();
         let id = store
             .create_account(
