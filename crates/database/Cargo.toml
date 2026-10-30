@@ -8,7 +8,7 @@ publish.workspace = true
 tokio.workspace = true
 pp-core.workspace = true
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "time", "migrate", "macros"] }
-serde = { version = "1", features = ["derive"] }
+serde.workspace = true
 time = { version = "0.3", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
