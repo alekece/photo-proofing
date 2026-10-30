@@ -5,12 +5,24 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('$app/navigation', () => ({ afterNavigate: vi.fn(), goto: vi.fn() }));
 vi.mock('$app/state', () => ({ navigating: { to: null } }));
-import { loadClientGallery } from '#lib/gallery/load.js';
+import ClientGallery from '#lib/components/ClientGallery.svelte';
+import AccessUnavailable from '#lib/components/AccessUnavailable.svelte';
+import type { Proof, SharedGallery } from '#lib/gallery/types.js';
 import Dashboard from './dashboard/+page.svelte';
-import Gallery from './g/[gallery]/+page.svelte';
+import Gallery from './g/[token]/+page.svelte';
 
-const open = async (slug: string) =>
-	render(Gallery, { props: { data: { view: await loadClientGallery(slug) } } });
+const shared = (overrides: Partial<SharedGallery> = {}): SharedGallery => ({
+	title: 'Sample session',
+	layout: 'grid',
+	expires_at: null,
+	...overrides
+});
+const proofs: Proof[] = [1, 2, 3].map((n) => ({
+	id: `p${n}`,
+	alt: `Proof ${n}`,
+	previewUrl: `data:,${n}`
+}));
+const open = (gallery: SharedGallery | null) => render(Gallery, { props: { data: { gallery } } });
 
 describe('route shells', () => {
 	it('dashboard renders its heading', () => {
@@ -29,33 +41,44 @@ describe('route shells', () => {
 });
 
 describe('client gallery route', () => {
-	it('shows state messaging, expiry and proof previews only', async () => {
-		const { container } = await open('demo-proofing');
-		expect(screen.getByRole('heading', { name: 'Sample session' })).toBeTruthy();
-		expect(screen.getByRole('status').textContent).toMatch(/favourites/);
-		expect(container.textContent).toMatch(/Access until/);
-		expect(screen.getAllByRole('img')).toHaveLength(9);
-		expect(container.querySelectorAll('a')).toHaveLength(0);
-	});
-
-	it.each(['demo-expired', 'demo-draft', 'no-such-gallery'])(
-		'renders the same leak-free access state for %s',
-		async (slug) => {
-			const { container } = await open(slug);
-			expect(screen.getByRole('heading', { name: /isn't available/ })).toBeTruthy();
-			expect(container.textContent).not.toMatch(/Sample session|Proof/);
-			expect(screen.queryAllByRole('img')).toHaveLength(0);
-		}
-	);
-
-	it('shows no previews in delivery', async () => {
-		await open('demo-delivery');
+	it('shows a neutral unavailable page without gallery data', () => {
+		const { container } = open(null);
+		expect(screen.getByRole('heading', { name: /isn't available/ })).toBeTruthy();
+		expect(container.textContent).toMatch(/contact your photographer/i);
+		expect(container.textContent).not.toMatch(/expired|Sample session/i);
 		expect(screen.queryAllByRole('img')).toHaveLength(0);
 	});
 
+	it('shows the title and the empty state', () => {
+		open(shared());
+		expect(screen.getByRole('heading', { name: 'Sample session' })).toBeTruthy();
+		expect(
+			screen.getByText("The photographer hasn't added photos yet. Check back soon.")
+		).toBeTruthy();
+	});
+
+	it('shows the expiry badge only when an expiry is set', () => {
+		const { container, unmount } = open(shared());
+		expect(container.textContent).not.toMatch(/Access until/);
+		unmount();
+		const second = open(shared({ expires_at: '2099-01-01T00:00:00Z' }));
+		expect(second.container.textContent).toMatch(/Access until/);
+	});
+
+	it('names an untitled gallery and wraps a very long title', () => {
+		const { unmount } = open(shared({ title: null }));
+		expect(screen.getByRole('heading', { name: 'Untitled gallery' })).toBeTruthy();
+		unmount();
+		open(shared({ title: 'x'.repeat(255) }));
+		const heading = screen.getByRole('heading', { level: 1 });
+		expect(getComputedStyle(heading).overflowWrap).toBe('anywhere');
+	});
+});
+
+describe('ClientGallery', () => {
 	it('opens the viewer by keyboard and returns focus to the thumbnail', async () => {
 		const user = userEvent.setup();
-		await open('demo-proofing');
+		render(ClientGallery, { gallery: shared(), proofs });
 		await user.tab();
 		const thumb = document.activeElement as HTMLElement;
 		await user.keyboard('{Enter}');
@@ -67,10 +90,17 @@ describe('client gallery route', () => {
 
 	it('has no axe violations for the grid and the open viewer', async () => {
 		const user = userEvent.setup();
-		const { container } = await open('demo-proofing');
+		const { container } = render(ClientGallery, { gallery: shared(), proofs });
 		expect((await axe(container)).violations).toEqual([]);
 		await user.tab();
 		await user.keyboard('{Enter}');
 		expect((await axe(document.body)).violations).toEqual([]);
+	});
+});
+
+describe('AccessUnavailable', () => {
+	it('does not reveal why the link failed', () => {
+		const { container } = render(AccessUnavailable);
+		expect(container.textContent).not.toMatch(/expired/i);
 	});
 });
