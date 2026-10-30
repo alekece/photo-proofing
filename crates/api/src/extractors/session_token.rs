@@ -3,16 +3,23 @@ use std::{
     str::FromStr,
 };
 
-use actix_web::{FromRequest, HttpRequest, dev::Payload};
+use actix_web::{FromRequest, HttpRequest, dev::Payload, web};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use derive_more::{Display, Error};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 
-use crate::routes::auth::AuthError;
+use crate::{api::ApiState, routes::auth::AuthError};
 
+/// Random bytes in a session token: 256 bits, far beyond what online or offline guessing can
+/// reach, and the size of a SHA-256 digest so [`TokenHash`] stores it without truncation.
 const TOKEN_BYTES: usize = 32;
-const TOKEN_ENCODED_LEN: usize = 43;
+
+/// Length of [`TOKEN_BYTES`] bytes in unpadded base64: 6 bits per character, rounded up.
+const TOKEN_ENCODED_LEN: usize = (TOKEN_BYTES * 8).div_ceil(6);
+
+/// Size of a SHA-256 digest.
+const DIGEST_BYTES: usize = 32;
 
 /// The cookie value is not a canonical 32-byte token.
 #[derive(Debug, Display, Error)]
@@ -26,13 +33,7 @@ pub struct ParseTokenError;
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct SessionToken(String);
 
-/// SHA-256 digest of a [`SessionToken`]: the database key for a session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TokenHash([u8; 32]);
-
 impl SessionToken {
-    pub const COOKIE_NAME: &str = "pp_session";
-
     pub fn generate() -> Self {
         let mut bytes = [0u8; TOKEN_BYTES];
 
@@ -76,17 +77,25 @@ impl FromRequest for SessionToken {
     type Future = Ready<Result<Self, AuthError>>;
 
     fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
+        let Some(state) = request.app_data::<web::Data<ApiState>>() else {
+            return future::ready(Err(AuthError::Unavailable));
+        };
+
         future::ready(
             request
-                .cookie(Self::COOKIE_NAME)
+                .cookie(state.cookie_name())
                 .and_then(|cookie| cookie.value().parse().ok())
                 .ok_or(AuthError::Unauthorized),
         )
     }
 }
 
+/// SHA-256 digest of a [`SessionToken`]: the database key for a session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenHash([u8; DIGEST_BYTES]);
+
 impl TokenHash {
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    pub fn as_bytes(&self) -> &[u8; DIGEST_BYTES] {
         &self.0
     }
 }
@@ -106,6 +115,7 @@ mod tests {
 
     #[test]
     fn malformed_tokens_are_rejected() {
+        assert_eq!(TOKEN_ENCODED_LEN, 43);
         assert!("bad".parse::<SessionToken>().is_err());
         assert!("a".repeat(1000).parse::<SessionToken>().is_err());
         assert!("A".repeat(43).parse::<SessionToken>().is_ok());

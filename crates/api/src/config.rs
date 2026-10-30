@@ -1,10 +1,15 @@
 //! Settings of the API process, grouped by concern under [`ApiConfig`].
 
-use std::num::{NonZeroU32, NonZeroUsize};
+use std::{
+    num::{NonZeroU32, NonZeroUsize},
+    str::FromStr,
+};
 
 use clap::Args;
 use clap_config_fallback::ConfigArgs;
+use derive_more::{Display, Error};
 use pp_core::{config::DatabaseConfig, time::BoundedDuration, url::Origin};
+use serde::{Deserialize, Serialize};
 
 /// Longest [`CookieDuration`]: far beyond any sensible policy, yet small enough that adding it
 /// to the current time cannot overflow a timestamp.
@@ -49,6 +54,51 @@ pub struct HttpConfig {
     pub port: u16,
 }
 
+/// The cookie name is empty or contains characters RFC 6265 does not allow in a cookie name.
+#[derive(Debug, Display, Error)]
+#[display("cookie name must be a non-empty RFC 6265 token")]
+pub struct ParseCookieNameError;
+
+/// A valid cookie name, checked once at startup.
+#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct CookieName(String);
+
+impl CookieName {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl FromStr for CookieName {
+    type Err = ParseCookieNameError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        // Token characters: visible ASCII except the RFC 2616 separators.
+        let is_token = |c: char| c.is_ascii_graphic() && !"()<>@,;:\\\"/[]?={}".contains(c);
+
+        if value.is_empty() || !value.chars().all(is_token) {
+            return Err(ParseCookieNameError);
+        }
+
+        Ok(Self(value.to_owned()))
+    }
+}
+
+impl TryFrom<String> for CookieName {
+    type Error = ParseCookieNameError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<CookieName> for String {
+    fn from(name: CookieName) -> Self {
+        name.0
+    }
+}
+
 /// Persistent session inactivity policy, shared by API validation and renewal.
 #[derive(Args, ConfigArgs, Clone)]
 pub struct SessionConfig {
@@ -58,6 +108,12 @@ pub struct SessionConfig {
         default_value = "30d"
     )]
     pub idle_timeout: CookieDuration,
+    #[arg(
+        long = "session-cookie-name",
+        env = "PP_SESSION_COOKIE_NAME",
+        default_value = "pp_session"
+    )]
+    pub cookie_name: CookieName,
 }
 
 /// The browser-visible origin of the app. The API compares it byte-for-byte with the
@@ -250,5 +306,14 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&output.stdout)
         );
+    }
+
+    #[test]
+    fn cookie_names_must_be_rfc_6265_tokens() {
+        assert!("pp_session".parse::<CookieName>().is_ok());
+        assert!("".parse::<CookieName>().is_err());
+        assert!("a b".parse::<CookieName>().is_err());
+        assert!("a=b".parse::<CookieName>().is_err());
+        assert!("a;b".parse::<CookieName>().is_err());
     }
 }

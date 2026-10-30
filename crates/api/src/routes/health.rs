@@ -24,7 +24,7 @@ pub async fn report_health() -> impl Responder {
 mod tests {
     use actix_web::{App, http::StatusCode, test};
 
-    use crate::configure_routes;
+    use crate::api::configure_routes;
 
     #[actix_web::test]
     async fn health_returns_ok_json() {

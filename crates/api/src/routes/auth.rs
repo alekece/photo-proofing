@@ -33,12 +33,13 @@ use serde_json::error::Category;
 use time::OffsetDateTime;
 
 use crate::{
-    ApiState,
+    api::ApiState,
     credentials::{Password, PasswordHash},
     extractors::{
         attempt::Attempt,
         session_token::{SessionToken, TokenHash},
     },
+    request::RequestExt,
 };
 
 /// A safe, client-facing failure: each variant has a fixed message that never echoes input
@@ -161,7 +162,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
                         if matches!(error, JsonPayloadError::Deserialize(_))
                             && let Some(state) = request.app_data::<web::Data<ApiState>>()
                         {
-                            state.record_failure(Attempt::peer_of(request));
+                            state.record_failure(request.peer_ip());
                         }
 
                         AuthError::from(error).into()
@@ -362,8 +363,8 @@ mod tests {
 
     use super::*;
     use crate::{
+        api::configure_routes,
         config::{AuthConfig, LimiterConfig, SessionConfig},
-        configure_routes,
     };
 
     const ORIGIN: &str = "http://localhost:5173";
@@ -371,6 +372,7 @@ mod tests {
     fn app_state(pool: PgPool) -> ApiState {
         let session = SessionConfig {
             idle_timeout: "1h".parse().unwrap(),
+            cookie_name: "pp_session".parse().unwrap(),
         };
         let auth = AuthConfig {
             app_origin: ORIGIN.parse().unwrap(),

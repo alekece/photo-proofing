@@ -1,11 +1,11 @@
 use std::{
     future::{self, Ready},
-    net::{IpAddr, Ipv4Addr},
+    net::IpAddr,
 };
 
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web};
 
-use crate::{ApiState, routes::auth::AuthError};
+use crate::{api::ApiState, request::RequestExt, routes::auth::AuthError};
 
 /// Extractor for a sign-in request from a peer that is still under the failed-attempt limit.
 ///
@@ -19,13 +19,6 @@ impl Attempt {
     pub fn peer(&self) -> IpAddr {
         self.peer
     }
-
-    pub fn peer_of(request: &HttpRequest) -> IpAddr {
-        request
-            .peer_addr()
-            .map(|addr| addr.ip())
-            .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST))
-    }
 }
 
 impl FromRequest for Attempt {
@@ -37,7 +30,7 @@ impl FromRequest for Attempt {
             return future::ready(Err(AuthError::Unavailable));
         };
 
-        let peer = Self::peer_of(request);
+        let peer = request.peer_ip();
 
         if !state.allow_attempt(peer) {
             return future::ready(Err(AuthError::Limited));

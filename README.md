@@ -99,7 +99,7 @@ Rust process settings use this precedence: CLI flags, environment variables, opt
 cargo run -p pp-api -- --config config.toml
 ```
 
-API settings include `PP_HOST`, `PP_PORT`, `PP_LOG_LEVEL`, `PP_DATABASE_URL`, `PP_APP_ORIGIN`, `PP_SESSION_IDLE_TIMEOUT`, and the sign-in limiter settings `PP_LIMITER_MAX_FAILURES` (default 10), `PP_LIMITER_WINDOW` (default `1m`) and `PP_LIMITER_MAX_PEERS` (default 1024); both Rust processes accept `PP_CONFIG` and logging configuration. Use `--help` for process-specific flags. Frontend development proxy target: `PP_API_PROXY_TARGET` (default `http://127.0.0.1:8080`). Server-side auth checks use `PP_API_INTERNAL_URL` with the same native default; Compose sets it to `http://api:8080`. These frontend settings use its Node runtime, not the Rust TOML file.
+API settings include `PP_HOST`, `PP_PORT`, `PP_LOG_LEVEL`, `PP_DATABASE_URL`, `PP_APP_ORIGIN`, `PP_SESSION_IDLE_TIMEOUT`, `PP_SESSION_COOKIE_NAME` (default `pp_session`), and the sign-in limiter settings `PP_LIMITER_MAX_FAILURES` (default 10), `PP_LIMITER_WINDOW` (default `1m`) and `PP_LIMITER_MAX_PEERS` (default 1024); both Rust processes accept `PP_CONFIG` and logging configuration. Use `--help` for process-specific flags. Frontend development proxy target: `PP_API_PROXY_TARGET` (default `http://127.0.0.1:8080`). Server-side auth checks use `PP_API_INTERNAL_URL` with the same native default; Compose sets it to `http://api:8080`. These frontend settings use its Node runtime, not the Rust TOML file.
 
 Session configuration uses human-readable durations through the existing configuration parser:
 
