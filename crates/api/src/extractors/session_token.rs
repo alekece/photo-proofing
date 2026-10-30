@@ -35,6 +35,7 @@ impl SessionToken {
 
     pub fn generate() -> Self {
         let mut bytes = [0u8; TOKEN_BYTES];
+
         rand::rng().fill_bytes(&mut bytes);
 
         Self(URL_SAFE_NO_PAD.encode(bytes))
