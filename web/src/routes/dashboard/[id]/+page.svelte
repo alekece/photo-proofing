@@ -12,11 +12,10 @@
 		type GalleryChanges,
 		type GalleryLayout
 	} from '#lib/gallery/api.js';
-	import { endOfLocalDay, toLocalDate, UNTITLED_GALLERY } from '#lib/gallery/format.js';
+	import { endOfLocalDay, TITLE_MAX, toLocalDate, UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
 
 	const DEBOUNCE = 600;
-	const TITLE_MAX = 255;
 
 	let { data }: { data: PageData } = $props();
 	// svelte-ignore state_referenced_locally
