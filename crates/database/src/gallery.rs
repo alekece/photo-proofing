@@ -14,7 +14,10 @@ use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
 use uuid::Uuid;
 
+pub use self::share::{ParseShareTokenError, ShareToken, SharedGallery};
 use crate::{Repository, auth::WorkspaceId, types::Timestamp};
+
+mod share;
 
 /// Postgres SQLSTATE for a string containing a NUL byte.
 const INVALID_BYTE_SEQUENCE: &str = "22021";
@@ -96,6 +99,8 @@ pub struct Gallery {
     /// `None` means selection is unlimited.
     pub included_photos: Option<NonZeroUsize>,
     pub watermark_enabled: bool,
+    /// `None` means the gallery has not been shared.
+    pub share_token: Option<ShareToken>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }
@@ -119,6 +124,7 @@ impl FromRow<'_, PgRow> for Gallery {
             expires_at: row.try_get("expires_at")?,
             included_photos,
             watermark_enabled: row.try_get("watermark_enabled")?,
+            share_token: row.try_get("share_token")?,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
         })
@@ -225,8 +231,7 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
 }
 
 impl GalleryRepository<'_> {
-    const COLUMNS: &'static str =
-        "id,title,layout,expires_at,included_photos,watermark_enabled,created_at,updated_at";
+    const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,share_token,created_at,updated_at";
 
     /// Creates an untitled gallery with the default settings.
     pub async fn create(&self, workspace_id: WorkspaceId) -> Result<Gallery, sqlx::Error> {
@@ -266,6 +271,42 @@ impl GalleryRepository<'_> {
         ))
         .bind(id)
         .bind(workspace_id)
+        .fetch_optional(self.pool)
+        .await
+    }
+
+    /// Returns the gallery with its private link, creating the link if it has none. A shared
+    /// gallery keeps its token for good. Sharing is not an edit, so `updated_at` is untouched.
+    pub async fn share(
+        &self,
+        workspace_id: WorkspaceId,
+        id: GalleryId,
+    ) -> Result<Option<Gallery>, sqlx::Error> {
+        // The row lock taken by UPDATE makes concurrent calls converge on the first token.
+        sqlx::query_as(&format!(
+            "UPDATE galleries SET share_token = COALESCE(share_token, $3)
+             WHERE id=$1 AND workspace_id=$2
+             RETURNING {}",
+            Self::COLUMNS
+        ))
+        .bind(id)
+        .bind(workspace_id)
+        .bind(ShareToken::generate())
+        .fetch_optional(self.pool)
+        .await
+    }
+
+    /// Finds the gallery behind a private link. Unknown and expired links are the same `None`,
+    /// so a client cannot tell them apart; the database clock decides expiry.
+    pub async fn find_shared(
+        &self,
+        token: &ShareToken,
+    ) -> Result<Option<SharedGallery>, sqlx::Error> {
+        sqlx::query_as(
+            "SELECT title,layout,expires_at FROM galleries
+             WHERE share_token=$1 AND (expires_at IS NULL OR expires_at > now())",
+        )
+        .bind(token)
         .fetch_optional(self.pool)
         .await
     }
@@ -611,5 +652,164 @@ mod tests {
             titles(GallerySort::Title).await,
             ["Apple", "banana", "cherry", ""]
         );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn sharing_creates_one_fixed_token_per_gallery(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let gallery = store.create(workspace).await.unwrap();
+
+        assert_eq!(gallery.share_token, None);
+
+        let shared = store.share(workspace, gallery.id).await.unwrap().unwrap();
+        let token = shared.share_token.clone().unwrap();
+
+        assert_eq!(shared.updated_at, gallery.updated_at);
+        assert_eq!(
+            store
+                .share(workspace, gallery.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .share_token,
+            Some(token.clone())
+        );
+        assert_eq!(
+            store
+                .get(workspace, gallery.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .share_token,
+            Some(token)
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn concurrent_shares_converge_on_one_token(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let id = store.create(workspace).await.unwrap().id;
+
+        let (a, b, c, d) = tokio::join!(
+            store.share(workspace, id),
+            store.share(workspace, id),
+            store.share(workspace, id),
+            store.share(workspace, id),
+        );
+        let tokens: Vec<_> = [a, b, c, d]
+            .into_iter()
+            .map(|gallery| gallery.unwrap().unwrap().share_token.unwrap())
+            .collect();
+
+        assert!(tokens.windows(2).all(|pair| pair[0] == pair[1]));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn another_workspace_cannot_share(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let (mine, other) = (workspace(&pool).await, workspace(&pool).await);
+        let id = store.create(mine).await.unwrap().id;
+
+        assert_eq!(store.share(other, id).await.unwrap(), None);
+        assert_eq!(
+            store.get(mine, id).await.unwrap().unwrap().share_token,
+            None
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn find_shared_ignores_unknown_and_unshared(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+
+        store.create(workspace).await.unwrap();
+
+        assert_eq!(
+            store.find_shared(&ShareToken::generate()).await.unwrap(),
+            None
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn find_shared_enforces_expiry_at_request_time(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let id = store.create(workspace).await.unwrap().id;
+
+        store
+            .update(
+                workspace,
+                id,
+                &changes(json!({"title": "Wedding", "layout": "masonry"})),
+            )
+            .await
+            .unwrap();
+
+        let token = store
+            .share(workspace, id)
+            .await
+            .unwrap()
+            .unwrap()
+            .share_token
+            .unwrap();
+        let set_expiry = |value: serde_json::Value| {
+            let store = &store;
+
+            async move {
+                store
+                    .update(workspace, id, &changes(json!({"expires_at": value})))
+                    .await
+                    .unwrap();
+            }
+        };
+
+        let found = store.find_shared(&token).await.unwrap().unwrap();
+
+        assert_eq!(found.title.as_deref(), Some("Wedding"));
+        assert_eq!(found.layout, GalleryLayout::Masonry);
+        assert_eq!(found.expires_at, None);
+
+        set_expiry(json!("2000-01-01T00:00:00Z")).await;
+
+        assert_eq!(store.find_shared(&token).await.unwrap(), None);
+
+        set_expiry(json!("2999-01-01T00:00:00Z")).await;
+
+        assert!(
+            store
+                .find_shared(&token)
+                .await
+                .unwrap()
+                .unwrap()
+                .expires_at
+                .is_some()
+        );
+
+        set_expiry(json!("2000-01-01T00:00:00Z")).await;
+        set_expiry(serde_json::Value::Null).await;
+
+        assert!(store.find_shared(&token).await.unwrap().is_some());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn share_token_check_rejects_malformed_values(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let id = store.create(workspace).await.unwrap().id;
+
+        let result = sqlx::query("UPDATE galleries SET share_token = 'short' WHERE id = $1")
+            .bind(id)
+            .execute(&pool)
+            .await;
+
+        assert!(result.is_err());
     }
 }
