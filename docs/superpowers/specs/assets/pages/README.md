@@ -1,6 +1,6 @@
-# MVP page design references
+# Page design references
 
-Visual references for the MVP pages, produced during brainstorming. Each page is a standalone HTML file (open it in a browser) with a PNG screenshot of its default state.
+Visual references for the pages, produced during brainstorming. Each page is a standalone HTML file (open it in a browser) with a PNG screenshot of its default state.
 
 **The HTML is the source of truth.** The PNG is a quick preview and may not show interactive states. The mockups use throwaway inline CSS and JS: reproduce the look and behavior in SvelteKit, Tailwind and shadcn-svelte, not the markup. "PhotoProofing" is a placeholder brand.
 
