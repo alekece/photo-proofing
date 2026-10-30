@@ -15,13 +15,15 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
     config::{AuthConfig, CookieDuration, LimiterConfig, SessionConfig},
-    credentials::{HashError, PasswordHash, SessionToken},
+    credentials::{HashError, PasswordHash},
+    extractors::session_token::SessionToken,
     limiter::AttemptLimiter,
 };
 
 pub mod api;
 pub mod config;
 pub mod credentials;
+pub mod extractors;
 pub mod routes;
 
 mod limiter;

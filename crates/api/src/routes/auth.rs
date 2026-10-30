@@ -16,15 +16,10 @@
 //! the failed-attempt limiter ([`Attempt`]). Request bodies are validated while being parsed
 //! ([`Credentials`]), and policy and limiter state live in [`ApiState`].
 
-use std::{
-    future::{self, Ready},
-    net::{IpAddr, Ipv4Addr},
-};
-
 use actix_web::{
-    Error, FromRequest, HttpRequest, HttpResponse, ResponseError,
+    Error, HttpResponse, ResponseError,
     body::{EitherBody, MessageBody},
-    dev::{Payload, ServiceRequest, ServiceResponse},
+    dev::{ServiceRequest, ServiceResponse},
     error::JsonPayloadError,
     get,
     http::{StatusCode, header},
@@ -39,7 +34,11 @@ use time::OffsetDateTime;
 
 use crate::{
     ApiState,
-    credentials::{Password, PasswordHash, SessionToken, TokenHash},
+    credentials::{Password, PasswordHash},
+    extractors::{
+        attempt::Attempt,
+        session_token::{SessionToken, TokenHash},
+    },
 };
 
 /// A safe, client-facing failure: each variant has a fixed message that never echoes input
@@ -146,62 +145,6 @@ async fn require_same_origin<B: MessageBody + 'static>(
     }
 
     Ok(next.call(request).await?.map_into_left_body())
-}
-
-/// Extractor for a sign-in request from a peer that is still under the failed-attempt limit.
-///
-/// Handlers report a failed credential check with
-/// [`ApiState::record_failure`]`(attempt.peer())`; only failures count.
-struct Attempt {
-    peer: IpAddr,
-}
-
-impl Attempt {
-    fn peer(&self) -> IpAddr {
-        self.peer
-    }
-
-    fn peer_of(request: &HttpRequest) -> IpAddr {
-        request
-            .peer_addr()
-            .map(|addr| addr.ip())
-            .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST))
-    }
-}
-
-impl FromRequest for Attempt {
-    type Error = AuthError;
-    type Future = Ready<Result<Self, AuthError>>;
-
-    fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
-        let Some(state) = request.app_data::<web::Data<ApiState>>() else {
-            return future::ready(Err(AuthError::Unavailable));
-        };
-
-        let peer = Self::peer_of(request);
-
-        if !state.allow_attempt(peer) {
-            return future::ready(Err(AuthError::Limited));
-        }
-
-        future::ready(Ok(Self { peer }))
-    }
-}
-
-/// The request's session cookie, or [`AuthError::Unauthorized`] when it is absent or
-/// malformed. Handlers that accept a missing cookie take `Option<SessionToken>`.
-impl FromRequest for SessionToken {
-    type Error = AuthError;
-    type Future = Ready<Result<Self, AuthError>>;
-
-    fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
-        future::ready(
-            request
-                .cookie(Self::COOKIE_NAME)
-                .and_then(|cookie| cookie.value().parse().ok())
-                .ok_or(AuthError::Unauthorized),
-        )
-    }
 }
 
 /// Registers the auth routes; credential bodies are capped at 4 KiB.
