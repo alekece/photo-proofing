@@ -15,6 +15,7 @@
 	import Label from '#lib/components/ui/label/label.svelte';
 	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import Radio from '#lib/components/ui/radio/radio.svelte';
+	import Tabs from '#lib/components/ui/tabs/tabs.svelte';
 	import {
 		GalleryApiError,
 		shareGallery,
@@ -54,8 +55,6 @@
 		}
 	] as const;
 
-	type TabId = (typeof TABS)[number]['id'];
-
 	let { data }: { data: PageData } = $props();
 	// svelte-ignore state_referenced_locally
 	let saved = $state(data.gallery);
@@ -74,7 +73,7 @@
 	let sharing = $state(false);
 	let shareFailed = $state(false);
 	let signOutError = $state('');
-	let tab = $state<TabId>('photos');
+	let tab = $state('photos');
 	let inflight = $state(0);
 	let justSaved = $state(false);
 	// Attempted values of fields whose last save failed; cleared per field on that field's success.
@@ -226,18 +225,6 @@
 		} catch (error) {
 			signOutError = error instanceof Error ? error.message : 'Unable to sign out. Please try again.';
 		}
-	}
-	function moveTab(event: KeyboardEvent) {
-		const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
-		if (step === undefined) return;
-
-		event.preventDefault();
-
-		const index = TABS.findIndex(({ id }) => id === tab);
-		const next = TABS[(index + step + TABS.length) % TABS.length].id;
-
-		tab = next;
-		document.getElementById(`tab-${next}`)?.focus();
 	}
 	function retry() {
 		for (const [key, value] of Object.entries(failed)) void save({ [key]: value });
@@ -405,48 +392,27 @@
 		</Card>
 
 		<section class="min-w-0">
-			<div
-				role="tablist"
-				aria-label="Gallery content"
-				class="mb-4 flex gap-6 border-b border-border-strong"
-			>
-				{#each TABS as { id, label } (id)}
-					<button
-						type="button"
-						role="tab"
-						id={`tab-${id}`}
-						aria-selected={tab === id}
-						aria-controls={`panel-${id}`}
-						tabindex={tab === id ? 0 : -1}
-						class="border-b-2 px-0 pb-2 text-xs tracking-[0.2em] uppercase {tab === id
-							? 'border-foreground text-foreground'
-							: 'border-transparent text-muted-foreground'}"
-						onclick={() => (tab = id)}
-						onkeydown={moveTab}
-					>
-						{label}
-					</button>
-				{/each}
-			</div>
-			<div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} class="grid gap-4">
-				{#each TABS as { id, action, empty } (id)}
-					{#if tab === id}
-						{#if 'hint' in action}
-							<div class="flex flex-wrap items-center justify-between gap-2">
-								<span class="text-sm text-muted-foreground">{action.hint}</span>
-								<Button size="sm" disabled title={action.title}>{action.label}</Button>
-							</div>
-						{:else}
-							<div class="flex justify-end">
-								<Button variant="outline" size="sm" disabled title={action.title}>
-									{action.label}
-								</Button>
-							</div>
+			<Tabs bind:value={tab} items={TABS} label="Gallery content">
+				{#snippet panel(active)}
+					{#each TABS as { id, action, empty } (id)}
+						{#if active === id}
+							{#if 'hint' in action}
+								<div class="flex flex-wrap items-center justify-between gap-2">
+									<span class="text-sm text-muted-foreground">{action.hint}</span>
+									<Button size="sm" disabled title={action.title}>{action.label}</Button>
+								</div>
+							{:else}
+								<div class="flex justify-end">
+									<Button variant="outline" size="sm" disabled title={action.title}>
+										{action.label}
+									</Button>
+								</div>
+							{/if}
+							<EmptyState class="text-muted-foreground">{empty}</EmptyState>
 						{/if}
-						<EmptyState class="text-muted-foreground">{empty}</EmptyState>
-					{/if}
-				{/each}
-			</div>
+					{/each}
+				{/snippet}
+			</Tabs>
 		</section>
 	</div>
 </PageShell>
