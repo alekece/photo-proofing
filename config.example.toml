@@ -29,3 +29,7 @@ concurrency = 2
 backoff_base = "10s"
 backoff_cap = "5m"
 shutdown_grace = "30s"
+
+[photo]
+# Private photo files; the API and the worker must share this directory.
+dir = "./data/photos"

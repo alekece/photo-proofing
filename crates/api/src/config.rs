@@ -8,7 +8,11 @@ use std::{
 use clap::Args;
 use clap_config_fallback::ConfigArgs;
 use derive_more::Display;
-use pp_core::{config::DatabaseConfig, time::BoundedDuration, url::Origin};
+use pp_core::{
+    config::{DatabaseConfig, PhotoConfig},
+    time::BoundedDuration,
+    url::Origin,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -35,6 +39,9 @@ pub struct ApiConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub database: DatabaseConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub photo: PhotoConfig,
     #[command(flatten)]
     #[config(no_flatten)]
     pub session: SessionConfig,
@@ -156,7 +163,12 @@ pub struct LimiterConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, fs, iter, path::PathBuf, process::Command, time::Duration};
+    use std::{
+        env, fs, iter,
+        path::{Path, PathBuf},
+        process::Command,
+        time::Duration,
+    };
 
     use clap::Parser;
     use clap_config_fallback::ConfigParser;
@@ -190,6 +202,7 @@ mod tests {
         assert_eq!(api.limiter.max_failures.get(), 10);
         assert_eq!(api.limiter.window.get(), Duration::from_secs(60));
         assert_eq!(api.limiter.max_peers.get(), 1024);
+        assert_eq!(api.photo.dir.as_path(), Path::new("./data/photos"));
     }
 
     #[test]

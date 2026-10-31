@@ -15,6 +15,7 @@ use pp_core::url::Origin;
 use pp_database::{
     Database, auth::AuthRepository, error::DatabaseError, gallery::GalleryRepository,
 };
+use pp_storage::{PhotoStorage, StorageError};
 use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -46,6 +47,8 @@ const HASH_SLOTS: usize = 2;
 pub enum ApiError {
     #[error("database failed")]
     Database(#[source] DatabaseError),
+    #[error("photo storage unavailable")]
+    Storage(#[source] StorageError),
     #[error("session idle timeout is out of range")]
     SessionLifetime(#[source] ConversionRange),
     #[error("password hashing unavailable")]
@@ -185,6 +188,10 @@ pub struct Api {
 
 impl Api {
     pub async fn init(config: ApiConfig) -> Result<Self, ApiError> {
+        // Only the startup check for now: the upload and serving routes will hold the handle
+        // in the state. A missing or read-only volume must stop startup, not the first upload.
+        PhotoStorage::open(&config.photo.dir).await?;
+
         let database = Database::connect_lazy(&config.database.url, 10)?;
 
         database.ensure_reachable().await?;

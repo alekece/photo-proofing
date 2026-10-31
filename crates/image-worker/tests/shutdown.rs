@@ -12,6 +12,7 @@ use url::Url;
 /// empty queue and exit cleanly on SIGTERM.
 #[sqlx::test]
 async fn migrates_and_exits_cleanly_on_sigterm(pool: PgPool) {
+    let photos = tempfile::tempdir().expect("photo directory should be created");
     let mut url = Url::parse(&env::var("DATABASE_URL").expect("DATABASE_URL is required"))
         .expect("DATABASE_URL should be a URL");
     url.set_path(
@@ -21,6 +22,7 @@ async fn migrates_and_exits_cleanly_on_sigterm(pool: PgPool) {
     );
     let mut child = Command::new(env!("CARGO_BIN_EXE_pp-image-worker"))
         .env("PP_DATABASE_URL", url.as_str())
+        .env("PP_PHOTO_DIR", photos.path())
         .stderr(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -61,4 +63,16 @@ async fn migrates_and_exits_cleanly_on_sigterm(pool: PgPool) {
     child.kill().expect("hung worker should be killable");
     child.wait().expect("killed worker should be reaped");
     panic!("worker did not exit after SIGTERM");
+}
+
+#[test]
+fn refuses_to_start_without_a_photo_directory() {
+    let dir = tempfile::tempdir().expect("temp dir should be created");
+    let output = Command::new(env!("CARGO_BIN_EXE_pp-image-worker"))
+        .env("PP_PHOTO_DIR", dir.path().join("missing"))
+        .output()
+        .expect("worker binary should run");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("photo directory"));
 }

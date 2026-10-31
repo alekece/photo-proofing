@@ -8,11 +8,12 @@ The planned MVP is a local-network workflow trial with replaceable JPEG photos, 
 
 Development is restarting around the [product specifications](docs/SPECIFICATIONS.md) and [MVP scope and acceptance checklist](docs/releases/MVP.md). These documents describe the target product, not completed features.
 
-The repository supports one-time photographer account setup, email/password login, a protected dashboard, persistent revocable sessions, and persistent galleries with autosaved settings (title, layout, expiry, included photo count, watermark flag) backed by SQLx/PostgreSQL. Auth screens use Tailwind and selected shadcn-svelte components. Configuration/logging, API health, a durable PostgreSQL job queue run by the worker (no job kinds are produced or handled yet), in-memory notification domain code, private client links (the photographer shares a gallery from its page; `/g/<token>` shows its title, expiry and an empty state to anyone with the link), and a proof viewer also exist. Photo upload and the hero picker, uploads/processing, delivery, and SSE are not implemented.
+The repository supports one-time photographer account setup, email/password login, a protected dashboard, persistent revocable sessions, and persistent galleries with autosaved settings (title, layout, expiry, included photo count, watermark flag) backed by SQLx/PostgreSQL. Auth screens use Tailwind and selected shadcn-svelte components. Configuration/logging, API health, a durable PostgreSQL job queue run by the worker (no job kinds are produced or handled yet), in-memory notification domain code, private client links (the photographer shares a gallery from its page; `/g/<token>` shows its title, expiry and an empty state to anyone with the link), and a proof viewer also exist. A private photo storage layer (`pp-storage`) and its shared volume exist, but nothing writes photos yet. Photo upload and the hero picker, uploads/processing, delivery, and SSE are not implemented.
 
 - [Product specifications](docs/SPECIFICATIONS.md): requirements, constraints, and exclusions.
 - [MVP release](docs/releases/MVP.md): first-release scope and acceptance evidence to collect.
 - [ADR 0001 — Technology baseline](docs/adr/0001-technology-baseline.md): established choices and tradeoffs.
+- [ADR 0003 — Private photo storage](docs/adr/0003-photo-storage.md): photo directory layout and atomic writes.
 - [Agent guidance](AGENTS.md): shared development and documentation rules.
 - [Approved design records](docs/superpowers/specs/): designs retained with the repository.
 
@@ -63,11 +64,11 @@ Stop the stack with:
 docker compose down
 ```
 
-This preserves the named PostgreSQL volume. `docker compose down -v` deletes that volume and its database contents. The current stack does not yet configure persistent photo storage; that is required before implementing uploads.
+This preserves the named PostgreSQL volume. `docker compose down -v` deletes that volume and its database contents. The `photo-data` volume, mounted at `/var/lib/pp/photos` in the API and worker, holds private photo files and is also deleted by `down -v`. The API and worker refuse to start if `PP_PHOTO_DIR` is not a writable directory; natively it defaults to `./data/photos`, which must exist and be shared by both processes (see [ADR 0003](docs/adr/0003-photo-storage.md)).
 
 ### Native development
 
-Start a local PostgreSQL 17 instance first, or start only the Compose database with `docker compose up -d postgres`. Native defaults use the sample account/database from `.env.example` at port 5432. Set `PP_DATABASE_URL` when using another database or port. The API connects and applies embedded migrations before listening; it fails startup if the database is unavailable. The worker also connects and applies the migrations at startup, then polls the `jobs` table; on SIGTERM it stops claiming and gives running jobs a grace period.
+Start a local PostgreSQL 17 instance first, or start only the Compose database with `docker compose up -d postgres`. Native defaults use the sample account/database from `.env.example` at port 5432. Set `PP_DATABASE_URL` when using another database or port. Create the photo directory once with `mkdir -p data/photos` (gitignored) or point `PP_PHOTO_DIR` elsewhere; the API and worker must use the same directory. The API connects and applies embedded migrations before listening; it fails startup if the database is unavailable. The worker also connects and applies the migrations at startup, then polls the `jobs` table; on SIGTERM it stops claiming and gives running jobs a grace period.
 
 Install frontend dependencies:
 
@@ -158,6 +159,27 @@ PP_E2E_URL=http://localhost:15163 pnpm --dir web test:auth
 Use a fresh disposable database to exercise initial setup; reruns verify its persisted `trial@example.test` account with synthetic test credentials. The harness does not reset databases. For the short-idle scenario, start the API with `PP_SESSION_IDLE_TIMEOUT=10s` and run with `PP_E2E_IDLE_MS=10000`; otherwise that scenario is explicitly skipped. `PP_BROWSER_PATH` selects a Chrome/Chromium binary. Browser artifacts go to `/tmp/pp63-playwright-results` by default, override with `PP_E2E_OUTPUT`. Unit/component tests do not substitute for this browser/API/database check. Compose proxy and persistence checks are additional integration evidence, not automatic release acceptance.
 
 For a Rust build-output reset, use `cargo clean`. Frontend generated state lives under `web/node_modules`, `web/.svelte-kit`, and `web/build`; reinstall dependencies after removing dependency state. Do not confuse resetting build outputs with deleting persistent database or photo data.
+
+## Automated issue implementation
+
+Two gh-aw workflows automate part of the [Superpowers delivery workflow](AGENTS.md#superpowers-delivery-workflow): `.github/workflows/daily-issue-selection.md` runs daily (and on `gh workflow run daily-issue-selection`) to read-only pick up to 2 eligible issues and dispatch `.github/workflows/implement-issue.md` once per issue. An issue is eligible when it carries neither `needs-attention` nor `blocked`, its body links a design spec that resolves on a branch, it has no open PR, and it has no open blocker (GitHub's "blocked by" relationship wins over a body `## Dependencies` section; blocked issues are skipped unless every blocker in the chain is itself eligible, in which case the blocker is selected instead). The worker implements the linked design, runs a fresh-context review, and opens a PR; when it hits something seriously wrong (an unresolved critical/major review finding, a design/issue contradiction, or a real lint/test failure) it opens a draft PR and labels both the issue and the PR `blocked` + `needs-attention` instead of marking anything ready.
+
+Setup: create a GitHub App, install it on this repository, and grant it
+`contents: write`, `pull requests: write`, and `issues: write`. Store its
+client (app) ID as the repository variable `APP_ID` and its private key as the
+secret `APP_PRIVATE_KEY` (`gh variable set APP_ID --body "<id>"` and
+`gh aw secrets set APP_PRIVATE_KEY --value "$(cat key.pem)"`). The worker's
+safe outputs use `safe-outputs.github-app` to mint a short-lived installation
+token at runtime, scoped to the operations it performs (pushing the branch,
+opening the PR, labels, comments); gh-aw revokes it when the run ends. Because
+that App token — not the default `GITHUB_TOKEN` — pushes the PR branch, CI runs
+on the worker's PRs (a static secret would not work, since App installation
+tokens expire hourly). Watch the first live run (after this branch merges, since
+`workflow_dispatch` cannot target an unmerged workflow): confirm the worker's PR
+head still contains the design branch's commits (the bundle-based
+`create-pull-request` patch format is meant to preserve them), and confirm each
+selected issue actually links its design spec on the branch the worker checks
+out.
 
 ## Contributing
 

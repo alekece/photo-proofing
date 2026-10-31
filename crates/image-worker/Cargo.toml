@@ -8,11 +8,12 @@ license.workspace = true
 [dependencies]
 pp-core.workspace = true
 pp-database.workspace = true
+pp-storage.workspace = true
+eyre.workspace = true
+color-eyre.workspace = true
 clap.workspace = true
 clap-config-fallback.workspace = true
-color-eyre.workspace = true
 derive_more.workspace = true
-eyre.workspace = true
 serde.workspace = true
 serde_json = "1"
 thiserror.workspace = true

@@ -1,0 +1,20 @@
+[package]
+name = "pp-storage"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+pp-core.workspace = true
+pp-database.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util"] }
+strum = { version = "0.28.0", features = ["derive"] }
+thiserror.workspace = true
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

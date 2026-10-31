@@ -9,6 +9,7 @@ license.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 pp-core.workspace = true
 pp-database.workspace = true
+pp-storage.workspace = true
 derive_more.workspace = true
 thiserror.workspace = true
 eyre.workspace = true

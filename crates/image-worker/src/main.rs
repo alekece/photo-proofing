@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
 use eyre::Result;
-use pp_core::config::LogConfig;
+use pp_core::config::{LogConfig, PhotoConfig};
 use pp_image_worker::{config::WorkerConfig, handlers::HandlerRegistry, runtime::Worker};
+use pp_storage::PhotoStorage;
 use tokio::{
     signal::{
         self,
@@ -25,6 +26,9 @@ struct Cli {
     log: LogConfig,
     #[command(flatten)]
     worker: WorkerConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    photo: PhotoConfig,
 }
 
 #[tokio::main]
@@ -35,6 +39,8 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_max_level(cli.log.log_level)
         .init();
+
+    PhotoStorage::open(&cli.photo.dir).await?;
 
     tracing::info!("image worker started");
 
