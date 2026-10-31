@@ -12,8 +12,7 @@ This file is the shared repository policy for Codex, GitHub Copilot coding agent
 - Prefer typed configuration to ambiguous flags or parameters. Prefer methods when behavior belongs to a type; use builders when they clarify or validate construction.
 - Keep visibility narrow and derive traits only when useful. Implement common traits (`Debug`, `Clone`, `PartialEq`) on public types where sound, except credentials (see Secrets and Observability).
 - Apply `#[must_use]` to builders, guards, and results that are harmful to drop.
-- Prefer established, idiomatic crates such as `derive_more` when they provide consistent, reliable implementations instead of handwritten boilerplate. Weigh those benefits against dependency costs, even for small uses. Explain meaningful decisions to implement locally and revisit them when additional usage changes the balance.
-- Prefer a well-tested, maintained community crate over our own code, even for small needs; write it ourselves only when the crate is unmaintained, pulls heavy transitive dependencies, or the need is trivial. Declare dependencies in `[workspace.dependencies]` with minimal features. `cargo deny` (advisories, licenses, duplicates) is the intended CI gate once configured.
+- Prefer established, idiomatic crates such as `derive_more` when they provide consistent, reliable implementations instead of handwritten boilerplate, even for small needs: a well-tested, maintained community crate beats our own code with its own bugs. Implement locally only when the crate is unmaintained, pulls heavy transitive dependencies, or the need is trivial, and explain meaningful local-implementation decisions; revisit them when additional usage changes the balance. Declare dependencies in `[workspace.dependencies]` with minimal features. `cargo deny` (advisories, licenses, duplicates) is the intended CI gate once configured.
 - Do not write `macro_rules!` without a stated reason, such as preventing drift between parallel definitions, and a doc example. Declarative derives that generate companion types from one annotated definition (an entity and its changeset) are welcome; look for an existing crate first. A custom proc-macro needs its own crate and an ADR explaining why no existing crate fits.
 - Follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/) checklist items and chapters relevant to the change. Respect repository compatibility requirements and propose breaking changes before making them.
 
@@ -64,12 +63,12 @@ This file is the shared repository policy for Codex, GitHub Copilot coding agent
 - Define typed error enums per crate or domain boundary so callers can branch on variants. Use `thiserror` for error types in new and touched code and keep `derive_more` for other boilerplate; existing `derive_more` error types migrate separately.
 - Only `api` maps errors to HTTP status codes; domain crates never know about HTTP. Never send internal causes to clients, and return the shared `ErrorResponse` shape.
 - Wrap infrastructure causes as `source`; do not expose types such as `sqlx::Error` in public variants. Use `#[non_exhaustive]` only on intentionally published types.
+- Respect the configured Clippy lints. `unwrap` and `expect` are allowed in tests; production exceptions require a narrow lint allowance and an explanation of the established invariant. Prefer `expect` when its message adds useful context.
 
 ## Secrets and Observability
 
 - A credential or bearer-secret newtype never derives `Debug`: omit it, or implement a redacting one with a doc note. This includes share links, which grant access to client photos (`Token<N>` and `Password` already follow this).
 - Never put secrets in logs or spans; `#[instrument]` skips sensitive arguments. Give every request or job span an identifier.
-- Respect the configured Clippy lints. `unwrap` and `expect` are allowed in tests; production exceptions require a narrow lint allowance and an explanation of the established invariant. Prefer `expect` when its message adds useful context.
 
 ## Comments and Docs
 
