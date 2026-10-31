@@ -44,12 +44,8 @@ const HASH_SLOTS: usize = 2;
 /// contains the database URL, which holds credentials.
 #[derive(Debug, Error, From)]
 pub enum ApiError {
-    #[error("database connection failed")]
-    #[from(skip)]
-    Connection(#[source] DatabaseError),
-    #[error("database migration failed")]
-    #[from(skip)]
-    Migration(#[source] DatabaseError),
+    #[error("database failed")]
+    Database(#[source] DatabaseError),
     #[error("session idle timeout is out of range")]
     SessionLifetime(#[source] ConversionRange),
     #[error("password hashing unavailable")]
@@ -189,14 +185,10 @@ pub struct Api {
 
 impl Api {
     pub async fn init(config: ApiConfig) -> Result<Self, ApiError> {
-        let database = Database::connect_lazy(config.database.url.as_str(), 10)
-            .map_err(ApiError::Connection)?;
+        let database = Database::connect_lazy(&config.database.url, 10)?;
 
-        database
-            .ensure_reachable()
-            .await
-            .map_err(ApiError::Connection)?;
-        database.migrate().await.map_err(ApiError::Migration)?;
+        database.ensure_reachable().await?;
+        database.migrate().await?;
 
         let state = ApiState::new(database, config.session, config.auth, config.limiter)?;
 
@@ -256,23 +248,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn connection_and_migration_errors_expose_a_sanitized_cause() {
-        let leaking = || {
-            DatabaseError::from(SqlxError::Configuration(
-                "unknown value \"s3cretpw\" for `ssl_mode`".into(),
-            ))
-        };
+    fn database_errors_expose_a_sanitized_cause() {
+        let error = ApiError::from(DatabaseError::from(SqlxError::Configuration(
+            "unknown value \"s3cretpw\" for `ssl_mode`".into(),
+        )));
+        let cause = error.source().expect("the database cause is carried");
 
-        for error in [
-            ApiError::Connection(leaking()),
-            ApiError::Migration(leaking()),
-        ] {
-            let cause = error.source().expect("the database cause is carried");
-
-            assert!(!error.to_string().contains("s3cretpw"));
-            assert!(!cause.to_string().contains("s3cretpw"));
-            assert!(cause.source().is_none());
-        }
+        assert!(!error.to_string().contains("s3cretpw"));
+        assert!(!cause.to_string().contains("s3cretpw"));
+        assert!(cause.source().is_none());
     }
 
     #[test]

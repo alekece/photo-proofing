@@ -28,19 +28,13 @@ pub enum DatabaseError {
     Timeout,
     #[error("database migration failed: {0}")]
     Migration(String),
-    #[error("database rejected the request{}: {message}", code_suffix(.code))]
+    #[error("database rejected the request: {message}")]
     Server {
         code: Option<String>,
         message: String,
     },
     #[error("database error: {0}")]
     Other(String),
-}
-
-fn code_suffix(code: &Option<String>) -> String {
-    code.as_ref()
-        .map(|code| format!(" ({code})"))
-        .unwrap_or_default()
 }
 
 impl From<sqlx::Error> for DatabaseError {
@@ -53,7 +47,17 @@ impl From<sqlx::Error> for DatabaseError {
             sqlx::Error::Migrate(error) => Self::from(*error),
             sqlx::Error::Database(error) => {
                 let code = error.code().map(String::from);
-                let message = server_message(error.as_ref());
+                let message = error.message().to_owned();
+
+                // The detail can hold row values, so it is only shown in debug builds.
+                #[cfg(debug_assertions)]
+                let message = match error
+                    .try_downcast_ref::<sqlx::postgres::PgDatabaseError>()
+                    .and_then(sqlx::postgres::PgDatabaseError::detail)
+                {
+                    Some(detail) => format!("{message} ({detail})"),
+                    None => message,
+                };
 
                 match code {
                     Some(code) if code.starts_with(AUTHORIZATION_CLASS) => {
@@ -74,21 +78,6 @@ impl From<MigrateError> for DatabaseError {
             error => Self::Migration(error.to_string()),
         }
     }
-}
-
-/// The server's message, plus its detail in debug builds only: the detail can hold row values.
-fn server_message(error: &dyn sqlx::error::DatabaseError) -> String {
-    let message = error.message().to_owned();
-
-    #[cfg(debug_assertions)]
-    if let Some(detail) = error
-        .try_downcast_ref::<sqlx::postgres::PgDatabaseError>()
-        .and_then(sqlx::postgres::PgDatabaseError::detail)
-    {
-        return format!("{message} ({detail})");
-    }
-
-    message
 }
 
 #[cfg(test)]

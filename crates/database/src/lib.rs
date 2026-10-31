@@ -35,10 +35,10 @@ impl Database {
 
     /// Parses `url` and builds a pool that opens connections on demand, so it does no I/O.
     /// Call [`ensure_reachable`](Self::ensure_reachable) to find out whether the server answers.
-    pub fn connect_lazy(url: &str, max_connections: u32) -> Result<Self, DatabaseError> {
+    pub fn connect_lazy(url: impl AsRef<str>, max_connections: u32) -> Result<Self, DatabaseError> {
         let pool = PgPoolOptions::new()
             .max_connections(max_connections)
-            .connect_lazy(url)?;
+            .connect_lazy(url.as_ref())?;
 
         Ok(Self::new(pool))
     }
