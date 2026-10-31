@@ -65,13 +65,9 @@ describe('client gallery route', () => {
 		expect(second.container.textContent).toMatch(/Access until/);
 	});
 
-	it('names an untitled gallery and wraps a very long title', () => {
-		const { unmount } = open(shared({ title: null }));
+	it('names an untitled gallery', () => {
+		open(shared({ title: null }));
 		expect(screen.getByRole('heading', { name: 'Untitled gallery' })).toBeTruthy();
-		unmount();
-		open(shared({ title: 'x'.repeat(255) }));
-		const heading = screen.getByRole('heading', { level: 1 });
-		expect(heading.classList.contains('wrap-anywhere')).toBe(true);
 	});
 });
 

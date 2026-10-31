@@ -28,6 +28,7 @@
 	--color-placeholder-tile: oklch(92.3% 0.003 48.717);
 	--color-placeholder-tile-strong: oklch(86.9% 0.005 56.366);
 	--color-placeholder-foreground: oklch(44.4% 0.011 73.639);
+	/* card: panels, cards, empty states; control: inputs and small controls; dialog: dialogs and large empty-state boxes; full: pills. */
 	--radius-card: 0.5rem;
 	--radius-control: 0.375rem;
 	--radius-dialog: 0.75rem;

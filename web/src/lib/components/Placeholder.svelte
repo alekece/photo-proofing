@@ -8,7 +8,7 @@
 		loading = false,
 		class: className
 	}: {
-		background: 'sheet' | 'gradient';
+		background: 'sheet';
 		icon?: boolean;
 		label?: string;
 		loading?: boolean;
@@ -20,7 +20,6 @@
 <div
 	class={cn(
 		'relative h-full w-full overflow-hidden',
-		background === 'gradient' && 'bg-gradient-to-br from-violet-200 via-rose-100 to-sky-200',
 		background === 'sheet' && 'bg-placeholder-sheet',
 		loading && 'pp-breathe',
 		className

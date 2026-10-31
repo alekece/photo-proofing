@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
 import { describe, expect, it } from 'vitest';
 import Button, { buttonVariants } from './button.svelte';
 
@@ -18,7 +19,7 @@ describe('buttonVariants', () => {
 
 describe('Button', () => {
 	it('renders a disabled button that ignores pointer events', () => {
-		render(Button, { disabled: true, children: (() => {}) as never });
+		render(Button, { disabled: true, children: createRawSnippet(() => ({ render: () => '<span>Save</span>' })) });
 
 		const button = screen.getByRole('button');
 
