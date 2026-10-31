@@ -8,6 +8,9 @@
 	import AppHeader from '#lib/components/AppHeader.svelte';
 	import GoldenHourEmpty from '#lib/components/GoldenHourEmpty.svelte';
 	import NewGalleryDialog from '#lib/components/NewGalleryDialog.svelte';
+	import Card from '#lib/components/ui/card/card.svelte';
+	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
+	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
 	import type { GallerySort } from '#lib/gallery/api.js';
@@ -55,7 +58,7 @@
 
 <svelte:head><title>Dashboard — PhotoProofing</title></svelte:head>
 <AppHeader onsignout={logout} />
-<main class="mx-auto grid max-w-5xl gap-6 p-6">
+<PageShell>
 	<div class="flex flex-wrap items-end justify-between gap-4">
 		<h1 class="text-3xl">Dashboard</h1>
 		<Button onclick={() => (dialogOpen = true)}>New gallery</Button>
@@ -100,15 +103,15 @@
 	{:else if data.galleries.length === 0}
 		<GoldenHourEmpty />
 	{:else if visible.length === 0}
-		<section class="grid justify-items-center gap-3 rounded-dialog border border-dashed border-border-strong p-12 text-center">
+		<EmptyState class="rounded-dialog">
 			<h2 class="text-xl">No galleries match</h2>
 			<p class="text-muted-foreground">Try a different title.</p>
 			<Button variant="outline" onclick={() => (query = '')}>Clear search</Button>
-		</section>
+		</EmptyState>
 	{:else}
 		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 			{#each visible as gallery (gallery.id)}
-				<li class="overflow-hidden rounded-card border border-border bg-panel focus-within:ring-2 focus-within:ring-foreground">
+				<Card as="li" class="overflow-hidden focus-within:ring-2 focus-within:ring-foreground">
 					<a href={`/dashboard/${gallery.id}`} class="block text-foreground no-underline outline-none">
 						<div class="aspect-[3/2]">
 							<Placeholder background="sheet" icon label="Your hero photo will appear here" />
@@ -124,11 +127,11 @@
 							</p>
 						</div>
 					</a>
-				</li>
+				</Card>
 			{/each}
 		</ul>
 	{/if}
-</main>
+</PageShell>
 {#if dialogOpen}
 	<NewGalleryDialog onclose={() => (dialogOpen = false)} />
 {/if}

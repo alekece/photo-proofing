@@ -8,6 +8,9 @@
 	import PressAgainButton from '#lib/components/PressAgainButton.svelte';
 	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
+	import Card from '#lib/components/ui/card/card.svelte';
+	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
+	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import {
 		GalleryApiError,
 		shareGallery,
@@ -20,9 +23,31 @@
 
 	const DEBOUNCE = 600;
 	const TABS = [
-		{ id: 'photos', label: 'Photos' },
-		{ id: 'favorites', label: 'Favorites' },
-		{ id: 'finals', label: 'Finals' }
+		{
+			id: 'photos',
+			label: 'Photos',
+			action: { label: '+ Upload', title: 'Photo upload arrives with a later release' },
+			empty: 'No photos yet. Drop JPEGs here to start.'
+		},
+		{
+			id: 'favorites',
+			label: 'Favorites',
+			action: {
+				label: 'Download',
+				title: 'Downloads arrive with a later release',
+				hint: 'Client selection'
+			},
+			empty: 'No favorites yet. The client’s selection will appear here.'
+		},
+		{
+			id: 'finals',
+			label: 'Finals',
+			action: {
+				label: '+ Add finished photos',
+				title: 'Uploading finished photos arrives with a later release'
+			},
+			empty: 'No finished photos yet. Drop the edited JPEGs here.'
+		}
 	] as const;
 
 	type TabId = (typeof TABS)[number]['id'];
@@ -217,7 +242,7 @@
 
 <svelte:head><title>{saved.title ?? UNTITLED_GALLERY} — PhotoProofing</title></svelte:head>
 <AppHeader back={{ href: '/dashboard', label: 'All galleries' }} onsignout={logout} />
-<main class="mx-auto grid max-w-6xl gap-6 p-6">
+<PageShell width="wide">
 	{#if signOutError}<p role="alert" class="text-danger">{signOutError}</p>{/if}
 
 	<div class="flex flex-wrap items-start justify-between gap-4">
@@ -287,10 +312,7 @@
 	{/if}
 
 	<div class="grid gap-6 md:grid-cols-[20rem_1fr]">
-		<aside
-			class="grid content-start gap-5 rounded-card border border-border bg-panel p-4"
-			aria-label="Gallery settings"
-		>
+		<Card as="aside" class="grid content-start gap-5 p-4" aria-label="Gallery settings">
 			<h2 class="text-lg">Settings</h2>
 
 			<fieldset class="grid gap-2">
@@ -381,7 +403,7 @@
 				/>
 				Watermark
 			</label>
-		</aside>
+		</Card>
 
 		<section class="min-w-0">
 			<div
@@ -408,46 +430,24 @@
 				{/each}
 			</div>
 			<div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} class="grid gap-4">
-				{#if tab === 'photos'}
-					<div class="flex justify-end">
-						<Button
-							variant="outline"
-							size="sm"
-							disabled
-							title="Photo upload arrives with a later release"
-						>
-							+ Upload
-						</Button>
-					</div>
-					<p class="rounded-card border border-dashed border-border-strong p-12 text-center text-muted-foreground">
-						No photos yet. Drop JPEGs here to start.
-					</p>
-				{:else if tab === 'favorites'}
-					<div class="flex flex-wrap items-center justify-between gap-2">
-						<span class="text-sm text-muted-foreground">Client selection</span>
-						<Button size="sm" disabled title="Downloads arrive with a later release">
-							Download
-						</Button>
-					</div>
-					<p class="rounded-card border border-dashed border-border-strong p-12 text-center text-muted-foreground">
-						No favorites yet. The client’s selection will appear here.
-					</p>
-				{:else}
-					<div class="flex justify-end">
-						<Button
-							variant="outline"
-							size="sm"
-							disabled
-							title="Uploading finished photos arrives with a later release"
-						>
-							+ Add finished photos
-						</Button>
-					</div>
-					<p class="rounded-card border border-dashed border-border-strong p-12 text-center text-muted-foreground">
-						No finished photos yet. Drop the edited JPEGs here.
-					</p>
-				{/if}
+				{#each TABS as { id, action, empty } (id)}
+					{#if tab === id}
+						{#if 'hint' in action}
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<span class="text-sm text-muted-foreground">{action.hint}</span>
+								<Button size="sm" disabled title={action.title}>{action.label}</Button>
+							</div>
+						{:else}
+							<div class="flex justify-end">
+								<Button variant="outline" size="sm" disabled title={action.title}>
+									{action.label}
+								</Button>
+							</div>
+						{/if}
+						<EmptyState class="text-muted-foreground">{empty}</EmptyState>
+					{/if}
+				{/each}
 			</div>
 		</section>
 	</div>
-</main>
+</PageShell>

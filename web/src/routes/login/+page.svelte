@@ -4,6 +4,8 @@
 	import { page } from '$app/state';
 	import { authRequest } from '#lib/auth.js';
 	import Button from '#lib/components/ui/button/button.svelte';
+	import Card from '#lib/components/ui/card/card.svelte';
+	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
 	import type { PageData } from './$types';
 
@@ -49,7 +51,7 @@
 </script>
 
 <svelte:head><title>{title} — PhotoProofing</title></svelte:head>
-<main class="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 px-6 py-12">
+<PageShell width="narrow" class="flex min-h-screen flex-col justify-center px-6 py-12">
 	<div class="text-center">
 		<p class="brand mb-6 text-2xl">PhotoProofing</p>
 		<h1 class="text-2xl">{title}</h1>
@@ -60,11 +62,7 @@
 	{#if page.url.searchParams.has('expired')}<p role="status">
 			Your session expired. Please sign in again.
 		</p>{/if}
-	<form
-		onsubmit={submit}
-		class="grid gap-5 rounded-card border border-border bg-panel p-6"
-		aria-busy={pending}
-	>
+	<Card as="form" onsubmit={submit} class="grid gap-5 p-6" aria-busy={pending}>
 		<div class="grid gap-2">
 			<label for="email">Email</label><Input
 				disabled={pending || !ready}
@@ -106,5 +104,5 @@
 		<Button type="submit" disabled={pending || !ready}
 			>{pending ? 'Please wait…' : data.setupAvailable ? 'Create account' : 'Sign in'}</Button
 		>
-	</form>
-</main>
+	</Card>
+</PageShell>
