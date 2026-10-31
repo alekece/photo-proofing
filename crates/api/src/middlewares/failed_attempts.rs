@@ -22,8 +22,15 @@ use actix_web::{
 
 use crate::{api::ApiState, request::RequestExt};
 
+fn default_counts(status: StatusCode) -> bool {
+    status.is_client_error() && status != StatusCode::TOO_MANY_REQUESTS
+}
+
 /// Middleware that records the peer of every request whose response status is counted.
-pub(crate) struct FailedAttempts<F = fn(StatusCode) -> bool> {
+pub(crate) struct FailedAttempts<F = fn(StatusCode) -> bool>
+where
+    F: Fn(StatusCode) -> bool,
+{
     // Shared with each service because `new_transform` only borrows `self` and the response
     // future outlives `call`'s borrow; `Rc` suffices as actix workers are single-threaded.
     predicate: Rc<F>,
@@ -32,7 +39,7 @@ pub(crate) struct FailedAttempts<F = fn(StatusCode) -> bool> {
 impl FailedAttempts {
     /// Counts every `4xx` response except `429`.
     pub fn new() -> Self {
-        Self::counting(counts_by_default)
+        Self::counting(default_counts)
     }
 }
 
@@ -52,10 +59,6 @@ where
             predicate: Rc::new(predicate),
         }
     }
-}
-
-fn counts_by_default(status: StatusCode) -> bool {
-    status.is_client_error() && status != StatusCode::TOO_MANY_REQUESTS
 }
 
 impl<S, B, F> Transform<S, ServiceRequest> for FailedAttempts<F>

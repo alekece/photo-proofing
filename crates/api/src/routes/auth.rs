@@ -99,18 +99,14 @@ pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(
         web::scope("/auth")
             .service(report_status)
-            .service(
-                web::resource("/setup")
-                    .wrap(FailedAttempts::new())
-                    .route(web::post().to(setup)),
-            )
-            .service(
-                web::resource("/login")
-                    .wrap(FailedAttempts::new())
-                    .route(web::post().to(login)),
-            )
             .service(logout)
-            .service(renew),
+            .service(renew)
+            .service(
+                web::scope("")
+                    .wrap(FailedAttempts::new())
+                    .service(setup)
+                    .service(login),
+            ),
     );
 }
 
@@ -141,6 +137,7 @@ async fn report_status(
     }))
 }
 
+#[post("/setup")]
 async fn setup(
     state: Data<ApiState>,
     _attempt: Attempt,
@@ -181,6 +178,7 @@ async fn setup(
         .json(id))
 }
 
+#[post("/login")]
 async fn login(
     state: Data<ApiState>,
     session: Option<SessionToken>,
