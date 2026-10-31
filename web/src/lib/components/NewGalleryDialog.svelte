@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
+	import Label from '#lib/components/ui/label/label.svelte';
 	import { createGallery, GalleryApiError, updateGallery } from '#lib/gallery/api.js';
 	import { TITLE_MAX } from '#lib/gallery/format.js';
 
@@ -99,7 +100,7 @@
 			</p>
 		</div>
 		<div class="grid gap-2">
-			<label for="new-gallery-field">Title</label>
+			<Label for="new-gallery-field">Title</Label>
 			<Input
 				bind:ref={field}
 				id="new-gallery-field"

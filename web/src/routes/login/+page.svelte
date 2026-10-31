@@ -7,6 +7,7 @@
 	import Card from '#lib/components/ui/card/card.svelte';
 	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
+	import Label from '#lib/components/ui/label/label.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -64,7 +65,7 @@
 		</p>{/if}
 	<Card as="form" onsubmit={submit} class="grid gap-5 p-6" aria-busy={pending}>
 		<div class="grid gap-2">
-			<label for="email">Email</label><Input
+			<Label for="email">Email</Label><Input
 				disabled={pending || !ready}
 				id="email"
 				type="email"
@@ -75,7 +76,7 @@
 			/>
 		</div>
 		<div class="grid gap-2">
-			<label for="password">Password</label><Input
+			<Label for="password">Password</Label><Input
 				disabled={pending || !ready}
 				id="password"
 				aria-describedby="password-help"
@@ -90,7 +91,7 @@
 		</div>
 		{#if data.setupAvailable}
 			<div class="grid gap-2">
-				<label for="confirmation">Confirm password</label><Input
+				<Label for="confirmation">Confirm password</Label><Input
 					disabled={pending || !ready}
 					id="confirmation"
 					type="password"

@@ -93,16 +93,19 @@ h2,
 .cn-button:hover:not(:disabled):not([aria-disabled='true']) {
 	filter: brightness(0.93);
 }
-.cn-input {
-	min-height: 2.75rem;
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-control);
-	padding: 0.5rem 0.75rem;
-	background: var(--color-input);
-	color: var(--foreground);
-}
-.cn-label {
-	font-weight: 500;
+/* In the components layer so utilities passed via `class` override these defaults. */
+@layer components {
+	.cn-input {
+		min-height: 2.75rem;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		padding: 0.5rem 0.75rem;
+		background: var(--color-input);
+		color: var(--foreground);
+	}
+	.cn-label {
+		font-weight: 500;
+	}
 }
 :where(button, input, select, textarea, a):focus-visible {
 	outline: 3px solid var(--color-focus);

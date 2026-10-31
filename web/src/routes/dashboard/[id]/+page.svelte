@@ -9,6 +9,8 @@
 	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Card from '#lib/components/ui/card/card.svelte';
+	import Input from '#lib/components/ui/input/input.svelte';
+	import Label from '#lib/components/ui/label/label.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
 	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import {
@@ -248,10 +250,10 @@
 	<div class="flex flex-wrap items-start justify-between gap-4">
 		<div class="grid min-w-0 flex-1 gap-1">
 			<div class="flex flex-wrap items-center gap-3">
-				<label class="sr-only" for="title">Gallery title</label>
-				<input
+				<Label srOnly for="title">Gallery title</Label>
+				<Input
 					id="title"
-					class="min-w-0 flex-1 rounded-control border border-transparent bg-transparent px-2 py-1 font-serif text-3xl hover:border-border-strong focus:border-foreground focus:outline-none"
+					class="min-h-0 flex-1 border-transparent bg-transparent px-2 py-1 font-serif text-3xl hover:border-border-strong focus:border-foreground"
 					bind:value={title}
 					placeholder={UNTITLED_GALLERY}
 					maxlength={TITLE_MAX}
@@ -318,7 +320,7 @@
 			<fieldset class="grid gap-2">
 				<legend class="mb-1 text-sm font-medium">Layout</legend>
 				<div class="flex gap-4 text-sm">
-					<label class="flex items-center gap-2">
+					<Label class="flex items-center gap-2 font-normal">
 						<input
 							type="radio"
 							name="layout"
@@ -327,8 +329,8 @@
 							onchange={() => setLayout('grid')}
 						/>
 						Grid
-					</label>
-					<label class="flex items-center gap-2">
+					</Label>
+					<Label class="flex items-center gap-2 font-normal">
 						<input
 							type="radio"
 							name="layout"
@@ -337,19 +339,19 @@
 							onchange={() => setLayout('masonry')}
 						/>
 						Masonry
-					</label>
+					</Label>
 				</div>
 			</fieldset>
 
 			<p class="text-sm text-muted-foreground">Hero photo: set once photos are added.</p>
 
 			<div class="grid gap-2">
-				<label for="expiry" class="text-sm font-medium">Expiry</label>
+				<Label for="expiry" class="text-sm">Expiry</Label>
 				<div class="flex gap-2">
-					<input
+					<Input
 						id="expiry"
 						type="date"
-						class="min-w-0 flex-1 rounded-control border border-border-strong bg-input px-2 py-1 text-sm"
+						class="min-h-0 flex-1 px-2 py-1 text-sm"
 						value={expiryDay}
 						onchange={(event) => {
 							expiryDay = event.currentTarget.value;
@@ -371,14 +373,14 @@
 			</div>
 
 			<div class="grid gap-2">
-				<label for="included" class="text-sm font-medium">Included photos</label>
-				<input
+				<Label for="included" class="text-sm">Included photos</Label>
+				<Input
 					id="included"
 					type="number"
 					min="1"
 					step="1"
 					placeholder="Unlimited"
-					class="rounded-control border border-border-strong bg-input px-2 py-1 text-sm"
+					class="min-h-0 w-auto px-2 py-1 text-sm"
 					bind:value={included}
 					oninput={editIncluded}
 					onblur={leaveIncluded}
@@ -393,16 +395,14 @@
 				</p>
 			</div>
 
-			<label
-				class="flex items-center gap-2 border-t border-border pt-4 text-sm font-medium"
-			>
+			<Label class="flex items-center gap-2 border-t border-border pt-4 text-sm">
 				<input
 					type="checkbox"
 					bind:checked={watermark}
 					onchange={() => void save({ watermark_enabled: watermark })}
 				/>
 				Watermark
-			</label>
+			</Label>
 		</Card>
 
 		<section class="min-w-0">
