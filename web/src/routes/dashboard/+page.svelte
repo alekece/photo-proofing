@@ -13,6 +13,8 @@
 	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
+	import Label from '#lib/components/ui/label/label.svelte';
+	import Select from '#lib/components/ui/select/select.svelte';
 	import type { GallerySort } from '#lib/gallery/api.js';
 	import { formatEdited, UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
@@ -72,20 +74,15 @@
 				aria-label="Search galleries"
 				placeholder="Search title"
 				bind:value={query}
-				class="max-w-64 rounded-full"
+				class="max-w-64"
 			/>
 			<div class="flex items-center gap-2">
-				<label for="sort" class="text-sm">Sort by</label>
-				<select
-					id="sort"
-					class="rounded-full border border-border-strong bg-panel px-3 py-1.5 text-sm"
-					value={data.sort}
-					onchange={changeSort}
-				>
+				<Label for="sort" class="text-sm font-normal">Sort by</Label>
+				<Select id="sort" value={data.sort} onchange={changeSort}>
 					<option value="updated">Last edited</option>
 					<option value="created">Date created</option>
 					<option value="title">Title</option>
-				</select>
+				</Select>
 			</div>
 		</div>
 	{/if}

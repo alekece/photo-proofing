@@ -28,7 +28,7 @@
 			readonly
 			value={link}
 			aria-label="Client link"
-			class="min-w-0 flex-1 rounded-control border bg-background px-2 py-1 text-sm"
+			class="min-w-0 flex-1 text-sm"
 		/>
 		<Button variant="outline" size="sm" onclick={copyLink}>Copy</Button>
 	</div>

@@ -5,52 +5,25 @@
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import { authRequest } from '#lib/auth.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
+	import GallerySettings from '#lib/components/GallerySettings.svelte';
+	import GalleryTabs from '#lib/components/GalleryTabs.svelte';
 	import PressAgainButton from '#lib/components/PressAgainButton.svelte';
 	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
-	import Card from '#lib/components/ui/card/card.svelte';
-	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
+	import Input from '#lib/components/ui/input/input.svelte';
+	import Label from '#lib/components/ui/label/label.svelte';
 	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import {
 		GalleryApiError,
 		shareGallery,
 		updateGallery,
-		type GalleryChanges,
-		type GalleryLayout
+		type GalleryChanges
 	} from '#lib/gallery/api.js';
-	import { endOfLocalDay, TITLE_MAX, toLocalDate, UNTITLED_GALLERY } from '#lib/gallery/format.js';
+	import { goingToRetry } from '#lib/gallery/focus.js';
+	import { TITLE_MAX, UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
 
 	const DEBOUNCE = 600;
-	const TABS = [
-		{
-			id: 'photos',
-			label: 'Photos',
-			action: { label: '+ Upload', title: 'Photo upload arrives with a later release' },
-			empty: 'No photos yet. Drop JPEGs here to start.'
-		},
-		{
-			id: 'favorites',
-			label: 'Favorites',
-			action: {
-				label: 'Download',
-				title: 'Downloads arrive with a later release',
-				hint: 'Client selection'
-			},
-			empty: 'No favorites yet. The client’s selection will appear here.'
-		},
-		{
-			id: 'finals',
-			label: 'Finals',
-			action: {
-				label: '+ Add finished photos',
-				title: 'Uploading finished photos arrives with a later release'
-			},
-			empty: 'No finished photos yet. Drop the edited JPEGs here.'
-		}
-	] as const;
-
-	type TabId = (typeof TABS)[number]['id'];
 
 	let { data }: { data: PageData } = $props();
 	// svelte-ignore state_referenced_locally
@@ -58,31 +31,18 @@
 	// svelte-ignore state_referenced_locally
 	let title = $state(data.gallery.title ?? '');
 	// svelte-ignore state_referenced_locally
-	let expiryDay = $state(data.gallery.expires_at ? toLocalDate(data.gallery.expires_at) : '');
-	// svelte-ignore state_referenced_locally
-	let included = $state<number | null>(data.gallery.included_photos);
-	// svelte-ignore state_referenced_locally
-	let layout = $state<GalleryLayout>(data.gallery.layout);
-	// svelte-ignore state_referenced_locally
-	let watermark = $state(data.gallery.watermark_enabled);
-	// svelte-ignore state_referenced_locally
 	let shareToken = $state(data.gallery.share_token);
 	let sharing = $state(false);
 	let shareFailed = $state(false);
 	let signOutError = $state('');
-	let tab = $state<TabId>('photos');
 	let inflight = $state(0);
 	let justSaved = $state(false);
 	// Attempted values of fields whose last save failed; cleared per field on that field's success.
 	let failed = $state<GalleryChanges>({});
 	let hasFailures = $derived(Object.keys(failed).length > 0);
-	let includedInvalid = $state(false);
 	const timers = new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => void }>();
 
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
-	let expired = $derived(
-		expiryDay !== '' && new Date(endOfLocalDay(expiryDay)).getTime() < Date.now()
-	);
 	afterNavigate(() => {
 		void activity();
 	});
@@ -157,9 +117,6 @@
 	function editTitle() {
 		debounce('title', saveTitle);
 	}
-	/** Focus moving to Retry is not leaving for good: the user is about to retry the attempt. */
-	const goingToRetry = (event: FocusEvent) =>
-		event.relatedTarget instanceof HTMLElement && event.relatedTarget.dataset.retry !== undefined;
 	function leaveTitle(event?: FocusEvent) {
 		cancel('title');
 		if (failed.title !== undefined && failed.title === (title.trim() || null)) {
@@ -167,35 +124,6 @@
 			delete failed.title;
 			title = saved.title ?? '';
 		} else saveTitle();
-	}
-	function setLayout(value: GalleryLayout) {
-		layout = value;
-		void save({ layout });
-	}
-	function setExpiry() {
-		void save({ expires_at: expiryDay ? endOfLocalDay(expiryDay) : null });
-	}
-	function clearExpiry() {
-		expiryDay = '';
-		setExpiry();
-	}
-	function saveIncluded() {
-		const count = included;
-		includedInvalid = count !== null && (!Number.isInteger(count) || count < 1);
-		if (includedInvalid || count === saved.included_photos) return;
-		void save({ included_photos: count });
-	}
-	function editIncluded() {
-		debounce('included_photos', saveIncluded);
-	}
-	function leaveIncluded(event: FocusEvent) {
-		cancel('included_photos');
-		if (failed.included_photos !== undefined && failed.included_photos === included) {
-			if (goingToRetry(event)) return;
-			delete failed.included_photos;
-			included = saved.included_photos;
-			includedInvalid = false;
-		} else saveIncluded();
 	}
 	async function startSharing() {
 		sharing = true;
@@ -223,18 +151,6 @@
 			signOutError = error instanceof Error ? error.message : 'Unable to sign out. Please try again.';
 		}
 	}
-	function moveTab(event: KeyboardEvent) {
-		const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
-		if (step === undefined) return;
-
-		event.preventDefault();
-
-		const index = TABS.findIndex(({ id }) => id === tab);
-		const next = TABS[(index + step + TABS.length) % TABS.length].id;
-
-		tab = next;
-		document.getElementById(`tab-${next}`)?.focus();
-	}
 	function retry() {
 		for (const [key, value] of Object.entries(failed)) void save({ [key]: value });
 	}
@@ -248,10 +164,10 @@
 	<div class="flex flex-wrap items-start justify-between gap-4">
 		<div class="grid min-w-0 flex-1 gap-1">
 			<div class="flex flex-wrap items-center gap-3">
-				<label class="sr-only" for="title">Gallery title</label>
-				<input
+				<Label srOnly for="title">Gallery title</Label>
+				<Input
 					id="title"
-					class="min-w-0 flex-1 rounded-control border border-transparent bg-transparent px-2 py-1 font-serif text-3xl hover:border-border-strong focus:border-foreground focus:outline-none"
+					class="min-h-0 flex-1 border-transparent bg-transparent px-2 py-1 font-serif text-3xl hover:border-border-strong focus:border-foreground"
 					bind:value={title}
 					placeholder={UNTITLED_GALLERY}
 					maxlength={TITLE_MAX}
@@ -312,142 +228,14 @@
 	{/if}
 
 	<div class="grid gap-6 md:grid-cols-[20rem_1fr]">
-		<Card as="aside" class="grid content-start gap-5 p-4" aria-label="Gallery settings">
-			<h2 class="text-lg">Settings</h2>
+		<GallerySettings
+			gallery={saved}
+			bind:failed
+			onsave={(changes) => void save(changes)}
+			schedule={debounce}
+			{cancel}
+		/>
 
-			<fieldset class="grid gap-2">
-				<legend class="mb-1 text-sm font-medium">Layout</legend>
-				<div class="flex gap-4 text-sm">
-					<label class="flex items-center gap-2">
-						<input
-							type="radio"
-							name="layout"
-							value="grid"
-							checked={layout === 'grid'}
-							onchange={() => setLayout('grid')}
-						/>
-						Grid
-					</label>
-					<label class="flex items-center gap-2">
-						<input
-							type="radio"
-							name="layout"
-							value="masonry"
-							checked={layout === 'masonry'}
-							onchange={() => setLayout('masonry')}
-						/>
-						Masonry
-					</label>
-				</div>
-			</fieldset>
-
-			<p class="text-sm text-muted-foreground">Hero photo: set once photos are added.</p>
-
-			<div class="grid gap-2">
-				<label for="expiry" class="text-sm font-medium">Expiry</label>
-				<div class="flex gap-2">
-					<input
-						id="expiry"
-						type="date"
-						class="min-w-0 flex-1 rounded-control border border-border-strong bg-input px-2 py-1 text-sm"
-						value={expiryDay}
-						onchange={(event) => {
-							expiryDay = event.currentTarget.value;
-							setExpiry();
-						}}
-					/>
-					<Button variant="outline" size="sm" onclick={clearExpiry} disabled={expiryDay === ''}>
-						Clear
-					</Button>
-				</div>
-				<p class="text-xs text-muted-foreground">
-					{expiryDay ? 'Ends at the end of this day.' : 'No expiry.'}
-				</p>
-				{#if expired}
-					<p class="text-xs text-warning">
-						This date is in the past, so the gallery is already expired.
-					</p>
-				{/if}
-			</div>
-
-			<div class="grid gap-2">
-				<label for="included" class="text-sm font-medium">Included photos</label>
-				<input
-					id="included"
-					type="number"
-					min="1"
-					step="1"
-					placeholder="Unlimited"
-					class="rounded-control border border-border-strong bg-input px-2 py-1 text-sm"
-					bind:value={included}
-					oninput={editIncluded}
-					onblur={leaveIncluded}
-					aria-invalid={includedInvalid}
-					aria-describedby="included-help"
-				/>
-				<p
-					id="included-help"
-					class="text-xs {includedInvalid ? 'text-danger' : 'text-muted-foreground'}"
-				>
-					{includedInvalid ? 'Enter a whole number of at least 1.' : 'Leave empty for unlimited.'}
-				</p>
-			</div>
-
-			<label
-				class="flex items-center gap-2 border-t border-border pt-4 text-sm font-medium"
-			>
-				<input
-					type="checkbox"
-					bind:checked={watermark}
-					onchange={() => void save({ watermark_enabled: watermark })}
-				/>
-				Watermark
-			</label>
-		</Card>
-
-		<section class="min-w-0">
-			<div
-				role="tablist"
-				aria-label="Gallery content"
-				class="mb-4 flex gap-6 border-b border-border-strong"
-			>
-				{#each TABS as { id, label } (id)}
-					<button
-						type="button"
-						role="tab"
-						id={`tab-${id}`}
-						aria-selected={tab === id}
-						aria-controls={`panel-${id}`}
-						tabindex={tab === id ? 0 : -1}
-						class="border-b-2 px-0 pb-2 text-xs tracking-[0.2em] uppercase {tab === id
-							? 'border-foreground text-foreground'
-							: 'border-transparent text-muted-foreground'}"
-						onclick={() => (tab = id)}
-						onkeydown={moveTab}
-					>
-						{label}
-					</button>
-				{/each}
-			</div>
-			<div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} class="grid gap-4">
-				{#each TABS as { id, action, empty } (id)}
-					{#if tab === id}
-						{#if 'hint' in action}
-							<div class="flex flex-wrap items-center justify-between gap-2">
-								<span class="text-sm text-muted-foreground">{action.hint}</span>
-								<Button size="sm" disabled title={action.title}>{action.label}</Button>
-							</div>
-						{:else}
-							<div class="flex justify-end">
-								<Button variant="outline" size="sm" disabled title={action.title}>
-									{action.label}
-								</Button>
-							</div>
-						{/if}
-						<EmptyState class="text-muted-foreground">{empty}</EmptyState>
-					{/if}
-				{/each}
-			</div>
-		</section>
+		<GalleryTabs />
 	</div>
 </PageShell>

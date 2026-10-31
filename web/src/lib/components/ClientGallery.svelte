@@ -9,13 +9,13 @@
 	let viewerIndex = $state<number | null>(null);
 </script>
 
-<main class="gallery">
-	<h1 class="wrap-anywhere">{gallery.title ?? UNTITLED_GALLERY}</h1>
+<main class="mx-auto grid max-w-7xl gap-4 px-4 py-6">
+	<h1 class="text-center text-[2rem] wrap-anywhere">{gallery.title ?? UNTITLED_GALLERY}</h1>
 	{#if gallery.expires_at}
 		<ExpiryBadge expiresAt={gallery.expires_at} />
 	{/if}
 	{#if proofs.length === 0}
-		<p>The photographer hasn't added photos yet. Check back soon.</p>
+		<p class="text-center text-muted-foreground">The photographer hasn't added photos yet. Check back soon.</p>
 	{:else}
 		<ProofGrid {proofs} layout={gallery.layout} onopen={(i) => (viewerIndex = i)} />
 	{/if}
@@ -23,25 +23,3 @@
 {#if viewerIndex !== null}
 	<ProofViewer {proofs} bind:index={viewerIndex} onclose={() => (viewerIndex = null)} />
 {/if}
-
-<style>
-	.gallery {
-		display: grid;
-		gap: 1rem;
-		max-width: 80rem;
-		margin: 0 auto;
-		padding: 1.5rem 1rem;
-	}
-	h1 {
-		margin: 0;
-		font-family: var(--font-serif);
-		font-weight: 400;
-		font-size: 2rem;
-		text-align: center;
-	}
-	p {
-		margin: 0;
-		text-align: center;
-		color: var(--muted-foreground);
-	}
-</style>

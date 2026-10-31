@@ -65,18 +65,17 @@
 
 <Button bind:ref={button} {variant} {disabled} onclick={press} class="relative overflow-hidden">
 	{#if armed}
-		<span class="fill" style:animation-duration="{CONFIRM_WINDOW}ms" aria-hidden="true"></span>
+		<span
+			class="fill absolute inset-0 origin-left bg-[color-mix(in_srgb,var(--color-inverse)_28%,transparent)]"
+			style:animation-duration="{CONFIRM_WINDOW}ms" aria-hidden="true"></span>
 	{/if}
 	<span class="relative">{armed ? confirmLabel : label}</span>
 </Button>
 <span class="sr-only" aria-live="polite">{armed ? confirmLabel : ''}</span>
 
 <style>
+	/* Keyframes are scoped to this component, so the animation must be declared here. */
 	.fill {
-		position: absolute;
-		inset: 0;
-		background: color-mix(in srgb, var(--color-inverse) 28%, transparent);
-		transform-origin: left;
 		animation: drain linear forwards;
 	}
 	@keyframes drain {

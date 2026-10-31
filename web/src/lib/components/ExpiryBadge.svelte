@@ -18,18 +18,6 @@
 	);
 </script>
 
-<p class="expiry" class:soon={days <= 7}>
+<p class={days <= 7 ? 'text-[0.9rem] font-semibold' : 'text-[0.9rem] opacity-85'}>
 	Access until <time datetime={expiresAt}>{formatted}</time> ({remaining})
 </p>
-
-<style>
-	.expiry {
-		margin: 0;
-		font-size: 0.9rem;
-		opacity: 0.85;
-	}
-	.soon {
-		font-weight: 600;
-		opacity: 1;
-	}
-</style>

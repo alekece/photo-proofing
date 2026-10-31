@@ -1,6 +1,8 @@
-<main class="unavailable">
+<main
+	class="grid min-h-screen content-center justify-items-center gap-2 px-4 py-6 text-center"
+>
 	<svg
-		class="viewfinder"
+		class="mb-4 h-auto max-w-full rounded-sm shadow-viewfinder"
 		viewBox="0 0 340 210"
 		width="340"
 		height="210"
@@ -45,28 +47,12 @@
 			</g>
 		</g>
 	</svg>
-	<h1>Focus not locked</h1>
-	<p>We couldn't lock onto this gallery. Please contact your photographer.</p>
+	<h1 class="text-[1.5rem]">Focus not locked</h1>
+	<p class="max-w-80 text-muted-foreground">We couldn't lock onto this gallery. Please contact your photographer.</p>
 </main>
 
 <style>
-	.unavailable {
-		display: grid;
-		justify-items: center;
-		align-content: center;
-		gap: 0.5rem;
-		min-height: 100vh;
-		box-sizing: border-box;
-		padding: 1.5rem 1rem;
-		text-align: center;
-	}
-	.viewfinder {
-		max-width: 100%;
-		height: auto;
-		border-radius: 4px;
-		box-shadow: var(--shadow-viewfinder);
-		margin-bottom: 1rem;
-	}
+	/* Scoped child selectors for SVG <text>/<g> artwork and the keyframe animation. */
 	text {
 		font: 11px ui-monospace, Menlo, monospace;
 	}
@@ -101,14 +87,5 @@
 		.focus {
 			animation: none;
 		}
-	}
-	h1 {
-		margin: 0;
-		font-size: 1.5rem;
-	}
-	p {
-		margin: 0;
-		max-width: 20rem;
-		color: var(--muted-foreground);
 	}
 </style>
