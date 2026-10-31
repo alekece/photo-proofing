@@ -1,7 +1,4 @@
-use std::{
-    future::{self, Ready},
-    net::IpAddr,
-};
+use std::future::{self, Ready};
 
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web};
 
@@ -9,17 +6,10 @@ use crate::{api::ApiState, request::RequestExt, routes::auth::AuthError};
 
 /// Extractor for a sign-in request from a peer that is still under the failed-attempt limit.
 ///
-/// Handlers report a failed credential check with
-/// [`ApiState::record_failure`]`(attempt.peer())`; only failures count.
-pub(crate) struct Attempt {
-    peer: IpAddr,
-}
-
-impl Attempt {
-    pub fn peer(&self) -> IpAddr {
-        self.peer
-    }
-}
+/// It only gates the request; failed attempts are recorded afterwards by
+/// [`FailedAttempts`](crate::middlewares::failed_attempts::FailedAttempts), so successful
+/// sign-ins never count.
+pub(crate) struct Attempt;
 
 impl FromRequest for Attempt {
     type Error = AuthError;
@@ -30,12 +20,10 @@ impl FromRequest for Attempt {
             return future::ready(Err(AuthError::Unavailable));
         };
 
-        let peer = request.peer_ip();
-
-        if !state.allow_attempt(peer) {
+        if !state.allow_attempt(request.peer_ip()) {
             return future::ready(Err(AuthError::Limited));
         }
 
-        future::ready(Ok(Self { peer }))
+        future::ready(Ok(Self))
     }
 }

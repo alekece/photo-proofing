@@ -96,10 +96,10 @@ impl From<JsonPayloadError> for ErrorResponse {
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 "expected a JSON request body",
             ),
-            // Well-formed JSON with an unknown key, a null for a required setting or a value
-            // outside its type.
+            // Well-formed JSON with an unknown key, a null for a required field or a value
+            // outside its type or validation.
             JsonPayloadError::Deserialize(error) if error.is_data() => {
-                Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid gallery settings")
+                Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid request body")
             }
             _ => Self::bad_request(),
         }

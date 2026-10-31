@@ -13,33 +13,31 @@
 //! leak does not yield usable sessions. Every state-changing request must carry the exact
 //! configured `Origin`, which the API-wide [`SameOrigin`](crate::middlewares::origin::SameOrigin)
 //! middleware enforces as the CSRF defence for this cookie-authenticated API before any
-//! extractor reads the request. Sign-in routes also pass
-//! the failed-attempt limiter ([`Attempt`]). Request bodies are validated while being parsed
+//! extractor reads the request. Sign-in routes also pass the failed-attempt limiter
+//! ([`Attempt`]); [`FailedAttempts`] counts their failed responses, including credential bodies
+//! rejected while being parsed. Request bodies are validated while being parsed
 //! ([`Credentials`]), and policy and limiter state live in [`ApiState`].
 
 use std::time::SystemTime;
 
 use actix_web::{
-    HttpResponse, ResponseError,
-    error::JsonPayloadError,
-    get,
+    HttpResponse, ResponseError, get,
     http::StatusCode,
     post,
-    web::{self, Data, Json, JsonConfig, ServiceConfig},
+    web::{self, Data, Json, ServiceConfig},
 };
 use pp_core::{email::Email, time::Millis};
 use pp_database::auth::Identity;
 use serde::{Deserialize, Serialize};
-use serde_json::error::Category;
 
 use crate::{
-    api::{ApiState, JSON_LIMIT},
+    api::ApiState,
     credentials::{Password, PasswordHash},
     extractors::{
         attempt::Attempt,
         session_token::{SessionToken, TokenHash},
     },
-    request::RequestExt,
+    middlewares::failed_attempts::FailedAttempts,
     response::ResponseBuilderExt,
 };
 
@@ -55,34 +53,10 @@ pub(crate) enum AuthError {
     Unauthorized,
     #[error("request origin is not allowed")]
     ForbiddenOrigin,
-    #[error("enter a valid email and a password of 12–128 characters")]
-    InvalidInput,
     #[error("invalid email or password")]
     InvalidLogin,
     #[error("initial setup is already complete")]
     SetupClosed,
-    #[error("invalid credential request")]
-    PayloadTooLarge,
-    #[error("invalid credential request")]
-    UnsupportedMediaType,
-    #[error("invalid credential request")]
-    MalformedRequest,
-}
-
-impl From<JsonPayloadError> for AuthError {
-    fn from(error: JsonPayloadError) -> Self {
-        match error {
-            JsonPayloadError::Overflow { .. } | JsonPayloadError::OverflowKnownLength { .. } => {
-                Self::PayloadTooLarge
-            }
-            JsonPayloadError::ContentType => Self::UnsupportedMediaType,
-            // Well-formed JSON whose email or password failed validation while parsing.
-            JsonPayloadError::Deserialize(error) if error.classify() == Category::Data => {
-                Self::InvalidInput
-            }
-            _ => Self::MalformedRequest,
-        }
-    }
 }
 
 impl ResponseError for AuthError {
@@ -92,10 +66,7 @@ impl ResponseError for AuthError {
             Self::Limited => StatusCode::TOO_MANY_REQUESTS,
             Self::Unauthorized | Self::InvalidLogin => StatusCode::UNAUTHORIZED,
             Self::ForbiddenOrigin => StatusCode::FORBIDDEN,
-            Self::InvalidInput | Self::MalformedRequest => StatusCode::BAD_REQUEST,
             Self::SetupClosed => StatusCode::CONFLICT,
-            Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
-            Self::UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
         }
     }
 
@@ -122,32 +93,20 @@ struct AuthStatus {
     idle_timeout: Millis,
 }
 
-/// Registers the auth routes; credential bodies are capped at 4 KiB.
+/// Registers the auth routes. Their credential bodies are parsed by the API-wide JSON
+/// configuration, and only the credential routes count failed attempts.
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(
         web::scope("/auth")
-            .app_data(
-                JsonConfig::default()
-                    .limit(JSON_LIMIT)
-                    .error_handler(|error, request| {
-                        // The extractor rejects a malformed credential body before any handler
-                        // runs, so this is the only place that can count it as a guess. Only bodies
-                        // that parse but fail validation count; size and content-type rejections are
-                        // cheap and never reach credential checks.
-                        if matches!(error, JsonPayloadError::Deserialize(_))
-                            && let Some(state) = request.app_data::<Data<ApiState>>()
-                        {
-                            state.record_failure(request.peer_ip());
-                        }
-
-                        AuthError::from(error).into()
-                    }),
-            )
             .service(report_status)
-            .service(setup)
-            .service(login)
             .service(logout)
-            .service(renew),
+            .service(renew)
+            .service(
+                web::scope("")
+                    .wrap(FailedAttempts::new())
+                    .service(setup)
+                    .service(login),
+            ),
     );
 }
 
@@ -223,7 +182,7 @@ async fn setup(
 async fn login(
     state: Data<ApiState>,
     session: Option<SessionToken>,
-    attempt: Attempt,
+    _attempt: Attempt,
     credentials: Json<Credentials>,
 ) -> Result<HttpResponse, AuthError> {
     let Credentials { email, password } = credentials.into_inner();
@@ -247,8 +206,6 @@ async fn login(
     .map_err(|_| AuthError::Unavailable)?;
 
     let Some(account) = account.filter(|_| valid) else {
-        state.record_failure(attempt.peer());
-
         return Err(AuthError::InvalidLogin);
     };
 
@@ -584,8 +541,71 @@ mod tests {
                 .insert_header(("Origin", ORIGIN))
                 .set_json(serde_json::json!({"email":"invalid","password":"short"}))
                 .to_request();
+            let expected = if attempt < 8 {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                StatusCode::TOO_MANY_REQUESTS
+            };
+
+            assert_eq!(test::call_service(&app, req).await.status(), expected);
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn other_routes_do_not_use_the_attempt_limit(pool: PgPool) {
+        let state = app_state(pool);
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+
+        for _ in 0..11 {
+            let req = test::TestRequest::post()
+                .uri("/api/v1/auth/renew")
+                .insert_header(("Origin", ORIGIN))
+                .to_request();
+
+            assert_eq!(
+                test::call_service(&app, req).await.status(),
+                StatusCode::UNAUTHORIZED
+            );
+        }
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .insert_header(("Origin", ORIGIN))
+            .set_json(
+                serde_json::json!({"email":"a@example.test","password":"wrong horse battery"}),
+            )
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, req).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn wrong_logins_are_limited_per_peer(pool: PgPool) {
+        let state = app_state(pool);
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let wrong = serde_json::json!({"email":"a@example.test","password":"wrong horse battery"});
+
+        for attempt in 0..11 {
+            let req = test::TestRequest::post()
+                .uri("/api/v1/auth/login")
+                .insert_header(("Origin", ORIGIN))
+                .set_json(&wrong)
+                .to_request();
             let expected = if attempt < 10 {
-                StatusCode::BAD_REQUEST
+                StatusCode::UNAUTHORIZED
             } else {
                 StatusCode::TOO_MANY_REQUESTS
             };
