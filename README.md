@@ -159,6 +159,27 @@ Use a fresh disposable database to exercise initial setup; reruns verify its per
 
 For a Rust build-output reset, use `cargo clean`. Frontend generated state lives under `web/node_modules`, `web/.svelte-kit`, and `web/build`; reinstall dependencies after removing dependency state. Do not confuse resetting build outputs with deleting persistent database or photo data.
 
+## Automated issue implementation
+
+Two gh-aw workflows automate part of the [Superpowers delivery workflow](AGENTS.md#superpowers-delivery-workflow): `.github/workflows/daily-issue-selection.md` runs daily (and on `gh workflow run daily-issue-selection`) to read-only pick up to 2 eligible issues and dispatch `.github/workflows/implement-issue.md` once per issue. An issue is eligible when it carries neither `needs-attention` nor `blocked`, its body links a design spec that resolves on a branch, it has no open PR, and it has no open blocker (GitHub's "blocked by" relationship wins over a body `## Dependencies` section; blocked issues are skipped unless every blocker in the chain is itself eligible, in which case the blocker is selected instead). The worker implements the linked design, runs a fresh-context review, and opens a PR; when it hits something seriously wrong (an unresolved critical/major review finding, a design/issue contradiction, or a real lint/test failure) it opens a draft PR and labels both the issue and the PR `blocked` + `needs-attention` instead of marking anything ready.
+
+Setup: create a GitHub App, install it on this repository, and grant it
+`contents: write`, `pull requests: write`, and `issues: write`. Store its
+client (app) ID as the repository variable `APP_ID` and its private key as the
+secret `APP_PRIVATE_KEY` (`gh variable set APP_ID --body "<id>"` and
+`gh aw secrets set APP_PRIVATE_KEY --value "$(cat key.pem)"`). The worker's
+safe outputs use `safe-outputs.github-app` to mint a short-lived installation
+token at runtime, scoped to the operations it performs (pushing the branch,
+opening the PR, labels, comments); gh-aw revokes it when the run ends. Because
+that App token — not the default `GITHUB_TOKEN` — pushes the PR branch, CI runs
+on the worker's PRs (a static secret would not work, since App installation
+tokens expire hourly). Watch the first live run (after this branch merges, since
+`workflow_dispatch` cannot target an unmerged workflow): confirm the worker's PR
+head still contains the design branch's commits (the bundle-based
+`create-pull-request` patch format is meant to preserve them), and confirm each
+selected issue actually links its design spec on the branch the worker checks
+out.
+
 ## Contributing
 
 Use [Conventional Commits](https://www.conventionalcommits.org/). Treat changelog maintenance as release work; no automatic changelog-generation workflow is currently configured.
