@@ -64,7 +64,9 @@ My calls (to check while reading):
   numbers.
 - **Handler.** It sets the photo `processing`, reads the original through the storage layer
   (#96), writes the thumbnail and preview atomically to `<photo>-thumbnail` and
-  `<photo>-preview`, then in one transaction confirms the photo still exists and sets it `ready`.
+  `<photo>-preview`, then in one transaction confirms the photo still exists, records its display
+  dimensions (width and height after rotation, which differ from the header dimensions stored at
+  upload when the orientation swaps them, and are what client layouts need) and sets it `ready`.
   A retry rewrites the same keys, so results are never duplicated.
 - **Failure.** An error retries with the queue's capped backoff. When attempts run out the photo
   becomes `failed` with a short, human-readable reason (for example "unreadable image"), never
