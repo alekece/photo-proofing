@@ -106,7 +106,7 @@ done
 while IFS= read -r issue_line; do
   n=$(jq -r '.number' <<<"$issue_line")
   body=$(jq -r '.body // ""' <<<"$issue_line")
-  labels=$(jq -r '(.labels // []) | join(",")' <<<"$issue_line")
+  labels=$(jq -r '[(.labels // [])[] | if type == "object" then .name else . end] | join(",")' <<<"$issue_line")
 
   if [[ ",$labels," == *",needs-attention,"* || ",$labels," == *",blocked,"* ]]; then
     LABEL_BLOCKED[$n]=1

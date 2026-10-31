@@ -29,6 +29,9 @@ steps:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
     run: |
+      # X = 2 here must match safe-outputs.dispatch-workflow.max below and the
+      # "at most 2" / "quota of 2" prose in the body: the script's <max> caps
+      # how many numbers it ever prints, so the three must change together.
       mkdir -p /tmp/gh-aw/agent
       bash .github/scripts/select-issues.sh 2 > /tmp/gh-aw/agent/selected.json
       echo "Selected issues:"

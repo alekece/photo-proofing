@@ -75,10 +75,12 @@ dir=$(fixture "fewer-than-max" \
 assert_select "fewer than max eligible issues" 2 "$dir" '[1]'
 
 # --- Scenario 3: zero eligible ---
+# Labels use the real `gh issue list --json labels` shape: an array of label
+# objects (id/name/description/color), not an array of strings.
 dir=$(fixture "zero-eligible" \
   "$(jq -n --arg b1 "$(body_with_spec main "$REF1")" '
     [
-      {number: 1, title: "A", body: $b1, labels: ["blocked"]}
+      {number: 1, title: "A", body: $b1, labels: [{id: 1, name: "blocked", description: "", color: "b60205"}]}
     ]')" \
   '{}' '[]' \
   'main:docs/superpowers/specs/alpha-design.md')
@@ -88,7 +90,7 @@ assert_select "zero eligible issues yields empty array" 2 "$dir" '[]'
 dir=$(fixture "label-excluded" \
   "$(jq -n --arg b1 "$(body_with_spec main "$REF1")" --arg b2 "$(body_with_spec main "$REF2")" '
     [
-      {number: 1, title: "A", body: $b1, labels: ["needs-attention"]},
+      {number: 1, title: "A", body: $b1, labels: [{id: 2, name: "needs-attention", description: "", color: "e99695"}]},
       {number: 2, title: "B", body: $b2, labels: []}
     ]')" \
   '{}' '[]' \
@@ -154,7 +156,7 @@ dir=$(fixture "github-blockers-win" \
     [
       {number: 20, title: "A", body: $ba, labels: []},
       {number: 21, title: "B", body: $bb, labels: []},
-      {number: 99, title: "C", body: $bc, labels: ["blocked"]}
+      {number: 99, title: "C", body: $bc, labels: [{id: 1, name: "blocked", description: "", color: "b60205"}]}
     ]')" \
   '{"20": [21]}' \
   '[]' \
@@ -203,6 +205,26 @@ dir=$(fixture "blockers-first-open" \
   '[]' \
   'main:docs/superpowers/specs/alpha-design.md')
 assert_select "blocker is selected in place of the blocked issue and counts toward max" 2 "$dir" '[5,2]'
+
+# --- Scenario 13: label objects carry extra fields (node id, description,
+# color) exactly as `gh issue list --json labels` returns them; only `name`
+# is used for eligibility, and unrelated label objects (e.g. "agent") do not
+# interfere. ---
+dir=$(fixture "label-objects-extra-keys" \
+  "$(jq -n --arg b1 "$(body_with_spec main "$REF1")" --arg b2 "$(body_with_spec main "$REF2")" '
+    [
+      {number: 1, title: "A", body: $b1, labels: [
+        {id: "LA_kwDOVaqi188AAAADAA_Mmw", name: "agent", description: "Created by repository agent workflows", color: "7057ff"},
+        {id: "LA_kwDOVaqi188AAAADAA_Mnw", name: "blocked", description: "Blocked on something external", color: "b60205"}
+      ]},
+      {number: 2, title: "B", body: $b2, labels: [
+        {id: "LA_kwDOVaqi188AAAADAA_Mmw", name: "agent", description: "Created by repository agent workflows", color: "7057ff"}
+      ]}
+    ]')" \
+  '{}' '[]' \
+  'main:docs/superpowers/specs/alpha-design.md
+main:docs/superpowers/specs/beta-design.md')
+assert_select "label objects with extra keys (id/description/color) parse correctly" 2 "$dir" '[2]'
 
 echo ""
 echo "$PASS passed, $FAIL failed"
