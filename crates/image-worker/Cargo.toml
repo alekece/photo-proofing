@@ -10,13 +10,20 @@ pp-core.workspace = true
 pp-database.workspace = true
 clap.workspace = true
 clap-config-fallback.workspace = true
+derive_more.workspace = true
 serde.workspace = true
-tokio.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+tokio-util = "0.7"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
 libc = "0.2"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros"] }
+tempfile = "3"
+url = "2"
 
 [lints]
 workspace = true
