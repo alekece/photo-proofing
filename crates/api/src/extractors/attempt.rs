@@ -6,9 +6,9 @@ use crate::{api::ApiState, request::RequestExt, routes::auth::AuthError};
 
 /// Extractor for a sign-in request from a peer that is still under the failed-attempt limit.
 ///
-/// It only gates the request; failed guesses are recorded afterwards by
-/// [`record_failed_guesses`](crate::middlewares::failed_guess::record_failed_guesses), so
-/// successful sign-ins never count.
+/// It only gates the request; failed attempts are recorded afterwards by
+/// [`FailedAttempts`](crate::middlewares::failed_attempts::FailedAttempts), so successful
+/// sign-ins never count.
 pub(crate) struct Attempt;
 
 impl FromRequest for Attempt {

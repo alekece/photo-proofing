@@ -1,5 +1,4 @@
-//! Actix middlewares applied to the whole API.
+//! Actix middlewares.
 
 pub mod failed_attempts;
-pub mod failed_guess;
 pub mod origin;

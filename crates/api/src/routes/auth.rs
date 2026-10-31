@@ -14,8 +14,8 @@
 //! configured `Origin`, which the API-wide [`SameOrigin`](crate::middlewares::origin::SameOrigin)
 //! middleware enforces as the CSRF defence for this cookie-authenticated API before any
 //! extractor reads the request. Sign-in routes also pass the failed-attempt limiter
-//! ([`Attempt`]); wrong logins and credential bodies that fail validation are marked as guesses
-//! and counted by [`record_failed_guesses`]. Request bodies are validated while being parsed
+//! ([`Attempt`]); [`FailedAttempts`] counts their failed responses, including credential bodies
+//! rejected while being parsed. Request bodies are validated while being parsed
 //! ([`Credentials`]), and policy and limiter state live in [`ApiState`].
 
 use std::time::SystemTime;
@@ -23,7 +23,6 @@ use std::time::SystemTime;
 use actix_web::{
     HttpResponse, ResponseError, get,
     http::StatusCode,
-    middleware::from_fn,
     post,
     web::{self, Data, Json, ServiceConfig},
 };
@@ -38,7 +37,7 @@ use crate::{
         attempt::Attempt,
         session_token::{SessionToken, TokenHash},
     },
-    middlewares::failed_guess::{FailedGuess, record_failed_guesses},
+    middlewares::failed_attempts::FailedAttempts,
     response::ResponseBuilderExt,
 };
 
@@ -60,14 +59,6 @@ pub(crate) enum AuthError {
     SetupClosed,
 }
 
-impl AuthError {
-    /// Whether this failure answers a wrong credential guess, which the failed-attempt limiter
-    /// counts.
-    pub(crate) fn is_guess(&self) -> bool {
-        matches!(self, Self::InvalidLogin)
-    }
-}
-
 impl ResponseError for AuthError {
     fn status_code(&self) -> StatusCode {
         match self {
@@ -80,15 +71,9 @@ impl ResponseError for AuthError {
     }
 
     fn error_response(&self) -> HttpResponse {
-        let response = HttpResponse::build(self.status_code())
+        HttpResponse::build(self.status_code())
             .no_store()
-            .json(serde_json::json!({"error": self.to_string()}));
-
-        if self.is_guess() {
-            return FailedGuess::mark(response);
-        }
-
-        response
+            .json(serde_json::json!({"error": self.to_string()}))
     }
 }
 
@@ -109,14 +94,21 @@ struct AuthStatus {
 }
 
 /// Registers the auth routes. Their credential bodies are parsed by the API-wide JSON
-/// configuration, and the scope's middleware counts the failed guesses.
+/// configuration, and only the credential routes count failed attempts.
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(
         web::scope("/auth")
-            .wrap(from_fn(record_failed_guesses))
             .service(report_status)
-            .service(setup)
-            .service(login)
+            .service(
+                web::resource("/setup")
+                    .wrap(FailedAttempts::new())
+                    .route(web::post().to(setup)),
+            )
+            .service(
+                web::resource("/login")
+                    .wrap(FailedAttempts::new())
+                    .route(web::post().to(login)),
+            )
             .service(logout)
             .service(renew),
     );
@@ -149,7 +141,6 @@ async fn report_status(
     }))
 }
 
-#[post("/setup")]
 async fn setup(
     state: Data<ApiState>,
     _attempt: Attempt,
@@ -190,7 +181,6 @@ async fn setup(
         .json(id))
 }
 
-#[post("/login")]
 async fn login(
     state: Data<ApiState>,
     session: Option<SessionToken>,
@@ -553,7 +543,7 @@ mod tests {
                 .insert_header(("Origin", ORIGIN))
                 .set_json(serde_json::json!({"email":"invalid","password":"short"}))
                 .to_request();
-            let expected = if attempt < 10 {
+            let expected = if attempt < 8 {
                 StatusCode::UNPROCESSABLE_ENTITY
             } else {
                 StatusCode::TOO_MANY_REQUESTS
@@ -561,6 +551,42 @@ mod tests {
 
             assert_eq!(test::call_service(&app, req).await.status(), expected);
         }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn other_routes_do_not_use_the_attempt_limit(pool: PgPool) {
+        let state = app_state(pool);
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+
+        for _ in 0..11 {
+            let req = test::TestRequest::post()
+                .uri("/api/v1/auth/renew")
+                .insert_header(("Origin", ORIGIN))
+                .to_request();
+
+            assert_eq!(
+                test::call_service(&app, req).await.status(),
+                StatusCode::UNAUTHORIZED
+            );
+        }
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .insert_header(("Origin", ORIGIN))
+            .set_json(
+                serde_json::json!({"email":"a@example.test","password":"wrong horse battery"}),
+            )
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, req).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
