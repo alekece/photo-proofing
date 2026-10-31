@@ -15,14 +15,8 @@
 				link: 'cn-button-variant-link'
 			},
 			size: {
-				default: 'cn-button-size-default',
-				xs: 'cn-button-size-xs',
-				sm: 'cn-button-size-sm',
-				lg: 'cn-button-size-lg',
-				icon: 'cn-button-size-icon',
-				'icon-xs': 'cn-button-size-icon-xs',
-				'icon-sm': 'cn-button-size-icon-sm',
-				'icon-lg': 'cn-button-size-icon-lg'
+				default: 'min-h-11 px-5 py-2.5',
+				sm: 'min-h-11 px-3.5 py-2.5 text-sm'
 			}
 		},
 		defaultVariants: {
