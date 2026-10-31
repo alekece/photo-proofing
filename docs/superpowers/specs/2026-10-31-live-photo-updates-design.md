@@ -13,16 +13,15 @@ dropped connection or a restart. This replaces the "refresh on return" workaroun
 
 ## Goals
 
-- One SSE stream per open gallery page, carrying the step of every photo of that gallery.
+- One photographer-wide SSE stream per browser tab, opened after login, carrying typed events
+  tagged with their gallery. #80 delivers the photo events: the step of every photo.
 - A reconnect restores the authoritative state; nothing depends on missed events.
 - Bounded buffers, dead or slow connections cleaned up, nothing sensitive in the stream or logs.
 
 ## Non-goals
 
-- Anything beyond photo upload and processing. Notifications are stored in their own table and
-  fetched by the frontend, not pushed over SSE. ZIP readiness and other slices are not decided
-  here. This narrows the PRD and ADR 0001, which list SSE for those too; their wording needs your
-  approval to change.
+- Notification and ZIP-readiness events. The stream is designed to carry them, but the slices
+  that own them add their event types and change detection.
 - A client-side stream: the shared client page loads its photos when it opens and has no live
   updates. If a photo was removed meanwhile, the next action on it fails with "not found"; the
   client page then shows a message that the photographer is modifying the gallery and asks the
@@ -41,24 +40,26 @@ dropped connection or a restart. This replaces the "refresh on return" workaroun
 - **C. Browser polling.** Ruled out by the ADR.
 
 Per-photo streams were rejected: browsers allow about six connections per site over HTTP/1.1, so
-a 100-file upload would starve other requests. One stream per gallery carries all its photos.
+a 100-file upload would starve other requests. One stream per tab carries every gallery's events.
 
 ## Design
 
-- **Route.** `GET /api/v1/galleries/{id}/events`, behind the photographer session, same
-  authorization as the Photos tab. No client route.
-- **Events.** Each connection starts with a `snapshot` event holding the current status of every
-  photo of the gallery (id, status, failure reason). It then sends a `photo` event per change.
+- **Route.** `GET /api/v1/events`, behind the photographer session. It only ever delivers events
+  for the session's workspace. No client route.
+- **Events.** Each connection starts with a `snapshot` event holding the current status of the photos that
+  are not yet ready or have failed (gallery id, photo id, status, failure reason); ready photos
+  are loaded by the page itself, which refetches its photo list on every (re)connect so that
+  nothing becomes ready unseen in between. It then sends a `photo` event per change. Every event has a type and a gallery id so the
+  frontend can route it; later slices add types such as notifications and ZIP readiness.
   Payloads carry the step, so the tile can display it directly. They never contain file paths or
   other galleries' data.
 - **Why a snapshot.** PostgreSQL is authoritative and SSE is not a history (ADR). A reconnect
   or a restart simply starts a new snapshot, which also recovers anything missed.
 - **Change detection.** `photos` gets an `updated_at`, set by every status change. One loop in
   the API runs every 1 to 2 seconds, only while at least one stream is open, reads the photos
-  changed since its last pass for the galleries that have streams, and fans out. The interval is
+  changed since its last pass for the workspaces that have streams, and fans out. The interval is
   a named constant.
-- **Ending a stream.** It ends when the session expires or is logged out, or the gallery is
-  deleted (checked by the same loop). The browser reconnects and, if no longer allowed, gets an
+- **Ending a stream.** It ends when the session expires or is logged out, (a deleted gallery just stops producing events). The browser reconnects and, if no longer allowed, gets an
   error and stops.
 - **Bounds.** Each connection has a small bounded buffer; a connection that falls behind is
   dropped (it reconnects and gets a fresh snapshot). Keep-alive comments are sent periodically so
@@ -73,7 +74,7 @@ a 100-file upload would starve other requests. One stream per gallery carries al
 ## Left to the builder
 
 - Event naming and JSON shape, the exact intervals, buffer size and stream limit defaults.
-- How the loop tracks per-gallery subscriptions and its "changed since" cursor.
+- How the loop tracks per-workspace subscriptions and its "changed since" cursor.
 - Where the SSE module lives in the API crate.
 
 ## Verification
