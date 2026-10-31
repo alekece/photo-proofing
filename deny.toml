@@ -1,0 +1,20 @@
+[advisories]
+ignore = [
+    { id = "RUSTSEC-2026-0258", reason = "Low severity. h2 0.3 comes from actix-http, which has no patched release (fixed only in h2 >=0.4.16). Remove once actix-http moves to h2 0.4." },
+]
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
