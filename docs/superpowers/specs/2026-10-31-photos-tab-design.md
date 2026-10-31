@@ -57,7 +57,7 @@ My calls (to check while reading):
   text. Failed processing: the reason and a Retry that calls the #99 retry route. A file still
   being transferred: a placeholder with a progress bar, separate from the status wording.
 - **Upload manager.** An app-level store, not page state, owns the queue, so progress survives
-  leaving the gallery page and returning inside the app. It sends at most three uploads at once.
+  leaving the gallery page and returning inside the app. It sends a small fixed number of uploads at once (3 to 5; the builder picks, a named constant).
   A failed transfer shows the server's reason (too large, not a JPEG and so on) and a Retry that
   resends the same file. That file is only held in memory, so after a reload the transfer failure
   is gone, while failed processing, which lives on the server, stays retryable.
@@ -67,9 +67,8 @@ My calls (to check while reading):
   leave warning, because that kills the in-flight requests.
 - **No client-side checks.** The server is the authority for type, size and dimensions; the page
   just shows its reason.
-- **Share.** Following the page design, Share is disabled until at least one photo is ready. This
-  is a UI guard only: the server still allows sharing an empty gallery, and the PRD's empty-gallery
-  warning (FR-04) is superseded by the page design pending the PRD update in PR #88.
+- **Share.** Share is never blocked by photo state: a gallery can be shared with no photos, or
+  while uploads are still running. The UI adds no guard here.
 - **Accessibility.** The upload button and drop zone are real controls with a labelled file input
   (`multiple`, JPEG only). A polite live region announces progress and failures ("3 of 12
   uploaded, 1 failed"). Each tile states its status in text, progress uses a native progress
