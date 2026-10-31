@@ -10,8 +10,10 @@ This file is the shared repository policy for Codex, GitHub Copilot coding agent
 - Do not use primitive types with unit suffixes (`timeout_ms`, `size_bytes`, `price_cents`) in Rust APIs or data models; use types that carry the unit and invariant (`Duration`, `BoundedDuration`, `Url`, `Origin`, dedicated newtypes). Convert to primitives only at a serialization or foreign-interface boundary. Prefer parsing into a validated type once over repeated `validate()` calls.
 - Use traits, generics, and associated types for meaningful capabilities and cohesive contracts. Prefer static dispatch unless runtime polymorphism is warranted.
 - Prefer typed configuration to ambiguous flags or parameters. Prefer methods when behavior belongs to a type; use builders when they clarify or validate construction.
-- Keep visibility narrow and derive traits only when useful.
-- Prefer established, idiomatic crates such as `derive_more` when they provide consistent, reliable implementations instead of handwritten boilerplate. Weigh those benefits against dependency costs, even for small uses. Explain meaningful decisions to implement locally and revisit them when additional usage changes the balance.
+- Keep visibility narrow and derive traits only when useful. Implement common traits (`Debug`, `Clone`, `PartialEq`) on public types where sound, except credentials (see Secrets and Observability).
+- Apply `#[must_use]` to builders, guards, and results that are harmful to drop.
+- Prefer established, idiomatic crates such as `derive_more` when they provide consistent, reliable implementations instead of handwritten boilerplate, even for small needs: a well-tested, maintained community crate beats our own code with its own bugs. Implement locally only when the crate is unmaintained, pulls heavy transitive dependencies, or the need is trivial, and explain meaningful local-implementation decisions; revisit them when additional usage changes the balance. Declare dependencies in `[workspace.dependencies]` with minimal features. `cargo deny` (advisories, licenses, duplicates) is the intended CI gate once configured.
+- Do not write `macro_rules!` without a stated reason, such as preventing drift between parallel definitions, and a doc example. Declarative derives that generate companion types from one annotated definition (an entity and its changeset) are welcome; look for an existing crate first. A custom proc-macro needs its own crate and an ADR explaining why no existing crate fits.
 - Follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/) checklist items and chapters relevant to the change. Respect repository compatibility requirements and propose breaking changes before making them.
 
 ## Working with Existing Code
@@ -39,6 +41,15 @@ This file is the shared repository policy for Codex, GitHub Copilot coding agent
 
 - Prefer ownership and borrowing that make data flow explicit. Avoid unnecessary cloning, shared ownership, interior mutability, and allocations.
 
+## Async and Concurrency
+
+- Never block in async code. Run CPU-bound work (image decode, resize) through `spawn_blocking` or a bounded pool.
+- Run multi-step state changes (job claim, status update, publication) in one database transaction, so a dropped future cannot leave partial state.
+- Give every spawned task an owner: join it, or cancel it through a shared shutdown signal. No fire-and-forget.
+- Keep in-memory state to data that is cheap to lose (limiters, caches, live SSE subscribers); anything that must survive a restart or be consistent lives in PostgreSQL.
+- Use `std::sync::Mutex` for short critical sections and never hold a guard across `.await`; restructure with a channel or an owning task instead of reaching for `tokio::sync::Mutex`.
+- Bound cross-task channels. Lag or drop a slow consumer (such as an SSE client) rather than buffering without limit.
+
 ## Readability and Errors
 
 - Favor readable code over cleverness. Use intermediate values and guard clauses when they help.
@@ -49,13 +60,22 @@ This file is the shared repository policy for Codex, GitHub Copilot coding agent
   - before `return`, unless it is the only statement in its scope.
 - Beyond those rules, group remaining statements into reasonable logical blocks with blank lines, using judgment; do not space out closely related statements mechanically.
 - Propagate recoverable errors with `Result` and `?`, preserving useful context at abstraction boundaries and distinguishing failures from violated invariants.
+- Define typed error enums per crate or domain boundary so callers can branch on variants. Use `thiserror` for error types in new and touched code and keep `derive_more` for other boilerplate; existing `derive_more` error types migrate separately.
+- Only `api` maps errors to HTTP status codes; domain crates never know about HTTP. Never send internal causes to clients, and return the shared `ErrorResponse` shape.
+- Wrap infrastructure causes as `source`; do not expose types such as `sqlx::Error` in public variants. Use `#[non_exhaustive]` only on intentionally published types.
 - Respect the configured Clippy lints. `unwrap` and `expect` are allowed in tests; production exceptions require a narrow lint allowance and an explanation of the established invariant. Prefer `expect` when its message adds useful context.
+
+## Secrets and Observability
+
+- A credential or bearer-secret newtype never derives `Debug`: omit it, or implement a redacting one with a doc note. This includes share links, which grant access to client photos (`Token<N>` and `Password` already follow this).
+- Never put secrets in logs or spans; `#[instrument]` skips sensitive arguments. Give every request or job span an identifier.
 
 ## Comments and Docs
 
 - Comments explain *why* (invariants, tradeoffs), not *what*.
 - Document public APIs when their purpose, contract, or constraints need explanation; add examples when helpful.
 - Write documentation while implementing, not afterward, and treat it as part of "done" before requesting review or opening a PR. Reviewers should not have to reverse-engineer intent: document new public items whose contract is non-obvious (errors, invariants, security or concurrency guarantees), and give a module whose behavior spans several functions or files a short `//!` overview of the flow and where each guarantee is enforced. Add a brief *why* comment at non-obvious spots, such as deliberate tradeoffs, ordering that matters, and security-sensitive choices.
+- Give new public items with non-obvious contracts a short runnable doc example; `cargo test --workspace` runs it.
 - Place documentation comments before all other attributes on the item.
 - Keep documentation concise and current; avoid redundant comments and decorative headers.
 
