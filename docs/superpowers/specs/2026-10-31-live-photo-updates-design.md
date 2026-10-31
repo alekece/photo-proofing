@@ -16,10 +16,13 @@ dropped connection or a restart. This replaces the "refresh on return" workaroun
 - One SSE stream per open gallery page, carrying the step of every photo of that gallery.
 - A reconnect restores the authoritative state; nothing depends on missed events.
 - Bounded buffers, dead or slow connections cleaned up, nothing sensitive in the stream or logs.
-- A mechanism later slices can reuse (#67, #68, #70 to #73) by adding event types.
 
 ## Non-goals
 
+- Anything beyond photo upload and processing. Notifications are stored in their own table and
+  fetched by the frontend, not pushed over SSE. ZIP readiness and other slices are not decided
+  here. This narrows the PRD and ADR 0001, which list SSE for those too; their wording needs your
+  approval to change.
 - A client-side stream: the shared client page loads its photos when it opens and has no live
   updates. If a photo was removed meanwhile, the next action on it fails with "not found"; the
   client page then shows a message that the photographer is modifying the gallery and asks the
