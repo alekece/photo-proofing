@@ -69,7 +69,7 @@
 >
 	{#snippet children(close)}
 		<div class="flex items-center justify-between">
-			<span class="count" aria-live="polite">{index + 1} of {proofs.length}</span>
+			<span aria-live="polite">{index + 1} of {proofs.length}</span>
 			<button type="button" class={controlClass} bind:this={closeButton} onclick={close} aria-label="Close viewer">
 				Close
 			</button>
