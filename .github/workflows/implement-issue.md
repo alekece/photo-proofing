@@ -38,14 +38,20 @@ tools:
     - "pnpm:*"
     - "git:*"
 safe-outputs:
-  # All writes run through the CI-trigger token (a GitHub App or PAT) so the
-  # pushed PR branch actually triggers the repository's CI, which the default
-  # GITHUB_TOKEN does not.
-  github-token: ${{ secrets.GH_AW_CI_TRIGGER_TOKEN }}
+  # Mint a short-lived GitHub App installation token for all writes. The App
+  # (not the default GITHUB_TOKEN) pushes the PR branch, so CI runs; a static
+  # secret would not work because App installation tokens expire hourly.
+  # gh-aw scopes the minted token to the exact safe-output operations.
+  github-app:
+    client-id: ${{ vars.APP_ID }}
+    private-key: ${{ secrets.APP_PRIVATE_KEY }}
   # Operational failures (timeout/crash before the PR) raise their own agent /
   # needs-attention issue, kept on per the design.
   report-failure-as-issue: true
   create-pull-request:
+    # The App-token push (below) triggers CI on its own, so skip the extra empty
+    # commit and keep GH_AW_CI_TRIGGER_TOKEN out of the lock entirely.
+    github-token-for-extra-empty-commit: none
     # Every PR starts as a draft; a clean run promotes it with
     # mark-pull-request-as-ready-for-review below, so draft-vs-ready tracks the
     # outcome deterministically rather than depending on a per-call flag.

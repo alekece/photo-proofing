@@ -49,7 +49,7 @@ Up to X eligible issues are selected per run. Blockers chosen this way count tow
 - **Selector** (`daily-issue-selection.md`): `schedule` daily plus `workflow_dispatch`; read-only permissions; reads open issues, labels, bodies, blockers, linked PRs; applies Eligibility; uses `safe-outputs.dispatch-workflow` (max = X) to start `implement-issue` once per selected issue with input `issue_number`. Posts nothing else.
 - **Worker** (`implement-issue.md`): `workflow_dispatch` with input `issue_number`; checks out the issue's design branch; reads `AGENTS.md`, the issue and its design; rebases the branch on `main`; writes the plan under `docs/superpowers/plans/`; implements per the plan; runs `cargo fmt/clippy` and `pnpm check/test` where possible (network allowed for `rust` and `node` ecosystems); invokes an inline reviewer sub-agent (fresh context, not the author) for a whole-diff review; fixes material findings once; opens the PR (assigned to the maintainer, references the issue, `agent` + `needs-review` labels) via `create-pull-request`.
 - **Red flag:** if the reviewer reports a critical/major problem the worker cannot resolve, a scope or design contradiction, or tests/lint that cannot pass, the worker still opens the PR (draft), adds `blocked` + `needs-attention` to both the issue and the PR, and posts the problems as review threads/comment. It never marks such a PR ready.
-- **CI on the PR:** a repo secret `GH_AW_CI_TRIGGER_TOKEN` (GitHub App/PAT) is used so PR CI runs.
+- **CI on the PR:** the worker's safe outputs mint a short-lived GitHub App installation token (`safe-outputs.github-app`, from the repository variable `APP_ID` and secret `APP_PRIVATE_KEY`); because that App token pushes the PR branch, PR CI runs.
 - **Observability:** each run ends with a short issue comment linking the PR (or explaining why nothing was done).
 
 ## Calls made by the author (change if you disagree)
@@ -63,7 +63,7 @@ Up to X eligible issues are selected per run. Blockers chosen this way count tow
 - **Review:** the inline reviewer sub-agent (fresh context) satisfies the repo's "fresh agent" rule. Material findings are fixed once; if a second review still fails, it is a red flag.
 - **Tests:** the worker runs fmt/clippy and `pnpm check/test` where it can; tests needing Postgres are left to the PR's CI. A missing database is not a red flag; a failing PR CI is reported by CI itself.
 - **Plan file:** the worker commits it on the branch; the maintainer has the plan removed before final merge, per AGENTS.md.
-- **Prerequisite for you:** the repository needs the `GH_AW_CI_TRIGGER_TOKEN` secret (GitHub App or PAT) so CI runs on agent PRs.
+- **Prerequisite for you:** create and install a GitHub App on this repository with `contents: write`, `pull requests: write`, and `issues: write`, then set the repository variable `APP_ID` and secret `APP_PRIVATE_KEY`; the worker mints a scoped, short-lived installation token via `safe-outputs.github-app` so CI runs on agent PRs (a static secret cannot work, as App installation tokens expire hourly).
 
 ## Open for the builder
 
