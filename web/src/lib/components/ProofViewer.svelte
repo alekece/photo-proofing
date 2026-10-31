@@ -9,6 +9,9 @@
 		onclose: () => void;
 	} = $props();
 
+	const controlClass =
+		'min-h-11 min-w-11 cursor-pointer rounded-sm border-2 border-viewer-foreground bg-viewer-control px-4 text-[1.25rem] text-viewer-foreground focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus';
+
 	let closeButton: HTMLButtonElement;
 	const proof = $derived(proofs[index]);
 
@@ -65,53 +68,20 @@
 	class="m-0 h-dvh max-h-dvh w-screen max-w-screen border-0 bg-viewer p-4 text-viewer-foreground open:flex open:flex-col open:gap-4"
 >
 	{#snippet children(close)}
-		<div class="bar">
+		<div class="flex items-center justify-between">
 			<span class="count" aria-live="polite">{index + 1} of {proofs.length}</span>
-			<button type="button" bind:this={closeButton} onclick={close} aria-label="Close viewer">
+			<button type="button" class={controlClass} bind:this={closeButton} onclick={close} aria-label="Close viewer">
 				Close
 			</button>
 		</div>
-		<div class="stage">
-			<button type="button" onclick={() => go(index - 1)} aria-label="Previous proof">‹</button>
-			<img src={proof.previewUrl} alt={proof.alt} />
-			<button type="button" onclick={() => go(index + 1)} aria-label="Next proof">›</button>
+		<div class="flex min-h-0 flex-1 items-center gap-2">
+			<button type="button" class={controlClass} onclick={() => go(index - 1)} aria-label="Previous proof">‹</button>
+			<img
+				src={proof.previewUrl}
+				alt={proof.alt}
+				class="max-h-full min-w-0 flex-1 object-contain"
+			/>
+			<button type="button" class={controlClass} onclick={() => go(index + 1)} aria-label="Next proof">›</button>
 		</div>
 	{/snippet}
 </Dialog>
-
-<style>
-	.bar {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-	.stage {
-		flex: 1;
-		min-height: 0;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-	img {
-		flex: 1;
-		min-width: 0;
-		max-height: 100%;
-		object-fit: contain;
-	}
-	button {
-		min-width: 2.75rem;
-		min-height: 2.75rem;
-		padding: 0 1rem;
-		border: 2px solid var(--color-viewer-foreground);
-		border-radius: 0.25rem;
-		background: var(--color-viewer-control);
-		color: var(--color-viewer-foreground);
-		font: inherit;
-		font-size: 1.25rem;
-		cursor: pointer;
-	}
-	button:focus-visible {
-		outline: 3px solid var(--color-viewer-focus);
-		outline-offset: 2px;
-	}
-</style>
