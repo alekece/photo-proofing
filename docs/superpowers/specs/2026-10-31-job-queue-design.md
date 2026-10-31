@@ -48,16 +48,20 @@ Decided with the product owner:
 
 - A generic queue, `jobs`, with `kind` and a payload.
 - Photos are the only job kind for now; building ZIPs is a possible later kind.
-- Backoff between retries, with an upper cap that is not very high.
-- A fixed poll interval (a setting) rather than a growing one, so an empty queue is not polled
-  frantically but also never goes quiet for long.
+- Retry backoff grows but with an upper cap that is not very high.
+- A fixed poll interval (a setting), so an empty queue is not polled frantically but also never
+  goes quiet for long.
+- `kind` and `state` are enums in Rust and in PostgreSQL (`job_kind`, `job_state`), not text,
+  like `gallery_layout`.
 - A lease: a claim sets `locked_until` and the worker renews it while a job runs, so a crashed
   worker's job is reclaimed automatically once the lease passes.
 
 My calls (to check while reading):
 
 - **Table.** `jobs(id, kind, payload jsonb, state, attempts, max_attempts, run_at, locked_until,
-  last_error, created_at)`. States: queued, running, failed.
+  last_error, created_at)`. `kind` and `state` are PostgreSQL enums mirrored by Rust enums. States: queued, running, failed.
+  Adding a kind is a migration; PostgreSQL cannot use a new enum value in the transaction that
+  adds it, so it goes in its own migration.
 - **Claim.** One `UPDATE ... WHERE id = (SELECT ... FOR UPDATE SKIP LOCKED) RETURNING`. A job is
   eligible when it is queued and due, or running with an expired lease. `attempts` increments at
   claim, so a job that keeps killing the worker also reaches the cap and becomes failed.
@@ -66,7 +70,7 @@ My calls (to check while reading):
   attempt cap the job becomes failed with its last error and stays until a manual retry resets
   it.
 - **Handlers.** The worker registers one handler per kind; the payload is deserialised into the
-  handler's type. An unknown kind or an unreadable payload fails the job visibly.
+  handler's type. An unreadable payload fails the job visibly; an unknown kind cannot be stored.
 - **Repository.** The queue is a `Repository` in `pp-database` (`enqueue`, `claim`, `renew`,
   `complete`, `fail`, `retry`), consistent with the existing data-access pattern.
 - **Migrations.** The worker runs the same migrator as the API at startup. SQLx serialises it
@@ -83,7 +87,6 @@ My calls (to check while reading):
 ## Left to the builder
 
 - Numeric defaults (poll interval, lease length, attempts, backoff base and cap, concurrency).
-- Whether `kind` is plain text checked by the handler registry or a database enum.
 - Heartbeat mechanics and how the lease relates to the slowest expected job.
 
 ## Verification
