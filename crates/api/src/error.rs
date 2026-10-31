@@ -5,7 +5,7 @@
 //! such as the setting that failed validation.
 
 use actix_web::{HttpResponse, ResponseError, error::JsonPayloadError, http::StatusCode};
-use pp_database::{SqlError, gallery::GalleryError};
+use pp_database::{error::DatabaseError, gallery::GalleryError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -80,8 +80,8 @@ impl From<GalleryError> for ErrorResponse {
     }
 }
 
-impl From<SqlError> for ErrorResponse {
-    fn from(_: SqlError) -> Self {
+impl From<DatabaseError> for ErrorResponse {
+    fn from(_: DatabaseError) -> Self {
         Self::unavailable()
     }
 }

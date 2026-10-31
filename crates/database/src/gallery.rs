@@ -9,14 +9,15 @@
 
 use std::num::NonZeroUsize;
 
-use derive_more::{Display, Error};
+use derive_more::Display;
 use pp_core::types::timestamp::Timestamp;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
+use thiserror::Error;
 use uuid::Uuid;
 
 pub use self::share::{ShareToken, SharedGallery};
-use crate::{Repository, auth::WorkspaceId};
+use crate::{Repository, auth::WorkspaceId, error::DatabaseError};
 
 mod share;
 
@@ -35,14 +36,14 @@ pub enum GallerySetting {
     IncludedPhotos,
 }
 
-#[derive(Debug, Display, Error)]
+#[derive(Debug, Error)]
 pub enum GalleryError {
-    #[display("{_0} exceeds its length limit")]
-    LengthOverflow(#[error(not(source))] GallerySetting),
-    #[display("{_0} contains characters the database cannot store")]
-    InvalidCharacters(#[error(not(source))] GallerySetting),
-    #[display("database error: {_0}")]
-    Database(sqlx::Error),
+    #[error("{0} exceeds its length limit")]
+    LengthOverflow(GallerySetting),
+    #[error("{0} contains characters the database cannot store")]
+    InvalidCharacters(GallerySetting),
+    #[error("database error")]
+    Database(#[from] DatabaseError),
 }
 
 impl GalleryError {
@@ -53,11 +54,10 @@ impl GalleryError {
             Self::Database(_) => None,
         }
     }
-}
 
-/// Maps a validation failure to the setting that caused it; anything else stays a database error.
-impl From<sqlx::Error> for GalleryError {
-    fn from(error: sqlx::Error) -> Self {
+    /// Maps a validation failure to the setting that caused it; anything else stays a database
+    /// error. Private so `sqlx::Error` stays out of this crate's public API.
+    fn classify(error: sqlx::Error) -> Self {
         let violation = error.as_database_error().and_then(|db| {
             match (db.constraint(), db.code().as_deref()) {
                 (Some(TITLE_LENGTH_CONSTRAINT), _) => {
@@ -70,7 +70,7 @@ impl From<sqlx::Error> for GalleryError {
             }
         });
 
-        violation.unwrap_or(Self::Database(error))
+        violation.unwrap_or_else(|| Self::Database(DatabaseError::from(error)))
     }
 }
 
@@ -235,45 +235,45 @@ impl GalleryRepository<'_> {
     const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,share_token,created_at,updated_at";
 
     /// Creates an untitled gallery with the default settings.
-    pub async fn create(&self, workspace_id: WorkspaceId) -> Result<Gallery, sqlx::Error> {
-        sqlx::query_as(&format!(
+    pub async fn create(&self, workspace_id: WorkspaceId) -> Result<Gallery, DatabaseError> {
+        Ok(sqlx::query_as(&format!(
             "INSERT INTO galleries(id,workspace_id) VALUES ($1,$2) RETURNING {}",
             Self::COLUMNS
         ))
         .bind(GalleryId(Uuid::new_v4()))
         .bind(workspace_id)
         .fetch_one(self.pool)
-        .await
+        .await?)
     }
 
     pub async fn list(
         &self,
         workspace_id: WorkspaceId,
         sort: GallerySort,
-    ) -> Result<Vec<Gallery>, sqlx::Error> {
-        sqlx::query_as(&format!(
+    ) -> Result<Vec<Gallery>, DatabaseError> {
+        Ok(sqlx::query_as(&format!(
             "SELECT {} FROM galleries WHERE workspace_id=$1 ORDER BY {}",
             Self::COLUMNS,
             sort.order_by()
         ))
         .bind(workspace_id)
         .fetch_all(self.pool)
-        .await
+        .await?)
     }
 
     pub async fn get(
         &self,
         workspace_id: WorkspaceId,
         id: GalleryId,
-    ) -> Result<Option<Gallery>, sqlx::Error> {
-        sqlx::query_as(&format!(
+    ) -> Result<Option<Gallery>, DatabaseError> {
+        Ok(sqlx::query_as(&format!(
             "SELECT {} FROM galleries WHERE id=$1 AND workspace_id=$2",
             Self::COLUMNS
         ))
         .bind(id)
         .bind(workspace_id)
         .fetch_optional(self.pool)
-        .await
+        .await?)
     }
 
     /// Returns the gallery with its private link, creating the link if it has none. A shared
@@ -282,9 +282,9 @@ impl GalleryRepository<'_> {
         &self,
         workspace_id: WorkspaceId,
         id: GalleryId,
-    ) -> Result<Option<Gallery>, sqlx::Error> {
+    ) -> Result<Option<Gallery>, DatabaseError> {
         // The row lock taken by UPDATE makes concurrent calls converge on the first token.
-        sqlx::query_as(&format!(
+        Ok(sqlx::query_as(&format!(
             "UPDATE galleries SET share_token = COALESCE(share_token, $3)
              WHERE id=$1 AND workspace_id=$2
              RETURNING {}",
@@ -294,7 +294,7 @@ impl GalleryRepository<'_> {
         .bind(workspace_id)
         .bind(ShareToken::generate())
         .fetch_optional(self.pool)
-        .await
+        .await?)
     }
 
     /// Finds the gallery behind a private link. Unknown and expired links are the same `None`,
@@ -302,14 +302,14 @@ impl GalleryRepository<'_> {
     pub async fn find_shared(
         &self,
         token: &ShareToken,
-    ) -> Result<Option<SharedGallery>, sqlx::Error> {
-        sqlx::query_as(
+    ) -> Result<Option<SharedGallery>, DatabaseError> {
+        Ok(sqlx::query_as(
             "SELECT title,layout,expires_at FROM galleries
              WHERE share_token=$1 AND (expires_at IS NULL OR expires_at > now())",
         )
         .bind(token)
         .fetch_optional(self.pool)
-        .await
+        .await?)
     }
 
     /// Applies `changes` and returns the gallery, or `None` if the workspace has no such
@@ -366,7 +366,7 @@ impl GalleryRepository<'_> {
         .bind(changes.watermark_enabled)
         .fetch_optional(self.pool)
         .await
-        .map_err(GalleryError::from)
+        .map_err(GalleryError::classify)
     }
 }
 

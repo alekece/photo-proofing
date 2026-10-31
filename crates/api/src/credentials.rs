@@ -8,20 +8,20 @@ use argon2::{
     Argon2, PasswordHasher, PasswordVerifier,
     password_hash::{PasswordHash as PhcHash, SaltString},
 };
-use derive_more::{Display, Error};
 use rand::RngCore;
 use serde::Deserialize;
+use thiserror::Error;
 
 use crate::extractors::session_token::SessionToken;
 
 /// The password length is outside the accepted range.
-#[derive(Debug, Display, Error)]
-#[display("password must be 12–128 characters")]
+#[derive(Debug, Error)]
+#[error("password must be 12–128 characters")]
 pub struct ParsePasswordError;
 
 /// The password could not be hashed.
-#[derive(Debug, Display, Error)]
-#[display("password hashing failed")]
+#[derive(Debug, Error)]
+#[error("password hashing failed")]
 pub struct HashError;
 
 /// A password of 12–128 characters, kept exactly as typed: no trimming or normalization.

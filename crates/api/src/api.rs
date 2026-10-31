@@ -10,11 +10,12 @@ use actix_web::{
     cookie::{Cookie, SameSite, time::Duration as CookieMaxAge, time::error::ConversionRange},
     web::{self, Data, JsonConfig, PathConfig, QueryConfig, ServiceConfig},
 };
-use derive_more::{Display, Error, From};
+use derive_more::From;
 use pp_core::url::Origin;
 use pp_database::{
-    Database, MIGRATOR, PgPoolOptions, auth::AuthRepository, gallery::GalleryRepository,
+    Database, auth::AuthRepository, error::DatabaseError, gallery::GalleryRepository,
 };
+use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
@@ -39,22 +40,18 @@ const HASH_SLOTS: usize = 2;
 
 /// Failure to start or run the [`Api`].
 ///
-/// Connection and migration errors are deliberately not carried as sources: they can embed
-/// the database URL, which holds credentials.
-#[derive(Debug, Display, Error, From)]
+/// Database causes are carried as sources because [`DatabaseError`] is sanitized: it never
+/// contains the database URL, which holds credentials.
+#[derive(Debug, Error, From)]
 pub enum ApiError {
-    #[display("database connection failed")]
-    #[from(skip)]
-    Connection,
-    #[display("database migration failed")]
-    #[from(skip)]
-    Migration,
-    #[display("session idle timeout is out of range: {_0}")]
-    SessionLifetime(ConversionRange),
-    #[display("password hashing unavailable: {_0}")]
-    Hashing(HashError),
-    #[display("server failed: {_0}")]
-    Serve(IoError),
+    #[error("database failed")]
+    Database(#[source] DatabaseError),
+    #[error("session idle timeout is out of range")]
+    SessionLifetime(#[source] ConversionRange),
+    #[error("password hashing unavailable")]
+    Hashing(#[source] HashError),
+    #[error("server failed")]
+    Serve(#[source] IoError),
 }
 
 /// Process-wide state shared by every request handler.
@@ -188,20 +185,12 @@ pub struct Api {
 
 impl Api {
     pub async fn init(config: ApiConfig) -> Result<Self, ApiError> {
-        let pool = PgPoolOptions::new()
-            .max_connections(10)
-            .connect(config.database.url.as_str())
-            .await
-            .map_err(|_| ApiError::Connection)?;
+        let database = Database::connect_lazy(&config.database.url, 10)?;
 
-        MIGRATOR.run(&pool).await.map_err(|_| ApiError::Migration)?;
+        database.ensure_reachable().await?;
+        database.migrate().await?;
 
-        let state = ApiState::new(
-            Database::new(pool),
-            config.session,
-            config.auth,
-            config.limiter,
-        )?;
+        let state = ApiState::new(database, config.session, config.auth, config.limiter)?;
 
         Ok(Self {
             http: config.http,
@@ -247,4 +236,34 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
             .configure(routes::auth::configure)
             .configure(routes::galleries::configure),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error as _;
+
+    use pp_database::error::DatabaseError;
+    use sqlx::Error as SqlxError;
+
+    use super::*;
+
+    #[test]
+    fn database_errors_expose_a_sanitized_cause() {
+        let error = ApiError::from(DatabaseError::from(SqlxError::Configuration(
+            "unknown value \"s3cretpw\" for `ssl_mode`".into(),
+        )));
+        let cause = error.source().expect("the database cause is carried");
+
+        assert!(!error.to_string().contains("s3cretpw"));
+        assert!(!cause.to_string().contains("s3cretpw"));
+        assert!(cause.source().is_none());
+    }
+
+    #[test]
+    fn serve_error_exposes_its_cause_once() {
+        let error = ApiError::from(IoError::other("bind failed"));
+
+        assert_eq!(error.to_string(), "server failed");
+        assert_eq!(error.source().unwrap().to_string(), "bind failed");
+    }
 }

@@ -1,11 +1,12 @@
 use std::str::FromStr;
 
-use derive_more::{Display, Error};
+use derive_more::Display;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use url::Url;
 
-#[derive(Debug, Display, Error)]
-#[display("application origin must be an exact HTTP(S) origin without a path")]
+#[derive(Debug, Error)]
+#[error("application origin must be an exact HTTP(S) origin without a path")]
 pub struct ParseOriginError;
 
 /// The browser-visible origin of the app, in canonical form (`scheme://host[:port]`, no

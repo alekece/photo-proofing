@@ -1,12 +1,13 @@
 use std::{fmt, str::FromStr, time::Duration};
 
-use derive_more::{Display, Error, From};
+use derive_more::From;
 use humantime::DurationError;
 use serde::{Deserialize, Serialize, Serializer, ser::Error as _};
+use thiserror::Error;
 
 /// The duration is outside the supported range.
-#[derive(Debug, Display, Error)]
-#[display(
+#[derive(Debug, Error)]
+#[error(
     "duration must be between {} and {}",
     humantime::format_duration(*min),
     humantime::format_duration(*max)
@@ -16,11 +17,12 @@ pub struct DurationRangeError {
     max: Duration,
 }
 
-#[derive(Debug, Display, Error, From)]
+#[derive(Debug, Error, From)]
 pub enum ParseBoundedDurationError {
-    #[display("invalid duration: {_0}")]
+    // Parsed by clap and serde, which render only `Display`: the leaf detail stays in the message.
+    #[error("invalid duration: {0}")]
     Syntax(DurationError),
-    #[display("{_0}")]
+    #[error(transparent)]
     Range(DurationRangeError),
 }
 
@@ -128,6 +130,13 @@ mod tests {
         for value in ["0s", "500ms", "999999999999999s", "-1s", "nonsense", ""] {
             assert!(value.parse::<Positive>().is_err(), "{value}");
         }
+    }
+
+    #[test]
+    fn syntax_errors_keep_the_parser_detail_in_their_message() {
+        let error = "5 bogus".parse::<Positive>().unwrap_err();
+
+        assert!(error.to_string().contains("bogus"), "{error}");
     }
 
     #[test]

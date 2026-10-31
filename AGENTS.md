@@ -60,7 +60,7 @@ This file is the shared repository policy for Codex, GitHub Copilot coding agent
   - before `return`, unless it is the only statement in its scope.
 - Beyond those rules, group remaining statements into reasonable logical blocks with blank lines, using judgment; do not space out closely related statements mechanically.
 - Propagate recoverable errors with `Result` and `?`, preserving useful context at abstraction boundaries and distinguishing failures from violated invariants.
-- Define typed error enums per crate or domain boundary so callers can branch on variants. Use `thiserror` for error types in new and touched code and keep `derive_more` for other boilerplate; existing `derive_more` error types migrate separately.
+- Define typed error enums per crate or domain boundary so callers can branch on variants. Use `thiserror` for error types, with `Display` describing only the type's own layer and the cause exposed through `source()` so a chain is never printed twice; report chains with `eyre` only at a binary's `main`, never in libraries.
 - Only `api` maps errors to HTTP status codes; domain crates never know about HTTP. Never send internal causes to clients, and return the shared `ErrorResponse` shape.
 - Wrap infrastructure causes as `source`; do not expose types such as `sqlx::Error` in public variants. Use `#[non_exhaustive]` only on intentionally published types.
 - Respect the configured Clippy lints. `unwrap` and `expect` are allowed in tests; production exceptions require a narrow lint allowance and an explanation of the established invariant. Prefer `expect` when its message adds useful context.
