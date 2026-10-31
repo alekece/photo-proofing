@@ -5,18 +5,35 @@
 	import { authRequest } from '#lib/auth.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import Placeholder from '#lib/components/Placeholder.svelte';
+	import AppHeader from '#lib/components/AppHeader.svelte';
+	import GoldenHourEmpty from '#lib/components/GoldenHourEmpty.svelte';
+	import NewGalleryDialog from '#lib/components/NewGalleryDialog.svelte';
+	import Card from '#lib/components/ui/card/card.svelte';
+	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
+	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
-	import { createGallery, type GallerySort } from '#lib/gallery/api.js';
+	import Input from '#lib/components/ui/input/input.svelte';
+	import Label from '#lib/components/ui/label/label.svelte';
+	import Select from '#lib/components/ui/select/select.svelte';
+	import type { GallerySort } from '#lib/gallery/api.js';
 	import { formatEdited, UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 	let pending = $state(false);
 	let message = $state('');
-	let creating = $state(false);
-	let createError = $state('');
+	let dialogOpen = $state(false);
+	let query = $state('');
 	// Only a same-page navigation (changing the sort) shows the loading cards.
 	let loading = $derived(navigating.to?.route.id === '/dashboard');
+	// Plain substring match on the displayed title; never a regular expression.
+	let visible = $derived.by(() => {
+		const needle = query.trim().toLowerCase();
+
+		return (data.galleries ?? []).filter((gallery) =>
+			(gallery.title ?? UNTITLED_GALLERY).toLowerCase().includes(needle)
+		);
+	});
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
 	afterNavigate(() => {
 		void activity();
@@ -35,23 +52,6 @@
 			pending = false;
 		}
 	}
-	async function newGallery() {
-		if (creating) return;
-		creating = true;
-		createError = '';
-		try {
-			const gallery = await createGallery();
-			await goto(`/dashboard/${gallery.id}`);
-		} catch (error) {
-			if (error instanceof Error && 'status' in error && error.status === 401) {
-				await goto('/login?expired=1', { refreshAll: true });
-			} else {
-				createError = 'Couldn’t create the gallery. Please try again.';
-			}
-		} finally {
-			creating = false;
-		}
-	}
 	function changeSort(event: Event) {
 		const sort = (event.currentTarget as HTMLSelectElement).value as GallerySort;
 		void goto(`?sort=${sort}`, { reset: false });
@@ -59,41 +59,38 @@
 </script>
 
 <svelte:head><title>Dashboard — PhotoProofing</title></svelte:head>
-<main class="mx-auto grid max-w-5xl gap-6 p-6">
-	<header class="flex flex-wrap items-center justify-between gap-4">
-		<h1 class="text-2xl font-semibold">Dashboard</h1>
-		<div class="flex flex-wrap items-center gap-2">
-			<Button onclick={newGallery} disabled={creating}>
-				{creating ? 'Creating…' : 'New gallery'}
-			</Button>
-			<Button variant="outline" onclick={logout} disabled={pending}>
-				{pending ? 'Signing out…' : 'Sign out'}
-			</Button>
-		</div>
-	</header>
-	{#if message}<p role="alert">{message}</p>{/if}
-	{#if createError}<p role="alert">{createError}</p>{/if}
+<AppHeader onsignout={logout} />
+<PageShell>
+	<div class="flex flex-wrap items-end justify-between gap-4">
+		<h1 class="text-3xl">Dashboard</h1>
+		<Button onclick={() => (dialogOpen = true)}>New gallery</Button>
+	</div>
+	{#if message}<p role="alert" class="text-danger">{message}</p>{/if}
 
 	{#if loading || (data.galleries && data.galleries.length > 0)}
-		<div class="flex items-center gap-2">
-			<label for="sort" class="text-sm">Sort by</label>
-			<select
-				id="sort"
-				class="rounded-md border bg-background px-2 py-1 text-sm"
-				value={data.sort}
-				onchange={changeSort}
-			>
-				<option value="updated">Last edited</option>
-				<option value="created">Date created</option>
-				<option value="title">Title</option>
-			</select>
+		<div class="flex flex-wrap items-center gap-4">
+			<Input
+				type="search"
+				aria-label="Search galleries"
+				placeholder="Search title"
+				bind:value={query}
+				class="max-w-64"
+			/>
+			<div class="flex items-center gap-2">
+				<Label for="sort" class="text-sm font-normal">Sort by</Label>
+				<Select id="sort" value={data.sort} onchange={changeSort}>
+					<option value="updated">Last edited</option>
+					<option value="created">Date created</option>
+					<option value="title">Title</option>
+				</Select>
+			</div>
 		</div>
 	{/if}
 	{#if loading}
 		<p class="sr-only" role="status">Loading galleries…</p>
 		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
 			{#each [1, 2, 3] as n (n)}
-				<li class="aspect-[3/2] overflow-hidden rounded-xl border">
+				<li class="aspect-[3/2] overflow-hidden rounded-card border border-border">
 					<Placeholder background="sheet" loading />
 				</li>
 			{/each}
@@ -101,22 +98,23 @@
 	{:else if data.galleries === null}
 		<p role="alert">Couldn’t load your galleries. Please reload the page to try again.</p>
 	{:else if data.galleries.length === 0}
-		<section class="grid justify-items-center gap-3 rounded-xl border border-dashed p-12 text-center">
-			<h2 class="text-lg font-medium">Create your first gallery</h2>
-			<p class="text-muted-foreground">
-				Galleries hold the photos you share with a client. Start one and set it up in a minute.
-			</p>
-		</section>
+		<GoldenHourEmpty />
+	{:else if visible.length === 0}
+		<EmptyState class="rounded-dialog">
+			<h2 class="text-xl">No galleries match</h2>
+			<p class="text-muted-foreground">Try a different title.</p>
+			<Button variant="outline" onclick={() => (query = '')}>Clear search</Button>
+		</EmptyState>
 	{:else}
 		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-			{#each data.galleries as gallery (gallery.id)}
-				<li class="overflow-hidden rounded-xl border bg-card focus-within:ring-2 focus-within:ring-ring">
-					<a href={`/dashboard/${gallery.id}`} class="block outline-none">
+			{#each visible as gallery (gallery.id)}
+				<Card as="li" class="overflow-hidden focus-within:ring-2 focus-within:ring-foreground">
+					<a href={`/dashboard/${gallery.id}`} class="block text-foreground no-underline outline-none">
 						<div class="aspect-[3/2]">
 							<Placeholder background="sheet" icon label="Your hero photo will appear here" />
 						</div>
 						<div class="grid gap-1 p-4">
-							<h2 class="truncate font-medium" class:text-muted-foreground={gallery.title === null}>
+							<h2 class="truncate text-base" class:text-muted-foreground={gallery.title === null}>
 								{gallery.title ?? UNTITLED_GALLERY}
 							</h2>
 							<p class="text-sm text-muted-foreground">
@@ -126,8 +124,11 @@
 							</p>
 						</div>
 					</a>
-				</li>
+				</Card>
 			{/each}
 		</ul>
 	{/if}
-</main>
+</PageShell>
+{#if dialogOpen}
+	<NewGalleryDialog onclose={() => (dialogOpen = false)} />
+{/if}

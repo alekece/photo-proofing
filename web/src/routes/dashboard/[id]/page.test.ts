@@ -3,7 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('$app/navigation', () => ({ afterNavigate: vi.fn(), beforeNavigate: vi.fn(), goto: vi.fn() }));
+vi.mock('$app/navigation', () => ({
+	afterNavigate: vi.fn(),
+	beforeNavigate: vi.fn(),
+	goto: vi.fn()
+}));
 vi.mock('$app/state', () => ({ page: { url: new URL('https://pp.test/dashboard/g1') } }));
 import { goto } from '$app/navigation';
 import type { Gallery } from '#lib/gallery/api.js';
@@ -285,5 +289,87 @@ describe('gallery page', () => {
 	it('has no axe violations', async () => {
 		const { container } = open();
 		expect((await axe(container)).violations).toEqual([]);
+	});
+
+	describe('progress header', () => {
+		const stubShare = () => {
+			const fetcher = vi.fn(async (url: string) => {
+				if (url.endsWith('/share')) {
+					return new Response(JSON.stringify({ ...base, share_token: 'C'.repeat(22) }));
+				}
+
+				return new Response(null, { status: 204 });
+			});
+			vi.stubGlobal('fetch', fetcher);
+
+			return () => fetcher.mock.calls.filter(([url]) => url.endsWith('/share'));
+		};
+
+		it('shows the title and the draft status', () => {
+			open();
+			expect(screen.getByText('Draft · not shared')).toBeTruthy();
+			expect(screen.getByLabelText('Gallery title')).toBeTruthy();
+		});
+
+		it('shares only on the second press of Share gallery', async () => {
+			const shares = stubShare();
+			const user = userEvent.setup();
+			open();
+
+			await user.click(screen.getByRole('button', { name: 'Share gallery' }));
+			expect(shares()).toHaveLength(0);
+
+			await user.click(screen.getByRole('button', { name: 'Press again to share' }));
+			expect(await screen.findByLabelText('Client link')).toBeTruthy();
+			expect(shares()).toHaveLength(1);
+			expect(screen.getByText('Shared')).toBeTruthy();
+			expect(screen.queryByRole('button', { name: /Share gallery/ })).toBeNull();
+			expect(
+				(screen.getByRole('button', { name: 'Deliver to client' }) as HTMLButtonElement).disabled
+			).toBe(true);
+		});
+
+		it('starts from the link row and a disabled Deliver when already shared', () => {
+			open({ share_token: 'B'.repeat(22) });
+			expect(screen.getByText('Shared')).toBeTruthy();
+			expect(screen.getByLabelText('Client link')).toBeTruthy();
+			expect(
+				(screen.getByRole('button', { name: 'Deliver to client' }) as HTMLButtonElement).disabled
+			).toBe(true);
+		});
+
+		it('reports a failed share and offers it again', async () => {
+			vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 500 })));
+			const user = userEvent.setup();
+			open();
+			await user.click(screen.getByRole('button', { name: 'Share gallery' }));
+			await user.click(screen.getByRole('button', { name: 'Press again to share' }));
+			expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t share/);
+			expect(screen.getByRole('button', { name: 'Share gallery' })).toBeTruthy();
+		});
+	});
+
+	describe('tabs', () => {
+		it('offers Photos, Favorites and Finals with Photos selected', () => {
+			open();
+			const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent?.trim());
+			expect(tabs).toEqual(['Photos', 'Favorites', 'Finals']);
+			expect(screen.getByRole('tab', { name: 'Photos' }).getAttribute('aria-selected')).toBe(
+				'true'
+			);
+			expect(screen.getByRole('tabpanel').textContent).toMatch(/No photos yet\. Drop JPEGs here/);
+		});
+
+		it('switches panels', async () => {
+			const user = userEvent.setup();
+			open();
+			await user.click(screen.getByRole('tab', { name: 'Finals' }));
+			expect(screen.getByRole('tab', { name: 'Finals' }).getAttribute('aria-selected')).toBe(
+				'true'
+			);
+			expect(screen.getByRole('tabpanel').textContent).toMatch(/No finished photos yet/);
+			await user.click(screen.getByRole('tab', { name: 'Favorites' }));
+			expect(screen.getByRole('tabpanel').textContent).toMatch(/No favorites yet/);
+		});
 	});
 });

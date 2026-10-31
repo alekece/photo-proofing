@@ -14,6 +14,7 @@ test('real setup, persistent cookie, login, and revocable logout', async ({ brow
 	const password = 'synthetic trial password only';
 	await page.getByLabel('Email', { exact: true }).fill('trial@example.test');
 	await page.getByLabel('Password', { exact: true }).fill(password);
+	if (setup) await page.getByLabel('Confirm password', { exact: true }).fill(password);
 	await page
 		.getByRole('button', {
 			name: setup ? 'Create account' : 'Sign in',
