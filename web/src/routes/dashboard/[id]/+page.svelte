@@ -228,7 +228,13 @@
 	{/if}
 
 	<div class="grid gap-6 md:grid-cols-[20rem_1fr]">
-		<GallerySettings gallery={saved} bind:failed onsave={(changes) => void save(changes)} schedule={debounce} {cancel} />
+		<GallerySettings
+			gallery={saved}
+			bind:failed
+			onsave={(changes) => void save(changes)}
+			schedule={debounce}
+			{cancel}
+		/>
 
 		<GalleryTabs />
 	</div>
