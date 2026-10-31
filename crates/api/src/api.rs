@@ -10,11 +10,12 @@ use actix_web::{
     cookie::{Cookie, SameSite, time::Duration as CookieMaxAge, time::error::ConversionRange},
     web::{self, Data, JsonConfig, PathConfig, QueryConfig, ServiceConfig},
 };
-use derive_more::{Display, Error, From};
+use derive_more::From;
 use pp_core::url::Origin;
 use pp_database::{
     Database, MIGRATOR, PgPoolOptions, auth::AuthRepository, gallery::GalleryRepository,
 };
+use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
@@ -41,20 +42,20 @@ const HASH_SLOTS: usize = 2;
 ///
 /// Connection and migration errors are deliberately not carried as sources: they can embed
 /// the database URL, which holds credentials.
-#[derive(Debug, Display, Error, From)]
+#[derive(Debug, Error, From)]
 pub enum ApiError {
-    #[display("database connection failed")]
+    #[error("database connection failed")]
     #[from(skip)]
     Connection,
-    #[display("database migration failed")]
+    #[error("database migration failed")]
     #[from(skip)]
     Migration,
-    #[display("session idle timeout is out of range: {_0}")]
-    SessionLifetime(ConversionRange),
-    #[display("password hashing unavailable: {_0}")]
-    Hashing(HashError),
-    #[display("server failed: {_0}")]
-    Serve(IoError),
+    #[error("session idle timeout is out of range")]
+    SessionLifetime(#[source] ConversionRange),
+    #[error("password hashing unavailable")]
+    Hashing(#[source] HashError),
+    #[error("server failed")]
+    Serve(#[source] IoError),
 }
 
 /// Process-wide state shared by every request handler.
@@ -247,4 +248,25 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
             .configure(routes::auth::configure)
             .configure(routes::galleries::configure),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error as _;
+
+    use super::*;
+
+    #[test]
+    fn connection_and_migration_errors_expose_no_source() {
+        assert!(ApiError::Connection.source().is_none());
+        assert!(ApiError::Migration.source().is_none());
+    }
+
+    #[test]
+    fn serve_error_exposes_its_cause_once() {
+        let error = ApiError::from(IoError::other("bind failed"));
+
+        assert_eq!(error.to_string(), "server failed");
+        assert_eq!(error.source().unwrap().to_string(), "bind failed");
+    }
 }
