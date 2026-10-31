@@ -1992,6 +1992,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pp-storage"
+version = "0.1.0"
+dependencies = [
+ "pp-core",
+ "pp-database",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,5 +1,11 @@
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
+
 use clap::{Args, ValueEnum};
 use clap_config_fallback::ConfigArgs;
+use derive_more::{Display as DeriveDisplay, Error};
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use tracing::level_filters::LevelFilter;
@@ -47,6 +53,61 @@ pub struct DatabaseConfig {
     pub url: Url,
 }
 
+/// The photo directory setting is empty.
+#[derive(Debug, DeriveDisplay, Error)]
+#[display("photo directory must not be empty")]
+pub struct ParsePhotoDirError;
+
+/// Directory holding the private photo files, parsed once so an empty value cannot reach the
+/// storage layer. Whether it exists and is writable is checked when storage is opened.
+#[derive(Debug, Clone, PartialEq, Eq, DeriveDisplay, Serialize, Deserialize)]
+#[display("{}", _0.display())]
+#[serde(try_from = "PathBuf", into = "PathBuf")]
+pub struct PhotoDir(PathBuf);
+
+impl PhotoDir {
+    pub fn as_path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl TryFrom<PathBuf> for PhotoDir {
+    type Error = ParsePhotoDirError;
+
+    fn try_from(path: PathBuf) -> Result<Self, Self::Error> {
+        if path.as_os_str().is_empty() {
+            return Err(ParsePhotoDirError);
+        }
+
+        Ok(Self(path))
+    }
+}
+
+impl FromStr for PhotoDir {
+    type Err = ParsePhotoDirError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        PathBuf::from(value).try_into()
+    }
+}
+
+impl From<PhotoDir> for PathBuf {
+    fn from(dir: PhotoDir) -> Self {
+        dir.0
+    }
+}
+
+/// Where the API and the worker keep photo files; both must point at the same directory.
+#[derive(Args, ConfigArgs, Debug, Clone)]
+pub struct PhotoConfig {
+    #[arg(
+        long = "photo-dir",
+        env = "PP_PHOTO_DIR",
+        default_value = "./data/photos"
+    )]
+    pub dir: PhotoDir,
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, iter, path::PathBuf};
@@ -67,6 +128,9 @@ mod tests {
         #[command(flatten)]
         #[config(no_flatten)]
         database: DatabaseConfig,
+        #[command(flatten)]
+        #[config(no_flatten)]
+        photo: PhotoConfig,
     }
 
     fn parse(args: &[&str]) -> Result<TestCli, clap::Error> {
@@ -102,5 +166,25 @@ mod tests {
     #[test]
     fn log_level_converts_to_level_filter() {
         assert_eq!(LevelFilter::from(LogLevel::Warn), LevelFilter::WARN);
+    }
+
+    #[test]
+    fn photo_dir_has_a_default_and_rejects_empty_values() {
+        assert_eq!(
+            parse(&[]).unwrap().photo.dir.as_path(),
+            Path::new("./data/photos")
+        );
+        assert!(parse(&["--photo-dir", ""]).is_err());
+    }
+
+    #[test]
+    fn photo_dir_is_read_from_config_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.toml");
+        fs::write(&path, "[photo]\ndir = \"/srv/photos\"\n").unwrap();
+
+        let cli = parse(&["--config", path.to_str().unwrap()]).unwrap();
+
+        assert_eq!(cli.photo.dir.as_path(), Path::new("/srv/photos"));
     }
 }
