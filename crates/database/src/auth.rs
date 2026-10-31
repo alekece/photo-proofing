@@ -12,7 +12,7 @@ use sqlx::{FromRow, PgPool, Type};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::Repository;
+use crate::{Repository, error::DatabaseError};
 
 /// Identifies the single photographer account.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -66,10 +66,12 @@ impl<'db> Repository<'db> for AuthRepository<'db> {
 
 impl AuthRepository<'_> {
     /// True while no account exists, i.e. while the login page should offer setup.
-    pub async fn setup_available(&self) -> Result<bool, sqlx::Error> {
-        sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM accounts)")
-            .fetch_one(self.pool)
-            .await
+    pub async fn setup_available(&self) -> Result<bool, DatabaseError> {
+        Ok(
+            sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM accounts)")
+                .fetch_one(self.pool)
+                .await?,
+        )
     }
 
     /// Creates the workspace, account and first session in one transaction. Returns `None`
@@ -81,7 +83,7 @@ impl AuthRepository<'_> {
         password_hash: &str,
         token_hash: &[u8; 32],
         expires_at: SystemTime,
-    ) -> Result<Option<Identity>, sqlx::Error> {
+    ) -> Result<Option<Identity>, DatabaseError> {
         let mut tx = self.pool.begin().await?;
         let workspace_id = WorkspaceId(Uuid::new_v4());
         let account_id = AccountId(Uuid::new_v4());
@@ -114,11 +116,13 @@ impl AuthRepository<'_> {
         }))
     }
 
-    pub async fn account_by_email(&self, email: &Email) -> Result<Option<Account>, sqlx::Error> {
-        sqlx::query_as("SELECT id,workspace_id,password_hash FROM accounts WHERE email=$1")
-            .bind(email.as_str())
-            .fetch_optional(self.pool)
-            .await
+    pub async fn account_by_email(&self, email: &Email) -> Result<Option<Account>, DatabaseError> {
+        Ok(
+            sqlx::query_as("SELECT id,workspace_id,password_hash FROM accounts WHERE email=$1")
+                .bind(email.as_str())
+                .fetch_optional(self.pool)
+                .await?,
+        )
     }
 
     /// Inserts a session, first deleting `replaced_hash` (the caller's previous session on
@@ -130,7 +134,7 @@ impl AuthRepository<'_> {
         token_hash: &[u8; 32],
         expires_at: SystemTime,
         replaced_hash: Option<&[u8; 32]>,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), DatabaseError> {
         let mut tx = self.pool.begin().await?;
 
         if let Some(hash) = replaced_hash {
@@ -148,7 +152,9 @@ impl AuthRepository<'_> {
             .execute(&mut *tx)
             .await?;
 
-        tx.commit().await
+        tx.commit().await?;
+
+        Ok(())
     }
 
     /// Read-only: identifies the session owner if it has not expired. Never extends expiry.
@@ -156,9 +162,9 @@ impl AuthRepository<'_> {
         &self,
         token_hash: &[u8; 32],
         now: SystemTime,
-    ) -> Result<Option<Identity>, sqlx::Error> {
-        sqlx::query_as("SELECT a.id AS account_id,a.workspace_id FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>$2")
-            .bind(token_hash.as_slice()).bind(OffsetDateTime::from(now)).fetch_optional(self.pool).await
+    ) -> Result<Option<Identity>, DatabaseError> {
+        Ok(sqlx::query_as("SELECT a.id AS account_id,a.workspace_id FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>$2")
+            .bind(token_hash.as_slice()).bind(OffsetDateTime::from(now)).fetch_optional(self.pool).await?)
     }
 
     /// Extends a live session and returns its owner, or `None` if it is expired or revoked.
@@ -168,14 +174,14 @@ impl AuthRepository<'_> {
         token_hash: &[u8; 32],
         now: SystemTime,
         expires_at: SystemTime,
-    ) -> Result<Option<Identity>, sqlx::Error> {
+    ) -> Result<Option<Identity>, DatabaseError> {
         // UPDATE, never UPSERT: a revoked session must not be recreated by renewal.
-        sqlx::query_as("UPDATE sessions s SET expires_at=GREATEST(s.expires_at,$3) FROM accounts a WHERE s.account_id=a.id AND s.token_hash=$1 AND s.expires_at>$2 RETURNING a.id AS account_id,a.workspace_id")
-            .bind(token_hash.as_slice()).bind(OffsetDateTime::from(now)).bind(OffsetDateTime::from(expires_at)).fetch_optional(self.pool).await
+        Ok(sqlx::query_as("UPDATE sessions s SET expires_at=GREATEST(s.expires_at,$3) FROM accounts a WHERE s.account_id=a.id AND s.token_hash=$1 AND s.expires_at>$2 RETURNING a.id AS account_id,a.workspace_id")
+            .bind(token_hash.as_slice()).bind(OffsetDateTime::from(now)).bind(OffsetDateTime::from(expires_at)).fetch_optional(self.pool).await?)
     }
 
     /// Deletes the session; copies of its cookie stop authenticating at once. Idempotent.
-    pub async fn revoke(&self, token_hash: &[u8; 32]) -> Result<(), sqlx::Error> {
+    pub async fn revoke(&self, token_hash: &[u8; 32]) -> Result<(), DatabaseError> {
         sqlx::query("DELETE FROM sessions WHERE token_hash=$1")
             .bind(token_hash.as_slice())
             .execute(self.pool)
@@ -186,7 +192,7 @@ impl AuthRepository<'_> {
 
     /// Housekeeping only: expired sessions already fail `authenticate`, so deleting at most
     /// `limit` per call just bounds table growth without long locks.
-    pub async fn cleanup_expired(&self, now: SystemTime, limit: i64) -> Result<(), sqlx::Error> {
+    pub async fn cleanup_expired(&self, now: SystemTime, limit: i64) -> Result<(), DatabaseError> {
         sqlx::query("DELETE FROM sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE expires_at<=$1 ORDER BY expires_at LIMIT $2)").bind(OffsetDateTime::from(now)).bind(limit).execute(self.pool).await?;
 
         Ok(())
