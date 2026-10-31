@@ -28,13 +28,13 @@
 			readonly
 			value={link}
 			aria-label="Client link"
-			class="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-sm"
+			class="min-w-0 flex-1 rounded-control border bg-background px-2 py-1 text-sm"
 		/>
 		<Button variant="outline" size="sm" onclick={copyLink}>Copy</Button>
 	</div>
 	<p class="text-xs" role="status">{copyStatus}</p>
 	<!-- Always shown until the photo count from #66 can tell an empty gallery from a filled one. -->
-	<p class="text-xs text-amber-800">
+	<p class="text-xs text-warning">
 		This gallery has no photos yet. Clients will see an empty gallery.
 	</p>
 </div>

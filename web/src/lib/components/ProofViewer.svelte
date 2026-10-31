@@ -102,8 +102,8 @@
 		padding: 1rem;
 		border: 0;
 		box-sizing: border-box;
-		background: #111;
-		color: #fff;
+		background: var(--color-viewer);
+		color: var(--color-viewer-foreground);
 	}
 	.viewer[open] {
 		display: flex;
@@ -132,16 +132,16 @@
 		min-width: 2.75rem;
 		min-height: 2.75rem;
 		padding: 0 1rem;
-		border: 2px solid #fff;
+		border: 2px solid var(--color-viewer-foreground);
 		border-radius: 0.25rem;
-		background: #222;
-		color: #fff;
+		background: var(--color-viewer-control);
+		color: var(--color-viewer-foreground);
 		font: inherit;
 		font-size: 1.25rem;
 		cursor: pointer;
 	}
 	button:focus-visible {
-		outline: 3px solid #8ab4f8;
+		outline: 3px solid var(--color-viewer-focus);
 		outline-offset: 2px;
 	}
 </style>

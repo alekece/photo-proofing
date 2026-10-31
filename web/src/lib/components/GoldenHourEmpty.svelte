@@ -1,5 +1,5 @@
 <section
-	class="empty grid justify-items-center gap-3 rounded-xl px-6 py-16 text-center"
+	class="empty grid justify-items-center gap-3 rounded-dialog px-6 py-16 text-center"
 	aria-labelledby="golden-hour-title"
 >
 	<svg width="150" height="80" viewBox="0 0 130 70" aria-hidden="true" class="sun">
@@ -16,7 +16,7 @@
 
 <style>
 	.empty {
-		background: linear-gradient(180deg, #f7e3c4, var(--background) 75%);
+		background: linear-gradient(180deg, var(--color-golden-hour), var(--background) 75%);
 	}
 	.sun {
 		animation: rise 0.9s ease-out;

@@ -11,15 +11,3 @@
 </svelte:head>
 
 {@render children()}
-
-<style>
-	:global(:root) {
-		color-scheme: light;
-		font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-		--focus: #2b2420;
-	}
-	:global(body) {
-		margin: 0;
-		line-height: 1.5;
-	}
-</style>

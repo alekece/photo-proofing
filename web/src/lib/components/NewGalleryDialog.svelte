@@ -89,7 +89,7 @@
 	aria-labelledby="new-gallery-title"
 	{onkeydown}
 	{onclose}
-	class="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-border bg-panel p-6 text-foreground shadow-xl"
+	class="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
 >
 	<form onsubmit={submit} class="grid gap-4" aria-busy={creating}>
 		<div class="grid gap-1">
@@ -122,6 +122,6 @@
 
 <style>
 	dialog::backdrop {
-		background: rgb(43 36 32 / 0.45);
+		background: var(--color-overlay);
 	}
 </style>

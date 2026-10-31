@@ -10,7 +10,7 @@
 </script>
 
 <main class="gallery">
-	<h1 style="overflow-wrap: anywhere">{gallery.title ?? UNTITLED_GALLERY}</h1>
+	<h1 class="wrap-anywhere">{gallery.title ?? UNTITLED_GALLERY}</h1>
 	{#if gallery.expires_at}
 		<ExpiryBadge expiresAt={gallery.expires_at} />
 	{/if}
@@ -34,7 +34,7 @@
 	}
 	h1 {
 		margin: 0;
-		font-family: var(--serif);
+		font-family: var(--font-serif);
 		font-weight: 400;
 		font-size: 2rem;
 		text-align: center;

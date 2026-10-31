@@ -4,7 +4,7 @@ import Placeholder from './Placeholder.svelte';
 
 describe('Placeholder', () => {
 	it('is decorative without a label and has no icon by default', () => {
-		const { container } = render(Placeholder, { props: { background: 'gradient' } });
+		const { container } = render(Placeholder, { props: { background: 'sheet' } });
 		expect(container.firstElementChild?.getAttribute('aria-hidden')).toBe('true');
 		expect(container.querySelector('svg')).toBeNull();
 	});

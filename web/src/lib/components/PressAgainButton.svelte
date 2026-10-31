@@ -75,7 +75,7 @@
 	.fill {
 		position: absolute;
 		inset: 0;
-		background: rgb(255 255 255 / 0.28);
+		background: color-mix(in srgb, var(--color-inverse) 28%, transparent);
 		transform-origin: left;
 		animation: drain linear forwards;
 	}
