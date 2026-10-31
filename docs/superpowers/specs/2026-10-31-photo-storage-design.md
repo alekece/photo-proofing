@@ -84,5 +84,5 @@ My calls (to check while reading):
 
 Tests for path containment, commit visibility (nothing readable before commit, file present
 after), drop-without-commit leaving nothing, overwrite of a derivative, disk-full mapping, and
-startup failure for a missing or read-only root. `docker compose up` shows both services
+startup failure for a missing or read-only photo directory. `docker compose up` shows both services
 writing to the shared volume as `pp`.
