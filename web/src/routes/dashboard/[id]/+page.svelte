@@ -11,6 +11,7 @@
 	import Card from '#lib/components/ui/card/card.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
 	import Label from '#lib/components/ui/label/label.svelte';
+	import Checkbox from '#lib/components/ui/checkbox/checkbox.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
 	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import {
@@ -396,8 +397,7 @@
 			</div>
 
 			<Label class="flex items-center gap-2 border-t border-border pt-4 text-sm">
-				<input
-					type="checkbox"
+				<Checkbox
 					bind:checked={watermark}
 					onchange={() => void save({ watermark_enabled: watermark })}
 				/>
