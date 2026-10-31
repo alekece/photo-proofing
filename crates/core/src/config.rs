@@ -5,9 +5,10 @@ use std::{
 
 use clap::{Args, ValueEnum};
 use clap_config_fallback::ConfigArgs;
-use derive_more::{Display as DeriveDisplay, Error};
+use derive_more::Display as DeriveDisplay;
 use serde::{Deserialize, Serialize};
 use strum::Display;
+use thiserror::Error;
 use tracing::level_filters::LevelFilter;
 use url::Url;
 
@@ -54,8 +55,8 @@ pub struct DatabaseConfig {
 }
 
 /// The photo directory setting is empty.
-#[derive(Debug, DeriveDisplay, Error)]
-#[display("photo directory must not be empty")]
+#[derive(Debug, Error)]
+#[error("photo directory must not be empty")]
 pub struct ParsePhotoDirError;
 
 /// Directory holding the private photo files, parsed once so an empty value cannot reach the

@@ -1,10 +1,8 @@
-use std::{
-    io::{Error as IoError, Result as IoResult},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
+use eyre::Result;
 use pp_core::config::{LogConfig, PhotoConfig};
 use pp_storage::PhotoStorage;
 use tokio::signal::unix::{SignalKind, signal};
@@ -24,16 +22,16 @@ struct Cli {
 }
 
 #[tokio::main]
-async fn main() -> IoResult<()> {
+async fn main() -> Result<()> {
+    color_eyre::install()?;
+
     let cli = Cli::parse_with_config();
     tracing_subscriber::fmt()
         .with_max_level(cli.log.log_level)
         .init();
 
     // Only the startup check for now; the processing jobs will hold the handle.
-    PhotoStorage::open(&cli.photo.dir)
-        .await
-        .map_err(|error| IoError::other(error.to_string()))?;
+    PhotoStorage::open(&cli.photo.dir).await?;
 
     tracing::info!("image worker started");
 

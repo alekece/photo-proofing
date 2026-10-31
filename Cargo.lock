@@ -1983,6 +1983,8 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "clap-config-fallback",
+ "color-eyre",
+ "eyre",
  "libc",
  "pp-core",
  "pp-database",
