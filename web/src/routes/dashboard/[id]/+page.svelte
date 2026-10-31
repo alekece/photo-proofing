@@ -9,11 +9,12 @@
 	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Card from '#lib/components/ui/card/card.svelte';
-	import Input from '#lib/components/ui/input/input.svelte';
-	import Label from '#lib/components/ui/label/label.svelte';
 	import Checkbox from '#lib/components/ui/checkbox/checkbox.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
+	import Input from '#lib/components/ui/input/input.svelte';
+	import Label from '#lib/components/ui/label/label.svelte';
 	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
+	import Radio from '#lib/components/ui/radio/radio.svelte';
 	import {
 		GalleryApiError,
 		shareGallery,
@@ -322,8 +323,7 @@
 				<legend class="mb-1 text-sm font-medium">Layout</legend>
 				<div class="flex gap-4 text-sm">
 					<Label class="flex items-center gap-2 font-normal">
-						<input
-							type="radio"
+						<Radio
 							name="layout"
 							value="grid"
 							checked={layout === 'grid'}
@@ -332,8 +332,7 @@
 						Grid
 					</Label>
 					<Label class="flex items-center gap-2 font-normal">
-						<input
-							type="radio"
+						<Radio
 							name="layout"
 							value="masonry"
 							checked={layout === 'masonry'}
