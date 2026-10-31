@@ -142,7 +142,11 @@ Work on the design branch and keep its commits.
 Run, from the repository root, the checks `AGENTS.md` prescribes, and record
 their exact outcomes for the PR body:
 
-- `cargo +nightly fmt --all --check`
+- `cargo +nightly fmt --all --check` — if the nightly toolchain itself is
+  **unavailable** (it cannot be installed from this run), that is **not a red
+  flag**, exactly like the missing database: note it in the PR body and leave
+  formatting verification to CI/the maintainer. Any formatting diff this check
+  *can* detect when it runs is a real finding you must fix.
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`
 - `cargo test --workspace --locked` — skip tests that require a running
   PostgreSQL database; a **missing database is not a red flag** and those tests
@@ -152,7 +156,8 @@ their exact outcomes for the PR body:
 
 A lint or test failure that reflects a real defect you cannot fix without
 exceeding the design's scope is a red flag (see §6). A check that merely needs
-infrastructure you lack (such as the database) is not.
+infrastructure you lack — a running database, or a nightly toolchain that cannot
+be installed in this run — is not; note it and leave it to CI.
 
 ## 5. Independent review
 
@@ -184,7 +189,9 @@ the `draft` field explicitly per the path you choose below.
   second review);
 - a contradiction between the design and the issue, or a scope gap the design
   does not cover;
-- lint or tests that cannot pass for a reason other than missing infrastructure.
+- lint or tests that cannot pass for a reason other than missing infrastructure
+  (a missing database or an uninstallable nightly toolchain is missing
+  infrastructure, not a red flag).
 
 Choose one path:
 
