@@ -27,7 +27,7 @@ fn default_counts(status: StatusCode) -> bool {
 }
 
 /// Middleware that records the peer of every request whose response status is counted.
-pub(crate) struct FailedAttempts<F = fn(StatusCode) -> bool>
+pub(crate) struct FailedAttempts<F>
 where
     F: Fn(StatusCode) -> bool,
 {
@@ -36,14 +36,14 @@ where
     predicate: Rc<F>,
 }
 
-impl FailedAttempts {
+impl FailedAttempts<fn(StatusCode) -> bool> {
     /// Counts every `4xx` response except `429`.
     pub fn new() -> Self {
         Self::counting(default_counts)
     }
 }
 
-impl Default for FailedAttempts {
+impl Default for FailedAttempts<fn(StatusCode) -> bool> {
     fn default() -> Self {
         Self::new()
     }
