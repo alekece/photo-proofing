@@ -14,10 +14,12 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 thiserror = "2"
+eyre = "0.6"
+color-eyre = "0.6"
 serde = { version = "1", features = ["derive"] }
 serde_with = { version = "3", default-features = false, features = ["std"] }
 actix-web = "4"
-derive_more = { version = "2.1.1", features = ["display", "error", "from", "from_str", "deref"] }
+derive_more = { version = "2.1.1", features = ["display", "from", "from_str", "deref"] }
 pp-core = { path = "crates/core" }
 pp-database = { path = "crates/database" }
 
