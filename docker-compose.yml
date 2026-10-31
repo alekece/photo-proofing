@@ -39,6 +39,7 @@ services:
       dockerfile: docker/worker.Dockerfile
     environment:
       PP_LOG_LEVEL: ${PP_LOG_LEVEL:-info}
+      PP_DATABASE_URL: postgres://${POSTGRES_USER:-pp}:${POSTGRES_PASSWORD:-pp-local-only}@postgres:5432/${POSTGRES_DB:-pp}
     depends_on:
       postgres:
         condition: service_healthy
