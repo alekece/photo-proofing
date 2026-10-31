@@ -107,6 +107,14 @@ describe('NewGalleryDialog', () => {
 		expect(onclose).toHaveBeenCalledTimes(2);
 	});
 
+	it('reports a native close that bypasses Escape and Cancel', async () => {
+		const { onclose, container } = setup();
+
+		container.querySelector('dialog')?.dispatchEvent(new Event('close'));
+
+		expect(onclose).toHaveBeenCalledTimes(1);
+	});
+
 	it('starts with focus in the title field and has no axe violations', async () => {
 		const { container } = setup();
 

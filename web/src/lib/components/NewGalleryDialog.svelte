@@ -30,9 +30,11 @@
 	});
 
 	// Closing the dialog before it unmounts is what returns focus to the button that opened it.
+	// With native dialogs, the `close` event reports every closure (including Android back), so
+	// the parent is notified there; the fallback has no such event.
 	function dismiss() {
 		if (typeof dialog.close === 'function') dialog.close();
-		onclose();
+		else onclose();
 	}
 
 	function onkeydown(event: KeyboardEvent) {
@@ -86,6 +88,7 @@
 	bind:this={dialog}
 	aria-labelledby="new-gallery-title"
 	{onkeydown}
+	{onclose}
 	class="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-border bg-panel p-6 text-foreground shadow-xl"
 >
 	<form onsubmit={submit} class="grid gap-4" aria-busy={creating}>
