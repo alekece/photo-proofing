@@ -32,7 +32,7 @@ use serde_json::{Error as JsonError, Value};
 use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
 use uuid::Uuid;
 
-use crate::Repository;
+use crate::{Repository, error::DatabaseError};
 
 /// Longest `last_error` kept, in characters; the full error belongs in the logs.
 const MAX_ERROR_CHARS: usize = 2000;
@@ -153,7 +153,7 @@ impl JobRepository<'_> {
         kind: JobKind,
         payload: &T,
         max_attempts: NonZeroU16,
-    ) -> Result<JobId, sqlx::Error> {
+    ) -> Result<JobId, DatabaseError> {
         let id = JobId(Uuid::new_v4());
         let payload = serde_json::to_value(payload).map_err(|e| sqlx::Error::Encode(e.into()))?;
 
@@ -176,7 +176,7 @@ impl JobRepository<'_> {
         &self,
         kinds: &[JobKind],
         lease: Duration,
-    ) -> Result<Option<Job>, sqlx::Error> {
+    ) -> Result<Option<Job>, DatabaseError> {
         sqlx::query(
             "UPDATE jobs SET state = 'failed', locked_until = NULL,
                  last_error = 'the worker stopped answering on the final attempt'
@@ -188,7 +188,7 @@ impl JobRepository<'_> {
         .execute(self.pool)
         .await?;
 
-        sqlx::query_as(&format!(
+        Ok(sqlx::query_as(&format!(
             "UPDATE jobs SET state = 'running', attempts = attempts + 1,
                  locked_until = now() + $2 * interval '1 second'
              WHERE id = (
@@ -205,11 +205,11 @@ impl JobRepository<'_> {
         .bind(kinds)
         .bind(lease.as_secs_f64())
         .fetch_optional(self.pool)
-        .await
+        .await?)
     }
 
     /// Extends the lease to `lease` from now. `false` means the claim is no longer current.
-    pub async fn renew(&self, job: &Job, lease: Duration) -> Result<bool, sqlx::Error> {
+    pub async fn renew(&self, job: &Job, lease: Duration) -> Result<bool, DatabaseError> {
         let done = sqlx::query(
             "UPDATE jobs SET locked_until = now() + $3 * interval '1 second'
              WHERE id = $1 AND state = 'running' AND attempts = $2",
@@ -224,7 +224,7 @@ impl JobRepository<'_> {
     }
 
     /// Deletes a finished job. `false` means the claim was no longer current.
-    pub async fn complete(&self, job: &Job) -> Result<bool, sqlx::Error> {
+    pub async fn complete(&self, job: &Job) -> Result<bool, DatabaseError> {
         let done =
             sqlx::query("DELETE FROM jobs WHERE id = $1 AND state = 'running' AND attempts = $2")
                 .bind(job.id)
@@ -244,8 +244,8 @@ impl JobRepository<'_> {
         job: &Job,
         error: &str,
         backoff: Backoff,
-    ) -> Result<Option<JobState>, sqlx::Error> {
-        sqlx::query_scalar(
+    ) -> Result<Option<JobState>, DatabaseError> {
+        Ok(sqlx::query_scalar(
             "UPDATE jobs SET
                  state = CASE WHEN attempts >= max_attempts
                      THEN 'failed'::job_state ELSE 'queued'::job_state END,
@@ -261,12 +261,12 @@ impl JobRepository<'_> {
         .bind(clean_error(error))
         .bind(backoff.delay(job.attempts).as_secs_f64())
         .fetch_optional(self.pool)
-        .await
+        .await?)
     }
 
     /// Fails the job for good, regardless of remaining attempts, for errors a retry cannot fix.
     /// `false` means the claim was no longer current.
-    pub async fn abandon(&self, job: &Job, error: &str) -> Result<bool, sqlx::Error> {
+    pub async fn abandon(&self, job: &Job, error: &str) -> Result<bool, DatabaseError> {
         let done = sqlx::query(
             "UPDATE jobs SET state = 'failed', locked_until = NULL, last_error = $3
              WHERE id = $1 AND state = 'running' AND attempts = $2",
@@ -282,7 +282,7 @@ impl JobRepository<'_> {
 
     /// Manually requeues a failed job with a fresh set of attempts. `false` means there is no
     /// failed job with this id.
-    pub async fn retry(&self, id: JobId) -> Result<bool, sqlx::Error> {
+    pub async fn retry(&self, id: JobId) -> Result<bool, DatabaseError> {
         let done = sqlx::query(
             "UPDATE jobs SET state = 'queued', attempts = 0, run_at = now(), last_error = NULL
              WHERE id = $1 AND state = 'failed'",
@@ -295,13 +295,13 @@ impl JobRepository<'_> {
     }
 
     /// Jobs that ran out of attempts, newest first, for operators and later UI.
-    pub async fn list_failed(&self) -> Result<Vec<JobStatus>, sqlx::Error> {
-        sqlx::query_as(
+    pub async fn list_failed(&self) -> Result<Vec<JobStatus>, DatabaseError> {
+        Ok(sqlx::query_as(
             "SELECT id, kind, state, last_error FROM jobs
              WHERE state = 'failed' ORDER BY created_at DESC",
         )
         .fetch_all(self.pool)
-        .await
+        .await?)
     }
 }
 

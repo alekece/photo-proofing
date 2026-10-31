@@ -18,7 +18,8 @@
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
 use pp_database::{
-    Database, MIGRATOR, PgPoolOptions,
+    Database,
+    error::DatabaseError,
     jobs::{Backoff, Job, JobRepository},
 };
 use thiserror::Error;
@@ -35,16 +36,12 @@ use crate::{
 /// before the claim lapses.
 const RENEWALS_PER_LEASE: u32 = 3;
 
-/// Failure to start the [`Worker`].
-///
-/// Causes are deliberately not carried: they can embed the database URL, which holds
-/// credentials.
+/// Failure to start the [`Worker`]. [`DatabaseError`] is sanitized, so it never carries the
+/// database URL and may be reported as a source.
 #[derive(Debug, Error)]
 pub enum WorkerError {
-    #[error("database connection failed")]
-    Connection,
-    #[error("database migration failed")]
-    Migration,
+    #[error("worker could not use the database")]
+    Database(#[from] DatabaseError),
 }
 
 /// How the worker polls, leases and retries.
@@ -81,22 +78,12 @@ impl Worker {
         config: WorkerConfig,
         handlers: HandlerRegistry,
     ) -> Result<Self, WorkerError> {
-        let pool = PgPoolOptions::new()
-            .max_connections(config.queue.pool_size())
-            .connect(config.database.url.as_str())
-            .await
-            .map_err(|_| WorkerError::Connection)?;
+        let database = Database::connect_lazy(&config.database.url, config.queue.pool_size())?;
 
-        MIGRATOR
-            .run(&pool)
-            .await
-            .map_err(|_| WorkerError::Migration)?;
+        database.ensure_reachable().await?;
+        database.migrate().await?;
 
-        Ok(Self::new(
-            Database::new(pool),
-            handlers,
-            config.queue.into(),
-        ))
+        Ok(Self::new(database, handlers, config.queue.into()))
     }
 
     /// Runs until `shutdown` is cancelled, then waits for running jobs as described in the
