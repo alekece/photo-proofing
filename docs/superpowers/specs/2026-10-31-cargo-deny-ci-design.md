@@ -29,13 +29,13 @@ Make `cargo deny` the enforced gate for dependency advisories, licenses, and dup
 
 - `deny.toml` at the repository root: `[licenses]` allow-list of the permissive licenses the current tree needs (derived from the actual baseline, plus MIT for our crates, nothing speculative); `[advisories]` default policy; `[bans]` `multiple-versions = "warn"`; `[sources]` crates.io only.
 - Each crate in `crates/*` sets `license.workspace = true`.
-- `cargo update -p h2` to a patched version; no other dependency changes.
+- The `h2` advisory cannot be fixed by `cargo update`: `h2` 0.3.27 comes from `actix-http`, and the fix exists only in `h2` >=0.4.16. Superseding the earlier plan, `deny.toml` ignores RUSTSEC-2026-0258 with a written reason (Low severity; remove when `actix-http` moves to `h2` 0.4). Chosen by the user on 2026-10-31. No dependency changes.
 - CI: a `Rust dependencies` job in `.github/workflows/ci.yml` using `EmbarkStudios/cargo-deny-action`, gated by the existing `rust` path filter like the other Rust jobs (it already includes `Cargo.lock`), running `cargo deny --workspace check`.
 - `AGENTS.md`: change the "intended CI gate once configured" wording to state the gate exists.
 
 ## Left to the builder
 
-The exact license allow-list entries (from the baseline output), the action version pin, and the patched `h2` version.
+The exact license allow-list entries (from the baseline output), the action version pin, and the exact ignore wording.
 
 ## Verification
 
