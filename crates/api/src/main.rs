@@ -1,10 +1,8 @@
-use std::{
-    io::{Error as IoError, Result as IoResult},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
+use eyre::Result;
 use pp_api::{api::Api, config::ApiConfig};
 use pp_core::config::LogConfig;
 
@@ -22,18 +20,17 @@ struct Cli {
 }
 
 #[actix_web::main]
-async fn main() -> IoResult<()> {
+async fn main() -> Result<()> {
+    color_eyre::install()?;
+
     let cli = Cli::parse_with_config();
 
     tracing_subscriber::fmt()
         .with_max_level(cli.log.log_level)
         .init();
 
-    // Rendered with `Display` so startup failures read as messages, not enum variants.
-    Api::init(cli.api)
-        .await
-        .map_err(|error| IoError::other(error.to_string()))?
-        .run()
-        .await
-        .map_err(|error| IoError::other(error.to_string()))
+    // `Display` describes one layer only; eyre prints the `source()` chain once, here.
+    Api::init(cli.api).await?.run().await?;
+
+    Ok(())
 }

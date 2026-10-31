@@ -7,9 +7,10 @@ use std::{
 
 use clap::Args;
 use clap_config_fallback::ConfigArgs;
-use derive_more::{Display, Error};
+use derive_more::Display;
 use pp_core::{config::DatabaseConfig, time::BoundedDuration, url::Origin};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 /// Longest [`CookieDuration`]: far beyond any sensible policy, yet small enough that adding it
 /// to the current time cannot overflow a timestamp.
@@ -55,8 +56,8 @@ pub struct HttpConfig {
 }
 
 /// The cookie name is empty or contains characters RFC 6265 does not allow in a cookie name.
-#[derive(Debug, Display, Error)]
-#[display("cookie name must be a non-empty RFC 6265 token")]
+#[derive(Debug, Error)]
+#[error("cookie name must be a non-empty RFC 6265 token")]
 pub struct ParseCookieNameError;
 
 /// A valid cookie name, checked once at startup.
