@@ -2002,6 +2002,7 @@ version = "0.1.0"
 dependencies = [
  "pp-core",
  "pp-database",
+ "strum",
  "tempfile",
  "thiserror",
  "tokio",

@@ -15,6 +15,7 @@ use std::{
 
 use pp_core::{config::PhotoDir, notifications::PhotoId};
 use pp_database::{auth::WorkspaceId, gallery::GalleryId};
+use strum::Display;
 use thiserror::Error;
 use tokio::{
     fs::{self, File},
@@ -51,23 +52,14 @@ impl From<io::Error> for StorageError {
 }
 
 /// Which file of a photo is addressed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+#[strum(serialize_all = "lowercase")]
 pub enum Variant {
     /// The accepted upload, written once. A finished photo is also stored as an `Original`
     /// under its own photo id.
     Original,
     Thumbnail,
     Preview,
-}
-
-impl Variant {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Original => "original",
-            Self::Thumbnail => "thumbnail",
-            Self::Preview => "preview",
-        }
-    }
 }
 
 /// Address of one stored file.
@@ -80,14 +72,14 @@ pub struct PhotoKey {
 }
 
 impl PhotoKey {
-    fn gallery_dir(&self, root: &Path) -> PathBuf {
+    fn dir(&self, root: &Path) -> PathBuf {
         root.join(self.workspace.0.to_string())
             .join(self.gallery.0.to_string())
     }
 
     fn path(&self, root: &Path) -> PathBuf {
-        self.gallery_dir(root)
-            .join(format!("{}-{}", self.photo, self.variant.as_str()))
+        self.dir(root)
+            .join(format!("{}-{}", self.photo, self.variant))
     }
 }
 
@@ -176,7 +168,7 @@ impl StagedPhoto {
 
         let target = key.path(&self.root);
 
-        fs::create_dir_all(key.gallery_dir(&self.root)).await?;
+        fs::create_dir_all(key.dir(&self.root)).await?;
 
         match key.variant {
             // `hard_link` fails instead of replacing, unlike `rename`.
@@ -185,10 +177,7 @@ impl StagedPhoto {
         }
 
         // Persist the directory entry so a crash cannot lose a photo that was reported stored.
-        File::open(key.gallery_dir(&self.root))
-            .await?
-            .sync_all()
-            .await?;
+        File::open(key.dir(&self.root)).await?.sync_all().await?;
 
         // `Drop` then unlinks the staged name that a hard-linked original leaves behind.
         Ok(())
