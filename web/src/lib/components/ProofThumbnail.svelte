@@ -25,7 +25,7 @@
 		overflow: hidden;
 	}
 	.thumb:focus-visible {
-		outline: 3px solid var(--focus, #1a73e8);
+		outline: 3px solid var(--color-focus);
 		outline-offset: 2px;
 	}
 	img {

@@ -62,7 +62,7 @@
 		</p>{/if}
 	<form
 		onsubmit={submit}
-		class="grid gap-5 rounded-lg border border-border bg-panel p-6"
+		class="grid gap-5 rounded-card border border-border bg-panel p-6"
 		aria-busy={pending}
 	>
 		<div class="grid gap-2">

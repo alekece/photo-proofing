@@ -64,7 +64,7 @@
 		max-width: 100%;
 		height: auto;
 		border-radius: 4px;
-		box-shadow: 0 8px 30px rgb(0 0 0 / 0.18);
+		box-shadow: var(--shadow-viewfinder);
 		margin-bottom: 1rem;
 	}
 	text {
@@ -74,7 +74,7 @@
 		font-size: 10px;
 	}
 	.focus {
-		color: #ff9a2e;
+		color: var(--color-autofocus);
 		transform-box: fill-box;
 		transform-origin: center;
 		animation: hunt 2.4s ease-in-out 1 both;
@@ -82,19 +82,19 @@
 	@keyframes hunt {
 		0% {
 			transform: translate(-60px, 12px) scale(1.25);
-			color: #fff;
+			color: var(--color-inverse);
 		}
 		18% {
 			transform: translate(40px, -14px) scale(0.9);
 		}
 		34% {
 			transform: translate(-20px, -10px) scale(1.1);
-			color: #fff;
+			color: var(--color-inverse);
 		}
 		55%,
 		100% {
 			transform: none;
-			color: #ff9a2e;
+			color: var(--color-autofocus);
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {

@@ -34,7 +34,7 @@
 	}
 	h1 {
 		margin: 0;
-		font-family: var(--serif);
+		font-family: var(--font-serif);
 		font-weight: 400;
 		font-size: 2rem;
 		text-align: center;

@@ -90,7 +90,7 @@
 		<p class="sr-only" role="status">Loading galleries…</p>
 		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
 			{#each [1, 2, 3] as n (n)}
-				<li class="aspect-[3/2] overflow-hidden rounded-lg border border-border">
+				<li class="aspect-[3/2] overflow-hidden rounded-card border border-border">
 					<Placeholder background="sheet" loading />
 				</li>
 			{/each}
@@ -100,7 +100,7 @@
 	{:else if data.galleries.length === 0}
 		<GoldenHourEmpty />
 	{:else if visible.length === 0}
-		<section class="grid justify-items-center gap-3 rounded-xl border border-dashed border-border-strong p-12 text-center">
+		<section class="grid justify-items-center gap-3 rounded-dialog border border-dashed border-border-strong p-12 text-center">
 			<h2 class="text-xl">No galleries match</h2>
 			<p class="text-muted-foreground">Try a different title.</p>
 			<Button variant="outline" onclick={() => (query = '')}>Clear search</Button>
@@ -108,7 +108,7 @@
 	{:else}
 		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 			{#each visible as gallery (gallery.id)}
-				<li class="overflow-hidden rounded-lg border border-border bg-panel focus-within:ring-2 focus-within:ring-foreground">
+				<li class="overflow-hidden rounded-card border border-border bg-panel focus-within:ring-2 focus-within:ring-foreground">
 					<a href={`/dashboard/${gallery.id}`} class="block text-foreground no-underline outline-none">
 						<div class="aspect-[3/2]">
 							<Placeholder background="sheet" icon label="Your hero photo will appear here" />

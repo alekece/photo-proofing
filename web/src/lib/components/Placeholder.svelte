@@ -21,7 +21,7 @@
 	class={cn(
 		'relative h-full w-full overflow-hidden',
 		background === 'gradient' && 'bg-gradient-to-br from-violet-200 via-rose-100 to-sky-200',
-		background === 'sheet' && 'bg-stone-100',
+		background === 'sheet' && 'bg-placeholder-sheet',
 		loading && 'pp-breathe',
 		className
 	)}
@@ -30,14 +30,14 @@
 >
 	{#if background === 'sheet'}
 		<div class="absolute inset-3 grid grid-cols-3 grid-rows-2 gap-2" aria-hidden="true">
-			<div class="col-span-2 row-span-2 rounded-md bg-stone-200"></div>
-			<div class="rounded-md bg-stone-300/70"></div>
-			<div class="rounded-md bg-stone-200/80"></div>
+			<div class="col-span-2 row-span-2 rounded-control bg-placeholder-tile"></div>
+			<div class="rounded-control bg-placeholder-tile-strong/70"></div>
+			<div class="rounded-control bg-placeholder-tile/80"></div>
 		</div>
 	{/if}
 	{#if (icon || shownLabel) && !loading}
 		<div
-			class="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-sm text-stone-600"
+			class="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-sm text-placeholder-foreground"
 		>
 			{#if icon}
 				<svg

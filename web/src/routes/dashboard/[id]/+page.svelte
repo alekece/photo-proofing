@@ -226,7 +226,7 @@
 				<label class="sr-only" for="title">Gallery title</label>
 				<input
 					id="title"
-					class="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 font-serif text-3xl hover:border-border-strong focus:border-foreground focus:outline-none"
+					class="min-w-0 flex-1 rounded-control border border-transparent bg-transparent px-2 py-1 font-serif text-3xl hover:border-border-strong focus:border-foreground focus:outline-none"
 					bind:value={title}
 					placeholder={UNTITLED_GALLERY}
 					maxlength={TITLE_MAX}
@@ -288,7 +288,7 @@
 
 	<div class="grid gap-6 md:grid-cols-[20rem_1fr]">
 		<aside
-			class="grid content-start gap-5 rounded-lg border border-border bg-panel p-4"
+			class="grid content-start gap-5 rounded-card border border-border bg-panel p-4"
 			aria-label="Gallery settings"
 		>
 			<h2 class="text-lg">Settings</h2>
@@ -327,7 +327,7 @@
 					<input
 						id="expiry"
 						type="date"
-						class="min-w-0 flex-1 rounded-md border border-border-strong bg-white px-2 py-1 text-sm"
+						class="min-w-0 flex-1 rounded-control border border-border-strong bg-input px-2 py-1 text-sm"
 						value={expiryDay}
 						onchange={(event) => {
 							expiryDay = event.currentTarget.value;
@@ -342,7 +342,7 @@
 					{expiryDay ? 'Ends at the end of this day.' : 'No expiry.'}
 				</p>
 				{#if expired}
-					<p class="text-xs text-amber-800">
+					<p class="text-xs text-warning">
 						This date is in the past, so the gallery is already expired.
 					</p>
 				{/if}
@@ -356,7 +356,7 @@
 					min="1"
 					step="1"
 					placeholder="Unlimited"
-					class="rounded-md border border-border-strong bg-white px-2 py-1 text-sm"
+					class="rounded-control border border-border-strong bg-input px-2 py-1 text-sm"
 					bind:value={included}
 					oninput={editIncluded}
 					onblur={leaveIncluded}
@@ -419,7 +419,7 @@
 							+ Upload
 						</Button>
 					</div>
-					<p class="rounded-lg border border-dashed border-border-strong p-12 text-center text-muted-foreground">
+					<p class="rounded-card border border-dashed border-border-strong p-12 text-center text-muted-foreground">
 						No photos yet. Drop JPEGs here to start.
 					</p>
 				{:else if tab === 'favorites'}
@@ -429,7 +429,7 @@
 							Download
 						</Button>
 					</div>
-					<p class="rounded-lg border border-dashed border-border-strong p-12 text-center text-muted-foreground">
+					<p class="rounded-card border border-dashed border-border-strong p-12 text-center text-muted-foreground">
 						No favorites yet. The client’s selection will appear here.
 					</p>
 				{:else}
@@ -443,7 +443,7 @@
 							+ Add finished photos
 						</Button>
 					</div>
-					<p class="rounded-lg border border-dashed border-border-strong p-12 text-center text-muted-foreground">
+					<p class="rounded-card border border-dashed border-border-strong p-12 text-center text-muted-foreground">
 						No finished photos yet. Drop the edited JPEGs here.
 					</p>
 				{/if}
