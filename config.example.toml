@@ -21,6 +21,15 @@ max_failures = 10
 window = "1m"
 max_peers = 1024
 
+# Image worker queue (pp-image-worker).
+[queue]
+poll_interval = "5s"
+lease = "60s"
+concurrency = 2
+backoff_base = "10s"
+backoff_cap = "5m"
+shutdown_grace = "30s"
+
 [photo]
 # Private photo files; the API and the worker must share this directory.
 dir = "./data/photos"

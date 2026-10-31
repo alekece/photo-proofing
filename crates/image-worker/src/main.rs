@@ -4,8 +4,16 @@ use clap::Parser;
 use clap_config_fallback::ConfigParser;
 use eyre::Result;
 use pp_core::config::{LogConfig, PhotoConfig};
+use pp_image_worker::{config::WorkerConfig, handlers::HandlerRegistry, runtime::Worker};
 use pp_storage::PhotoStorage;
-use tokio::signal::unix::{SignalKind, signal};
+use tokio::{
+    signal::{
+        self,
+        unix::{SignalKind, signal},
+    },
+    task,
+};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Parser, ConfigParser)]
 #[command(name = "pp-image-worker", about = "Gallery image worker")]
@@ -16,6 +24,8 @@ struct Cli {
     config: Option<PathBuf>,
     #[command(flatten)]
     log: LogConfig,
+    #[command(flatten)]
+    worker: WorkerConfig,
     #[command(flatten)]
     #[config(no_flatten)]
     photo: PhotoConfig,
@@ -30,16 +40,29 @@ async fn main() -> Result<()> {
         .with_max_level(cli.log.log_level)
         .init();
 
-    // Only the startup check for now; the processing jobs will hold the handle.
     PhotoStorage::open(&cli.photo.dir).await?;
 
     tracing::info!("image worker started");
 
+    // Listening starts before the database is reached so a stop signal during startup is
+    // not lost.
     let mut sigterm = signal(SignalKind::terminate())?;
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {}
-        _ = sigterm.recv() => {}
-    }
+    let shutdown = CancellationToken::new();
+    let signals = task::spawn({
+        let shutdown = shutdown.clone();
+        async move {
+            tokio::select! {
+                _ = signal::ctrl_c() => {}
+                _ = sigterm.recv() => {}
+            }
+            shutdown.cancel();
+        }
+    });
+
+    // Photo processing registers its handler here in a later slice.
+    let worker = Worker::connect(cli.worker, HandlerRegistry::default()).await?;
+    worker.run(shutdown).await;
+    signals.abort();
 
     tracing::info!("image worker stopping");
     Ok(())
