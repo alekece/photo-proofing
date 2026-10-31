@@ -614,7 +614,7 @@ jobs:
                     "additionalProperties": false,
                     "properties": {
                       "issue_number": {
-                        "description": "Issue number to implement",
+                        "description": "Number of the designed issue to implement (string, e.g. \"42\").",
                         "type": "string"
                       },
                       "ref": {
