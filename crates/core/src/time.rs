@@ -17,12 +17,13 @@ pub struct DurationRangeError {
     max: Duration,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, From)]
 pub enum ParseBoundedDurationError {
-    #[error("invalid duration")]
-    Syntax(#[from] DurationError),
+    // Parsed by clap and serde, which render only `Display`: the leaf detail stays in the message.
+    #[error("invalid duration: {0}")]
+    Syntax(DurationError),
     #[error(transparent)]
-    Range(#[from] DurationRangeError),
+    Range(DurationRangeError),
 }
 
 /// A span of time that lasts at least `MIN` and at most `MAX` whole seconds.
@@ -129,6 +130,13 @@ mod tests {
         for value in ["0s", "500ms", "999999999999999s", "-1s", "nonsense", ""] {
             assert!(value.parse::<Positive>().is_err(), "{value}");
         }
+    }
+
+    #[test]
+    fn syntax_errors_keep_the_parser_detail_in_their_message() {
+        let error = "5 bogus".parse::<Positive>().unwrap_err();
+
+        assert!(error.to_string().contains("bogus"), "{error}");
     }
 
     #[test]
