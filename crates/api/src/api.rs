@@ -13,7 +13,7 @@ use actix_web::{
 use derive_more::From;
 use pp_core::url::Origin;
 use pp_database::{
-    Database, MIGRATOR, PgPoolOptions, auth::AuthRepository, gallery::GalleryRepository,
+    Database, auth::AuthRepository, error::DatabaseError, gallery::GalleryRepository,
 };
 use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -40,16 +40,16 @@ const HASH_SLOTS: usize = 2;
 
 /// Failure to start or run the [`Api`].
 ///
-/// Connection and migration errors are deliberately not carried as sources: they can embed
-/// the database URL, which holds credentials.
+/// Database causes are carried as sources because [`DatabaseError`] is sanitized: it never
+/// contains the database URL, which holds credentials.
 #[derive(Debug, Error, From)]
 pub enum ApiError {
     #[error("database connection failed")]
     #[from(skip)]
-    Connection,
+    Connection(#[source] DatabaseError),
     #[error("database migration failed")]
     #[from(skip)]
-    Migration,
+    Migration(#[source] DatabaseError),
     #[error("session idle timeout is out of range")]
     SessionLifetime(#[source] ConversionRange),
     #[error("password hashing unavailable")]
@@ -189,20 +189,16 @@ pub struct Api {
 
 impl Api {
     pub async fn init(config: ApiConfig) -> Result<Self, ApiError> {
-        let pool = PgPoolOptions::new()
-            .max_connections(10)
-            .connect(config.database.url.as_str())
+        let database = Database::connect_lazy(config.database.url.as_str(), 10)
+            .map_err(ApiError::Connection)?;
+
+        database
+            .ensure_reachable()
             .await
-            .map_err(|_| ApiError::Connection)?;
+            .map_err(ApiError::Connection)?;
+        database.migrate().await.map_err(ApiError::Migration)?;
 
-        MIGRATOR.run(&pool).await.map_err(|_| ApiError::Migration)?;
-
-        let state = ApiState::new(
-            Database::new(pool),
-            config.session,
-            config.auth,
-            config.limiter,
-        )?;
+        let state = ApiState::new(database, config.session, config.auth, config.limiter)?;
 
         Ok(Self {
             http: config.http,
@@ -254,12 +250,29 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
 mod tests {
     use std::error::Error as _;
 
+    use pp_database::error::DatabaseError;
+    use sqlx::Error as SqlxError;
+
     use super::*;
 
     #[test]
-    fn connection_and_migration_errors_expose_no_source() {
-        assert!(ApiError::Connection.source().is_none());
-        assert!(ApiError::Migration.source().is_none());
+    fn connection_and_migration_errors_expose_a_sanitized_cause() {
+        let leaking = || {
+            DatabaseError::from(SqlxError::Configuration(
+                "unknown value \"s3cretpw\" for `ssl_mode`".into(),
+            ))
+        };
+
+        for error in [
+            ApiError::Connection(leaking()),
+            ApiError::Migration(leaking()),
+        ] {
+            let cause = error.source().expect("the database cause is carried");
+
+            assert!(!error.to_string().contains("s3cretpw"));
+            assert!(!cause.to_string().contains("s3cretpw"));
+            assert!(cause.source().is_none());
+        }
     }
 
     #[test]
