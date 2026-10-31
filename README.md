@@ -8,11 +8,12 @@ The planned MVP is a local-network workflow trial with replaceable JPEG photos, 
 
 Development is restarting around the [product specifications](docs/SPECIFICATIONS.md) and [MVP scope and acceptance checklist](docs/releases/MVP.md). These documents describe the target product, not completed features.
 
-The repository supports one-time photographer account setup, email/password login, a protected dashboard, persistent revocable sessions, and persistent galleries with autosaved settings (title, layout, expiry, included photo count, watermark flag) backed by SQLx/PostgreSQL. Auth screens use Tailwind and selected shadcn-svelte components. Configuration/logging, API health, an idle worker, in-memory notification domain code, private client links (the photographer shares a gallery from its page; `/g/<token>` shows its title, expiry and an empty state to anyone with the link), and a proof viewer also exist. Photo upload and the hero picker, the durable queue, uploads/processing, delivery, and SSE are not implemented.
+The repository supports one-time photographer account setup, email/password login, a protected dashboard, persistent revocable sessions, and persistent galleries with autosaved settings (title, layout, expiry, included photo count, watermark flag) backed by SQLx/PostgreSQL. Auth screens use Tailwind and selected shadcn-svelte components. Configuration/logging, API health, an idle worker, in-memory notification domain code, private client links (the photographer shares a gallery from its page; `/g/<token>` shows its title, expiry and an empty state to anyone with the link), and a proof viewer also exist. A private photo storage layer (`pp-storage`) and its volume exist, but nothing writes photos yet. Photo upload and the hero picker, the durable queue, uploads/processing, delivery, and SSE are not implemented.
 
 - [Product specifications](docs/SPECIFICATIONS.md): requirements, constraints, and exclusions.
 - [MVP release](docs/releases/MVP.md): first-release scope and acceptance evidence to collect.
 - [ADR 0001 — Technology baseline](docs/adr/0001-technology-baseline.md): established choices and tradeoffs.
+- [ADR 0003 — Private photo storage](docs/adr/0003-photo-storage.md): photo directory layout and atomic writes.
 - [Agent guidance](AGENTS.md): shared development and documentation rules.
 - [Approved design records](docs/superpowers/specs/): designs retained with the repository.
 
@@ -63,11 +64,11 @@ Stop the stack with:
 docker compose down
 ```
 
-This preserves the named PostgreSQL volume. `docker compose down -v` deletes that volume and its database contents. The current stack does not yet configure persistent photo storage; that is required before implementing uploads.
+This preserves the named PostgreSQL volume. `docker compose down -v` deletes that volume and its database contents. The `photo-data` volume, mounted at `/var/lib/pp/photos` in the API and worker, holds private photo files and is also deleted by `down -v`. The API and worker refuse to start if `PP_PHOTO_DIR` is not a writable directory; natively it defaults to `./data/photos`, which must exist and be shared by both processes (see [ADR 0003](docs/adr/0003-photo-storage.md)).
 
 ### Native development
 
-Start a local PostgreSQL 17 instance first, or start only the Compose database with `docker compose up -d postgres`. Native defaults use the sample account/database from `.env.example` at port 5432. Set `PP_DATABASE_URL` when using another database or port. The API connects and applies embedded migrations before listening; it fails startup if the database is unavailable.
+Start a local PostgreSQL 17 instance first, or start only the Compose database with `docker compose up -d postgres`. Native defaults use the sample account/database from `.env.example` at port 5432. Set `PP_DATABASE_URL` when using another database or port. Create the photo directory once with `mkdir -p data/photos` (gitignored) or point `PP_PHOTO_DIR` elsewhere; both processes must use the same one. The API connects and applies embedded migrations before listening; it fails startup if the database is unavailable.
 
 Install frontend dependencies:
 

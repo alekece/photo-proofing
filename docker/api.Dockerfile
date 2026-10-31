@@ -10,9 +10,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --no-create-home pp
+    && useradd --system --no-create-home pp \
+    && install -d -o pp -g pp /var/lib/pp/photos
 COPY --from=build /pp-api /usr/local/bin/pp-api
+# A fresh named volume copies this directory's ownership, so `pp` can write to it.
 USER pp
+ENV PP_PHOTO_DIR=/var/lib/pp/photos
 ENV PP_HOST=0.0.0.0 PP_PORT=8080
 EXPOSE 8080
 HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=5 \

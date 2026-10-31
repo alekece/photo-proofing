@@ -1,8 +1,12 @@
-use std::{io::Result as IoResult, path::PathBuf};
+use std::{
+    io::{Error as IoError, Result as IoResult},
+    path::PathBuf,
+};
 
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
-use pp_core::config::LogConfig;
+use pp_core::config::{LogConfig, PhotoConfig};
+use pp_storage::PhotoStorage;
 use tokio::signal::unix::{SignalKind, signal};
 
 #[derive(Parser, ConfigParser)]
@@ -14,6 +18,9 @@ struct Cli {
     config: Option<PathBuf>,
     #[command(flatten)]
     log: LogConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    photo: PhotoConfig,
 }
 
 #[tokio::main]
@@ -22,6 +29,11 @@ async fn main() -> IoResult<()> {
     tracing_subscriber::fmt()
         .with_max_level(cli.log.log_level)
         .init();
+
+    // Only the startup check for now; the processing jobs will hold the handle.
+    PhotoStorage::open(&cli.photo.dir)
+        .await
+        .map_err(|error| IoError::other(error.to_string()))?;
 
     tracing::info!("image worker started");
 
