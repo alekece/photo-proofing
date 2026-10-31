@@ -100,7 +100,7 @@
 			</p>
 		</div>
 		<div class="grid gap-2">
-			<Label for="new-gallery-field">Title</Label>
+			<Label for="new-gallery-field" class="font-normal">Title</Label>
 			<Input
 				bind:ref={field}
 				id="new-gallery-field"

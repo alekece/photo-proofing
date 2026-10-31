@@ -73,7 +73,7 @@
 				aria-label="Search galleries"
 				placeholder="Search title"
 				bind:value={query}
-				class="max-w-64 rounded-full"
+				class="max-w-64"
 			/>
 			<div class="flex items-center gap-2">
 				<Label for="sort" class="text-sm font-normal">Sort by</Label>

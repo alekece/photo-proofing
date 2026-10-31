@@ -65,7 +65,7 @@
 		</p>{/if}
 	<Card as="form" onsubmit={submit} class="grid gap-5 p-6" aria-busy={pending}>
 		<div class="grid gap-2">
-			<Label for="email">Email</Label><Input
+			<Label for="email" class="font-normal">Email</Label><Input
 				disabled={pending || !ready}
 				id="email"
 				type="email"
@@ -76,7 +76,7 @@
 			/>
 		</div>
 		<div class="grid gap-2">
-			<Label for="password">Password</Label><Input
+			<Label for="password" class="font-normal">Password</Label><Input
 				disabled={pending || !ready}
 				id="password"
 				aria-describedby="password-help"
@@ -91,7 +91,7 @@
 		</div>
 		{#if data.setupAvailable}
 			<div class="grid gap-2">
-				<Label for="confirmation">Confirm password</Label><Input
+				<Label for="confirmation" class="font-normal">Confirm password</Label><Input
 					disabled={pending || !ready}
 					id="confirmation"
 					type="password"
