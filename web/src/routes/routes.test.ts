@@ -71,7 +71,7 @@ describe('client gallery route', () => {
 		unmount();
 		open(shared({ title: 'x'.repeat(255) }));
 		const heading = screen.getByRole('heading', { level: 1 });
-		expect(getComputedStyle(heading).overflowWrap).toBe('anywhere');
+		expect(heading.classList.contains('wrap-anywhere')).toBe(true);
 	});
 });
 
