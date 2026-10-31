@@ -71,32 +71,32 @@
 	class="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
 >
 	{#snippet children(close)}
-	<form onsubmit={submit} class="grid gap-4" aria-busy={creating}>
-		<div class="grid gap-1">
-			<h2 id="new-gallery-title" class="text-xl">New gallery</h2>
-			<p class="text-sm text-muted-foreground">
-				Give it a title. You can change it any time, and nothing is shared until you say so.
-			</p>
-		</div>
-		<div class="grid gap-2">
-			<Label for="new-gallery-field" class="font-normal">Title</Label>
-			<Input
-				bind:ref={field}
-				id="new-gallery-field"
-				bind:value={title}
-				placeholder="e.g. Martin wedding"
-				aria-describedby={error ? 'new-gallery-error' : undefined}
-				aria-invalid={error ? true : undefined}
-				disabled={creating}
-			/>
-			{#if error}
-				<p id="new-gallery-error" role="alert" class="text-sm text-danger">{error}</p>
-			{/if}
-		</div>
-		<div class="flex justify-end gap-2">
-			<Button variant="ghost" onclick={close} disabled={creating}>Cancel</Button>
-			<Button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create gallery'}</Button>
-		</div>
-	</form>
+		<form onsubmit={submit} class="grid gap-4" aria-busy={creating}>
+			<div class="grid gap-1">
+				<h2 id="new-gallery-title" class="text-xl">New gallery</h2>
+				<p class="text-sm text-muted-foreground">
+					Give it a title. You can change it any time, and nothing is shared until you say so.
+				</p>
+			</div>
+			<div class="grid gap-2">
+				<Label for="new-gallery-field" class="font-normal">Title</Label>
+				<Input
+					bind:ref={field}
+					id="new-gallery-field"
+					bind:value={title}
+					placeholder="e.g. Martin wedding"
+					aria-describedby={error ? 'new-gallery-error' : undefined}
+					aria-invalid={error ? true : undefined}
+					disabled={creating}
+				/>
+				{#if error}
+					<p id="new-gallery-error" role="alert" class="text-sm text-danger">{error}</p>
+				{/if}
+			</div>
+			<div class="flex justify-end gap-2">
+				<Button variant="ghost" onclick={close} disabled={creating}>Cancel</Button>
+				<Button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create gallery'}</Button>
+			</div>
+		</form>
 	{/snippet}
 </Dialog>

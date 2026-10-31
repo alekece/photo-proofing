@@ -3,6 +3,12 @@
 	import type { HTMLDialogAttributes } from 'svelte/elements';
 	import { cn } from '#lib/utils.js';
 
+	/**
+	 * Native modal `<dialog>` opened on mount. `children` receives `close`, which dismisses it.
+	 * `onclose` is called from the native `close` event (Escape, `close()`, Android back), once per
+	 * closure; only where `dialog.close` is missing (jsdom) does `close()` call it directly.
+	 * Focus returns to the previously focused element on unmount.
+	 */
 	type Props = Omit<HTMLDialogAttributes, 'children' | 'onclose' | 'aria-labelledby'> & {
 		onclose: () => void;
 		labelledby?: string;

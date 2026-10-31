@@ -57,7 +57,6 @@
 </script>
 
 <!-- Key handling lives on the dialog so it applies wherever focus is inside it. -->
-<!-- Key handling lives on the dialog so it applies wherever focus is inside it. -->
 <Dialog
 	{onclose}
 	{onkeydown}
