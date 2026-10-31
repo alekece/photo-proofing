@@ -7,7 +7,7 @@
 
 use std::io;
 
-use sqlx::{migrate::MigrateError, postgres::PgDatabaseError};
+use sqlx::migrate::MigrateError;
 use thiserror::Error;
 
 /// SQLSTATE class for invalid authorization specifications (`28xxx`).
@@ -82,8 +82,8 @@ fn server_message(error: &dyn sqlx::error::DatabaseError) -> String {
 
     #[cfg(debug_assertions)]
     if let Some(detail) = error
-        .try_downcast_ref::<PgDatabaseError>()
-        .and_then(PgDatabaseError::detail)
+        .try_downcast_ref::<sqlx::postgres::PgDatabaseError>()
+        .and_then(sqlx::postgres::PgDatabaseError::detail)
     {
         return format!("{message} ({detail})");
     }

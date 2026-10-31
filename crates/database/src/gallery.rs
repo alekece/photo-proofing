@@ -54,11 +54,10 @@ impl GalleryError {
             Self::Database(_) => None,
         }
     }
-}
 
-/// Maps a validation failure to the setting that caused it; anything else stays a database error.
-impl From<sqlx::Error> for GalleryError {
-    fn from(error: sqlx::Error) -> Self {
+    /// Maps a validation failure to the setting that caused it; anything else stays a database
+    /// error. Private so `sqlx::Error` stays out of this crate's public API.
+    fn classify(error: sqlx::Error) -> Self {
         let violation = error.as_database_error().and_then(|db| {
             match (db.constraint(), db.code().as_deref()) {
                 (Some(TITLE_LENGTH_CONSTRAINT), _) => {
@@ -367,7 +366,7 @@ impl GalleryRepository<'_> {
         .bind(changes.watermark_enabled)
         .fetch_optional(self.pool)
         .await
-        .map_err(GalleryError::from)
+        .map_err(GalleryError::classify)
     }
 }
 
