@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import Button from '#lib/components/ui/button/button.svelte';
+	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
 	import Label from '#lib/components/ui/label/label.svelte';
 	import { createGallery, GalleryApiError, updateGallery } from '#lib/gallery/api.js';
@@ -17,33 +18,12 @@
 		update?: typeof updateGallery;
 	} = $props();
 
-	let dialog: HTMLDialogElement;
 	let field = $state<HTMLInputElement | null>(null);
 	let title = $state('');
 	let error = $state('');
 	let creating = $state(false);
 
-	onMount(() => {
-		// jsdom and very old browsers lack showModal; fall back to a plain open dialog.
-		if (typeof dialog.showModal === 'function') dialog.showModal();
-		else dialog.setAttribute('open', '');
-		field?.focus();
-	});
-
-	// Closing the dialog before it unmounts is what returns focus to the button that opened it.
-	// With native dialogs, the `close` event reports every closure (including Android back), so
-	// the parent is notified there; the fallback has no such event.
-	function dismiss() {
-		if (typeof dialog.close === 'function') dialog.close();
-		else onclose();
-	}
-
-	function onkeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape') return;
-
-		event.preventDefault();
-		dismiss();
-	}
+	onMount(() => field?.focus());
 
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
@@ -85,13 +65,12 @@
 	}
 </script>
 
-<dialog
-	bind:this={dialog}
-	aria-labelledby="new-gallery-title"
-	{onkeydown}
+<Dialog
 	{onclose}
+	labelledby="new-gallery-title"
 	class="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
 >
+	{#snippet children(close)}
 	<form onsubmit={submit} class="grid gap-4" aria-busy={creating}>
 		<div class="grid gap-1">
 			<h2 id="new-gallery-title" class="text-xl">New gallery</h2>
@@ -115,14 +94,9 @@
 			{/if}
 		</div>
 		<div class="flex justify-end gap-2">
-			<Button variant="ghost" onclick={dismiss} disabled={creating}>Cancel</Button>
+			<Button variant="ghost" onclick={close} disabled={creating}>Cancel</Button>
 			<Button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create gallery'}</Button>
 		</div>
 	</form>
-</dialog>
-
-<style>
-	dialog::backdrop {
-		background: var(--color-overlay);
-	}
-</style>
+	{/snippet}
+</Dialog>
