@@ -9,10 +9,11 @@
 
 use std::num::NonZeroUsize;
 
-use derive_more::{Display, Error};
+use derive_more::Display;
 use pp_core::types::timestamp::Timestamp;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
+use thiserror::Error;
 use uuid::Uuid;
 
 pub use self::share::{ShareToken, SharedGallery};
@@ -35,14 +36,14 @@ pub enum GallerySetting {
     IncludedPhotos,
 }
 
-#[derive(Debug, Display, Error)]
+#[derive(Debug, Error)]
 pub enum GalleryError {
-    #[display("{_0} exceeds its length limit")]
-    LengthOverflow(#[error(not(source))] GallerySetting),
-    #[display("{_0} contains characters the database cannot store")]
-    InvalidCharacters(#[error(not(source))] GallerySetting),
-    #[display("database error: {_0}")]
-    Database(sqlx::Error),
+    #[error("{0} exceeds its length limit")]
+    LengthOverflow(GallerySetting),
+    #[error("{0} contains characters the database cannot store")]
+    InvalidCharacters(GallerySetting),
+    #[error("database error")]
+    Database(#[source] sqlx::Error),
 }
 
 impl GalleryError {

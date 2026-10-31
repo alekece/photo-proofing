@@ -1,13 +1,13 @@
 use std::{fmt, str::FromStr};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use derive_more::{Display, Error};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 /// The text is not a canonical random token.
-#[derive(Debug, Display, Error)]
-#[display("malformed token")]
+#[derive(Debug, Error)]
+#[error("malformed token")]
 pub struct ParseTokenError;
 
 /// An unguessable value of `BYTES` random bytes, written as unpadded URL-safe base64.

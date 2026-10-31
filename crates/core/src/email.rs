@@ -1,11 +1,12 @@
 use std::str::FromStr;
 
-use derive_more::{Display, Error};
+use derive_more::Display;
 use email_address::EmailAddress;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-#[derive(Debug, Display, Error)]
-#[display("invalid email address")]
+#[derive(Debug, Error)]
+#[error("invalid email address")]
 pub struct ParseEmailError;
 
 /// A syntactically valid email address in its canonical form: trimmed and lowercased, at

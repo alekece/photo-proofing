@@ -1,12 +1,13 @@
 use std::{fmt, str::FromStr, time::Duration};
 
-use derive_more::{Display, Error, From};
+use derive_more::From;
 use humantime::DurationError;
 use serde::{Deserialize, Serialize, Serializer, ser::Error as _};
+use thiserror::Error;
 
 /// The duration is outside the supported range.
-#[derive(Debug, Display, Error)]
-#[display(
+#[derive(Debug, Error)]
+#[error(
     "duration must be between {} and {}",
     humantime::format_duration(*min),
     humantime::format_duration(*max)
@@ -16,12 +17,12 @@ pub struct DurationRangeError {
     max: Duration,
 }
 
-#[derive(Debug, Display, Error, From)]
+#[derive(Debug, Error)]
 pub enum ParseBoundedDurationError {
-    #[display("invalid duration: {_0}")]
-    Syntax(DurationError),
-    #[display("{_0}")]
-    Range(DurationRangeError),
+    #[error("invalid duration")]
+    Syntax(#[from] DurationError),
+    #[error(transparent)]
+    Range(#[from] DurationRangeError),
 }
 
 /// A span of time that lasts at least `MIN` and at most `MAX` whole seconds.
