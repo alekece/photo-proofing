@@ -68,14 +68,9 @@
 	aria-label={label}
 	onkeydown={handleKeydown}
 	{onclose}
-	class={cn(className)}
+	class={cn('backdrop:bg-overlay', className)}
 	{...restProps}
 >
 	{@render children(close)}
 </dialog>
 
-<style>
-	dialog::backdrop {
-		background: var(--color-overlay);
-	}
-</style>

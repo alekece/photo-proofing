@@ -10,7 +10,7 @@
 	} = $props();
 
 	const controlClass =
-		'min-h-11 min-w-11 cursor-pointer rounded-sm border-2 border-viewer-foreground bg-viewer-control px-4 text-[1.25rem] text-viewer-foreground focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus';
+		'min-h-11 min-w-11 cursor-pointer rounded-sm border-2 border-viewer-foreground bg-viewer-control px-4 text-[1.25rem] text-viewer-foreground focus-visible:outline-3 focus-visible:outline-offset-2! focus-visible:outline-viewer-focus!';
 
 	let closeButton: HTMLButtonElement;
 	const proof = $derived(proofs[index]);
