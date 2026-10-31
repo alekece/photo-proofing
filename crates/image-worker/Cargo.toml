@@ -8,6 +8,9 @@ license.workspace = true
 [dependencies]
 pp-core.workspace = true
 pp-database.workspace = true
+pp-storage.workspace = true
+eyre.workspace = true
+color-eyre.workspace = true
 clap.workspace = true
 clap-config-fallback.workspace = true
 serde.workspace = true
@@ -16,6 +19,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+tempfile = "3"
 libc = "0.2"
 
 [lints]

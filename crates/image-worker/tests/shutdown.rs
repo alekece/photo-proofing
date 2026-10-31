@@ -5,8 +5,22 @@ use std::{
 };
 
 #[test]
+fn refuses_to_start_without_a_photo_directory() {
+    let dir = tempfile::tempdir().expect("temp dir should be created");
+    let output = Command::new(env!("CARGO_BIN_EXE_pp-image-worker"))
+        .env("PP_PHOTO_DIR", dir.path().join("missing"))
+        .output()
+        .expect("worker binary should run");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("photo directory"));
+}
+
+#[test]
 fn exits_cleanly_on_sigterm() {
+    let photos = tempfile::tempdir().expect("temp dir should be created");
     let mut child = Command::new(env!("CARGO_BIN_EXE_pp-image-worker"))
+        .env("PP_PHOTO_DIR", photos.path())
         .stderr(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()

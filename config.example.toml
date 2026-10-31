@@ -20,3 +20,7 @@ app_origin = "http://localhost:5173"
 max_failures = 10
 window = "1m"
 max_peers = 1024
+
+[photo]
+# Private photo files; the API and the worker must share this directory.
+dir = "./data/photos"
