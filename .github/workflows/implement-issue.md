@@ -87,8 +87,7 @@ safe-outputs:
       - "Cargo.lock"
       - "docs/**"
       - "README.md"
-    excluded-files:
-      - "docs/superpowers/specs/**"
+    protected-files: allowed
   push-to-pull-request-branch:
     target: "*"
     required-title-prefix: "[agent] "
@@ -100,8 +99,7 @@ safe-outputs:
       - "Cargo.lock"
       - "docs/**"
       - "README.md"
-    excluded-files:
-      - "docs/superpowers/specs/**"
+    protected-files: allowed
   mark-pull-request-as-ready-for-review:
     target: "*"
     required-title-prefix: "[agent] "
@@ -128,7 +126,7 @@ A pre-step already validated eligibility and checked out a local branch `<design
 
 1. Read the issue and the design file under `docs/superpowers/specs/` on the checkout. If the design is missing, contradicts the issue, or clearly does not match the code any more (stale), stop: output a `noop` explaining why, and make no changes.
 2. If `git log origin/main..HEAD` contains anything other than design/plan documentation commits, stop with a `noop` saying the branch has unrelated commits.
-3. Implement exactly what the design specifies, following `AGENTS.md`. Commit on the current branch. Do not touch files outside the allowed paths and do not change the design.
+3. Implement exactly what the design specifies, following `AGENTS.md`. Commit on the current branch. Do not touch files outside the allowed paths and do not modify existing design documents (the design commits already on the branch are expected).
 4. Run the checks CI runs, for the parts you changed, and fix failures; at most 3 rounds, then stop fixing:
    - Rust: `cargo +nightly fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (tests that need PostgreSQL cannot run in this job; CI covers them in Phase 2)
    - Web (in `web/`): `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm test`, `pnpm build`
