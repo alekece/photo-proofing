@@ -5,15 +5,15 @@ description: Use when the user wants to pick up issues that need them, for examp
 
 # Resume issue `[N|all]`
 
-Implements AGENTS.md "Automation is opt-in". Never approve a design, merge, or change an issue without the user saying so. When a need is resolved, remove `needs-attention`; add `agent` only if the user hands off (use `delegate-issue`).
+Implements AGENTS.md "Automation is opt-in". Never approve a design, merge, or change an issue without the user saying so. When a need is resolved, remove `needs-attention`; add `agent` only if the user hands off (use `delegate-issue`). `gh` targets the current checkout's repository; never pass `--repo`. If a label does not exist, listing by it returns nothing; tell the user instead of failing.
 
 ## `resume-issue <N>`
 
 Read state from artifacts:
 
-- `gh issue view <N> --repo alekece/photo-proofing --json title,state,labels,body,comments,blockedBy`
-- Design: resolve the branch by number (never from a URL in the text) and list specs, as in `delegate-issue` step 2.
-- PRs: `gh pr list --repo alekece/photo-proofing --state open --search "<N> in:body" --json number,url,headRefName`
+- `gh issue view <N> --json title,state,labels,body,comments,blockedBy`
+- Design: resolve the branch by number (never from a URL in the text) and list specs, as in `delegate-issue` step 2, including its 404 and ambiguity rules.
+- PRs: `gh pr list --state open --search "<N> in:body" --json number,url,headRefName`
 
 Act on the first match:
 
@@ -23,14 +23,14 @@ Act on the first match:
 4. PR open: go through its review threads with the user.
 5. Otherwise say the issue needs no action.
 
-Once the user resolves the need: `gh issue edit <N> --repo alekece/photo-proofing --remove-label needs-attention`.
+Once the user resolves the need: `gh issue edit <N> --remove-label needs-attention`.
 
 ## `resume-issue` (no argument)
 
 List what needs the user, then ask which to resume:
 
-- `gh issue list --repo alekece/photo-proofing --label needs-attention --json number,title`
-- The user's open issues without a design: `gh issue list --repo alekece/photo-proofing --author @me --state open --json number,title,labels`, keeping those with no matching `<type>/<N>-slug` branch holding a spec.
+- `gh issue list --label needs-attention --json number,title`
+- The user's open issues without a design: `gh issue list --author @me --state open --json number,title,labels`, keeping those with no matching `<type>/<N>-slug` branch holding a spec.
 
 ## `resume-issue all`
 
