@@ -25,9 +25,9 @@
 //! Handlers must be idempotent: a job may run again after a crash or a lost lease, and nothing
 //! here ties a job to its subject, so deletion safety is the handler's job.
 
-use std::{num::NonZeroU16, time::Duration};
+use std::{num::NonZeroU16, str::FromStr, time::Duration};
 
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Error as JsonError, Value};
 use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
 use uuid::Uuid;
@@ -45,13 +45,57 @@ pub const DEFAULT_MAX_ATTEMPTS: NonZeroU16 = NonZeroU16::new(5).unwrap();
 #[sqlx(transparent)]
 pub struct JobId(pub Uuid);
 
-/// What a job does, which selects its handler and the shape of its payload.
-///
-/// Mirrors the `job_kind` enum; adding a kind is a migration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Type)]
-#[sqlx(type_name = "job_kind", rename_all = "snake_case")]
+/// What a job does, which selects its handler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum JobKind {
     ProcessPhoto,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("unknown job kind")]
+pub struct ParseJobKindError;
+
+impl JobKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::ProcessPhoto => "process_photo",
+        }
+    }
+}
+
+impl FromStr for JobKind {
+    type Err = ParseJobKindError;
+
+    fn from_str(tag: &str) -> Result<Self, Self::Err> {
+        match tag {
+            "process_photo" => Ok(Self::ProcessPhoto),
+            _ => Err(ParseJobKindError),
+        }
+    }
+}
+
+/// A durable job's tag and body, stored together in the `payload` JSON.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "payload", rename_all = "snake_case")]
+pub enum JobPayload {
+    /// The body remains opaque until the photo-processing contract is defined.
+    ProcessPhoto(Value),
+}
+
+impl JobPayload {
+    /// Returns the discriminator encoded with this payload.
+    pub const fn kind(&self) -> JobKind {
+        match self {
+            Self::ProcessPhoto(_) => JobKind::ProcessPhoto,
+        }
+    }
+
+    fn body(&self) -> &Value {
+        match self {
+            Self::ProcessPhoto(body) => body,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -67,17 +111,21 @@ pub enum JobState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
     pub id: JobId,
-    pub kind: JobKind,
-    pub payload: Value,
+    pub payload: JobPayload,
     /// Including the current run, so the first run sees `1`.
     pub attempts: u32,
     pub max_attempts: u32,
 }
 
 impl Job {
+    /// Returns the discriminator encoded with this job's payload.
+    pub const fn kind(&self) -> JobKind {
+        self.payload.kind()
+    }
+
     /// Reads the payload as the type the handler for this kind expects.
     pub fn payload<T: DeserializeOwned>(&self) -> Result<T, JsonError> {
-        serde_json::from_value(self.payload.clone())
+        serde_json::from_value(self.payload.body().clone())
     }
 }
 
@@ -90,8 +138,8 @@ impl FromRow<'_, PgRow> for Job {
 
         Ok(Self {
             id: row.try_get("id")?,
-            kind: row.try_get("kind")?,
-            payload: row.try_get("payload")?,
+            payload: serde_json::from_value(row.try_get("payload")?)
+                .map_err(|error| sqlx::Error::Decode(error.into()))?,
             attempts: count("attempts")?,
             max_attempts: count("max_attempts")?,
         })
@@ -99,12 +147,28 @@ impl FromRow<'_, PgRow> for Job {
 }
 
 /// A job as seen by an operator, without the claim bookkeeping.
-#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JobStatus {
     pub id: JobId,
     pub kind: JobKind,
     pub state: JobState,
     pub last_error: Option<String>,
+}
+
+impl FromRow<'_, PgRow> for JobStatus {
+    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+        let tag = row.try_get::<String, _>("kind")?;
+        let kind = tag
+            .parse::<JobKind>()
+            .map_err(|error| sqlx::Error::Decode(error.into()))?;
+
+        Ok(Self {
+            id: row.try_get("id")?,
+            kind,
+            state: row.try_get("state")?,
+            last_error: row.try_get("last_error")?,
+        })
+    }
 }
 
 /// Exponential retry delay: `base`, `2 * base`, `4 * base`, ... never above `cap`.
@@ -145,21 +209,19 @@ impl<'db> Repository<'db> for JobRepository<'db> {
 }
 
 impl JobRepository<'_> {
-    const COLUMNS: &'static str = "id, kind, payload, attempts, max_attempts";
+    const COLUMNS: &'static str = "id, payload, attempts, max_attempts";
 
     /// Stores a job, due immediately.
-    pub async fn enqueue<T: Serialize>(
+    pub async fn enqueue(
         &self,
-        kind: JobKind,
-        payload: &T,
+        payload: JobPayload,
         max_attempts: NonZeroU16,
     ) -> Result<JobId, DatabaseError> {
         let id = JobId(Uuid::new_v4());
         let payload = serde_json::to_value(payload).map_err(|e| sqlx::Error::Encode(e.into()))?;
 
-        sqlx::query("INSERT INTO jobs(id, kind, payload, max_attempts) VALUES ($1, $2, $3, $4)")
+        sqlx::query("INSERT INTO jobs(id, payload, max_attempts) VALUES ($1, $2, $3)")
             .bind(id)
-            .bind(kind)
             .bind(payload)
             .bind(i32::from(max_attempts.get()))
             .execute(self.pool)
@@ -177,6 +239,11 @@ impl JobRepository<'_> {
         kinds: &[JobKind],
         lease: Duration,
     ) -> Result<Option<Job>, DatabaseError> {
+        let kinds = kinds
+            .iter()
+            .map(|kind| kind.as_str().to_owned())
+            .collect::<Vec<_>>();
+
         sqlx::query(
             "UPDATE jobs SET state = 'failed', locked_until = NULL,
                  last_error = 'the worker stopped answering on the final attempt'
@@ -193,7 +260,7 @@ impl JobRepository<'_> {
                  locked_until = now() + $2 * interval '1 second'
              WHERE id = (
                  SELECT id FROM jobs
-                 WHERE kind = ANY($1) AND attempts < max_attempts
+                 WHERE payload->>'kind' = ANY($1) AND attempts < max_attempts
                    AND ((state = 'queued' AND run_at <= now())
                      OR (state = 'running' AND locked_until < now()))
                  ORDER BY run_at
@@ -297,7 +364,7 @@ impl JobRepository<'_> {
     /// Jobs that ran out of attempts, newest first, for operators and later UI.
     pub async fn list_failed(&self) -> Result<Vec<JobStatus>, DatabaseError> {
         Ok(sqlx::query_as(
-            "SELECT id, kind, state, last_error FROM jobs
+            "SELECT id, payload->>'kind' AS kind, state, last_error FROM jobs
              WHERE state = 'failed' ORDER BY created_at DESC",
         )
         .fetch_all(self.pool)
@@ -340,8 +407,7 @@ mod tests {
         database
             .repository::<JobRepository>()
             .enqueue(
-                JobKind::ProcessPhoto,
-                &json!({"photo": 1}),
+                JobPayload::ProcessPhoto(json!({"photo": 1})),
                 NonZeroU16::new(max_attempts).unwrap(),
             )
             .await
@@ -355,6 +421,25 @@ mod tests {
 
         assert_eq!(delays, [10, 20, 40, 60, 60]);
         assert_eq!(backoff.delay(u32::MAX), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn job_payload_serializes_its_tag_and_body_together() {
+        let payload = JobPayload::ProcessPhoto(json!({"photo": 1}));
+
+        assert_eq!(
+            serde_json::to_value(payload).unwrap(),
+            json!({"kind": "process_photo", "payload": {"photo": 1}})
+        );
+    }
+
+    #[test]
+    fn job_kind_parses_its_tag() {
+        assert_eq!(
+            "process_photo".parse::<JobKind>().unwrap(),
+            JobKind::ProcessPhoto
+        );
+        assert!("unknown".parse::<JobKind>().is_err());
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -443,6 +528,7 @@ mod tests {
         let failed = jobs.list_failed().await.unwrap();
         assert_eq!(failed.len(), 1);
         assert_eq!(failed[0].id, id);
+        assert_eq!(failed[0].kind, JobKind::ProcessPhoto);
         assert_eq!(failed[0].last_error.as_deref(), Some("boom again"));
         assert!(jobs.claim(KINDS, LEASE).await.unwrap().is_none());
 
@@ -477,7 +563,70 @@ mod tests {
         enqueue(&database, 3).await;
 
         assert!(jobs.claim(&[], LEASE).await.unwrap().is_none());
-        assert!(jobs.claim(KINDS, LEASE).await.unwrap().is_some());
+        let job = jobs.claim(KINDS, LEASE).await.unwrap().unwrap();
+        assert_eq!(job.kind(), JobKind::ProcessPhoto);
+        assert_eq!(job.payload::<Value>().unwrap(), json!({"photo": 1}));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn payload_migration_preserves_existing_job_data(pool: PgPool) {
+        let mut transaction = pool.begin().await.unwrap();
+        let schema = format!("job_payload_migration_{}", Uuid::new_v4().simple());
+        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(&format!("SET LOCAL search_path TO {schema}"))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!("../migrations/0004_jobs.sql"))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let id = Uuid::new_v4();
+        let body = json!({"photo": 1});
+        sqlx::query(
+            "INSERT INTO jobs
+                 (id, kind, payload, state, attempts, max_attempts, run_at,
+                  locked_until, last_error, created_at)
+             VALUES
+                 ($1, 'process_photo', $2, 'running', 2, 5,
+                  '2026-10-31 10:00:00+00', '2026-11-01 10:00:00+00',
+                  'previous error', '2026-10-30 10:00:00+00')",
+        )
+        .bind(id)
+        .bind(&body)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+
+        let before: Value = sqlx::query_scalar("SELECT to_jsonb(j) FROM jobs AS j")
+            .fetch_one(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!("../migrations/0005_job_payload_enum.sql"))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        let after: Value = sqlx::query_scalar("SELECT to_jsonb(j) FROM jobs AS j")
+            .fetch_one(&mut *transaction)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            after["payload"],
+            json!({"kind": "process_photo", "payload": body})
+        );
+        let mut before_fields = before.as_object().unwrap().clone();
+        before_fields.remove("kind");
+        before_fields.remove("payload");
+        let mut after_fields = after.as_object().unwrap().clone();
+        after_fields.remove("payload");
+        assert_eq!(after_fields, before_fields);
+
+        transaction.rollback().await.unwrap();
     }
 
     #[sqlx::test(migrations = "./migrations")]

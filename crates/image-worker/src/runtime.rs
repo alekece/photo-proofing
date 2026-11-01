@@ -110,7 +110,7 @@ impl Worker {
 
             match jobs.claim(&kinds, self.options.lease).await {
                 Ok(Some(job)) => {
-                    let span = info_span!("job", job_id = %job.id.0, kind = ?job.kind, attempt = job.attempts);
+                    let span = info_span!("job", job_id = %job.id.0, kind = ?job.kind(), attempt = job.attempts);
                     let database = self.database.clone();
                     let handlers = Arc::clone(&self.handlers);
                     let options = self.options;
@@ -246,7 +246,7 @@ mod tests {
 
     use pp_database::{
         PgPool,
-        jobs::{DEFAULT_MAX_ATTEMPTS, JobKind},
+        jobs::{DEFAULT_MAX_ATTEMPTS, JobKind, JobPayload},
     };
     use serde::Deserialize;
     use serde_json::json;
@@ -287,7 +287,10 @@ mod tests {
     async fn enqueue(pool: &PgPool, payload: serde_json::Value, attempts: u16) {
         Database::new(pool.clone())
             .repository::<JobRepository>()
-            .enqueue(KIND, &payload, attempts.try_into().unwrap())
+            .enqueue(
+                JobPayload::ProcessPhoto(payload),
+                attempts.try_into().unwrap(),
+            )
             .await
             .unwrap();
     }
