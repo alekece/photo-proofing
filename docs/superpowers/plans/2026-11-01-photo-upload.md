@@ -46,18 +46,20 @@
 - Create: `crates/database/src/photo.rs`
 - Modify: `crates/database/src/lib.rs`
 - Modify: `crates/database/src/jobs.rs`
+- Modify: `crates/core/src/notifications.rs`
 - Test: `crates/database/src/photo.rs`
 - Test: `crates/database/src/jobs.rs`
 
 **Interfaces:**
+- Uses the existing `pp_core::notifications::PhotoId`, with serde and feature-gated SQLx encodings added for database and JSON boundaries.
 - Produces `PhotoStatus` (`Waiting`, `Processing`, `Ready`, `Failed`), `PhotoSize`, `PhotoDimensions`, `Photo`, and `NewPhoto` in `pp_database::photo`.
-- Produces `PhotoRepository::create_with_job(NewPhoto) -> Result<Photo, DatabaseError>` and `PhotoRepository::list(WorkspaceId, GalleryId) -> Result<Vec<Photo>, DatabaseError>`.
+- Produces `PhotoRepository::create_with_job(NewPhoto) -> Result<Option<Photo>, DatabaseError>` (`None` when the gallery is missing or belongs to another workspace) and `PhotoRepository::list(WorkspaceId, GalleryId) -> Result<Vec<Photo>, DatabaseError>`.
 - Produces `JobRepository::enqueue_in(&mut Transaction<'_, Postgres>, JobPayload, NonZeroU16) -> Result<JobId, DatabaseError>`.
 - The processing payload is tagged `process_photo` with `{"photo_id":"<uuid>"}` as its body.
 
 - [ ] **Step 1: Write failing migration-backed repository tests**
 
-Add tests that create a photo with its job, list photos in creation order across all four statuses, keep duplicate names distinct, and verify another workspace cannot list or create a photo in the gallery. Assert the job payload has the `process_photo` discriminator and the photo UUID.
+Add tests that create a photo with its job, list photos in creation order across all four statuses, keep duplicate names distinct, and verify another workspace cannot list or create a photo in the gallery (`create_with_job` returns `None`). Assert the job payload has the `process_photo` discriminator and the photo UUID.
 
 - [ ] **Step 2: Run the targeted tests and verify the missing schema/repository fails**
 
@@ -70,7 +72,7 @@ Create `photo_status` and `photos` with workspace and gallery ownership, display
 
 - [ ] **Step 4: Add transaction-aware job enqueue and atomic photo creation**
 
-Implement `enqueue_in` using the existing tagged `JobPayload` serialization. `create_with_job` inserts the photo and job in one SQL transaction and returns the inserted photo only after commit; constrain the gallery by both workspace and gallery ID.
+Implement `enqueue_in` using the existing tagged `JobPayload` serialization. `create_with_job` inserts the photo and job in one SQL transaction and returns the inserted photo only after commit; constrain the gallery by both workspace and gallery ID, returning `None` when that scoped gallery does not exist.
 
 - [ ] **Step 5: Run database tests and verify they pass**
 
@@ -80,7 +82,7 @@ Expected: PASS, including atomicity, cross-workspace scope, ordering, and duplic
 - [ ] **Step 6: Commit the database deliverable**
 
 ```bash
-git add crates/database
+git add crates/core/src/notifications.rs crates/database
 git commit -m "feat: persist uploaded photos and processing jobs"
 ```
 

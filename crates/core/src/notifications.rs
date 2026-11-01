@@ -12,6 +12,7 @@
 use std::{collections::HashSet, time::SystemTime};
 
 use derive_more::{Display, From};
+use serde::{Deserialize, Serialize};
 use strum::{Display as StrumDisplay, EnumString};
 use uuid::Uuid;
 
@@ -24,7 +25,11 @@ pub use store::{InMemoryStore, NotificationStore};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
 pub struct GalleryId(Uuid);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
 pub struct PhotoId(Uuid);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
