@@ -5,7 +5,7 @@ description: Use when the user asks to file, open, or write up a GitHub issue fo
 
 # Create issue
 
-Usage: `create-issue`. Implements AGENTS.md delivery workflow step 3. `gh` targets the current checkout's repository; never pass `--repo`. This skill never touches the `agent` or `needs-attention` labels and never raises automation itself.
+Usage: `create-issue`. `gh` targets the current checkout's repository; never pass `--repo`. This skill never touches the `agent` or `needs-attention` labels and never raises automation itself. If the issue later leads to implementation, that follows the Superpowers workflow (brainstorming -> design doc -> plan -> implementation -> review).
 
 ## Steps
 
