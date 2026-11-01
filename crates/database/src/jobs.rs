@@ -25,7 +25,7 @@
 //! Handlers must be idempotent: a job may run again after a crash or a lost lease, and nothing
 //! here ties a job to its subject, so deletion safety is the handler's job.
 
-use std::{num::NonZeroU16, time::Duration};
+use std::{num::NonZeroU16, str::FromStr, time::Duration};
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Error as JsonError, Value};
@@ -52,17 +52,25 @@ pub enum JobKind {
     ProcessPhoto,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("unknown job kind")]
+pub struct ParseJobKindError;
+
 impl JobKind {
     const fn as_str(self) -> &'static str {
         match self {
             Self::ProcessPhoto => "process_photo",
         }
     }
+}
 
-    fn from_tag(tag: &str) -> Option<Self> {
+impl FromStr for JobKind {
+    type Err = ParseJobKindError;
+
+    fn from_str(tag: &str) -> Result<Self, Self::Err> {
         match tag {
-            "process_photo" => Some(Self::ProcessPhoto),
-            _ => None,
+            "process_photo" => Ok(Self::ProcessPhoto),
+            _ => Err(ParseJobKindError),
         }
     }
 }
@@ -150,8 +158,9 @@ pub struct JobStatus {
 impl FromRow<'_, PgRow> for JobStatus {
     fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
         let tag = row.try_get::<String, _>("kind")?;
-        let kind = JobKind::from_tag(&tag)
-            .ok_or_else(|| sqlx::Error::Decode(format!("unknown job kind: {tag}").into()))?;
+        let kind = tag
+            .parse::<JobKind>()
+            .map_err(|error| sqlx::Error::Decode(error.into()))?;
 
         Ok(Self {
             id: row.try_get("id")?,
@@ -422,6 +431,15 @@ mod tests {
             serde_json::to_value(payload).unwrap(),
             json!({"kind": "process_photo", "payload": {"photo": 1}})
         );
+    }
+
+    #[test]
+    fn job_kind_parses_its_tag() {
+        assert_eq!(
+            "process_photo".parse::<JobKind>().unwrap(),
+            JobKind::ProcessPhoto
+        );
+        assert!("unknown".parse::<JobKind>().is_err());
     }
 
     #[sqlx::test(migrations = "./migrations")]
