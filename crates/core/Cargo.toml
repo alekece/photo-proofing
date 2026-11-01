@@ -18,7 +18,7 @@ humantime = "2.4.0"
 url = { version = "2.5.8", features = ["serde"] }
 email_address = "0.2"
 base64 = "0.23"
-rand = "0.9"
+rand = "0.10"
 time = { version = "0.3", features = ["serde-well-known"] }
 sqlx = { version = "0.8", default-features = false, features = ["derive"], optional = true }
 
