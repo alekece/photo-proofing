@@ -75,10 +75,7 @@ test('real setup, persistent cookie, login, and revocable logout', async ({ brow
 	await restored.close();
 });
 
-test('activity extends a short session while idle browser traffic does not', async ({
-	page,
-	baseURL
-}) => {
+test('activity extends a short session while idle browser traffic does not', async ({ page }) => {
 	const timeout = Number(process.env.PP_E2E_IDLE_MS ?? 0);
 	test.setTimeout(60000);
 	test.skip(!timeout, 'Run with an isolated API configured with a short idle timeout.');
