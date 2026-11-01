@@ -8,7 +8,7 @@ use argon2::{
     Argon2, PasswordHasher, PasswordVerifier,
     password_hash::{PasswordHash as PhcHash, SaltString},
 };
-use rand::RngCore;
+use rand::Rng;
 use serde::Deserialize;
 use thiserror::Error;
 
