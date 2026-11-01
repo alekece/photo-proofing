@@ -29,7 +29,7 @@ use std::{num::NonZeroU16, str::FromStr, time::Duration};
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Error as JsonError, Value};
-use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
+use sqlx::{AssertSqlSafe, FromRow, PgPool, Row, Type, postgres::PgRow};
 use uuid::Uuid;
 
 use crate::{Repository, error::DatabaseError};
@@ -255,7 +255,7 @@ impl JobRepository<'_> {
         .execute(self.pool)
         .await?;
 
-        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
             "UPDATE jobs SET state = 'running', attempts = attempts + 1,
                  locked_until = now() + $2 * interval '1 second'
              WHERE id = (
@@ -572,16 +572,14 @@ mod tests {
     async fn payload_migration_preserves_existing_job_data(pool: PgPool) {
         let mut transaction = pool.begin().await.unwrap();
         let schema = format!("job_payload_migration_{}", Uuid::new_v4().simple());
-        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&mut *transaction)
             .await
             .unwrap();
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "SET LOCAL search_path TO {schema}"
-        )))
-        .execute(&mut *transaction)
-        .await
-        .unwrap();
+        sqlx::query(AssertSqlSafe(format!("SET LOCAL search_path TO {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
         sqlx::raw_sql(include_str!("../migrations/0004_jobs.sql"))
             .execute(&mut *transaction)
             .await
