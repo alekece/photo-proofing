@@ -8,7 +8,7 @@ The planned MVP is a local-network workflow trial with replaceable JPEG photos, 
 
 Development is restarting around the [product specifications](docs/SPECIFICATIONS.md) and [MVP scope and acceptance checklist](docs/releases/MVP.md). These documents describe the target product, not completed features.
 
-The repository supports one-time photographer account setup, email/password login, a protected dashboard, persistent revocable sessions, and persistent galleries with autosaved settings (title, layout, expiry, included photo count, watermark flag) backed by SQLx/PostgreSQL. Auth screens use Tailwind and selected shadcn-svelte components. Configuration/logging, API health, a durable PostgreSQL job queue run by the worker (no job kinds are produced or handled yet), in-memory notification domain code, private client links (the photographer shares a gallery from its page; `/g/<token>` shows its title, expiry and an empty state to anyone with the link), and a proof viewer also exist. A private photo storage layer (`pp-storage`) and its shared volume exist, but nothing writes photos yet. Photo upload and the hero picker, uploads/processing, delivery, and SSE are not implemented.
+The repository supports one-time photographer account setup, email/password login, a protected dashboard, persistent revocable sessions, and persistent galleries with autosaved settings (title, layout, expiry, included photo count, watermark flag) backed by SQLx/PostgreSQL. Auth screens use Tailwind and selected shadcn-svelte components. Configuration/logging, API health, a durable PostgreSQL job queue run by the worker (which currently handles no job kinds), in-memory notification domain code, private client links (the photographer shares a gallery from its page; `/g/<token>` shows its title, expiry and an empty state to anyone with the link), and a proof viewer also exist. The photo API accepts JPEG uploads, preserves originals, enqueues processing jobs, and lists processing states. The hero picker and upload UI, image processing, client delivery, and SSE are not implemented.
 
 - [Product specifications](docs/SPECIFICATIONS.md): requirements, constraints, and exclusions.
 - [MVP release](docs/releases/MVP.md): first-release scope and acceptance evidence to collect.
@@ -85,7 +85,7 @@ cargo run -p pp-image-worker
 pnpm --dir web dev
 ```
 
-Defaults: API at `http://127.0.0.1:8080`, frontend at `http://localhost:5173`. The frontend proxies `/api` to the API. The dashboard, which lists and creates galleries, is at `/dashboard`; a gallery's page creates its private client link, which opens `/g/<token>`; the client page has no photos until upload is implemented.
+Defaults: API at `http://127.0.0.1:8080`, frontend at `http://localhost:5173`. The frontend proxies `/api` to the API. The dashboard, which lists and creates galleries, is at `/dashboard`; a gallery's page creates its private client link, which opens `/g/<token>`; the client page has no photos until the upload UI and image processing are implemented.
 
 ```sh
 curl http://127.0.0.1:8080/api/v1/health
@@ -102,6 +102,8 @@ cargo run -p pp-api -- --config config.toml
 ```
 
 API settings include `PP_HOST`, `PP_PORT`, `PP_LOG_LEVEL`, `PP_DATABASE_URL`, `PP_APP_ORIGIN`, `PP_SESSION_IDLE_TIMEOUT`, `PP_SESSION_COOKIE_NAME` (default `pp_session`), upload bounds `PP_PHOTO_UPLOAD_MAX_SIZE` (64 MiB), `PP_PHOTO_UPLOAD_MAX_PIXELS` (100,000,000) and `PP_PHOTO_UPLOAD_CONCURRENCY` (4), and the sign-in limiter settings `PP_LIMITER_MAX_FAILURES` (default 10), `PP_LIMITER_WINDOW` (default `1m`) and `PP_LIMITER_MAX_PEERS` (default 1024); worker queue settings are `PP_QUEUE_POLL_INTERVAL` (default `5s`), `PP_QUEUE_LEASE` (`60s`), `PP_QUEUE_CONCURRENCY` (2), `PP_QUEUE_BACKOFF_BASE` (`10s`), `PP_QUEUE_BACKOFF_CAP` (`5m`) and `PP_QUEUE_SHUTDOWN_GRACE` (`30s`), and the worker needs `PP_DATABASE_URL` too; both Rust processes accept `PP_CONFIG` and logging configuration. Use `--help` for process-specific flags. Frontend development proxy target: `PP_API_PROXY_TARGET` (default `http://127.0.0.1:8080`). Server-side auth checks use `PP_API_INTERNAL_URL` with the same native default; Compose sets it to `http://api:8080`. These frontend settings use its Node runtime, not the Rust TOML file.
+
+Uploads also have a fixed 30-second idle timeout between body chunks; an idle upload receives HTTP 408 and its staged file is discarded.
 
 Session configuration uses human-readable durations through the existing configuration parser:
 

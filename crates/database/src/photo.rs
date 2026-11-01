@@ -9,6 +9,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 use pp_core::{notifications::PhotoId, types::timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
+use thiserror::Error;
 
 use crate::{
     Repository,
@@ -102,6 +103,68 @@ pub struct NewPhoto {
     pub dimensions: PhotoDimensions,
 }
 
+/// Failure while creating photo metadata and its processing job.
+///
+/// A [`PhotoCreateError::CommitOutcomeUnknown`] means an idempotent retry could not determine
+/// whether the original transaction committed. Callers must preserve the published original.
+///
+/// # Examples
+///
+/// ```
+/// use pp_database::photo::PhotoCreateError;
+///
+/// fn may_remove_published_original(error: &PhotoCreateError) -> bool {
+///     matches!(error, PhotoCreateError::Database(_))
+/// }
+/// ```
+#[derive(Debug, Error)]
+pub enum PhotoCreateError {
+    #[error(transparent)]
+    Database(#[from] DatabaseError),
+    /// The commit acknowledgement was lost and a retry could not settle the outcome.
+    #[error("photo transaction commit outcome could not be confirmed")]
+    CommitOutcomeUnknown {
+        #[source]
+        commit_error: DatabaseError,
+        reconciliation_error: Option<Box<PhotoCreateError>>,
+    },
+}
+
+impl PhotoCreateError {
+    fn from_commit_error(error: sqlx::Error) -> Self {
+        match error {
+            error @ sqlx::Error::Database(_) => Self::Database(error.into()),
+            error => Self::CommitOutcomeUnknown {
+                commit_error: error.into(),
+                reconciliation_error: None,
+            },
+        }
+    }
+
+    fn resolve_reconciliation(
+        commit_error: DatabaseError,
+        reconciliation: Result<Option<Photo>, Self>,
+    ) -> Result<Option<Photo>, Self> {
+        match reconciliation {
+            Ok(Some(photo)) => Ok(Some(photo)),
+            Ok(None) => Err(Self::CommitOutcomeUnknown {
+                commit_error,
+                reconciliation_error: None,
+            }),
+            Err(reconciliation_error) => Err(Self::CommitOutcomeUnknown {
+                commit_error,
+                reconciliation_error: Some(Box::new(reconciliation_error)),
+            }),
+        }
+    }
+}
+
+impl From<sqlx::Error> for PhotoCreateError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(error.into())
+    }
+}
+
 /// Persistence for accepted photos and their processing jobs.
 #[derive(Clone, Copy)]
 pub struct PhotoRepository<'db> {
@@ -120,7 +183,33 @@ impl PhotoRepository<'_> {
     /// Stores photo metadata and its processing job atomically.
     ///
     /// Returns `None` when the gallery is missing or not owned by `workspace_id`.
-    pub async fn create_with_job(&self, photo: NewPhoto) -> Result<Option<Photo>, DatabaseError> {
+    pub async fn create_with_job(
+        &self,
+        photo: NewPhoto,
+    ) -> Result<Option<Photo>, PhotoCreateError> {
+        match self.create_with_job_transaction(&photo, false).await {
+            Err(PhotoCreateError::CommitOutcomeUnknown { commit_error, .. }) => {
+                PhotoCreateError::resolve_reconciliation(
+                    commit_error,
+                    self.reconcile_commit_outcome(&photo).await,
+                )
+            }
+            result => result,
+        }
+    }
+
+    async fn reconcile_commit_outcome(
+        &self,
+        photo: &NewPhoto,
+    ) -> Result<Option<Photo>, PhotoCreateError> {
+        self.create_with_job_transaction(photo, true).await
+    }
+
+    async fn create_with_job_transaction(
+        &self,
+        photo: &NewPhoto,
+        tolerate_existing: bool,
+    ) -> Result<Option<Photo>, PhotoCreateError> {
         let size = i64::try_from(photo.size.bytes().get())
             .map_err(|error| sqlx::Error::Encode(error.into()))?;
         let width = i32::try_from(photo.dimensions.width.get())
@@ -128,32 +217,57 @@ impl PhotoRepository<'_> {
         let height = i32::try_from(photo.dimensions.height.get())
             .map_err(|error| sqlx::Error::Encode(error.into()))?;
         let mut transaction = self.pool.begin().await?;
-        let inserted = sqlx::query_as(
+        let query = if tolerate_existing {
             "INSERT INTO photos
                  (id, workspace_id, gallery_id, original_name, size, width, height)
              SELECT $1, $2, g.id, $4, $5, $6, $7
              FROM galleries AS g
              WHERE g.id = $3 AND g.workspace_id = $2
-             RETURNING id, original_name, size, width, height, status, failure_reason, created_at",
-        )
-        .bind(photo.id)
-        .bind(photo.workspace_id)
-        .bind(photo.gallery_id)
-        .bind(photo.original_name)
-        .bind(size)
-        .bind(width)
-        .bind(height)
-        .fetch_optional(&mut *transaction)
-        .await?;
+             ON CONFLICT (id) DO NOTHING
+             RETURNING id, original_name, size, width, height, status, failure_reason, created_at"
+        } else {
+            "INSERT INTO photos
+                 (id, workspace_id, gallery_id, original_name, size, width, height)
+             SELECT $1, $2, g.id, $4, $5, $6, $7
+             FROM galleries AS g
+             WHERE g.id = $3 AND g.workspace_id = $2
+             RETURNING id, original_name, size, width, height, status, failure_reason, created_at"
+        };
+        let inserted: Option<Photo> = sqlx::query_as(query)
+            .bind(photo.id)
+            .bind(photo.workspace_id)
+            .bind(photo.gallery_id)
+            .bind(&photo.original_name)
+            .bind(size)
+            .bind(width)
+            .bind(height)
+            .fetch_optional(&mut *transaction)
+            .await?;
         let Some(inserted) = inserted else {
+            let existing = if tolerate_existing {
+                sqlx::query_as(
+                    "SELECT id, original_name, size, width, height, status, failure_reason, created_at
+                     FROM photos
+                     WHERE id = $1 AND workspace_id = $2 AND gallery_id = $3",
+                )
+                .bind(photo.id)
+                .bind(photo.workspace_id)
+                .bind(photo.gallery_id)
+                .fetch_optional(&mut *transaction)
+                .await?
+            } else {
+                None
+            };
             transaction.rollback().await?;
 
-            return Ok(None);
+            return Ok(existing);
         };
         let payload = JobPayload::ProcessPhoto(serde_json::json!({"photo_id": photo.id}));
 
         JobRepository::enqueue_in(&mut transaction, payload, DEFAULT_MAX_ATTEMPTS).await?;
-        transaction.commit().await?;
+        if let Err(error) = transaction.commit().await {
+            return Err(PhotoCreateError::from_commit_error(error));
+        }
 
         Ok(Some(inserted))
     }
@@ -391,5 +505,67 @@ mod tests {
 
         assert_eq!(photo_count, 0);
         assert_eq!(job_count, 0);
+    }
+
+    #[test]
+    fn connection_failure_during_commit_has_an_unknown_outcome() {
+        let error = PhotoCreateError::from_commit_error(sqlx::Error::Io(std::io::Error::from(
+            std::io::ErrorKind::ConnectionReset,
+        )));
+
+        assert!(matches!(
+            error,
+            PhotoCreateError::CommitOutcomeUnknown { .. }
+        ));
+    }
+
+    #[test]
+    fn missing_photo_after_unknown_commit_remains_unresolved() {
+        let error = PhotoCreateError::resolve_reconciliation(
+            DatabaseError::Unreachable(std::io::Error::from(std::io::ErrorKind::ConnectionReset)),
+            Ok(None),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            PhotoCreateError::CommitOutcomeUnknown { .. }
+        ));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn reconciling_an_unknown_commit_reuses_the_photo_and_job(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let workspace_id = workspace(&pool).await;
+        let gallery = database
+            .repository::<GalleryRepository>()
+            .create(workspace_id)
+            .await
+            .unwrap();
+        let photo = new_photo(
+            workspace_id,
+            gallery.id,
+            PhotoId::from(Uuid::new_v4()),
+            "proof.jpg",
+        );
+        let repository = database.repository::<PhotoRepository>();
+
+        let created = repository
+            .create_with_job(photo.clone())
+            .await
+            .unwrap()
+            .unwrap();
+        let reconciled = repository
+            .reconcile_commit_outcome(&photo)
+            .await
+            .unwrap()
+            .unwrap();
+        let job_count: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(reconciled, created);
+        assert_eq!(job_count, 1);
     }
 }

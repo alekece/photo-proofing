@@ -44,6 +44,10 @@ impl ErrorResponse {
         Self::new(StatusCode::BAD_REQUEST, "invalid request")
     }
 
+    pub fn request_timeout() -> Self {
+        Self::new(StatusCode::REQUEST_TIMEOUT, "request body timed out")
+    }
+
     pub fn unsupported_media_type() -> Self {
         Self::new(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
