@@ -1917,7 +1917,7 @@ dependencies = [
  "actix-http",
  "actix-web",
  "argon2",
- "base64 0.22.1",
+ "base64 0.23.1",
  "clap",
  "clap-config-fallback",
  "color-eyre",
@@ -1942,7 +1942,7 @@ dependencies = [
 name = "pp-core"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "clap",
  "clap-config-fallback",
  "derive_more",
