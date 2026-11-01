@@ -3,7 +3,11 @@
 	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
 	import type { Proof } from '../gallery/types';
 
-	let { proofs, index = $bindable(0), onclose }: {
+	let {
+		proofs,
+		index = $bindable(0),
+		onclose
+	}: {
 		proofs: Proof[];
 		index?: number;
 		onclose: () => void;
@@ -70,18 +74,34 @@
 	{#snippet children(close)}
 		<div class="flex items-center justify-between">
 			<span aria-live="polite">{index + 1} of {proofs.length}</span>
-			<button type="button" class={controlClass} bind:this={closeButton} onclick={close} aria-label="Close viewer">
+			<button
+				type="button"
+				class={controlClass}
+				bind:this={closeButton}
+				onclick={close}
+				aria-label="Close viewer"
+			>
 				Close
 			</button>
 		</div>
 		<div class="flex min-h-0 flex-1 items-center gap-2">
-			<button type="button" class={controlClass} onclick={() => go(index - 1)} aria-label="Previous proof">‹</button>
+			<button
+				type="button"
+				class={controlClass}
+				onclick={() => go(index - 1)}
+				aria-label="Previous proof">‹</button
+			>
 			<img
 				src={proof.previewUrl}
 				alt={proof.alt}
 				class="max-h-full min-w-0 flex-1 object-contain"
 			/>
-			<button type="button" class={controlClass} onclick={() => go(index + 1)} aria-label="Next proof">›</button>
+			<button
+				type="button"
+				class={controlClass}
+				onclick={() => go(index + 1)}
+				aria-label="Next proof">›</button
+			>
 		</div>
 	{/snippet}
 </Dialog>

@@ -154,10 +154,7 @@
 	</div>
 
 	<Label class="flex items-center gap-2 border-t border-border pt-4 text-sm">
-		<Checkbox
-			bind:checked={watermark}
-			onchange={() => onsave({ watermark_enabled: watermark })}
-		/>
+		<Checkbox bind:checked={watermark} onchange={() => onsave({ watermark_enabled: watermark })} />
 		Watermark
 	</Label>
 </Card>

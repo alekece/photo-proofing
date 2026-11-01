@@ -148,7 +148,8 @@
 			await authRequest('logout');
 			await goto('/login', { refreshAll: true });
 		} catch (error) {
-			signOutError = error instanceof Error ? error.message : 'Unable to sign out. Please try again.';
+			signOutError =
+				error instanceof Error ? error.message : 'Unable to sign out. Please try again.';
 		}
 	}
 	function retry() {
@@ -191,8 +192,8 @@
 							size="sm"
 							data-retry
 							onmousedown={(event) => event.preventDefault()}
-							onclick={retry}
-						>Retry</Button>
+							onclick={retry}>Retry</Button
+						>
 					{:else if justSaved}
 						<span>Saved</span>
 					{/if}

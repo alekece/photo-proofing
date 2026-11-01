@@ -15,7 +15,9 @@
 		<ExpiryBadge expiresAt={gallery.expires_at} />
 	{/if}
 	{#if proofs.length === 0}
-		<p class="text-center text-muted-foreground">The photographer hasn't added photos yet. Check back soon.</p>
+		<p class="text-center text-muted-foreground">
+			The photographer hasn't added photos yet. Check back soon.
+		</p>
 	{:else}
 		<ProofGrid {proofs} layout={gallery.layout} onopen={(i) => (viewerIndex = i)} />
 	{/if}
