@@ -5,10 +5,8 @@
 //! cannot leak through logging. Session tokens live with the request extractors.
 
 use argon2::{
-    Argon2, PasswordHasher, PasswordVerifier,
-    password_hash::{PasswordHash as PhcHash, SaltString},
+    Argon2, PasswordHasher, PasswordVerifier, password_hash::phc::PasswordHash as PhcHash,
 };
-use rand::Rng;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -55,16 +53,8 @@ pub struct PasswordHash(String);
 
 impl PasswordHash {
     pub fn new(password: &str) -> Result<Self, HashError> {
-        let mut salt = [0u8; 16];
-
-        rand::rng().fill_bytes(&mut salt);
-
-        // `SaltString` is the PHC-format (base64) salt the `argon2` crate requires; 16 random
-        // bytes is the recommended salt length.
-        let salt = SaltString::encode_b64(&salt).map_err(|_| HashError)?;
-
         Argon2::default()
-            .hash_password(password.as_bytes(), &salt)
+            .hash_password(password.as_bytes())
             .map(|hash| Self(hash.to_string()))
             .map_err(|_| HashError)
     }
