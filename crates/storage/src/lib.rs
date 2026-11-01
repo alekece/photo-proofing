@@ -151,6 +151,14 @@ pub struct StagedPhoto {
 }
 
 impl StagedPhoto {
+    /// The random, storage-owned path of this staged file.
+    ///
+    /// This path is for internal metadata inspection only; it is not derived from user input and
+    /// does not identify a published photo key.
+    pub fn temporary_path(&self) -> &Path {
+        &self.path
+    }
+
     /// Appends bytes. Writes are buffered, so a full volume may only be reported by a later
     /// `write` or by [`commit`](Self::commit), which never succeeds after a failed write.
     pub async fn write(&mut self, bytes: &[u8]) -> Result<(), StorageError> {
@@ -304,6 +312,21 @@ mod tests {
         drop(staged);
 
         assert_eq!(staged_files(dir.path()), 0);
+        assert!(matches!(
+            storage.read(&key(Variant::Original)).await,
+            Err(StorageError::NotFound)
+        ));
+    }
+
+    #[tokio::test]
+    async fn staged_path_points_to_the_storage_owned_temporary_file() {
+        let (dir, storage) = storage().await;
+        let staged = storage.stage().await.unwrap();
+        let path = staged.temporary_path();
+
+        assert!(path.is_file());
+        assert!(path.starts_with(dir.path().join(STAGING_DIR)));
+        assert_ne!(path, key(Variant::Original).path(dir.path()));
         assert!(matches!(
             storage.read(&key(Variant::Original)).await,
             Err(StorageError::NotFound)

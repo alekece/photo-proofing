@@ -28,6 +28,7 @@ use crate::{
     extractors::session_token::SessionToken,
     limiter::AttemptLimiter,
     middlewares::origin::SameOrigin,
+    photo_upload::{PhotoUploadError, PhotoUploadState, initialize_image_library},
     routes,
 };
 
@@ -49,6 +50,8 @@ pub enum ApiError {
     Database(#[source] DatabaseError),
     #[error("photo storage unavailable")]
     Storage(#[source] StorageError),
+    #[error("photo upload initialization failed")]
+    PhotoUpload(#[source] PhotoUploadError),
     #[error("session idle timeout is out of range")]
     SessionLifetime(#[source] ConversionRange),
     #[error("password hashing unavailable")]
@@ -61,7 +64,7 @@ pub enum ApiError {
 ///
 /// Built once at startup from validated configuration, so request handlers never re-check
 /// configuration and cannot fail for configuration reasons. It holds the authentication
-/// policy, storage and abuse controls.
+/// policy and abuse controls; upload resources are held separately in [`PhotoUploadState`].
 pub(crate) struct ApiState {
     database: Database,
     origin: Origin,
@@ -184,13 +187,14 @@ impl ApiState {
 pub struct Api {
     http: HttpConfig,
     state: Data<ApiState>,
+    photo_upload: Data<PhotoUploadState>,
 }
 
 impl Api {
     pub async fn init(config: ApiConfig) -> Result<Self, ApiError> {
-        // Only the startup check for now: the upload and serving routes will hold the handle
-        // in the state. A missing or read-only volume must stop startup, not the first upload.
-        PhotoStorage::open(&config.photo.dir).await?;
+        let storage = PhotoStorage::open(&config.photo.dir).await?;
+        initialize_image_library()?;
+        let photo_upload = Data::new(PhotoUploadState::new(storage, config.photo_upload));
 
         let database = Database::connect_lazy(&config.database.url, 10)?;
 
@@ -202,6 +206,7 @@ impl Api {
         Ok(Self {
             http: config.http,
             state: Data::new(state),
+            photo_upload,
         })
     }
 
@@ -210,10 +215,12 @@ impl Api {
         tracing::info!(host = %self.http.host, port = self.http.port, "api starting");
 
         let state = self.state;
+        let photo_upload = self.photo_upload;
 
         HttpServer::new(move || {
             App::new()
                 .app_data(state.clone())
+                .app_data(photo_upload.clone())
                 .configure(configure_routes)
         })
         .bind((self.http.host.as_str(), self.http.port))?

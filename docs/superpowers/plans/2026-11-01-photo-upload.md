@@ -91,10 +91,14 @@ git commit -m "feat: persist uploaded photos and processing jobs"
 **Files:**
 - Modify: `crates/api/src/config.rs`
 - Modify: `crates/api/src/api.rs`
+- Modify: `crates/api/src/lib.rs`
 - Create: `crates/api/src/photo_upload.rs`
+- Modify: `Cargo.toml`
 - Modify: `crates/api/Cargo.toml`
 - Modify: `Cargo.lock`
 - Modify: `crates/storage/src/lib.rs`
+- Modify: `README.md`
+- Modify: `config.example.toml`
 - Modify: `docker/api.Dockerfile`
 - Modify: `.github/workflows/ci.yml`
 - Test: `crates/api/src/config.rs`
@@ -132,7 +136,7 @@ Expected: PASS for defaults, overrides, and concurrency bounds.
 - [ ] **Step 6: Commit the upload-resource deliverable**
 
 ```bash
-git add Cargo.lock crates/api docker/api.Dockerfile .github/workflows/ci.yml
+git add Cargo.toml Cargo.lock crates/api crates/storage README.md config.example.toml docker/api.Dockerfile .github/workflows/ci.yml
 git commit -m "feat: configure bounded photo uploads"
 ```
 

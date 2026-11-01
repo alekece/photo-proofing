@@ -1,7 +1,7 @@
 //! Settings of the API process, grouped by concern under [`ApiConfig`].
 
 use std::{
-    num::{NonZeroU32, NonZeroUsize},
+    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
     str::FromStr,
 };
 
@@ -31,6 +31,65 @@ pub type CookieDuration = BoundedDuration<1, MAX_COOKIE_SECS>;
 /// How long failed sign-ins are remembered per peer.
 pub type LimiterWindow = BoundedDuration<1, MAX_LIMITER_WINDOW_SECS>;
 
+/// An upper bound on one accepted upload's original size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize)]
+#[display("{_0}")]
+#[serde(transparent)]
+pub struct UploadSize(NonZeroU64);
+
+impl UploadSize {
+    pub const fn new(bytes: NonZeroU64) -> Self {
+        Self(bytes)
+    }
+
+    pub const fn bytes(self) -> NonZeroU64 {
+        self.0
+    }
+}
+
+impl FromStr for UploadSize {
+    type Err = ParseUploadLimitError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        value
+            .parse::<NonZeroU64>()
+            .map(Self::new)
+            .map_err(|_| ParseUploadLimitError)
+    }
+}
+
+/// An upper bound on the number of decoded pixels in one upload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize)]
+#[display("{_0}")]
+#[serde(transparent)]
+pub struct PixelLimit(NonZeroU64);
+
+impl PixelLimit {
+    pub const fn new(pixels: NonZeroU64) -> Self {
+        Self(pixels)
+    }
+
+    pub const fn pixels(self) -> NonZeroU64 {
+        self.0
+    }
+}
+
+impl FromStr for PixelLimit {
+    type Err = ParseUploadLimitError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        value
+            .parse::<NonZeroU64>()
+            .map(Self::new)
+            .map_err(|_| ParseUploadLimitError)
+    }
+}
+
+/// A photo upload limit that must be a positive integer.
+#[derive(Debug, Error)]
+#[error("upload limit must be a positive integer")]
+pub struct ParseUploadLimitError;
+
 /// Everything [`Api`](crate::api::Api) needs to start.
 #[derive(Args, ConfigArgs, Clone)]
 pub struct ApiConfig {
@@ -42,6 +101,9 @@ pub struct ApiConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub photo: PhotoConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub photo_upload: PhotoUploadConfig,
     #[command(flatten)]
     #[config(no_flatten)]
     pub session: SessionConfig,
@@ -161,6 +223,29 @@ pub struct LimiterConfig {
     pub max_peers: NonZeroUsize,
 }
 
+/// Per-process limits that bound upload memory and metadata parsing.
+#[derive(Args, ConfigArgs, Clone)]
+pub struct PhotoUploadConfig {
+    #[arg(
+        long = "photo-upload-max-size",
+        env = "PP_PHOTO_UPLOAD_MAX_SIZE",
+        default_value = "67108864"
+    )]
+    pub max_size: UploadSize,
+    #[arg(
+        long = "photo-upload-max-pixels",
+        env = "PP_PHOTO_UPLOAD_MAX_PIXELS",
+        default_value = "100000000"
+    )]
+    pub max_pixels: PixelLimit,
+    #[arg(
+        long = "photo-upload-concurrency",
+        env = "PP_PHOTO_UPLOAD_CONCURRENCY",
+        default_value = "4"
+    )]
+    pub concurrency: NonZeroUsize,
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -189,7 +274,7 @@ mod tests {
     }
 
     #[test]
-    fn defaults_apply_without_config_file() {
+    fn defaults_apply_without_config_file_and_photo_upload_limits() {
         let api = parse(&[]).unwrap().api;
 
         assert_eq!(api.http.host, "127.0.0.1");
@@ -202,7 +287,41 @@ mod tests {
         assert_eq!(api.limiter.max_failures.get(), 10);
         assert_eq!(api.limiter.window.get(), Duration::from_secs(60));
         assert_eq!(api.limiter.max_peers.get(), 1024);
+        assert_eq!(api.photo_upload.max_size.bytes().get(), 64 * 1024 * 1024);
+        assert_eq!(api.photo_upload.max_pixels.pixels().get(), 100_000_000);
+        assert_eq!(api.photo_upload.concurrency.get(), 4);
         assert_eq!(api.photo.dir.as_path(), Path::new("./data/photos"));
+    }
+
+    #[test]
+    fn photo_upload_limits_are_read_from_config_and_cli() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.toml");
+        fs::write(
+            &path,
+            "[photo_upload]\nmax_size = 1234\nmax_pixels = 5678\nconcurrency = 2\n",
+        )
+        .unwrap();
+        let args = ["--config", path.to_str().unwrap()];
+        let config = parse(&args).unwrap().api.photo_upload;
+
+        assert_eq!(config.max_size.bytes().get(), 1234);
+        assert_eq!(config.max_pixels.pixels().get(), 5678);
+        assert_eq!(config.concurrency.get(), 2);
+
+        let config = parse(&[args[0], args[1], "--photo-upload-max-size", "4321"])
+            .unwrap()
+            .api
+            .photo_upload;
+
+        assert_eq!(config.max_size.bytes().get(), 4321);
+        assert_eq!(config.max_pixels.pixels().get(), 5678);
+        assert_eq!(config.concurrency.get(), 2);
+    }
+
+    #[test]
+    fn photo_upload_concurrency_rejects_zero() {
+        assert!(parse(&["--photo-upload-concurrency", "0"]).is_err());
     }
 
     #[test]

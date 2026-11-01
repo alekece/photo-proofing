@@ -24,6 +24,7 @@ pp-core = { path = "crates/core" }
 pp-database = { path = "crates/database" }
 pp-storage = { path = "crates/storage" }
 sqlx = { version = "0.9", default-features = false }
+libvips = "2.3.0"
 
 [workspace.lints.clippy]
 unwrap_used = "warn"
