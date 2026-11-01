@@ -41,7 +41,6 @@ jobs:
               - ".github/workflows/ci.yml"
             web:
               - "web/**"
-              - ".github/actions/setup-web/**"
               - ".github/workflows/ci.yml"
 
   rust-fmt:
@@ -130,7 +129,15 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-web
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
 
   web-lint:
@@ -143,7 +150,15 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-web
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm check
 
@@ -157,7 +172,14 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-web
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm audit --prod
 
   web-test:
@@ -170,7 +192,15 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-web
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
       - run: pnpm test
 
   web-build:
@@ -183,5 +213,13 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-web
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
       - run: pnpm build
