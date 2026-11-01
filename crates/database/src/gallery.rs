@@ -12,7 +12,7 @@ use std::num::NonZeroUsize;
 use derive_more::Display;
 use pp_core::types::timestamp::Timestamp;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
-use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
+use sqlx::{AssertSqlSafe, FromRow, PgPool, Row, Type, postgres::PgRow};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -232,14 +232,15 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
 }
 
 impl GalleryRepository<'_> {
+    // Interpolated identifiers are fixed here or selected from GallerySort's closed enum.
     const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,share_token,created_at,updated_at";
 
     /// Creates an untitled gallery with the default settings.
     pub async fn create(&self, workspace_id: WorkspaceId) -> Result<Gallery, DatabaseError> {
-        Ok(sqlx::query_as(&format!(
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
             "INSERT INTO galleries(id,workspace_id) VALUES ($1,$2) RETURNING {}",
             Self::COLUMNS
-        ))
+        )))
         .bind(GalleryId(Uuid::new_v4()))
         .bind(workspace_id)
         .fetch_one(self.pool)
@@ -251,11 +252,11 @@ impl GalleryRepository<'_> {
         workspace_id: WorkspaceId,
         sort: GallerySort,
     ) -> Result<Vec<Gallery>, DatabaseError> {
-        Ok(sqlx::query_as(&format!(
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM galleries WHERE workspace_id=$1 ORDER BY {}",
             Self::COLUMNS,
             sort.order_by()
-        ))
+        )))
         .bind(workspace_id)
         .fetch_all(self.pool)
         .await?)
@@ -266,10 +267,10 @@ impl GalleryRepository<'_> {
         workspace_id: WorkspaceId,
         id: GalleryId,
     ) -> Result<Option<Gallery>, DatabaseError> {
-        Ok(sqlx::query_as(&format!(
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM galleries WHERE id=$1 AND workspace_id=$2",
             Self::COLUMNS
-        ))
+        )))
         .bind(id)
         .bind(workspace_id)
         .fetch_optional(self.pool)
@@ -284,12 +285,12 @@ impl GalleryRepository<'_> {
         id: GalleryId,
     ) -> Result<Option<Gallery>, DatabaseError> {
         // The row lock taken by UPDATE makes concurrent calls converge on the first token.
-        Ok(sqlx::query_as(&format!(
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
             "UPDATE galleries SET share_token = COALESCE(share_token, $3)
              WHERE id=$1 AND workspace_id=$2
              RETURNING {}",
             Self::COLUMNS
-        ))
+        )))
         .bind(id)
         .bind(workspace_id)
         .bind(ShareToken::generate())
@@ -342,7 +343,7 @@ impl GalleryRepository<'_> {
                 .filter(|title| !title.is_empty())
         });
 
-        sqlx::query_as(&format!(
+        sqlx::query_as(AssertSqlSafe(format!(
             "UPDATE galleries SET
                 title = CASE WHEN $3 THEN $4 ELSE title END,
                 layout = COALESCE($5, layout),
@@ -353,7 +354,7 @@ impl GalleryRepository<'_> {
              WHERE id=$1 AND workspace_id=$2
              RETURNING {}",
             Self::COLUMNS
-        ))
+        )))
         .bind(id)
         .bind(workspace_id)
         .bind(title.is_some())

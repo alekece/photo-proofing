@@ -23,6 +23,7 @@ derive_more = { version = "2.1.1", features = ["display", "from", "from_str", "d
 pp-core = { path = "crates/core" }
 pp-database = { path = "crates/database" }
 pp-storage = { path = "crates/storage" }
+sqlx = { version = "0.9", default-features = false }
 
 [workspace.lints.clippy]
 unwrap_used = "warn"

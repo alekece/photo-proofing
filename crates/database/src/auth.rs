@@ -203,6 +203,8 @@ impl AuthRepository<'_> {
 mod tests {
     use std::time::Duration;
 
+    use sqlx::AssertSqlSafe;
+
     use super::*;
     use crate::Database;
 
@@ -309,10 +311,11 @@ mod tests {
         );
 
         for table in ["accounts", "workspaces", "sessions"] {
-            let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+            let count: i64 =
+                sqlx::query_scalar(AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
 
             assert_eq!(count, 1);
         }
