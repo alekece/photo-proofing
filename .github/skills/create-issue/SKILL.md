@@ -1,11 +1,11 @@
 ---
 name: create-issue
-description: Use when the user asks to file, open, or write up a GitHub issue for the current repository from the conversation, as `create-issue` or `create-issue delegate`.
+description: Use when the user asks to file, open, or write up a GitHub issue for the current repository from the conversation.
 ---
 
 # Create issue
 
-Usage: `create-issue` files the issue and nothing else. `create-issue delegate` also hands it to automation in the same step. Implements AGENTS.md delivery workflow step 3. `gh` targets the current checkout's repository; never pass `--repo`. Without the `delegate` argument, never ask about or mention automation, and never add labels, unless the user raises it themselves (then do the Hand-off after creating).
+Usage: `create-issue`. Implements AGENTS.md delivery workflow step 3. `gh` targets the current checkout's repository; never pass `--repo`. This skill never touches the `agent` or `needs-attention` labels and never raises automation itself.
 
 ## Steps
 
@@ -14,20 +14,6 @@ Usage: `create-issue` files the issue and nothing else. `create-issue delegate` 
    `gh issue list --state all --search "<keywords>" --limit 10`
 3. Show the draft; once the user agrees, write the body to a temp file and run:
    `gh issue create --title "<title>" --body-file <file>`
-   Add no labels here.
-4. With the `delegate` argument, run the Hand-off below on the new issue.
-5. Report the issue URL (and the labels set, if any).
-
-## Hand-off (`create-issue delegate`, or the user asks for it)
-
-No design exists yet. Create only the missing labels (show any error to the user), then set them:
-
-```bash
-gh label list --json name --jq '.[].name'
-gh label create agent --description "Automation may act on this issue"                # only if missing
-gh label create needs-attention --description "It is the human's turn on this issue" # only if missing
-gh issue edit <N> --add-label agent --add-label needs-attention
-gh issue comment <N> --body "This issue needs a design document before implementation."
-```
-
-If a label cannot be created or added, tell the user.
+   Add no labels.
+4. Report the issue URL.
+5. Only if the user said in the conversation to delegate it (for example "create it and delegate"), invoke the `delegate-issue` skill on the new issue number.
