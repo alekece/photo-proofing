@@ -132,9 +132,13 @@ cargo build --workspace --release --locked
 Apply formatting with `cargo +nightly fmt --all`. Stable rustfmt ignores the nightly-only import-grouping setting.
 
 ```sh
+pnpm --dir web format:check   # pnpm --dir web format to fix
+pnpm --dir web lint
 pnpm --dir web check
 pnpm --dir web test
 pnpm --dir web build
+pnpm --dir web audit --prod
+pnpm --dir web verify   # all of the above except audit
 ```
 
 Database-backed tests use disposable SQLx databases through a test-role `DATABASE_URL` (the role must have permission to create databases); CI already provisions PostgreSQL 17 for Rust tests. For example, after creating a dedicated test database:
