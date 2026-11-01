@@ -722,13 +722,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn full_storage_maps_to_insufficient_storage() {
+    async fn full_storage_maps_to_service_unavailable() {
         let response = super::storage_failure(pp_storage::StorageError::DiskFull(
             std::io::Error::from(std::io::ErrorKind::StorageFull),
         ))
         .error_response();
 
-        assert_eq!(response.status(), StatusCode::INSUFFICIENT_STORAGE);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[tokio::test]

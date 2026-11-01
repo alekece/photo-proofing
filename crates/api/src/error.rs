@@ -67,7 +67,7 @@ impl ErrorResponse {
     }
 
     pub fn storage_full() -> Self {
-        Self::new(StatusCode::INSUFFICIENT_STORAGE, "photo storage is full")
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, "photo storage is full")
     }
 }
 
