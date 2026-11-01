@@ -2,7 +2,7 @@ name: Pick issues
 
 # Plain workflow (no LLM, so not a gh-aw source): selects eligible `agent` issues and
 # dispatches one implement-issue run per issue. Eligibility lives in
-# .github/scripts/pick-issues.sh.
+# the step below; implement-issue revalidates the design and exits cleanly if absent.
 on:
   schedule:
     - cron: "0 7 * * *"
@@ -32,12 +32,16 @@ jobs:
       GH_REPO: ${{ github.repository }}
       MAX: ${{ inputs.max || vars.AGENT_MAX_ISSUES || '1' }}
     steps:
-      - uses: actions/checkout@v4
       - name: Select and dispatch
         run: |
-          picked=$(bash .github/scripts/pick-issues.sh "$MAX")
-          echo "Picked: $picked (max $MAX)" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "$MAX" -gt 0 ] || exit 0
 
-          for issue in $(jq -r '.[]' <<<"$picked"); do
-            gh workflow run implement-issue.lock.yml -f issue="$issue"
+          gh issue list --label agent --search "-label:needs-attention -label:blocked" --limit 100 \
+            --json number,createdAt,milestone --jq 'sort_by([.milestone.dueOn // "9", .createdAt]) | .[] | .number' |
+          while read -r n; do
+            [ "$MAX" -gt 0 ] || break
+            [ "$(gh api "repos/$GH_REPO/issues/$n" --jq '(.sub_issues_summary.total // 0) - (.sub_issues_summary.completed // 0)')" = 0 ] || continue
+            [ "$(gh api "repos/$GH_REPO/issues/$n/dependencies/blocked_by" --jq '[.[] | select(.state == "open")] | length')" = 0 ] || continue
+            gh pr list --state open --json headRefName --jq '.[].headRefName' | grep -Eq "^[a-z]+/$n-" && continue
+            gh workflow run implement-issue.lock.yml -f issue="$n" && MAX=$((MAX - 1))
           done

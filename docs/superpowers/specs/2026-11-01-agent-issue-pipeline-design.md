@@ -8,11 +8,10 @@ Implement issues labelled `agent` that have a committed design, a bounded number
 
 ## Components
 
-- `pick-issues.yml` (plain workflow, no LLM, so not a gh-aw source): daily cron plus `workflow_dispatch` with optional `max`. Limit = `max` input, else repo variable `AGENT_MAX_ISSUES`, else 1; 0 pauses. Runs `.github/scripts/pick-issues.sh`, then dispatches `implement-issue` once per picked issue.
-- `.github/scripts/issue-eligible.sh <N>`: the single eligibility rule set, shared by the picker and by `implement-issue`'s pre-step. Open; `agent`; no `needs-attention`/`blocked`; no open "blocked by"; no open sub-issues; no open PR; exactly one `<type>/<N>-*` branch (the design branch) whose only changes against the default branch are under `docs/superpowers/` and include a spec. Branches are found by issue number only, never from issue text.
-- Ordering (`pick-issues.sh`): dated milestone by due date, undated milestone, no milestone; then oldest first. Project-board priority is not supported because `GITHUB_TOKEN` cannot read Projects.
+- `pick-issues.yml` (plain workflow, no LLM, so not a gh-aw source): daily cron plus `workflow_dispatch` with optional `max`. Limit = `max` input, else repo variable `AGENT_MAX_ISSUES`, else 1; 0 pauses. Dispatches `implement-issue` once per picked issue.
+- The picker is one inline step doing only cheap filters (`agent` label, not `needs-attention`/`blocked`, no open sub-issues or blockers, no open PR), ordered by milestone due date then oldest. Design presence and branch cleanliness are checked only by `implement-issue`, so a picked issue may end as a no-op run. Project-board priority is not supported.
 - `implement-issue.md` (gh-aw, Copilot engine, read-only agent job):
-  - Phase 1 (`workflow_dispatch`, input `issue`): pre-step re-runs eligibility and switches to `<design-branch>-impl`; the agent implements the design, runs the CI checks locally (at most 3 fix rounds), revalidates just before output, and opens a draft PR via `create-pull-request`.
+  - Phase 1 (`workflow_dispatch`, input `issue`): pre-step finds the design branch by number and switches to `<design-branch>-impl`; the agent implements the design, runs the CI checks locally (at most 3 fix rounds), revalidates just before output, and opens a draft PR via `create-pull-request`.
   - Phase 2 (`workflow_run` of `CI` on `*/*-impl` branches): green marks the PR ready; red is fixed and pushed (at most 3 rounds, counted by `CI fix round` comments); still red leaves the PR a draft with an explanatory comment. No labels.
   - Concurrency group per issue/branch, queued, never cancelled. All writes go through safe outputs minted with the repository's GitHub App, so PR and pushes trigger CI.
 
