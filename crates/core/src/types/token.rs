@@ -1,7 +1,7 @@
 use std::{fmt, str::FromStr};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use rand::RngCore;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
