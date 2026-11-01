@@ -1,14 +1,13 @@
-//! Streaming JPEG uploads, validated without decoding pixels and registered with a durable job.
+//! Workspace-scoped photo uploads and listing.
 //!
-//! The handler checks workspace access and request limits before consuming the body, stages bytes
-//! in storage, inspects only JPEG metadata, then publishes the unchanged original and atomically
-//! records its photo/job pair. Dropping a failed stage or removing a failed publication prevents
-//! rejected uploads from becoming visible.
+//! Uploads check workspace access and request limits before consuming the body, stage bytes in
+//! storage, inspect only JPEG metadata, then publish the unchanged original and atomically record
+//! its photo/job pair. Listing checks gallery ownership before returning its ordered photo states.
 
 use std::num::{NonZeroU32, NonZeroU64};
 
 use actix_web::{
-    HttpRequest, HttpResponse,
+    HttpRequest, HttpResponse, get,
     http::header::{CONTENT_LENGTH, CONTENT_TYPE},
     post,
     web::{self, Data, Path as WebPath, ServiceConfig},
@@ -37,7 +36,32 @@ const MAX_FILENAME_BYTES: usize = 255;
 
 /// Registers photo routes inside the `/api/v1/galleries` scope.
 pub fn configure(cfg: &mut ServiceConfig) {
-    cfg.service(upload_photo);
+    cfg.service(upload_photo).service(list_photos);
+}
+
+#[get("/{id}/photos")]
+async fn list_photos(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    id: WebPath<GalleryId>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let gallery_id = id.into_inner();
+
+    if state
+        .galleries()
+        .get(identity.workspace_id, gallery_id)
+        .await?
+        .is_none()
+    {
+        return Err(ErrorResponse::not_found());
+    }
+
+    let photos = state
+        .photos()
+        .list(identity.workspace_id, gallery_id)
+        .await?;
+
+    Ok(HttpResponse::Ok().no_store().json(photos))
 }
 
 #[post("/{id}/photos")]
@@ -751,5 +775,139 @@ mod tests {
         );
 
         assert!(result.is_err());
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn listing_empty_gallery_returns_empty_array(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool, directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/v1/galleries/{gallery_id}/photos"))
+            .cookie(cookie)
+            .to_request();
+
+        let (status, photos) = call_request(&app, request).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(photos, serde_json::json!([]));
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn listing_returns_all_states_in_creation_and_id_order(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let original = jpeg(2, 1);
+        let fixtures = [
+            ("late.jpg", 30_i64, "ready", None),
+            ("larger-id.jpg", 20, "failed", Some("processing failed")),
+            ("oldest.jpg", 10, "waiting", None),
+            ("smaller-id.jpg", 20, "processing", None),
+        ];
+        let mut expected = Vec::new();
+
+        for (filename, created_at, status, failure_reason) in fixtures {
+            let request = upload_request(
+                &cookie,
+                &gallery_id,
+                filename,
+                "image/jpeg",
+                &original,
+                None,
+            );
+            let (upload_status, photo) = call_request(&app, request).await;
+
+            assert_eq!(upload_status, StatusCode::CREATED);
+
+            let id = Uuid::parse_str(photo["id"].as_str().unwrap()).unwrap();
+
+            sqlx::query(
+                "UPDATE photos SET status = $2::photo_status, failure_reason = $3,
+                 created_at = to_timestamp($4) WHERE id = $1",
+            )
+            .bind(id)
+            .bind(status)
+            .bind(failure_reason)
+            .bind(created_at)
+            .execute(&pool)
+            .await
+            .unwrap();
+            expected.push((created_at, id, status, filename, failure_reason));
+        }
+
+        expected.sort_by_key(|(created_at, id, ..)| (*created_at, *id));
+
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/v1/galleries/{gallery_id}/photos"))
+            .cookie(cookie)
+            .to_request();
+        let response = test::call_service(&app, request).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
+
+        let body = test::read_body(response).await;
+        let photos: Value = serde_json::from_slice(&body).unwrap();
+        let photos = photos.as_array().unwrap();
+
+        assert_eq!(photos.len(), expected.len());
+
+        for (photo, (_, id, status, filename, failure_reason)) in photos.iter().zip(expected.iter())
+        {
+            assert_eq!(photo["id"], id.to_string());
+            assert_eq!(photo["original_name"], *filename);
+            assert_eq!(photo["size"], original.len());
+            assert_eq!(photo["width"], 2);
+            assert_eq!(photo["height"], 1);
+            assert_eq!(photo["status"], *status);
+            assert!(photo["created_at"].as_str().is_some());
+
+            if let Some(reason) = failure_reason {
+                assert_eq!(photo["failure_reason"], *reason);
+            } else {
+                assert!(photo["failure_reason"].is_null());
+            }
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn listing_requires_authentication(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool, directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/v1/galleries/{gallery_id}/photos"))
+            .to_request();
+
+        let (status, _) = call_request(&app, request).await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn listing_foreign_workspace_gallery_returns_not_found(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let owner_cookie = sign_up(&app).await;
+        let foreign_workspace = other_workspace(&pool).await;
+        let foreign_gallery = Database::new(pool.clone())
+            .repository::<GalleryRepository>()
+            .create(foreign_workspace)
+            .await
+            .unwrap();
+        let foreign_gallery_id = foreign_gallery.id.0.to_string();
+
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/v1/galleries/{foreign_gallery_id}/photos"))
+            .cookie(owner_cookie)
+            .to_request();
+        let (status, body) = call_request(&app, request).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"], "not found");
     }
 }

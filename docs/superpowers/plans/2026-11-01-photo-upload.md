@@ -192,7 +192,6 @@ git commit -m "feat: accept validated JPEG photo uploads"
 
 **Files:**
 - Modify: `crates/api/src/routes/photos.rs`
-- Modify: `crates/api/src/routes.rs`
 - Test: `crates/api/src/routes/photos.rs`
 
 **Interfaces:**
@@ -214,7 +213,7 @@ Resolve the gallery through the authenticated workspace before listing its photo
 
 - [ ] **Step 4: Run API checks**
 
-Run: `cargo test -p pp-api --locked && cargo clippy -p pp-api -p pp-database --all-targets --locked -- -D warnings`
+Run: `cargo test --workspace --locked && cargo clippy -p pp-api -p pp-database --all-targets --locked -- -D warnings`
 Expected: PASS with all upload, listing, database, and existing API tests green.
 
 - [ ] **Step 5: Commit the list route and regression tests**
