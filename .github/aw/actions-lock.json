@@ -1,5 +1,20 @@
 {
   "entries": {
+    "actions/setup-node@v4": {
+      "repo": "actions/setup-node",
+      "version": "v4",
+      "sha": "49933ea5288caeca8642d1e84afbd3f7d6820020"
+    },
+    "dtolnay/rust-toolchain@nightly": {
+      "repo": "dtolnay/rust-toolchain",
+      "version": "nightly",
+      "sha": "2c76c034f9e32a5d6e2c104dc4df23a22476db04"
+    },
+    "dtolnay/rust-toolchain@stable": {
+      "repo": "dtolnay/rust-toolchain",
+      "version": "stable",
+      "sha": "b725eda525362e7cf34af9a7243cac1e3f01a7ec"
+    },
     "github/gh-aw-actions/setup-cli@v1.0.1": {
       "repo": "github/gh-aw-actions/setup-cli",
       "version": "v1.0.1",
@@ -9,6 +24,11 @@
       "repo": "github/gh-aw-actions/setup",
       "version": "v1.0.1",
       "sha": "221ba4f4319de6b8e809d1a15528b3ae6a818aa5"
+    },
+    "pnpm/action-setup@v4": {
+      "repo": "pnpm/action-setup",
+      "version": "v4",
+      "sha": "b906affcce14559ad1aafd4ab0e942779e9f58b1"
     }
   }
 }

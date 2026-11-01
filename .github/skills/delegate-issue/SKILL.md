@@ -18,6 +18,5 @@ Run only on the user's explicit request. Labels are set only here, never by the 
 4. **Design found:** comment with the link `$(gh repo view --json url --jq .url)/blob/<branch>/docs/superpowers/specs/<file>`, then
    `gh issue edit <N> --add-label agent --remove-label needs-attention`
 5. **No design:**
-   `gh issue edit <N> --add-label agent --add-label needs-attention`
-   and comment "This issue needs a design document before implementation."
+   `gh issue edit <N> --add-label agent --add-label needs-attention` (labels only, no comment).
 6. Report which labels were set; if a label could not be created or added, say so.
