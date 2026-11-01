@@ -60,6 +60,6 @@ impl HandlerRegistry {
     /// Runs the handler of the job's kind. `None` if no handler is registered, which cannot
     /// happen for jobs claimed through [`kinds`](Self::kinds).
     pub(crate) fn handle(&self, job: &Job) -> Option<HandlerFuture> {
-        self.handlers.get(&job.kind).map(|handler| handler(job))
+        self.handlers.get(&job.kind()).map(|handler| handler(job))
     }
 }
