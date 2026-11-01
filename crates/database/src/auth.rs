@@ -309,10 +309,11 @@ mod tests {
         );
 
         for table in ["accounts", "workspaces", "sessions"] {
-            let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+            let count: i64 =
+                sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
 
             assert_eq!(count, 1);
         }

@@ -255,7 +255,7 @@ impl JobRepository<'_> {
         .execute(self.pool)
         .await?;
 
-        Ok(sqlx::query_as(&format!(
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE jobs SET state = 'running', attempts = attempts + 1,
                  locked_until = now() + $2 * interval '1 second'
              WHERE id = (
@@ -268,7 +268,7 @@ impl JobRepository<'_> {
                  FOR UPDATE SKIP LOCKED)
              RETURNING {}",
             Self::COLUMNS
-        ))
+        )))
         .bind(kinds)
         .bind(lease.as_secs_f64())
         .fetch_optional(self.pool)
@@ -572,14 +572,16 @@ mod tests {
     async fn payload_migration_preserves_existing_job_data(pool: PgPool) {
         let mut transaction = pool.begin().await.unwrap();
         let schema = format!("job_payload_migration_{}", Uuid::new_v4().simple());
-        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&mut *transaction)
             .await
             .unwrap();
-        sqlx::query(&format!("SET LOCAL search_path TO {schema}"))
-            .execute(&mut *transaction)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SET LOCAL search_path TO {schema}"
+        )))
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
         sqlx::raw_sql(include_str!("../migrations/0004_jobs.sql"))
             .execute(&mut *transaction)
             .await
