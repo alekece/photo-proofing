@@ -14,6 +14,7 @@ use derive_more::From;
 use pp_core::url::Origin;
 use pp_database::{
     Database, auth::AuthRepository, error::DatabaseError, gallery::GalleryRepository,
+    photo::PhotoRepository,
 };
 use pp_storage::{PhotoStorage, StorageError};
 use thiserror::Error;
@@ -103,6 +104,10 @@ impl ApiState {
     }
 
     pub fn galleries(&self) -> GalleryRepository<'_> {
+        self.database.repository()
+    }
+
+    pub fn photos(&self) -> PhotoRepository<'_> {
         self.database.repository()
     }
 

@@ -165,6 +165,11 @@ impl StagedPhoto {
         Ok(self.file.write_all(bytes).await?)
     }
 
+    /// Flushes staged bytes so another reader can inspect the temporary file.
+    pub async fn flush(&mut self) -> Result<(), StorageError> {
+        Ok(self.file.flush().await?)
+    }
+
     /// Syncs the file and atomically publishes it under `key`.
     ///
     /// An `Original` is written once: if one exists, nothing is replaced and
@@ -331,6 +336,18 @@ mod tests {
             storage.read(&key(Variant::Original)).await,
             Err(StorageError::NotFound)
         ));
+    }
+
+    #[tokio::test]
+    async fn flush_makes_staged_bytes_available_for_metadata_inspection() {
+        let (_dir, storage) = storage().await;
+        let mut staged = storage.stage().await.unwrap();
+        let path = staged.temporary_path().to_owned();
+
+        staged.write(b"header bytes").await.unwrap();
+        staged.flush().await.unwrap();
+
+        assert_eq!(std_fs::read(path).unwrap(), b"header bytes");
     }
 
     #[tokio::test]

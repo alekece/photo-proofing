@@ -143,8 +143,11 @@ git commit -m "feat: configure bounded photo uploads"
 ### Task 3: Stream and validate individual photo uploads
 
 **Files:**
+- Modify: `Cargo.toml`
 - Create: `crates/api/src/routes/photos.rs`
 - Modify: `crates/api/src/routes.rs`
+- Modify: `crates/api/src/routes/galleries.rs`
+- Modify: `crates/api/src/api.rs`
 - Modify: `crates/api/src/error.rs`
 - Modify: `crates/api/Cargo.toml`
 - Modify: `Cargo.lock`
@@ -175,7 +178,7 @@ Generate a `PhotoId`, decode and bound the display filename (fall back to `photo
 
 - [ ] **Step 5: Run the targeted route tests and verify they pass**
 
-Run: `cargo test -p pp-api --locked routes::photos::tests`
+Run: `cargo test -p pp-api --locked --lib routes::photos::tests`
 Expected: PASS, including cleanup and no partial photo/job records on rejection.
 
 - [ ] **Step 6: Commit the upload route**

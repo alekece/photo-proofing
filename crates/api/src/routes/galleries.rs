@@ -43,7 +43,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(show_shared_gallery)
             .service(show_gallery)
             .service(update_gallery)
-            .service(share_gallery),
+            .service(share_gallery)
+            .configure(super::photos::configure),
     );
 }
 

@@ -43,6 +43,32 @@ impl ErrorResponse {
     pub fn bad_request() -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalid request")
     }
+
+    pub fn unsupported_media_type() -> Self {
+        Self::new(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "expected an image/jpeg request body",
+        )
+    }
+
+    pub fn payload_too_large() -> Self {
+        Self::new(StatusCode::PAYLOAD_TOO_LARGE, "request body too large")
+    }
+
+    pub fn invalid_image() -> Self {
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid JPEG image")
+    }
+
+    pub fn dimensions_too_large() -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "image dimensions exceed the configured limit",
+        )
+    }
+
+    pub fn storage_full() -> Self {
+        Self::new(StatusCode::INSUFFICIENT_STORAGE, "photo storage is full")
+    }
 }
 
 impl ResponseError for ErrorResponse {
