@@ -1,0 +1,43 @@
+name: Pick issues
+
+# Plain workflow (no LLM, so not a gh-aw source): selects eligible `agent` issues and
+# dispatches one implement-issue run per issue. Eligibility lives in
+# .github/scripts/pick-issues.sh.
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      max:
+        description: Override AGENT_MAX_ISSUES for this run (0 pauses)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  actions: write
+
+concurrency:
+  group: pick-issues
+  cancel-in-progress: false
+
+jobs:
+  pick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      MAX: ${{ inputs.max || vars.AGENT_MAX_ISSUES || '1' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select and dispatch
+        run: |
+          picked=$(bash .github/scripts/pick-issues.sh "$MAX")
+          echo "Picked: $picked (max $MAX)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          for issue in $(jq -r '.[]' <<<"$picked"); do
+            gh workflow run implement-issue.lock.yml -f issue="$issue"
+          done
