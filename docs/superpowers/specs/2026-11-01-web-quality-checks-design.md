@@ -28,7 +28,7 @@ The `web` job runs `pnpm check`, `pnpm test`, and `pnpm build` only. `web/packag
 - Dev dependencies: `prettier`, `prettier-plugin-svelte`, `prettier-plugin-tailwindcss`, `eslint`, `typescript-eslint`, `eslint-plugin-svelte`, `eslint-config-prettier`, `globals`.
 - Config: `web/.prettierrc` matching the existing style (tabs, single quotes, as in current files), `web/.prettierignore` (build output, `.svelte-kit`, lockfile), and a flat `web/eslint.config.js` using recommended presets for typescript-eslint and eslint-plugin-svelte, with `eslint-config-prettier` last.
 - Scripts in `web/package.json`: `format` (write), `format:check`, `lint` (`eslint . --max-warnings 0`), `audit` (`pnpm audit --prod`), and `verify` running `format:check`, `lint`, `check`, `test`, and `build`. `check` gains `--fail-on-warnings`.
-- CI: the `web` job runs the same steps as `verify`, as separate named steps for readable failures, plus the audit step. The job name is updated to match.
+- CI: split the `web` job into one job per check, mirroring the Rust jobs (`Web format`, `Web lint and check`, `Web dependencies`, `Web tests`, `Web build`), all path-filtered and sharing a `.github/actions/setup-web` composite action for pnpm, Node, and the frozen install. Changed after review of PR #131 at the user's request.
 - README: document `pnpm format`, `pnpm lint`, and `pnpm verify` beside the existing web verification commands.
 - Existing code is reformatted and lint-fixed in a dedicated commit, with no behavior changes.
 

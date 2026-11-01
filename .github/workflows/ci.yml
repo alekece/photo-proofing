@@ -41,6 +41,7 @@ jobs:
               - ".github/workflows/ci.yml"
             web:
               - "web/**"
+              - ".github/actions/setup-web/**"
               - ".github/workflows/ci.yml"
 
   rust-fmt:
@@ -119,8 +120,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace --release
 
-  web:
-    name: Web format, lint, check, test, build, audit
+  web-fmt:
+    name: Web format
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
@@ -129,18 +130,58 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.13.1
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-web
       - run: pnpm format:check
+
+  web-lint:
+    name: Web lint and check
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-web
       - run: pnpm lint
       - run: pnpm check
-      - run: pnpm test
-      - run: pnpm build
+
+  web-audit:
+    name: Web dependencies
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-web
       - run: pnpm audit --prod
+
+  web-test:
+    name: Web tests
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-web
+      - run: pnpm test
+
+  web-build:
+    name: Web build
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-web
+      - run: pnpm build
