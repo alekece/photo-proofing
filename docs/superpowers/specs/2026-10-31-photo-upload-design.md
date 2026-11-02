@@ -194,3 +194,51 @@ holding a slot through a stalled request. Retain JPEG rejection, timeout cleanup
 photo/job atomicity, failure-reason decoding, and uncertain-commit preservation regressions.
 Run formatting, relevant Clippy checks, and workspace tests, then obtain independent review before
 replying to the new threads with the `[agent]` prefix.
+
+## Third PR review refinement (2026-11-02, approved)
+
+Simplify ownership and module boundaries without changing upload behavior, admission ordering,
+storage guarantees, or database acceptance. This supersedes the separate `UploadState` and
+resource-owned inspection/publication methods in the previous refinement.
+
+### Approaches
+
+- **API-local extension trait (chosen by the maintainer):** attach inspection and original
+  publication to storage's `StagedPhoto` without moving libvips or HTTP policy into storage.
+- **API-owned staged-upload wrapper:** could bundle metadata and policy, but adds another
+  owner/type when the existing staged file already encodes temporary-file ownership.
+- **Methods on `UploadSlot`:** keeps policy local but does not put file operations on the
+  staged file, as requested.
+
+### Decisions
+
+- Fold storage, upload configuration, and the shared semaphore into `ApiState`; remove
+  `UploadState`. Continue registering only `Data<ApiState>`, with eager `UploadSlot` admission.
+  Keep the permit alive through validation, publication, database acceptance and cleanup.
+- Introduce a private API-local `StagedPhotoExt` trait: inspection borrows the staged photo
+  and receives the configured pixel bound; original publication consumes the staged photo
+  and receives the key and storage needed for partial-publication cleanup. Preserve the
+  collision exception: an existing original must never be removed.
+- Name original removal `remove_original` and acceptance-failure cleanup `cleanup`.
+  Keep them as private upload-module helpers operating on explicit storage/key/error inputs;
+  uncertain database commits still preserve the original.
+- Retain process-wide `upload::install()`. Keep filename parsing and storage-to-HTTP error
+  mapping in the API upload module, not in generic storage or application state.
+- Move photo routes to `routes/galleries/photos.rs`, declared by `galleries.rs`.
+  URLs and route registration order remain unchanged.
+- Use `tests::upload_resources` directly in the middleware test fixture, preserving the
+  directory owner for each test's full lifetime.
+- Verify compiler inference for `database().repository().authenticate(...)`. Retain the
+  explicit repository type if method lookup cannot infer it, and explain this in the thread;
+  do not redesign repository dispatch to remove a necessary type annotation.
+- Replace the trivial SQLx-to-intake conversion implementation with the existing
+  `derive_more::From` mechanism if it preserves conversion through sanitized `DatabaseError`.
+  Commit classification remains separate and conservative.
+
+### Verification and constraints
+
+No dependencies, schema, product scope, or behavior changes. Retain all admission, authorization,
+cancellation, timeout, collision, cleanup, status and transaction regressions. Add focused
+extension-method and error-conversion coverage where existing tests do not exercise the new
+boundaries. Run formatting, relevant Clippy and workspace tests, then obtain one independent
+review and reply to the eight new threads with `[agent]`. Preserve the worktree and do not merge.
