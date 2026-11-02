@@ -95,7 +95,9 @@
 			</div>
 			<div class="flex justify-end gap-2">
 				<Button variant="ghost" onclick={close} disabled={creating}>Cancel</Button>
-				<Button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create gallery'}</Button>
+				<Button type="submit" disabled={creating}
+					>{creating ? 'Creating…' : 'Create gallery'}</Button
+				>
 			</div>
 		</form>
 	{/snippet}

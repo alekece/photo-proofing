@@ -1,6 +1,4 @@
-<main
-	class="grid min-h-screen content-center justify-items-center gap-2 px-4 py-6 text-center"
->
+<main class="grid min-h-screen content-center justify-items-center gap-2 px-4 py-6 text-center">
 	<svg
 		class="mb-4 h-auto max-w-full rounded-sm shadow-viewfinder"
 		viewBox="0 0 340 210"
@@ -48,13 +46,18 @@
 		</g>
 	</svg>
 	<h1 class="text-[1.5rem]">Focus not locked</h1>
-	<p class="max-w-80 text-muted-foreground">We couldn't lock onto this gallery. Please contact your photographer.</p>
+	<p class="max-w-80 text-muted-foreground">
+		We couldn't lock onto this gallery. Please contact your photographer.
+	</p>
 </main>
 
 <style>
 	/* Scoped child selectors for SVG <text>/<g> artwork and the keyframe animation. */
 	text {
-		font: 11px ui-monospace, Menlo, monospace;
+		font:
+			11px ui-monospace,
+			Menlo,
+			monospace;
 	}
 	.top text {
 		font-size: 10px;

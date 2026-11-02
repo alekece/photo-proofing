@@ -19,7 +19,10 @@ describe('buttonVariants', () => {
 
 describe('Button', () => {
 	it('renders a disabled button that ignores pointer events', () => {
-		render(Button, { disabled: true, children: createRawSnippet(() => ({ render: () => '<span>Save</span>' })) });
+		render(Button, {
+			disabled: true,
+			children: createRawSnippet(() => ({ render: () => '<span>Save</span>' }))
+		});
 
 		const button = screen.getByRole('button');
 

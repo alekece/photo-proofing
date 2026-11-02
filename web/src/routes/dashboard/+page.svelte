@@ -109,7 +109,10 @@
 		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 			{#each visible as gallery (gallery.id)}
 				<Card as="li" class="overflow-hidden focus-within:ring-2 focus-within:ring-foreground">
-					<a href={`/dashboard/${gallery.id}`} class="block text-foreground no-underline outline-none">
+					<a
+						href={`/dashboard/${gallery.id}`}
+						class="block text-foreground no-underline outline-none"
+					>
 						<div class="aspect-[3/2]">
 							<Placeholder background="sheet" icon label="Your hero photo will appear here" />
 						</div>

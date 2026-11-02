@@ -40,6 +40,8 @@
 	// Attempted values of fields whose last save failed; cleared per field on that field's success.
 	let failed = $state<GalleryChanges>({});
 	let hasFailures = $derived(Object.keys(failed).length > 0);
+	// Non-reactive timer bookkeeping; never read by the template.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const timers = new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => void }>();
 
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
@@ -148,7 +150,8 @@
 			await authRequest('logout');
 			await goto('/login', { refreshAll: true });
 		} catch (error) {
-			signOutError = error instanceof Error ? error.message : 'Unable to sign out. Please try again.';
+			signOutError =
+				error instanceof Error ? error.message : 'Unable to sign out. Please try again.';
 		}
 	}
 	function retry() {
@@ -191,8 +194,8 @@
 							size="sm"
 							data-retry
 							onmousedown={(event) => event.preventDefault()}
-							onclick={retry}
-						>Retry</Button>
+							onclick={retry}>Retry</Button
+						>
 					{:else if justSaved}
 						<span>Saved</span>
 					{/if}

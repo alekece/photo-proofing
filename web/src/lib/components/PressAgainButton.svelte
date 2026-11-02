@@ -67,7 +67,9 @@
 	{#if armed}
 		<span
 			class="fill absolute inset-0 origin-left bg-[color-mix(in_srgb,var(--color-inverse)_28%,transparent)]"
-			style:animation-duration="{CONFIRM_WINDOW}ms" aria-hidden="true"></span>
+			style:animation-duration="{CONFIRM_WINDOW}ms"
+			aria-hidden="true"
+		></span>
 	{/if}
 	<span class="relative">{armed ? confirmLabel : label}</span>
 </Button>

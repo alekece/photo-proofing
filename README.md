@@ -14,7 +14,7 @@ The repository supports one-time photographer account setup, email/password logi
 - [MVP release](docs/releases/MVP.md): first-release scope and acceptance evidence to collect.
 - [ADR 0001 — Technology baseline](docs/adr/0001-technology-baseline.md): established choices and tradeoffs.
 - [ADR 0003 — Private photo storage](docs/adr/0003-photo-storage.md): photo directory layout and atomic writes.
-- [Agent guidance](AGENTS.md): shared development and documentation rules.
+- [Agent guidance](AGENTS.md): shared development and documentation rules, with [Rust](crates/AGENTS.md) and [frontend](web/AGENTS.md) guidance.
 - [Approved design records](docs/superpowers/specs/): designs retained with the repository.
 
 ## Prerequisites
@@ -137,9 +137,13 @@ cargo build --workspace --release --locked
 Apply formatting with `cargo +nightly fmt --all`. Stable rustfmt ignores the nightly-only import-grouping setting.
 
 ```sh
+pnpm --dir web format:check   # pnpm --dir web format to fix
+pnpm --dir web lint
 pnpm --dir web check
 pnpm --dir web test
 pnpm --dir web build
+pnpm --dir web audit --prod
+pnpm --dir web verify   # all of the above except audit
 ```
 
 Database-backed tests use disposable SQLx databases through a test-role `DATABASE_URL` (the role must have permission to create databases); CI already provisions PostgreSQL 17 for Rust tests. For example, after creating a dedicated test database:
