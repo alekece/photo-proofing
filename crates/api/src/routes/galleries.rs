@@ -28,6 +28,8 @@ use crate::{
     response::ResponseBuilderExt,
 };
 
+mod photos;
+
 #[derive(Deserialize)]
 struct ListQuery {
     #[serde(default)]
@@ -44,7 +46,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(show_gallery)
             .service(update_gallery)
             .service(share_gallery)
-            .configure(super::photos::configure),
+            .configure(photos::configure),
     );
 }
 

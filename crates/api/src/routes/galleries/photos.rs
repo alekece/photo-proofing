@@ -20,8 +20,11 @@ use pp_storage::{PhotoKey, Variant};
 use uuid::Uuid;
 
 use crate::{
-    api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
-    response::ResponseBuilderExt, upload::UploadSlot,
+    api::ApiState,
+    error::ErrorResponse,
+    extractors::identity::Authenticated,
+    response::ResponseBuilderExt,
+    upload::{self, StagedPhotoExt, UploadSlot},
 };
 
 /// Registers photo routes inside the `/api/v1/galleries` scope.
@@ -66,7 +69,7 @@ async fn upload_photo(
     payload: web::Payload,
 ) -> Result<HttpResponse, ErrorResponse> {
     let gallery_id = id.into_inner();
-    let upload = state.upload();
+    let storage = state.storage();
 
     if state
         .database()
@@ -86,7 +89,7 @@ async fn upload_photo(
         return Err(ErrorResponse::unsupported_media_type());
     }
 
-    let max_size = upload.max_size().get();
+    let max_size = state.upload_config().max_size.get();
 
     if let Some(length) = request.headers().get(CONTENT_LENGTH) {
         let length = length
@@ -101,7 +104,7 @@ async fn upload_photo(
     }
 
     let (staged, size) = slot.stage_payload(payload.into_inner()).await?;
-    let dimensions = upload.inspect_jpeg(&staged).await?;
+    let dimensions = staged.inspect(state.upload_config().max_pixels).await?;
     let photo_id = PhotoId::from(Uuid::new_v4());
     let key = PhotoKey {
         workspace: identity.workspace_id,
@@ -110,13 +113,13 @@ async fn upload_photo(
         variant: Variant::Original,
     };
 
-    upload.commit_original(staged, &key).await?;
+    staged.commit_original(storage, &key).await?;
 
     let new_photo = NewPhoto {
         id: photo_id,
         workspace_id: identity.workspace_id,
         gallery_id,
-        original_name: upload.original_name(&request),
+        original_name: upload::original_name(&request),
         size,
         dimensions,
     };
@@ -130,12 +133,12 @@ async fn upload_photo(
         Ok(Some(photo)) => photo,
         Ok(None) => {
             // Insertion rechecks ownership: the gallery may have disappeared while streaming.
-            upload.remove_published_original(&key).await?;
+            upload::remove_original(storage, &key).await?;
 
             return Err(ErrorResponse::not_found());
         }
         Err(error) => {
-            upload.cleanup_after_failure(&key, &error).await?;
+            upload::cleanup(storage, &key, &error).await?;
 
             return Err(ErrorResponse::unavailable());
         }
@@ -174,7 +177,7 @@ mod tests {
         api::configure_routes,
         config::UploadConfig,
         tests::{ORIGIN, call, other_workspace, sign_up, state_with_upload},
-        upload::{self, UploadState},
+        upload,
     };
 
     fn upload_config(max_size: u64, max_pixels: u64) -> UploadConfig {
@@ -194,11 +197,10 @@ mod tests {
         let photo_dir: PhotoDir = photo_dir.to_path_buf().try_into().unwrap();
         let storage = PhotoStorage::open(&photo_dir).await.unwrap();
         upload::install().unwrap();
-        let photo_upload = UploadState::new(storage, config);
 
         test::init_service(
             App::new()
-                .app_data(Data::new(state_with_upload(pool, photo_upload)))
+                .app_data(Data::new(state_with_upload(pool, storage, config)))
                 .configure(configure_routes),
         )
         .await

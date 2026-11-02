@@ -137,7 +137,7 @@ mod tests {
     use crate::{
         api::ApiState,
         config::{AuthConfig, LimiterConfig, SessionConfig},
-        tests::upload_resources,
+        tests,
     };
 
     const PEER: IpAddr = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
@@ -160,10 +160,20 @@ mod tests {
             max_peers: NonZeroUsize::new(8).unwrap(),
         };
 
-        let (upload, directory) = upload_resources().await;
+        let (storage, upload_config, directory) = tests::upload_resources().await;
 
         (
-            Data::new(ApiState::new(Database::new(pool), session, auth, limiter, upload).unwrap()),
+            Data::new(
+                ApiState::new(
+                    Database::new(pool),
+                    session,
+                    auth,
+                    limiter,
+                    storage,
+                    upload_config,
+                )
+                .unwrap(),
+            ),
             directory,
         )
     }

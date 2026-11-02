@@ -19,7 +19,8 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
     config::{
-        ApiConfig, AuthConfig, CookieDuration, CookieName, HttpConfig, LimiterConfig, SessionConfig,
+        ApiConfig, AuthConfig, CookieDuration, CookieName, HttpConfig, LimiterConfig,
+        SessionConfig, UploadConfig,
     },
     credentials::{HashError, PasswordHash},
     error::ErrorResponse,
@@ -27,7 +28,7 @@ use crate::{
     limiter::AttemptLimiter,
     middlewares::origin::SameOrigin,
     routes,
-    upload::{self, PhotoUploadError, UploadState},
+    upload::{self, PhotoUploadError},
 };
 
 /// Largest accepted JSON body: credentials and gallery changesets are a handful of short
@@ -65,7 +66,9 @@ pub enum ApiError {
 /// policy, abuse controls, and bounded upload resources.
 pub(crate) struct ApiState {
     database: Database,
-    upload: UploadState,
+    storage: PhotoStorage,
+    upload_config: UploadConfig,
+    upload_slots: Arc<Semaphore>,
     origin: Origin,
     idle_timeout: CookieDuration,
     cookie_name: CookieName,
@@ -82,11 +85,14 @@ impl ApiState {
         session: SessionConfig,
         auth: AuthConfig,
         limiter: LimiterConfig,
-        upload: UploadState,
+        storage: PhotoStorage,
+        upload_config: UploadConfig,
     ) -> Result<Self, ApiError> {
         Ok(Self {
             database,
-            upload,
+            storage,
+            upload_slots: Arc::new(Semaphore::new(upload_config.concurrency.get())),
+            upload_config,
             origin: auth.app_origin,
             idle_timeout: session.idle_timeout,
             cookie_name: session.cookie_name,
@@ -103,8 +109,17 @@ impl ApiState {
         &self.database
     }
 
-    pub fn upload(&self) -> &UploadState {
-        &self.upload
+    pub fn storage(&self) -> &PhotoStorage {
+        &self.storage
+    }
+
+    pub fn upload_config(&self) -> &UploadConfig {
+        &self.upload_config
+    }
+
+    /// Reserves admission without queuing; the owned permit releases capacity on drop.
+    pub fn try_acquire_upload_slot(&self) -> Option<OwnedSemaphorePermit> {
+        Arc::clone(&self.upload_slots).try_acquire_owned().ok()
     }
 
     /// True only for the exact configured origin; a missing header is not allowed.
@@ -199,7 +214,6 @@ impl Api {
     pub async fn init(config: ApiConfig) -> Result<Self, ApiError> {
         let storage = PhotoStorage::open(&config.photo.dir).await?;
         upload::install()?;
-        let upload = UploadState::new(storage, config.photo_upload);
 
         let database = Database::connect_lazy(&config.database.url, 10)?;
 
@@ -211,7 +225,8 @@ impl Api {
             config.session,
             config.auth,
             config.limiter,
-            upload,
+            storage,
+            config.photo_upload,
         )?;
 
         Ok(Self {
