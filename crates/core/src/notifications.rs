@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use strum::{Display as StrumDisplay, EnumString};
 use uuid::Uuid;
 
+use crate::types::generate::Generate;
+
 mod service;
 mod store;
 
@@ -31,6 +33,18 @@ pub struct GalleryId(Uuid);
 #[serde(transparent)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
 pub struct PhotoId(Uuid);
+
+impl Generate for PhotoId {
+    fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Generate for GalleryId {
+    fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
 pub struct NotificationId(u64);

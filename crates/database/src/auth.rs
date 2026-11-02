@@ -6,7 +6,7 @@
 
 use std::time::SystemTime;
 
-use pp_core::email::Email;
+use pp_core::{email::Email, types::generate::Generate};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Type};
 use time::OffsetDateTime;
@@ -26,6 +26,18 @@ pub struct AccountId(pub Uuid);
 #[serde(transparent)]
 #[sqlx(transparent)]
 pub struct WorkspaceId(pub Uuid);
+
+impl Generate for AccountId {
+    fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Generate for WorkspaceId {
+    fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
 
 /// Who a valid session belongs to; the only thing protected operations should trust.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, FromRow)]
@@ -85,8 +97,8 @@ impl AuthRepository<'_> {
         expires_at: SystemTime,
     ) -> Result<Option<Identity>, DatabaseError> {
         let mut tx = self.pool.begin().await?;
-        let workspace_id = WorkspaceId(Uuid::new_v4());
-        let account_id = AccountId(Uuid::new_v4());
+        let workspace_id = WorkspaceId::generate();
+        let account_id = AccountId::generate();
 
         sqlx::query("INSERT INTO workspaces(id) VALUES ($1)")
             .bind(workspace_id)

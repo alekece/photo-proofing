@@ -27,6 +27,7 @@
 
 use std::{num::NonZeroU16, str::FromStr, time::Duration};
 
+use pp_core::types::generate::Generate;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Error as JsonError, Value};
 use sqlx::{AssertSqlSafe, FromRow, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow};
@@ -44,6 +45,12 @@ pub const DEFAULT_MAX_ATTEMPTS: NonZeroU16 = NonZeroU16::new(5).unwrap();
 #[serde(transparent)]
 #[sqlx(transparent)]
 pub struct JobId(pub Uuid);
+
+impl Generate for JobId {
+    fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
 
 /// What a job does, which selects its handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -231,7 +238,7 @@ impl JobRepository<'_> {
         payload: JobPayload,
         max_attempts: NonZeroU16,
     ) -> Result<JobId, DatabaseError> {
-        let id = JobId(Uuid::new_v4());
+        let id = JobId::generate();
         let payload = serde_json::to_value(payload).map_err(|e| sqlx::Error::Encode(e.into()))?;
 
         sqlx::query("INSERT INTO jobs(id, payload, max_attempts) VALUES ($1, $2, $3)")

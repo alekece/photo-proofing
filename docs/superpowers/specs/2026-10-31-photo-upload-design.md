@@ -1,6 +1,7 @@
 # Upload JPEG proofs to a gallery
 
-Current approved design for #98 (part of #66), implemented in #132.
+Design for #98 (part of #66), delivered through #132. The ownership changes below are
+proposed for the latest review; HTTP behavior and failure guarantees remain unchanged.
 Requirements: FR-05, NF-01, NF-02, NF-04 and AC-06 in
 [the product specifications](../../SPECIFICATIONS.md).
 Foundations: [photo storage](2026-10-31-photo-storage-design.md) (#96) and
@@ -79,18 +80,30 @@ Size/pixel bounds use `NonZeroU64`; concurrency uses `NonZeroUsize`; dimensions 
 upload semaphore. A separate `Data<UploadLimiter>`, constructed once outside the server-worker
 factory, privately owns shared capacity. The reverse proxy may add traffic protection but is
 not responsible for this application resource limit. Routes select repositories through
-`database()`. The private `upload` module initializes libvips with concurrency one and no caches.
+`database()`. Missing limiter application data is a wiring error: log and return 503,
+not an unbounded upload fallback. Saturation also remains fail-fast.
 
 | Component | Responsibility |
 |---|---|
 | `routes/galleries/photos.rs` | Gallery authorization, upload coordination and listing |
 | `UploadLimiter` | Isolated concurrency limit; privately owns its semaphore |
 | `UploadSlot` | Extracted capacity guard only; no application state, staging or inspection |
-| `validate_upload` | Header checks, bounded streaming, idle timeout and JPEG inspection; called only after authorization |
-| API-local `StagedPhotoExt` | JPEG inspection only; keeps libvips/HTTP policy out of storage |
+| `PhotoUpload::from_request` | Explicit constructor after authorization: check headers, receive bounded bytes into storage staging, inspect JPEG and decode display filename |
+| `upload/jpeg.rs` | Process-wide libvips initialization and file-based JPEG inspection; no storage or database policy |
+| `ErrorResponse::from(StorageError)` | Log storage failures and map them to the shared HTTP error contract |
 | `PhotoStorage` / `StagedPhoto` | UUID-derived paths, temporary files, write-once originals, durability and incomplete-publication cleanup |
 | `PhotoIntake` | Photo/job transaction and one bounded retry after an uncertain commit |
 | `PhotoRepository` / `JobRepository` | Focused persistence operations within that transaction |
+
+`PhotoUpload` replaces `ValidatedPhoto`; the route calls its value `photo_upload`. Its
+constructor takes the request, body, storage and upload options. This is an explicit async
+method, not an Actix extractor: authorization must finish before receiving bytes. It returns
+the staged original, filename, size and dimensions; the route still commits storage and builds
+`NewPhoto` explicitly. JPEG inspection takes a path and pixel bound, not `PhotoStorage`.
+
+UUID-backed identifiers implement a shared `Generate::generate() -> Self` capability in core.
+Production ID creation uses the identifier type, not `Uuid::new_v4()` at its callers. Preserve
+existing conversions, serialization and public fields; changing representations is not in scope.
 
 ## Publication, acceptance and failure handling
 
@@ -101,7 +114,7 @@ preventing every orphan.
 - Storage never replaces an existing original. Errors before publication must not remove one.
   If publication creates an original but its durability barrier fails, storage removes that
   attempt's original before returning the failure. Failed removal is an explicit storage
-  cleanup error. The route and JPEG extension trait do not interpret publication phases.
+  cleanup error. The route does not interpret publication phases.
 - `PhotoIntake::try_accept` runs one transaction through private `accept`: recheck gallery
   ownership, insert the photo and enqueue its `process_photo` job. Both database writes commit
   together. The transaction-taking photo insertion remains separate from job persistence.
@@ -112,6 +125,9 @@ preventing every orphan.
 - A missing gallery after streaming returns 404 and removes the newly published original.
   A definite database failure returns 503 after cleanup. Cleanup failures are reported, not
   treated as successful removal.
+- Database failure branches live directly in the route, not in upload helpers. They call
+  `storage.remove` only for definite failure or a missing gallery; `NotFound` means already
+  removed, preserving existing behavior. Unknown commits log and return 503 without removal.
 
 **Known recovery limits:** a crash/cancellation between publication and database acceptance
 can leave an original without metadata; uncertain commits and failed cleanup can also leave
@@ -140,9 +156,13 @@ the reason, rejecting unknown or inconsistent pairs. JSON uses `"waiting"`, `"pr
 
 Raw-body requests avoid multipart parsing and make per-file retry independent. Eager typed
 admission encodes permit ownership; its overload-before-validation tradeoff is accepted.
-An API-local extension trait keeps staged-file operations convenient without moving HTTP or
-libvips into storage. Database coordination stays outside the HTTP layer; no generic
-database-or-transaction abstraction is needed.
+Disk-backed receiving avoids up to 256 MiB of upload buffers at the default concurrency and
+avoids a new streaming JPEG parser. Its constructor names the receiving/storage responsibility
+explicitly; JPEG inspection is separate. Passing a pre-created staged file would create it
+before header validation or require another route step. Whole-body memory buffering was not
+chosen. Remove the single-implementation JPEG extension trait and upload cleanup wrappers
+rather than introducing another publication abstraction. Database transactions remain outside
+the HTTP layer, while the route owns the decision to remove or preserve its original.
 
 Keep regression coverage for authorization without body reads, admission and cancellation,
 size/timeout/JPEG rejection, unchanged bytes, duplicate names, gallery deletion during upload,

@@ -8,14 +8,13 @@ use actix_web::{
     HttpRequest, HttpResponse, get, post,
     web::{self, Data, Path as WebPath, ServiceConfig},
 };
-use pp_core::notifications::PhotoId;
+use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
     gallery::{GalleryId, GalleryRepository},
     photo::{NewPhoto, PhotoRepository},
     photo_intake::PhotoIntake,
 };
 use pp_storage::{PhotoKey, Variant};
-use uuid::Uuid;
 
 use crate::{
     api::ApiState,
@@ -86,7 +85,7 @@ async fn upload_photo(
         state.upload_config(),
     )
     .await?;
-    let photo_id = PhotoId::from(Uuid::new_v4());
+    let photo_id = PhotoId::generate();
     let key = PhotoKey {
         workspace: identity.workspace_id,
         gallery: gallery_id,
