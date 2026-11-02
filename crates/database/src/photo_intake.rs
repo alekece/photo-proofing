@@ -1,5 +1,6 @@
 //! Coordinates photo metadata insertion and job enqueueing as one transaction.
 
+use derive_more::From;
 use sqlx::{
     PgPool,
     postgres::{PgDatabaseError, PgSeverity},
@@ -27,12 +28,14 @@ use crate::{
 ///     matches!(error, PhotoIntakeError::Database(_))
 /// }
 /// ```
-#[derive(Debug, Error)]
+#[derive(Debug, Error, From)]
 pub enum PhotoIntakeError {
     #[error(transparent)]
-    Database(#[from] DatabaseError),
+    #[from(DatabaseError, sqlx::Error)]
+    Database(DatabaseError),
     /// The commit acknowledgement was lost and a retry could not settle the outcome.
     #[error("photo transaction commit outcome could not be confirmed")]
+    #[from(skip)]
     CommitOutcomeUnknown {
         #[source]
         commit_error: DatabaseError,
@@ -85,12 +88,6 @@ impl PgSeverityExt for PgSeverity {
     fn commit_outcome_is_unknown(self) -> bool {
         // PostgreSQL can fail fatally after writing the durable commit record.
         matches!(self, Self::Panic | Self::Fatal)
-    }
-}
-
-impl From<sqlx::Error> for PhotoIntakeError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Database(error.into())
     }
 }
 
@@ -165,7 +162,10 @@ impl PhotoIntake<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::num::{NonZeroU32, NonZeroU64};
+    use std::{
+        error::Error as _,
+        num::{NonZeroU32, NonZeroU64},
+    };
 
     use pp_core::notifications::PhotoId;
     use sqlx::PgPool;
@@ -451,6 +451,32 @@ mod tests {
             error,
             PhotoIntakeError::CommitOutcomeUnknown { .. }
         ));
+    }
+
+    #[test]
+    fn sqlx_conversion_preserves_sanitization_and_source() {
+        let error = PhotoIntakeError::from(sqlx::Error::Configuration(
+            "unknown sslmode: s3cretpw".into(),
+        ));
+        assert!(matches!(
+            error,
+            PhotoIntakeError::Database(DatabaseError::Configuration)
+        ));
+        assert!(!error.to_string().contains("s3cretpw"));
+        assert!(error.source().is_none());
+
+        let error = PhotoIntakeError::from(sqlx::Error::Io(std::io::Error::from(
+            std::io::ErrorKind::ConnectionReset,
+        )));
+        let cause = error
+            .source()
+            .expect("transparent conversion preserves the I/O cause");
+
+        assert_eq!(
+            cause.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::ConnectionReset,
+        );
+        assert!(!cause.to_string().contains("s3cretpw"));
     }
 
     #[test]
