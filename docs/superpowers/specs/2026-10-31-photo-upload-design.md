@@ -140,3 +140,57 @@ behavior and storage schema otherwise remain unchanged.
   `JobRepository` keeps `enqueue` for standalone enqueueing and `enqueue_in` for a caller-owned
   transaction; both have real call sites. Do not add a generic database-or-transaction executor
   abstraction for this flow.
+
+## Second PR review refinement (2026-11-02, proposed)
+
+This refinement addresses the next review of #132. It preserves the upload contract and database
+schema except for the explicitly accepted overload-response ordering below. It supersedes the
+initializer, state-access, and staging ownership decisions in the first refinement.
+
+### Approaches
+
+1. **Acquire a typed slot inside the handler.** Preserves gallery/header validation before
+   admission, but leaves acquisition as a manual handler step.
+2. **Eager `UploadSlot` extractor (chosen by the maintainer).** Makes upload admission and the
+   permit lifetime explicit in the handler signature. A saturated server can return `503` before
+   gallery/header validation; this tradeoff is accepted. Returning or cancelling the request drops
+   the slot and releases its permit.
+3. **Keep the untyped permit and separate upload application data.** Retains current behavior,
+   but does not address the requested slot abstraction and shared-state simplification.
+
+### Decisions and proposed implementation
+
+- Keep the module named `upload` (maintainer decision): its responsibilities extend beyond image
+  initialization.
+- Expose a free `upload::install()` initializer for bounded, process-wide image-library setup.
+  Keep resource construction separate from that initialization; no public image module is added.
+- Put shared upload resources inside `ApiState`, with only `Data<ApiState>` registered as
+  application state. The semaphore remains shared across workers.
+- Add an `UploadSlot` extractor owning an acquired permit and access to the shared upload
+  resources. Staging is a method on this type, so staging cannot begin without admission.
+  Keep the slot alive through validation, publication, database acceptance, and cleanup.
+- Preserve authentication, gallery isolation, body limits, and fail-fast admission. Validate the
+  eager-acquisition tradeoff with tests: invalid requests release their slots, and overload can
+  precede handler validation. Do not consume a body before authorization.
+- Replace repository-specific `ApiState` getters with `database()`. Callers select the required
+  repository through the existing `Database::repository` API; persistence stays outside HTTP.
+- Explain the `Ok(None)` cleanup branch: the gallery disappeared or no longer belongs to the
+  workspace when insertion rechecked it. Rename failure cleanup to `cleanup_after_failure`.
+- Keep one Rust photo-status enum, `PhotoStatus`, including `Failed(String)`. Decode the
+  PostgreSQL enum as text at the SQL boundary and combine it with `failure_reason`, rejecting
+  unknown statuses and inconsistent combinations. Keep the PostgreSQL enum and constraint.
+- Rename commit-error classification to `from_commit`, and put the severity-specific decision
+  on a private extension trait for `PgSeverity`. An unavailable severity remains uncertain;
+  fatal and panic errors must not permit removal of a possibly committed original.
+- Rename the retrying intake entry point to `try_accept` and the private, single-transaction
+  operation to `accept`. Keep the retry bounded and preserve atomicity and reconciliation.
+- Apply the requested blank-line correction. Update related documentation and regression tests;
+  do not change unrelated repository APIs or add dependencies.
+
+### Verification
+
+Cover eager slot acquisition, saturation, release after validation failure and cancellation, and
+holding a slot through a stalled request. Retain JPEG rejection, timeout cleanup, gallery-deletion,
+photo/job atomicity, failure-reason decoding, and uncertain-commit preservation regressions.
+Run formatting, relevant Clippy checks, and workspace tests, then obtain independent review before
+replying to the new threads with the `[agent]` prefix.
