@@ -12,16 +12,16 @@ use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
     gallery::{GalleryId, GalleryRepository},
     photo::{NewPhoto, PhotoRepository},
-    photo_intake::PhotoIntake,
+    photo_intake::{PhotoIntake, PhotoIntakeError},
 };
-use pp_storage::{PhotoKey, Variant};
+use pp_storage::{PhotoKey, StorageError, Variant};
 
 use crate::{
     api::ApiState,
     error::ErrorResponse,
     extractors::identity::Authenticated,
     response::ResponseBuilderExt,
-    upload::{self, limiter::UploadSlot},
+    upload::{PhotoUpload, limiter::UploadSlot},
 };
 
 /// Registers photo routes inside the `/api/v1/galleries` scope.
@@ -78,7 +78,7 @@ async fn upload_photo(
         return Err(ErrorResponse::not_found());
     }
 
-    let validated = upload::validate_upload(
+    let photo_upload = PhotoUpload::from_request(
         &request,
         payload.into_inner(),
         storage,
@@ -93,19 +93,15 @@ async fn upload_photo(
         variant: Variant::Original,
     };
 
-    validated
-        .staged
-        .commit(&key)
-        .await
-        .map_err(upload::storage_failure)?;
+    photo_upload.staged.commit(&key).await?;
 
     let new_photo = NewPhoto {
         id: photo_id,
         workspace_id: identity.workspace_id,
         gallery_id,
-        original_name: upload::original_name(&request),
-        size: validated.size,
-        dimensions: validated.dimensions,
+        original_name: photo_upload.original_name,
+        size: photo_upload.size,
+        dimensions: photo_upload.dimensions,
     };
 
     let photo = match state
@@ -117,12 +113,29 @@ async fn upload_photo(
         Ok(Some(photo)) => photo,
         Ok(None) => {
             // Insertion rechecks ownership: the gallery may have disappeared while streaming.
-            upload::remove_original(storage, &key).await?;
+            match storage.remove(&key).await {
+                Ok(()) | Err(StorageError::NotFound) => {}
+                Err(error) => return Err(error.into()),
+            }
 
             return Err(ErrorResponse::not_found());
         }
-        Err(error) => {
-            upload::cleanup(storage, &key, &error).await?;
+        Err(error @ PhotoIntakeError::Database(_)) => {
+            tracing::error!(%error, photo_id = %photo_id, "photo metadata transaction failed");
+
+            match storage.remove(&key).await {
+                Ok(()) | Err(StorageError::NotFound) => {}
+                Err(error) => return Err(error.into()),
+            }
+
+            return Err(ErrorResponse::unavailable());
+        }
+        Err(error @ PhotoIntakeError::CommitOutcomeUnknown { .. }) => {
+            tracing::error!(
+                %error,
+                photo_id = %photo_id,
+                "photo commit outcome is unknown; preserving published original"
+            );
 
             return Err(ErrorResponse::unavailable());
         }
@@ -180,7 +193,7 @@ mod tests {
     {
         let photo_dir: PhotoDir = photo_dir.to_path_buf().try_into().unwrap();
         let storage = PhotoStorage::open(&photo_dir).await.unwrap();
-        upload::install().unwrap();
+        upload::jpeg::install().unwrap();
 
         test::init_service(
             App::new()
@@ -667,6 +680,46 @@ mod tests {
 
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert_no_upload_effects(&pool, directory.path()).await;
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn unknown_database_commit_preserves_published_original(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let original = jpeg(1, 1);
+
+        sqlx::query(
+            "CREATE FUNCTION interrupt_photo_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN PERFORM pg_terminate_backend(pg_backend_pid()); RETURN NEW; END; $$",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE CONSTRAINT TRIGGER interrupt_photo_commit AFTER INSERT ON photos
+             DEFERRABLE INITIALLY DEFERRED
+             FOR EACH ROW EXECUTE FUNCTION interrupt_photo_commit()",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let request = upload_request(
+            &cookie,
+            &gallery_id,
+            "proof.jpg",
+            "image/jpeg",
+            &original,
+            None,
+        );
+        let (status, _) = call_request(&app, request).await;
+        let files = stored_files(directory.path());
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(files.len(), 1);
+        assert_eq!(fs::read(&files[0]).unwrap(), original);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

@@ -39,10 +39,10 @@ explicit database-outcome cleanup. UUID identifiers own generation through `Gene
 
 **Interface:** `Generate::generate() -> Self`, implemented explicitly for UUID-backed IDs.
 
-- [ ] Add a generic capability test for PhotoId and a public runnable example using only the ID type.
-- [ ] Run `cargo test -p pp-core --locked`; expect absent capability before implementation.
-- [ ] Implement trait and ID implementations; migrate production ID creation in auth/gallery/jobs/upload, preserving conversions and serialization.
-- [ ] Run core/database tests and commit with the approved design.
+- [x] Add a generic capability test for PhotoId and a public runnable example using only the ID type.
+- [x] Run `cargo test -p pp-core --locked`; expect absent capability before implementation.
+- [x] Implement trait and ID implementations; migrate production ID creation in auth/gallery/jobs/upload, preserving conversions and serialization.
+- [x] Run core/database tests and commit with the approved design.
 
 ### Task 2: Upload and JPEG boundaries
 
@@ -54,20 +54,20 @@ explicit database-outcome cleanup. UUID identifiers own generation through `Gene
 `jpeg::install()` initializes bounded libvips; `jpeg::inspect(&Path, NonZeroU64)` returns
 dimensions. `From<StorageError> for ErrorResponse` logs/sanitizes failures.
 
-- [ ] Adapt constructor tests first; run API tests expecting missing constructor.
-- [ ] Move JPEG initialization/inspection and its tests; delete StagedPhotoExt rather than add another wrapper.
-- [ ] Implement constructor; use `photo_upload` in the route and move filename collection into it.
-- [ ] Replace storage_failure with standard error conversion; remove upload cleanup helpers.
-- [ ] Keep explicit Database/CommitOutcomeUnknown branches in route. Direct storage.remove treats NotFound as already removed; all other errors propagate.
-- [ ] Move unknown-commit preservation regression to the route-owned cleanup decision without adding production test-only injection.
-- [ ] Add storage conversion regression; preserve auth/header/cancellation/cleanup/JPEG route tests.
-- [ ] Add missing whitespace after storage initialization; run API tests and commit.
+- [x] Adapt constructor tests first; run API tests expecting missing constructor.
+- [x] Move JPEG initialization/inspection and its tests; delete StagedPhotoExt rather than add another wrapper.
+- [x] Implement constructor; use `photo_upload` in the route and move filename collection into it.
+- [x] Replace storage_failure with standard error conversion; remove upload cleanup helpers.
+- [x] Keep explicit Database/CommitOutcomeUnknown branches in route. Direct storage.remove treats NotFound as already removed; all other errors propagate.
+- [x] Move unknown-commit preservation regression to the route-owned cleanup decision without adding production test-only injection.
+- [x] Add storage conversion regression; preserve auth/header/cancellation/cleanup/JPEG route tests.
+- [x] Add missing whitespace after storage initialization; run API tests and commit.
 
 ### Task 3: Fresh review, then refactor pass
 
 **Files:** Changed production/tests/design plus `AGENTS.md`.
 
-- [ ] Update existing design in place and document the user-directed post-review refactor step in repository guidance.
+- [x] Update existing design in place and document the user-directed post-review refactor step in repository guidance.
 - [ ] Run nightly fmt check, workspace tests and API/database/storage Clippy with warnings denied.
 - [ ] Obtain one fresh independent review of correctness, boundaries and repository-guidance compliance; address material findings.
 - [ ] Perform a distinct inline refactor pass after that review: inspect naming, responsibility boundaries, redundant wrappers, visibility, imports/spacing and tests. Make only evident behavior-preserving improvements within approved scope; record what changed or why none was needed.

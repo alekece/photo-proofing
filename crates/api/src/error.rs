@@ -6,6 +6,7 @@
 
 use actix_web::{HttpResponse, ResponseError, error::JsonPayloadError, http::StatusCode};
 use pp_database::{error::DatabaseError, gallery::GalleryError};
+use pp_storage::StorageError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -116,12 +117,24 @@ impl From<DatabaseError> for ErrorResponse {
     }
 }
 
+impl From<StorageError> for ErrorResponse {
+    fn from(error: StorageError) -> Self {
+        tracing::error!(%error, "photo storage operation failed");
+
+        match error {
+            StorageError::DiskFull(_) => Self::storage_full(),
+            _ => Self::unavailable(),
+        }
+    }
+}
+
 impl From<JsonPayloadError> for ErrorResponse {
     fn from(error: JsonPayloadError) -> Self {
         match error {
             JsonPayloadError::Overflow { .. } | JsonPayloadError::OverflowKnownLength { .. } => {
                 Self::new(StatusCode::PAYLOAD_TOO_LARGE, "request body too large")
             }
+
             JsonPayloadError::ContentType => Self::new(
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 "expected a JSON request body",
@@ -133,5 +146,31 @@ impl From<JsonPayloadError> for ErrorResponse {
             }
             _ => Self::bad_request(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use actix_web::{ResponseError, http::StatusCode};
+    use pp_storage::StorageError;
+
+    use super::ErrorResponse;
+
+    #[test]
+    fn storage_errors_keep_their_http_contract_without_exposing_causes() {
+        let full = ErrorResponse::from(StorageError::DiskFull(io::Error::from(
+            io::ErrorKind::StorageFull,
+        )));
+        let failed = ErrorResponse::from(StorageError::Io(io::Error::other(
+            "/private/photo/path failed",
+        )));
+
+        assert_eq!(full.status_code(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(full.to_string(), "photo storage is full");
+        assert_eq!(failed.status_code(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(failed.to_string(), "service unavailable");
+        assert!(!serde_json::to_string(&failed).unwrap().contains("/private"));
     }
 }

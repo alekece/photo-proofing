@@ -28,7 +28,10 @@ use crate::{
     limiter::AttemptLimiter,
     middlewares::origin::SameOrigin,
     routes,
-    upload::{self, PhotoUploadError, limiter::UploadLimiter},
+    upload::{
+        jpeg::{self, InitializationError},
+        limiter::UploadLimiter,
+    },
 };
 
 /// Largest accepted JSON body: credentials and gallery changesets are a handful of short
@@ -50,7 +53,7 @@ pub enum ApiError {
     #[error("photo storage unavailable")]
     Storage(#[source] StorageError),
     #[error("photo upload initialization failed")]
-    PhotoUpload(#[source] PhotoUploadError),
+    PhotoUpload(#[source] InitializationError),
     #[error("session idle timeout is out of range")]
     SessionLifetime(#[source] ConversionRange),
     #[error("password hashing unavailable")]
@@ -207,7 +210,8 @@ pub struct Api {
 impl Api {
     pub async fn init(config: ApiConfig) -> Result<Self, ApiError> {
         let storage = PhotoStorage::open(&config.photo.dir).await?;
-        upload::install()?;
+
+        jpeg::install()?;
 
         let database = Database::connect_lazy(&config.database.url, 10)?;
 

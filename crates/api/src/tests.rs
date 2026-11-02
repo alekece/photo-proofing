@@ -29,7 +29,7 @@ pub(crate) async fn upload_resources() -> (PhotoStorage, UploadConfig, TempDir) 
     let photo_dir: PhotoDir = directory.path().to_path_buf().try_into().unwrap();
     let storage = PhotoStorage::open(&photo_dir).await.unwrap();
 
-    upload::install().unwrap();
+    upload::jpeg::install().unwrap();
 
     (
         storage,

@@ -1,7 +1,6 @@
 # Upload JPEG proofs to a gallery
 
-Design for #98 (part of #66), delivered through #132. The ownership changes below are
-proposed for the latest review; HTTP behavior and failure guarantees remain unchanged.
+Current approved design for #98 (part of #66), implemented in #132.
 Requirements: FR-05, NF-01, NF-02, NF-04 and AC-06 in
 [the product specifications](../../SPECIFICATIONS.md).
 Foundations: [photo storage](2026-10-31-photo-storage-design.md) (#96) and
