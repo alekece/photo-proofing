@@ -11,13 +11,17 @@ use actix_web::{
     web::{self, Data, Path as WebPath, ServiceConfig},
 };
 use pp_core::notifications::PhotoId;
-use pp_database::{gallery::GalleryId, photo::NewPhoto};
+use pp_database::{
+    gallery::{GalleryId, GalleryRepository},
+    photo::{NewPhoto, PhotoRepository},
+    photo_intake::PhotoIntake,
+};
 use pp_storage::{PhotoKey, Variant};
 use uuid::Uuid;
 
 use crate::{
     api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
-    response::ResponseBuilderExt, upload::UploadState,
+    response::ResponseBuilderExt, upload::UploadSlot,
 };
 
 /// Registers photo routes inside the `/api/v1/galleries` scope.
@@ -34,7 +38,8 @@ async fn list_photos(
     let gallery_id = id.into_inner();
 
     if state
-        .galleries()
+        .database()
+        .repository::<GalleryRepository>()
         .get(identity.workspace_id, gallery_id)
         .await?
         .is_none()
@@ -43,7 +48,8 @@ async fn list_photos(
     }
 
     let photos = state
-        .photos()
+        .database()
+        .repository::<PhotoRepository>()
         .list(identity.workspace_id, gallery_id)
         .await?;
 
@@ -53,16 +59,18 @@ async fn list_photos(
 #[post("/{id}/photos")]
 async fn upload_photo(
     state: Data<ApiState>,
-    upload: Data<UploadState>,
+    slot: UploadSlot,
     Authenticated(identity): Authenticated,
     request: HttpRequest,
     id: WebPath<GalleryId>,
     payload: web::Payload,
 ) -> Result<HttpResponse, ErrorResponse> {
     let gallery_id = id.into_inner();
+    let upload = state.upload();
 
     if state
-        .galleries()
+        .database()
+        .repository::<GalleryRepository>()
         .get(identity.workspace_id, gallery_id)
         .await?
         .is_none()
@@ -92,10 +100,7 @@ async fn upload_photo(
         }
     }
 
-    let _permit = upload
-        .try_acquire_slot()
-        .ok_or_else(ErrorResponse::unavailable)?;
-    let (staged, size) = upload.stage_payload(payload.into_inner()).await?;
+    let (staged, size) = slot.stage_payload(payload.into_inner()).await?;
     let dimensions = upload.inspect_jpeg(&staged).await?;
     let photo_id = PhotoId::from(Uuid::new_v4());
     let key = PhotoKey {
@@ -116,17 +121,21 @@ async fn upload_photo(
         dimensions,
     };
 
-    let photo = match state.photo_intake().accept(new_photo).await {
+    let photo = match state
+        .database()
+        .repository::<PhotoIntake>()
+        .accept(new_photo)
+        .await
+    {
         Ok(Some(photo)) => photo,
         Ok(None) => {
+            // Insertion rechecks ownership: the gallery may have disappeared while streaming.
             upload.remove_published_original(&key).await?;
 
             return Err(ErrorResponse::not_found());
         }
         Err(error) => {
-            upload
-                .cleanup_after_photo_creation_failure(&key, &error)
-                .await?;
+            upload.cleanup_after_failure(&key, &error).await?;
 
             return Err(ErrorResponse::unavailable());
         }
@@ -164,8 +173,8 @@ mod tests {
     use crate::{
         api::configure_routes,
         config::UploadConfig,
-        tests::{ORIGIN, app_state, call, other_workspace, sign_up},
-        upload::UploadState,
+        tests::{ORIGIN, call, other_workspace, sign_up, state_with_upload},
+        upload::{self, UploadState},
     };
 
     fn upload_config(max_size: u64, max_pixels: u64) -> UploadConfig {
@@ -184,12 +193,12 @@ mod tests {
     {
         let photo_dir: PhotoDir = photo_dir.to_path_buf().try_into().unwrap();
         let storage = PhotoStorage::open(&photo_dir).await.unwrap();
-        let photo_upload = UploadState::install(storage, config).unwrap();
+        upload::install().unwrap();
+        let photo_upload = UploadState::new(storage, config);
 
         test::init_service(
             App::new()
-                .app_data(Data::new(app_state(pool)))
-                .app_data(Data::new(photo_upload))
+                .app_data(Data::new(state_with_upload(pool, photo_upload)))
                 .configure(configure_routes),
         )
         .await
@@ -286,6 +295,95 @@ mod tests {
         assert_eq!(photo_count, 0);
         assert_eq!(job_count, 0);
         assert!(stored_files(photo_dir).is_empty());
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn eager_slot_is_held_during_streaming_and_released_on_cancellation(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = upload_config(1024, 100);
+        config.concurrency = NonZeroUsize::new(1).unwrap();
+        let app = app(pool.clone(), directory.path(), config).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let (body_started, body_started_rx) = oneshot::channel();
+        let (_release_body, release_body_rx) = oneshot::channel::<()>();
+        let body = stream::once(async move {
+            body_started.send(()).unwrap();
+            release_body_rx.await.unwrap();
+
+            Ok::<_, actix_http::error::PayloadError>(actix_web::web::Bytes::new())
+        });
+        let body: actix_http::BoxedPayloadStream = Box::pin(body);
+        let request = upload_request(&cookie, &gallery_id, "proof.jpg", "image/jpeg", &[], None);
+        let (request, _) = request.replace_payload(body.into());
+        let mut response = Box::pin(test::call_service(&app, request));
+
+        tokio::select! {
+            started = body_started_rx => started.unwrap(),
+            response = &mut response => panic!("upload completed early: {}", response.status()),
+        }
+
+        let request = upload_request(&cookie, &gallery_id, "proof.jpg", "text/plain", &[], None);
+        let (status, _) = call_request(&app, request).await;
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        drop(response);
+        assert_no_upload_effects(&pool, directory.path()).await;
+
+        let request = upload_request(&cookie, &gallery_id, "proof.jpg", "text/plain", &[], None);
+        let (status, _) = call_request(&app, request).await;
+
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        let request = upload_request(
+            &cookie,
+            &gallery_id,
+            "proof.jpg",
+            "image/jpeg",
+            &jpeg(1, 1),
+            None,
+        );
+        let (status, _) = call_request(&app, request).await;
+
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn failed_authentication_does_not_consume_body_or_leak_slot(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = upload_config(1024, 100);
+        config.concurrency = NonZeroUsize::new(1).unwrap();
+        let app = app(pool.clone(), directory.path(), config).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let body = stream::poll_fn(
+            |_| -> std::task::Poll<
+                Option<Result<actix_web::web::Bytes, actix_http::error::PayloadError>>,
+            > {
+                panic!("unauthenticated request polled its body");
+            },
+        );
+        let body: actix_http::BoxedPayloadStream = Box::pin(body);
+        let request = test::TestRequest::post()
+            .uri(&format!("/api/v1/galleries/{gallery_id}/photos"))
+            .insert_header(("Origin", ORIGIN))
+            .insert_header(("Content-Type", "image/jpeg"))
+            .to_request();
+        let (request, _) = request.replace_payload(body.into());
+        let (status, _) = call_request(&app, request).await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_no_upload_effects(&pool, directory.path()).await;
+        let request = upload_request(
+            &cookie,
+            &gallery_id,
+            "proof.jpg",
+            "image/jpeg",
+            &jpeg(1, 1),
+            None,
+        );
+        let (status, _) = call_request(&app, request).await;
+
+        assert_eq!(status, StatusCode::CREATED);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

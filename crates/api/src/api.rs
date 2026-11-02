@@ -12,10 +12,7 @@ use actix_web::{
 };
 use derive_more::From;
 use pp_core::url::Origin;
-use pp_database::{
-    Database, auth::AuthRepository, error::DatabaseError, gallery::GalleryRepository,
-    photo::PhotoRepository, photo_intake::PhotoIntake,
-};
+use pp_database::{Database, auth::AuthRepository, error::DatabaseError};
 use pp_storage::{PhotoStorage, StorageError};
 use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -30,7 +27,7 @@ use crate::{
     limiter::AttemptLimiter,
     middlewares::origin::SameOrigin,
     routes,
-    upload::{PhotoUploadError, UploadState},
+    upload::{self, PhotoUploadError, UploadState},
 };
 
 /// Largest accepted JSON body: credentials and gallery changesets are a handful of short
@@ -65,9 +62,10 @@ pub enum ApiError {
 ///
 /// Built once at startup from validated configuration, so request handlers never re-check
 /// configuration and cannot fail for configuration reasons. It holds the authentication
-/// policy and abuse controls; upload resources are held separately in [`UploadState`].
+/// policy, abuse controls, and bounded upload resources.
 pub(crate) struct ApiState {
     database: Database,
+    upload: UploadState,
     origin: Origin,
     idle_timeout: CookieDuration,
     cookie_name: CookieName,
@@ -84,9 +82,11 @@ impl ApiState {
         session: SessionConfig,
         auth: AuthConfig,
         limiter: LimiterConfig,
+        upload: UploadState,
     ) -> Result<Self, ApiError> {
         Ok(Self {
             database,
+            upload,
             origin: auth.app_origin,
             idle_timeout: session.idle_timeout,
             cookie_name: session.cookie_name,
@@ -99,20 +99,12 @@ impl ApiState {
         })
     }
 
-    pub fn auth(&self) -> AuthRepository<'_> {
-        self.database.repository()
+    pub fn database(&self) -> &Database {
+        &self.database
     }
 
-    pub fn galleries(&self) -> GalleryRepository<'_> {
-        self.database.repository()
-    }
-
-    pub fn photo_intake(&self) -> PhotoIntake<'_> {
-        self.database.repository()
-    }
-
-    pub fn photos(&self) -> PhotoRepository<'_> {
-        self.database.repository()
+    pub fn upload(&self) -> &UploadState {
+        &self.upload
     }
 
     /// True only for the exact configured origin; a missing header is not allowed.
@@ -153,7 +145,12 @@ impl ApiState {
     /// Best-effort removal of a small batch of expired sessions. They already fail
     /// authentication, so a failure here is logged and must never fail the caller's request.
     pub async fn delete_expired_sessions(&self, now: SystemTime) {
-        if let Err(error) = self.auth().cleanup_expired(now, 100).await {
+        if let Err(error) = self
+            .database()
+            .repository::<AuthRepository>()
+            .cleanup_expired(now, 100)
+            .await
+        {
             tracing::warn!(%error, "expired session cleanup failed");
         }
     }
@@ -196,25 +193,30 @@ impl ApiState {
 pub struct Api {
     http: HttpConfig,
     state: Data<ApiState>,
-    photo_upload: Data<UploadState>,
 }
 
 impl Api {
     pub async fn init(config: ApiConfig) -> Result<Self, ApiError> {
         let storage = PhotoStorage::open(&config.photo.dir).await?;
-        let photo_upload = Data::new(UploadState::install(storage, config.photo_upload)?);
+        upload::install()?;
+        let upload = UploadState::new(storage, config.photo_upload);
 
         let database = Database::connect_lazy(&config.database.url, 10)?;
 
         database.ensure_reachable().await?;
         database.migrate().await?;
 
-        let state = ApiState::new(database, config.session, config.auth, config.limiter)?;
+        let state = ApiState::new(
+            database,
+            config.session,
+            config.auth,
+            config.limiter,
+            upload,
+        )?;
 
         Ok(Self {
             http: config.http,
             state: Data::new(state),
-            photo_upload,
         })
     }
 
@@ -223,12 +225,10 @@ impl Api {
         tracing::info!(host = %self.http.host, port = self.http.port, "api starting");
 
         let state = self.state;
-        let photo_upload = self.photo_upload;
 
         HttpServer::new(move || {
             App::new()
                 .app_data(state.clone())
-                .app_data(photo_upload.clone())
                 .configure(configure_routes)
         })
         .bind((self.http.host.as_str(), self.http.port))?

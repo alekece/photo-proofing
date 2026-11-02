@@ -1,12 +1,13 @@
 //! Bounded upload resources and the staged-photo validation and publication pipeline.
 
 use std::{
+    future::{Ready, ready},
     num::{NonZeroU32, NonZeroU64},
     sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 
-use actix_web::{HttpRequest, dev::Payload};
+use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
 use futures_util::StreamExt;
 use libvips::{VipsApp, VipsImage};
 use pp_database::{photo::PhotoDimensions, photo_intake::PhotoIntakeError};
@@ -18,12 +19,34 @@ use tokio::{
     sync::{OwnedSemaphorePermit, Semaphore},
 };
 
-use crate::{config::UploadConfig, error::ErrorResponse};
+use crate::{api::ApiState, config::UploadConfig, error::ErrorResponse};
 
 const MAX_FILENAME_BYTES: usize = 255;
 const UPLOAD_BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 static VIPS_APP: OnceLock<Mutex<Option<VipsApp>>> = OnceLock::new();
+
+/// Initializes process-wide image inspection with bounded concurrency and no operation cache.
+pub fn install() -> Result<(), PhotoUploadError> {
+    let app = VIPS_APP.get_or_init(|| Mutex::new(None));
+    let mut app = app
+        .lock()
+        .map_err(|_| PhotoUploadError::InitializationLock)?;
+
+    if app.is_none() {
+        let initialized = VipsApp::new("photo-proofing-api", false)
+            .map_err(|error| PhotoUploadError::ImageLibrary(format!("{error:?}")))?;
+
+        // Header inspection does not need a parallel pixel pipeline or cached operations.
+        initialized.concurrency_set(1);
+        initialized.cache_set_max(0);
+        initialized.cache_set_max_mem(0);
+        initialized.cache_set_max_files(0);
+        *app = Some(initialized);
+    }
+
+    Ok(())
+}
 
 /// Failure to initialize bounded upload metadata support.
 #[derive(Debug, Error)]
@@ -43,36 +66,13 @@ pub struct UploadState {
 }
 
 impl UploadState {
-    pub fn install(storage: PhotoStorage, config: UploadConfig) -> Result<Self, PhotoUploadError> {
-        Self::initialize_image_library()?;
-
-        Ok(Self {
+    pub fn new(storage: PhotoStorage, config: UploadConfig) -> Self {
+        Self {
             storage,
             max_size: config.max_size,
             max_pixels: config.max_pixels,
             upload_slots: Arc::new(Semaphore::new(config.concurrency.get())),
-        })
-    }
-
-    fn initialize_image_library() -> Result<(), PhotoUploadError> {
-        let app = VIPS_APP.get_or_init(|| Mutex::new(None));
-        let mut app = app
-            .lock()
-            .map_err(|_| PhotoUploadError::InitializationLock)?;
-
-        if app.is_none() {
-            let initialized = VipsApp::new("photo-proofing-api", false)
-                .map_err(|error| PhotoUploadError::ImageLibrary(format!("{error:?}")))?;
-
-            // Header inspection does not need a parallel pixel pipeline or cached operations.
-            initialized.concurrency_set(1);
-            initialized.cache_set_max(0);
-            initialized.cache_set_max_mem(0);
-            initialized.cache_set_max_files(0);
-            *app = Some(initialized);
         }
-
-        Ok(())
     }
 
     pub fn storage(&self) -> &PhotoStorage {
@@ -88,10 +88,43 @@ impl UploadState {
     }
 
     /// Reserves an upload slot without waiting; callers map exhaustion to service unavailable.
-    pub fn try_acquire_slot(&self) -> Option<OwnedSemaphorePermit> {
+    fn try_acquire_slot(&self) -> Option<OwnedSemaphorePermit> {
         Arc::clone(&self.upload_slots).try_acquire_owned().ok()
     }
+}
 
+/// Upload admission held until the handler finishes, fails validation, or is cancelled.
+///
+/// Extraction fails fast with 503 before handler validation when all slots are occupied.
+/// The extractor never consumes the request body; staging remains authorization-gated.
+#[must_use]
+pub(crate) struct UploadSlot {
+    state: Data<ApiState>,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl FromRequest for UploadSlot {
+    type Error = ErrorResponse;
+    type Future = Ready<Result<Self, Self::Error>>;
+
+    fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
+        let Some(state) = request.app_data::<Data<ApiState>>().cloned() else {
+            tracing::error!("upload request is missing API application state");
+
+            return ready(Err(ErrorResponse::unavailable()));
+        };
+        let Some(permit) = state.upload().try_acquire_slot() else {
+            return ready(Err(ErrorResponse::unavailable()));
+        };
+
+        ready(Ok(Self {
+            state,
+            _permit: permit,
+        }))
+    }
+}
+
+impl UploadSlot {
     pub(crate) async fn stage_payload(
         &self,
         payload: Payload,
@@ -105,11 +138,12 @@ impl UploadState {
         mut payload: Payload,
         idle_timeout: Duration,
     ) -> Result<(StagedPhoto, NonZeroU64), ErrorResponse> {
-        let mut staged = self
+        let upload = self.state.upload();
+        let mut staged = upload
             .storage()
             .stage()
             .await
-            .map_err(|error| self.storage_failure(error))?;
+            .map_err(|error| upload.storage_failure(error))?;
         let mut size = 0_u64;
 
         loop {
@@ -126,14 +160,14 @@ impl UploadState {
                 .checked_add(chunk_size)
                 .ok_or_else(ErrorResponse::payload_too_large)?;
 
-            if size > self.max_size.get() {
+            if size > upload.max_size.get() {
                 return Err(ErrorResponse::payload_too_large());
             }
 
             staged
                 .write(&chunk)
                 .await
-                .map_err(|error| self.storage_failure(error))?;
+                .map_err(|error| upload.storage_failure(error))?;
         }
 
         let size = NonZeroU64::new(size).ok_or_else(ErrorResponse::invalid_image)?;
@@ -141,11 +175,13 @@ impl UploadState {
         staged
             .flush()
             .await
-            .map_err(|error| self.storage_failure(error))?;
+            .map_err(|error| upload.storage_failure(error))?;
 
         Ok((staged, size))
     }
+}
 
+impl UploadState {
     pub(crate) async fn inspect_jpeg(
         &self,
         staged: &StagedPhoto,
@@ -278,7 +314,7 @@ impl UploadState {
         }
     }
 
-    pub(crate) async fn cleanup_after_photo_creation_failure(
+    pub(crate) async fn cleanup_after_failure(
         &self,
         key: &PhotoKey,
         error: &PhotoIntakeError,
@@ -328,11 +364,12 @@ mod tests {
         auth::WorkspaceId, error::DatabaseError, gallery::GalleryId, photo_intake::PhotoIntakeError,
     };
     use pp_storage::{PhotoKey, PhotoStorage, Variant};
+    use sqlx::postgres::PgPoolOptions;
     use tokio::io::AsyncReadExt;
     use uuid::Uuid;
 
     use super::*;
-    use crate::config::UploadConfig;
+    use crate::{config::UploadConfig, tests::state_with_upload};
 
     fn stored_files(root: &Path) -> Vec<PathBuf> {
         let mut files = Vec::new();
@@ -357,7 +394,9 @@ mod tests {
         let photo_dir: PhotoDir = directory.to_path_buf().try_into().unwrap();
         let storage = PhotoStorage::open(&photo_dir).await.unwrap();
 
-        UploadState::install(
+        install().unwrap();
+
+        UploadState::new(
             storage,
             UploadConfig {
                 max_size: NonZeroU64::new(1024).unwrap(),
@@ -365,7 +404,17 @@ mod tests {
                 concurrency: NonZeroUsize::new(concurrency).unwrap(),
             },
         )
-        .unwrap()
+    }
+
+    async fn upload_slot(upload: UploadState) -> UploadSlot {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/unused")
+            .unwrap();
+        let request = actix_web::test::TestRequest::default()
+            .app_data(Data::new(state_with_upload(pool, upload)))
+            .to_http_request();
+
+        UploadSlot::extract(&request).await.unwrap()
     }
 
     fn photo_key() -> PhotoKey {
@@ -394,12 +443,13 @@ mod tests {
     async fn interrupted_body_discards_staged_file() {
         let directory = tempfile::tempdir().unwrap();
         let state = upload_state(directory.path(), 1).await;
+        let slot = upload_slot(state).await;
         let (mut sender, body) = actix_http::h1::Payload::create(false);
 
         sender.feed_data(actix_web::web::Bytes::from_static(b"partial jpeg"));
         sender.set_error(actix_http::error::PayloadError::Incomplete(None));
 
-        let result = state
+        let result = slot
             .stage_payload_with_idle_timeout(
                 actix_web::dev::Payload::from(body),
                 super::UPLOAD_BODY_IDLE_TIMEOUT,
@@ -414,23 +464,27 @@ mod tests {
     async fn idle_body_timeout_discards_stage_and_releases_upload_slot() {
         let directory = tempfile::tempdir().unwrap();
         let state = upload_state(directory.path(), 1).await;
+        let slot = upload_slot(state).await;
+        let state = slot.state.clone();
         let (_sender, body) = actix_http::h1::Payload::create(false);
 
         let result = {
-            let _permit = state.try_acquire_slot().unwrap();
-
-            state
+            let result = slot
                 .stage_payload_with_idle_timeout(
                     actix_web::dev::Payload::from(body),
                     Duration::from_millis(10),
                 )
-                .await
+                .await;
+
+            drop(slot);
+
+            result
         };
         let error = result.unwrap_err();
 
         assert_eq!(error.status_code(), StatusCode::REQUEST_TIMEOUT);
         assert!(stored_files(directory.path()).is_empty());
-        assert!(state.try_acquire_slot().is_some());
+        assert!(state.upload().try_acquire_slot().is_some());
     }
 
     #[tokio::test]
@@ -493,10 +547,7 @@ mod tests {
             reconciliation_error: None,
         };
 
-        state
-            .cleanup_after_photo_creation_failure(&key, &error)
-            .await
-            .unwrap();
+        state.cleanup_after_failure(&key, &error).await.unwrap();
 
         let mut stored = state.storage().read(&key).await.unwrap();
         let mut bytes = Vec::new();

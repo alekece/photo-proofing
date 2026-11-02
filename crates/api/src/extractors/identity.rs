@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin, time::SystemTime};
 
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
-use pp_database::auth::Identity;
+use pp_database::auth::{AuthRepository, Identity};
 
 use crate::{api::ApiState, extractors::session_token::SessionToken, routes::auth::AuthError};
 
@@ -24,7 +24,8 @@ impl FromRequest for Authenticated {
             let token = token.await?;
 
             state
-                .auth()
+                .database()
+                .repository::<AuthRepository>()
                 .authenticate(token.digest().as_bytes(), SystemTime::now())
                 .await
                 .map_err(|_| AuthError::Unavailable)?
