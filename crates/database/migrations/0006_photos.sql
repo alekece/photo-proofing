@@ -10,6 +10,8 @@ CREATE TABLE photos (
     height integer NOT NULL CONSTRAINT photos_height_positive CHECK (height > 0),
     status photo_status NOT NULL DEFAULT 'waiting',
     failure_reason text,
+    CONSTRAINT photos_failure_reason_matches_status
+        CHECK ((status = 'failed') = (failure_reason IS NOT NULL)),
     created_at timestamptz NOT NULL DEFAULT now()
 );
 

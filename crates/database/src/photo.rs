@@ -20,29 +20,23 @@ use crate::{
 };
 
 /// Current server-side processing state for a photo.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[sqlx(type_name = "photo_status", rename_all = "snake_case")]
 pub enum PhotoStatus {
     Waiting,
     Processing,
     Ready,
-    Failed,
+    /// Processing failed, with the reason reported by the worker.
+    Failed(String),
 }
 
-/// Original file size, guaranteed to be non-zero.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PhotoSize(NonZeroU64);
-
-impl PhotoSize {
-    pub const fn new(bytes: NonZeroU64) -> Self {
-        Self(bytes)
-    }
-
-    pub const fn bytes(self) -> NonZeroU64 {
-        self.0
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[sqlx(type_name = "photo_status", rename_all = "snake_case")]
+enum DatabasePhotoStatus {
+    Waiting,
+    Processing,
+    Ready,
+    Failed,
 }
 
 /// Header dimensions, both guaranteed to be non-zero.
@@ -57,11 +51,10 @@ pub struct PhotoDimensions {
 pub struct Photo {
     pub id: PhotoId,
     pub original_name: String,
-    pub size: PhotoSize,
+    pub size: NonZeroU64,
     #[serde(flatten)]
     pub dimensions: PhotoDimensions,
     pub status: PhotoStatus,
-    pub failure_reason: Option<String>,
     pub created_at: Timestamp,
 }
 
@@ -80,13 +73,26 @@ impl FromRow<'_, PgRow> for Photo {
             .and_then(NonZeroU32::new)
             .ok_or_else(|| sqlx::Error::Decode("photo height must be positive".into()))?;
 
+        let database_status: DatabasePhotoStatus = row.try_get("status")?;
+        let failure_reason: Option<String> = row.try_get("failure_reason")?;
+        let status = match (database_status, failure_reason) {
+            (DatabasePhotoStatus::Waiting, None) => PhotoStatus::Waiting,
+            (DatabasePhotoStatus::Processing, None) => PhotoStatus::Processing,
+            (DatabasePhotoStatus::Ready, None) => PhotoStatus::Ready,
+            (DatabasePhotoStatus::Failed, Some(reason)) => PhotoStatus::Failed(reason),
+            _ => {
+                return Err(sqlx::Error::Decode(
+                    "photo status and failure reason are inconsistent".into(),
+                ));
+            }
+        };
+
         Ok(Self {
             id: row.try_get("id")?,
             original_name: row.try_get("original_name")?,
-            size: PhotoSize::new(size),
+            size,
             dimensions: PhotoDimensions { width, height },
-            status: row.try_get("status")?,
-            failure_reason: row.try_get("failure_reason")?,
+            status,
             created_at: row.try_get("created_at")?,
         })
     }
@@ -99,7 +105,7 @@ pub struct NewPhoto {
     pub workspace_id: WorkspaceId,
     pub gallery_id: GalleryId,
     pub original_name: String,
-    pub size: PhotoSize,
+    pub size: NonZeroU64,
     pub dimensions: PhotoDimensions,
 }
 
@@ -210,8 +216,8 @@ impl PhotoRepository<'_> {
         photo: &NewPhoto,
         tolerate_existing: bool,
     ) -> Result<Option<Photo>, PhotoCreateError> {
-        let size = i64::try_from(photo.size.bytes().get())
-            .map_err(|error| sqlx::Error::Encode(error.into()))?;
+        let size =
+            i64::try_from(photo.size.get()).map_err(|error| sqlx::Error::Encode(error.into()))?;
         let width = i32::try_from(photo.dimensions.width.get())
             .map_err(|error| sqlx::Error::Encode(error.into()))?;
         let height = i32::try_from(photo.dimensions.height.get())
@@ -329,7 +335,7 @@ mod tests {
             workspace_id,
             gallery_id,
             original_name: original_name.to_owned(),
-            size: PhotoSize::new(NonZeroU64::new(1024).unwrap()),
+            size: NonZeroU64::new(1024).unwrap(),
             dimensions: PhotoDimensions {
                 width: NonZeroU32::new(20).unwrap(),
                 height: NonZeroU32::new(10).unwrap(),
@@ -381,11 +387,11 @@ mod tests {
         let photos = database.repository::<PhotoRepository>();
         let mut expected = Vec::new();
 
-        for (created_at, status, original_name) in [
-            (30_i64, "ready", "same.jpg"),
-            (10, "waiting", "same.jpg"),
-            (40, "failed", "third.jpg"),
-            (20, "processing", "fourth.jpg"),
+        for (created_at, status, failure_reason, original_name) in [
+            (30_i64, "ready", None, "same.jpg"),
+            (10, "waiting", None, "same.jpg"),
+            (40, "failed", Some("processing failed"), "third.jpg"),
+            (20, "processing", None, "fourth.jpg"),
         ] {
             let id = PhotoId::from(Uuid::new_v4());
             photos
@@ -394,16 +400,18 @@ mod tests {
                 .unwrap()
                 .unwrap();
             sqlx::query(
-                "UPDATE photos SET status = $2::photo_status, created_at = to_timestamp($3)
+                "UPDATE photos SET status = $2::photo_status, failure_reason = $3,
+                 created_at = to_timestamp($4)
                  WHERE id = $1",
             )
             .bind(id)
             .bind(status)
+            .bind(failure_reason)
             .bind(created_at)
             .execute(&pool)
             .await
             .unwrap();
-            expected.push((created_at, id, status, original_name));
+            expected.push((created_at, id, status, failure_reason, original_name));
         }
         expected.sort_by_key(|(created_at, ..)| *created_at);
 
@@ -414,17 +422,54 @@ mod tests {
             expected.iter().map(|(_, id, ..)| *id).collect::<Vec<_>>()
         );
         assert_eq!(
-            listed.iter().map(|photo| photo.status).collect::<Vec<_>>(),
+            listed
+                .iter()
+                .map(|photo| photo.status.clone())
+                .collect::<Vec<_>>(),
             [
                 PhotoStatus::Waiting,
                 PhotoStatus::Processing,
                 PhotoStatus::Ready,
-                PhotoStatus::Failed,
+                PhotoStatus::Failed("processing failed".to_owned()),
             ]
         );
         assert_eq!(listed[0].original_name, "same.jpg");
         assert_eq!(listed[2].original_name, "same.jpg");
         assert_ne!(listed[0].id, listed[2].id);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn database_requires_failure_reason_exactly_for_failed_photos(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let workspace_id = workspace(&pool).await;
+        let gallery = database
+            .repository::<GalleryRepository>()
+            .create(workspace_id)
+            .await
+            .unwrap();
+        let photo_id = PhotoId::from(Uuid::new_v4());
+
+        database
+            .repository::<PhotoRepository>()
+            .create_with_job(new_photo(workspace_id, gallery.id, photo_id, "proof.jpg"))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let failed_without_reason =
+            sqlx::query("UPDATE photos SET status = 'failed', failure_reason = NULL WHERE id = $1")
+                .bind(photo_id)
+                .execute(&pool)
+                .await;
+        let ready_with_reason = sqlx::query(
+            "UPDATE photos SET status = 'ready', failure_reason = 'not failed' WHERE id = $1",
+        )
+        .bind(photo_id)
+        .execute(&pool)
+        .await;
+
+        assert!(failed_without_reason.is_err());
+        assert!(ready_with_reason.is_err());
     }
 
     #[sqlx::test(migrations = "./migrations")]

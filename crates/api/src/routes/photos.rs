@@ -11,10 +11,7 @@ use actix_web::{
     web::{self, Data, Path as WebPath, ServiceConfig},
 };
 use pp_core::notifications::PhotoId;
-use pp_database::{
-    gallery::GalleryId,
-    photo::{NewPhoto, PhotoSize},
-};
+use pp_database::{gallery::GalleryId, photo::NewPhoto};
 use pp_storage::{PhotoKey, Variant};
 use uuid::Uuid;
 
@@ -115,7 +112,7 @@ async fn upload_photo(
         workspace_id: identity.workspace_id,
         gallery_id,
         original_name: upload.original_name(&request),
-        size: PhotoSize::new(size),
+        size,
         dimensions,
     };
 
@@ -616,14 +613,14 @@ mod tests {
             assert_eq!(photo["size"], original.len());
             assert_eq!(photo["width"], 2);
             assert_eq!(photo["height"], 1);
-            assert_eq!(photo["status"], *status);
             assert!(photo["created_at"].as_str().is_some());
 
             if let Some(reason) = failure_reason {
-                assert_eq!(photo["failure_reason"], *reason);
+                assert_eq!(photo["status"], serde_json::json!({"failed": reason}));
             } else {
-                assert!(photo["failure_reason"].is_null());
+                assert_eq!(photo["status"], *status);
             }
+            assert!(!photo.as_object().unwrap().contains_key("failure_reason"));
         }
     }
 
