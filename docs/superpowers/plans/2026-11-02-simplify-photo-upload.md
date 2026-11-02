@@ -35,11 +35,11 @@
 
 **Interfaces:** `UploadLimiter::new(NonZeroUsize) -> Self`; `UploadSlot: FromRequest` extracts from `Data<UploadLimiter>` and owns only its permit. `Api` registers the same limiter data across workers.
 
-- [ ] Add tests extracting slots without `ApiState`: cloned data shares capacity, saturation returns 503, dropping a slot restores capacity, missing limiter returns 503.
-- [ ] Run `cargo test -p pp-api --locked upload::limiter`; confirm the new interface is absent before implementation.
-- [ ] Implement the limiter/extractor and server/test-app registration. Remove upload semaphore and acquisition from `ApiState`.
-- [ ] Move body staging to a free helper in `upload.rs`; update interrupted-body/timeout tests without coupling a slot to state.
-- [ ] Run admission, cancellation and authorization regressions; commit this coherent ownership change.
+- [x] Add tests extracting slots without `ApiState`: cloned data shares capacity, saturation returns 503, dropping a slot restores capacity, missing limiter returns 503.
+- [x] Run `cargo test -p pp-api --locked upload::limiter`; confirm the new interface is absent before implementation.
+- [x] Implement the limiter/extractor and server/test-app registration. Remove upload semaphore and acquisition from `ApiState`.
+- [x] Move body staging to a free helper in `upload.rs`; update interrupted-body/timeout tests without coupling a slot to state.
+- [x] Run admission, cancellation and authorization regressions; commit this coherent ownership change.
 
 ### Task 2: Make storage responsible for incomplete publication
 

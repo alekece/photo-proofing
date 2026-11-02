@@ -24,7 +24,7 @@ use crate::{
     error::ErrorResponse,
     extractors::identity::Authenticated,
     response::ResponseBuilderExt,
-    upload::{self, StagedPhotoExt, UploadSlot},
+    upload::{self, StagedPhotoExt, limiter::UploadSlot},
 };
 
 /// Registers photo routes inside the `/api/v1/galleries` scope.
@@ -62,7 +62,7 @@ async fn list_photos(
 #[post("/{id}/photos")]
 async fn upload_photo(
     state: Data<ApiState>,
-    slot: UploadSlot,
+    _slot: UploadSlot,
     Authenticated(identity): Authenticated,
     request: HttpRequest,
     id: WebPath<GalleryId>,
@@ -103,7 +103,12 @@ async fn upload_photo(
         }
     }
 
-    let (staged, size) = slot.stage_payload(payload.into_inner()).await?;
+    let (staged, size) = upload::stage_payload(
+        storage,
+        payload.into_inner(),
+        state.upload_config().max_size,
+    )
+    .await?;
     let dimensions = staged.inspect(state.upload_config().max_pixels).await?;
     let photo_id = PhotoId::from(Uuid::new_v4());
     let key = PhotoKey {
@@ -200,6 +205,9 @@ mod tests {
 
         test::init_service(
             App::new()
+                .app_data(Data::new(upload::limiter::UploadLimiter::new(
+                    config.concurrency,
+                )))
                 .app_data(Data::new(state_with_upload(pool, storage, config)))
                 .configure(configure_routes),
         )

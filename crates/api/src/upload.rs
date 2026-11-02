@@ -1,21 +1,22 @@
 //! Bounded upload resources and the staged-photo validation and publication pipeline.
 
+pub(crate) mod limiter;
+
 use std::{
-    future::{Ready, ready},
     num::{NonZeroU32, NonZeroU64},
     sync::{Mutex, OnceLock},
     time::Duration,
 };
 
-use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
+use actix_web::{HttpRequest, dev::Payload};
 use futures_util::StreamExt;
 use libvips::{VipsApp, VipsImage};
 use pp_database::{photo::PhotoDimensions, photo_intake::PhotoIntakeError};
 use pp_storage::{PhotoKey, PhotoStorage, StagedPhoto, StorageError};
 use thiserror::Error;
-use tokio::{fs::File, io::AsyncReadExt, sync::OwnedSemaphorePermit};
+use tokio::{fs::File, io::AsyncReadExt};
 
-use crate::{api::ApiState, error::ErrorResponse};
+use crate::error::ErrorResponse;
 
 const MAX_FILENAME_BYTES: usize = 255;
 const UPLOAD_BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -53,86 +54,49 @@ pub enum PhotoUploadError {
     InitializationLock,
 }
 
-/// Upload admission held until the handler finishes, fails validation, or is cancelled.
-///
-/// Extraction fails fast with 503 before handler validation when all slots are occupied.
-/// The extractor never consumes the request body; staging remains authorization-gated.
-#[must_use]
-pub(crate) struct UploadSlot {
-    state: Data<ApiState>,
-    _permit: OwnedSemaphorePermit,
+pub(crate) async fn stage_payload(
+    storage: &PhotoStorage,
+    payload: Payload,
+    max_size: NonZeroU64,
+) -> Result<(StagedPhoto, NonZeroU64), ErrorResponse> {
+    stage_payload_with_idle_timeout(storage, payload, max_size, UPLOAD_BODY_IDLE_TIMEOUT).await
 }
 
-impl FromRequest for UploadSlot {
-    type Error = ErrorResponse;
-    type Future = Ready<Result<Self, Self::Error>>;
+async fn stage_payload_with_idle_timeout(
+    storage: &PhotoStorage,
+    mut payload: Payload,
+    max_size: NonZeroU64,
+    idle_timeout: Duration,
+) -> Result<(StagedPhoto, NonZeroU64), ErrorResponse> {
+    let mut staged = storage.stage().await.map_err(storage_failure)?;
+    let mut size = 0_u64;
 
-    fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
-        let Some(state) = request.app_data::<Data<ApiState>>().cloned() else {
-            tracing::error!("upload request is missing API application state");
-
-            return ready(Err(ErrorResponse::unavailable()));
-        };
-        let Some(permit) = state.try_acquire_upload_slot() else {
-            return ready(Err(ErrorResponse::unavailable()));
-        };
-
-        ready(Ok(Self {
-            state,
-            _permit: permit,
-        }))
-    }
-}
-
-impl UploadSlot {
-    pub(crate) async fn stage_payload(
-        &self,
-        payload: Payload,
-    ) -> Result<(StagedPhoto, NonZeroU64), ErrorResponse> {
-        self.stage_payload_with_idle_timeout(payload, UPLOAD_BODY_IDLE_TIMEOUT)
+    loop {
+        let Some(chunk) = tokio::time::timeout(idle_timeout, payload.next())
             .await
-    }
+            .map_err(|_| ErrorResponse::request_timeout())?
+        else {
+            break;
+        };
+        let chunk = chunk.map_err(|_| ErrorResponse::bad_request())?;
+        let chunk_size =
+            u64::try_from(chunk.len()).map_err(|_| ErrorResponse::payload_too_large())?;
+        size = size
+            .checked_add(chunk_size)
+            .ok_or_else(ErrorResponse::payload_too_large)?;
 
-    async fn stage_payload_with_idle_timeout(
-        &self,
-        mut payload: Payload,
-        idle_timeout: Duration,
-    ) -> Result<(StagedPhoto, NonZeroU64), ErrorResponse> {
-        let mut staged = self
-            .state
-            .storage()
-            .stage()
-            .await
-            .map_err(storage_failure)?;
-        let mut size = 0_u64;
-
-        loop {
-            let Some(chunk) = tokio::time::timeout(idle_timeout, payload.next())
-                .await
-                .map_err(|_| ErrorResponse::request_timeout())?
-            else {
-                break;
-            };
-            let chunk = chunk.map_err(|_| ErrorResponse::bad_request())?;
-            let chunk_size =
-                u64::try_from(chunk.len()).map_err(|_| ErrorResponse::payload_too_large())?;
-            size = size
-                .checked_add(chunk_size)
-                .ok_or_else(ErrorResponse::payload_too_large)?;
-
-            if size > self.state.upload_config().max_size.get() {
-                return Err(ErrorResponse::payload_too_large());
-            }
-
-            staged.write(&chunk).await.map_err(storage_failure)?;
+        if size > max_size.get() {
+            return Err(ErrorResponse::payload_too_large());
         }
 
-        let size = NonZeroU64::new(size).ok_or_else(ErrorResponse::invalid_image)?;
-
-        staged.flush().await.map_err(storage_failure)?;
-
-        Ok((staged, size))
+        staged.write(&chunk).await.map_err(storage_failure)?;
     }
+
+    let size = NonZeroU64::new(size).ok_or_else(ErrorResponse::invalid_image)?;
+
+    staged.flush().await.map_err(storage_failure)?;
+
+    Ok((staged, size))
 }
 
 /// API upload policy for a storage-owned staged file, without coupling storage to HTTP or libvips.
@@ -327,7 +291,7 @@ mod tests {
         time::Duration,
     };
 
-    use actix_web::{ResponseError, http::StatusCode};
+    use actix_web::{FromRequest, ResponseError, http::StatusCode, web::Data};
     use libvips::ops::{black, jpegsave_buffer};
     use pp_core::config::PhotoDir;
     use pp_core::notifications::PhotoId;
@@ -340,7 +304,12 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::{config::UploadConfig, tests::state_with_upload};
+    use crate::{
+        api::ApiState,
+        config::UploadConfig,
+        tests::state_with_upload,
+        upload::limiter::{UploadLimiter, UploadSlot},
+    };
 
     fn stored_files(root: &Path) -> Vec<PathBuf> {
         let mut files = Vec::new();
@@ -382,14 +351,6 @@ mod tests {
         )
     }
 
-    async fn upload_slot(state: ApiState) -> UploadSlot {
-        let request = actix_web::test::TestRequest::default()
-            .app_data(Data::new(state))
-            .to_http_request();
-
-        UploadSlot::extract(&request).await.unwrap()
-    }
-
     fn photo_key() -> PhotoKey {
         PhotoKey {
             workspace: WorkspaceId(Uuid::from_u128(1)),
@@ -400,34 +361,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn concurrent_upload_slots_fail_fast_at_the_configured_limit() {
-        let directory = tempfile::tempdir().unwrap();
-        let state = upload_state(directory.path(), 4).await;
-        let mut permits = (0..4)
-            .map(|_| state.try_acquire_upload_slot().unwrap())
-            .collect::<Vec<_>>();
-
-        assert!(state.try_acquire_upload_slot().is_none());
-        drop(permits.pop());
-        assert!(state.try_acquire_upload_slot().is_some());
-    }
-
-    #[tokio::test]
     async fn interrupted_body_discards_staged_file() {
         let directory = tempfile::tempdir().unwrap();
         let state = upload_state(directory.path(), 1).await;
-        let slot = upload_slot(state).await;
         let (mut sender, body) = actix_http::h1::Payload::create(false);
 
         sender.feed_data(actix_web::web::Bytes::from_static(b"partial jpeg"));
         sender.set_error(actix_http::error::PayloadError::Incomplete(None));
 
-        let result = slot
-            .stage_payload_with_idle_timeout(
-                actix_web::dev::Payload::from(body),
-                super::UPLOAD_BODY_IDLE_TIMEOUT,
-            )
-            .await;
+        let result =
+            stage_payload(state.storage(), body.into(), state.upload_config().max_size).await;
 
         assert!(result.is_err());
         assert!(stored_files(directory.path()).is_empty());
@@ -437,17 +380,20 @@ mod tests {
     async fn idle_body_timeout_discards_stage_and_releases_upload_slot() {
         let directory = tempfile::tempdir().unwrap();
         let state = upload_state(directory.path(), 1).await;
-        let slot = upload_slot(state).await;
-        let state = slot.state.clone();
+        let request = actix_web::test::TestRequest::default()
+            .app_data(Data::new(UploadLimiter::new(NonZeroUsize::new(1).unwrap())))
+            .to_http_request();
+        let slot = UploadSlot::extract(&request).await.unwrap();
         let (_sender, body) = actix_http::h1::Payload::create(false);
 
         let result = {
-            let result = slot
-                .stage_payload_with_idle_timeout(
-                    actix_web::dev::Payload::from(body),
-                    Duration::from_millis(10),
-                )
-                .await;
+            let result = stage_payload_with_idle_timeout(
+                state.storage(),
+                body.into(),
+                state.upload_config().max_size,
+                Duration::from_millis(10),
+            )
+            .await;
 
             drop(slot);
 
@@ -457,7 +403,7 @@ mod tests {
 
         assert_eq!(error.status_code(), StatusCode::REQUEST_TIMEOUT);
         assert!(stored_files(directory.path()).is_empty());
-        assert!(state.try_acquire_upload_slot().is_some());
+        assert!(UploadSlot::extract(&request).await.is_ok());
     }
 
     #[tokio::test]

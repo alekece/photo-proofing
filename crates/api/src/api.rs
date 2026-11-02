@@ -28,7 +28,7 @@ use crate::{
     limiter::AttemptLimiter,
     middlewares::origin::SameOrigin,
     routes,
-    upload::{self, PhotoUploadError},
+    upload::{self, PhotoUploadError, limiter::UploadLimiter},
 };
 
 /// Largest accepted JSON body: credentials and gallery changesets are a handful of short
@@ -68,7 +68,6 @@ pub(crate) struct ApiState {
     database: Database,
     storage: PhotoStorage,
     upload_config: UploadConfig,
-    upload_slots: Arc<Semaphore>,
     origin: Origin,
     idle_timeout: CookieDuration,
     cookie_name: CookieName,
@@ -91,7 +90,6 @@ impl ApiState {
         Ok(Self {
             database,
             storage,
-            upload_slots: Arc::new(Semaphore::new(upload_config.concurrency.get())),
             upload_config,
             origin: auth.app_origin,
             idle_timeout: session.idle_timeout,
@@ -115,11 +113,6 @@ impl ApiState {
 
     pub fn upload_config(&self) -> &UploadConfig {
         &self.upload_config
-    }
-
-    /// Reserves admission without queuing; the owned permit releases capacity on drop.
-    pub fn try_acquire_upload_slot(&self) -> Option<OwnedSemaphorePermit> {
-        Arc::clone(&self.upload_slots).try_acquire_owned().ok()
     }
 
     /// True only for the exact configured origin; a missing header is not allowed.
@@ -208,6 +201,7 @@ impl ApiState {
 pub struct Api {
     http: HttpConfig,
     state: Data<ApiState>,
+    upload_limiter: Data<UploadLimiter>,
 }
 
 impl Api {
@@ -220,6 +214,7 @@ impl Api {
         database.ensure_reachable().await?;
         database.migrate().await?;
 
+        let upload_limiter = Data::new(UploadLimiter::new(config.photo_upload.concurrency));
         let state = ApiState::new(
             database,
             config.session,
@@ -232,6 +227,7 @@ impl Api {
         Ok(Self {
             http: config.http,
             state: Data::new(state),
+            upload_limiter,
         })
     }
 
@@ -240,10 +236,12 @@ impl Api {
         tracing::info!(host = %self.http.host, port = self.http.port, "api starting");
 
         let state = self.state;
+        let upload_limiter = self.upload_limiter;
 
         HttpServer::new(move || {
             App::new()
                 .app_data(state.clone())
+                .app_data(upload_limiter.clone())
                 .configure(configure_routes)
         })
         .bind((self.http.host.as_str(), self.http.port))?
