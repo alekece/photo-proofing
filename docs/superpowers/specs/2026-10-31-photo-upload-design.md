@@ -1,7 +1,6 @@
 # Upload JPEG proofs to a gallery
 
-Design for #98 (part of #66). The simplified ownership below replaces the earlier
-slot-owned staging and API-owned publication recovery; implementation is pending.
+Current approved design for #98 (part of #66), implemented in #132.
 Requirements: FR-05, NF-01, NF-02, NF-04 and AC-06 in
 [the product specifications](../../SPECIFICATIONS.md).
 Foundations: [photo storage](2026-10-31-photo-storage-design.md) (#96) and
@@ -84,10 +83,10 @@ not responsible for this application resource limit. Routes select repositories 
 
 | Component | Responsibility |
 |---|---|
-| `routes/galleries/photos.rs` | HTTP validation, gallery authorization, upload coordination and listing |
+| `routes/galleries/photos.rs` | Gallery authorization, upload coordination and listing |
 | `UploadLimiter` | Isolated concurrency limit; privately owns its semaphore |
 | `UploadSlot` | Extracted capacity guard only; no application state, staging or inspection |
-| Upload validation | Header checks, bounded streaming, idle timeout and JPEG inspection; called only after authorization |
+| `validate_upload` | Header checks, bounded streaming, idle timeout and JPEG inspection; called only after authorization |
 | API-local `StagedPhotoExt` | JPEG inspection only; keeps libvips/HTTP policy out of storage |
 | `PhotoStorage` / `StagedPhoto` | UUID-derived paths, temporary files, write-once originals, durability and incomplete-publication cleanup |
 | `PhotoIntake` | Photo/job transaction and one bounded retry after an uncertain commit |

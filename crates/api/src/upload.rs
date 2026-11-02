@@ -1,4 +1,7 @@
-//! Bounded upload resources and the staged-photo validation and publication pipeline.
+//! Bounded JPEG validation before storage publication and database acceptance.
+//!
+//! The route authorizes before calling validation. Admission is isolated in [`limiter`];
+//! storage owns publication recovery, while database acceptance determines later cleanup.
 
 pub(crate) mod limiter;
 
@@ -8,7 +11,11 @@ use std::{
     time::Duration,
 };
 
-use actix_web::{HttpRequest, dev::Payload};
+use actix_web::{
+    HttpRequest,
+    dev::Payload,
+    http::header::{CONTENT_LENGTH, CONTENT_TYPE},
+};
 use futures_util::StreamExt;
 use libvips::{VipsApp, VipsImage};
 use pp_database::{photo::PhotoDimensions, photo_intake::PhotoIntakeError};
@@ -16,7 +23,7 @@ use pp_storage::{PhotoKey, PhotoStorage, StagedPhoto, StorageError};
 use thiserror::Error;
 use tokio::{fs::File, io::AsyncReadExt};
 
-use crate::error::ErrorResponse;
+use crate::{config::UploadConfig, error::ErrorResponse};
 
 const MAX_FILENAME_BYTES: usize = 255;
 const UPLOAD_BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -54,15 +61,55 @@ pub enum PhotoUploadError {
     InitializationLock,
 }
 
-pub(crate) async fn stage_payload(
-    storage: &PhotoStorage,
-    payload: Payload,
-    max_size: NonZeroU64,
-) -> Result<(StagedPhoto, NonZeroU64), ErrorResponse> {
-    stage_payload_with_idle_timeout(storage, payload, max_size, UPLOAD_BODY_IDLE_TIMEOUT).await
+/// Validated staged bytes and their metadata; nothing is published until storage commits them.
+#[must_use = "a validated upload is discarded unless stored"]
+pub(crate) struct ValidatedPhoto {
+    pub staged: StagedPhoto,
+    pub size: NonZeroU64,
+    pub dimensions: PhotoDimensions,
 }
 
-async fn stage_payload_with_idle_timeout(
+/// Checks headers before staging, then receives bounded bytes and inspects the JPEG header.
+///
+/// The caller must authorize the request first and hold its upload slot through acceptance.
+pub(crate) async fn validate_upload(
+    request: &HttpRequest,
+    payload: Payload,
+    storage: &PhotoStorage,
+    config: &UploadConfig,
+) -> Result<ValidatedPhoto, ErrorResponse> {
+    if request
+        .headers()
+        .get(CONTENT_TYPE)
+        .is_none_or(|value| value.as_bytes() != b"image/jpeg")
+    {
+        return Err(ErrorResponse::unsupported_media_type());
+    }
+
+    if let Some(length) = request.headers().get(CONTENT_LENGTH) {
+        let length = length
+            .to_str()
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or_else(ErrorResponse::bad_request)?;
+
+        if length > config.max_size.get() {
+            return Err(ErrorResponse::payload_too_large());
+        }
+    }
+
+    let (staged, size) =
+        stage_payload(storage, payload, config.max_size, UPLOAD_BODY_IDLE_TIMEOUT).await?;
+    let dimensions = staged.inspect(config.max_pixels).await?;
+
+    Ok(ValidatedPhoto {
+        staged,
+        size,
+        dimensions,
+    })
+}
+
+async fn stage_payload(
     storage: &PhotoStorage,
     mut payload: Payload,
     max_size: NonZeroU64,
@@ -335,6 +382,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn validation_rejects_headers_before_staging_or_reading_the_body() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = upload_state(directory.path(), 1).await;
+
+        fs::remove_dir(directory.path().join(".tmp")).unwrap();
+
+        for (content_type, length, status) in [
+            ("text/plain", "1", StatusCode::UNSUPPORTED_MEDIA_TYPE),
+            ("image/jpeg", "invalid", StatusCode::BAD_REQUEST),
+            ("image/jpeg", "1025", StatusCode::PAYLOAD_TOO_LARGE),
+        ] {
+            let request = actix_web::test::TestRequest::post()
+                .insert_header(("Content-Type", content_type))
+                .insert_header(("Content-Length", length))
+                .to_http_request();
+            let body = futures_util::stream::poll_fn(
+                |_| -> std::task::Poll<
+                    Option<Result<actix_web::web::Bytes, actix_http::error::PayloadError>>,
+                > {
+                    panic!("invalid headers must not consume the body");
+                },
+            );
+            let body: actix_http::BoxedPayloadStream = Box::pin(body);
+            let result = validate_upload(
+                &request,
+                body.into(),
+                state.storage(),
+                state.upload_config(),
+            )
+            .await;
+
+            assert_eq!(result.err().unwrap().status_code(), status);
+            assert!(stored_files(directory.path()).is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn validation_returns_metadata_and_unchanged_staged_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = upload_state(directory.path(), 1).await;
+        let jpeg = jpegsave_buffer(&black(20, 10).unwrap()).unwrap();
+        let request = actix_web::test::TestRequest::post()
+            .insert_header(("Content-Type", "image/jpeg"))
+            .to_http_request();
+        let (mut sender, body) = actix_http::h1::Payload::create(false);
+
+        sender.feed_data(actix_web::web::Bytes::from(jpeg.clone()));
+        sender.feed_eof();
+
+        let validated = validate_upload(
+            &request,
+            body.into(),
+            state.storage(),
+            state.upload_config(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(validated.size.get(), u64::try_from(jpeg.len()).unwrap());
+        assert_eq!(validated.dimensions.width.get(), 20);
+        assert_eq!(validated.dimensions.height.get(), 10);
+        assert_eq!(fs::read(validated.staged.temporary_path()).unwrap(), jpeg);
+        drop(validated);
+        assert!(stored_files(directory.path()).is_empty());
+    }
+
+    #[tokio::test]
     async fn interrupted_body_discards_staged_file() {
         let directory = tempfile::tempdir().unwrap();
         let state = upload_state(directory.path(), 1).await;
@@ -343,8 +457,13 @@ mod tests {
         sender.feed_data(actix_web::web::Bytes::from_static(b"partial jpeg"));
         sender.set_error(actix_http::error::PayloadError::Incomplete(None));
 
-        let result =
-            stage_payload(state.storage(), body.into(), state.upload_config().max_size).await;
+        let result = stage_payload(
+            state.storage(),
+            body.into(),
+            state.upload_config().max_size,
+            UPLOAD_BODY_IDLE_TIMEOUT,
+        )
+        .await;
 
         assert!(result.is_err());
         assert!(stored_files(directory.path()).is_empty());
@@ -361,7 +480,7 @@ mod tests {
         let (_sender, body) = actix_http::h1::Payload::create(false);
 
         let result = {
-            let result = stage_payload_with_idle_timeout(
+            let result = stage_payload(
                 state.storage(),
                 body.into(),
                 state.upload_config().max_size,

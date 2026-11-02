@@ -5,9 +5,7 @@
 //! its photo/job pair. Listing checks gallery ownership before returning its ordered photo states.
 
 use actix_web::{
-    HttpRequest, HttpResponse, get,
-    http::header::{CONTENT_LENGTH, CONTENT_TYPE},
-    post,
+    HttpRequest, HttpResponse, get, post,
     web::{self, Data, Path as WebPath, ServiceConfig},
 };
 use pp_core::notifications::PhotoId;
@@ -24,7 +22,7 @@ use crate::{
     error::ErrorResponse,
     extractors::identity::Authenticated,
     response::ResponseBuilderExt,
-    upload::{self, StagedPhotoExt, limiter::UploadSlot},
+    upload::{self, limiter::UploadSlot},
 };
 
 /// Registers photo routes inside the `/api/v1/galleries` scope.
@@ -81,35 +79,13 @@ async fn upload_photo(
         return Err(ErrorResponse::not_found());
     }
 
-    if request
-        .headers()
-        .get(CONTENT_TYPE)
-        .is_none_or(|value| value.as_bytes() != b"image/jpeg")
-    {
-        return Err(ErrorResponse::unsupported_media_type());
-    }
-
-    let max_size = state.upload_config().max_size.get();
-
-    if let Some(length) = request.headers().get(CONTENT_LENGTH) {
-        let length = length
-            .to_str()
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .ok_or_else(ErrorResponse::bad_request)?;
-
-        if length > max_size {
-            return Err(ErrorResponse::payload_too_large());
-        }
-    }
-
-    let (staged, size) = upload::stage_payload(
-        storage,
+    let validated = upload::validate_upload(
+        &request,
         payload.into_inner(),
-        state.upload_config().max_size,
+        storage,
+        state.upload_config(),
     )
     .await?;
-    let dimensions = staged.inspect(state.upload_config().max_pixels).await?;
     let photo_id = PhotoId::from(Uuid::new_v4());
     let key = PhotoKey {
         workspace: identity.workspace_id,
@@ -118,15 +94,19 @@ async fn upload_photo(
         variant: Variant::Original,
     };
 
-    staged.commit(&key).await.map_err(upload::storage_failure)?;
+    validated
+        .staged
+        .commit(&key)
+        .await
+        .map_err(upload::storage_failure)?;
 
     let new_photo = NewPhoto {
         id: photo_id,
         workspace_id: identity.workspace_id,
         gallery_id,
         original_name: upload::original_name(&request),
-        size,
-        dimensions,
+        size: validated.size,
+        dimensions: validated.dimensions,
     };
 
     let photo = match state
