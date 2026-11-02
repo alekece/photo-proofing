@@ -14,7 +14,7 @@ The repository supports one-time photographer account setup, email/password logi
 - [MVP release](docs/releases/MVP.md): first-release scope and acceptance evidence to collect.
 - [ADR 0001 — Technology baseline](docs/adr/0001-technology-baseline.md): established choices and tradeoffs.
 - [ADR 0003 — Private photo storage](docs/adr/0003-photo-storage.md): photo directory layout and atomic writes.
-- [Agent guidance](AGENTS.md): shared development and documentation rules.
+- [Agent guidance](AGENTS.md): shared development and documentation rules, with [Rust](crates/AGENTS.md) and [frontend](web/AGENTS.md) guidance.
 - [Approved design records](docs/superpowers/specs/): designs retained with the repository.
 
 ## Prerequisites
