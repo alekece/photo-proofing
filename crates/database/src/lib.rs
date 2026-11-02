@@ -5,6 +5,7 @@ pub mod error;
 pub mod gallery;
 pub mod jobs;
 pub mod photo;
+pub mod photo_intake;
 
 pub use sqlx::PgPool;
 use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};

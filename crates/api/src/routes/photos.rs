@@ -116,7 +116,7 @@ async fn upload_photo(
         dimensions,
     };
 
-    let photo = match state.photos().create_with_job(new_photo).await {
+    let photo = match state.photo_intake().accept(new_photo).await {
         Ok(Some(photo)) => photo,
         Ok(None) => {
             upload.remove_published_original(&key).await?;
@@ -151,12 +151,14 @@ mod tests {
         test,
         web::Data,
     };
+    use futures_util::stream;
     use libvips::ops::{black, jpegsave_buffer};
     use pp_core::config::PhotoDir;
     use pp_database::{Database, gallery::GalleryRepository};
     use pp_storage::PhotoStorage;
     use serde_json::Value;
     use sqlx::PgPool;
+    use tokio::sync::oneshot;
     use uuid::Uuid;
 
     use crate::{
@@ -489,6 +491,58 @@ mod tests {
         let (status, _) = call_request(&app, request).await;
 
         assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_no_upload_effects(&pool, directory.path()).await;
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn deleting_gallery_while_upload_body_is_streaming_removes_published_original(
+        pool: PgPool,
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let original = jpeg(1, 1);
+        let body_length = original.len();
+        let (body_started, body_started_rx) = oneshot::channel();
+        let (release_body, release_body_rx) = oneshot::channel();
+        let body = stream::once(async move {
+            body_started.send(()).unwrap();
+            release_body_rx.await.unwrap();
+
+            Ok::<_, actix_http::error::PayloadError>(actix_web::web::Bytes::from(original))
+        });
+        let body: actix_http::BoxedPayloadStream = Box::pin(body);
+        let request = test::TestRequest::post()
+            .uri(&format!("/api/v1/galleries/{gallery_id}/photos"))
+            .insert_header(("Origin", ORIGIN))
+            .insert_header(("Content-Type", "image/jpeg"))
+            .insert_header(("X-Filename", "proof.jpg"))
+            .insert_header((CONTENT_LENGTH, body_length))
+            .cookie(cookie)
+            .to_request();
+        let (request, _) = request.replace_payload(body.into());
+        let response = test::call_service(&app, request);
+        tokio::pin!(response);
+
+        tokio::select! {
+            _ = body_started_rx => {}
+            response = &mut response => {
+                panic!("upload completed before its body was released: {}", response.status());
+            }
+        }
+
+        sqlx::query("DELETE FROM galleries WHERE id = $1")
+            .bind(Uuid::parse_str(&gallery_id).unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        release_body.send(()).unwrap();
+
+        let response = response.await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        test::read_body(response).await;
         assert_no_upload_effects(&pool, directory.path()).await;
     }
 

@@ -219,6 +219,7 @@ impl JobRepository<'_> {
     ) -> Result<JobId, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
         let id = Self::enqueue_in(&mut transaction, payload, max_attempts).await?;
+
         transaction.commit().await?;
 
         Ok(id)

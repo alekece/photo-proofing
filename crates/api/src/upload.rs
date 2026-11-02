@@ -9,7 +9,7 @@ use std::{
 use actix_web::{HttpRequest, dev::Payload};
 use futures_util::StreamExt;
 use libvips::{VipsApp, VipsImage};
-use pp_database::photo::{PhotoCreateError, PhotoDimensions};
+use pp_database::{photo::PhotoDimensions, photo_intake::PhotoIntakeError};
 use pp_storage::{PhotoKey, PhotoStorage, StagedPhoto, StorageError};
 use thiserror::Error;
 use tokio::{
@@ -260,14 +260,14 @@ impl UploadState {
     pub(crate) async fn cleanup_after_photo_creation_failure(
         &self,
         key: &PhotoKey,
-        error: &PhotoCreateError,
+        error: &PhotoIntakeError,
     ) -> Result<(), ErrorResponse> {
         match error {
-            PhotoCreateError::Database(_) => {
+            PhotoIntakeError::Database(_) => {
                 tracing::error!(%error, photo_id = %key.photo, "photo metadata transaction failed");
                 self.remove_published_original(key).await
             }
-            PhotoCreateError::CommitOutcomeUnknown { .. } => {
+            PhotoIntakeError::CommitOutcomeUnknown { .. } => {
                 tracing::error!(
                     %error,
                     photo_id = %key.photo,
@@ -325,7 +325,7 @@ mod tests {
     use pp_core::config::PhotoDir;
     use pp_core::notifications::PhotoId;
     use pp_database::{
-        auth::WorkspaceId, error::DatabaseError, gallery::GalleryId, photo::PhotoCreateError,
+        auth::WorkspaceId, error::DatabaseError, gallery::GalleryId, photo_intake::PhotoIntakeError,
     };
     use pp_storage::{PhotoKey, PhotoStorage, Variant};
     use tokio::io::AsyncReadExt;
@@ -486,7 +486,7 @@ mod tests {
             .unwrap();
         original.commit(&key).await.unwrap();
 
-        let error = PhotoCreateError::CommitOutcomeUnknown {
+        let error = PhotoIntakeError::CommitOutcomeUnknown {
             commit_error: DatabaseError::Unreachable(std::io::Error::from(
                 std::io::ErrorKind::ConnectionReset,
             )),

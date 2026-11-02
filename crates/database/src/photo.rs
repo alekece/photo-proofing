@@ -1,23 +1,16 @@
-//! Workspace-scoped photo metadata and atomic photo/job creation.
+//! Workspace-scoped photo metadata.
 //!
-//! A photo is visible only through its owning workspace and gallery. Accepting one writes its
-//! metadata and `process_photo` job in the same transaction, so the queue cannot observe a
-//! partially-created photo.
+//! A photo is visible only through its owning workspace and gallery. [`PhotoRepository`] only
+//! inserts photo metadata; [`crate::photo_intake::PhotoIntake`] coordinates that insert with its
+//! processing job in one transaction.
 
 use std::num::{NonZeroU32, NonZeroU64};
 
 use pp_core::{notifications::PhotoId, types::timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool, Row, Type, postgres::PgRow};
-use thiserror::Error;
+use sqlx::{FromRow, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow};
 
-use crate::{
-    Repository,
-    auth::WorkspaceId,
-    error::DatabaseError,
-    gallery::GalleryId,
-    jobs::{DEFAULT_MAX_ATTEMPTS, JobPayload, JobRepository},
-};
+use crate::{Repository, auth::WorkspaceId, error::DatabaseError, gallery::GalleryId};
 
 /// Current server-side processing state for a photo.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,66 +102,28 @@ pub struct NewPhoto {
     pub dimensions: PhotoDimensions,
 }
 
-/// Failure while creating photo metadata and its processing job.
+/// Result of inserting photo metadata within a caller-owned transaction.
 ///
-/// A [`PhotoCreateError::CommitOutcomeUnknown`] means an idempotent retry could not determine
-/// whether the original transaction committed. Callers must preserve the published original.
+/// Only [`Inserted`](Self::Inserted) means a job should be enqueued; an identical existing row
+/// can be returned during commit reconciliation without creating a duplicate job.
 ///
 /// # Examples
 ///
 /// ```
-/// use pp_database::photo::PhotoCreateError;
+/// use pp_database::photo::PhotoInsertOutcome;
 ///
-/// fn may_remove_published_original(error: &PhotoCreateError) -> bool {
-///     matches!(error, PhotoCreateError::Database(_))
+/// fn should_enqueue_job(outcome: &PhotoInsertOutcome) -> bool {
+///     matches!(outcome, PhotoInsertOutcome::Inserted(_))
 /// }
 /// ```
-#[derive(Debug, Error)]
-pub enum PhotoCreateError {
-    #[error(transparent)]
-    Database(#[from] DatabaseError),
-    /// The commit acknowledgement was lost and a retry could not settle the outcome.
-    #[error("photo transaction commit outcome could not be confirmed")]
-    CommitOutcomeUnknown {
-        #[source]
-        commit_error: DatabaseError,
-        reconciliation_error: Option<Box<PhotoCreateError>>,
-    },
-}
-
-impl PhotoCreateError {
-    fn from_commit_error(error: sqlx::Error) -> Self {
-        match error {
-            error @ sqlx::Error::Database(_) => Self::Database(error.into()),
-            error => Self::CommitOutcomeUnknown {
-                commit_error: error.into(),
-                reconciliation_error: None,
-            },
-        }
-    }
-
-    fn resolve_reconciliation(
-        commit_error: DatabaseError,
-        reconciliation: Result<Option<Photo>, Self>,
-    ) -> Result<Option<Photo>, Self> {
-        match reconciliation {
-            Ok(Some(photo)) => Ok(Some(photo)),
-            Ok(None) => Err(Self::CommitOutcomeUnknown {
-                commit_error,
-                reconciliation_error: None,
-            }),
-            Err(reconciliation_error) => Err(Self::CommitOutcomeUnknown {
-                commit_error,
-                reconciliation_error: Some(Box::new(reconciliation_error)),
-            }),
-        }
-    }
-}
-
-impl From<sqlx::Error> for PhotoCreateError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Database(error.into())
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PhotoInsertOutcome {
+    /// A new photo row was inserted.
+    Inserted(Photo),
+    /// An existing row has the same identifying metadata, so a retry is safe.
+    Identical(Photo),
+    /// The gallery does not exist in the requested workspace.
+    MissingGallery,
 }
 
 /// Persistence for accepted photos and their processing jobs.
@@ -186,96 +141,64 @@ impl<'db> Repository<'db> for PhotoRepository<'db> {
 }
 
 impl PhotoRepository<'_> {
-    /// Stores photo metadata and its processing job atomically.
-    ///
-    /// Returns `None` when the gallery is missing or not owned by `workspace_id`.
-    pub async fn create_with_job(
+    /// Inserts only photo metadata in the caller's transaction.
+    pub async fn insert_in(
         &self,
-        photo: NewPhoto,
-    ) -> Result<Option<Photo>, PhotoCreateError> {
-        match self.create_with_job_transaction(&photo, false).await {
-            Err(PhotoCreateError::CommitOutcomeUnknown { commit_error, .. }) => {
-                PhotoCreateError::resolve_reconciliation(
-                    commit_error,
-                    self.reconcile_commit_outcome(&photo).await,
-                )
-            }
-            result => result,
-        }
-    }
-
-    async fn reconcile_commit_outcome(
-        &self,
+        transaction: &mut Transaction<'_, Postgres>,
         photo: &NewPhoto,
-    ) -> Result<Option<Photo>, PhotoCreateError> {
-        self.create_with_job_transaction(photo, true).await
-    }
-
-    async fn create_with_job_transaction(
-        &self,
-        photo: &NewPhoto,
-        tolerate_existing: bool,
-    ) -> Result<Option<Photo>, PhotoCreateError> {
+    ) -> Result<PhotoInsertOutcome, DatabaseError> {
         let size =
             i64::try_from(photo.size.get()).map_err(|error| sqlx::Error::Encode(error.into()))?;
         let width = i32::try_from(photo.dimensions.width.get())
             .map_err(|error| sqlx::Error::Encode(error.into()))?;
         let height = i32::try_from(photo.dimensions.height.get())
             .map_err(|error| sqlx::Error::Encode(error.into()))?;
-        let mut transaction = self.pool.begin().await?;
-        let query = if tolerate_existing {
+        let inserted: Option<Photo> = sqlx::query_as(
             "INSERT INTO photos
                  (id, workspace_id, gallery_id, original_name, size, width, height)
              SELECT $1, $2, g.id, $4, $5, $6, $7
              FROM galleries AS g
              WHERE g.id = $3 AND g.workspace_id = $2
              ON CONFLICT (id) DO NOTHING
-             RETURNING id, original_name, size, width, height, status, failure_reason, created_at"
-        } else {
-            "INSERT INTO photos
-                 (id, workspace_id, gallery_id, original_name, size, width, height)
-             SELECT $1, $2, g.id, $4, $5, $6, $7
-             FROM galleries AS g
-             WHERE g.id = $3 AND g.workspace_id = $2
-             RETURNING id, original_name, size, width, height, status, failure_reason, created_at"
-        };
-        let inserted: Option<Photo> = sqlx::query_as(query)
-            .bind(photo.id)
-            .bind(photo.workspace_id)
-            .bind(photo.gallery_id)
-            .bind(&photo.original_name)
-            .bind(size)
-            .bind(width)
-            .bind(height)
-            .fetch_optional(&mut *transaction)
-            .await?;
-        let Some(inserted) = inserted else {
-            let existing = if tolerate_existing {
-                sqlx::query_as(
-                    "SELECT id, original_name, size, width, height, status, failure_reason, created_at
-                     FROM photos
-                     WHERE id = $1 AND workspace_id = $2 AND gallery_id = $3",
-                )
-                .bind(photo.id)
-                .bind(photo.workspace_id)
-                .bind(photo.gallery_id)
-                .fetch_optional(&mut *transaction)
-                .await?
-            } else {
-                None
-            };
-            transaction.rollback().await?;
-
-            return Ok(existing);
-        };
-        let payload = JobPayload::ProcessPhoto(serde_json::json!({"photo_id": photo.id}));
-
-        JobRepository::enqueue_in(&mut transaction, payload, DEFAULT_MAX_ATTEMPTS).await?;
-        if let Err(error) = transaction.commit().await {
-            return Err(PhotoCreateError::from_commit_error(error));
+             RETURNING id, original_name, size, width, height, status, failure_reason, created_at",
+        )
+        .bind(photo.id)
+        .bind(photo.workspace_id)
+        .bind(photo.gallery_id)
+        .bind(&photo.original_name)
+        .bind(size)
+        .bind(width)
+        .bind(height)
+        .fetch_optional(&mut **transaction)
+        .await?;
+        if let Some(inserted) = inserted {
+            return Ok(PhotoInsertOutcome::Inserted(inserted));
         }
 
-        Ok(Some(inserted))
+        let existing = sqlx::query(
+            "SELECT id, workspace_id, gallery_id, original_name, size, width, height,
+                    status, failure_reason, created_at
+             FROM photos WHERE id = $1",
+        )
+        .bind(photo.id)
+        .fetch_optional(&mut **transaction)
+        .await?;
+        let Some(row) = existing else {
+            return Ok(PhotoInsertOutcome::MissingGallery);
+        };
+        let existing = Photo::from_row(&row)?;
+        let identical = row.try_get::<WorkspaceId, _>("workspace_id")? == photo.workspace_id
+            && row.try_get::<GalleryId, _>("gallery_id")? == photo.gallery_id
+            && existing.original_name == photo.original_name
+            && existing.size == photo.size
+            && existing.dimensions == photo.dimensions;
+        if !identical {
+            return Err(DatabaseError::Other(
+                "photo id collision with different metadata".to_owned(),
+            ));
+        }
+
+        Ok(PhotoInsertOutcome::Identical(existing))
     }
 
     /// Lists a gallery's photos in creation order, scoped to the owning workspace.
@@ -301,7 +224,6 @@ mod tests {
     use std::num::{NonZeroU32, NonZeroU64};
 
     use pp_core::notifications::PhotoId;
-    use serde_json::json;
     use sqlx::PgPool;
     use uuid::Uuid;
 
@@ -310,6 +232,7 @@ mod tests {
         Database,
         auth::WorkspaceId,
         gallery::{GalleryId, GalleryRepository},
+        photo_intake::PhotoIntake,
     };
 
     async fn workspace(pool: &PgPool) -> WorkspaceId {
@@ -344,38 +267,6 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn creating_a_photo_persists_its_processing_job(pool: PgPool) {
-        let database = Database::new(pool.clone());
-        let workspace_id = workspace(&pool).await;
-        let gallery = database
-            .repository::<GalleryRepository>()
-            .create(workspace_id)
-            .await
-            .unwrap();
-        let photo_id = PhotoId::from(Uuid::new_v4());
-
-        let photo = database
-            .repository::<PhotoRepository>()
-            .create_with_job(new_photo(workspace_id, gallery.id, photo_id, "proof.jpg"))
-            .await
-            .unwrap()
-            .unwrap();
-        let payload: serde_json::Value = sqlx::query_scalar(
-            "SELECT payload FROM jobs WHERE payload->'payload'->>'photo_id' = $1",
-        )
-        .bind(photo_id.to_string())
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-
-        assert_eq!(photo.id, photo_id);
-        assert_eq!(
-            payload,
-            json!({"kind": "process_photo", "payload": {"photo_id": photo_id.to_string()}})
-        );
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
     async fn listing_is_creation_ordered_and_keeps_duplicate_names_distinct(pool: PgPool) {
         let database = Database::new(pool.clone());
         let workspace_id = workspace(&pool).await;
@@ -385,6 +276,7 @@ mod tests {
             .await
             .unwrap();
         let photos = database.repository::<PhotoRepository>();
+        let intake = database.repository::<PhotoIntake>();
         let mut expected = Vec::new();
 
         for (created_at, status, failure_reason, original_name) in [
@@ -394,8 +286,8 @@ mod tests {
             (20, "processing", None, "fourth.jpg"),
         ] {
             let id = PhotoId::from(Uuid::new_v4());
-            photos
-                .create_with_job(new_photo(workspace_id, gallery.id, id, original_name))
+            intake
+                .accept(new_photo(workspace_id, gallery.id, id, original_name))
                 .await
                 .unwrap()
                 .unwrap();
@@ -450,8 +342,8 @@ mod tests {
         let photo_id = PhotoId::from(Uuid::new_v4());
 
         database
-            .repository::<PhotoRepository>()
-            .create_with_job(new_photo(workspace_id, gallery.id, photo_id, "proof.jpg"))
+            .repository::<PhotoIntake>()
+            .accept(new_photo(workspace_id, gallery.id, photo_id, "proof.jpg"))
             .await
             .unwrap()
             .unwrap();
@@ -482,11 +374,12 @@ mod tests {
             .await
             .unwrap();
         let photos = database.repository::<PhotoRepository>();
+        let intake = database.repository::<PhotoIntake>();
 
         assert!(photos.list(other, gallery.id).await.unwrap().is_empty());
         assert!(
-            photos
-                .create_with_job(new_photo(
+            intake
+                .accept(new_photo(
                     other,
                     gallery.id,
                     PhotoId::from(Uuid::new_v4()),
@@ -502,115 +395,5 @@ mod tests {
             .unwrap();
 
         assert_eq!(count, 0);
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
-    async fn photo_creation_rolls_back_when_job_insertion_fails(pool: PgPool) {
-        let database = Database::new(pool.clone());
-        let workspace_id = workspace(&pool).await;
-        let gallery = database
-            .repository::<GalleryRepository>()
-            .create(workspace_id)
-            .await
-            .unwrap();
-        sqlx::query(
-            "CREATE FUNCTION reject_job_insert() RETURNS trigger LANGUAGE plpgsql AS $$
-             BEGIN RAISE EXCEPTION 'injected test failure'; END; $$",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE TRIGGER reject_job_insert BEFORE INSERT ON jobs
-             FOR EACH ROW EXECUTE FUNCTION reject_job_insert()",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        let result = database
-            .repository::<PhotoRepository>()
-            .create_with_job(new_photo(
-                workspace_id,
-                gallery.id,
-                PhotoId::from(Uuid::new_v4()),
-                "proof.jpg",
-            ))
-            .await;
-
-        assert!(result.is_err());
-        let photo_count: i64 = sqlx::query_scalar("SELECT count(*) FROM photos")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        let job_count: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-
-        assert_eq!(photo_count, 0);
-        assert_eq!(job_count, 0);
-    }
-
-    #[test]
-    fn connection_failure_during_commit_has_an_unknown_outcome() {
-        let error = PhotoCreateError::from_commit_error(sqlx::Error::Io(std::io::Error::from(
-            std::io::ErrorKind::ConnectionReset,
-        )));
-
-        assert!(matches!(
-            error,
-            PhotoCreateError::CommitOutcomeUnknown { .. }
-        ));
-    }
-
-    #[test]
-    fn missing_photo_after_unknown_commit_remains_unresolved() {
-        let error = PhotoCreateError::resolve_reconciliation(
-            DatabaseError::Unreachable(std::io::Error::from(std::io::ErrorKind::ConnectionReset)),
-            Ok(None),
-        )
-        .unwrap_err();
-
-        assert!(matches!(
-            error,
-            PhotoCreateError::CommitOutcomeUnknown { .. }
-        ));
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
-    async fn reconciling_an_unknown_commit_reuses_the_photo_and_job(pool: PgPool) {
-        let database = Database::new(pool.clone());
-        let workspace_id = workspace(&pool).await;
-        let gallery = database
-            .repository::<GalleryRepository>()
-            .create(workspace_id)
-            .await
-            .unwrap();
-        let photo = new_photo(
-            workspace_id,
-            gallery.id,
-            PhotoId::from(Uuid::new_v4()),
-            "proof.jpg",
-        );
-        let repository = database.repository::<PhotoRepository>();
-
-        let created = repository
-            .create_with_job(photo.clone())
-            .await
-            .unwrap()
-            .unwrap();
-        let reconciled = repository
-            .reconcile_commit_outcome(&photo)
-            .await
-            .unwrap()
-            .unwrap();
-        let job_count: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-
-        assert_eq!(reconciled, created);
-        assert_eq!(job_count, 1);
     }
 }
