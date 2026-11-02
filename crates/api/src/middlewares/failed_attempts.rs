@@ -137,12 +137,13 @@ mod tests {
     use crate::{
         api::ApiState,
         config::{AuthConfig, LimiterConfig, SessionConfig},
+        tests,
     };
 
     const PEER: IpAddr = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
 
     // The pool is lazy and these tests never query, so no database is needed.
-    fn state() -> Data<ApiState> {
+    async fn state() -> (Data<ApiState>, tempfile::TempDir) {
         let pool = PgPoolOptions::new()
             .connect_lazy("postgres://localhost/unused")
             .unwrap();
@@ -159,7 +160,22 @@ mod tests {
             max_peers: NonZeroUsize::new(8).unwrap(),
         };
 
-        Data::new(ApiState::new(Database::new(pool), session, auth, limiter).unwrap())
+        let (storage, upload_config, directory) = tests::upload_resources().await;
+
+        (
+            Data::new(
+                ApiState::new(
+                    Database::new(pool),
+                    session,
+                    auth,
+                    limiter,
+                    storage,
+                    upload_config,
+                )
+                .unwrap(),
+            ),
+            directory,
+        )
     }
 
     async fn respond(status: web::Path<u16>) -> HttpResponse {
@@ -172,7 +188,7 @@ mod tests {
     where
         F: Fn(StatusCode) -> bool + 'static,
     {
-        let state = state();
+        let (state, _directory) = state().await;
         let app = test::init_service(
             App::new()
                 .app_data(state.clone())

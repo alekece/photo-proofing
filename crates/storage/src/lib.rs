@@ -6,7 +6,8 @@
 //!
 //! Writes go through [`PhotoStorage::stage`]: bytes land in a temp file under `<photo-dir>/.tmp`
 //! (the same filesystem, so the final `rename` is atomic) and only [`StagedPhoto::commit`] makes
-//! them visible. A failed or abandoned write leaves nothing under a photo name.
+//! them visible. Failed original publication removes its new target unless cleanup also fails.
+//! Cancellation after publication can leave an orphan; it cannot roll back asynchronously.
 
 use std::{
     io::{self, ErrorKind},
@@ -36,6 +37,12 @@ pub enum StorageError {
     NotFound,
     #[error("photo is already stored")]
     AlreadyExists,
+    /// Directory durability failed. A new original was removed; a replaced derivative remains.
+    #[error("photo directory sync failed")]
+    DirectorySync(#[source] io::Error),
+    /// Recovery failed after directory sync failed; the new original may remain on disk.
+    #[error("failed to remove original after directory sync failure")]
+    PublicationCleanup(#[source] io::Error),
     #[error("photo storage I/O failed")]
     Io(#[source] io::Error),
 }
@@ -151,10 +158,23 @@ pub struct StagedPhoto {
 }
 
 impl StagedPhoto {
+    /// The random, storage-owned path of this staged file.
+    ///
+    /// This path is for internal metadata inspection only; it is not derived from user input and
+    /// does not identify a published photo key.
+    pub fn temporary_path(&self) -> &Path {
+        &self.path
+    }
+
     /// Appends bytes. Writes are buffered, so a full volume may only be reported by a later
     /// `write` or by [`commit`](Self::commit), which never succeeds after a failed write.
     pub async fn write(&mut self, bytes: &[u8]) -> Result<(), StorageError> {
         Ok(self.file.write_all(bytes).await?)
+    }
+
+    /// Flushes staged bytes so another reader can inspect the temporary file.
+    pub async fn flush(&mut self) -> Result<(), StorageError> {
+        Ok(self.file.flush().await?)
     }
 
     /// Syncs the file and atomically publishes it under `key`.
@@ -162,6 +182,22 @@ impl StagedPhoto {
     /// An `Original` is written once: if one exists, nothing is replaced and
     /// [`StorageError::AlreadyExists`] is returned. Any other variant replaces its previous
     /// file, as a retried processing job regenerates it.
+    ///
+    /// If directory sync fails after publication, storage removes this attempt's new original.
+    /// [`StorageError::PublicationCleanup`] reports failed removal; callers must not try to
+    /// remove targets for other errors, since they might predate this attempt. A replaced
+    /// derivative cannot be restored and stays available even if directory sync fails.
+    ///
+    /// Cancellation after publication can leave a file without confirmed durability.
+    ///
+    /// ```
+    /// # async fn store(storage: &pp_storage::PhotoStorage, key: &pp_storage::PhotoKey)
+    /// #     -> Result<(), pp_storage::StorageError> {
+    /// let mut staged = storage.stage().await?;
+    /// staged.write(b"original bytes").await?;
+    /// staged.commit(key).await
+    /// # }
+    /// ```
     pub async fn commit(mut self, key: &PhotoKey) -> Result<(), StorageError> {
         self.file.flush().await?;
         self.file.sync_all().await?;
@@ -177,10 +213,31 @@ impl StagedPhoto {
         }
 
         // Persist the directory entry so a crash cannot lose a photo that was reported stored.
-        File::open(key.dir(&self.root)).await?.sync_all().await?;
+        let durability = async {
+            let directory = File::open(key.dir(&self.root)).await?;
+
+            directory.sync_all().await
+        }
+        .await;
+
+        if let Err(error) = durability {
+            let error = match key.variant {
+                Variant::Original => rollback_original(&target, error).await,
+                Variant::Thumbnail | Variant::Preview => StorageError::DirectorySync(error),
+            };
+
+            return Err(error);
+        }
 
         // `Drop` then unlinks the staged name that a hard-linked original leaves behind.
         Ok(())
+    }
+}
+
+async fn rollback_original(target: &Path, source: io::Error) -> StorageError {
+    match fs::remove_file(target).await {
+        Ok(()) => StorageError::DirectorySync(source),
+        Err(source) => StorageError::PublicationCleanup(source),
     }
 }
 
@@ -311,6 +368,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn staged_path_points_to_the_storage_owned_temporary_file() {
+        let (dir, storage) = storage().await;
+        let staged = storage.stage().await.unwrap();
+        let path = staged.temporary_path();
+
+        assert!(path.is_file());
+        assert!(path.starts_with(dir.path().join(STAGING_DIR)));
+        assert_ne!(path, key(Variant::Original).path(dir.path()));
+        assert!(matches!(
+            storage.read(&key(Variant::Original)).await,
+            Err(StorageError::NotFound)
+        ));
+    }
+
+    #[tokio::test]
+    async fn flush_makes_staged_bytes_available_for_metadata_inspection() {
+        let (_dir, storage) = storage().await;
+        let mut staged = storage.stage().await.unwrap();
+        let path = staged.temporary_path().to_owned();
+
+        staged.write(b"header bytes").await.unwrap();
+        staged.flush().await.unwrap();
+
+        assert_eq!(std_fs::read(path).unwrap(), b"header bytes");
+    }
+
+    #[tokio::test]
     async fn derivatives_are_replaced_but_originals_are_written_once() {
         let (dir, storage) = storage().await;
         let thumbnail = key(Variant::Thumbnail);
@@ -330,6 +414,103 @@ mod tests {
         ));
         assert_eq!(read_all(&storage, &thumbnail).await, b"new");
         assert_eq!(read_all(&storage, &original).await, b"first");
+        assert_eq!(staged_files(dir.path()), 0);
+    }
+
+    #[tokio::test]
+    async fn failure_before_publication_preserves_an_existing_original() {
+        let (dir, storage) = storage().await;
+        let key = key(Variant::Original);
+
+        store(&storage, &key, b"existing original").await;
+
+        let mut duplicate = storage.stage().await.unwrap();
+
+        duplicate.write(b"new upload").await.unwrap();
+        duplicate.flush().await.unwrap();
+        std_fs::remove_file(duplicate.temporary_path()).unwrap();
+
+        assert!(duplicate.commit(&key).await.is_err());
+        assert_eq!(read_all(&storage, &key).await, b"existing original");
+        assert_eq!(staged_files(dir.path()), 0);
+    }
+
+    #[tokio::test]
+    async fn failure_after_publication_removes_only_the_new_original() {
+        let (dir, storage) = storage().await;
+        let original = key(Variant::Original);
+        let older = PhotoKey {
+            photo: Uuid::from_u128(4).into(),
+            ..original
+        };
+
+        store(&storage, &older, b"older original").await;
+
+        let parent = original.dir(dir.path());
+        let mut staged = storage.stage().await.unwrap();
+
+        staged.write(b"new original").await.unwrap();
+        staged.flush().await.unwrap();
+        // Linking needs write/search permissions; opening the directory for fsync needs read.
+        std_fs::set_permissions(&parent, std_fs::Permissions::from_mode(0o300)).unwrap();
+
+        let enforced = File::open(&parent).await.is_err();
+        let result = staged.commit(&original).await;
+
+        std_fs::set_permissions(&parent, std_fs::Permissions::from_mode(0o700)).unwrap();
+
+        if enforced {
+            assert!(result.is_err());
+            assert!(matches!(
+                storage.read(&original).await,
+                Err(StorageError::NotFound)
+            ));
+        } else {
+            // Permission bits do not bind root.
+            result.unwrap();
+        }
+
+        assert_eq!(read_all(&storage, &older).await, b"older original");
+        assert_eq!(staged_files(dir.path()), 0);
+    }
+
+    #[tokio::test]
+    async fn failed_publication_cleanup_reports_the_removal_error() {
+        let (dir, _storage) = storage().await;
+        let target = key(Variant::Original).path(dir.path());
+        let error = rollback_original(&target, io::ErrorKind::PermissionDenied.into()).await;
+
+        assert!(matches!(
+            error,
+            StorageError::PublicationCleanup(source) if source.kind() == io::ErrorKind::NotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn directory_sync_failure_keeps_the_replaced_derivative() {
+        let (dir, storage) = storage().await;
+        let thumbnail = key(Variant::Thumbnail);
+
+        store(&storage, &thumbnail, b"old thumbnail").await;
+
+        let mut staged = storage.stage().await.unwrap();
+        let parent = thumbnail.dir(dir.path());
+
+        staged.write(b"new thumbnail").await.unwrap();
+        std_fs::set_permissions(&parent, std_fs::Permissions::from_mode(0o300)).unwrap();
+
+        let enforced = File::open(&parent).await.is_err();
+        let result = staged.commit(&thumbnail).await;
+
+        std_fs::set_permissions(&parent, std_fs::Permissions::from_mode(0o700)).unwrap();
+
+        if enforced {
+            assert!(matches!(result, Err(StorageError::DirectorySync(_))));
+        } else {
+            result.unwrap();
+        }
+
+        assert_eq!(read_all(&storage, &thumbnail).await, b"new thumbnail");
         assert_eq!(staged_files(dir.path()), 0);
     }
 

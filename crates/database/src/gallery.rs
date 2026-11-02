@@ -10,7 +10,7 @@
 use std::num::NonZeroUsize;
 
 use derive_more::Display;
-use pp_core::types::timestamp::Timestamp;
+use pp_core::types::{generate::Generate, timestamp::Timestamp};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{AssertSqlSafe, FromRow, PgPool, Row, Type, postgres::PgRow};
 use thiserror::Error;
@@ -78,6 +78,12 @@ impl GalleryError {
 #[serde(transparent)]
 #[sqlx(transparent)]
 pub struct GalleryId(pub Uuid);
+
+impl Generate for GalleryId {
+    fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
 
 /// Default arrangement of photos for viewers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
@@ -241,7 +247,7 @@ impl GalleryRepository<'_> {
             "INSERT INTO galleries(id,workspace_id) VALUES ($1,$2) RETURNING {}",
             Self::COLUMNS
         )))
-        .bind(GalleryId(Uuid::new_v4()))
+        .bind(GalleryId::generate())
         .bind(workspace_id)
         .fetch_one(self.pool)
         .await?)

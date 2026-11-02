@@ -20,13 +20,15 @@ use actix_web::{
     HttpResponse, get, patch, post,
     web::{self, Data, Json, Path, Query, ServiceConfig},
 };
-use pp_database::gallery::{GalleryChanges, GalleryId, GallerySort, ShareToken};
+use pp_database::gallery::{GalleryChanges, GalleryId, GalleryRepository, GallerySort, ShareToken};
 use serde::Deserialize;
 
 use crate::{
     api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
     response::ResponseBuilderExt,
 };
+
+mod photos;
 
 #[derive(Deserialize)]
 struct ListQuery {
@@ -43,7 +45,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(show_shared_gallery)
             .service(show_gallery)
             .service(update_gallery)
-            .service(share_gallery),
+            .service(share_gallery)
+            .configure(photos::configure),
     );
 }
 
@@ -52,7 +55,11 @@ async fn create_gallery(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let gallery = state.galleries().create(identity.workspace_id).await?;
+    let gallery = state
+        .database()
+        .repository::<GalleryRepository>()
+        .create(identity.workspace_id)
+        .await?;
 
     Ok(HttpResponse::Created().no_store().json(gallery))
 }
@@ -64,7 +71,8 @@ async fn list_galleries(
     query: Query<ListQuery>,
 ) -> Result<HttpResponse, ErrorResponse> {
     let galleries = state
-        .galleries()
+        .database()
+        .repository::<GalleryRepository>()
         .list(identity.workspace_id, query.sort)
         .await?;
 
@@ -78,7 +86,8 @@ async fn show_gallery(
     id: Path<GalleryId>,
 ) -> Result<HttpResponse, ErrorResponse> {
     let gallery = state
-        .galleries()
+        .database()
+        .repository::<GalleryRepository>()
         .get(identity.workspace_id, id.into_inner())
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
@@ -94,7 +103,8 @@ async fn update_gallery(
     changes: Json<GalleryChanges>,
 ) -> Result<HttpResponse, ErrorResponse> {
     let gallery = state
-        .galleries()
+        .database()
+        .repository::<GalleryRepository>()
         .update(identity.workspace_id, id.into_inner(), &changes)
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
@@ -109,7 +119,8 @@ async fn share_gallery(
     id: Path<GalleryId>,
 ) -> Result<HttpResponse, ErrorResponse> {
     let gallery = state
-        .galleries()
+        .database()
+        .repository::<GalleryRepository>()
         .share(identity.workspace_id, id.into_inner())
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
@@ -123,7 +134,8 @@ async fn show_shared_gallery(
     token: Path<ShareToken>,
 ) -> Result<HttpResponse, ErrorResponse> {
     let gallery = state
-        .galleries()
+        .database()
+        .repository::<GalleryRepository>()
         .find_shared(&token.into_inner())
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
@@ -164,9 +176,10 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn creating_listing_and_patching_round_trip(pool: PgPool) {
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(app_state(pool)))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;
@@ -240,9 +253,10 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn responses_are_never_cached(pool: PgPool) {
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(app_state(pool)))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;
@@ -262,9 +276,10 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn invalid_changes_and_requests_are_rejected(pool: PgPool) {
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(app_state(pool)))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;
@@ -347,9 +362,10 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn session_and_origin_are_required(pool: PgPool) {
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(app_state(pool)))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;
@@ -390,7 +406,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn galleries_of_other_workspaces_are_not_found(pool: PgPool) {
-        let state = app_state(pool.clone());
+        let (state, _directory) = app_state(pool.clone()).await;
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(state))
@@ -454,9 +470,10 @@ mod tests {
             .create(other_workspace(&pool).await)
             .await
             .unwrap();
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(app_state(pool)))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;
@@ -519,9 +536,10 @@ mod tests {
     #[sqlx::test(migrations = "../database/migrations")]
     async fn shared_page_returns_only_client_fields(pool: PgPool) {
         let token = shared_gallery(&pool, json!({"title": "Wedding", "layout": "masonry"})).await;
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(app_state(pool)))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;
@@ -547,9 +565,10 @@ mod tests {
     async fn unknown_malformed_and_expired_links_are_indistinguishable(pool: PgPool) {
         let expired = shared_gallery(&pool, json!({"expires_at": "2000-01-01T00:00:00Z"})).await;
         let live = shared_gallery(&pool, json!({})).await;
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(app_state(pool)))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;
@@ -593,9 +612,10 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn extending_the_expiry_restores_access_at_the_same_link(pool: PgPool) {
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(app_state(pool)))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;

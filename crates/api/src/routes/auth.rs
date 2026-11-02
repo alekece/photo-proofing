@@ -27,7 +27,7 @@ use actix_web::{
     web::{self, Data, Json, ServiceConfig},
 };
 use pp_core::{email::Email, time::Millis};
-use pp_database::auth::Identity;
+use pp_database::auth::{AuthRepository, Identity};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -116,14 +116,16 @@ async fn report_status(
     session: Option<SessionToken>,
 ) -> Result<HttpResponse, AuthError> {
     let setup_available = state
-        .store()
+        .database()
+        .repository::<AuthRepository>()
         .setup_available()
         .await
         .map_err(|_| AuthError::Unavailable)?;
 
     let identity = match session {
         Some(token) => state
-            .store()
+            .database()
+            .repository::<AuthRepository>()
             .authenticate(token.digest().as_bytes(), SystemTime::now())
             .await
             .map_err(|_| AuthError::Unavailable)?,
@@ -161,7 +163,8 @@ async fn setup(
         .session_expiry(SystemTime::now())
         .ok_or(AuthError::Unavailable)?;
     let id = state
-        .store()
+        .database()
+        .repository::<AuthRepository>()
         .create_account(
             &email,
             password_hash.as_str(),
@@ -187,7 +190,8 @@ async fn login(
 ) -> Result<HttpResponse, AuthError> {
     let Credentials { email, password } = credentials.into_inner();
     let account = state
-        .store()
+        .database()
+        .repository::<AuthRepository>()
         .account_by_email(&email)
         .await
         .map_err(|_| AuthError::Unavailable)?;
@@ -219,7 +223,8 @@ async fn login(
 
     // A request still carrying an old cookie replaces that session instead of piling up rows.
     state
-        .store()
+        .database()
+        .repository::<AuthRepository>()
         .create_session(
             account.id,
             hash.as_bytes(),
@@ -245,7 +250,8 @@ async fn logout(
 ) -> Result<HttpResponse, AuthError> {
     if let Some(token) = session {
         state
-            .store()
+            .database()
+            .repository::<AuthRepository>()
             .revoke(token.digest().as_bytes())
             .await
             .map_err(|_| AuthError::Unavailable)?;
@@ -263,7 +269,8 @@ async fn renew(state: Data<ApiState>, session: SessionToken) -> Result<HttpRespo
     let expires_at = state.session_expiry(now).ok_or(AuthError::Unavailable)?;
 
     state
-        .store()
+        .database()
+        .repository::<AuthRepository>()
         .renew(session.digest().as_bytes(), now, expires_at)
         .await
         .map_err(|_| AuthError::Unavailable)?
@@ -279,43 +286,19 @@ async fn renew(state: Data<ApiState>, session: SessionToken) -> Result<HttpRespo
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        iter,
-        num::{NonZeroU32, NonZeroUsize},
-    };
+    use std::iter;
 
     use actix_web::{App, test};
-    use pp_database::Database;
     use sqlx::PgPool;
 
     use super::*;
-    use crate::{
-        api::configure_routes,
-        config::{AuthConfig, LimiterConfig, SessionConfig},
-    };
+    use crate::{api::configure_routes, tests::app_state};
 
     const ORIGIN: &str = "http://localhost:5173";
 
-    fn app_state(pool: PgPool) -> ApiState {
-        let session = SessionConfig {
-            idle_timeout: "1h".parse().unwrap(),
-            cookie_name: "pp_session".parse().unwrap(),
-        };
-        let auth = AuthConfig {
-            app_origin: ORIGIN.parse().unwrap(),
-        };
-        let limiter = LimiterConfig {
-            max_failures: NonZeroU32::new(10).unwrap(),
-            window: "1m".parse().unwrap(),
-            max_peers: NonZeroUsize::new(1024).unwrap(),
-        };
-
-        ApiState::new(Database::new(pool), session, auth, limiter).unwrap()
-    }
-
     #[sqlx::test(migrations = "../database/migrations")]
     async fn login_cookie_logout_and_copied_token_denial(pool: PgPool) {
-        let state = app_state(pool);
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(state))
@@ -394,7 +377,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn origin_and_missing_session_fail_closed(pool: PgPool) {
-        let state = app_state(pool);
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(state))
@@ -428,7 +411,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn passive_status_does_not_renew_and_expired_sessions_fail(pool: PgPool) {
-        let state = app_state(pool.clone());
+        let (state, _directory) = app_state(pool.clone()).await;
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(state))
@@ -504,7 +487,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn requests_have_bounded_bodies_and_attempts(pool: PgPool) {
-        let state = app_state(pool);
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(state))
@@ -553,7 +536,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn other_routes_do_not_use_the_attempt_limit(pool: PgPool) {
-        let state = app_state(pool);
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(state))
@@ -589,7 +572,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn wrong_logins_are_limited_per_peer(pool: PgPool) {
-        let state = app_state(pool);
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(state))
@@ -616,7 +599,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn successful_logins_do_not_use_the_attempt_limit(pool: PgPool) {
-        let state = app_state(pool);
+        let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(state))

@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 FROM rust:1-bookworm AS build
 WORKDIR /src
+RUN apt-get update && apt-get install -y --no-install-recommends libvips-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock rustfmt.toml ./
 COPY crates ./crates
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
@@ -8,7 +10,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cargo build --release -p pp-api && cp target/release/pp-api /pp-api
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends curl libvips42 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --no-create-home pp \
     && install -d -o pp -g pp /var/lib/pp/photos

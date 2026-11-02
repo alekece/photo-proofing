@@ -27,9 +27,10 @@
 
 use std::{num::NonZeroU16, str::FromStr, time::Duration};
 
+use pp_core::types::generate::Generate;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Error as JsonError, Value};
-use sqlx::{AssertSqlSafe, FromRow, PgPool, Row, Type, postgres::PgRow};
+use sqlx::{AssertSqlSafe, FromRow, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow};
 use uuid::Uuid;
 
 use crate::{Repository, error::DatabaseError};
@@ -44,6 +45,12 @@ pub const DEFAULT_MAX_ATTEMPTS: NonZeroU16 = NonZeroU16::new(5).unwrap();
 #[serde(transparent)]
 #[sqlx(transparent)]
 pub struct JobId(pub Uuid);
+
+impl Generate for JobId {
+    fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
 
 /// What a job does, which selects its handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -217,14 +224,28 @@ impl JobRepository<'_> {
         payload: JobPayload,
         max_attempts: NonZeroU16,
     ) -> Result<JobId, DatabaseError> {
-        let id = JobId(Uuid::new_v4());
+        let mut transaction = self.pool.begin().await?;
+        let id = Self::enqueue_in(&mut transaction, payload, max_attempts).await?;
+
+        transaction.commit().await?;
+
+        Ok(id)
+    }
+
+    /// Stores a job in the caller's transaction, due immediately.
+    pub async fn enqueue_in(
+        transaction: &mut Transaction<'_, Postgres>,
+        payload: JobPayload,
+        max_attempts: NonZeroU16,
+    ) -> Result<JobId, DatabaseError> {
+        let id = JobId::generate();
         let payload = serde_json::to_value(payload).map_err(|e| sqlx::Error::Encode(e.into()))?;
 
         sqlx::query("INSERT INTO jobs(id, payload, max_attempts) VALUES ($1, $2, $3)")
             .bind(id)
             .bind(payload)
             .bind(i32::from(max_attempts.get()))
-            .execute(self.pool)
+            .execute(&mut **transaction)
             .await?;
 
         Ok(id)
@@ -388,7 +409,7 @@ fn clean_error(error: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, time::Duration};
+    use std::{collections::HashSet, num::NonZeroU16, time::Duration};
 
     use serde_json::json;
     use tokio::{task::JoinSet, time};
@@ -402,6 +423,33 @@ mod tests {
         cap: Duration::from_millis(400),
     };
     const KINDS: &[JobKind] = &[JobKind::ProcessPhoto];
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn enqueue_in_obeys_the_callers_transaction(pool: PgPool) {
+        let mut transaction = pool.begin().await.unwrap();
+
+        JobRepository::enqueue_in(
+            &mut transaction,
+            JobPayload::ProcessPhoto(json!({"photo_id": "photo-1"})),
+            NonZeroU16::new(3).unwrap(),
+        )
+        .await
+        .unwrap();
+        let count_in_transaction: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
+            .fetch_one(&mut *transaction)
+            .await
+            .unwrap();
+
+        assert_eq!(count_in_transaction, 1);
+        transaction.rollback().await.unwrap();
+
+        let count_after_rollback: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(count_after_rollback, 0);
+    }
 
     async fn enqueue(database: &Database, max_attempts: u16) -> JobId {
         database

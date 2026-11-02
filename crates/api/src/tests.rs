@@ -1,7 +1,7 @@
 //! Helpers shared by the route tests: an application state over a test pool, a signed-in
 //! session, and a request runner that decodes the JSON body.
 
-use std::num::{NonZeroU32, NonZeroUsize};
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 
 use actix_web::{
     cookie::Cookie,
@@ -9,18 +9,50 @@ use actix_web::{
     http::StatusCode,
     test,
 };
+use pp_core::config::PhotoDir;
 use pp_database::{Database, auth::WorkspaceId};
+use pp_storage::PhotoStorage;
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use tempfile::TempDir;
 
 use crate::{
     api::ApiState,
-    config::{AuthConfig, LimiterConfig, SessionConfig},
+    config::{AuthConfig, LimiterConfig, SessionConfig, UploadConfig},
+    upload,
 };
 
 pub(crate) const ORIGIN: &str = "http://localhost:5173";
 
-pub(crate) fn app_state(pool: PgPool) -> ApiState {
+pub(crate) async fn upload_resources() -> (PhotoStorage, UploadConfig, TempDir) {
+    let directory = tempfile::tempdir().unwrap();
+    let photo_dir: PhotoDir = directory.path().to_path_buf().try_into().unwrap();
+    let storage = PhotoStorage::open(&photo_dir).await.unwrap();
+
+    upload::jpeg::install().unwrap();
+
+    (
+        storage,
+        UploadConfig {
+            max_size: NonZeroU64::new(67_108_864).unwrap(),
+            max_pixels: NonZeroU64::new(100_000_000).unwrap(),
+            concurrency: NonZeroUsize::new(4).unwrap(),
+        },
+        directory,
+    )
+}
+
+pub(crate) async fn app_state(pool: PgPool) -> (ApiState, TempDir) {
+    let (storage, upload_config, directory) = upload_resources().await;
+
+    (state_with_upload(pool, storage, upload_config), directory)
+}
+
+pub(crate) fn state_with_upload(
+    pool: PgPool,
+    storage: PhotoStorage,
+    upload_config: UploadConfig,
+) -> ApiState {
     let session = SessionConfig {
         idle_timeout: "1h".parse().unwrap(),
         cookie_name: "pp_session".parse().unwrap(),
@@ -34,7 +66,15 @@ pub(crate) fn app_state(pool: PgPool) -> ApiState {
         max_peers: NonZeroUsize::new(1024).unwrap(),
     };
 
-    ApiState::new(Database::new(pool), session, auth, limiter).unwrap()
+    ApiState::new(
+        Database::new(pool),
+        session,
+        auth,
+        limiter,
+        storage,
+        upload_config,
+    )
+    .unwrap()
 }
 
 pub(crate) async fn call<S>(app: &S, request: test::TestRequest) -> (StatusCode, Value)

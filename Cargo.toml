@@ -10,6 +10,7 @@ publish = false
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
 clap-config-fallback = { version = "0.1", features = ["derive"] }
+futures-util = "0.3"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
@@ -24,6 +25,8 @@ pp-core = { path = "crates/core" }
 pp-database = { path = "crates/database" }
 pp-storage = { path = "crates/storage" }
 sqlx = { version = "0.9", default-features = false }
+libvips = "2.3.0"
+uuid = { version = "1", features = ["v4"] }
 
 [workspace.lints.clippy]
 unwrap_used = "warn"

@@ -33,3 +33,9 @@ shutdown_grace = "30s"
 [photo]
 # Private photo files; the API and the worker must share this directory.
 dir = "./data/photos"
+
+[photo_upload]
+# Positive integer upload limits: bytes, pixels, and simultaneous requests.
+max_size = 67108864
+max_pixels = 100000000
+concurrency = 4

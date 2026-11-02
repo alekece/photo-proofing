@@ -12,16 +12,15 @@ use actix_web::{
 };
 use derive_more::From;
 use pp_core::url::Origin;
-use pp_database::{
-    Database, auth::AuthRepository, error::DatabaseError, gallery::GalleryRepository,
-};
+use pp_database::{Database, auth::AuthRepository, error::DatabaseError};
 use pp_storage::{PhotoStorage, StorageError};
 use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
     config::{
-        ApiConfig, AuthConfig, CookieDuration, CookieName, HttpConfig, LimiterConfig, SessionConfig,
+        ApiConfig, AuthConfig, CookieDuration, CookieName, HttpConfig, LimiterConfig,
+        SessionConfig, UploadConfig,
     },
     credentials::{HashError, PasswordHash},
     error::ErrorResponse,
@@ -29,6 +28,10 @@ use crate::{
     limiter::AttemptLimiter,
     middlewares::origin::SameOrigin,
     routes,
+    upload::{
+        jpeg::{self, InitializationError},
+        limiter::UploadLimiter,
+    },
 };
 
 /// Largest accepted JSON body: credentials and gallery changesets are a handful of short
@@ -49,6 +52,8 @@ pub enum ApiError {
     Database(#[source] DatabaseError),
     #[error("photo storage unavailable")]
     Storage(#[source] StorageError),
+    #[error("photo upload initialization failed")]
+    PhotoUpload(#[source] InitializationError),
     #[error("session idle timeout is out of range")]
     SessionLifetime(#[source] ConversionRange),
     #[error("password hashing unavailable")]
@@ -61,9 +66,11 @@ pub enum ApiError {
 ///
 /// Built once at startup from validated configuration, so request handlers never re-check
 /// configuration and cannot fail for configuration reasons. It holds the authentication
-/// policy, storage and abuse controls.
+/// policy, abuse controls, and bounded upload resources.
 pub(crate) struct ApiState {
     database: Database,
+    storage: PhotoStorage,
+    upload_config: UploadConfig,
     origin: Origin,
     idle_timeout: CookieDuration,
     cookie_name: CookieName,
@@ -80,9 +87,13 @@ impl ApiState {
         session: SessionConfig,
         auth: AuthConfig,
         limiter: LimiterConfig,
+        storage: PhotoStorage,
+        upload_config: UploadConfig,
     ) -> Result<Self, ApiError> {
         Ok(Self {
             database,
+            storage,
+            upload_config,
             origin: auth.app_origin,
             idle_timeout: session.idle_timeout,
             cookie_name: session.cookie_name,
@@ -95,12 +106,16 @@ impl ApiState {
         })
     }
 
-    pub fn store(&self) -> AuthRepository<'_> {
-        self.database.repository()
+    pub fn database(&self) -> &Database {
+        &self.database
     }
 
-    pub fn galleries(&self) -> GalleryRepository<'_> {
-        self.database.repository()
+    pub fn storage(&self) -> &PhotoStorage {
+        &self.storage
+    }
+
+    pub fn upload_config(&self) -> &UploadConfig {
+        &self.upload_config
     }
 
     /// True only for the exact configured origin; a missing header is not allowed.
@@ -141,7 +156,12 @@ impl ApiState {
     /// Best-effort removal of a small batch of expired sessions. They already fail
     /// authentication, so a failure here is logged and must never fail the caller's request.
     pub async fn delete_expired_sessions(&self, now: SystemTime) {
-        if let Err(error) = self.store().cleanup_expired(now, 100).await {
+        if let Err(error) = self
+            .database()
+            .repository::<AuthRepository>()
+            .cleanup_expired(now, 100)
+            .await
+        {
             tracing::warn!(%error, "expired session cleanup failed");
         }
     }
@@ -184,24 +204,34 @@ impl ApiState {
 pub struct Api {
     http: HttpConfig,
     state: Data<ApiState>,
+    upload_limiter: Data<UploadLimiter>,
 }
 
 impl Api {
     pub async fn init(config: ApiConfig) -> Result<Self, ApiError> {
-        // Only the startup check for now: the upload and serving routes will hold the handle
-        // in the state. A missing or read-only volume must stop startup, not the first upload.
-        PhotoStorage::open(&config.photo.dir).await?;
+        let storage = PhotoStorage::open(&config.photo.dir).await?;
+
+        jpeg::install()?;
 
         let database = Database::connect_lazy(&config.database.url, 10)?;
 
         database.ensure_reachable().await?;
         database.migrate().await?;
 
-        let state = ApiState::new(database, config.session, config.auth, config.limiter)?;
+        let upload_limiter = Data::new(UploadLimiter::new(config.photo_upload.concurrency));
+        let state = ApiState::new(
+            database,
+            config.session,
+            config.auth,
+            config.limiter,
+            storage,
+            config.photo_upload,
+        )?;
 
         Ok(Self {
             http: config.http,
             state: Data::new(state),
+            upload_limiter,
         })
     }
 
@@ -210,10 +240,12 @@ impl Api {
         tracing::info!(host = %self.http.host, port = self.http.port, "api starting");
 
         let state = self.state;
+        let upload_limiter = self.upload_limiter;
 
         HttpServer::new(move || {
             App::new()
                 .app_data(state.clone())
+                .app_data(upload_limiter.clone())
                 .configure(configure_routes)
         })
         .bind((self.http.host.as_str(), self.http.port))?

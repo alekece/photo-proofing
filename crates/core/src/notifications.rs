@@ -12,8 +12,11 @@
 use std::{collections::HashSet, time::SystemTime};
 
 use derive_more::{Display, From};
+use serde::{Deserialize, Serialize};
 use strum::{Display as StrumDisplay, EnumString};
 use uuid::Uuid;
+
+use crate::types::generate::Generate;
 
 mod service;
 mod store;
@@ -24,11 +27,27 @@ pub use store::{InMemoryStore, NotificationStore};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
 pub struct GalleryId(Uuid);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
 pub struct PhotoId(Uuid);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
 pub struct NotificationId(u64);
+
+impl Generate for PhotoId {
+    fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Generate for GalleryId {
+    fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, StrumDisplay, EnumString)]
 #[strum(serialize_all = "snake_case")]
