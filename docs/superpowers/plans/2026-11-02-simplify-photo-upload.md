@@ -47,11 +47,11 @@
 
 **Interfaces:** `StagedPhoto::commit` retains its signature and write-once-original guarantee, but cleans its new original after failed directory sync. Explicit cleanup failure is a typed `StorageError`. `StagedPhotoExt` retains only `inspect`.
 
-- [ ] Move pre-publication and post-publication regressions to direct storage calls; keep collision coverage. Add a cleanup-error contract test.
-- [ ] Run `cargo test -p pp-storage --locked`; confirm failed durability currently leaves an original.
-- [ ] Implement original-only recovery after the durability barrier fails; never remove a target on earlier failures or a derivative whose previous content was replaced. Report failed removal explicitly.
-- [ ] Remove API `commit_original` and use storage `commit` with the standard HTTP error mapping. Update storage API docs/examples.
-- [ ] Run storage and API upload regressions; commit the recovery-boundary change.
+- [x] Move pre-publication and post-publication regressions to direct storage calls; keep collision coverage. Add a cleanup-error contract test.
+- [x] Run `cargo test -p pp-storage --locked`; confirm failed durability currently leaves an original.
+- [x] Implement original-only recovery after the durability barrier fails; never remove a target on earlier failures or a derivative whose previous content was replaced. Report failed removal explicitly.
+- [x] Remove API `commit_original` and use storage `commit` with the standard HTTP error mapping. Update storage API docs/examples.
+- [x] Run storage and API upload regressions; commit the recovery-boundary change.
 
 ### Task 3: Express validation as one route step
 

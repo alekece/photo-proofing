@@ -118,7 +118,7 @@ async fn upload_photo(
         variant: Variant::Original,
     };
 
-    staged.commit_original(storage, &key).await?;
+    staged.commit(&key).await.map_err(upload::storage_failure)?;
 
     let new_photo = NewPhoto {
         id: photo_id,

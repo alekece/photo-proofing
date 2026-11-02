@@ -103,13 +103,6 @@ async fn stage_payload_with_idle_timeout(
 pub(crate) trait StagedPhotoExt {
     /// Reads JPEG metadata without decoding pixels and rejects dimensions above `max_pixels`.
     async fn inspect(&self, max_pixels: NonZeroU64) -> Result<PhotoDimensions, ErrorResponse>;
-
-    /// Publishes an original, cleaning up partial publication but never a colliding original.
-    async fn commit_original(
-        self,
-        storage: &PhotoStorage,
-        key: &PhotoKey,
-    ) -> Result<(), ErrorResponse>;
 }
 
 impl StagedPhotoExt for StagedPhoto {
@@ -160,24 +153,6 @@ impl StagedPhotoExt for StagedPhoto {
         )?;
 
         Ok(dimensions)
-    }
-
-    async fn commit_original(
-        self,
-        storage: &PhotoStorage,
-        key: &PhotoKey,
-    ) -> Result<(), ErrorResponse> {
-        match self.commit(key).await {
-            Ok(()) => Ok(()),
-            Err(error @ StorageError::Published(_)) => {
-                let response = storage_failure(error);
-
-                remove_original(storage, key).await?;
-
-                Err(response)
-            }
-            Err(error) => Err(storage_failure(error)),
-        }
     }
 }
 
@@ -286,7 +261,6 @@ mod tests {
     use std::{
         fs,
         num::{NonZeroU64, NonZeroUsize},
-        os::unix::fs::PermissionsExt,
         path::{Path, PathBuf},
         time::Duration,
     };
@@ -430,10 +404,7 @@ mod tests {
 
         duplicate.write(b"new upload").await.unwrap();
 
-        let error = duplicate
-            .commit_original(state.storage(), &key)
-            .await
-            .unwrap_err();
+        let error = storage_failure(duplicate.commit(&key).await.unwrap_err());
 
         assert_eq!(error.status_code(), StatusCode::SERVICE_UNAVAILABLE);
 
@@ -444,73 +415,6 @@ mod tests {
 
         assert_eq!(bytes, b"existing original");
         assert_eq!(stored_files(directory.path()).len(), 1);
-    }
-
-    #[tokio::test]
-    async fn failure_before_publication_preserves_an_existing_original() {
-        let directory = tempfile::tempdir().unwrap();
-        let state = upload_state(directory.path(), 1).await;
-        let key = photo_key();
-        let mut original = state.storage().stage().await.unwrap();
-
-        original.write(b"existing original").await.unwrap();
-        original.commit(&key).await.unwrap();
-
-        let mut duplicate = state.storage().stage().await.unwrap();
-
-        duplicate.write(b"new upload").await.unwrap();
-        duplicate.flush().await.unwrap();
-        fs::remove_file(duplicate.temporary_path()).unwrap();
-
-        let error = duplicate
-            .commit_original(state.storage(), &key)
-            .await
-            .unwrap_err();
-
-        assert_eq!(error.status_code(), StatusCode::SERVICE_UNAVAILABLE);
-
-        let mut stored = state.storage().read(&key).await.unwrap();
-        let mut bytes = Vec::new();
-
-        stored.read_to_end(&mut bytes).await.unwrap();
-
-        assert_eq!(bytes, b"existing original");
-        assert_eq!(stored_files(directory.path()).len(), 1);
-    }
-
-    #[tokio::test]
-    async fn failure_after_publication_removes_only_the_new_original() {
-        let directory = tempfile::tempdir().unwrap();
-        let state = upload_state(directory.path(), 1).await;
-        let key = photo_key();
-        let parent = directory
-            .path()
-            .join(key.workspace.0.to_string())
-            .join(key.gallery.0.to_string());
-        let mut staged = state.storage().stage().await.unwrap();
-
-        staged.write(b"new original").await.unwrap();
-        staged.flush().await.unwrap();
-        fs::create_dir_all(&parent).unwrap();
-        // Linking needs write/search permissions; opening the directory for fsync needs read.
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o300)).unwrap();
-
-        let enforced = File::open(&parent).await.is_err();
-        let result = staged.commit_original(state.storage(), &key).await;
-
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
-
-        if enforced {
-            assert_eq!(
-                result.unwrap_err().status_code(),
-                StatusCode::SERVICE_UNAVAILABLE
-            );
-            assert!(stored_files(directory.path()).is_empty());
-        } else {
-            // Permission bits do not bind root; publication must still succeed in that case.
-            result.unwrap();
-            assert_eq!(stored_files(directory.path()).len(), 1);
-        }
     }
 
     #[tokio::test]
@@ -570,7 +474,7 @@ mod tests {
 
         let key = photo_key();
 
-        staged.commit_original(state.storage(), &key).await.unwrap();
+        staged.commit(&key).await.unwrap();
 
         let mut stored = state.storage().read(&key).await.unwrap();
         let mut bytes = Vec::new();
