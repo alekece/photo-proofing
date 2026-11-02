@@ -44,7 +44,7 @@ pub struct UploadState {
 
 impl UploadState {
     pub fn install(storage: PhotoStorage, config: UploadConfig) -> Result<Self, PhotoUploadError> {
-        initialize_image_library()?;
+        Self::initialize_image_library()?;
 
         Ok(Self {
             storage,
@@ -52,6 +52,27 @@ impl UploadState {
             max_pixels: config.max_pixels,
             upload_slots: Arc::new(Semaphore::new(config.concurrency.get())),
         })
+    }
+
+    fn initialize_image_library() -> Result<(), PhotoUploadError> {
+        let app = VIPS_APP.get_or_init(|| Mutex::new(None));
+        let mut app = app
+            .lock()
+            .map_err(|_| PhotoUploadError::InitializationLock)?;
+
+        if app.is_none() {
+            let initialized = VipsApp::new("photo-proofing-api", false)
+                .map_err(|error| PhotoUploadError::ImageLibrary(format!("{error:?}")))?;
+
+            // Header inspection does not need a parallel pixel pipeline or cached operations.
+            initialized.concurrency_set(1);
+            initialized.cache_set_max(0);
+            initialized.cache_set_max_mem(0);
+            initialized.cache_set_max_files(0);
+            *app = Some(initialized);
+        }
+
+        Ok(())
     }
 
     pub fn storage(&self) -> &PhotoStorage {
@@ -289,27 +310,6 @@ impl UploadState {
             }
         }
     }
-}
-
-fn initialize_image_library() -> Result<(), PhotoUploadError> {
-    let app = VIPS_APP.get_or_init(|| Mutex::new(None));
-    let mut app = app
-        .lock()
-        .map_err(|_| PhotoUploadError::InitializationLock)?;
-
-    if app.is_none() {
-        let initialized = VipsApp::new("photo-proofing-api", false)
-            .map_err(|error| PhotoUploadError::ImageLibrary(format!("{error:?}")))?;
-
-        // Header inspection does not need a parallel pixel pipeline or cached operations.
-        initialized.concurrency_set(1);
-        initialized.cache_set_max(0);
-        initialized.cache_set_max_mem(0);
-        initialized.cache_set_max_files(0);
-        *app = Some(initialized);
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
