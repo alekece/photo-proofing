@@ -63,5 +63,9 @@
 - [x] Extract the existing header/stream/inspection sequence without changing errors or limits; route calls it after access checking, then storage and `PhotoIntake`.
 - [x] Mark the design current and completed plan steps in place; do not append refinement history.
 - [x] Run `cargo +nightly fmt --all --check`, `cargo test --workspace --locked` and `cargo clippy -p pp-api -p pp-database -p pp-storage --all-targets --locked -- -D warnings` with the existing PostgreSQL/libvips environment.
-- [ ] Obtain one fresh independent review against the approved design; address material findings and rerun affected checks.
-- [ ] Commit and push the existing PR branch. Retain the plan through PR review; do not merge.
+- [x] Obtain one fresh independent review against the approved design; address material findings and rerun affected checks.
+- [x] Commit and push the existing PR branch. Retain the plan through PR review; do not merge.
+
+Independent review found no Critical or Important issues. A pre-existing startup panic for
+concurrency values above Tokio's semaphore maximum is deferred; normal configured limits
+are unaffected.
