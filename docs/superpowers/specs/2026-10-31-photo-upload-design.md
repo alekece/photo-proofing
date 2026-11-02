@@ -141,7 +141,7 @@ behavior and storage schema otherwise remain unchanged.
   transaction; both have real call sites. Do not add a generic database-or-transaction executor
   abstraction for this flow.
 
-## Second PR review refinement (2026-11-02, proposed)
+## Second PR review refinement (2026-11-02, approved)
 
 This refinement addresses the next review of #132. It preserves the upload contract and database
 schema except for the explicitly accepted overload-response ordering below. It supersedes the
@@ -158,7 +158,7 @@ initializer, state-access, and staging ownership decisions in the first refineme
 3. **Keep the untyped permit and separate upload application data.** Retains current behavior,
    but does not address the requested slot abstraction and shared-state simplification.
 
-### Decisions and proposed implementation
+### Decisions and implementation
 
 - Keep the module named `upload` (maintainer decision): its responsibilities extend beyond image
   initialization.

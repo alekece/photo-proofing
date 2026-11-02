@@ -124,7 +124,7 @@ async fn upload_photo(
     let photo = match state
         .database()
         .repository::<PhotoIntake>()
-        .accept(new_photo)
+        .try_accept(new_photo)
         .await
     {
         Ok(Some(photo)) => photo,

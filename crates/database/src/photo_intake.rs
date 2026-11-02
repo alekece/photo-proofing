@@ -41,7 +41,7 @@ pub enum PhotoIntakeError {
 }
 
 impl PhotoIntakeError {
-    fn from_commit_error(error: sqlx::Error) -> Self {
+    fn from_commit(error: sqlx::Error) -> Self {
         let severity = match &error {
             sqlx::Error::Database(database_error) => database_error
                 .try_downcast_ref::<PgDatabaseError>()
@@ -49,7 +49,7 @@ impl PhotoIntakeError {
             _ => None,
         };
 
-        if commit_error_outcome_is_unknown(severity) {
+        if severity.is_none_or(PgSeverity::commit_outcome_is_unknown) {
             Self::CommitOutcomeUnknown {
                 commit_error: error.into(),
                 reconciliation_error: None,
@@ -77,9 +77,15 @@ impl PhotoIntakeError {
     }
 }
 
-fn commit_error_outcome_is_unknown(severity: Option<PgSeverity>) -> bool {
-    // PostgreSQL may panic after writing the commit record, and an unavailable severity is ambiguous.
-    matches!(severity, None | Some(PgSeverity::Panic | PgSeverity::Fatal))
+trait PgSeverityExt {
+    fn commit_outcome_is_unknown(self) -> bool;
+}
+
+impl PgSeverityExt for PgSeverity {
+    fn commit_outcome_is_unknown(self) -> bool {
+        // PostgreSQL can fail fatally after writing the durable commit record.
+        matches!(self, Self::Panic | Self::Fatal)
+    }
 }
 
 impl From<sqlx::Error> for PhotoIntakeError {
@@ -105,29 +111,27 @@ impl PhotoIntake<'_> {
     /// Stores photo metadata and its processing job atomically.
     ///
     /// Returns `None` when the gallery is missing or not owned by the photo's workspace.
-    pub async fn accept(&self, photo: NewPhoto) -> Result<Option<Photo>, PhotoIntakeError> {
-        match self.accept_in_transaction(&photo).await {
+    /// Retries once after an uncertain commit; unresolved outcomes require preserving the original.
+    ///
+    /// ```
+    /// # async fn example(database: &pp_database::Database, photo: pp_database::photo::NewPhoto)
+    /// # -> Result<(), pp_database::photo_intake::PhotoIntakeError> {
+    /// use pp_database::photo_intake::PhotoIntake;
+    ///
+    /// let accepted = database.repository::<PhotoIntake>().try_accept(photo).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn try_accept(&self, photo: NewPhoto) -> Result<Option<Photo>, PhotoIntakeError> {
+        match self.accept(&photo).await {
             Err(PhotoIntakeError::CommitOutcomeUnknown { commit_error, .. }) => {
-                PhotoIntakeError::resolve_reconciliation(
-                    commit_error,
-                    self.reconcile_commit_outcome(&photo).await,
-                )
+                PhotoIntakeError::resolve_reconciliation(commit_error, self.accept(&photo).await)
             }
             result => result,
         }
     }
 
-    async fn reconcile_commit_outcome(
-        &self,
-        photo: &NewPhoto,
-    ) -> Result<Option<Photo>, PhotoIntakeError> {
-        self.accept_in_transaction(photo).await
-    }
-
-    async fn accept_in_transaction(
-        &self,
-        photo: &NewPhoto,
-    ) -> Result<Option<Photo>, PhotoIntakeError> {
+    async fn accept(&self, photo: &NewPhoto) -> Result<Option<Photo>, PhotoIntakeError> {
         let mut transaction = self.pool.begin().await?;
         let outcome = PhotoRepository::open(self.pool, ())
             .insert_in(&mut transaction, photo)
@@ -148,8 +152,9 @@ impl PhotoIntake<'_> {
                 let payload = JobPayload::ProcessPhoto(serde_json::json!({"photo_id": photo.id}));
 
                 JobRepository::enqueue_in(&mut transaction, payload, DEFAULT_MAX_ATTEMPTS).await?;
+
                 if let Err(error) = transaction.commit().await {
-                    return Err(PhotoIntakeError::from_commit_error(error));
+                    return Err(PhotoIntakeError::from_commit(error));
                 }
 
                 Ok(Some(inserted))
@@ -257,7 +262,7 @@ mod tests {
 
         let photo = database
             .repository::<PhotoIntake>()
-            .accept(new_photo(workspace_id, gallery.id, photo_id, "proof.jpg"))
+            .try_accept(new_photo(workspace_id, gallery.id, photo_id, "proof.jpg"))
             .await
             .unwrap()
             .unwrap();
@@ -289,7 +294,7 @@ mod tests {
 
         assert!(
             intake
-                .accept(new_photo(
+                .try_accept(new_photo(
                     owner,
                     GalleryId(Uuid::new_v4()),
                     PhotoId::from(Uuid::new_v4()),
@@ -301,7 +306,7 @@ mod tests {
         );
         assert!(
             intake
-                .accept(new_photo(
+                .try_accept(new_photo(
                     other,
                     gallery.id,
                     PhotoId::from(Uuid::new_v4()),
@@ -351,7 +356,7 @@ mod tests {
 
         let result = database
             .repository::<PhotoIntake>()
-            .accept(new_photo(
+            .try_accept(new_photo(
                 workspace_id,
                 gallery.id,
                 PhotoId::from(Uuid::new_v4()),
@@ -389,19 +394,17 @@ mod tests {
             PhotoId::from(Uuid::new_v4()),
             "proof.jpg",
         );
-        let accepted = intake.accept(photo.clone()).await.unwrap().unwrap();
-        let commit_error = match PhotoIntakeError::from_commit_error(sqlx::Error::Io(
+        let accepted = intake.try_accept(photo.clone()).await.unwrap().unwrap();
+        let commit_error = match PhotoIntakeError::from_commit(sqlx::Error::Io(
             std::io::Error::from(std::io::ErrorKind::ConnectionReset),
         )) {
             PhotoIntakeError::CommitOutcomeUnknown { commit_error, .. } => commit_error,
             PhotoIntakeError::Database(error) => panic!("expected an unknown commit: {error}"),
         };
-        let resolved = PhotoIntakeError::resolve_reconciliation(
-            commit_error,
-            intake.reconcile_commit_outcome(&photo).await,
-        )
-        .unwrap()
-        .unwrap();
+        let resolved =
+            PhotoIntakeError::resolve_reconciliation(commit_error, intake.accept(&photo).await)
+                .unwrap()
+                .unwrap();
         let job_count: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
             .fetch_one(&pool)
             .await
@@ -423,11 +426,11 @@ mod tests {
         let intake = database.repository::<PhotoIntake>();
         let id = PhotoId::from(Uuid::new_v4());
         let photo = new_photo(workspace_id, gallery.id, id, "proof.jpg");
-        intake.accept(photo.clone()).await.unwrap().unwrap();
+        intake.try_accept(photo.clone()).await.unwrap().unwrap();
         let mut conflicting_photo = photo;
         conflicting_photo.original_name = "different.jpg".to_owned();
 
-        let result = intake.accept(conflicting_photo).await;
+        let result = intake.try_accept(conflicting_photo).await;
 
         assert!(matches!(result, Err(PhotoIntakeError::Database(_))));
         let job_count: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
@@ -440,7 +443,7 @@ mod tests {
 
     #[test]
     fn connection_failure_during_commit_has_an_unknown_outcome() {
-        let error = PhotoIntakeError::from_commit_error(sqlx::Error::Io(std::io::Error::from(
+        let error = PhotoIntakeError::from_commit(sqlx::Error::Io(std::io::Error::from(
             std::io::ErrorKind::ConnectionReset,
         )));
 
@@ -452,10 +455,9 @@ mod tests {
 
     #[test]
     fn fatal_and_panic_server_errors_during_commit_have_an_unknown_outcome() {
-        assert!(commit_error_outcome_is_unknown(None));
-        assert!(commit_error_outcome_is_unknown(Some(PgSeverity::Fatal)));
-        assert!(commit_error_outcome_is_unknown(Some(PgSeverity::Panic)));
-        assert!(!commit_error_outcome_is_unknown(Some(PgSeverity::Error)));
+        assert!(PgSeverity::Fatal.commit_outcome_is_unknown());
+        assert!(PgSeverity::Panic.commit_outcome_is_unknown());
+        assert!(!PgSeverity::Error.commit_outcome_is_unknown());
     }
 
     #[test]

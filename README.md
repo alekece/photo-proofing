@@ -103,6 +103,8 @@ cargo run -p pp-api -- --config config.toml
 
 API settings include `PP_HOST`, `PP_PORT`, `PP_LOG_LEVEL`, `PP_DATABASE_URL`, `PP_APP_ORIGIN`, `PP_SESSION_IDLE_TIMEOUT`, `PP_SESSION_COOKIE_NAME` (default `pp_session`), upload bounds `PP_PHOTO_UPLOAD_MAX_SIZE` (64 MiB), `PP_PHOTO_UPLOAD_MAX_PIXELS` (100,000,000) and `PP_PHOTO_UPLOAD_CONCURRENCY` (4), and the sign-in limiter settings `PP_LIMITER_MAX_FAILURES` (default 10), `PP_LIMITER_WINDOW` (default `1m`) and `PP_LIMITER_MAX_PEERS` (default 1024); worker queue settings are `PP_QUEUE_POLL_INTERVAL` (default `5s`), `PP_QUEUE_LEASE` (`60s`), `PP_QUEUE_CONCURRENCY` (2), `PP_QUEUE_BACKOFF_BASE` (`10s`), `PP_QUEUE_BACKOFF_CAP` (`5m`) and `PP_QUEUE_SHUTDOWN_GRACE` (`30s`), and the worker needs `PP_DATABASE_URL` too; both Rust processes accept `PP_CONFIG` and logging configuration. Use `--help` for process-specific flags. Frontend development proxy target: `PP_API_PROXY_TARGET` (default `http://127.0.0.1:8080`). Server-side auth checks use `PP_API_INTERNAL_URL` with the same native default; Compose sets it to `http://api:8080`. These frontend settings use its Node runtime, not the Rust TOML file.
 
+Upload admission is shared across API workers and reserved during request extraction. When all slots are occupied, an upload returns `503` without waiting, potentially before gallery or header validation. Authorization still precedes body consumption. A slot remains reserved through persistence and cleanup, and is released on completion, rejection, or cancellation.
+
 Uploads also have a fixed 30-second idle timeout between body chunks; an idle upload receives HTTP 408 and its staged file is discarded.
 
 Session configuration uses human-readable durations through the existing configuration parser:

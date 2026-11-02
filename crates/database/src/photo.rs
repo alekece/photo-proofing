@@ -8,7 +8,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 
 use pp_core::{notifications::PhotoId, types::timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow};
+use sqlx::{FromRow, PgPool, Postgres, Row, Transaction, postgres::PgRow};
 
 use crate::{Repository, auth::WorkspaceId, error::DatabaseError, gallery::GalleryId};
 
@@ -21,15 +21,6 @@ pub enum PhotoStatus {
     Ready,
     /// Processing failed, with the reason reported by the worker.
     Failed(String),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Type)]
-#[sqlx(type_name = "photo_status", rename_all = "snake_case")]
-enum DatabasePhotoStatus {
-    Waiting,
-    Processing,
-    Ready,
-    Failed,
 }
 
 /// Header dimensions, both guaranteed to be non-zero.
@@ -66,13 +57,13 @@ impl FromRow<'_, PgRow> for Photo {
             .and_then(NonZeroU32::new)
             .ok_or_else(|| sqlx::Error::Decode("photo height must be positive".into()))?;
 
-        let database_status: DatabasePhotoStatus = row.try_get("status")?;
+        let database_status: String = row.try_get("status")?;
         let failure_reason: Option<String> = row.try_get("failure_reason")?;
-        let status = match (database_status, failure_reason) {
-            (DatabasePhotoStatus::Waiting, None) => PhotoStatus::Waiting,
-            (DatabasePhotoStatus::Processing, None) => PhotoStatus::Processing,
-            (DatabasePhotoStatus::Ready, None) => PhotoStatus::Ready,
-            (DatabasePhotoStatus::Failed, Some(reason)) => PhotoStatus::Failed(reason),
+        let status = match (database_status.as_str(), failure_reason) {
+            ("waiting", None) => PhotoStatus::Waiting,
+            ("processing", None) => PhotoStatus::Processing,
+            ("ready", None) => PhotoStatus::Ready,
+            ("failed", Some(reason)) => PhotoStatus::Failed(reason),
             _ => {
                 return Err(sqlx::Error::Decode(
                     "photo status and failure reason are inconsistent".into(),
@@ -160,7 +151,8 @@ impl PhotoRepository<'_> {
              FROM galleries AS g
              WHERE g.id = $3 AND g.workspace_id = $2
              ON CONFLICT (id) DO NOTHING
-             RETURNING id, original_name, size, width, height, status, failure_reason, created_at",
+             RETURNING id, original_name, size, width, height,
+                       status::text AS status, failure_reason, created_at",
         )
         .bind(photo.id)
         .bind(photo.workspace_id)
@@ -171,13 +163,14 @@ impl PhotoRepository<'_> {
         .bind(height)
         .fetch_optional(&mut **transaction)
         .await?;
+
         if let Some(inserted) = inserted {
             return Ok(PhotoInsertOutcome::Inserted(inserted));
         }
 
         let existing = sqlx::query(
             "SELECT id, workspace_id, gallery_id, original_name, size, width, height,
-                    status, failure_reason, created_at
+                    status::text AS status, failure_reason, created_at
              FROM photos WHERE id = $1",
         )
         .bind(photo.id)
@@ -192,6 +185,7 @@ impl PhotoRepository<'_> {
             && existing.original_name == photo.original_name
             && existing.size == photo.size
             && existing.dimensions == photo.dimensions;
+
         if !identical {
             return Err(DatabaseError::Other(
                 "photo id collision with different metadata".to_owned(),
@@ -208,7 +202,8 @@ impl PhotoRepository<'_> {
         gallery_id: GalleryId,
     ) -> Result<Vec<Photo>, DatabaseError> {
         Ok(sqlx::query_as(
-            "SELECT id, original_name, size, width, height, status, failure_reason, created_at
+            "SELECT id, original_name, size, width, height,
+                    status::text AS status, failure_reason, created_at
              FROM photos WHERE workspace_id = $1 AND gallery_id = $2
              ORDER BY created_at, id",
         )
@@ -267,6 +262,65 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
+    async fn decoding_text_status_preserves_valid_states_and_rejects_inconsistent_rows(
+        pool: PgPool,
+    ) {
+        for (status, reason, expected) in [
+            ("waiting", None, Some(PhotoStatus::Waiting)),
+            ("processing", None, Some(PhotoStatus::Processing)),
+            ("ready", None, Some(PhotoStatus::Ready)),
+            (
+                "failed",
+                Some("decode failed"),
+                Some(PhotoStatus::Failed("decode failed".to_owned())),
+            ),
+            ("failed", None, None),
+            ("waiting", Some("unexpected"), None),
+            ("processing", Some("unexpected"), None),
+            ("ready", Some("unexpected"), None),
+            ("unknown", None, None),
+            ("unknown", Some("unexpected"), None),
+        ] {
+            let row = sqlx::query(
+                "SELECT $1::uuid AS id, 'proof.jpg'::text AS original_name,
+                 1024::bigint AS size, 20::integer AS width, 10::integer AS height,
+                 $2::text AS status, $3::text AS failure_reason, now() AS created_at",
+            )
+            .bind(Uuid::new_v4())
+            .bind(status)
+            .bind(reason)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let decoded = Photo::from_row(&row);
+
+            match expected {
+                Some(expected) => assert_eq!(decoded.unwrap().status, expected),
+                None => assert!(matches!(decoded, Err(sqlx::Error::Decode(_)))),
+            }
+        }
+    }
+
+    #[test]
+    fn status_serialization_keeps_the_external_tag() {
+        for (status, expected) in [
+            (PhotoStatus::Waiting, serde_json::json!("waiting")),
+            (PhotoStatus::Processing, serde_json::json!("processing")),
+            (PhotoStatus::Ready, serde_json::json!("ready")),
+            (
+                PhotoStatus::Failed("decode failed".to_owned()),
+                serde_json::json!({"failed": "decode failed"}),
+            ),
+        ] {
+            assert_eq!(serde_json::to_value(&status).unwrap(), expected);
+            assert_eq!(
+                serde_json::from_value::<PhotoStatus>(expected).unwrap(),
+                status
+            );
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
     async fn listing_is_creation_ordered_and_keeps_duplicate_names_distinct(pool: PgPool) {
         let database = Database::new(pool.clone());
         let workspace_id = workspace(&pool).await;
@@ -287,7 +341,7 @@ mod tests {
         ] {
             let id = PhotoId::from(Uuid::new_v4());
             intake
-                .accept(new_photo(workspace_id, gallery.id, id, original_name))
+                .try_accept(new_photo(workspace_id, gallery.id, id, original_name))
                 .await
                 .unwrap()
                 .unwrap();
@@ -343,7 +397,7 @@ mod tests {
 
         database
             .repository::<PhotoIntake>()
-            .accept(new_photo(workspace_id, gallery.id, photo_id, "proof.jpg"))
+            .try_accept(new_photo(workspace_id, gallery.id, photo_id, "proof.jpg"))
             .await
             .unwrap()
             .unwrap();
@@ -379,7 +433,7 @@ mod tests {
         assert!(photos.list(other, gallery.id).await.unwrap().is_empty());
         assert!(
             intake
-                .accept(new_photo(
+                .try_accept(new_photo(
                     other,
                     gallery.id,
                     PhotoId::from(Uuid::new_v4()),
