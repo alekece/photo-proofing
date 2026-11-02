@@ -36,6 +36,20 @@ pub enum StorageError {
     NotFound,
     #[error("photo is already stored")]
     AlreadyExists,
+    /// Publication changed the target, but directory durability could not be confirmed.
+    ///
+    /// This is the only commit failure that permits cleanup of a newly published original.
+    /// Other commit failures must not remove a target that might predate the attempt.
+    ///
+    /// ```
+    /// use pp_storage::StorageError;
+    ///
+    /// fn may_remove_new_original(error: &StorageError) -> bool {
+    ///     matches!(error, StorageError::Published(_))
+    /// }
+    /// ```
+    #[error("photo was published but directory sync failed")]
+    Published(#[source] io::Error),
     #[error("photo storage I/O failed")]
     Io(#[source] io::Error),
 }
@@ -175,6 +189,9 @@ impl StagedPhoto {
     /// An `Original` is written once: if one exists, nothing is replaced and
     /// [`StorageError::AlreadyExists`] is returned. Any other variant replaces its previous
     /// file, as a retried processing job regenerates it.
+    ///
+    /// [`StorageError::Published`] means publication succeeded but its durability barrier
+    /// failed. Every other error occurs before this attempt changes the target.
     pub async fn commit(mut self, key: &PhotoKey) -> Result<(), StorageError> {
         self.file.flush().await?;
         self.file.sync_all().await?;
@@ -190,7 +207,12 @@ impl StagedPhoto {
         }
 
         // Persist the directory entry so a crash cannot lose a photo that was reported stored.
-        File::open(key.dir(&self.root)).await?.sync_all().await?;
+        File::open(key.dir(&self.root))
+            .await
+            .map_err(StorageError::Published)?
+            .sync_all()
+            .await
+            .map_err(StorageError::Published)?;
 
         // `Drop` then unlinks the staged name that a hard-linked original leaves behind.
         Ok(())

@@ -242,3 +242,13 @@ cancellation, timeout, collision, cleanup, status and transaction regressions. A
 extension-method and error-conversion coverage where existing tests do not exercise the new
 boundaries. Run formatting, relevant Clippy and workspace tests, then obtain one independent
 review and reply to the eight new threads with `[agent]`. Preserve the worktree and do not merge.
+
+### Publication-safety correction (approved after independent review)
+
+The "storage untouched" constraint above is superseded for one narrow correction. A failed
+commit previously removed the target on any error except `AlreadyExists`, including errors
+before publication that could leave an older original untouched. Cleanup must not delete that
+older original. Storage now distinguishes `StorageError::Published`: the new target was created,
+but opening/syncing its directory failed. Only that error permits publication-failure cleanup;
+other errors preserve any existing target. PostgreSQL commit reconciliation is unchanged.
+Regression coverage checks both pre-publication target preservation and post-publication cleanup.
