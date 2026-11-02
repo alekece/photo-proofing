@@ -1,6 +1,9 @@
 //! Coordinates photo metadata insertion and job enqueueing as one transaction.
 
-use sqlx::PgPool;
+use sqlx::{
+    PgPool,
+    postgres::{PgDatabaseError, PgSeverity},
+};
 use thiserror::Error;
 
 use crate::{
@@ -39,12 +42,20 @@ pub enum PhotoIntakeError {
 
 impl PhotoIntakeError {
     fn from_commit_error(error: sqlx::Error) -> Self {
-        match error {
-            error @ sqlx::Error::Database(_) => Self::Database(error.into()),
-            error => Self::CommitOutcomeUnknown {
+        let severity = match &error {
+            sqlx::Error::Database(database_error) => database_error
+                .try_downcast_ref::<PgDatabaseError>()
+                .map(PgDatabaseError::severity),
+            _ => None,
+        };
+
+        if commit_error_outcome_is_unknown(severity) {
+            Self::CommitOutcomeUnknown {
                 commit_error: error.into(),
                 reconciliation_error: None,
-            },
+            }
+        } else {
+            Self::Database(error.into())
         }
     }
 
@@ -64,6 +75,11 @@ impl PhotoIntakeError {
             }),
         }
     }
+}
+
+fn commit_error_outcome_is_unknown(severity: Option<PgSeverity>) -> bool {
+    // PostgreSQL may panic after writing the commit record, and an unavailable severity is ambiguous.
+    matches!(severity, None | Some(PgSeverity::Panic | PgSeverity::Fatal))
 }
 
 impl From<sqlx::Error> for PhotoIntakeError {
@@ -432,6 +448,14 @@ mod tests {
             error,
             PhotoIntakeError::CommitOutcomeUnknown { .. }
         ));
+    }
+
+    #[test]
+    fn fatal_and_panic_server_errors_during_commit_have_an_unknown_outcome() {
+        assert!(commit_error_outcome_is_unknown(None));
+        assert!(commit_error_outcome_is_unknown(Some(PgSeverity::Fatal)));
+        assert!(commit_error_outcome_is_unknown(Some(PgSeverity::Panic)));
+        assert!(!commit_error_outcome_is_unknown(Some(PgSeverity::Error)));
     }
 
     #[test]
