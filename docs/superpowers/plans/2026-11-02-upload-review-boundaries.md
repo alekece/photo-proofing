@@ -68,7 +68,12 @@ dimensions. `From<StorageError> for ErrorResponse` logs/sanitizes failures.
 **Files:** Changed production/tests/design plus `AGENTS.md`.
 
 - [x] Update existing design in place and document the user-directed post-review refactor step in repository guidance.
-- [ ] Run nightly fmt check, workspace tests and API/database/storage Clippy with warnings denied.
-- [ ] Obtain one fresh independent review of correctness, boundaries and repository-guidance compliance; address material findings.
-- [ ] Perform a distinct inline refactor pass after that review: inspect naming, responsibility boundaries, redundant wrappers, visibility, imports/spacing and tests. Make only evident behavior-preserving improvements within approved scope; record what changed or why none was needed.
+- [x] Run nightly fmt check, workspace tests and API/database/storage Clippy with warnings denied.
+- [x] Obtain one fresh independent review of correctness, boundaries and repository-guidance compliance; address material findings.
+- [x] Perform a distinct inline refactor pass after that review: inspect naming, responsibility boundaries, redundant wrappers, visibility, imports/spacing and tests. Make only evident behavior-preserving improvements within approved scope; record what changed or why none was needed.
 - [ ] Re-run affected checks after refactoring, commit, push #132, reply `[agent]` in each new review thread; leave threads open pending maintainer review. Never merge.
+
+Fresh review found no new issues. The subsequent refactor removed unrelated API/database
+state from upload unit fixtures, removed duplicate tests covered at their owning boundaries,
+clarified test names and field visibility, and grouped related ID declarations.
+Existing documented JPEG/worker/orphan-recovery and extreme-concurrency limits remain unchanged.

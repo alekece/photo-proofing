@@ -34,6 +34,9 @@ pub struct GalleryId(Uuid);
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
 pub struct PhotoId(Uuid);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
+pub struct NotificationId(u64);
+
 impl Generate for PhotoId {
     fn generate() -> Self {
         Self(Uuid::new_v4())
@@ -45,9 +48,6 @@ impl Generate for GalleryId {
         Self(Uuid::new_v4())
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
-pub struct NotificationId(u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, StrumDisplay, EnumString)]
 #[strum(serialize_all = "snake_case")]

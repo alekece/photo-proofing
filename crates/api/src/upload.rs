@@ -25,10 +25,10 @@ const UPLOAD_BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 /// A received and inspected upload; nothing is published until storage commits its staged bytes.
 #[must_use = "a photo upload is discarded unless stored"]
 pub(crate) struct PhotoUpload {
-    pub staged: StagedPhoto,
-    pub original_name: String,
-    pub size: NonZeroU64,
-    pub dimensions: PhotoDimensions,
+    pub(crate) staged: StagedPhoto,
+    pub(crate) original_name: String,
+    pub(crate) size: NonZeroU64,
+    pub(crate) dimensions: PhotoDimensions,
 }
 
 impl PhotoUpload {
@@ -161,18 +161,11 @@ mod tests {
     use actix_web::{FromRequest, ResponseError, http::StatusCode, web::Data};
     use libvips::ops::{black, jpegsave_buffer};
     use pp_core::config::PhotoDir;
-    use pp_core::notifications::PhotoId;
-    use pp_database::{auth::WorkspaceId, gallery::GalleryId};
-    use pp_storage::{PhotoKey, PhotoStorage, Variant};
-    use sqlx::postgres::PgPoolOptions;
-    use tokio::io::AsyncReadExt;
-    use uuid::Uuid;
+    use pp_storage::PhotoStorage;
 
     use super::*;
     use crate::{
-        api::ApiState,
         config::UploadConfig,
-        tests::state_with_upload,
         upload::limiter::{UploadLimiter, UploadSlot},
     };
 
@@ -195,40 +188,26 @@ mod tests {
         files
     }
 
-    async fn upload_state(directory: &Path, concurrency: usize) -> ApiState {
+    async fn upload_resources(directory: &Path) -> (PhotoStorage, UploadConfig) {
         let photo_dir: PhotoDir = directory.to_path_buf().try_into().unwrap();
         let storage = PhotoStorage::open(&photo_dir).await.unwrap();
 
         jpeg::install().unwrap();
 
-        let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://localhost/unused")
-            .unwrap();
-
-        state_with_upload(
-            pool,
+        (
             storage,
             UploadConfig {
                 max_size: NonZeroU64::new(1024).unwrap(),
                 max_pixels: NonZeroU64::new(2048).unwrap(),
-                concurrency: NonZeroUsize::new(concurrency).unwrap(),
+                concurrency: NonZeroUsize::new(1).unwrap(),
             },
         )
     }
 
-    fn photo_key() -> PhotoKey {
-        PhotoKey {
-            workspace: WorkspaceId(Uuid::from_u128(1)),
-            gallery: GalleryId(Uuid::from_u128(2)),
-            photo: PhotoId::from(Uuid::from_u128(3)),
-            variant: Variant::Original,
-        }
-    }
-
     #[tokio::test]
-    async fn validation_rejects_headers_before_staging_or_reading_the_body() {
+    async fn photo_upload_rejects_headers_before_staging_or_reading_the_body() {
         let directory = tempfile::tempdir().unwrap();
-        let state = upload_state(directory.path(), 1).await;
+        let (storage, options) = upload_resources(directory.path()).await;
 
         fs::remove_dir(directory.path().join(".tmp")).unwrap();
 
@@ -249,13 +228,7 @@ mod tests {
                 },
             );
             let body: actix_http::BoxedPayloadStream = Box::pin(body);
-            let result = PhotoUpload::from_request(
-                &request,
-                body.into(),
-                state.storage(),
-                state.upload_config(),
-            )
-            .await;
+            let result = PhotoUpload::from_request(&request, body.into(), &storage, &options).await;
 
             assert_eq!(result.err().unwrap().status_code(), status);
             assert!(stored_files(directory.path()).is_empty());
@@ -263,9 +236,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn validation_returns_metadata_and_unchanged_staged_bytes() {
+    async fn photo_upload_returns_metadata_and_unchanged_staged_bytes() {
         let directory = tempfile::tempdir().unwrap();
-        let state = upload_state(directory.path(), 1).await;
+        let (storage, options) = upload_resources(directory.path()).await;
         let jpeg = jpegsave_buffer(&black(20, 10).unwrap()).unwrap();
         let request = actix_web::test::TestRequest::post()
             .insert_header(("Content-Type", "image/jpeg"))
@@ -275,14 +248,9 @@ mod tests {
         sender.feed_data(actix_web::web::Bytes::from(jpeg.clone()));
         sender.feed_eof();
 
-        let photo_upload = PhotoUpload::from_request(
-            &request,
-            body.into(),
-            state.storage(),
-            state.upload_config(),
-        )
-        .await
-        .unwrap();
+        let photo_upload = PhotoUpload::from_request(&request, body.into(), &storage, &options)
+            .await
+            .unwrap();
 
         assert_eq!(photo_upload.size.get(), u64::try_from(jpeg.len()).unwrap());
         assert_eq!(photo_upload.dimensions.width.get(), 20);
@@ -299,16 +267,16 @@ mod tests {
     #[tokio::test]
     async fn interrupted_body_discards_staged_file() {
         let directory = tempfile::tempdir().unwrap();
-        let state = upload_state(directory.path(), 1).await;
+        let (storage, options) = upload_resources(directory.path()).await;
         let (mut sender, body) = actix_http::h1::Payload::create(false);
 
         sender.feed_data(actix_web::web::Bytes::from_static(b"partial jpeg"));
         sender.set_error(actix_http::error::PayloadError::Incomplete(None));
 
         let result = stage_payload(
-            state.storage(),
+            &storage,
             body.into(),
-            state.upload_config().max_size,
+            options.max_size,
             UPLOAD_BODY_IDLE_TIMEOUT,
         )
         .await;
@@ -320,7 +288,7 @@ mod tests {
     #[tokio::test]
     async fn idle_body_timeout_discards_stage_and_releases_upload_slot() {
         let directory = tempfile::tempdir().unwrap();
-        let state = upload_state(directory.path(), 1).await;
+        let (storage, options) = upload_resources(directory.path()).await;
         let request = actix_web::test::TestRequest::default()
             .app_data(Data::new(UploadLimiter::new(NonZeroUsize::new(1).unwrap())))
             .to_http_request();
@@ -329,9 +297,9 @@ mod tests {
 
         let result = {
             let result = stage_payload(
-                state.storage(),
+                &storage,
                 body.into(),
-                state.upload_config().max_size,
+                options.max_size,
                 Duration::from_millis(10),
             )
             .await;
@@ -345,77 +313,5 @@ mod tests {
         assert_eq!(error.status_code(), StatusCode::REQUEST_TIMEOUT);
         assert!(stored_files(directory.path()).is_empty());
         assert!(UploadSlot::extract(&request).await.is_ok());
-    }
-
-    #[tokio::test]
-    async fn full_storage_maps_to_service_unavailable() {
-        let response = ErrorResponse::from(pp_storage::StorageError::DiskFull(
-            std::io::Error::from(std::io::ErrorKind::StorageFull),
-        ))
-        .error_response();
-
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    }
-
-    #[tokio::test]
-    async fn publish_collision_does_not_remove_the_existing_original() {
-        let directory = tempfile::tempdir().unwrap();
-        let state = upload_state(directory.path(), 1).await;
-        let key = photo_key();
-        let mut original = state.storage().stage().await.unwrap();
-
-        original.write(b"existing original").await.unwrap();
-        original.commit(&key).await.unwrap();
-
-        let mut duplicate = state.storage().stage().await.unwrap();
-
-        duplicate.write(b"new upload").await.unwrap();
-
-        let error = ErrorResponse::from(duplicate.commit(&key).await.unwrap_err());
-
-        assert_eq!(error.status_code(), StatusCode::SERVICE_UNAVAILABLE);
-
-        let mut stored = state.storage().read(&key).await.unwrap();
-        let mut bytes = Vec::new();
-
-        stored.read_to_end(&mut bytes).await.unwrap();
-
-        assert_eq!(bytes, b"existing original");
-        assert_eq!(stored_files(directory.path()).len(), 1);
-    }
-
-    #[tokio::test]
-    async fn staged_photo_inspects_and_publishes_unchanged_original() {
-        let directory = tempfile::tempdir().unwrap();
-        let state = upload_state(directory.path(), 1).await;
-        let jpeg = jpegsave_buffer(&black(20, 10).unwrap()).unwrap();
-        let mut staged = state.storage().stage().await.unwrap();
-
-        staged.write(&jpeg).await.unwrap();
-        staged.flush().await.unwrap();
-
-        let dimensions = jpeg::inspect(staged.temporary_path(), state.upload_config().max_pixels)
-            .await
-            .unwrap();
-
-        assert_eq!(dimensions.width.get(), 20);
-        assert_eq!(dimensions.height.get(), 10);
-        assert!(
-            jpeg::inspect(staged.temporary_path(), NonZeroU64::new(199).unwrap())
-                .await
-                .is_err()
-        );
-
-        let key = photo_key();
-
-        staged.commit(&key).await.unwrap();
-
-        let mut stored = state.storage().read(&key).await.unwrap();
-        let mut bytes = Vec::new();
-
-        stored.read_to_end(&mut bytes).await.unwrap();
-
-        assert_eq!(bytes, jpeg);
-        assert_eq!(stored_files(directory.path()).len(), 1);
     }
 }
