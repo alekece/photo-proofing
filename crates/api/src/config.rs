@@ -31,65 +31,6 @@ pub type CookieDuration = BoundedDuration<1, MAX_COOKIE_SECS>;
 /// How long failed sign-ins are remembered per peer.
 pub type LimiterWindow = BoundedDuration<1, MAX_LIMITER_WINDOW_SECS>;
 
-/// An upper bound on one accepted upload's original size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize)]
-#[display("{_0}")]
-#[serde(transparent)]
-pub struct UploadSize(NonZeroU64);
-
-impl UploadSize {
-    pub const fn new(bytes: NonZeroU64) -> Self {
-        Self(bytes)
-    }
-
-    pub const fn bytes(self) -> NonZeroU64 {
-        self.0
-    }
-}
-
-impl FromStr for UploadSize {
-    type Err = ParseUploadLimitError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        value
-            .parse::<NonZeroU64>()
-            .map(Self::new)
-            .map_err(|_| ParseUploadLimitError)
-    }
-}
-
-/// An upper bound on the number of decoded pixels in one upload.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize)]
-#[display("{_0}")]
-#[serde(transparent)]
-pub struct PixelLimit(NonZeroU64);
-
-impl PixelLimit {
-    pub const fn new(pixels: NonZeroU64) -> Self {
-        Self(pixels)
-    }
-
-    pub const fn pixels(self) -> NonZeroU64 {
-        self.0
-    }
-}
-
-impl FromStr for PixelLimit {
-    type Err = ParseUploadLimitError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        value
-            .parse::<NonZeroU64>()
-            .map(Self::new)
-            .map_err(|_| ParseUploadLimitError)
-    }
-}
-
-/// A photo upload limit that must be a positive integer.
-#[derive(Debug, Error)]
-#[error("upload limit must be a positive integer")]
-pub struct ParseUploadLimitError;
-
 /// Everything [`Api`](crate::api::Api) needs to start.
 #[derive(Args, ConfigArgs, Clone)]
 pub struct ApiConfig {
@@ -103,7 +44,7 @@ pub struct ApiConfig {
     pub photo: PhotoConfig,
     #[command(flatten)]
     #[config(no_flatten)]
-    pub photo_upload: PhotoUploadConfig,
+    pub photo_upload: UploadConfig,
     #[command(flatten)]
     #[config(no_flatten)]
     pub session: SessionConfig,
@@ -225,19 +166,19 @@ pub struct LimiterConfig {
 
 /// Per-process limits that bound upload memory and metadata parsing.
 #[derive(Args, ConfigArgs, Clone)]
-pub struct PhotoUploadConfig {
+pub struct UploadConfig {
     #[arg(
         long = "photo-upload-max-size",
         env = "PP_PHOTO_UPLOAD_MAX_SIZE",
         default_value = "67108864"
     )]
-    pub max_size: UploadSize,
+    pub max_size: NonZeroU64,
     #[arg(
         long = "photo-upload-max-pixels",
         env = "PP_PHOTO_UPLOAD_MAX_PIXELS",
         default_value = "100000000"
     )]
-    pub max_pixels: PixelLimit,
+    pub max_pixels: NonZeroU64,
     #[arg(
         long = "photo-upload-concurrency",
         env = "PP_PHOTO_UPLOAD_CONCURRENCY",
@@ -287,8 +228,8 @@ mod tests {
         assert_eq!(api.limiter.max_failures.get(), 10);
         assert_eq!(api.limiter.window.get(), Duration::from_secs(60));
         assert_eq!(api.limiter.max_peers.get(), 1024);
-        assert_eq!(api.photo_upload.max_size.bytes().get(), 64 * 1024 * 1024);
-        assert_eq!(api.photo_upload.max_pixels.pixels().get(), 100_000_000);
+        assert_eq!(api.photo_upload.max_size.get(), 64 * 1024 * 1024);
+        assert_eq!(api.photo_upload.max_pixels.get(), 100_000_000);
         assert_eq!(api.photo_upload.concurrency.get(), 4);
         assert_eq!(api.photo.dir.as_path(), Path::new("./data/photos"));
     }
@@ -305,8 +246,8 @@ mod tests {
         let args = ["--config", path.to_str().unwrap()];
         let config = parse(&args).unwrap().api.photo_upload;
 
-        assert_eq!(config.max_size.bytes().get(), 1234);
-        assert_eq!(config.max_pixels.pixels().get(), 5678);
+        assert_eq!(config.max_size.get(), 1234);
+        assert_eq!(config.max_pixels.get(), 5678);
         assert_eq!(config.concurrency.get(), 2);
 
         let config = parse(&[args[0], args[1], "--photo-upload-max-size", "4321"])
@@ -314,8 +255,8 @@ mod tests {
             .api
             .photo_upload;
 
-        assert_eq!(config.max_size.bytes().get(), 4321);
-        assert_eq!(config.max_pixels.pixels().get(), 5678);
+        assert_eq!(config.max_size.get(), 4321);
+        assert_eq!(config.max_pixels.get(), 5678);
         assert_eq!(config.concurrency.get(), 2);
     }
 

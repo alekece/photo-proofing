@@ -97,3 +97,46 @@ Validation (non-JPEG, truncated, over-size, over-dimension, wrong type), a batch
 fails and the others are kept, a client disconnect leaving nothing, disk-full, duplicate names,
 cross-workspace access, and the photo/job pair being committed together. Needs the #96 and #97
 foundations merged.
+
+## PR review refinement (2026-11-02)
+
+The following decisions supersede the corresponding implementation calls above; the upload
+behavior and storage schema otherwise remain unchanged.
+
+### Approaches
+
+1. **API route owns the transaction.** Rejected because it exposes SQLx transaction details and
+   photo/job persistence coordination to the HTTP layer.
+2. **`PhotoIntake` coordinates persistence (chosen).** It borrows the pool, creates a transaction
+   locally, and calls the focused photo and job repositories with that transaction. This preserves
+   the atomic photo/job invariant without implying an uploads table or storing a transaction.
+3. **Keep photo and job creation inside `PhotoRepository`.** Rejected because it mixes two
+   repositories' responsibilities.
+
+### Decisions
+
+- The API model carries a failure reason in `PhotoStatus::Failed(String)` and removes the
+  separate `Photo.failure_reason` field. Serde's externally tagged representation is used:
+  successful states remain strings such as `"waiting"`, while a failed state is
+  `"status": {"failed": "<reason>"}`. PostgreSQL keeps its `photo_status` enum and nullable
+  `failure_reason` column with a constraint requiring a reason exactly when status is failed;
+  row decoding combines those columns into the Rust status value.
+- Use `NonZeroU64` directly for upload-size limits, pixel limits, and stored photo size. The
+  dedicated wrappers added by the initial implementation did not add invariants; field names and
+  documentation communicate units.
+- Keep `PhotoDimensions`, which groups two non-zero dimensions, and the types that encode actual
+  domain variants or distinct error outcomes.
+- Rename `PhotoUploadConfig` to `UploadConfig`, rename the module to `upload`, and call its
+  shared state `UploadState`. Keep the existing `ApiConfig` field, TOML section, and environment
+  variable names unchanged. The associated initializer is `UploadState::install`; the
+  non-blocking semaphore method is `try_acquire_slot`.
+- Keep upload-pipeline helpers as methods on `UploadState`; Actix route handlers remain free
+  functions as required by the route registration pattern. Rename `ApiState::store` to `auth`
+  because it returns the authentication repository.
+- `PhotoIntake` owns the cross-repository transaction and its uncertain-commit reconciliation.
+  The HTTP layer continues to publish the original before database acceptance and only removes it
+  after a known failure.
+- `PhotoRepository` exposes one transaction-taking insert operation, used by `PhotoIntake`.
+  `JobRepository` keeps `enqueue` for standalone enqueueing and `enqueue_in` for a caller-owned
+  transaction; both have real call sites. Do not add a generic database-or-transaction executor
+  abstraction for this flow.

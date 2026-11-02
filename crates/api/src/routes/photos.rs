@@ -4,39 +4,24 @@
 //! storage, inspect only JPEG metadata, then publish the unchanged original and atomically record
 //! its photo/job pair. Listing checks gallery ownership before returning its ordered photo states.
 
-use std::{
-    num::{NonZeroU32, NonZeroU64},
-    time::Duration,
-};
-
 use actix_web::{
     HttpRequest, HttpResponse, get,
     http::header::{CONTENT_LENGTH, CONTENT_TYPE},
     post,
     web::{self, Data, Path as WebPath, ServiceConfig},
 };
-use futures_util::StreamExt;
-use libvips::VipsImage;
 use pp_core::notifications::PhotoId;
 use pp_database::{
     gallery::GalleryId,
-    photo::{NewPhoto, PhotoCreateError, PhotoDimensions, PhotoSize},
+    photo::{NewPhoto, PhotoSize},
 };
-use pp_storage::{PhotoKey, PhotoStorage, StagedPhoto, StorageError, Variant};
-use tokio::{fs::File, io::AsyncReadExt};
+use pp_storage::{PhotoKey, Variant};
 use uuid::Uuid;
 
 use crate::{
-    api::ApiState,
-    config::{PixelLimit, UploadSize},
-    error::ErrorResponse,
-    extractors::identity::Authenticated,
-    photo_upload::PhotoUploadState,
-    response::ResponseBuilderExt,
+    api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
+    response::ResponseBuilderExt, upload::UploadState,
 };
-
-const MAX_FILENAME_BYTES: usize = 255;
-const UPLOAD_BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Registers photo routes inside the `/api/v1/galleries` scope.
 pub fn configure(cfg: &mut ServiceConfig) {
@@ -71,7 +56,7 @@ async fn list_photos(
 #[post("/{id}/photos")]
 async fn upload_photo(
     state: Data<ApiState>,
-    upload: Data<PhotoUploadState>,
+    upload: Data<UploadState>,
     Authenticated(identity): Authenticated,
     request: HttpRequest,
     id: WebPath<GalleryId>,
@@ -96,7 +81,7 @@ async fn upload_photo(
         return Err(ErrorResponse::unsupported_media_type());
     }
 
-    let max_size = upload.max_size().bytes().get();
+    let max_size = upload.max_size().get();
 
     if let Some(length) = request.headers().get(CONTENT_LENGTH) {
         let length = length
@@ -111,16 +96,10 @@ async fn upload_photo(
     }
 
     let _permit = upload
-        .try_acquire_upload_slot()
+        .try_acquire_slot()
         .ok_or_else(ErrorResponse::unavailable)?;
-    let (staged, size) = stage_payload(
-        upload.storage(),
-        payload.into_inner(),
-        upload.max_size(),
-        UPLOAD_BODY_IDLE_TIMEOUT,
-    )
-    .await?;
-    let dimensions = inspect_jpeg(&staged, upload.max_pixels()).await?;
+    let (staged, size) = upload.stage_payload(payload.into_inner()).await?;
+    let dimensions = upload.inspect_jpeg(&staged).await?;
     let photo_id = PhotoId::from(Uuid::new_v4());
     let key = PhotoKey {
         workspace: identity.workspace_id,
@@ -129,13 +108,13 @@ async fn upload_photo(
         variant: Variant::Original,
     };
 
-    commit_original(upload.storage(), staged, &key).await?;
+    upload.commit_original(staged, &key).await?;
 
     let new_photo = NewPhoto {
         id: photo_id,
         workspace_id: identity.workspace_id,
         gallery_id,
-        original_name: original_name(&request),
+        original_name: upload.original_name(&request),
         size: PhotoSize::new(size),
         dimensions,
     };
@@ -143,12 +122,14 @@ async fn upload_photo(
     let photo = match state.photos().create_with_job(new_photo).await {
         Ok(Some(photo)) => photo,
         Ok(None) => {
-            remove_published_original(upload.storage(), &key).await?;
+            upload.remove_published_original(&key).await?;
 
             return Err(ErrorResponse::not_found());
         }
         Err(error) => {
-            cleanup_after_photo_creation_failure(upload.storage(), &key, &error).await?;
+            upload
+                .cleanup_after_photo_creation_failure(&key, &error)
+                .await?;
 
             return Err(ErrorResponse::unavailable());
         }
@@ -157,223 +138,16 @@ async fn upload_photo(
     Ok(HttpResponse::Created().no_store().json(photo))
 }
 
-async fn stage_payload(
-    storage: &PhotoStorage,
-    mut payload: actix_web::dev::Payload,
-    limit: UploadSize,
-    idle_timeout: Duration,
-) -> Result<(StagedPhoto, NonZeroU64), ErrorResponse> {
-    let mut staged = storage.stage().await.map_err(storage_failure)?;
-    let mut size = 0_u64;
-
-    loop {
-        let Some(chunk) = tokio::time::timeout(idle_timeout, payload.next())
-            .await
-            .map_err(|_| ErrorResponse::request_timeout())?
-        else {
-            break;
-        };
-        let chunk = chunk.map_err(|_| ErrorResponse::bad_request())?;
-        let chunk_size =
-            u64::try_from(chunk.len()).map_err(|_| ErrorResponse::payload_too_large())?;
-        size = size
-            .checked_add(chunk_size)
-            .ok_or_else(ErrorResponse::payload_too_large)?;
-
-        if size > limit.bytes().get() {
-            return Err(ErrorResponse::payload_too_large());
-        }
-
-        staged.write(&chunk).await.map_err(storage_failure)?;
-    }
-
-    let size = NonZeroU64::new(size).ok_or_else(ErrorResponse::invalid_image)?;
-
-    staged.flush().await.map_err(storage_failure)?;
-
-    Ok((staged, size))
-}
-
-async fn inspect_jpeg(
-    staged: &StagedPhoto,
-    max_pixels: PixelLimit,
-) -> Result<PhotoDimensions, ErrorResponse> {
-    let mut file = File::open(staged.temporary_path())
-        .await
-        .map_err(|error| storage_failure(error.into()))?;
-    let mut signature = [0; 3];
-
-    if let Err(error) = file.read_exact(&mut signature).await {
-        if error.kind() == std::io::ErrorKind::UnexpectedEof {
-            return Err(ErrorResponse::invalid_image());
-        }
-
-        return Err(storage_failure(error.into()));
-    }
-
-    if signature != [0xff, 0xd8, 0xff] {
-        return Err(ErrorResponse::invalid_image());
-    }
-
-    let path = staged
-        .temporary_path()
-        .to_str()
-        .ok_or_else(ErrorResponse::unavailable)?
-        .to_owned();
-    let path = format!("{path}[fail-on=truncated]");
-    let dimensions = tokio::task::spawn_blocking(move || {
-        // The generic loader accepts this without version-specific JPEG options.
-        let image = VipsImage::new_from_file(&path).map_err(|_| ())?;
-        let width = NonZeroU32::new(u32::try_from(image.get_width()).map_err(|_| ())?).ok_or(())?;
-        let height =
-            NonZeroU32::new(u32::try_from(image.get_height()).map_err(|_| ())?).ok_or(())?;
-
-        Ok::<_, ()>(PhotoDimensions { width, height })
-    })
-    .await
-    .map_err(|error| {
-        tracing::error!(%error, "JPEG metadata inspection task failed");
-        ErrorResponse::unavailable()
-    })?
-    .map_err(|_| ErrorResponse::invalid_image())?;
-    validate_pixel_count(
-        u64::from(dimensions.width.get()),
-        u64::from(dimensions.height.get()),
-        max_pixels,
-    )?;
-
-    Ok(dimensions)
-}
-
-fn validate_pixel_count(
-    width: u64,
-    height: u64,
-    max_pixels: PixelLimit,
-) -> Result<(), ErrorResponse> {
-    let pixels = width
-        .checked_mul(height)
-        .ok_or_else(ErrorResponse::dimensions_too_large)?;
-
-    if pixels > max_pixels.pixels().get() {
-        return Err(ErrorResponse::dimensions_too_large());
-    }
-
-    Ok(())
-}
-
-fn original_name(request: &HttpRequest) -> String {
-    request
-        .headers()
-        .get("X-Filename")
-        .and_then(|value| value.to_str().ok())
-        .and_then(decode_filename)
-        .filter(|value| !value.contains('\0') && value.len() <= MAX_FILENAME_BYTES)
-        .unwrap_or_else(|| "photo.jpg".to_owned())
-}
-
-fn decode_filename(value: &str) -> Option<String> {
-    let mut decoded = Vec::with_capacity(value.len());
-    let mut bytes = value.bytes();
-
-    while let Some(byte) = bytes.next() {
-        if byte == b'%' {
-            let high = hex_digit(bytes.next()?)?;
-            let low = hex_digit(bytes.next()?)?;
-
-            decoded.push((high << 4) | low);
-        } else {
-            decoded.push(byte);
-        }
-    }
-
-    String::from_utf8(decoded).ok()
-}
-
-fn hex_digit(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
-}
-
-async fn commit_original(
-    storage: &PhotoStorage,
-    staged: StagedPhoto,
-    key: &PhotoKey,
-) -> Result<(), ErrorResponse> {
-    match staged.commit(key).await {
-        Ok(()) => Ok(()),
-        Err(error @ StorageError::AlreadyExists) => Err(storage_failure(error)),
-        Err(error) => {
-            let response = storage_failure(error);
-
-            remove_published_original(storage, key).await?;
-
-            Err(response)
-        }
-    }
-}
-
-async fn remove_published_original(
-    storage: &PhotoStorage,
-    key: &PhotoKey,
-) -> Result<(), ErrorResponse> {
-    match storage.remove(key).await {
-        Ok(()) | Err(StorageError::NotFound) => Ok(()),
-        Err(error) => {
-            tracing::error!(%error, "failed to remove unpublished photo original");
-
-            Err(ErrorResponse::unavailable())
-        }
-    }
-}
-
-async fn cleanup_after_photo_creation_failure(
-    storage: &PhotoStorage,
-    key: &PhotoKey,
-    error: &PhotoCreateError,
-) -> Result<(), ErrorResponse> {
-    match error {
-        PhotoCreateError::Database(_) => {
-            tracing::error!(%error, photo_id = %key.photo, "photo metadata transaction failed");
-            remove_published_original(storage, key).await
-        }
-        PhotoCreateError::CommitOutcomeUnknown { .. } => {
-            tracing::error!(
-                %error,
-                photo_id = %key.photo,
-                "photo commit outcome is unknown; preserving published original"
-            );
-
-            Ok(())
-        }
-    }
-}
-
-fn storage_failure(error: StorageError) -> ErrorResponse {
-    match error {
-        StorageError::DiskFull(_) => ErrorResponse::storage_full(),
-        error => {
-            tracing::error!(%error, "photo storage operation failed");
-
-            ErrorResponse::unavailable()
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
         fs,
         num::{NonZeroU64, NonZeroUsize},
         path::{Path, PathBuf},
-        time::Duration,
     };
 
     use actix_web::{
-        App, ResponseError,
+        App,
         cookie::Cookie,
         dev::{Service, ServiceResponse},
         http::{StatusCode, header::CONTENT_LENGTH},
@@ -382,31 +156,23 @@ mod tests {
     };
     use libvips::ops::{black, jpegsave_buffer};
     use pp_core::config::PhotoDir;
-    use pp_core::notifications::PhotoId;
-    use pp_database::{
-        Database,
-        auth::WorkspaceId,
-        error::DatabaseError,
-        gallery::{GalleryId, GalleryRepository},
-        photo::PhotoCreateError,
-    };
-    use pp_storage::{PhotoKey, PhotoStorage, Variant};
+    use pp_database::{Database, gallery::GalleryRepository};
+    use pp_storage::PhotoStorage;
     use serde_json::Value;
     use sqlx::PgPool;
-    use tokio::io::AsyncReadExt;
     use uuid::Uuid;
 
     use crate::{
         api::configure_routes,
-        config::{PhotoUploadConfig, PixelLimit, UploadSize},
-        photo_upload::{PhotoUploadState, initialize_image_library},
+        config::UploadConfig,
         tests::{ORIGIN, app_state, call, other_workspace, sign_up},
+        upload::UploadState,
     };
 
-    fn upload_config(max_size: u64, max_pixels: u64) -> PhotoUploadConfig {
-        PhotoUploadConfig {
-            max_size: UploadSize::new(NonZeroU64::new(max_size).unwrap()),
-            max_pixels: PixelLimit::new(NonZeroU64::new(max_pixels).unwrap()),
+    fn upload_config(max_size: u64, max_pixels: u64) -> UploadConfig {
+        UploadConfig {
+            max_size: NonZeroU64::new(max_size).unwrap(),
+            max_pixels: NonZeroU64::new(max_pixels).unwrap(),
             concurrency: NonZeroUsize::new(4).unwrap(),
         }
     }
@@ -414,14 +180,12 @@ mod tests {
     async fn app(
         pool: PgPool,
         photo_dir: &Path,
-        config: PhotoUploadConfig,
+        config: UploadConfig,
     ) -> impl Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>
     {
-        initialize_image_library().unwrap();
-
         let photo_dir: PhotoDir = photo_dir.to_path_buf().try_into().unwrap();
         let storage = PhotoStorage::open(&photo_dir).await.unwrap();
-        let photo_upload = PhotoUploadState::new(storage, config);
+        let photo_upload = UploadState::install(storage, config).unwrap();
 
         test::init_service(
             App::new()
@@ -765,148 +529,6 @@ mod tests {
 
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert_no_upload_effects(&pool, directory.path()).await;
-    }
-
-    #[tokio::test]
-    async fn interrupted_body_discards_staged_file() {
-        initialize_image_library().unwrap();
-
-        let directory = tempfile::tempdir().unwrap();
-        let photo_dir: PhotoDir = directory.path().to_path_buf().try_into().unwrap();
-        let storage = PhotoStorage::open(&photo_dir).await.unwrap();
-        let (mut sender, body) = actix_http::h1::Payload::create(false);
-
-        sender.feed_data(actix_web::web::Bytes::from_static(b"partial jpeg"));
-        sender.set_error(actix_http::error::PayloadError::Incomplete(None));
-
-        let result = super::stage_payload(
-            &storage,
-            actix_web::dev::Payload::from(body),
-            UploadSize::new(NonZeroU64::new(1024).unwrap()),
-            super::UPLOAD_BODY_IDLE_TIMEOUT,
-        )
-        .await;
-
-        assert!(result.is_err());
-        assert!(stored_files(directory.path()).is_empty());
-    }
-
-    #[tokio::test]
-    async fn idle_request_body_times_out_and_discards_staged_file() {
-        initialize_image_library().unwrap();
-
-        let directory = tempfile::tempdir().unwrap();
-        let photo_dir: PhotoDir = directory.path().to_path_buf().try_into().unwrap();
-        let storage = PhotoStorage::open(&photo_dir).await.unwrap();
-        let (_sender, body) = actix_http::h1::Payload::create(false);
-
-        let result = super::stage_payload(
-            &storage,
-            actix_web::dev::Payload::from(body),
-            UploadSize::new(NonZeroU64::new(1024).unwrap()),
-            Duration::from_millis(10),
-        )
-        .await;
-
-        let error = result.unwrap_err();
-
-        assert_eq!(error.status_code(), StatusCode::REQUEST_TIMEOUT);
-        assert!(stored_files(directory.path()).is_empty());
-    }
-
-    #[tokio::test]
-    async fn full_storage_maps_to_service_unavailable() {
-        let response = super::storage_failure(pp_storage::StorageError::DiskFull(
-            std::io::Error::from(std::io::ErrorKind::StorageFull),
-        ))
-        .error_response();
-
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    }
-
-    #[tokio::test]
-    async fn publish_collision_does_not_remove_the_existing_original() {
-        let directory = tempfile::tempdir().unwrap();
-        let photo_dir: PhotoDir = directory.path().to_path_buf().try_into().unwrap();
-        let storage = PhotoStorage::open(&photo_dir).await.unwrap();
-        let key = PhotoKey {
-            workspace: WorkspaceId(Uuid::from_u128(1)),
-            gallery: GalleryId(Uuid::from_u128(2)),
-            photo: PhotoId::from(Uuid::from_u128(3)),
-            variant: Variant::Original,
-        };
-        let mut original = storage.stage().await.unwrap();
-
-        original.write(b"existing original").await.unwrap();
-        original.commit(&key).await.unwrap();
-
-        let mut duplicate = storage.stage().await.unwrap();
-
-        duplicate.write(b"new upload").await.unwrap();
-
-        let error = super::commit_original(&storage, duplicate, &key)
-            .await
-            .unwrap_err();
-
-        assert_eq!(error.status_code(), StatusCode::SERVICE_UNAVAILABLE);
-
-        let mut stored = storage.read(&key).await.unwrap();
-        let mut bytes = Vec::new();
-
-        stored.read_to_end(&mut bytes).await.unwrap();
-
-        assert_eq!(bytes, b"existing original");
-        assert_eq!(stored_files(directory.path()).len(), 1);
-    }
-
-    #[tokio::test]
-    async fn uncertain_database_commit_preserves_published_original() {
-        let directory = tempfile::tempdir().unwrap();
-        let photo_dir: PhotoDir = directory.path().to_path_buf().try_into().unwrap();
-        let storage = PhotoStorage::open(&photo_dir).await.unwrap();
-        let key = PhotoKey {
-            workspace: WorkspaceId(Uuid::from_u128(1)),
-            gallery: GalleryId(Uuid::from_u128(2)),
-            photo: PhotoId::from(Uuid::from_u128(3)),
-            variant: Variant::Original,
-        };
-        let mut original = storage.stage().await.unwrap();
-
-        original
-            .write(b"possibly committed original")
-            .await
-            .unwrap();
-        original.commit(&key).await.unwrap();
-
-        let error = PhotoCreateError::CommitOutcomeUnknown {
-            commit_error: DatabaseError::Unreachable(std::io::Error::from(
-                std::io::ErrorKind::ConnectionReset,
-            )),
-            reconciliation_error: None,
-        };
-
-        super::cleanup_after_photo_creation_failure(&storage, &key, &error)
-            .await
-            .unwrap();
-
-        let mut stored = storage.read(&key).await.unwrap();
-        let mut bytes = Vec::new();
-
-        stored.read_to_end(&mut bytes).await.unwrap();
-
-        assert_eq!(bytes, b"possibly committed original");
-        assert_eq!(stored_files(directory.path()).len(), 1);
-    }
-
-    #[tokio::test]
-    async fn overflowing_pixel_count_is_rejected() {
-        let result = super::validate_pixel_count(
-            u64::MAX,
-            2,
-            PixelLimit::new(NonZeroU64::new(100).unwrap()),
-        );
-
-        assert!(result.is_err());
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

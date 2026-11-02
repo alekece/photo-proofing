@@ -24,7 +24,7 @@ impl FromRequest for Authenticated {
             let token = token.await?;
 
             state
-                .store()
+                .auth()
                 .authenticate(token.digest().as_bytes(), SystemTime::now())
                 .await
                 .map_err(|_| AuthError::Unavailable)?

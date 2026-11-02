@@ -29,8 +29,8 @@ use crate::{
     extractors::session_token::SessionToken,
     limiter::AttemptLimiter,
     middlewares::origin::SameOrigin,
-    photo_upload::{PhotoUploadError, PhotoUploadState, initialize_image_library},
     routes,
+    upload::{PhotoUploadError, UploadState},
 };
 
 /// Largest accepted JSON body: credentials and gallery changesets are a handful of short
@@ -65,7 +65,7 @@ pub enum ApiError {
 ///
 /// Built once at startup from validated configuration, so request handlers never re-check
 /// configuration and cannot fail for configuration reasons. It holds the authentication
-/// policy and abuse controls; upload resources are held separately in [`PhotoUploadState`].
+/// policy and abuse controls; upload resources are held separately in [`UploadState`].
 pub(crate) struct ApiState {
     database: Database,
     origin: Origin,
@@ -99,7 +99,7 @@ impl ApiState {
         })
     }
 
-    pub fn store(&self) -> AuthRepository<'_> {
+    pub fn auth(&self) -> AuthRepository<'_> {
         self.database.repository()
     }
 
@@ -149,7 +149,7 @@ impl ApiState {
     /// Best-effort removal of a small batch of expired sessions. They already fail
     /// authentication, so a failure here is logged and must never fail the caller's request.
     pub async fn delete_expired_sessions(&self, now: SystemTime) {
-        if let Err(error) = self.store().cleanup_expired(now, 100).await {
+        if let Err(error) = self.auth().cleanup_expired(now, 100).await {
             tracing::warn!(%error, "expired session cleanup failed");
         }
     }
@@ -192,14 +192,13 @@ impl ApiState {
 pub struct Api {
     http: HttpConfig,
     state: Data<ApiState>,
-    photo_upload: Data<PhotoUploadState>,
+    photo_upload: Data<UploadState>,
 }
 
 impl Api {
     pub async fn init(config: ApiConfig) -> Result<Self, ApiError> {
         let storage = PhotoStorage::open(&config.photo.dir).await?;
-        initialize_image_library()?;
-        let photo_upload = Data::new(PhotoUploadState::new(storage, config.photo_upload));
+        let photo_upload = Data::new(UploadState::install(storage, config.photo_upload)?);
 
         let database = Database::connect_lazy(&config.database.url, 10)?;
 

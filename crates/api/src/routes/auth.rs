@@ -116,14 +116,14 @@ async fn report_status(
     session: Option<SessionToken>,
 ) -> Result<HttpResponse, AuthError> {
     let setup_available = state
-        .store()
+        .auth()
         .setup_available()
         .await
         .map_err(|_| AuthError::Unavailable)?;
 
     let identity = match session {
         Some(token) => state
-            .store()
+            .auth()
             .authenticate(token.digest().as_bytes(), SystemTime::now())
             .await
             .map_err(|_| AuthError::Unavailable)?,
@@ -161,7 +161,7 @@ async fn setup(
         .session_expiry(SystemTime::now())
         .ok_or(AuthError::Unavailable)?;
     let id = state
-        .store()
+        .auth()
         .create_account(
             &email,
             password_hash.as_str(),
@@ -187,7 +187,7 @@ async fn login(
 ) -> Result<HttpResponse, AuthError> {
     let Credentials { email, password } = credentials.into_inner();
     let account = state
-        .store()
+        .auth()
         .account_by_email(&email)
         .await
         .map_err(|_| AuthError::Unavailable)?;
@@ -219,7 +219,7 @@ async fn login(
 
     // A request still carrying an old cookie replaces that session instead of piling up rows.
     state
-        .store()
+        .auth()
         .create_session(
             account.id,
             hash.as_bytes(),
@@ -245,7 +245,7 @@ async fn logout(
 ) -> Result<HttpResponse, AuthError> {
     if let Some(token) = session {
         state
-            .store()
+            .auth()
             .revoke(token.digest().as_bytes())
             .await
             .map_err(|_| AuthError::Unavailable)?;
@@ -263,7 +263,7 @@ async fn renew(state: Data<ApiState>, session: SessionToken) -> Result<HttpRespo
     let expires_at = state.session_expiry(now).ok_or(AuthError::Unavailable)?;
 
     state
-        .store()
+        .auth()
         .renew(session.digest().as_bytes(), now, expires_at)
         .await
         .map_err(|_| AuthError::Unavailable)?

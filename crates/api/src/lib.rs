@@ -10,8 +10,8 @@ pub mod routes;
 mod error;
 mod limiter;
 mod middlewares;
-mod photo_upload;
 mod request;
 mod response;
 #[cfg(test)]
 mod tests;
+mod upload;
