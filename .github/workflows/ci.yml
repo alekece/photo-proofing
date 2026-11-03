@@ -328,7 +328,7 @@ jobs:
           elif grep -Eiq '(^|[^0-9])404([^0-9]|$)|manifest unknown|not found' <<< "$inspection"; then
             echo "build=true" >> "$GITHUB_OUTPUT"
             docker buildx build --load \
-              --file docker/web-production.Dockerfile \
+              --file docker/web.production.Dockerfile \
               --tag "$IMAGE:$TAG" \
               --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
               --label "org.opencontainers.image.revision=${GITHUB_SHA}" \

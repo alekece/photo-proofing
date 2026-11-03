@@ -87,7 +87,7 @@ git commit -m "feat(api): configure secure session cookies"
 - Modify: `web/package.json`
 - Modify: `web/pnpm-lock.yaml`
 - Modify: `web/vite.config.ts`
-- Create: `docker/web-production.Dockerfile`
+- Create: `docker/web.production.Dockerfile`
 - Modify: `docker/web.Dockerfile`
 - Modify: `README.md`
 
@@ -103,14 +103,14 @@ Run: `pnpm --dir web build`
 
 Expected: the build succeeds and emits the adapter-node runtime output.
 
-- [x] **Step 4: Add a multi-stage production Dockerfile.** Create `docker/web-production.Dockerfile` using the existing Node 24 and pnpm 10.13.1 toolchain, install from the frozen lockfile, build the SvelteKit app, and copy only required runtime output/dependencies into a non-development runtime stage. Do not start Vite.
+- [x] **Step 4: Add a multi-stage production Dockerfile.** Create `docker/web.production.Dockerfile` using the existing Node 24 and pnpm 10.13.1 toolchain, install from the frozen lockfile, build the SvelteKit app, and copy only required runtime output/dependencies into a non-development runtime stage. Do not start Vite.
 - [x] **Step 5: Document the development and production distinction.** Update the existing dev Dockerfile comment and README so they distinguish the Compose Vite server from the Node-adapter production image.
 - [x] **Step 6: Build and smoke-run the production image.**
 
 Run:
 
 ```bash
-docker build -f docker/web-production.Dockerfile -t pp-web:plan-check .
+docker build -f docker/web.production.Dockerfile -t pp-web:plan-check .
 docker run -d --name pp-web-plan-check -p 127.0.0.1:13000:3000 -e PP_API_INTERNAL_URL=http://127.0.0.1:18080 pp-web:plan-check
 docker inspect -f '{{.State.Running}}' pp-web-plan-check
 docker rm -f pp-web-plan-check
@@ -127,7 +127,7 @@ Expected: format, lint, type-check, tests and build pass.
 - [x] **Step 8: Commit the task.**
 
 ```bash
-git add web/package.json web/pnpm-lock.yaml web/vite.config.ts docker/web-production.Dockerfile docker/web.Dockerfile README.md
+git add web/package.json web/pnpm-lock.yaml web/vite.config.ts docker/web.production.Dockerfile docker/web.Dockerfile README.md
 git commit -m "build(web): add production Node image"
 ```
 
@@ -137,7 +137,7 @@ git commit -m "build(web): add production Node image"
 - Modify: `.github/workflows/ci.yml`
 - Uses: `docker/api.Dockerfile`
 - Uses: `docker/worker.Dockerfile`
-- Uses: `docker/web-production.Dockerfile`
+- Uses: `docker/web.production.Dockerfile`
 
 **Interfaces:**
 - The publisher consumes `github.sha` for the tested commit.
