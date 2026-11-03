@@ -120,6 +120,12 @@ pub struct SessionConfig {
     )]
     pub idle_timeout: CookieDuration,
     #[arg(
+        long = "session-cookie-secure",
+        env = "PP_SESSION_COOKIE_SECURE",
+        action = clap::ArgAction::Set
+    )]
+    pub secure_cookie: Option<bool>,
+    #[arg(
         long = "session-cookie-name",
         env = "PP_SESSION_COOKIE_NAME",
         default_value = "pp_session"
@@ -224,6 +230,7 @@ mod tests {
             api.session.idle_timeout.get(),
             Duration::from_secs(30 * 86400)
         );
+        assert!(!api.session.secure_cookie.unwrap_or_default());
         assert_eq!(api.auth.app_origin.as_str(), "http://localhost:5173");
         assert_eq!(api.limiter.max_failures.get(), 10);
         assert_eq!(api.limiter.window.get(), Duration::from_secs(60));
@@ -314,6 +321,31 @@ mod tests {
     }
 
     #[test]
+    fn secure_cookie_is_read_from_config_and_cli() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.toml");
+        fs::write(&path, "[session]\nsecure_cookie = true\n").unwrap();
+        let args = ["--config", path.to_str().unwrap()];
+
+        assert!(
+            parse(&args)
+                .unwrap()
+                .api
+                .session
+                .secure_cookie
+                .unwrap_or_default()
+        );
+        assert!(
+            !parse(&[args[0], args[1], "--session-cookie-secure", "false"])
+                .unwrap()
+                .api
+                .session
+                .secure_cookie
+                .unwrap_or_default()
+        );
+    }
+
+    #[test]
     fn invalid_session_timeouts_and_origins_are_rejected_at_parse_time() {
         for value in ["-1s", "nonsense", "0s", "500ms", "999999999999999s"] {
             assert!(
@@ -349,18 +381,31 @@ mod tests {
         if env::var_os("PP_TEST_CONFIG_CHILD").is_some() {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("c.toml");
-            fs::write(&path, "[session]\nidle_timeout = '1h'\n").unwrap();
+            fs::write(
+                &path,
+                "[session]\nidle_timeout = '1h'\nsecure_cookie = false\n",
+            )
+            .unwrap();
             let args = ["--config", path.to_str().unwrap()];
 
             let api = parse(&args).unwrap().api;
 
             assert_eq!(api.session.idle_timeout.get(), Duration::from_secs(7200));
+            assert!(api.session.secure_cookie.unwrap_or_default());
 
-            let api = parse(&[args[0], args[1], "--session-idle-timeout", "3h"])
-                .unwrap()
-                .api;
+            let api = parse(&[
+                args[0],
+                args[1],
+                "--session-idle-timeout",
+                "3h",
+                "--session-cookie-secure",
+                "false",
+            ])
+            .unwrap()
+            .api;
 
             assert_eq!(api.session.idle_timeout.get(), Duration::from_secs(10800));
+            assert!(!api.session.secure_cookie.unwrap_or_default());
 
             return;
         }
@@ -372,6 +417,7 @@ mod tests {
             ])
             .env("PP_TEST_CONFIG_CHILD", "1")
             .env("PP_SESSION_IDLE_TIMEOUT", "2h")
+            .env("PP_SESSION_COOKIE_SECURE", "true")
             .output()
             .unwrap();
 

@@ -53,8 +53,18 @@ pub(crate) fn state_with_upload(
     storage: PhotoStorage,
     upload_config: UploadConfig,
 ) -> ApiState {
+    state_with_upload_secure_cookie(pool, storage, upload_config, false)
+}
+
+pub(crate) fn state_with_upload_secure_cookie(
+    pool: PgPool,
+    storage: PhotoStorage,
+    upload_config: UploadConfig,
+    secure_cookie: bool,
+) -> ApiState {
     let session = SessionConfig {
         idle_timeout: "1h".parse().unwrap(),
+        secure_cookie: Some(secure_cookie),
         cookie_name: "pp_session".parse().unwrap(),
     };
     let auth = AuthConfig {

@@ -149,6 +149,7 @@ mod tests {
             .unwrap();
         let session = SessionConfig {
             idle_timeout: "1h".parse().unwrap(),
+            secure_cookie: Some(false),
             cookie_name: "pp_session".parse().unwrap(),
         };
         let auth = AuthConfig {
