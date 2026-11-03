@@ -135,18 +135,19 @@ git commit -m "build(web): add production Node image"
 
 **Files:**
 - Modify: `.github/workflows/ci.yml`
+- Create: `.github/workflows/cd.yml`
 - Uses: `docker/api.Dockerfile`
 - Uses: `docker/worker.Dockerfile`
 - Uses: `docker/web.production.Dockerfile`
 
 **Interfaces:**
-- The publisher consumes `github.sha` for the tested commit.
+- The publisher consumes the completed CI workflow run's head SHA.
 - It publishes the packages and tags specified in Global Constraints, then updates Git tag `staging`.
-- The existing workflow's pull-request and main-push CI jobs remain otherwise unchanged.
+- The CI workflow retains pull-request image-build validation; a separate CD workflow publishes only after successful CI on `main`.
 
-- [x] **Step 1: Define the publish gate.** Add a main-push-only job depending on every Rust, web and container-image check. Run Rust and web checks on every push so a later push cannot skip changes from an earlier failed run. On pull requests, retain path-filtered Rust and web checks and build all three images whenever Rust, web, Dockerfile or Docker build-context files change. The publisher runs only for a main push after each applicable result is successful or intentionally skipped.
-- [x] **Step 2: Verify the gate behavior before enabling package writes.** Run local workflow lint and a gate truth table for success, skipped, failed, cancelled, pull-request and non-main cases. GitHub Actions will validate the workflow and confirm the publisher is skipped on the PR during final delivery verification, after the required independent review. Expected: only a `main` push with every applicable CI job successful or intentionally skipped can reach publication.
-- [x] **Step 3: Configure publication of private GHCR packages.** Give only the publishing job `packages: write` and `contents: write`; authenticate with its `GITHUB_TOKEN`. Build the existing API and worker Dockerfiles and the Task 2 frontend Dockerfile, tagging each with `sha-${{ github.sha }}`. Do not publish from this feature branch; verify package visibility after the first eligible `main` push.
+- [x] **Step 1: Define the publish gate.** Run Rust and web checks on every push so a later push cannot skip changes from an earlier failed run. On pull requests, retain path-filtered Rust and web checks and build all three images whenever Rust, web, Dockerfile, Docker build-context or CI/CD workflow files change. Trigger a separate CD workflow only after the CI workflow completes successfully for a push to `main`.
+- [x] **Step 2: Verify the gate behavior before enabling package writes.** Run local workflow lint and a gate truth table for success, skipped, failed, cancelled, pull-request and non-main cases. GitHub Actions validates CI and confirms the image publisher is skipped on the PR. The CD workflow additionally checks the completed upstream run's conclusion, event type and branch before publication.
+- [x] **Step 3: Configure publication of private GHCR packages.** Give only the publishing job `packages: write` and `contents: write`; authenticate with its `GITHUB_TOKEN`. Check out the completed CI run's exact head SHA and build the existing API and worker Dockerfiles and the Task 2 frontend Dockerfile, tagging each with `sha-<full-commit-sha>`. Do not publish from this feature branch; verify package visibility after the first eligible `main` push.
 - [x] **Step 4: Make retries reuse existing commit tags.** Before building each package, check whether that exact SHA tag already exists. Skip publication for existing tags and build only missing images; do not replace the contents of an existing commit tag.
 - [x] **Step 5: Advance the `staging` Git tag after all image publication succeeds.** Fetch the current tag; create it for the first successful publication, do nothing if it already points at the candidate, and update it only when the current target is an ancestor of the candidate. Serialize the publisher so a stale run cannot overwrite a newer pointer. If the ancestry check or tag update fails, fail publication rather than force a backward move.
 - [x] **Step 6: Verify the workflow on disposable local state.** Confirm the gate truth table rejects PR, non-main, failed and cancelled cases; build all three images locally; simulate `staging` creation, forward update, same-commit retry, stale run and divergence against a disposable Git remote. Actual GHCR publication and package visibility are verified only by the first eligible `main` push, not by bypassing the gate from this branch.
@@ -154,7 +155,7 @@ git commit -m "build(web): add production Node image"
 - [x] **Step 8: Commit the task.**
 
 ```bash
-git add .github/workflows/ci.yml
+git add .github/workflows/ci.yml .github/workflows/cd.yml
 git commit -m "ci: publish preproduction container images"
 ```
 

@@ -339,12 +339,14 @@ mod tests {
             .to_request();
 
         let response = test::call_service(&app, request).await;
+
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         let renewed_cookie = response
             .response()
             .cookies()
             .find(|c| c.name() == "pp_session")
             .unwrap();
+
         assert!(!renewed_cookie.secure().unwrap_or_default());
 
         let request = test::TestRequest::post()
@@ -354,12 +356,14 @@ mod tests {
             .to_request();
 
         let response = test::call_service(&app, request).await;
+
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         let logout_cookie = response
             .response()
             .cookies()
             .find(|c| c.name() == "pp_session")
             .unwrap();
+
         assert!(!logout_cookie.secure().unwrap_or_default());
 
         let request = test::TestRequest::post()
@@ -399,6 +403,7 @@ mod tests {
         .await;
 
         let cookie = tests::sign_up(&app).await;
+
         assert_eq!(cookie.secure(), Some(true));
 
         let request = test::TestRequest::post()
@@ -414,6 +419,7 @@ mod tests {
             .cookies()
             .find(|c| c.name() == "pp_session")
             .unwrap();
+
         assert_eq!(removal_cookie.secure(), Some(true));
     }
 

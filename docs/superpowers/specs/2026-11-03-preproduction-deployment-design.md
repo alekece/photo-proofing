@@ -40,13 +40,13 @@ Do not publish `dev` image aliases; they add a second, ambiguous version
 reference without helping the selected consumer interface. PostgreSQL and
 Caddy are not application images and are not built or published by this work.
 
-## CI publication flow
+## CD publication flow
 
-1. Run publication only for a push to `main`, after all applicable CI jobs
-   succeed. Pull request, failed, cancelled, or incomplete CI runs cannot
-   publish or advance the pre-production pointer. Existing intentionally
-   skipped path-filtered jobs retain their current semantics; deployment-related
-   inputs must receive suitable checks.
+1. Run publication in a separate CD workflow only after the CI workflow
+   completes successfully for a push to `main`. Pull request, failed, cancelled,
+   or incomplete CI runs cannot publish or advance the pre-production pointer.
+   Existing intentionally skipped path-filtered jobs retain their current
+   semantics; deployment-related inputs must receive suitable checks.
 2. Build the API, worker and production frontend images from the exact tested
    commit. Use these package names:
    - `ghcr.io/alekece/pp-api`
