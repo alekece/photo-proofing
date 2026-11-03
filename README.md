@@ -80,74 +80,96 @@ route `/api/*` requests to the API.
 
 ### LAN staging deployment
 
-The staging launcher consumes the `staging` Git tag and runs all three published
-images at the same commit, without builds. It requires Python 3.11+, Docker
-Compose 2.24.4+, GitHub CLI access to this repository, and Doppler access to the
-`photo-proofing` project's `stg` config. Private GHCR images additionally require
-an authorized Docker registry login with package read access; never paste tokens
-into commands or logs. Do not change package visibility to bypass authentication.
+[deploy/staging.yml](deploy/staging.yml) uses Ansible's maintained
+`community.docker` Compose modules to pull and reconcile one published commit.
+Run it locally on the server from a checkout containing these deployment assets.
+Prerequisites: Python 3.12+, Docker Compose 2.24.4+, working Docker access, GitHub
+CLI access to the repository, Doppler `photo-proofing/stg`, and sudo for `/etc/pp`.
+Private GHCR images also require authorized Docker registry credentials; never
+paste tokens into commands or logs or change visibility to bypass authentication.
 
-Install the non-secret [staging TOML example](docker/config.staging.example.toml)
-as `/etc/photo-proofing/config.toml` on the server. Keep database credentials out
-of this file. `auth.app_origin` sets the external HTTPS origin (initially
-`https://pp.test`); the launcher derives Caddy's hostname and the frontend origin
-from it. Use a lowercase hostname without a port, path or trailing slash.
-Keep `session.secure_cookie = true`.
+Install the declared dependencies in a dedicated environment (install your OS's
+`python3-venv` package first if needed):
 
-From the deployment checkout containing the Compose files and `scripts/`, run:
+```sh
+python3 -m venv ~/.local/share/pp-ansible
+. ~/.local/share/pp-ansible/bin/activate
+python3 -m pip install -r deploy/requirements.txt
+ansible-galaxy collection install -r deploy/requirements.yml
+```
+
+Use the single root [config.example.toml](config.example.toml) as the reference
+for server-owned `/etc/pp/config.toml`. Preserve its existing values on upgrades.
+For containers set `host = "0.0.0.0"`, `port = 8080`, and
+`photo.dir = "/var/lib/pp/photos"`. Omit `[database]`: Doppler supplies the password
+and Ansible derives the URL. Set `session.secure_cookie = true` and
+`auth.app_origin = "https://pp.server.home"` (or your chosen HTTPS hostname without
+a port, path or trailing slash). Proxy and frontend origins derive from this
+setting, and checksum labels reload API/worker when the TOML changes.
+
+Create a **non-secret**, server-owned `/etc/pp/staging.yml` with the LAN binding
+and four existing volume names. For the installation migrated from the old project:
+
+```yaml
+pp_bind_address: 192.168.1.76
+pp_volumes:
+  postgres: photo-proofing-staging_postgres-data
+  photos: photo-proofing-staging_photo-data
+  caddy_data: photo-proofing-staging_caddy-data
+  caddy_config: photo-proofing-staging_caddy-config
+```
+
+The project is named **`pp-staging`**. Historical volume names are intentionally
+retained as external volumes, not recreated or renamed. A fresh installation
+must explicitly provision its four empty Docker volumes and supply their names;
+the playbook refuses missing volumes to prevent accidental empty replacements.
+For fresh setup, initially use `pp_bind_address: 127.0.0.1` and a trusted SSH tunnel
+that preserves the configured origin. No account is seeded: the first-time setup
+page creates the owner account. Do that before enabling LAN access.
+
+Deploy manually, with the virtual environment active:
 
 ```sh
 doppler run --project photo-proofing --config stg \
   --only-secrets POSTGRES_PASSWORD --no-fallback -- \
-  python3 scripts/deploy-staging.py
+  ansible-playbook -i localhost, deploy/staging.yml -e @/etc/pp/staging.yml
 ```
 
-This first start publishes HTTPS only on loopback. Before enabling LAN access,
-the owner must create the single photographer account over a trusted connection.
-For example, forward client port 443 to server `127.0.0.1:443` through SSH (local
-port 443 may need administrator privileges) and temporarily resolve `pp.test` to
-`127.0.0.1` on that client. Use the same `https://pp.test` origin, not a different
-local port. Export only Caddy's **public** root certificate to an operator-owned
-location and install it in the client's trust store before opening `/login`:
+Add `--ask-become-pass` if sudo requires a password. If the system's locale is
+unavailable, set `LC_ALL=C.UTF-8` for Ansible. Secret-bearing tasks use `no_log`;
+do not enable fact caching or debug logging with real credentials. Doppler
+protects stored secrets, not their runtime environment from root/Docker admins.
+Ansible does not create accounts or manage their credentials in Doppler.
+
+The deployment bundle is installed under `/srv/apps/pp-staging`. Public Caddy CA
+export: `/etc/pp/staging-root.crt`; install it into each client's trust store.
+Never export its private key. Configure LAN DNS (`pp.server.home` resolves to the
+reserved server IP); Freebox's **DNS local** field adds `.home`, so enter
+`pp.server`. Only TCP 443 is published, bound to the chosen IPv4 address. A LAN
+binding is not a firewall; verify network restrictions and do not forward router
+ports. DNS may also return IPv6, but this deployment only publishes IPv4.
+
+The playbook validates and pulls before reconciliation and never builds images.
+Failed pulls leave running containers unchanged; failed startup can leave a
+partially updated stack. PostgreSQL migrations are not automatically reversible.
+Do not delete volumes or rotate the password without updating PostgreSQL.
+Health checks are not complete LAN/browser acceptance; verify login and trusted
+HTTPS with the public CA, not `--insecure`. Hermes automation is not configured.
+
+For the one-time project/path migration, keep the old deployment bundle, config
+and volume-name record until verification is complete. First run the new playbook
+with `-e pp_config_source=/etc/photo-proofing/config.toml -e pp_prepare_only=true`
+to install preserved settings, validate and pull without starting the replacement.
+Stop the old project's containers without deleting volumes, then run normally.
+If startup fails, stop `pp-staging` containers to release the port and restart the
+old containers; do not run two PostgreSQL instances against the same volume.
+The old public root remains valid because the Caddy data volume is shared.
+
+Validate deployment assets without production secrets:
 
 ```sh
-docker cp photo-proofing-staging-proxy-1:/data/caddy/pki/authorities/local/root.crt ./staging-root.crt
-chmod 644 ./staging-root.crt
-```
-
-Do not copy the CA private key or commit generated certificates. After account
-setup, remove the temporary hosts entry/tunnel and rerun with the reserved server
-LAN address, for example:
-
-```sh
-doppler run --project photo-proofing --config stg \
-  --only-secrets POSTGRES_PASSWORD --no-fallback -- \
-  python3 scripts/deploy-staging.py --bind-address 192.168.1.76
-```
-
-Configure the router/local DNS to resolve the chosen hostname to that address,
-and trust the Caddy root on each client. No router port forwarding is needed.
-Only Caddy publishes a host port (TCP 443); database/API/frontend ports stay
-internal. Binding to a LAN IP is not a firewall: verify network/firewall policy
-and keep the server inaccessible from untrusted networks.
-
-The override uses a separate `photo-proofing-staging` project, persistent database,
-photo and Caddy volumes, restart policies, and bounded logs. Do not run `down -v`,
-rotate the database password without updating PostgreSQL, or replace Caddy's CA
-volume casually. Doppler injects the password into runtime environments, where
-root and Docker administrators can still access it. The launcher URL-encodes the
-password, validates Compose without displaying it, pulls before starting services,
-and withholds subprocess diagnostics that might expose credentials. A failed
-pull leaves running containers unchanged; a failed startup may leave a partially
-updated stack. Application migrations are not automatically reversible.
-
-The launcher reports the selected commit and container readiness, not complete
-LAN/browser acceptance. Verify HTTPS with the exported CA (not `--insecure`),
-login, and persistence across container recreation. Hermes auto-deployment is
-not configured. Run deployment checks with Python 3.11+:
-
-```sh
-python3 -m unittest discover -s scripts -p 'test_*.py'
+ansible-playbook -i localhost, deploy/staging.yml --syntax-check
+ansible-playbook -i localhost, deploy/verify.yml
 ```
 
 ### Native development

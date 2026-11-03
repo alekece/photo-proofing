@@ -1,0 +1,147 @@
+- name: Verify the staging Compose contract with synthetic inputs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    pp_test_password: "a:@ /?#%"
+    pp_environment:
+      PP_RUNTIME_CONFIG: "{{ playbook_dir }}/../config.example.toml"
+      PP_APP_ORIGIN: https://pp.server.home
+      PP_STAGING_HOST: pp.server.home
+      PP_BIND_ADDRESS: 127.0.0.1
+      PP_IMAGE_TAG: sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      PP_CONFIG_SHA256: synthetic-checksum
+      PP_PROXY_CONFIG_SHA256: synthetic-proxy-checksum
+      POSTGRES_PASSWORD: "{{ pp_test_password }}"
+      PP_DATABASE_URL: "postgres://pp:{{ pp_test_password | urlencode | replace('/', '%2F') }}@postgres:5432/pp"
+      PP_POSTGRES_VOLUME: existing-postgres
+      PP_PHOTO_VOLUME: existing-photos
+      PP_CADDY_DATA_VOLUME: existing-caddy-data
+      PP_CADDY_CONFIG_VOLUME: existing-caddy-config
+  tasks:
+    - name: Resolve merged Compose configuration without displaying it
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --env-file
+          - /dev/null
+          - --project-name
+          - pp-staging
+          - -f
+          - "{{ playbook_dir }}/../docker-compose.yml"
+          - -f
+          - "{{ playbook_dir }}/../compose.staging.yml"
+          - config
+          - --format
+          - json
+      environment: "{{ pp_environment }}"
+      register: pp_resolved
+      changed_when: false
+      no_log: true
+
+    - name: Check resolved configuration
+      vars:
+        stack: "{{ pp_resolved.stdout | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - stack.name == 'pp-staging'
+          - stack.services.postgres.ports | default([]) | length == 0
+          - stack.services.api.ports | default([]) | length == 0
+          - stack.services.web.ports | default([]) | length == 0
+          - stack.services.worker.ports | default([]) | length == 0
+          - stack.services.proxy.ports | length == 1
+          - stack.services.proxy.ports[0].host_ip == '127.0.0.1'
+          - stack.services.proxy.ports[0].target == 443
+          - stack.services.api.environment.PP_CONFIG == '/etc/pp/config.toml'
+          - "'PP_APP_ORIGIN' not in stack.services.api.environment"
+          - "'PP_SESSION_COOKIE_SECURE' not in stack.services.api.environment"
+          - stack.services.api.environment.PP_DATABASE_URL == 'postgres://pp:a%3A%40%20%2F%3F%23%25@postgres:5432/pp'
+          - stack.services.web.environment.ORIGIN == 'https://pp.server.home'
+          - stack.services.web.environment.PP_API_INTERNAL_URL == 'http://api:8080'
+          - stack.volumes['postgres-data'].name == 'existing-postgres'
+          - stack.volumes['photo-data'].name == 'existing-photos'
+          - stack.volumes['caddy-data'].name == 'existing-caddy-data'
+          - stack.volumes['caddy-config'].name == 'existing-caddy-config'
+          - stack.volumes.values() | selectattr('external', 'equalto', true) | list | length == 4
+        quiet: true
+
+    - name: Check pinned images and runtime policies
+      vars:
+        service: "{{ (pp_resolved.stdout | from_json).services[item.service] }}"
+      ansible.builtin.assert:
+        that:
+          - service.image == 'ghcr.io/alekece/' ~ item.image ~ ':sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+          - "'build' not in service"
+          - service.restart == 'unless-stopped'
+          - service.logging.options['max-size'] == '10m'
+        quiet: true
+      loop:
+        - {service: api, image: pp-api}
+        - {service: worker, image: pp-image-worker}
+        - {service: web, image: pp-web}
+
+    - name: Check config reload labels
+      vars:
+        service: "{{ (pp_resolved.stdout | from_json).services[item] }}"
+      ansible.builtin.assert:
+        that:
+          - service.labels['pp.config-sha256'] == 'synthetic-checksum'
+        quiet: true
+      loop: [api, worker]
+
+    - name: Create a temporary directory for synthetic runtime configurations
+      ansible.builtin.tempfile:
+        state: directory
+      register: pp_invalid_config
+
+    - name: Verify invalid inputs stop deployment before Docker access
+      block:
+        - name: Write synthetic runtime settings
+          ansible.builtin.copy:
+            dest: "{{ pp_invalid_config.path }}/{{ item }}.toml"
+            mode: "0600"
+            content: |
+              host = "0.0.0.0"
+              port = 8080
+              [auth]
+              app_origin = "{{ item }}://pp.server.home"
+              [session]
+              secure_cookie = true
+              [photo]
+              dir = "/var/lib/pp/photos"
+          loop: [http, https]
+
+        - name: Run real preflight with invalid origin and with missing password
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_playbook_python | dirname }}/ansible-playbook"
+              - -i
+              - localhost,
+              - "{{ playbook_dir }}/staging.yml"
+              - -e
+              - "{{ {'pp_config_source': pp_invalid_config.path ~ '/' ~ item.protocol ~ '.toml', 'pp_volumes': {'postgres': 'p', 'photos': 'f', 'caddy_data': 'd', 'caddy_config': 'c'}} | to_json }}"
+          environment:
+            POSTGRES_PASSWORD: "{{ item.password }}"
+          loop:
+            - {protocol: http, password: synthetic-only}
+            - {protocol: https, password: ""}
+          register: pp_rejected
+          changed_when: false
+          failed_when: false
+
+        - name: Require input rejection before volume checks or reconciliation
+          ansible.builtin.assert:
+            that:
+              - item.rc != 0
+              - "'Validate container settings and exact HTTPS origin' in item.stdout"
+              - "'Verify the selected data volumes already exist' not in item.stdout"
+            quiet: true
+          loop: "{{ pp_rejected.results }}"
+          loop_control:
+            label: rejected input
+      always:
+        - name: Remove synthetic runtime configuration
+          ansible.builtin.file:
+            path: "{{ pp_invalid_config.path }}"
+            state: absent

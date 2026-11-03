@@ -1,6 +1,6 @@
-# Use only with docker-compose.yml through scripts/deploy-staging.py.
+# Use with docker-compose.yml through deploy/staging.yml.
 # !reset / !override require Docker Compose 2.24.4 or newer.
-name: photo-proofing-staging
+name: pp-staging
 
 x-runtime: &runtime
   restart: unless-stopped
@@ -27,6 +27,8 @@ services:
     environment: !override
       PP_CONFIG: /etc/pp/config.toml
       PP_DATABASE_URL: ${PP_DATABASE_URL:?Supply the encoded database URL}
+    labels:
+      pp.config-sha256: ${PP_CONFIG_SHA256:?Read the runtime configuration checksum}
     volumes:
       - type: bind
         source: ${PP_RUNTIME_CONFIG:?Select the non-secret TOML file}
@@ -42,6 +44,8 @@ services:
     environment: !override
       PP_CONFIG: /etc/pp/config.toml
       PP_DATABASE_URL: ${PP_DATABASE_URL:?Supply the encoded database URL}
+    labels:
+      pp.config-sha256: ${PP_CONFIG_SHA256:?Read the runtime configuration checksum}
     volumes:
       - type: bind
         source: ${PP_RUNTIME_CONFIG:?Select the non-secret TOML file}
@@ -67,6 +71,8 @@ services:
 
   proxy:
     <<: *runtime
+    labels:
+      pp.config-sha256: ${PP_PROXY_CONFIG_SHA256:?Read the proxy configuration checksum}
     environment:
       PP_STAGING_HOST: ${PP_STAGING_HOST:?Read the HTTPS hostname from TOML}
     ports: !override
@@ -82,5 +88,15 @@ services:
       retries: 10
 
 volumes:
+  postgres-data:
+    external: true
+    name: ${PP_POSTGRES_VOLUME:?Select the existing database volume}
+  photo-data:
+    external: true
+    name: ${PP_PHOTO_VOLUME:?Select the existing photo volume}
   caddy-data:
+    external: true
+    name: ${PP_CADDY_DATA_VOLUME:?Select the existing Caddy data volume}
   caddy-config:
+    external: true
+    name: ${PP_CADDY_CONFIG_VOLUME:?Select the existing Caddy config volume}
