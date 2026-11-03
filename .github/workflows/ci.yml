@@ -27,6 +27,7 @@ jobs:
       rust: ${{ github.event_name == 'push' && 'true' || steps.filter.outputs.rust }}
       web: ${{ github.event_name == 'push' && 'true' || steps.filter.outputs.web }}
       containers: ${{ steps.filter.outputs.containers }}
+      staging: ${{ steps.filter.outputs.staging }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -54,6 +55,26 @@ jobs:
               - ".dockerignore"
               - ".github/workflows/ci.yml"
               - ".github/workflows/cd.yml"
+            staging:
+              - "scripts/deploy-staging.py"
+              - "scripts/test_deploy_staging.py"
+              - "docker-compose.yml"
+              - "compose.staging.yml"
+              - "docker/Caddyfile.staging"
+              - "docker/config.staging.example.toml"
+              - ".github/workflows/ci.yml"
+
+  staging-config:
+    name: Staging deployment configuration
+    needs: changes
+    if: needs.changes.outputs.staging == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
   rust-fmt:
     name: Rust format

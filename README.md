@@ -57,7 +57,17 @@ curl http://localhost:8000/api/v1/health
 
 Expected response: `{"status":"ok"}`. The Compose web container serves the Vite development server for local use; the separate production image runs the SvelteKit Node adapter. Health checks establish process/readiness checks, not the complete proofing workflow.
 
-The current Compose host ports bind to `127.0.0.1`. Other devices on the local network cannot reach them using these defaults. LAN configuration is a later deployment implementation task; these instructions do not change bindings or expose the service publicly.
+The local Compose host ports bind to `127.0.0.1`. Other devices on the local
+network cannot reach them using these defaults. See [LAN staging deployment](#lan-staging-deployment)
+for the separate HTTPS deployment; the development defaults do not expose the
+service publicly.
+
+Stop the local stack with `docker compose down`. This preserves the named
+PostgreSQL and photo volumes. `docker compose down -v` deletes both volumes and
+their contents. The `photo-data` volume is mounted at `/var/lib/pp/photos` in the
+API and worker. Both refuse to start if `PP_PHOTO_DIR` is not writable; natively
+it defaults to `./data/photos`, which must exist and be shared by both processes
+(see [ADR 0003](docs/adr/0003-photo-storage.md)).
 
 ## Published images
 
@@ -68,13 +78,77 @@ all three images published and advances only forward. The production web image
 listens on port `3000`; set `PP_API_INTERNAL_URL` to the API's internal URL and
 route `/api/*` requests to the API.
 
-Stop the stack with:
+### LAN staging deployment
+
+The staging launcher consumes the `staging` Git tag and runs all three published
+images at the same commit, without builds. It requires Python 3.11+, Docker
+Compose 2.24.4+, GitHub CLI access to this repository, and Doppler access to the
+`photo-proofing` project's `stg` config. Private GHCR images additionally require
+an authorized Docker registry login with package read access; never paste tokens
+into commands or logs. Do not change package visibility to bypass authentication.
+
+Install the non-secret [staging TOML example](docker/config.staging.example.toml)
+as `/etc/photo-proofing/config.toml` on the server. Keep database credentials out
+of this file. `auth.app_origin` sets the external HTTPS origin (initially
+`https://pp.test`); the launcher derives Caddy's hostname and the frontend origin
+from it. Use a lowercase hostname without a port, path or trailing slash.
+Keep `session.secure_cookie = true`.
+
+From the deployment checkout containing the Compose files and `scripts/`, run:
 
 ```sh
-docker compose down
+doppler run --project photo-proofing --config stg \
+  --only-secrets POSTGRES_PASSWORD --no-fallback -- \
+  python3 scripts/deploy-staging.py
 ```
 
-This preserves the named PostgreSQL volume. `docker compose down -v` deletes that volume and its database contents. The `photo-data` volume, mounted at `/var/lib/pp/photos` in the API and worker, holds private photo files and is also deleted by `down -v`. The API and worker refuse to start if `PP_PHOTO_DIR` is not a writable directory; natively it defaults to `./data/photos`, which must exist and be shared by both processes (see [ADR 0003](docs/adr/0003-photo-storage.md)).
+This first start publishes HTTPS only on loopback. Before enabling LAN access,
+the owner must create the single photographer account over a trusted connection.
+For example, forward client port 443 to server `127.0.0.1:443` through SSH (local
+port 443 may need administrator privileges) and temporarily resolve `pp.test` to
+`127.0.0.1` on that client. Use the same `https://pp.test` origin, not a different
+local port. Export only Caddy's **public** root certificate to an operator-owned
+location and install it in the client's trust store before opening `/login`:
+
+```sh
+docker cp photo-proofing-staging-proxy-1:/data/caddy/pki/authorities/local/root.crt ./staging-root.crt
+chmod 644 ./staging-root.crt
+```
+
+Do not copy the CA private key or commit generated certificates. After account
+setup, remove the temporary hosts entry/tunnel and rerun with the reserved server
+LAN address, for example:
+
+```sh
+doppler run --project photo-proofing --config stg \
+  --only-secrets POSTGRES_PASSWORD --no-fallback -- \
+  python3 scripts/deploy-staging.py --bind-address 192.168.1.76
+```
+
+Configure the router/local DNS to resolve the chosen hostname to that address,
+and trust the Caddy root on each client. No router port forwarding is needed.
+Only Caddy publishes a host port (TCP 443); database/API/frontend ports stay
+internal. Binding to a LAN IP is not a firewall: verify network/firewall policy
+and keep the server inaccessible from untrusted networks.
+
+The override uses a separate `photo-proofing-staging` project, persistent database,
+photo and Caddy volumes, restart policies, and bounded logs. Do not run `down -v`,
+rotate the database password without updating PostgreSQL, or replace Caddy's CA
+volume casually. Doppler injects the password into runtime environments, where
+root and Docker administrators can still access it. The launcher URL-encodes the
+password, validates Compose without displaying it, pulls before starting services,
+and withholds subprocess diagnostics that might expose credentials. A failed
+pull leaves running containers unchanged; a failed startup may leave a partially
+updated stack. Application migrations are not automatically reversible.
+
+The launcher reports the selected commit and container readiness, not complete
+LAN/browser acceptance. Verify HTTPS with the exported CA (not `--insecure`),
+login, and persistence across container recreation. Hermes auto-deployment is
+not configured. Run deployment checks with Python 3.11+:
+
+```sh
+python3 -m unittest discover -s scripts -p 'test_*.py'
+```
 
 ### Native development
 

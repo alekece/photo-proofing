@@ -31,3 +31,4 @@ node_modules
 /web/build
 /.env
 /data
+__pycache__/
