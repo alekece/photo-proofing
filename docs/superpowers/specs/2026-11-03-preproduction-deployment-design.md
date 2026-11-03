@@ -1,6 +1,6 @@
 # Pre-production container publication
 
-Status: Approved.
+Status: Approved, including the Git tag name `staging`.
 
 Related: [#135](https://github.com/alekece/photo-proofing/issues/135);
 [MVP journey #74](https://github.com/alekece/photo-proofing/issues/74).
@@ -24,9 +24,9 @@ design. No public application service is introduced.
 
 ## Approaches
 
-- **Chosen: immutable commit tags and a pre-production pointer.** Publish each
+- **Chosen: immutable commit tags and a staging pointer.** Publish each
   application image with a full-commit tag, then advance a Git tag named
-  `preprod` only after all images exist. This identifies one consistent set of
+  `staging` only after all images exist. This identifies one consistent set of
   images without requiring server details in the publishing workflow.
 - **Not chosen: moving `dev` image tags only.** A `dev` tag is an alias whose
   target changes; it does not identify a commit. Separate images can temporarily
@@ -54,7 +54,7 @@ Caddy are not application images and are not built or published by this work.
    - `ghcr.io/alekece/pp-web`
 3. Tag each image `sha-<full-commit-sha>`. Do not overwrite an existing
    commit-tagged image on retry; reuse the already-published artifact.
-4. Only after all three images are available, advance the Git tag `preprod` to
+4. Only after all three images are available, advance the Git tag `staging` to
    that commit. Serialize updates and prevent an older run finishing late from
    moving the pointer backwards. The pointer means the latest eligible
    successfully published commit; it is not an image tag.
@@ -94,9 +94,9 @@ Update the existing session ADR for the configurable secure-cookie behavior.
 
 Verify that:
 - Non-main pushes and unsuccessful/incomplete CI cannot publish or advance
-  `preprod`.
+  `staging`.
 - The three immutable image tags refer to the same tested commit.
-- `preprod` advances only after every image is published and cannot regress
+- `staging` advances only after every image is published and cannot regress
   due to out-of-order workflow completion.
 - Retries do not replace a published commit image with different contents.
 - The frontend image runs its production server.
@@ -111,7 +111,7 @@ this work.
 
 Publishing takes place after CI passes; there is no promise of zero downtime or
 an automatic database rollback because this work does not run deployments.
-The deployment consumer is responsible for interpreting the `preprod` Git tag
+The deployment consumer is responsible for interpreting the `staging` Git tag
 and selecting the matching `sha-<commit>` images.
 
 The builder chooses workflow/file names, build caching and focused test
