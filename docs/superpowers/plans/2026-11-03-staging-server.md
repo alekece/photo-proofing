@@ -67,7 +67,7 @@ and explicit existing volume names; installs Compose assets in `/srv/apps/pp-sta
       internal-only ports and all services healthy; remove synthetic markers.
 - [x] Run deployment twice and compare container IDs to verify idempotence; change
       a non-secret TOML setting and prove only API/worker reload as expected.
-- [ ] Obtain one fresh independent review and address material findings; perform a
+- [x] Obtain one fresh independent review and address material findings; perform a
       dedicated scoped refactor pass, update existing PR and retain worktree.
 
 ## Additional user request
@@ -75,3 +75,32 @@ and explicit existing volume names; installs Compose assets in `/srv/apps/pp-sta
 The user ultimately selected no seeded account: fresh databases retain the
 first-time setup page. Deployment never creates accounts or manages account
 credentials. Preserve existing account/data during migration; no implicit reset.
+
+## Migration evidence
+
+The server now runs `pp-staging` at `https://pp.server.home`, using
+`/etc/pp/config.toml` and the non-secret volume/binding settings in
+`/etc/pp/staging.yml`. The durable deployment assets are under
+`/srv/apps/pp-staging`. All four historical volumes were reused, and the old
+containers remain stopped for recovery.
+
+The account/workspace fingerprint, database/photo markers and Caddy root
+certificate survived migration unchanged. Synthetic markers were removed.
+Authenticated HTTPS login, secure session/status/logout, health and internal-only
+ports were verified. A second Ansible run reported `changed=0` with unchanged
+container IDs. A temporary TOML log-level change recreated only API/worker; the
+original settings were restored.
+
+Syntax/configuration checks, actual invalid-input rejection, special-character
+URL encoding, Caddy validation and actionlint passed. The independent reviewer
+found a Python dependency gap: the maintained Docker volume module needs
+`requests`, not the Docker SDK. The isolated-venv failure was reproduced, then
+fixed by declaring `requests` and selecting the same interpreter for local
+modules. Configuration verification now exercises that module to prevent
+regression. The final deployed repeat run again reported `changed=0`.
+
+The scoped refactor pass retained standard Ansible tasks and one shared
+secret-bearing environment block; no additional abstraction or refactor was
+warranted. Client trust/firewall acceptance and GHCR privacy review remain owner
+steps. No application requirement, password rule or account-seeding behavior
+was changed.

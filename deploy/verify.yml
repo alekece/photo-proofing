@@ -3,6 +3,7 @@
   connection: local
   gather_facts: false
   vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
     pp_test_password: "a:@ /?#%"
     pp_environment:
       PP_RUNTIME_CONFIG: "{{ playbook_dir }}/../config.example.toml"
@@ -19,6 +20,10 @@
       PP_CADDY_DATA_VOLUME: existing-caddy-data
       PP_CADDY_CONFIG_VOLUME: existing-caddy-config
   tasks:
+    - name: Exercise Docker module dependencies in the declared Python environment
+      community.docker.docker_volume_info:
+        name: pp-staging-verification-dependency-check
+
     - name: Resolve merged Compose configuration without displaying it
       ansible.builtin.command:
         argv:

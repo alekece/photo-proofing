@@ -3,6 +3,7 @@
   connection: local
   gather_facts: false
   vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
     pp_config_source: /etc/pp/config.toml
     pp_project_dir: /srv/apps/pp-staging
     pp_bind_address: 127.0.0.1
