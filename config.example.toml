@@ -7,6 +7,7 @@ log_level = "info"
 
 [session]
 idle_timeout = "30d"
+secure_cookie = false
 cookie_name = "pp_session"
 
 [database]

@@ -292,7 +292,10 @@ mod tests {
     use sqlx::PgPool;
 
     use super::*;
-    use crate::{api::configure_routes, tests::app_state};
+    use crate::{
+        api::configure_routes,
+        tests::{self, app_state, upload_resources},
+    };
 
     const ORIGIN: &str = "http://localhost:5173";
 
@@ -325,6 +328,7 @@ mod tests {
             .into_owned();
 
         assert_eq!(cookie.http_only(), Some(true));
+        assert!(!cookie.secure().unwrap_or_default());
         assert_eq!(cookie.path(), Some("/"));
         assert!(cookie.max_age().unwrap().whole_seconds() > 0);
 
@@ -334,10 +338,16 @@ mod tests {
             .cookie(cookie.clone())
             .to_request();
 
-        assert_eq!(
-            test::call_service(&app, request).await.status(),
-            StatusCode::NO_CONTENT
-        );
+        let response = test::call_service(&app, request).await;
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let renewed_cookie = response
+            .response()
+            .cookies()
+            .find(|c| c.name() == "pp_session")
+            .unwrap();
+
+        assert!(!renewed_cookie.secure().unwrap_or_default());
 
         let request = test::TestRequest::post()
             .uri("/api/v1/auth/logout")
@@ -345,10 +355,16 @@ mod tests {
             .cookie(cookie.clone())
             .to_request();
 
-        assert_eq!(
-            test::call_service(&app, request).await.status(),
-            StatusCode::NO_CONTENT
-        );
+        let response = test::call_service(&app, request).await;
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let logout_cookie = response
+            .response()
+            .cookies()
+            .find(|c| c.name() == "pp_session")
+            .unwrap();
+
+        assert!(!logout_cookie.secure().unwrap_or_default());
 
         let request = test::TestRequest::post()
             .uri("/api/v1/auth/renew")
@@ -373,6 +389,38 @@ mod tests {
             test::call_service(&app, request).await.status(),
             StatusCode::OK
         );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn secure_cookie_setting_applies_to_issue_and_removal(pool: PgPool) {
+        let (storage, upload_config, _directory) = upload_resources().await;
+        let state = tests::state_with_upload_secure_cookie(pool, storage, upload_config, true);
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+
+        let cookie = tests::sign_up(&app).await;
+
+        assert_eq!(cookie.secure(), Some(true));
+
+        let request = test::TestRequest::post()
+            .uri("/api/v1/auth/logout")
+            .insert_header(("Origin", ORIGIN))
+            .cookie(cookie)
+            .to_request();
+        let response = test::call_service(&app, request).await;
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let removal_cookie = response
+            .response()
+            .cookies()
+            .find(|c| c.name() == "pp_session")
+            .unwrap();
+
+        assert_eq!(removal_cookie.secure(), Some(true));
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

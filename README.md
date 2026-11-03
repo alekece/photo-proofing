@@ -55,9 +55,18 @@ Open `http://localhost:8000/login` and create the installation's single account.
 curl http://localhost:8000/api/v1/health
 ```
 
-Expected response: `{"status":"ok"}`. The web container serves the Vite development server; there is no production deployment adapter configured. Health checks establish process/readiness checks, not the complete proofing workflow.
+Expected response: `{"status":"ok"}`. The Compose web container serves the Vite development server for local use; the separate production image runs the SvelteKit Node adapter. Health checks establish process/readiness checks, not the complete proofing workflow.
 
 The current Compose host ports bind to `127.0.0.1`. Other devices on the local network cannot reach them using these defaults. LAN configuration is a later deployment implementation task; these instructions do not change bindings or expose the service publicly.
+
+## Published images
+
+Successful `main` builds publish private images as `ghcr.io/alekece/pp-api`,
+`ghcr.io/alekece/pp-image-worker`, and `ghcr.io/alekece/pp-web`, each tagged
+`sha-<full-commit-sha>`. The Git tag `staging` points to the newest commit with
+all three images published and advances only forward. The production web image
+listens on port `3000`; set `PP_API_INTERNAL_URL` to the API's internal URL and
+route `/api/*` requests to the API.
 
 Stop the stack with:
 
@@ -101,7 +110,7 @@ Rust process settings use this precedence: CLI flags, environment variables, opt
 cargo run -p pp-api -- --config config.toml
 ```
 
-API settings include `PP_HOST`, `PP_PORT`, `PP_LOG_LEVEL`, `PP_DATABASE_URL`, `PP_APP_ORIGIN`, `PP_SESSION_IDLE_TIMEOUT`, `PP_SESSION_COOKIE_NAME` (default `pp_session`), upload bounds `PP_PHOTO_UPLOAD_MAX_SIZE` (64 MiB), `PP_PHOTO_UPLOAD_MAX_PIXELS` (100,000,000) and `PP_PHOTO_UPLOAD_CONCURRENCY` (4), and the sign-in limiter settings `PP_LIMITER_MAX_FAILURES` (default 10), `PP_LIMITER_WINDOW` (default `1m`) and `PP_LIMITER_MAX_PEERS` (default 1024); worker queue settings are `PP_QUEUE_POLL_INTERVAL` (default `5s`), `PP_QUEUE_LEASE` (`60s`), `PP_QUEUE_CONCURRENCY` (2), `PP_QUEUE_BACKOFF_BASE` (`10s`), `PP_QUEUE_BACKOFF_CAP` (`5m`) and `PP_QUEUE_SHUTDOWN_GRACE` (`30s`), and the worker needs `PP_DATABASE_URL` too; both Rust processes accept `PP_CONFIG` and logging configuration. Use `--help` for process-specific flags. Frontend development proxy target: `PP_API_PROXY_TARGET` (default `http://127.0.0.1:8080`). Server-side auth checks use `PP_API_INTERNAL_URL` with the same native default; Compose sets it to `http://api:8080`. These frontend settings use its Node runtime, not the Rust TOML file.
+API settings include `PP_HOST`, `PP_PORT`, `PP_LOG_LEVEL`, `PP_DATABASE_URL`, `PP_APP_ORIGIN`, `PP_SESSION_IDLE_TIMEOUT`, `PP_SESSION_COOKIE_SECURE` (default `false`; set to `true` behind HTTPS), `PP_SESSION_COOKIE_NAME` (default `pp_session`), upload bounds `PP_PHOTO_UPLOAD_MAX_SIZE` (64 MiB), `PP_PHOTO_UPLOAD_MAX_PIXELS` (100,000,000) and `PP_PHOTO_UPLOAD_CONCURRENCY` (4), and the sign-in limiter settings `PP_LIMITER_MAX_FAILURES` (default 10), `PP_LIMITER_WINDOW` (default `1m`) and `PP_LIMITER_MAX_PEERS` (default 1024); worker queue settings are `PP_QUEUE_POLL_INTERVAL` (default `5s`), `PP_QUEUE_LEASE` (`60s`), `PP_QUEUE_CONCURRENCY` (2), `PP_QUEUE_BACKOFF_BASE` (`10s`), `PP_QUEUE_BACKOFF_CAP` (`5m`) and `PP_QUEUE_SHUTDOWN_GRACE` (`30s`), and the worker needs `PP_DATABASE_URL` too; both Rust processes accept `PP_CONFIG` and logging configuration. Use `--help` for process-specific flags. Frontend development proxy target: `PP_API_PROXY_TARGET` (default `http://127.0.0.1:8080`). Server-side auth checks use `PP_API_INTERNAL_URL` with the same native default; Compose sets it to `http://api:8080`. These frontend settings use its Node runtime, not the Rust TOML file.
 
 Upload admission is shared across API workers and reserved during request extraction. When all slots are occupied, an upload returns `503` without waiting, potentially before gallery or header validation. Authorization still precedes body consumption. A slot remains reserved through persistence and cleanup, and is released on completion, rejection, or cancellation.
 
@@ -112,16 +121,17 @@ Session configuration uses human-readable durations through the existing configu
 ```toml
 [session]
 idle_timeout = "30d"
+secure_cookie = false
 
 [auth]
 app_origin = "http://localhost:5173"
 ```
 
-Equivalent overrides: `PP_SESSION_IDLE_TIMEOUT="12h"` or `--session-idle-timeout "1h 30m"`. The timeout must be at least one second and fit cookie/timestamp arithmetic. Sessions persist across browser restarts. User navigation/interactions renew them with coalescing; passive status requests/background traffic do not. There is no absolute age limit or Remember me checkbox. A timeout change applies to new logins and subsequent renewals. See [ADR 0002](docs/adr/0002-account-sessions.md).
+Equivalent overrides: `PP_SESSION_IDLE_TIMEOUT="12h"` or `--session-idle-timeout "1h 30m"`. Set `PP_SESSION_COOKIE_SECURE=true` or `--session-cookie-secure true` when serving the app over HTTPS; the default is false for local HTTP. The timeout must be at least one second and fit cookie/timestamp arithmetic. Sessions persist across browser restarts. User navigation/interactions renew them with coalescing; passive status requests/background traffic do not. There is no absolute age limit or Remember me checkbox. A timeout change applies to new logins and subsequent renewals. See [ADR 0002](docs/adr/0002-account-sessions.md).
 
 Auth mutations require the configured exact Origin; other/missing origins are rejected, including on login/setup. Browser API calls send their HttpOnly cookie automatically. Credential bodies, hashing concurrency, and sign-in attempts are bounded. The in-process limit defaults to 10 failed credential attempts per peer IP per minute (any rejected login or setup request counts, including malformed or oversized bodies, except `429` refusals and server errors; configurable via the `PP_LIMITER_*` settings; successful sign-ins do not count); behind the current proxy this may be shared by all clients, so one device can still block sign-in with repeated failures, and it resets on API restart. Arbitrary forwarded IP headers are not trusted. At most two password hashes run at once and further sign-in or setup requests are refused with 429 without counting as failures, and the limiter tracks at most `PP_LIMITER_MAX_PEERS` peers (new peers are refused while it is full); neither is a substitute for request throttling, which a public deployment should add at an API gateway.
 
-Compose reads its development settings from [.env.example](.env.example)/`.env`: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `PP_LOG_LEVEL`, `PP_APP_ORIGIN`, `PP_SESSION_IDLE_TIMEOUT`, and the `PP_*_PORT` variables. Changing a published proxy port requires updating `PP_APP_ORIGIN` to match. If database credentials contain URL-special characters, supply a correctly encoded connection URL rather than treating it as plain text. The native Rust TOML configuration is separate; copying it does not configure Compose.
+Compose reads its development settings from [.env.example](.env.example)/`.env`: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `PP_LOG_LEVEL`, `PP_APP_ORIGIN`, `PP_SESSION_IDLE_TIMEOUT`, `PP_SESSION_COOKIE_SECURE`, and the `PP_*_PORT` variables. Changing a published proxy port requires updating `PP_APP_ORIGIN` to match. If database credentials contain URL-special characters, supply a correctly encoded connection URL rather than treating it as plain text. The native Rust TOML configuration is separate; copying it does not configure Compose.
 
 ## Verify and build
 

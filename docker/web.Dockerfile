@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Dev-oriented: serves the SvelteKit dev server (the project has no production adapter yet).
+# Dev-oriented: serves the SvelteKit dev server; production uses docker/web.production.Dockerfile.
 FROM node:24-bookworm-slim
 RUN corepack enable && corepack prepare pnpm@10.13.1 --activate
 WORKDIR /app

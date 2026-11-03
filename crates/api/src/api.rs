@@ -74,6 +74,7 @@ pub(crate) struct ApiState {
     origin: Origin,
     idle_timeout: CookieDuration,
     cookie_name: CookieName,
+    secure_cookie: bool,
     // The same span as `idle_timeout` in the cookie crate's type, converted once at startup.
     cookie_max_age: CookieMaxAge,
     hash_slots: Arc<Semaphore>,
@@ -97,6 +98,7 @@ impl ApiState {
             origin: auth.app_origin,
             idle_timeout: session.idle_timeout,
             cookie_name: session.cookie_name,
+            secure_cookie: session.secure_cookie.unwrap_or_default(),
             // `CookieDuration` bounds the timeout far below the cookie and timestamp limits,
             // so adding it to the current time cannot overflow for centuries.
             cookie_max_age: CookieMaxAge::try_from(session.idle_timeout.get())?,
@@ -139,7 +141,7 @@ impl ApiState {
 
     /// The session cookie for `token`, living as long as the idle timeout.
     ///
-    /// `Secure` stays off because the trusted-LAN trial runs over plain HTTP (see ADR 0002).
+    /// The `Secure` attribute follows the session configuration.
     pub fn session_cookie(&self, token: &SessionToken) -> Cookie<'static> {
         self.cookie(token.as_str())
     }
@@ -191,7 +193,7 @@ impl ApiState {
             .path("/")
             .http_only(true)
             .same_site(SameSite::Lax)
-            .secure(false)
+            .secure(self.secure_cookie)
             .max_age(self.cookie_max_age)
             .finish()
     }

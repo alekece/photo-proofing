@@ -27,6 +27,7 @@ services:
       PP_DATABASE_URL: postgres://${POSTGRES_USER:-pp}:${POSTGRES_PASSWORD:-pp-local-only}@postgres:5432/${POSTGRES_DB:-pp}
       PP_APP_ORIGIN: ${PP_APP_ORIGIN:-http://localhost:8000}
       PP_SESSION_IDLE_TIMEOUT: ${PP_SESSION_IDLE_TIMEOUT:-30d}
+      PP_SESSION_COOKIE_SECURE: ${PP_SESSION_COOKIE_SECURE:-false}
     volumes:
       - photo-data:/var/lib/pp/photos
     ports:

@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -24,8 +24,9 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      rust: ${{ steps.filter.outputs.rust }}
-      web: ${{ steps.filter.outputs.web }}
+      rust: ${{ github.event_name == 'push' && 'true' || steps.filter.outputs.rust }}
+      web: ${{ github.event_name == 'push' && 'true' || steps.filter.outputs.web }}
+      containers: ${{ steps.filter.outputs.containers }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -39,9 +40,20 @@ jobs:
               - "rustfmt.toml"
               - "deny.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/cd.yml"
             web:
               - "web/**"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/cd.yml"
+            containers:
+              - "crates/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "web/**"
+              - "docker/**"
+              - ".dockerignore"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/cd.yml"
 
   rust-fmt:
     name: Rust format
@@ -181,8 +193,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm audit --prod
 
   web-test:
@@ -226,3 +236,15 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+
+  container-build:
+    name: Build application images
+    needs: changes
+    if: needs.changes.outputs.containers == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - run: docker buildx build --load --file docker/api.Dockerfile --tag pp-api:ci .
+      - run: docker buildx build --load --file docker/worker.Dockerfile --tag pp-image-worker:ci .
+      - run: docker buildx build --load --file docker/web.production.Dockerfile --tag pp-web:ci .
