@@ -7,7 +7,7 @@ Related: [#137](https://github.com/alekece/photo-proofing/issues/137).
 
 ## Outcome and boundaries
 
-Run the published PhotoProofing application at `https://pp.server.home` on the private
+Run the published PhotoProofing application at an operator-configured HTTPS origin on a private
 server, reachable only on the LAN. Preserve database and photo data across
 container replacement and ordinary server restarts. Use synthetic trial data.
 This does not change product requirements or MVP acceptance.
@@ -51,7 +51,7 @@ container/HTTPS overrides without duplicating the full example. Do not change
 local development defaults or add a production configuration.
 
 Make the public HTTPS origin configurable through the TOML `auth.app_origin`,
-currently `https://pp.server.home`. Derive Caddy's hostname and the frontend's external
+using a server-owned value. Derive Caddy's hostname and the frontend's external
 origin from that value rather than maintaining independent settings. Validate
 the origin before deployment; this LAN setup supports an HTTPS hostname without
 a path, query, credentials, or nonstandard port. Enable secure cookies, listen
@@ -67,13 +67,21 @@ internal API URL and external origin consistently.
 
 Use Caddy's internal certificate authority. Preserve its state across recreation.
 The owner reserves the server's LAN address, adds a LAN DNS record for the
-configured hostname (currently `pp.server.home`), and installs only the CA's public root
+configured hostname, and installs only the CA's public root
 certificate on client devices. Changing the hostname also requires updating LAN
 DNS. Never copy the CA's private key. Do not configure router port forwarding or
 public DNS. Confirm firewall/network controls separately; LAN binding alone is
 not a firewall.
 
 ## Secrets and safety
+
+Keep deployment tooling in this repository, but keep real installation details
+outside it: hostnames, network addresses, volume mappings, secret-manager
+project/config identifiers, account details and certificates. Examples and CI
+fixtures use reserved `.example` hostnames and synthetic values. Apply the same
+rule to documentation, PR/issue text and shared logs. Suppress installation
+metadata in ordinary Ansible output and configuration diffs; verbose/debug
+logging and fact caching must not be used with real settings.
 
 Select an explicit Doppler project and staging config. Inject only the necessary
 database secrets at runtime; fail if unavailable. Generate a correctly URL-encoded
@@ -86,7 +94,7 @@ deployment artifacts. Doppler does not conceal runtime secrets from root or
 Docker administrators. Do not overwrite existing data or credentials.
 
 Run Ansible locally on the server under `doppler run`, injecting only
-`POSTGRES_PASSWORD` from `photo-proofing/stg`. Secret-bearing tasks use `no_log`
+`POSTGRES_PASSWORD` from an operator-selected project/config. Sensitive tasks use `no_log`
 and do not cache facts or write secret-bearing environment files. Use standard
 Ansible tasks, filters and maintained modules, not a Python/shell wrapper or
 custom Ansible plugin. Declare the required Ansible collection explicitly.
@@ -101,12 +109,10 @@ services are running, HTTPS succeeds using the Caddy root certificate, API healt
 returns the expected response, and login is reachable without insecure TLS
 bypasses. Recreate containers without removing volumes and verify persistence.
 
-Bootstrap the photographer account before making the service available to other
-LAN users. Account credentials remain owner-controlled.
-
 Do not seed an account or manage account credentials in deployment or Doppler.
 Fresh installations retain the first-time setup page for testing. Existing
 accounts are preserved; deployment is not a database-reset operation.
+The owner completes setup before enabling LAN access.
 
 Record the selected SHA and any limitations without secrets. Verify device DNS
 and certificate trust separately before declaring browser access ready. Retaining
@@ -115,13 +121,12 @@ database migrations; no automatic database rollback is promised.
 
 ## Operational boundaries
 
-The existing staging account is already bootstrapped and LAN publication is
-enabled. Preserve the current origin and LAN binding during migration. Do not
+For an existing installation, preserve its origin and binding during migration. Do not
 recreate or reset the account, rotate credentials, or change router settings.
 
-The server uses Doppler project `photo-proofing`, config `stg`, injecting only
-`POSTGRES_PASSWORD`. The deployment bundle is separate from the existing checkout
-at `/srv/apps/photo-proofing-staging`. Move the managed deployment bundle to
+The operator selects Doppler project/config privately, injecting only
+`POSTGRES_PASSWORD`. Keep the deployment bundle separate from application checkouts.
+Move the managed deployment bundle to
 `/srv/apps/pp-staging` as part of the migration; application code comes from
 published images rather than the old server checkout.
 
@@ -146,8 +151,6 @@ trusted HTTPS, no internal service ports published, and a second deployment that
 does not recreate healthy containers unnecessarily. Keep recovery instructions
 for restarting the old project with the same volumes if migration fails.
 
-Registry privacy is a separate operator prerequisite: the initial API image
-manifest was accessible with an empty Docker credential configuration, despite
-the publication design expecting private packages. Do not silently change package
-visibility or broaden account scopes. Private packages require an authorized
-registry credential; the existing GitHub CLI token lacks `read:packages`.
+Registry privacy is a separate operator prerequisite. Verify package visibility
+and authorized pulls without silently changing package visibility or broadening
+account scopes. Private packages require an authorized registry credential.

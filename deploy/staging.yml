@@ -12,6 +12,7 @@
     pp_compose_files: [docker-compose.yml, compose.staging.yml]
   tasks:
     - name: Require explicit persistent volume selection
+      no_log: true
       ansible.builtin.assert:
         that:
           - pp_volumes is defined
@@ -21,6 +22,7 @@
         fail_msg: Supply the four existing volume names in pp_volumes; deployment never guesses or creates data volumes.
 
     - name: Require an RFC1918 IPv4 or loopback binding
+      no_log: true
       ansible.builtin.assert:
         that:
           - pp_bind_address is match('^(127\.0\.0\.1|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|192\.168\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3})$')
@@ -61,12 +63,14 @@
       no_log: true
 
     - name: Verify the selected data volumes already exist
+      no_log: true
       community.docker.docker_volume_info:
         name: "{{ item }}"
       loop: "{{ pp_volumes.values() | list }}"
       register: pp_volume_checks
 
     - name: Refuse to deploy an empty replacement installation
+      no_log: true
       ansible.builtin.assert:
         that:
           - pp_volume_checks.results | selectattr('exists', 'equalto', true) | list | length == 4
@@ -80,6 +84,7 @@
       become: true
 
     - name: Install existing non-secret configuration at its canonical path
+      no_log: true
       ansible.builtin.copy:
         src: "{{ pp_config_source }}"
         dest: "{{ pp_config_path }}"
@@ -104,6 +109,7 @@
       loop: [docker, deploy]
 
     - name: Install Compose files and proxy configuration
+      diff: false
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../{{ item }}"
         dest: "{{ pp_project_dir }}/{{ item }}"
@@ -185,6 +191,7 @@
           when: not pp_prepare_only | bool
 
     - name: Read only the public CA certificate
+      no_log: true
       ansible.builtin.command:
         argv:
           - docker
@@ -197,6 +204,7 @@
       when: not pp_prepare_only | bool
 
     - name: Export the public CA for client installation
+      no_log: true
       ansible.builtin.copy:
         content: "{{ pp_public_ca.stdout }}\n"
         dest: /etc/pp/staging-root.crt
@@ -208,5 +216,4 @@
       ansible.builtin.debug:
         msg: >-
           {{ 'Prepared' if pp_prepare_only | bool else 'Deployed' }}
-          {{ pp_release.stdout }} for {{ pp_config.auth.app_origin }}
-          on {{ pp_bind_address }}; client DNS and CA trust require separate acceptance.
+          {{ pp_release.stdout }}; client DNS and CA trust require separate acceptance.

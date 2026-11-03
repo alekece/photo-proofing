@@ -84,7 +84,8 @@ route `/api/*` requests to the API.
 `community.docker` Compose modules to pull and reconcile one published commit.
 Run it locally on the server from a checkout containing these deployment assets.
 Prerequisites: Python 3.12+, Docker Compose 2.24.4+, working Docker access, GitHub
-CLI access to the repository, Doppler `photo-proofing/stg`, and sudo for `/etc/pp`.
+CLI access to the repository, an operator-selected Doppler project/config, and sudo
+for `/etc/pp`.
 Private GHCR images also require authorized Docker registry credentials; never
 paste tokens into commands or logs or change visibility to bypass authentication.
 
@@ -103,25 +104,25 @@ for server-owned `/etc/pp/config.toml`. Preserve its existing values on upgrades
 For containers set `host = "0.0.0.0"`, `port = 8080`, and
 `photo.dir = "/var/lib/pp/photos"`. Omit `[database]`: Doppler supplies the password
 and Ansible derives the URL. Set `session.secure_cookie = true` and
-`auth.app_origin = "https://pp.server.home"` (or your chosen HTTPS hostname without
-a port, path or trailing slash). Proxy and frontend origins derive from this
+`auth.app_origin = "https://proofing.example"` (replace this reserved example with
+your HTTPS hostname without a port, path or trailing slash). Proxy and frontend origins derive from this
 setting, and checksum labels reload API/worker when the TOML changes.
 
-Create a **non-secret**, server-owned `/etc/pp/staging.yml` with the LAN binding
-and four existing volume names. For the installation migrated from the old project:
+Create a **private**, server-owned `/etc/pp/staging.yml` with the binding
+and four existing volume names. The following values are examples, not an inventory:
 
 ```yaml
-pp_bind_address: 192.168.1.76
+pp_bind_address: 127.0.0.1
 pp_volumes:
-  postgres: photo-proofing-staging_postgres-data
-  photos: photo-proofing-staging_photo-data
-  caddy_data: photo-proofing-staging_caddy-data
-  caddy_config: photo-proofing-staging_caddy-config
+  postgres: example-postgres
+  photos: example-photos
+  caddy_data: example-caddy-data
+  caddy_config: example-caddy-config
 ```
 
-The project is named **`pp-staging`**. Historical volume names are intentionally
-retained as external volumes, not recreated or renamed. A fresh installation
-must explicitly provision its four empty Docker volumes and supply their names;
+The project is named **`pp-staging`**. Supply the actual existing volumes for your
+installation; they are external volumes, not recreated or renamed. A fresh
+installation must explicitly provision its four empty Docker volumes and supply their names;
 the playbook refuses missing volumes to prevent accidental empty replacements.
 For fresh setup, initially use `pp_bind_address: 127.0.0.1` and a trusted SSH tunnel
 that preserves the configured origin. No account is seeded: the first-time setup
@@ -130,23 +131,24 @@ page creates the owner account. Do that before enabling LAN access.
 Deploy manually, with the virtual environment active:
 
 ```sh
-doppler run --project photo-proofing --config stg \
+doppler run --project "$DOPPLER_PROJECT" --config "$DOPPLER_CONFIG" \
   --only-secrets POSTGRES_PASSWORD --no-fallback -- \
   ansible-playbook -i localhost, deploy/staging.yml -e @/etc/pp/staging.yml
 ```
 
+Set `DOPPLER_PROJECT` and `DOPPLER_CONFIG` privately on the server before running.
 Add `--ask-become-pass` if sudo requires a password. If the system's locale is
-unavailable, set `LC_ALL=C.UTF-8` for Ansible. Secret-bearing tasks use `no_log`;
-do not enable fact caching or debug logging with real credentials. Doppler
-protects stored secrets, not their runtime environment from root/Docker admins.
+unavailable, set `LC_ALL=C.UTF-8` for Ansible. Tasks handling credentials or
+installation metadata use `no_log`; do not enable fact caching or verbose/debug
+logging with real settings. Doppler protects stored secrets, not their runtime
+environment from root/Docker admins.
 Ansible does not create accounts or manage their credentials in Doppler.
 
 The deployment bundle is installed under `/srv/apps/pp-staging`. Public Caddy CA
 export: `/etc/pp/staging-root.crt`; install it into each client's trust store.
-Never export its private key. Configure LAN DNS (`pp.server.home` resolves to the
-reserved server IP); Freebox's **DNS local** field adds `.home`, so enter
-`pp.server`. Only TCP 443 is published, bound to the chosen IPv4 address. A LAN
-binding is not a firewall; verify network restrictions and do not forward router
+Never export its private key. Configure private DNS so your chosen hostname resolves
+to the reserved server IP. Only TCP 443 is published, bound to the chosen IPv4
+address. A LAN binding is not a firewall; verify network restrictions and do not forward router
 ports. DNS may also return IPv6, but this deployment only publishes IPv4.
 
 The playbook validates and pulls before reconciliation and never builds images.
@@ -158,12 +160,21 @@ HTTPS with the public CA, not `--insecure`. Hermes automation is not configured.
 
 For the one-time project/path migration, keep the old deployment bundle, config
 and volume-name record until verification is complete. First run the new playbook
-with `-e pp_config_source=/etc/photo-proofing/config.toml -e pp_prepare_only=true`
+with `-e pp_config_source=/path/to/existing/config.toml -e pp_prepare_only=true`
 to install preserved settings, validate and pull without starting the replacement.
 Stop the old project's containers without deleting volumes, then run normally.
 If startup fails, stop `pp-staging` containers to release the port and restart the
 old containers; do not run two PostgreSQL instances against the same volume.
 The old public root remains valid because the Caddy data volume is shared.
+
+Deployment tooling remains in this repository, but real hostnames, addresses,
+volume mappings, account details, secret-manager identifiers and certificates
+must remain outside Git. This also applies to CI fixtures, documentation, PR/issue
+text and shared logs. Use reserved `.example` hostnames and synthetic values in
+public examples. Keep runtime configuration and deployment variable files under
+`/etc/pp`; they contain private installation details even when they contain no
+passwords. The local `deploy/*.local.yml` pattern is ignored as an additional
+safeguard, not a substitute for reviewing changes before committing.
 
 Validate deployment assets without production secrets:
 

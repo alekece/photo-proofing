@@ -26,6 +26,7 @@ rustc-ice-*.txt
 # Local development
 .worktrees/
 /config.toml
+/deploy/*.local.yml
 node_modules
 /web/.svelte-kit
 /web/build

@@ -7,8 +7,8 @@
     pp_test_password: "a:@ /?#%"
     pp_environment:
       PP_RUNTIME_CONFIG: "{{ playbook_dir }}/../config.example.toml"
-      PP_APP_ORIGIN: https://pp.server.home
-      PP_STAGING_HOST: pp.server.home
+      PP_APP_ORIGIN: https://proofing.example
+      PP_STAGING_HOST: proofing.example
       PP_BIND_ADDRESS: 127.0.0.1
       PP_IMAGE_TAG: sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       PP_CONFIG_SHA256: synthetic-checksum
@@ -62,7 +62,7 @@
           - "'PP_APP_ORIGIN' not in stack.services.api.environment"
           - "'PP_SESSION_COOKIE_SECURE' not in stack.services.api.environment"
           - stack.services.api.environment.PP_DATABASE_URL == 'postgres://pp:a%3A%40%20%2F%3F%23%25@postgres:5432/pp'
-          - stack.services.web.environment.ORIGIN == 'https://pp.server.home'
+          - stack.services.web.environment.ORIGIN == 'https://proofing.example'
           - stack.services.web.environment.PP_API_INTERNAL_URL == 'http://api:8080'
           - stack.volumes['postgres-data'].name == 'existing-postgres'
           - stack.volumes['photo-data'].name == 'existing-photos'
@@ -110,7 +110,7 @@
               host = "0.0.0.0"
               port = 8080
               [auth]
-              app_origin = "{{ item }}://pp.server.home"
+              app_origin = "{{ item }}://proofing.example"
               [session]
               secure_cookie = true
               [photo]
@@ -145,6 +145,80 @@
           loop: "{{ pp_rejected.results }}"
           loop_control:
             label: rejected input
+
+        - name: Run real preflight with private installation metadata
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_playbook_python | dirname }}/ansible-playbook"
+              - -i
+              - localhost,
+              - "{{ playbook_dir }}/staging.yml"
+              - --diff
+              - -e
+              - "{{ {'pp_config_source': pp_invalid_config.path ~ '/https.toml', 'pp_bind_address': item, 'pp_volumes': {'postgres': 'privacy-test-postgres', 'photos': 'privacy-test-photos', 'caddy_data': 'privacy-test-caddy-data', 'caddy_config': 'privacy-test-caddy-config'}} | to_json }}"
+          environment:
+            POSTGRES_PASSWORD: synthetic-only
+          loop: [192.0.2.1, 10.77.88.99]
+          register: pp_private_preflight
+          changed_when: false
+          failed_when: false
+          no_log: true
+
+        - name: Require failures without disclosing installation metadata
+          ansible.builtin.assert:
+            that:
+              - item.rc != 0
+              - "'proofing.example' not in item.stdout ~ item.stderr"
+              - "'privacy-test-' not in item.stdout ~ item.stderr"
+              - "'192.0.2.1' not in item.stdout ~ item.stderr"
+              - "'10.77.88.99' not in item.stdout ~ item.stderr"
+              - "'Reconcile the stack' not in item.stdout"
+              - "('Require an RFC1918 IPv4 or loopback binding' if item.item == '192.0.2.1' else 'Refuse to deploy an empty replacement installation') in item.stdout"
+            quiet: true
+          loop: "{{ pp_private_preflight.results }}"
+          no_log: true
+
+        - name: Prepare a synthetic existing deployment bundle
+          ansible.builtin.file:
+            path: "{{ pp_invalid_config.path }}/bundle/{{ item }}"
+            state: directory
+            mode: "0700"
+          loop: [deploy, docker]
+
+        - name: Write synthetic private metadata into an old deployment asset
+          ansible.builtin.copy:
+            dest: "{{ pp_invalid_config.path }}/bundle/deploy/verify.yml"
+            mode: "0600"
+            content: "previous_origin: https://old-installation.example\n"
+
+        - name: Preview the real asset upgrade without deployment or network access
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_playbook_python | dirname }}/ansible-playbook"
+              - -i
+              - localhost,
+              - "{{ playbook_dir }}/staging.yml"
+              - --check
+              - --diff
+              - --start-at-task
+              - Install Compose files and proxy configuration
+              - -e
+              - "{{ {'pp_project_dir': pp_invalid_config.path ~ '/bundle'} | to_json }}"
+          register: pp_asset_upgrade
+          changed_when: false
+          failed_when: false
+          no_log: true
+
+        - name: Require the upgrade preview to hide old asset contents
+          ansible.builtin.assert:
+            that:
+              - pp_asset_upgrade.rc != 0
+              - "'Install Compose files and proxy configuration' in pp_asset_upgrade.stdout"
+              - "'Require a full commit SHA' in pp_asset_upgrade.stdout"
+              - "'old-installation.example' not in pp_asset_upgrade.stdout ~ pp_asset_upgrade.stderr"
+              - "'Pull the complete release' not in pp_asset_upgrade.stdout"
+            quiet: true
+          no_log: true
       always:
         - name: Remove synthetic runtime configuration
           ansible.builtin.file:

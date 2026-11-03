@@ -77,7 +77,7 @@ jobs:
       - run: ansible-galaxy collection install -r deploy/requirements.yml
       - run: ansible-playbook -i localhost, deploy/staging.yml --syntax-check
       - run: ansible-playbook -i localhost, deploy/verify.yml
-      - run: docker run --rm --entrypoint caddy -e PP_STAGING_HOST=pp.server.home -v "$PWD/docker/Caddyfile.staging:/etc/caddy/Caddyfile:ro" caddy:2-alpine validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - run: docker run --rm --entrypoint caddy -e PP_STAGING_HOST=proofing.example -v "$PWD/docker/Caddyfile.staging:/etc/caddy/Caddyfile:ro" caddy:2-alpine validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
   rust-fmt:
     name: Rust format

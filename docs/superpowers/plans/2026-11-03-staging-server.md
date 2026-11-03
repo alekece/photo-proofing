@@ -10,7 +10,7 @@ Ansible tasks read non-secret TOML, resolve one release, validate and pull the
 Compose stack, then reconcile it with `community.docker` modules.
 
 **Tech Stack:** Ansible Core, community.docker, Docker Compose,
-Doppler, Caddy, existing Python 3.14 on the server.
+Doppler, Caddy, Python 3.12+.
 
 **Spec:** `docs/superpowers/specs/2026-11-03-staging-server-design.md`
 
@@ -20,7 +20,8 @@ Doppler, Caddy, existing Python 3.14 on the server.
 
 - Server config is `/etc/pp/config.toml`; Compose project is `pp-staging`.
 - Root `config.example.toml` is the only example; retain development defaults.
-- Preserve `https://pp.server.home`, LAN-only binding and existing external volumes.
+- Preserve the server-owned origin, LAN-only binding and existing external volumes.
+- Keep real installation details outside Git and public discussion; use synthetic fixtures.
 - Never display/persist secret values; secret-bearing tasks use `no_log`.
 - No database reset, credential rotation, public exposure or Hermes automation.
 
@@ -78,7 +79,7 @@ credentials. Preserve existing account/data during migration; no implicit reset.
 
 ## Migration evidence
 
-The server now runs `pp-staging` at `https://pp.server.home`, using
+The migration verified `pp-staging` at the server-owned origin, using
 `/etc/pp/config.toml` and the non-secret volume/binding settings in
 `/etc/pp/staging.yml`. The durable deployment assets are under
 `/srv/apps/pp-staging`. All four historical volumes were reused, and the old
@@ -98,6 +99,13 @@ found a Python dependency gap: the maintained Docker volume module needs
 fixed by declaring `requests` and selecting the same interpreter for local
 modules. Configuration verification now exercises that module to prevent
 regression. The final deployed repeat run again reported `changed=0`.
+
+Privacy corrections replace installation-specific examples with synthetic values,
+keep Doppler identifiers server-owned, and hide installation metadata in Ansible
+output and configuration diffs. The verification playbook exercises rejected
+bindings and missing-volume failures without disclosing synthetic private metadata.
+Fresh review identified that upgrade diffs could disclose old asset contents;
+disable asset-copy diffs and cover that path with a synthetic check-mode upgrade.
 
 The scoped refactor pass retained standard Ansible tasks and one shared
 secret-bearing environment block; no additional abstraction or refactor was
