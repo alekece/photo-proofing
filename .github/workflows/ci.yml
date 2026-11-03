@@ -63,8 +63,8 @@ jobs:
               - "docker/Caddyfile.staging"
               - ".github/workflows/ci.yml"
 
-  staging-config:
-    name: Staging deployment configuration
+  deployment-checks:
+    name: Deployment checks
     needs: changes
     if: needs.changes.outputs.staging == 'true'
     runs-on: ubuntu-latest
