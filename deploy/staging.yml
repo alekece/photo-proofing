@@ -1,0 +1,219 @@
+- name: Deploy LAN staging from published images
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    pp_config_source: /etc/pp/config.toml
+    pp_project_dir: /srv/apps/pp-staging
+    pp_bind_address: 127.0.0.1
+    pp_prepare_only: false
+    pp_config_path: /etc/pp/config.toml
+    pp_compose_files: [docker-compose.yml, compose.staging.yml]
+  tasks:
+    - name: Require explicit persistent volume selection
+      no_log: true
+      ansible.builtin.assert:
+        that:
+          - pp_volumes is defined
+          - pp_volumes is mapping
+          - pp_volumes.keys() | sort == ['caddy_config', 'caddy_data', 'photos', 'postgres']
+          - pp_volumes.values() | unique | length == 4
+        fail_msg: Supply the four existing volume names in pp_volumes; deployment never guesses or creates data volumes.
+
+    - name: Require an RFC1918 IPv4 or loopback binding
+      no_log: true
+      ansible.builtin.assert:
+        that:
+          - pp_bind_address is match('^(127\.0\.0\.1|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|192\.168\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3})$')
+        fail_msg: Only loopback or a private LAN IPv4 address may be published.
+
+    - name: Read non-secret server-owned configuration
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - -c
+          - "import json,sys,tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], 'rb'))))"
+          - "{{ pp_config_source }}"
+      changed_when: false
+      register: pp_toml
+      no_log: true
+
+    - name: Parse configuration and require the database password
+      ansible.builtin.set_fact:
+        pp_config: "{{ pp_toml.stdout | from_json }}"
+        pp_password: "{{ lookup('ansible.builtin.env', 'POSTGRES_PASSWORD', default=undef()) }}"
+      no_log: true
+
+    - name: Validate container settings and exact HTTPS origin
+      ansible.builtin.assert:
+        that:
+          - pp_config.auth is mapping
+          - pp_config.session is mapping
+          - pp_config.auth.app_origin is match('^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?\Z')
+          - pp_config.auth.app_origin | length <= 261
+          - pp_config.auth.app_origin | urlsplit('hostname') is match('^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*\Z')
+          - pp_config.session.secure_cookie is sameas true
+          - pp_config.host == '0.0.0.0'
+          - pp_config.port == 8080
+          - pp_config.photo.dir == '/var/lib/pp/photos'
+          - "'database' not in pp_config"
+          - pp_password | length > 0
+        fail_msg: Use non-secret container TOML settings, HTTPS with secure cookies, and inject POSTGRES_PASSWORD with Doppler.
+      no_log: true
+
+    - name: Verify the selected data volumes already exist
+      no_log: true
+      community.docker.docker_volume_info:
+        name: "{{ item }}"
+      loop: "{{ pp_volumes.values() | list }}"
+      register: pp_volume_checks
+
+    - name: Refuse to deploy an empty replacement installation
+      no_log: true
+      ansible.builtin.assert:
+        that:
+          - pp_volume_checks.results | selectattr('exists', 'equalto', true) | list | length == 4
+        fail_msg: A selected volume is missing; provision fresh volumes explicitly or correct the migration names.
+
+    - name: Create the runtime configuration directory
+      ansible.builtin.file:
+        path: /etc/pp
+        state: directory
+        mode: "0755"
+      become: true
+
+    - name: Install existing non-secret configuration at its canonical path
+      no_log: true
+      ansible.builtin.copy:
+        src: "{{ pp_config_source }}"
+        dest: "{{ pp_config_path }}"
+        remote_src: true
+        mode: "0644"
+      become: true
+      when: pp_config_source != pp_config_path
+
+    - name: Fingerprint configuration to reload API and worker on changes
+      ansible.builtin.stat:
+        path: "{{ pp_config_path }}"
+        checksum_algorithm: sha256
+      register: pp_config_stat
+
+    - name: Create deployment directories
+      ansible.builtin.file:
+        path: "{{ pp_project_dir }}/{{ item }}"
+        state: directory
+        mode: "0755"
+        owner: "{{ lookup('ansible.builtin.env', 'USER') }}"
+      become: true
+      loop: [docker, deploy]
+
+    - name: Install Compose files and proxy configuration
+      diff: false
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../{{ item }}"
+        dest: "{{ pp_project_dir }}/{{ item }}"
+        mode: "0644"
+      loop:
+        - docker-compose.yml
+        - compose.staging.yml
+        - docker/Caddyfile.staging
+        - config.example.toml
+        - deploy/staging.yml
+        - deploy/verify.yml
+        - deploy/requirements.yml
+        - deploy/requirements.txt
+
+    - name: Resolve the published staging commit once
+      ansible.builtin.command:
+        argv: [gh, api, repos/alekece/photo-proofing/commits/staging, --jq, .sha]
+      register: pp_release
+      changed_when: false
+
+    - name: Require a full commit SHA
+      ansible.builtin.assert:
+        that:
+          - pp_release.stdout is match('^[0-9a-f]{40}$')
+
+    - name: Validate and pull before changing running services
+      environment:
+        PP_RUNTIME_CONFIG: "{{ pp_config_path }}"
+        PP_APP_ORIGIN: "{{ pp_config.auth.app_origin }}"
+        PP_STAGING_HOST: "{{ pp_config.auth.app_origin | urlsplit('hostname') }}"
+        PP_BIND_ADDRESS: "{{ pp_bind_address }}"
+        PP_IMAGE_TAG: "sha-{{ pp_release.stdout }}"
+        PP_CONFIG_SHA256: "{{ pp_config_stat.stat.checksum }}"
+        PP_PROXY_CONFIG_SHA256: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../docker/Caddyfile.staging', rstrip=false) | hash('sha256') }}"
+        POSTGRES_PASSWORD: "{{ pp_password }}"
+        PP_DATABASE_URL: "postgres://pp:{{ pp_password | urlencode | replace('/', '%2F') }}@postgres:5432/pp"
+        PP_POSTGRES_VOLUME: "{{ pp_volumes.postgres }}"
+        PP_PHOTO_VOLUME: "{{ pp_volumes.photos }}"
+        PP_CADDY_DATA_VOLUME: "{{ pp_volumes.caddy_data }}"
+        PP_CADDY_CONFIG_VOLUME: "{{ pp_volumes.caddy_config }}"
+      no_log: true
+      block:
+        - name: Validate merged Compose without printing credentials
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - --env-file
+              - /dev/null
+              - --project-name
+              - pp-staging
+              - -f
+              - "{{ pp_project_dir }}/docker-compose.yml"
+              - -f
+              - "{{ pp_project_dir }}/compose.staging.yml"
+              - config
+              - --quiet
+          changed_when: false
+
+        - name: Pull the complete release before reconciliation
+          community.docker.docker_compose_v2_pull:
+            project_src: "{{ pp_project_dir }}"
+            project_name: pp-staging
+            files: "{{ pp_compose_files }}"
+            env_files: [/dev/null]
+
+        - name: Reconcile the stack without builds or additional pulls
+          community.docker.docker_compose_v2:
+            project_src: "{{ pp_project_dir }}"
+            project_name: pp-staging
+            files: "{{ pp_compose_files }}"
+            env_files: [/dev/null]
+            state: present
+            build: never
+            pull: never
+            recreate: auto
+            wait: true
+            wait_timeout: 180
+          when: not pp_prepare_only | bool
+
+    - name: Read only the public CA certificate
+      no_log: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - pp-staging-proxy-1
+          - cat
+          - /data/caddy/pki/authorities/local/root.crt
+      changed_when: false
+      register: pp_public_ca
+      when: not pp_prepare_only | bool
+
+    - name: Export the public CA for client installation
+      no_log: true
+      ansible.builtin.copy:
+        content: "{{ pp_public_ca.stdout }}\n"
+        dest: /etc/pp/staging-root.crt
+        mode: "0644"
+      become: true
+      when: not pp_prepare_only | bool
+
+    - name: Report the selected release without secrets
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Prepared' if pp_prepare_only | bool else 'Deployed' }}
+          {{ pp_release.stdout }}; client DNS and CA trust require separate acceptance.

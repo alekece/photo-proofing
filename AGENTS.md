@@ -6,6 +6,10 @@ This file is the shared repository policy for Codex, GitHub Copilot coding agent
 - [`web/AGENTS.md`](web/AGENTS.md): SvelteKit frontend commands and conventions.
 
 Never put secrets in logs, spans, or commits, in any language.
+Keep real deployment hostnames, addresses, volume mappings, account details,
+secret-manager identifiers and certificates outside Git, public discussion and
+shared logs. Deployment tooling stays generic; examples and CI use synthetic
+values and reserved domains.
 
 ## Working with Existing Code
 

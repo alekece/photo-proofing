@@ -27,6 +27,7 @@ jobs:
       rust: ${{ github.event_name == 'push' && 'true' || steps.filter.outputs.rust }}
       web: ${{ github.event_name == 'push' && 'true' || steps.filter.outputs.web }}
       containers: ${{ steps.filter.outputs.containers }}
+      staging: ${{ steps.filter.outputs.staging }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -54,6 +55,29 @@ jobs:
               - ".dockerignore"
               - ".github/workflows/ci.yml"
               - ".github/workflows/cd.yml"
+            staging:
+              - "deploy/**"
+              - "config.example.toml"
+              - "docker-compose.yml"
+              - "compose.staging.yml"
+              - "docker/Caddyfile.staging"
+              - ".github/workflows/ci.yml"
+
+  deployment-checks:
+    name: Deployment checks
+    needs: changes
+    if: needs.changes.outputs.staging == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install -r deploy/requirements.txt
+      - run: ansible-galaxy collection install -r deploy/requirements.yml
+      - run: ansible-playbook -i localhost, deploy/staging.yml --syntax-check
+      - run: ansible-playbook -i localhost, deploy/verify.yml
+      - run: docker run --rm --entrypoint caddy -e PP_STAGING_HOST=proofing.example -v "$PWD/docker/Caddyfile.staging:/etc/caddy/Caddyfile:ro" caddy:2-alpine validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
   rust-fmt:
     name: Rust format

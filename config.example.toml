@@ -1,6 +1,10 @@
 # Copy to config.toml (gitignored) and pass with --config or PP_CONFIG.
 # Precedence: CLI flag > environment variable > config file > default.
 # Placeholders only: never commit real secrets.
+# For containers: host = "0.0.0.0", photo.dir = "/var/lib/pp/photos".
+# For HTTPS: set auth.app_origin to the browser origin and session.secure_cookie = true.
+# Deployments install the adjusted non-secret file at /etc/pp/config.toml,
+# omit [database], and inject PP_DATABASE_URL from the secret manager.
 host = "127.0.0.1"
 port = 8080
 log_level = "info"

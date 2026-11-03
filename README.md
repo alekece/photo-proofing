@@ -57,7 +57,17 @@ curl http://localhost:8000/api/v1/health
 
 Expected response: `{"status":"ok"}`. The Compose web container serves the Vite development server for local use; the separate production image runs the SvelteKit Node adapter. Health checks establish process/readiness checks, not the complete proofing workflow.
 
-The current Compose host ports bind to `127.0.0.1`. Other devices on the local network cannot reach them using these defaults. LAN configuration is a later deployment implementation task; these instructions do not change bindings or expose the service publicly.
+The local Compose host ports bind to `127.0.0.1`. Other devices on the local
+network cannot reach them using these defaults. See [LAN staging deployment](#lan-staging-deployment)
+for the separate HTTPS deployment; the development defaults do not expose the
+service publicly.
+
+Stop the local stack with `docker compose down`. This preserves the named
+PostgreSQL and photo volumes. `docker compose down -v` deletes both volumes and
+their contents. The `photo-data` volume is mounted at `/var/lib/pp/photos` in the
+API and worker. Both refuse to start if `PP_PHOTO_DIR` is not writable; natively
+it defaults to `./data/photos`, which must exist and be shared by both processes
+(see [ADR 0003](docs/adr/0003-photo-storage.md)).
 
 ## Published images
 
@@ -68,13 +78,110 @@ all three images published and advances only forward. The production web image
 listens on port `3000`; set `PP_API_INTERNAL_URL` to the API's internal URL and
 route `/api/*` requests to the API.
 
-Stop the stack with:
+### LAN staging deployment
+
+[deploy/staging.yml](deploy/staging.yml) uses Ansible's maintained
+`community.docker` Compose modules to pull and reconcile one published commit.
+Run it locally on the server from a checkout containing these deployment assets.
+Prerequisites: Python 3.12+, Docker Compose 2.24.4+, working Docker access, GitHub
+CLI access to the repository, an operator-selected Doppler project/config, and sudo
+for `/etc/pp`.
+Private GHCR images also require authorized Docker registry credentials; never
+paste tokens into commands or logs or change visibility to bypass authentication.
+
+Install the declared dependencies in a dedicated environment (install your OS's
+`python3-venv` package first if needed):
 
 ```sh
-docker compose down
+python3 -m venv ~/.local/share/pp-ansible
+. ~/.local/share/pp-ansible/bin/activate
+python3 -m pip install -r deploy/requirements.txt
+ansible-galaxy collection install -r deploy/requirements.yml
 ```
 
-This preserves the named PostgreSQL volume. `docker compose down -v` deletes that volume and its database contents. The `photo-data` volume, mounted at `/var/lib/pp/photos` in the API and worker, holds private photo files and is also deleted by `down -v`. The API and worker refuse to start if `PP_PHOTO_DIR` is not a writable directory; natively it defaults to `./data/photos`, which must exist and be shared by both processes (see [ADR 0003](docs/adr/0003-photo-storage.md)).
+Use the single root [config.example.toml](config.example.toml) as the reference
+for server-owned `/etc/pp/config.toml`. Preserve its existing values on upgrades.
+For containers set `host = "0.0.0.0"`, `port = 8080`, and
+`photo.dir = "/var/lib/pp/photos"`. Omit `[database]`: Doppler supplies the password
+and Ansible derives the URL. Set `session.secure_cookie = true` and
+`auth.app_origin = "https://proofing.example"` (replace this reserved example with
+your HTTPS hostname without a port, path or trailing slash). Proxy and frontend origins derive from this
+setting, and checksum labels reload API/worker when the TOML changes.
+
+Create a **private**, server-owned `/etc/pp/staging.yml` with the binding
+and four existing volume names. The following values are examples, not an inventory:
+
+```yaml
+pp_bind_address: 127.0.0.1
+pp_volumes:
+  postgres: example-postgres
+  photos: example-photos
+  caddy_data: example-caddy-data
+  caddy_config: example-caddy-config
+```
+
+The project is named **`pp-staging`**. Supply the actual existing volumes for your
+installation; they are external volumes, not recreated or renamed. A fresh
+installation must explicitly provision its four empty Docker volumes and supply their names;
+the playbook refuses missing volumes to prevent accidental empty replacements.
+For fresh setup, initially use `pp_bind_address: 127.0.0.1` and a trusted SSH tunnel
+that preserves the configured origin. No account is seeded: the first-time setup
+page creates the owner account. Do that before enabling LAN access.
+
+Deploy manually, with the virtual environment active:
+
+```sh
+doppler run --project "$DOPPLER_PROJECT" --config "$DOPPLER_CONFIG" \
+  --only-secrets POSTGRES_PASSWORD --no-fallback -- \
+  ansible-playbook -i localhost, deploy/staging.yml -e @/etc/pp/staging.yml
+```
+
+Set `DOPPLER_PROJECT` and `DOPPLER_CONFIG` privately on the server before running.
+Add `--ask-become-pass` if sudo requires a password. If the system's locale is
+unavailable, set `LC_ALL=C.UTF-8` for Ansible. Tasks handling credentials or
+installation metadata use `no_log`; do not enable fact caching or verbose/debug
+logging with real settings. Doppler protects stored secrets, not their runtime
+environment from root/Docker admins.
+Ansible does not create accounts or manage their credentials in Doppler.
+
+The deployment bundle is installed under `/srv/apps/pp-staging`. Public Caddy CA
+export: `/etc/pp/staging-root.crt`; install it into each client's trust store.
+Never export its private key. Configure private DNS so your chosen hostname resolves
+to the reserved server IP. Only TCP 443 is published, bound to the chosen IPv4
+address. A LAN binding is not a firewall; verify network restrictions and do not forward router
+ports. DNS may also return IPv6, but this deployment only publishes IPv4.
+
+The playbook validates and pulls before reconciliation and never builds images.
+Failed pulls leave running containers unchanged; failed startup can leave a
+partially updated stack. PostgreSQL migrations are not automatically reversible.
+Do not delete volumes or rotate the password without updating PostgreSQL.
+Health checks are not complete LAN/browser acceptance; verify login and trusted
+HTTPS with the public CA, not `--insecure`. Hermes automation is not configured.
+
+For the one-time project/path migration, keep the old deployment bundle, config
+and volume-name record until verification is complete. First run the new playbook
+with `-e pp_config_source=/path/to/existing/config.toml -e pp_prepare_only=true`
+to install preserved settings, validate and pull without starting the replacement.
+Stop the old project's containers without deleting volumes, then run normally.
+If startup fails, stop `pp-staging` containers to release the port and restart the
+old containers; do not run two PostgreSQL instances against the same volume.
+The old public root remains valid because the Caddy data volume is shared.
+
+Deployment tooling remains in this repository, but real hostnames, addresses,
+volume mappings, account details, secret-manager identifiers and certificates
+must remain outside Git. This also applies to CI fixtures, documentation, PR/issue
+text and shared logs. Use reserved `.example` hostnames and synthetic values in
+public examples. Keep runtime configuration and deployment variable files under
+`/etc/pp`; they contain private installation details even when they contain no
+passwords. The local `deploy/*.local.yml` pattern is ignored as an additional
+safeguard, not a substitute for reviewing changes before committing.
+
+Validate deployment assets without production secrets:
+
+```sh
+ansible-playbook -i localhost, deploy/staging.yml --syntax-check
+ansible-playbook -i localhost, deploy/verify.yml
+```
 
 ### Native development
 
