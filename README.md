@@ -59,6 +59,15 @@ Expected response: `{"status":"ok"}`. The Compose web container serves the Vite 
 
 The current Compose host ports bind to `127.0.0.1`. Other devices on the local network cannot reach them using these defaults. LAN configuration is a later deployment implementation task; these instructions do not change bindings or expose the service publicly.
 
+## Published images
+
+Successful `main` builds publish private images as `ghcr.io/alekece/pp-api`,
+`ghcr.io/alekece/pp-image-worker`, and `ghcr.io/alekece/pp-web`, each tagged
+`sha-<full-commit-sha>`. The Git tag `staging` points to the newest commit with
+all three images published and advances only forward. The production web image
+listens on port `3000`; set `PP_API_INTERNAL_URL` to the API's internal URL and
+route `/api/*` requests to the API.
+
 Stop the stack with:
 
 ```sh

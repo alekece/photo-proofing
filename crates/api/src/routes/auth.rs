@@ -340,12 +340,12 @@ mod tests {
 
         let response = test::call_service(&app, request).await;
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
-        let removal_cookie = response
+        let renewed_cookie = response
             .response()
             .cookies()
             .find(|c| c.name() == "pp_session")
             .unwrap();
-        assert!(!removal_cookie.secure().unwrap_or_default());
+        assert!(!renewed_cookie.secure().unwrap_or_default());
 
         let request = test::TestRequest::post()
             .uri("/api/v1/auth/logout")
@@ -353,10 +353,14 @@ mod tests {
             .cookie(cookie.clone())
             .to_request();
 
-        assert_eq!(
-            test::call_service(&app, request).await.status(),
-            StatusCode::NO_CONTENT
-        );
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let logout_cookie = response
+            .response()
+            .cookies()
+            .find(|c| c.name() == "pp_session")
+            .unwrap();
+        assert!(!logout_cookie.secure().unwrap_or_default());
 
         let request = test::TestRequest::post()
             .uri("/api/v1/auth/renew")

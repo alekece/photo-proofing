@@ -144,13 +144,14 @@ git commit -m "build(web): add production Node image"
 - It publishes the packages and tags specified in Global Constraints, then updates Git tag `staging`.
 - The existing workflow's pull-request and main-push CI jobs remain otherwise unchanged.
 
-- [x] **Step 1: Define the publish gate.** Add a main-push-only job in `.github/workflows/ci.yml` depending on `changes`, `rust-fmt`, `rust-lint`, `rust-deny`, `rust-test`, `rust-build`, `web-fmt`, `web-lint`, `web-audit`, `web-test`, and `web-build`. Its condition must run after skipped path-filter jobs, accept only `success` or `skipped` dependency results, and reject failures/cancellations. Confirm the job does not run for pull requests.
+- [x] **Step 1: Define the publish gate.** Add a main-push-only job depending on every Rust, web and container-image check. Run Rust and web checks on every push so a later push cannot skip changes from an earlier failed run. On pull requests, retain path-filtered Rust and web checks and build all three images whenever Rust, web, Dockerfile or Docker build-context files change. The publisher runs only for a main push after each applicable result is successful or intentionally skipped.
 - [x] **Step 2: Verify the gate behavior before enabling package writes.** Run local workflow lint and a gate truth table for success, skipped, failed, cancelled, pull-request and non-main cases. GitHub Actions will validate the workflow and confirm the publisher is skipped on the PR during final delivery verification, after the required independent review. Expected: only a `main` push with every applicable CI job successful or intentionally skipped can reach publication.
 - [x] **Step 3: Configure publication of private GHCR packages.** Give only the publishing job `packages: write` and `contents: write`; authenticate with its `GITHUB_TOKEN`. Build the existing API and worker Dockerfiles and the Task 2 frontend Dockerfile, tagging each with `sha-${{ github.sha }}`. Do not publish from this feature branch; verify package visibility after the first eligible `main` push.
 - [x] **Step 4: Make retries reuse existing commit tags.** Before building each package, check whether that exact SHA tag already exists. Skip publication for existing tags and build only missing images; do not replace the contents of an existing commit tag.
 - [x] **Step 5: Advance the `staging` Git tag after all image publication succeeds.** Fetch the current tag; create it for the first successful publication, do nothing if it already points at the candidate, and update it only when the current target is an ancestor of the candidate. Serialize the publisher so a stale run cannot overwrite a newer pointer. If the ancestry check or tag update fails, fail publication rather than force a backward move.
 - [x] **Step 6: Verify the workflow on disposable local state.** Confirm the gate truth table rejects PR, non-main, failed and cancelled cases; build all three images locally; simulate `staging` creation, forward update, same-commit retry, stale run and divergence against a disposable Git remote. Actual GHCR publication and package visibility are verified only by the first eligible `main` push, not by bypassing the gate from this branch.
-- [x] **Step 7: Commit the task.**
+- [x] **Step 7: Document the published image contract.** Document the private package names, immutable commit tags, forward-only meaning of `staging`, and production web image runtime contract. Do not add server deployment steps.
+- [x] **Step 8: Commit the task.**
 
 ```bash
 git add .github/workflows/ci.yml
@@ -159,9 +160,11 @@ git commit -m "ci: publish preproduction container images"
 
 ## Final verification
 
-- [ ] Run `cargo +nightly fmt --all --check`.
-- [ ] Run `cargo clippy --workspace --all-targets --locked -- -D warnings`.
-- [ ] Run `cargo test --workspace --locked`.
-- [ ] Run `pnpm --dir web verify`.
-- [ ] Review the final workflow permissions, package visibility, immutable tag behavior, and `staging` update ordering against the approved design.
-- [ ] Confirm no workflow or documentation changes configure polling, server credentials, Compose deployment, DNS/TLS, or server-owned configuration.
+- [x] Run `cargo +nightly fmt --all --check`.
+- [x] Run `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- [x] Run `cargo test --workspace --locked`.
+- [x] Run `pnpm --dir web verify`.
+- [x] Review workflow permissions, immutable tag behavior and `staging` update ordering against the approved design.
+- [x] Confirm no workflow or documentation changes configure polling, server credentials, Compose deployment, DNS/TLS, or server-owned configuration.
+
+GHCR package visibility and first publication remain unverified until the first eligible `main` push; no shared images or tags were written from this branch.
