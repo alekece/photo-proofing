@@ -55,7 +55,7 @@ Open `http://localhost:8000/login` and create the installation's single account.
 curl http://localhost:8000/api/v1/health
 ```
 
-Expected response: `{"status":"ok"}`. The web container serves the Vite development server; there is no production deployment adapter configured. Health checks establish process/readiness checks, not the complete proofing workflow.
+Expected response: `{"status":"ok"}`. The Compose web container serves the Vite development server for local use; the separate production image runs the SvelteKit Node adapter. Health checks establish process/readiness checks, not the complete proofing workflow.
 
 The current Compose host ports bind to `127.0.0.1`. Other devices on the local network cannot reach them using these defaults. LAN configuration is a later deployment implementation task; these instructions do not change bindings or expose the service publicly.
 

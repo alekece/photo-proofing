@@ -87,21 +87,24 @@ git commit -m "feat(api): configure secure session cookies"
 - Modify: `web/pnpm-lock.yaml`
 - Modify: `web/vite.config.ts`
 - Create: `docker/web-production.Dockerfile`
+- Modify: `docker/web.Dockerfile`
+- Modify: `README.md`
 
 **Interfaces:**
 - SvelteKit build output uses `@sveltejs/adapter-node`; local `vite dev` behavior remains available.
 - The production image runs the adapter-generated Node server; CI builds it with repository-root context.
 
-- [ ] **Step 1: Replace the frontend adapter dependency.** Use pnpm to replace `@sveltejs/adapter-auto` with `@sveltejs/adapter-node` in `web/package.json` and the lockfile.
-- [ ] **Step 2: Configure SvelteKit for Node output.** In `web/vite.config.ts`, replace the adapter-auto import/configuration with the Node adapter; keep the existing development proxy and test plugins unchanged.
-- [ ] **Step 3: Build the frontend and confirm the production output is generated.**
+- [x] **Step 1: Replace the frontend adapter dependency.** Use pnpm to replace `@sveltejs/adapter-auto` with `@sveltejs/adapter-node` in `web/package.json` and the lockfile.
+- [x] **Step 2: Configure SvelteKit for Node output.** In `web/vite.config.ts`, replace the adapter-auto import/configuration with the Node adapter; keep the existing development proxy and test plugins unchanged.
+- [x] **Step 3: Build the frontend and confirm the production output is generated.**
 
 Run: `pnpm --dir web build`
 
 Expected: the build succeeds and emits the adapter-node runtime output.
 
-- [ ] **Step 4: Add a multi-stage production Dockerfile.** Create `docker/web-production.Dockerfile` using the existing Node 24 and pnpm 10.13.1 toolchain, install from the frozen lockfile, build the SvelteKit app, and copy only required runtime output/dependencies into a non-development runtime stage. Do not start Vite.
-- [ ] **Step 5: Build and smoke-run the production image.**
+- [x] **Step 4: Add a multi-stage production Dockerfile.** Create `docker/web-production.Dockerfile` using the existing Node 24 and pnpm 10.13.1 toolchain, install from the frozen lockfile, build the SvelteKit app, and copy only required runtime output/dependencies into a non-development runtime stage. Do not start Vite.
+- [x] **Step 5: Document the development and production distinction.** Update the existing dev Dockerfile comment and README so they distinguish the Compose Vite server from the Node-adapter production image.
+- [x] **Step 6: Build and smoke-run the production image.**
 
 Run:
 
@@ -114,16 +117,16 @@ docker rm -f pp-web-plan-check
 
 Expected: the image builds successfully. Run it with the test API address, verify the container remains running with the adapter-node process, and stop/remove the test container afterward. `/login` requires a reachable API, so do not treat its response without an API as an image failure.
 
-- [ ] **Step 6: Run frontend verification.**
+- [x] **Step 7: Run frontend verification.**
 
 Run: `pnpm --dir web verify`
 
 Expected: format, lint, type-check, tests and build pass.
 
-- [ ] **Step 7: Commit the task.**
+- [x] **Step 8: Commit the task.**
 
 ```bash
-git add web/package.json web/pnpm-lock.yaml web/vite.config.ts docker/web-production.Dockerfile
+git add web/package.json web/pnpm-lock.yaml web/vite.config.ts docker/web-production.Dockerfile docker/web.Dockerfile README.md
 git commit -m "build(web): add production Node image"
 ```
 
