@@ -4,8 +4,8 @@
 //! storage, inspect only JPEG metadata, then publish the unchanged original and atomically record
 //! its photo/job pair. Listing checks gallery ownership before returning its ordered photo states.
 //! Retries requeue failed photos. Deleting photos, one or up to a thousand at once, is accepted
-//! whatever their status and removes their jobs, then their files. Only the thumbnail and preview of a ready photo are served;
-//! no route reads the original.
+//! whatever their status and removes their jobs, then their files. Only the thumbnail and preview
+//! of a ready photo are served; no route reads the original.
 
 use actix_web::{
     HttpRequest, HttpResponse, delete, get, post,
