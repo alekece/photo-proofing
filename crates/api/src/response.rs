@@ -11,7 +11,7 @@ pub(crate) trait ResponseBuilderExt {
     /// Forbids caching: every response here is specific to the session.
     fn no_store(&mut self) -> &mut Self;
 
-    /// Lets the browser, but no shared cache, keep a private image.
+    /// Lets the browser, but no shared cache, keep a private image for an hour.
     fn private_cache(&mut self) -> &mut Self;
 
     /// Keeps the page URL out of `Referer` headers sent onward, which matters when the URL
@@ -25,7 +25,7 @@ impl ResponseBuilderExt for HttpResponseBuilder {
     }
 
     fn private_cache(&mut self) -> &mut Self {
-        self.insert_header((header::CACHE_CONTROL, "private"))
+        self.insert_header((header::CACHE_CONTROL, "private, max-age=3600"))
     }
 
     fn no_referrer(&mut self) -> &mut Self {
@@ -33,7 +33,8 @@ impl ResponseBuilderExt for HttpResponseBuilder {
     }
 }
 
-/// A private image: kept by the browser only, and never sniffed as another type.
+/// A private image: kept by the browser only, never sniffed as another type, and never
+/// named in a `Referer`. An image never changes for its id, so the browser may reuse it.
 pub(crate) struct ImageFile {
     content_type: ContentType,
     bytes: Vec<u8>,
@@ -55,6 +56,7 @@ impl Responder for ImageFile {
         HttpResponse::Ok()
             .content_type(self.content_type)
             .private_cache()
+            .no_referrer()
             .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
             .body(self.bytes)
     }
