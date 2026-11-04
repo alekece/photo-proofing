@@ -192,12 +192,10 @@ describe('PhotosPanel', () => {
 		});
 		await waitFor(() => expect(pending).toHaveLength(1));
 
-		emit({ photo_id: 'new', status: 'waiting' });
+		emit({ photo_id: 'new', status: 'processing' });
 		pending[0]({ kind: 'created', photo: photo('new', 'waiting') });
 
-		await waitFor(() =>
-			expect(within(tile('new.jpg')).getByText('Waiting to process')).toBeTruthy()
-		);
+		await waitFor(() => expect(within(tile('new.jpg')).getByText('Processing')).toBeTruthy());
 		expect(api.lists()).toBe(1);
 
 		await waitFor(() => expect(pending).toHaveLength(2));
@@ -232,6 +230,43 @@ describe('PhotosPanel', () => {
 		await vi.advanceTimersByTimeAsync(1000);
 
 		expect(api.lists()).toBe(3);
+	});
+
+	it('keeps changes that arrive while a refetch is pending', async () => {
+		vi.useFakeTimers();
+		let answerLate: (photos: Photo[]) => void = () => {};
+		const lists = [
+			Promise.resolve([photo('p1', 'processing'), photo('p2'), photo('p3')]),
+			new Promise<Photo[]>((resolve) => (answerLate = resolve))
+		];
+
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_url: string, init?: RequestInit) =>
+				init?.method === 'DELETE'
+					? new Response(null, { status: 204 })
+					: new Response(JSON.stringify(await lists.shift()))
+			)
+		);
+
+		const { emit, resync } = setup();
+
+		await vi.advanceTimersByTimeAsync(0);
+		resync();
+		await vi.advanceTimersByTimeAsync(1000);
+
+		emit({ photo_id: 'p1', status: 'ready' });
+		emit({ photo_id: 'p3', status: 'deleted' });
+		await fireEvent.click(screen.getByRole('button', { name: 'Remove p2.jpg' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+		await vi.advanceTimersByTimeAsync(0);
+
+		answerLate([photo('p1', 'processing'), photo('p2'), photo('p3')]);
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(screen.getAllByRole('button', { name: /^Open/ }).map((open) => open.ariaLabel)).toEqual([
+			'Open p1.jpg'
+		]);
 	});
 
 	it('removes a file still in the browser without asking', async () => {

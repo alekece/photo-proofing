@@ -6,7 +6,7 @@
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
-	import { getLiveEvents, type PhotoEvent } from '#lib/events.js';
+	import { getLiveEvents, type PhotoChange, type PhotoEvent } from '#lib/events.js';
 	import { GalleryApiError } from '#lib/gallery/api.js';
 	import {
 		deletePhoto,
@@ -40,6 +40,9 @@
 	// Bookkeeping that nothing renders, so plain collections on purpose.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const deleting = new Set<string>();
+	// Changes since the last list request started, which an answer arriving later may predate.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const recentChanges = new Map<string, PhotoChange>();
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const uploadedDuringLoad = new Set<string>();
 	let loads = 0;
@@ -61,6 +64,18 @@
 
 	const tileState = (status: PhotoStatus) =>
 		typeof status === 'object' ? 'process-failed' : SERVER_STATES[status];
+
+	const statusOf = (change: Exclude<PhotoChange, 'deleted'>): PhotoStatus =>
+		change === 'failed' ? { failed: 'Processing failed' } : change;
+
+	/** The photo as the latest change seen says, or `null` once deleted. */
+	function withRecentChange(photo: Photo): Photo | null {
+		const change = recentChanges.get(photo.id);
+
+		if (deleting.has(photo.id) || change === 'deleted') return null;
+
+		return change === undefined ? photo : { ...photo, status: statusOf(change) };
+	}
 
 	const queued = $derived(queue.forGallery(galleryId));
 	const ready = $derived(photos.filter(({ status }) => status === 'ready'));
@@ -101,6 +116,7 @@
 		const current = ++loads;
 
 		lastLoadAt = Date.now();
+		recentChanges.clear();
 		uploadedDuringLoad.clear();
 
 		try {
@@ -112,7 +128,7 @@
 				(photo) => uploadedDuringLoad.has(photo.id) && !listed.some(({ id }) => id === photo.id)
 			);
 
-			photos = [...listed.filter(({ id }) => !deleting.has(id)), ...missing];
+			photos = [...listed, ...missing].map(withRecentChange).filter((photo) => photo !== null);
 		} catch (cause) {
 			if (current !== loads) return;
 
@@ -149,12 +165,14 @@
 	function onPhoto(event: PhotoEvent) {
 		if (event.gallery_id !== galleryId) return;
 
+		recentChanges.set(event.photo_id, event.status);
+
 		const photo = photos.find(({ id }) => id === event.photo_id);
 
 		if (event.status === 'deleted') {
 			photos = photos.filter(({ id }) => id !== event.photo_id);
 		} else if (photo !== undefined) {
-			photo.status = event.status === 'failed' ? { failed: 'Processing failed' } : event.status;
+			photo.status = statusOf(event.status);
 		} else if (queue.inFlight(galleryId) === 0 && !deleting.has(event.photo_id)) {
 			// While uploads are in flight, an unknown photo is usually one of them; its answer brings it in.
 			refresh();
@@ -175,11 +193,13 @@
 			events.onPhoto(onPhoto),
 			events.onResync(refresh),
 			queue.onUploaded((gallery, photo) => {
-				if (gallery !== id || deleting.has(photo.id)) return;
+				const current = withRecentChange(photo);
+
+				if (gallery !== id || current === null) return;
 
 				uploadedDuringLoad.add(photo.id);
 
-				if (!photos.some(({ id }) => id === photo.id)) photos.push(photo);
+				if (!photos.some(({ id }) => id === photo.id)) photos.push(current);
 			})
 		];
 
@@ -231,10 +251,13 @@
 
 		try {
 			await deletePhoto(galleryId, photo.id);
+			recentChanges.set(photo.id, 'deleted');
 		} catch (cause) {
 			if (cause instanceof GalleryApiError && cause.status === 401) {
 				await signedOut();
-			} else if (!(cause instanceof GalleryApiError && cause.status === 404)) {
+			} else if (cause instanceof GalleryApiError && cause.status === 404) {
+				recentChanges.set(photo.id, 'deleted');
+			} else {
 				photos.splice(Math.min(index, photos.length), 0, photo);
 				alert = `Couldn’t delete ${photo.original_name}. Please try again.`;
 			}
