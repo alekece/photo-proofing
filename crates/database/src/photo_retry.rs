@@ -27,8 +27,9 @@ impl<'db> Repository<'db> for PhotoRetry<'db> {
 impl PhotoRetry<'_> {
     /// Requeues the gallery's failed photos, or only `photo` when given.
     ///
-    /// Returns `None` when the gallery does not exist in the workspace, otherwise the number of
-    /// photos requeued; photos that are not failed are left alone.
+    /// Returns `None` when the gallery, or the given photo within it, does not exist in the
+    /// workspace, otherwise the number of photos requeued; photos that are not failed are left
+    /// alone.
     pub async fn retry_failed(
         &self,
         workspace_id: WorkspaceId,
@@ -37,10 +38,14 @@ impl PhotoRetry<'_> {
     ) -> Result<Option<u64>, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
         let owned: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM galleries WHERE id = $2 AND workspace_id = $1)",
+            "SELECT EXISTS(SELECT 1 FROM galleries WHERE id = $2 AND workspace_id = $1)
+                AND ($3::uuid IS NULL OR EXISTS(
+                    SELECT 1 FROM photos
+                    WHERE id = $3 AND gallery_id = $2 AND workspace_id = $1))",
         )
         .bind(workspace_id)
         .bind(gallery_id)
+        .bind(photo)
         .fetch_one(&mut *transaction)
         .await?;
 
@@ -277,10 +282,6 @@ mod tests {
         assert!(photos.mark_ready(ready).await.unwrap());
         assert_eq!(retry(&database, &gallery, None).await, Some(0));
         assert_eq!(retry(&database, &gallery, Some(ready)).await, Some(0));
-        assert_eq!(
-            retry(&database, &gallery, Some(PhotoId::generate())).await,
-            Some(0)
-        );
 
         for (id, expected) in [
             (waiting, PhotoStatus::Waiting),
@@ -304,7 +305,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn retry_in_a_foreign_workspace_or_gallery_returns_none(pool: PgPool) {
+    async fn retry_in_a_foreign_workspace_gallery_or_unknown_photo_returns_none(pool: PgPool) {
         let database = Database::new(pool.clone());
         let owner = gallery(&database, &pool).await;
         let other = gallery(&database, &pool).await;
@@ -320,6 +321,11 @@ mod tests {
 
         assert_eq!(retry(&database, &foreign_workspace, Some(id)).await, None);
         assert_eq!(retry(&database, &missing_gallery, None).await, None);
+        assert_eq!(retry(&database, &other, Some(id)).await, None);
+        assert_eq!(
+            retry(&database, &owner, Some(PhotoId::generate())).await,
+            None
+        );
         assert!(matches!(
             status(&database, &owner, id).await,
             PhotoStatus::Failed(_)

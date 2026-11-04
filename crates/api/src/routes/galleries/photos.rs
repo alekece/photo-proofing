@@ -1187,6 +1187,7 @@ mod tests {
         for path in [
             format!("{foreign_gallery}/photos/retry"),
             format!("{foreign_gallery}/photos/{photo}/retry"),
+            format!("{gallery_id}/photos/{}/retry", Uuid::new_v4()),
         ] {
             let (status, _) = call_request(&app, retry_request(Some(&cookie), &path)).await;
 
