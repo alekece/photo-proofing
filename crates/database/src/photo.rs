@@ -296,7 +296,7 @@ impl PhotoRepository<'_> {
         .execute(&mut *transaction)
         .await?;
 
-        let deleted: Vec<PhotoId> = sqlx::query_scalar(
+        let deleted_ids: Vec<PhotoId> = sqlx::query_scalar(
             "DELETE FROM photos WHERE id IN (
                  SELECT id FROM photos
                  WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)
@@ -310,13 +310,13 @@ impl PhotoRepository<'_> {
         .fetch_all(&mut *transaction)
         .await?;
 
-        if deleted.is_empty() {
-            return Ok(deleted);
+        if deleted_ids.is_empty() {
+            return Ok(deleted_ids);
         }
 
         transaction.commit().await?;
 
-        Ok(deleted)
+        Ok(deleted_ids)
     }
 
     /// Lists a gallery's ready photos in creation order.
