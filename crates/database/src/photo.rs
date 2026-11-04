@@ -262,6 +262,40 @@ impl PhotoRepository<'_> {
         .await?)
     }
 
+    /// Deletes a photo whatever its status, together with all of its jobs, in one transaction.
+    ///
+    /// Returns `false`, changing nothing, when the photo is not in this workspace and gallery.
+    /// Its files are the caller's to remove. A worker still rendering it finds its claim gone
+    /// and removes whatever it writes late.
+    pub async fn delete(
+        &self,
+        workspace_id: WorkspaceId,
+        gallery_id: GalleryId,
+        id: PhotoId,
+    ) -> Result<bool, DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
+        let deleted = sqlx::query(
+            "DELETE FROM photos WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3",
+        )
+        .bind(workspace_id)
+        .bind(gallery_id)
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
+
+        if deleted.rows_affected() == 0 {
+            return Ok(false);
+        }
+
+        sqlx::query("DELETE FROM jobs WHERE payload->'payload'->>'photo_id' = $1")
+            .bind(id.to_string())
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+
+        Ok(true)
+    }
+
     /// Lists a gallery's ready photos in creation order.
     pub async fn list_ready(
         &self,
@@ -385,6 +419,7 @@ mod tests {
         Database,
         auth::WorkspaceId,
         gallery::{GalleryId, GalleryRepository},
+        photo_events::{Notification, PhotoChange},
         photo_intake::PhotoIntake,
         tests::TestRepository,
     };
@@ -860,5 +895,122 @@ mod tests {
             photos.locate(PhotoId::from(Uuid::new_v4())).await.unwrap(),
             None
         );
+    }
+
+    /// Gives `id` one extra job in each state, besides the one its intake queued.
+    async fn jobs_in_every_state(pool: &PgPool, id: PhotoId) {
+        let payload = serde_json::json!({"kind": "process_photo", "payload": {"photo_id": id}});
+
+        sqlx::query(
+            "INSERT INTO jobs(id, payload, state, max_attempts, locked_until, last_error)
+             VALUES (gen_random_uuid(), $1, 'running', 3, now() + interval '1 minute', NULL),
+                    (gen_random_uuid(), $1, 'failed', 3, NULL, 'gave up')",
+        )
+        .bind(payload)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn delete_removes_the_photo_and_all_its_jobs_whatever_its_status(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let tests = database.repository::<TestRepository>();
+        let photos = database.repository::<PhotoRepository>();
+        let kept = photo_in(&database, location, (20, 10), PhotoStatus::Waiting, 1).await;
+
+        for status in [
+            PhotoStatus::Waiting,
+            PhotoStatus::Processing,
+            PhotoStatus::Ready,
+            PhotoStatus::Failed("broken".to_owned()),
+        ] {
+            let id = photo_in(&database, location, (20, 10), status, 2).await;
+
+            jobs_in_every_state(&pool, id).await;
+
+            assert!(
+                photos
+                    .delete(location.workspace_id, location.gallery_id, id)
+                    .await
+                    .unwrap()
+            );
+            assert_eq!(
+                photos
+                    .get(location.workspace_id, location.gallery_id, id)
+                    .await
+                    .unwrap(),
+                None
+            );
+            assert!(tests.photo_jobs(id).await.unwrap().is_empty());
+        }
+
+        assert_eq!(tests.photo_jobs(kept).await.unwrap().len(), 1);
+        assert_eq!(tests.count_photos().await.unwrap(), 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn delete_is_scoped_to_workspace_and_gallery(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let other = gallery_location(&database, &pool).await;
+        let photos = database.repository::<PhotoRepository>();
+        let id = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+
+        for (workspace_id, gallery_id, photo_id) in [
+            (other.workspace_id, location.gallery_id, id),
+            (location.workspace_id, other.gallery_id, id),
+            (
+                location.workspace_id,
+                location.gallery_id,
+                PhotoId::from(Uuid::new_v4()),
+            ),
+        ] {
+            assert!(
+                !photos
+                    .delete(workspace_id, gallery_id, photo_id)
+                    .await
+                    .unwrap()
+            );
+        }
+
+        assert!(
+            photos
+                .get(location.workspace_id, location.gallery_id, id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            database
+                .repository::<TestRepository>()
+                .photo_jobs(id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn delete_announces_the_deletion(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let id = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let mut listener = database.listen_photo_events().await.unwrap();
+
+        database
+            .repository::<PhotoRepository>()
+            .delete(location.workspace_id, location.gallery_id, id)
+            .await
+            .unwrap();
+
+        let Notification::Photo(event) = listener.next().await.unwrap() else {
+            panic!("expected a photo event");
+        };
+
+        assert_eq!(event.photo_id, id);
+        assert_eq!(event.status, PhotoChange::Deleted);
     }
 }

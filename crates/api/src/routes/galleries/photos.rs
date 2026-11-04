@@ -3,11 +3,12 @@
 //! Uploads check workspace access and request limits before consuming the body, stage bytes in
 //! storage, inspect only JPEG metadata, then publish the unchanged original and atomically record
 //! its photo/job pair. Listing checks gallery ownership before returning its ordered photo states.
-//! Retries requeue failed photos. Only the thumbnail and preview of a ready photo are served;
+//! Retries requeue failed photos. Deleting a photo is accepted whatever its status and removes
+//! its jobs, then its files. Only the thumbnail and preview of a ready photo are served;
 //! no route reads the original.
 
 use actix_web::{
-    HttpRequest, HttpResponse, get, post,
+    HttpRequest, HttpResponse, delete, get, post,
     web::{self, Data, Path as WebPath, ServiceConfig},
 };
 use pp_core::{notifications::PhotoId, types::generate::Generate};
@@ -36,6 +37,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(list_photos)
         .service(retry_gallery)
         .service(retry_photo)
+        .service(delete_photo)
         .service(serve_derivative_photo);
 }
 
@@ -102,6 +104,46 @@ async fn retry_photo(
         .ok_or_else(ErrorResponse::not_found)?;
 
     Ok(HttpResponse::Ok().no_store().json(Requeued { requeued }))
+}
+
+/// Deletes a photo whatever its status, then its files. The deletion stands once committed:
+/// a file that cannot be removed is only logged.
+#[delete("/{id}/photos/{photo_id}")]
+async fn delete_photo(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    path: WebPath<(GalleryId, PhotoId)>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let (gallery_id, photo_id) = path.into_inner();
+
+    if !state
+        .database()
+        .repository::<PhotoRepository>()
+        .delete(identity.workspace_id, gallery_id, photo_id)
+        .await?
+    {
+        return Err(ErrorResponse::not_found());
+    }
+
+    let location = PhotoLocation {
+        workspace_id: identity.workspace_id,
+        gallery_id,
+    };
+
+    for variant in [Variant::Original, Variant::Thumbnail, Variant::Preview] {
+        match state
+            .storage()
+            .remove(&PhotoKey::with_location(location, photo_id, variant))
+            .await
+        {
+            Ok(()) | Err(StorageError::NotFound) => {}
+            Err(error) => {
+                tracing::error!(%error, %photo_id, %variant, "failed to remove a deleted photo's file");
+            }
+        }
+    }
+
+    Ok(HttpResponse::NoContent().no_store().finish())
 }
 
 /// Serves a derivative of a ready photo; anything else, including a file removed meanwhile,
@@ -1328,5 +1370,151 @@ pub(crate) mod tests {
                 assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
             }
         }
+    }
+
+    fn delete_request(cookie: Option<&Cookie<'static>>, path: &str) -> actix_http::Request {
+        let request = test::TestRequest::delete()
+            .uri(&format!("/api/v1/galleries/{path}"))
+            .insert_header(("Origin", ORIGIN));
+
+        match cookie {
+            Some(cookie) => request.cookie(cookie.clone()).to_request(),
+            None => request.to_request(),
+        }
+    }
+
+    /// Lists the files stored for a photo, whatever their variant.
+    fn photo_files(photo_dir: &Path, photo_id: &str) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        let mut directories = vec![photo_dir.to_path_buf()];
+
+        while let Some(directory) = directories.pop() {
+            for entry in fs::read_dir(directory).unwrap() {
+                let path = entry.unwrap().path();
+
+                if path.is_dir() {
+                    directories.push(path);
+                } else if path
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with(photo_id)
+                {
+                    files.push(path);
+                }
+            }
+        }
+
+        files
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn delete_removes_the_photo_its_jobs_and_its_files_whatever_its_status(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let mut photos = Vec::new();
+
+        for progress in [Progress::Processing, Progress::Ready, Progress::Failed] {
+            photos.push(photo_in(&app, &pool, &cookie, &gallery_id, progress).await);
+        }
+
+        photos.push(waiting_photo(&app, &cookie, &gallery_id).await);
+
+        for photo in &photos {
+            for variant in ["thumbnail", "preview"] {
+                store_derivative(&pool, directory.path(), photo, variant).await;
+            }
+
+            assert_eq!(photo_files(directory.path(), photo).len(), 3);
+
+            let response = test::call_service(
+                &app,
+                delete_request(Some(&cookie), &format!("{gallery_id}/photos/{photo}")),
+            )
+            .await;
+
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+            assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
+            assert!(photo_files(directory.path(), photo).is_empty());
+            assert!(
+                Database::new(pool.clone())
+                    .repository::<TestRepository>()
+                    .photo_jobs(photo_id(photo))
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+
+        let (status, listed) = call_request(
+            &app,
+            get_request(Some(&cookie), &format!("{gallery_id}/photos")),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(listed, json!([]));
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn delete_succeeds_when_files_are_already_gone(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = waiting_photo(&app, &cookie, &gallery_id).await;
+        let path = format!("{gallery_id}/photos/{photo}");
+
+        for file in photo_files(directory.path(), &photo) {
+            fs::remove_file(file).unwrap();
+        }
+
+        let (status, _) = call_request(&app, delete_request(Some(&cookie), &path)).await;
+
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let (status, _) = call_request(&app, delete_request(Some(&cookie), &path)).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn delete_requires_authentication_and_ownership(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let other_gallery = create_gallery(&app, &cookie).await;
+        let photo = waiting_photo(&app, &cookie, &gallery_id).await;
+        let foreign_gallery = Database::new(pool.clone())
+            .repository::<GalleryRepository>()
+            .create(other_workspace(&pool).await)
+            .await
+            .unwrap()
+            .id
+            .0;
+        let (status, _) = call_request(
+            &app,
+            delete_request(None, &format!("{gallery_id}/photos/{photo}")),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        for path in [
+            format!("{foreign_gallery}/photos/{photo}"),
+            format!("{other_gallery}/photos/{photo}"),
+            format!("{gallery_id}/photos/{}", Uuid::new_v4()),
+        ] {
+            let (status, _) = call_request(&app, delete_request(Some(&cookie), &path)).await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+        }
+
+        assert_eq!(photo_status(&pool, &photo).await, PhotoStatus::Waiting);
+        assert_eq!(photo_files(directory.path(), &photo).len(), 1);
     }
 }

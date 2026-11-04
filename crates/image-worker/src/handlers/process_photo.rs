@@ -512,6 +512,37 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
+    async fn deleting_a_photo_mid_processing_leaves_nothing(pool: PgPool) {
+        let fixture = Fixture::new(&pool, jpeg()).await;
+        let rendered = fixture.handler.renderer.render(&fixture.original).unwrap();
+        let job = fixture.claim().await;
+
+        assert!(
+            fixture
+                .handler
+                .database
+                .repository::<PhotoRepository>()
+                .delete(
+                    fixture.location.workspace_id,
+                    fixture.location.gallery_id,
+                    fixture.id,
+                )
+                .await
+                .unwrap()
+        );
+        let completion = fixture
+            .handler
+            .publish(job, fixture.location, fixture.id, rendered)
+            .await
+            .unwrap();
+
+        assert!(!completion.is_current());
+        assert_eq!(fixture.file(Variant::Thumbnail), None);
+        assert_eq!(fixture.file(Variant::Preview), None);
+        assert!(!fixture.has_jobs().await);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
     async fn late_work_for_a_ready_photo_keeps_its_derivatives(pool: PgPool) {
         let fixture = Fixture::new(&pool, jpeg()).await;
         let rendered = fixture.handler.renderer.render(&fixture.original).unwrap();
