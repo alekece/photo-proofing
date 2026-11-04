@@ -17,5 +17,9 @@ thiserror.workspace = true
 time = { version = "0.3", features = ["serde-well-known"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
+[features]
+# Test-only setup and inspection helpers; enable only as a dev-dependency.
+tests = []
+
 [lints]
 workspace = true

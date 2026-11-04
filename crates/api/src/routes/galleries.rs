@@ -415,16 +415,15 @@ mod tests {
         .await;
         let cookie = sign_up(&app).await;
 
-        sqlx::query("INSERT INTO workspaces(id) VALUES ('00000000-0000-4000-8000-0000000000aa')")
-            .execute(&pool)
+        let foreign = Database::new(pool.clone())
+            .repository::<GalleryRepository>()
+            .create(other_workspace(&pool).await)
             .await
-            .unwrap();
-        sqlx::query("INSERT INTO galleries(id,workspace_id,title) VALUES ('00000000-0000-4000-8000-0000000000bb','00000000-0000-4000-8000-0000000000aa','Private')")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let foreign = "00000000-0000-4000-8000-0000000000bb";
+            .unwrap()
+            .id
+            .0
+            .to_string();
+        let foreign = foreign.as_str();
         let request = test::TestRequest::get()
             .uri(&format!("/api/v1/galleries/{foreign}"))
             .cookie(cookie.clone());

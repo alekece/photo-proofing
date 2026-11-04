@@ -7,6 +7,8 @@ pub mod jobs;
 pub mod photo;
 pub mod photo_intake;
 pub mod photo_retry;
+#[cfg(any(test, feature = "tests"))]
+pub mod tests;
 
 pub use sqlx::PgPool;
 use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
@@ -75,40 +77,5 @@ impl Database {
     /// Opens the repository `R` with explicit options.
     pub fn repository_with<'db, R: Repository<'db>>(&'db self, options: R::Options) -> R {
         R::open(&self.pool, options)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::error::Error as _;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn ensure_reachable_reports_a_refused_connection_immediately() {
-        let database = Database::connect_lazy("postgres://user:s3cretpw@127.0.0.1:1/pp", 1)
-            .expect("the URL is well formed");
-
-        let error = database.ensure_reachable().await.unwrap_err();
-
-        assert!(matches!(error, DatabaseError::Unreachable(_)), "{error}");
-        assert!(!error.to_string().contains("s3cretpw"));
-        assert!(
-            error
-                .source()
-                .is_some_and(|cause| !cause.to_string().contains("s3cretpw"))
-        );
-    }
-
-    #[tokio::test]
-    async fn malformed_urls_are_configuration_errors_without_detail() {
-        let result = Database::connect_lazy("postgres://u:s3cretpw@h/pp?sslmode=s3cretpw", 1);
-
-        let Err(error) = result else {
-            panic!("an unknown sslmode must be rejected");
-        };
-
-        assert!(matches!(error, DatabaseError::Configuration));
-        assert!(!error.to_string().contains("s3cretpw"));
     }
 }

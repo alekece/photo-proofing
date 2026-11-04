@@ -187,10 +187,10 @@ mod tests {
         jobs::{Backoff, JobKind, JobPayload},
         photo::{NewPhoto, PhotoDimensions, PhotoStatus},
         photo_intake::PhotoIntake,
+        tests::TestRepository,
     };
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
-    use uuid::Uuid;
 
     use super::*;
     use crate::{
@@ -200,7 +200,6 @@ mod tests {
 
     struct Fixture {
         dir: TempDir,
-        pool: PgPool,
         routine: Arc<ProcessPhotoRoutine>,
         location: PhotoLocation,
         id: PhotoId,
@@ -215,11 +214,9 @@ mod tests {
                 .await
                 .unwrap();
             let database = Database::new(pool.clone());
-            let workspace_id = WorkspaceId(Uuid::new_v4());
-
-            sqlx::query("INSERT INTO workspaces(id) VALUES ($1)")
-                .bind(workspace_id)
-                .execute(pool)
+            let workspace_id = database
+                .repository::<TestRepository>()
+                .create_workspace()
                 .await
                 .unwrap();
 
@@ -262,7 +259,6 @@ mod tests {
 
             Self {
                 dir,
-                pool: pool.clone(),
                 routine: Arc::new(ProcessPhotoRoutine::new(
                     database,
                     storage,
@@ -310,12 +306,13 @@ mod tests {
             self.routine.database.repository::<JobRepository>()
         }
 
+        fn testing(&self) -> TestRepository<'_> {
+            self.routine.database.repository::<TestRepository>()
+        }
+
         /// Whether any job is still queued or running.
         async fn has_jobs(&self) -> bool {
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM jobs)")
-                .fetch_one(&self.pool)
-                .await
-                .unwrap()
+            self.testing().count_jobs(None).await.unwrap() > 0
         }
 
         async fn status(&self) -> Option<PhotoStatus> {
@@ -370,6 +367,8 @@ mod tests {
     const LEASE: Duration = Duration::from_secs(30);
 
     fn jpeg() -> Vec<u8> {
+        crate::render::init_libvips();
+
         jpegsave_buffer(&gaussnoise(600, 400).unwrap()).unwrap()
     }
 
@@ -447,9 +446,9 @@ mod tests {
         let fixture = Fixture::new(&pool, jpeg()).await;
 
         fixture.run().await.unwrap();
-        sqlx::query("UPDATE photos SET status = 'waiting' WHERE id = $1")
-            .bind(fixture.id)
-            .execute(&pool)
+        fixture
+            .testing()
+            .force_photo_status(fixture.id, &PhotoStatus::Waiting)
             .await
             .unwrap();
         fixture.run().await.unwrap();
@@ -484,9 +483,9 @@ mod tests {
     async fn deleted_photo_is_skipped(pool: PgPool) {
         let fixture = Fixture::new(&pool, jpeg()).await;
 
-        sqlx::query("DELETE FROM galleries WHERE id = $1")
-            .bind(fixture.location.gallery_id)
-            .execute(&pool)
+        fixture
+            .testing()
+            .delete_gallery(fixture.location.gallery_id)
             .await
             .unwrap();
         fixture.run().await.unwrap();
@@ -499,9 +498,9 @@ mod tests {
         let fixture = Fixture::new(&pool, jpeg()).await;
         let rendered = fixture.routine.renderer.render(&fixture.original).unwrap();
 
-        sqlx::query("DELETE FROM galleries WHERE id = $1")
-            .bind(fixture.location.gallery_id)
-            .execute(&pool)
+        fixture
+            .testing()
+            .delete_gallery(fixture.location.gallery_id)
             .await
             .unwrap();
         let completion = fixture

@@ -247,11 +247,10 @@ mod tests {
     use pp_core::{notifications::PhotoId, types::generate::Generate};
     use pp_database::{
         PgPool,
-        jobs::{DEFAULT_MAX_ATTEMPTS, JobCompletion, JobKind, JobPayload, ProcessPhoto},
+        jobs::{DEFAULT_MAX_ATTEMPTS, JobCompletion, JobKind, JobPayload, JobState, ProcessPhoto},
+        tests::TestRepository,
     };
     use serde_json::json;
-    use sqlx::Row;
-    use uuid::Uuid;
 
     use super::*;
 
@@ -291,13 +290,12 @@ mod tests {
             .unwrap();
     }
 
-    async fn job_count(pool: &PgPool, state: Option<&str>) -> i64 {
-        sqlx::query("SELECT count(*) FROM jobs WHERE $1::text IS NULL OR state::text = $1")
-            .bind(state)
-            .fetch_one(pool)
+    async fn job_count(pool: &PgPool, state: Option<JobState>) -> i64 {
+        Database::new(pool.clone())
+            .repository::<TestRepository>()
+            .count_jobs(state)
             .await
             .unwrap()
-            .get(0)
     }
 
     /// Finishes `job` the way a successful handler does.
@@ -350,7 +348,7 @@ mod tests {
         enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
-        wait_for(async || job_count(&pool, Some("failed")).await == 1).await;
+        wait_for(async || job_count(&pool, Some(JobState::Failed)).await == 1).await;
         token.cancel();
         task.await.unwrap();
 
@@ -371,23 +369,19 @@ mod tests {
         let handlers = HandlerRegistry::default().register(KIND, |_: ProcessPhoto, _| {
             future::ready(Err(HandlerError::Failed("never called".into())))
         });
-        sqlx::query("INSERT INTO jobs(id, payload, max_attempts) VALUES ($1, $2, 5)")
-            .bind(Uuid::new_v4())
-            .bind(json!({"kind": "process_photo", "payload": {"unexpected": true}}))
-            .execute(&pool)
+        let database = Database::new(pool.clone());
+        let testing = database.repository::<TestRepository>();
+        let id = testing
+            .insert_raw_job(json!({"kind": "process_photo", "payload": {"unexpected": true}}))
             .await
             .unwrap();
 
         let (token, task) = start(&pool, handlers, options());
-        wait_for(async || job_count(&pool, Some("failed")).await == 1).await;
+        wait_for(async || job_count(&pool, Some(JobState::Failed)).await == 1).await;
         token.cancel();
         task.await.unwrap();
 
-        let attempts: i32 = sqlx::query_scalar("SELECT attempts FROM jobs")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(attempts, 1);
+        assert_eq!(testing.job_attempts(id).await.unwrap(), 1);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -465,7 +459,7 @@ mod tests {
         enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
-        wait_for(async || job_count(&pool, Some("running")).await == 1).await;
+        wait_for(async || job_count(&pool, Some(JobState::Running)).await == 1).await;
         token.cancel();
         task.await.unwrap();
 
@@ -480,7 +474,7 @@ mod tests {
         enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
-        wait_for(async || job_count(&pool, Some("running")).await == 1).await;
+        wait_for(async || job_count(&pool, Some(JobState::Running)).await == 1).await;
         token.cancel();
         task.await.unwrap();
 
@@ -496,6 +490,6 @@ mod tests {
         time::sleep(options().lease + Duration::from_millis(200)).await;
         let recovered = jobs.claim(&[KIND], options().lease).await.unwrap().unwrap();
         assert_eq!(recovered.attempts, 2);
-        assert_eq!(job_count(&pool, Some("running")).await, 1);
+        assert_eq!(job_count(&pool, Some(JobState::Running)).await, 1);
     }
 }

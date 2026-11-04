@@ -271,13 +271,15 @@ mod tests {
     use pp_core::{config::PhotoDir, notifications::PhotoId};
     use pp_database::{
         Database,
-        gallery::GalleryRepository,
-        jobs::{JobKind, JobRepository, PhotoResult, PhotoUpdate, ProcessPhoto},
+        gallery::{GalleryId, GalleryRepository},
+        jobs::{JobKind, JobRepository, JobState, PhotoResult, PhotoUpdate, ProcessPhoto},
         photo::{PhotoRepository, PhotoStatus},
+        tests::TestRepository,
     };
     use pp_storage::PhotoStorage;
-    use serde_json::Value;
+    use serde_json::{Value, json};
     use sqlx::PgPool;
+    use time::OffsetDateTime;
     use tokio::sync::oneshot;
     use uuid::Uuid;
 
@@ -396,17 +398,11 @@ mod tests {
     }
 
     async fn assert_no_upload_effects(pool: &PgPool, photo_dir: &Path) {
-        let photo_count: i64 = sqlx::query_scalar("SELECT count(*) FROM photos")
-            .fetch_one(pool)
-            .await
-            .unwrap();
-        let job_count: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
-            .fetch_one(pool)
-            .await
-            .unwrap();
+        let database = Database::new(pool.clone());
+        let testing = database.repository::<TestRepository>();
 
-        assert_eq!(photo_count, 0);
-        assert_eq!(job_count, 0);
+        assert_eq!(testing.count_photos().await.unwrap(), 0);
+        assert_eq!(testing.count_jobs(None).await.unwrap(), 0);
         assert!(stored_files(photo_dir).is_empty());
     }
 
@@ -545,16 +541,15 @@ mod tests {
         assert_eq!(stored_files(directory.path()).len(), 2);
 
         for id in [first_id, second["id"].as_str().unwrap()] {
-            let payload: Value = sqlx::query_scalar(
-                "SELECT payload FROM jobs WHERE payload->'payload'->>'photo_id' = $1",
-            )
-            .bind(id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+            let jobs = Database::new(pool.clone())
+                .repository::<TestRepository>()
+                .photo_jobs(photo_id(id))
+                .await
+                .unwrap();
 
-            assert_eq!(payload["kind"], "process_photo");
-            assert_eq!(payload["payload"]["photo_id"], id);
+            assert_eq!(jobs.len(), 1);
+            assert_eq!(jobs[0].payload["kind"], "process_photo");
+            assert_eq!(jobs[0].payload["payload"]["photo_id"], id);
         }
     }
 
@@ -743,9 +738,9 @@ mod tests {
             }
         }
 
-        sqlx::query("DELETE FROM galleries WHERE id = $1")
-            .bind(Uuid::parse_str(&gallery_id).unwrap())
-            .execute(&pool)
+        Database::new(pool.clone())
+            .repository::<TestRepository>()
+            .delete_gallery(GalleryId(Uuid::parse_str(&gallery_id).unwrap()))
             .await
             .unwrap();
         release_body.send(()).unwrap();
@@ -764,20 +759,11 @@ mod tests {
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
 
-        sqlx::query(
-            "CREATE FUNCTION reject_job_insert() RETURNS trigger LANGUAGE plpgsql AS $$
-             BEGIN RAISE EXCEPTION 'injected test failure'; END; $$",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE TRIGGER reject_job_insert BEFORE INSERT ON jobs
-             FOR EACH ROW EXECUTE FUNCTION reject_job_insert()",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        Database::new(pool.clone())
+            .repository::<TestRepository>()
+            .reject_job_inserts()
+            .await
+            .unwrap();
 
         let request = upload_request(
             &cookie,
@@ -801,21 +787,11 @@ mod tests {
         let gallery_id = create_gallery(&app, &cookie).await;
         let original = jpeg(1, 1);
 
-        sqlx::query(
-            "CREATE FUNCTION interrupt_photo_commit() RETURNS trigger LANGUAGE plpgsql AS $$
-             BEGIN PERFORM pg_terminate_backend(pg_backend_pid()); RETURN NEW; END; $$",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE CONSTRAINT TRIGGER interrupt_photo_commit AFTER INSERT ON photos
-             DEFERRABLE INITIALLY DEFERRED
-             FOR EACH ROW EXECUTE FUNCTION interrupt_photo_commit()",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        Database::new(pool.clone())
+            .repository::<TestRepository>()
+            .interrupt_photo_commits()
+            .await
+            .unwrap();
 
         let request = upload_request(
             &cookie,
@@ -858,14 +834,24 @@ mod tests {
         let gallery_id = create_gallery(&app, &cookie).await;
         let original = jpeg(2, 1);
         let fixtures = [
-            ("late.jpg", 30_i64, "ready", None),
-            ("larger-id.jpg", 20, "failed", Some("processing failed")),
-            ("oldest.jpg", 10, "waiting", None),
-            ("smaller-id.jpg", 20, "processing", None),
+            ("late.jpg", 30_i64, PhotoStatus::Ready, json!("ready")),
+            (
+                "larger-id.jpg",
+                20,
+                PhotoStatus::Failed("processing failed".to_owned()),
+                json!({"failed": "processing failed"}),
+            ),
+            ("oldest.jpg", 10, PhotoStatus::Waiting, json!("waiting")),
+            (
+                "smaller-id.jpg",
+                20,
+                PhotoStatus::Processing,
+                json!("processing"),
+            ),
         ];
         let mut expected = Vec::new();
 
-        for (filename, created_at, status, failure_reason) in fixtures {
+        for (filename, created_at, status, status_json) in fixtures {
             let request = upload_request(
                 &cookie,
                 &gallery_id,
@@ -879,19 +865,21 @@ mod tests {
             assert_eq!(upload_status, StatusCode::CREATED);
 
             let id = Uuid::parse_str(photo["id"].as_str().unwrap()).unwrap();
+            let database = Database::new(pool.clone());
+            let testing = database.repository::<TestRepository>();
 
-            sqlx::query(
-                "UPDATE photos SET status = $2::photo_status, failure_reason = $3,
-                 created_at = to_timestamp($4) WHERE id = $1",
-            )
-            .bind(id)
-            .bind(status)
-            .bind(failure_reason)
-            .bind(created_at)
-            .execute(&pool)
-            .await
-            .unwrap();
-            expected.push((created_at, id, status, filename, failure_reason));
+            testing
+                .force_photo_status(PhotoId::from(id), &status)
+                .await
+                .unwrap();
+            testing
+                .set_photo_created_at(
+                    PhotoId::from(id),
+                    OffsetDateTime::from_unix_timestamp(created_at).unwrap(),
+                )
+                .await
+                .unwrap();
+            expected.push((created_at, id, status_json, filename));
         }
 
         expected.sort_by_key(|(created_at, id, ..)| (*created_at, *id));
@@ -911,8 +899,7 @@ mod tests {
 
         assert_eq!(photos.len(), expected.len());
 
-        for (photo, (_, id, status, filename, failure_reason)) in photos.iter().zip(expected.iter())
-        {
+        for (photo, (_, id, status, filename)) in photos.iter().zip(expected.iter()) {
             assert_eq!(photo["id"], id.to_string());
             assert_eq!(photo["original_name"], *filename);
             assert_eq!(photo["size"], original.len());
@@ -920,11 +907,7 @@ mod tests {
             assert_eq!(photo["height"], 1);
             assert!(photo["created_at"].as_str().is_some());
 
-            if let Some(reason) = failure_reason {
-                assert_eq!(photo["status"], serde_json::json!({"failed": reason}));
-            } else {
-                assert_eq!(photo["status"], *status);
-            }
+            assert_eq!(photo["status"], *status);
             assert!(!photo.as_object().unwrap().contains_key("failure_reason"));
         }
     }
@@ -1076,15 +1059,15 @@ mod tests {
             .status
     }
 
-    async fn queued_jobs(pool: &PgPool, photo_id: &str) -> i64 {
-        sqlx::query_scalar(
-            "SELECT count(*) FROM jobs
-             WHERE state = 'queued' AND payload->'payload'->>'photo_id' = $1",
-        )
-        .bind(photo_id)
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    async fn queued_jobs(pool: &PgPool, id: &str) -> usize {
+        Database::new(pool.clone())
+            .repository::<TestRepository>()
+            .photo_jobs(photo_id(id))
+            .await
+            .unwrap()
+            .iter()
+            .filter(|job| job.state == JobState::Queued)
+            .count()
     }
 
     fn retry_request(cookie: Option<&Cookie<'static>>, path: &str) -> actix_http::Request {

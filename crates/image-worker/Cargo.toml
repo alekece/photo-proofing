@@ -24,6 +24,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+pp-database = { workspace = true, features = ["tests"] }
 libc = "0.2"
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "migrate", "macros"] }
 tempfile = "3"
