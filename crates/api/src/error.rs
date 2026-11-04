@@ -4,7 +4,13 @@
 //! `{"error": message}` plus a `"context"` array of extra details when a conversion has any,
 //! such as the setting that failed validation.
 
-use actix_web::{HttpResponse, ResponseError, error::JsonPayloadError, http::StatusCode};
+use std::time::Duration;
+
+use actix_web::{
+    HttpResponse, ResponseError,
+    error::JsonPayloadError,
+    http::{StatusCode, header::RETRY_AFTER},
+};
 use pp_database::{error::DatabaseError, gallery::GalleryError};
 use pp_storage::StorageError;
 use serde::{Deserialize, Serialize};
@@ -22,6 +28,9 @@ pub(crate) struct ErrorResponse {
     /// Details a client may act on; the first entry is the most specific subject.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     context: Vec<String>,
+    /// Sent as `Retry-After` when the client should simply try again later.
+    #[serde(skip)]
+    retry_after: Option<Duration>,
 }
 
 impl ErrorResponse {
@@ -30,6 +39,7 @@ impl ErrorResponse {
             status,
             message: message.into(),
             context: Vec::new(),
+            retry_after: None,
         }
     }
 
@@ -71,8 +81,16 @@ impl ErrorResponse {
         )
     }
 
+    /// The server is busy: the client may retry after `retry_after`, sent in whole seconds.
+    pub fn busy(retry_after: Duration) -> Self {
+        Self {
+            retry_after: Some(retry_after),
+            ..Self::new(StatusCode::TOO_MANY_REQUESTS, "server busy, retry later")
+        }
+    }
+
     pub fn storage_full() -> Self {
-        Self::new(StatusCode::SERVICE_UNAVAILABLE, "photo storage is full")
+        Self::new(StatusCode::INSUFFICIENT_STORAGE, "photo storage is full")
     }
 }
 
@@ -84,10 +102,15 @@ impl ResponseError for ErrorResponse {
     fn error_response(&self) -> HttpResponse {
         // Sent on every error so a rejected private link cannot be told apart from another by
         // its headers.
-        HttpResponse::build(self.status)
-            .no_store()
-            .no_referrer()
-            .json(self)
+        let mut response = HttpResponse::build(self.status);
+
+        if let Some(retry_after) = self.retry_after {
+            let seconds = retry_after.as_secs_f64().ceil().max(1.0);
+
+            response.insert_header((RETRY_AFTER, format!("{seconds}")));
+        }
+
+        response.no_store().no_referrer().json(self)
     }
 }
 
@@ -104,9 +127,8 @@ impl From<GalleryError> for ErrorResponse {
         };
 
         Self {
-            status: StatusCode::UNPROCESSABLE_ENTITY,
-            message: "invalid gallery setting".into(),
             context: vec![setting.to_string(), error.to_string()],
+            ..Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid gallery setting")
         }
     }
 }
@@ -151,9 +173,12 @@ impl From<JsonPayloadError> for ErrorResponse {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
+    use std::{io, time::Duration};
 
-    use actix_web::{ResponseError, http::StatusCode};
+    use actix_web::{
+        ResponseError,
+        http::{StatusCode, header::RETRY_AFTER},
+    };
     use pp_storage::StorageError;
 
     use super::ErrorResponse;
@@ -167,10 +192,28 @@ mod tests {
             "/private/photo/path failed",
         )));
 
-        assert_eq!(full.status_code(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(full.status_code(), StatusCode::INSUFFICIENT_STORAGE);
         assert_eq!(full.to_string(), "photo storage is full");
         assert_eq!(failed.status_code(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(failed.to_string(), "service unavailable");
         assert!(!serde_json::to_string(&failed).unwrap().contains("/private"));
+    }
+
+    #[test]
+    fn busy_asks_to_retry_after_whole_seconds() {
+        for (retry_after, header) in [
+            (Duration::from_secs(3), "3"),
+            (Duration::from_millis(1500), "2"),
+            (Duration::ZERO, "1"),
+        ] {
+            let response = ErrorResponse::busy(retry_after).error_response();
+
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+            assert_eq!(response.headers().get(RETRY_AFTER).unwrap(), header);
+        }
+
+        let other = ErrorResponse::unavailable().error_response();
+
+        assert!(other.headers().get(RETRY_AFTER).is_none());
     }
 }

@@ -235,7 +235,10 @@ pub(super) mod tests {
         App,
         cookie::Cookie,
         dev::{Service, ServiceResponse},
-        http::{StatusCode, header::CONTENT_LENGTH},
+        http::{
+            StatusCode,
+            header::{CONTENT_LENGTH, RETRY_AFTER},
+        },
         test,
         web::Data,
     };
@@ -409,9 +412,10 @@ pub(super) mod tests {
         }
 
         let request = upload_request(&cookie, &gallery_id, "proof.jpg", "text/plain", &[], None);
-        let (status, _) = call_request(&app, request).await;
+        let busy = test::call_service(&app, request).await;
 
-        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(busy.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(busy.headers().get(RETRY_AFTER).unwrap(), "1");
         drop(response);
         assert_no_upload_effects(&pool, directory.path()).await;
 

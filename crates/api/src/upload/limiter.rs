@@ -4,12 +4,16 @@ use std::{
     future::{Ready, ready},
     num::NonZeroUsize,
     sync::Arc,
+    time::Duration,
 };
 
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::error::ErrorResponse;
+
+/// How long a refused upload is asked to wait; slots free up as other uploads finish.
+const BUSY_RETRY_AFTER: Duration = Duration::from_secs(1);
 
 /// One process-wide capacity limit, registered as shared application data across workers.
 pub(crate) struct UploadLimiter {
@@ -26,7 +30,8 @@ impl UploadLimiter {
 
 /// Reserves capacity until the handler returns or is cancelled; never reads a request body.
 ///
-/// Extraction fails fast with 503, before handler authorization or header validation.
+/// Extraction fails fast with 429 and `Retry-After`, before handler authorization or header
+/// validation.
 #[must_use]
 pub(crate) struct UploadSlot {
     _permit: OwnedSemaphorePermit,
@@ -45,7 +50,7 @@ impl FromRequest for UploadSlot {
         let result = Arc::clone(&limiter.slots)
             .try_acquire_owned()
             .map(|permit| Self { _permit: permit })
-            .map_err(|_| ErrorResponse::unavailable());
+            .map_err(|_| ErrorResponse::busy(BUSY_RETRY_AFTER));
 
         ready(result)
     }
@@ -55,7 +60,12 @@ impl FromRequest for UploadSlot {
 mod tests {
     use std::num::NonZeroUsize;
 
-    use actix_web::{FromRequest, ResponseError, http::StatusCode, test, web::Data};
+    use actix_web::{
+        FromRequest, ResponseError,
+        http::{StatusCode, header::RETRY_AFTER},
+        test,
+        web::Data,
+    };
 
     use super::{UploadLimiter, UploadSlot};
 
@@ -75,8 +85,10 @@ mod tests {
         }
 
         let error = UploadSlot::extract(&second).await.err().unwrap();
+        let response = error.error_response();
 
-        assert_eq!(error.status_code(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers().get(RETRY_AFTER).unwrap(), "1");
         drop(slots.pop());
         let slot = UploadSlot::extract(&second).await.unwrap();
 
