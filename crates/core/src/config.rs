@@ -1,4 +1,5 @@
 use std::{
+    num::NonZeroU64,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -11,6 +12,9 @@ use strum::Display;
 use thiserror::Error;
 use tracing::level_filters::LevelFilter;
 use url::Url;
+
+/// Largest original, in pixels, that the API accepts and the worker renders.
+pub const DEFAULT_MAX_PIXELS: NonZeroU64 = NonZeroU64::new(100_000_000).unwrap();
 
 #[derive(Args, ConfigArgs, Debug, Clone)]
 pub struct LogConfig {
