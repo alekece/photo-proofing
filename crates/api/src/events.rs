@@ -50,14 +50,6 @@ pub(crate) struct EventHub {
     keep_alive: KeepAlive,
 }
 
-/// A stream's receiver and the slot it holds; dropping it frees the slot.
-pub(crate) struct Subscription {
-    pub receiver: broadcast::Receiver<Broadcast>,
-    /// Cancelled when the hub closes: the stream must end so the server can stop.
-    pub cancellation_token: CancellationToken,
-    _slot: StreamSlot,
-}
-
 impl EventHub {
     pub fn new(config: &EventsConfig, capacity: usize) -> Self {
         let (sender, _) = broadcast::channel(capacity);
@@ -146,23 +138,19 @@ impl EventHub {
     }
 }
 
+/// A stream's receiver and the slot it holds; dropping it frees the slot.
+pub(crate) struct Subscription {
+    pub receiver: broadcast::Receiver<Broadcast>,
+    /// Cancelled when the hub closes: the stream must end so the server can stop.
+    pub cancellation_token: CancellationToken,
+    _slot: StreamSlot,
+}
+
 /// How many streams are open, overall and per workspace, against their caps.
 struct StreamSlots {
     counts: Mutex<StreamCounts>,
     max_streams: NonZeroUsize,
     max_streams_per_workspace: NonZeroUsize,
-}
-
-#[derive(Default)]
-struct StreamCounts {
-    total: usize,
-    workspaces: HashMap<WorkspaceId, usize>,
-}
-
-/// One open stream's place in [`StreamSlots`]; dropping it frees the place.
-struct StreamSlot {
-    slots: Arc<StreamSlots>,
-    workspace_id: WorkspaceId,
 }
 
 impl StreamSlots {
@@ -187,6 +175,18 @@ impl StreamSlots {
     fn counts(&self) -> MutexGuard<'_, StreamCounts> {
         self.counts.lock().unwrap_or_else(PoisonError::into_inner)
     }
+}
+
+#[derive(Default)]
+struct StreamCounts {
+    total: usize,
+    workspaces: HashMap<WorkspaceId, usize>,
+}
+
+/// One open stream's place in [`StreamSlots`]; dropping it frees the place.
+struct StreamSlot {
+    slots: Arc<StreamSlots>,
+    workspace_id: WorkspaceId,
 }
 
 impl Drop for StreamSlot {
