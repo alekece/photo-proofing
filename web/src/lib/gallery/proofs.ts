@@ -8,7 +8,7 @@ export function toProofs(token: string, photos: SharedPhoto[]): Proof[] {
 		id,
 		alt: `Proof ${i + 1}`,
 		thumbnailUrl: `${base}/${encodeURIComponent(id)}/thumbnail`,
-		previewUrl: `${base}/${encodeURIComponent(id)}/image`,
+		previewUrl: `${base}/${encodeURIComponent(id)}/preview`,
 		width,
 		height
 	}));

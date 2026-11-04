@@ -57,9 +57,10 @@ My calls (to check while reading):
 - **Routes** under `/api/v1/galleries/shared/{token}`:
   - `GET /photos` returns the ready photos as `{id, width, height}`, oldest first, in their
     displayed orientation (see Dimensions).
-  - `GET /photos/{id}/thumbnail` and `GET /photos/{id}/image` return the thumbnail and the
-    preview for grid and viewer. For proofs these are the generated derivatives, and no route
-    reaches an original.
+  - `GET /photos/{id}/thumbnail` and `GET /photos/{id}/preview` return the thumbnail and the
+    preview for grid and viewer, with the same derivative names as the photographer routes. For
+    proofs these are the generated derivatives, and no route reaches an original. Finished
+    delivery (#70) decides which file `preview` names for the finished set.
   - Every photo lookup is scoped by the gallery behind the token, so a guessed id from another
     gallery, an unready photo or an unknown id is the same 404.
 - **Dimensions.** A photo's stored width and height become its displayed size. Upload already

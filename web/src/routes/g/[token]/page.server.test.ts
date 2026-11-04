@@ -19,7 +19,7 @@ describe('client gallery load', () => {
 
 		expect(await run()).toMatchObject({
 			gallery,
-			proofs: [{ id: 'a', previewUrl: '/api/v1/galleries/shared/tok/photos/a/image' }]
+			proofs: [{ id: 'a', previewUrl: '/api/v1/galleries/shared/tok/photos/a/preview' }]
 		});
 	});
 

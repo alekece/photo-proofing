@@ -13,7 +13,7 @@ describe('toProofs', () => {
 				id: 'a',
 				alt: 'Proof 1',
 				thumbnailUrl: '/api/v1/galleries/shared/to%2Fken/photos/a/thumbnail',
-				previewUrl: '/api/v1/galleries/shared/to%2Fken/photos/a/image',
+				previewUrl: '/api/v1/galleries/shared/to%2Fken/photos/a/preview',
 				width: 300,
 				height: 200
 			},
@@ -21,7 +21,7 @@ describe('toProofs', () => {
 				id: 'b',
 				alt: 'Proof 2',
 				thumbnailUrl: '/api/v1/galleries/shared/to%2Fken/photos/b/thumbnail',
-				previewUrl: '/api/v1/galleries/shared/to%2Fken/photos/b/image',
+				previewUrl: '/api/v1/galleries/shared/to%2Fken/photos/b/preview',
 				width: 200,
 				height: 300
 			}

@@ -5,6 +5,10 @@ use actix_web::{
     body::BoxBody,
     http::header::{self, ContentType},
 };
+use pp_storage::{PhotoKey, PhotoStorage, StorageError};
+use tokio::io::AsyncReadExt;
+
+use crate::error::ErrorResponse;
 
 /// Adds the headers that every route shares to a response under construction.
 pub(crate) trait ResponseBuilderExt {
@@ -46,6 +50,25 @@ impl ImageFile {
             content_type: ContentType::jpeg(),
             bytes,
         }
+    }
+
+    /// Reads a stored JPEG; a file removed meanwhile is not found.
+    pub(crate) async fn read(
+        storage: &PhotoStorage,
+        key: &PhotoKey,
+    ) -> Result<Self, ErrorResponse> {
+        let mut file = match storage.read(key).await {
+            Ok(file) => file,
+            Err(StorageError::NotFound) => return Err(ErrorResponse::not_found()),
+            Err(error) => return Err(error.into()),
+        };
+        let mut bytes = Vec::new();
+
+        file.read_to_end(&mut bytes)
+            .await
+            .map_err(|error| ErrorResponse::from(StorageError::from(error)))?;
+
+        Ok(Self::jpeg(bytes))
     }
 }
 

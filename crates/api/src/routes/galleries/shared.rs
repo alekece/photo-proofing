@@ -2,7 +2,7 @@
 //!
 //! - `GET /` returns the title, layout and expiry of the gallery behind a private link.
 //! - `GET /photos` lists the photos the client may see, with their displayed size.
-//! - `GET /photos/{photo_id}/thumbnail|image` serves one of those photos.
+//! - `GET /photos/{photo_id}/thumbnail|preview` serves one of those photos.
 //!
 //! Every route takes [`ClientAccess`], so malformed, unknown, unshared and expired links are
 //! the same 404, and so are unready, foreign and unknown photos. No route serves an original.
@@ -15,10 +15,9 @@ use actix_web::{
 };
 use pp_core::notifications::PhotoId;
 use pp_database::photo::PhotoRepository;
-use pp_storage::{PhotoKey, Variant};
-use serde::Deserialize;
+use pp_storage::PhotoKey;
 
-use super::photos::read_image;
+use super::photos::DerivativePhoto;
 use crate::{
     api::ApiState,
     error::ErrorResponse,
@@ -31,23 +30,6 @@ pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(show_shared_gallery)
         .service(list_shared_photos)
         .service(serve_shared_photo);
-}
-
-/// The image a client asks for; which file answers it depends on the photo set.
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum ClientImage {
-    Thumbnail,
-    Image,
-}
-
-impl ClientImage {
-    fn variant(self, set: ClientPhotoSet) -> Variant {
-        match (set, self) {
-            (ClientPhotoSet::Proofs, Self::Thumbnail) => Variant::Thumbnail,
-            (ClientPhotoSet::Proofs, Self::Image) => Variant::Preview,
-        }
-    }
 }
 
 #[get("/shared/{token}")]
@@ -73,16 +55,15 @@ async fn list_shared_photos(
     Ok(HttpResponse::Ok().no_store().no_referrer().json(photos))
 }
 
-#[get("/shared/{token}/photos/{photo_id}/{image:thumbnail|image}")]
+#[get("/shared/{token}/photos/{photo_id}/{derivative:thumbnail|preview}")]
 async fn serve_shared_photo(
     state: Data<ApiState>,
     access: ClientAccess,
-    path: Path<(String, PhotoId, ClientImage)>,
+    path: Path<(String, PhotoId, DerivativePhoto)>,
 ) -> Result<ImageFile, ErrorResponse> {
-    let (_, photo_id, image) = path.into_inner();
+    let (_, photo_id, derivative) = path.into_inner();
     let location = access.0.location;
-    let set = access.photo_set();
-    let visible = match set {
+    let visible = match access.photo_set() {
         ClientPhotoSet::Proofs => {
             state
                 .database()
@@ -96,9 +77,9 @@ async fn serve_shared_photo(
         return Err(ErrorResponse::not_found());
     }
 
-    read_image(
-        &state,
-        &PhotoKey::with_location(location, photo_id, image.variant(set)),
+    ImageFile::read(
+        state.storage(),
+        &PhotoKey::with_location(location, photo_id, derivative.into()),
     )
     .await
 }
@@ -351,7 +332,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn client_serves_thumbnail_and_image_of_a_ready_photo(pool: PgPool) {
+    async fn client_serves_thumbnail_and_preview_of_a_ready_photo(pool: PgPool) {
         let directory = tempfile::tempdir().unwrap();
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let cookie = sign_up(&app).await;
@@ -359,7 +340,7 @@ mod tests {
         let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
         let token = share(&app, &cookie, &gallery_id).await;
 
-        for (image, variant) in [("thumbnail", "thumbnail"), ("image", "preview")] {
+        for (image, variant) in [("thumbnail", "thumbnail"), ("preview", "preview")] {
             let stored = store_derivative(&pool, directory.path(), &photo, variant).await;
             let response = test::call_service(
                 &app,
@@ -401,7 +382,7 @@ mod tests {
         let unknown = uuid::Uuid::new_v4().to_string();
 
         for photo in [&without_file, &failed, &foreign, &waiting, &unknown] {
-            for image in ["thumbnail", "image"] {
+            for image in ["thumbnail", "preview"] {
                 let (status, _) = call_request(
                     &app,
                     client_request(&token, &format!("/photos/{photo}/{image}")),
@@ -428,7 +409,7 @@ mod tests {
         let paths = [
             "/photos".to_owned(),
             format!("/photos/{photo}/thumbnail"),
-            format!("/photos/{photo}/image"),
+            format!("/photos/{photo}/preview"),
         ];
 
         for path in &paths {
@@ -462,7 +443,7 @@ mod tests {
 
         let token = share(&app, &cookie, &gallery_id).await;
 
-        for path in ["original", "Original", "preview", "download", ""] {
+        for path in ["original", "Original", "image", "download", ""] {
             let (status, _) = call_request(
                 &app,
                 client_request(&token, &format!("/photos/{photo}/{path}")),

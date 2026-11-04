@@ -19,7 +19,6 @@ use pp_database::{
 };
 use pp_storage::{PhotoKey, StorageError, Variant};
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncReadExt;
 
 use crate::{
     api::ApiState,
@@ -108,7 +107,7 @@ async fn retry_photo(
 /// lists the same names so any other path misses it, even before authentication.
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum DerivativePhoto {
+pub(super) enum DerivativePhoto {
     Thumbnail,
     Preview,
 }
@@ -146,30 +145,11 @@ async fn serve_derivative_photo(
         gallery_id,
     };
 
-    read_image(
-        &state,
+    ImageFile::read(
+        state.storage(),
         &PhotoKey::with_location(location, photo_id, derivative.into()),
     )
     .await
-}
-
-/// Reads a stored image; a file removed meanwhile is not found.
-pub(super) async fn read_image(
-    state: &ApiState,
-    key: &PhotoKey,
-) -> Result<ImageFile, ErrorResponse> {
-    let mut file = match state.storage().read(key).await {
-        Ok(file) => file,
-        Err(StorageError::NotFound) => return Err(ErrorResponse::not_found()),
-        Err(error) => return Err(error.into()),
-    };
-    let mut bytes = Vec::new();
-
-    file.read_to_end(&mut bytes)
-        .await
-        .map_err(|error| ErrorResponse::from(StorageError::from(error)))?;
-
-    Ok(ImageFile::jpeg(bytes))
 }
 
 #[post("/{id}/photos")]
