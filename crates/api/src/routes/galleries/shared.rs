@@ -17,7 +17,7 @@ use pp_core::notifications::PhotoId;
 use pp_database::photo::PhotoRepository;
 use pp_storage::PhotoKey;
 
-use super::photos::DerivativePhoto;
+use super::DerivativePhoto;
 use crate::{
     api::ApiState,
     error::ErrorResponse,

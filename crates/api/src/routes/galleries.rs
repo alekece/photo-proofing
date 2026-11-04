@@ -17,6 +17,7 @@ use actix_web::{
     web::{self, Data, Json, Path, Query, ServiceConfig},
 };
 use pp_database::gallery::{GalleryChanges, GalleryId, GalleryRepository, GallerySort};
+use pp_storage::Variant;
 use serde::Deserialize;
 
 use crate::{
@@ -26,6 +27,25 @@ use crate::{
 
 mod photos;
 mod shared;
+
+/// The photo files photographer and client routes may serve; the original is deliberately absent.
+/// Each route pattern lists the same names so any other path misses it, even before
+/// authentication.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DerivativePhoto {
+    Thumbnail,
+    Preview,
+}
+
+impl From<DerivativePhoto> for Variant {
+    fn from(derivative: DerivativePhoto) -> Self {
+        match derivative {
+            DerivativePhoto::Thumbnail => Self::Thumbnail,
+            DerivativePhoto::Preview => Self::Preview,
+        }
+    }
+}
 
 #[derive(Deserialize)]
 struct ListQuery {

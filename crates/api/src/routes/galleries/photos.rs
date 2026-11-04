@@ -18,8 +18,9 @@ use pp_database::{
     photo_retry::PhotoRetry,
 };
 use pp_storage::{PhotoKey, StorageError, Variant};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
+use super::DerivativePhoto;
 use crate::{
     api::ApiState,
     error::ErrorResponse,
@@ -101,24 +102,6 @@ async fn retry_photo(
         .ok_or_else(ErrorResponse::not_found)?;
 
     Ok(HttpResponse::Ok().no_store().json(Requeued { requeued }))
-}
-
-/// The photo files clients may fetch; the original is deliberately absent. The route pattern
-/// lists the same names so any other path misses it, even before authentication.
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum DerivativePhoto {
-    Thumbnail,
-    Preview,
-}
-
-impl From<DerivativePhoto> for Variant {
-    fn from(derivative: DerivativePhoto) -> Self {
-        match derivative {
-            DerivativePhoto::Thumbnail => Self::Thumbnail,
-            DerivativePhoto::Preview => Self::Preview,
-        }
-    }
 }
 
 /// Serves a derivative of a ready photo; anything else, including a file removed meanwhile,
