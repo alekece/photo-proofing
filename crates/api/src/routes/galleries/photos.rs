@@ -116,11 +116,12 @@ async fn delete_photo(
 ) -> Result<HttpResponse, ErrorResponse> {
     let (gallery_id, photo_id) = path.into_inner();
 
-    if !state
+    if state
         .database()
         .repository::<PhotoRepository>()
-        .delete(identity.workspace_id, gallery_id, photo_id)
+        .delete(identity.workspace_id, gallery_id, &[photo_id])
         .await?
+        .is_empty()
     {
         return Err(ErrorResponse::not_found());
     }

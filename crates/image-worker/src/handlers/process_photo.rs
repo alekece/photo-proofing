@@ -517,7 +517,7 @@ mod tests {
         let rendered = fixture.handler.renderer.render(&fixture.original).unwrap();
         let job = fixture.claim().await;
 
-        assert!(
+        assert_eq!(
             fixture
                 .handler
                 .database
@@ -525,11 +525,13 @@ mod tests {
                 .delete(
                     fixture.location.workspace_id,
                     fixture.location.gallery_id,
-                    fixture.id,
+                    &[fixture.id],
                 )
                 .await
-                .unwrap()
+                .unwrap(),
+            vec![fixture.id]
         );
+
         let completion = fixture
             .handler
             .publish(job, fixture.location, fixture.id, rendered)
