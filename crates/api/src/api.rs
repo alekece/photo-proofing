@@ -292,17 +292,20 @@ impl Api {
     }
 }
 
+/// Parses JSON bodies up to `limit` bytes, answering failures with the shared error responses.
+pub(crate) fn json_config(limit: usize) -> JsonConfig {
+    JsonConfig::default()
+        .limit(limit)
+        .error_handler(|error, _| ErrorResponse::from(error).into())
+}
+
 /// Mounts every HTTP route under `/api/v1`, behind the same-origin check, with the shared
 /// request-parsing error responses.
 pub fn configure_routes(cfg: &mut ServiceConfig) {
     cfg.service(
         web::scope("/api/v1")
             .wrap(SameOrigin)
-            .app_data(
-                JsonConfig::default()
-                    .limit(JSON_LIMIT)
-                    .error_handler(|error, _| ErrorResponse::from(error).into()),
-            )
+            .app_data(json_config(JSON_LIMIT))
             .app_data(
                 QueryConfig::default().error_handler(|_, _| ErrorResponse::bad_request().into()),
             )
