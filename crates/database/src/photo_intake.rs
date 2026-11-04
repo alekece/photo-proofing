@@ -10,7 +10,7 @@ use thiserror::Error;
 use crate::{
     Repository,
     error::DatabaseError,
-    jobs::{DEFAULT_MAX_ATTEMPTS, JobPayload, JobRepository},
+    jobs::{DEFAULT_MAX_ATTEMPTS, JobPayload, JobRepository, ProcessPhoto},
     photo::{NewPhoto, Photo, PhotoInsertOutcome, PhotoRepository},
 };
 
@@ -146,7 +146,7 @@ impl PhotoIntake<'_> {
                 Ok(Some(existing))
             }
             PhotoInsertOutcome::Inserted(inserted) => {
-                let payload = JobPayload::ProcessPhoto(serde_json::json!({"photo_id": photo.id}));
+                let payload = JobPayload::ProcessPhoto(ProcessPhoto { photo_id: photo.id });
 
                 JobRepository::enqueue_in(&mut transaction, payload, DEFAULT_MAX_ATTEMPTS).await?;
 

@@ -244,21 +244,16 @@ mod tests {
         sync::atomic::{AtomicUsize, Ordering},
     };
 
+    use pp_core::{notifications::PhotoId, types::generate::Generate};
     use pp_database::{
         PgPool,
-        jobs::{DEFAULT_MAX_ATTEMPTS, JobKind, JobPayload},
+        jobs::{DEFAULT_MAX_ATTEMPTS, JobKind, JobPayload, ProcessPhoto},
     };
-    use serde::Deserialize;
     use serde_json::json;
     use sqlx::Row;
+    use uuid::Uuid;
 
     use super::*;
-
-    #[derive(Deserialize)]
-    struct Payload {
-        #[allow(dead_code)]
-        photo: u32,
-    }
 
     const KIND: JobKind = JobKind::ProcessPhoto;
 
@@ -284,13 +279,14 @@ mod tests {
         (token, task)
     }
 
-    async fn enqueue(pool: &PgPool, payload: serde_json::Value, attempts: u16) {
+    async fn enqueue(pool: &PgPool, attempts: u16) {
+        let payload = JobPayload::ProcessPhoto(ProcessPhoto {
+            photo_id: PhotoId::generate(),
+        });
+
         Database::new(pool.clone())
             .repository::<JobRepository>()
-            .enqueue(
-                JobPayload::ProcessPhoto(payload),
-                attempts.try_into().unwrap(),
-            )
+            .enqueue(payload, attempts.try_into().unwrap())
             .await
             .unwrap();
     }
@@ -316,11 +312,11 @@ mod tests {
     async fn runs_a_job_and_deletes_it(pool: PgPool) {
         let runs = Arc::new(AtomicUsize::new(0));
         let seen = Arc::clone(&runs);
-        let handlers = HandlerRegistry::default().register(KIND, move |_: Payload| {
+        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto| {
             seen.fetch_add(1, Ordering::SeqCst);
             future::ready(Ok(()))
         });
-        enqueue(&pool, json!({"photo": 1}), 3).await;
+        enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
         wait_for(async || job_count(&pool, None).await == 0).await;
@@ -334,11 +330,11 @@ mod tests {
     async fn failing_job_is_retried_then_kept_as_failed(pool: PgPool) {
         let runs = Arc::new(AtomicUsize::new(0));
         let seen = Arc::clone(&runs);
-        let handlers = HandlerRegistry::default().register(KIND, move |_: Payload| {
+        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto| {
             seen.fetch_add(1, Ordering::SeqCst);
             future::ready(Err(HandlerError::Failed("disk full".into())))
         });
-        enqueue(&pool, json!({"photo": 1}), 3).await;
+        enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
         wait_for(async || job_count(&pool, Some("failed")).await == 1).await;
@@ -360,8 +356,13 @@ mod tests {
     #[sqlx::test(migrations = "../database/migrations")]
     async fn unreadable_payload_fails_without_retrying(pool: PgPool) {
         let handlers =
-            HandlerRegistry::default().register(KIND, |_: Payload| future::ready(Ok(())));
-        enqueue(&pool, json!({"unexpected": true}), 5).await;
+            HandlerRegistry::default().register(KIND, |_: ProcessPhoto| future::ready(Ok(())));
+        sqlx::query("INSERT INTO jobs(id, payload, max_attempts) VALUES ($1, $2, 5)")
+            .bind(Uuid::new_v4())
+            .bind(json!({"kind": "process_photo", "payload": {"unexpected": true}}))
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let (token, task) = start(&pool, handlers, options());
         wait_for(async || job_count(&pool, Some("failed")).await == 1).await;
@@ -380,7 +381,7 @@ mod tests {
         let runs = Arc::new(AtomicUsize::new(0));
         let handlers = || {
             let seen = Arc::clone(&runs);
-            HandlerRegistry::default().register(KIND, move |_: Payload| {
+            HandlerRegistry::default().register(KIND, move |_: ProcessPhoto| {
                 seen.fetch_add(1, Ordering::SeqCst);
                 async {
                     time::sleep(Duration::from_millis(1800)).await;
@@ -388,7 +389,7 @@ mod tests {
                 }
             })
         };
-        enqueue(&pool, json!({"photo": 1}), 3).await;
+        enqueue(&pool, 3).await;
 
         // Two workers: the second would take the job over if the lease lapsed.
         let (token, first) = start(&pool, handlers(), options());
@@ -408,7 +409,7 @@ mod tests {
         let current = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
         let (c, p) = (Arc::clone(&current), Arc::clone(&peak));
-        let handlers = HandlerRegistry::default().register(KIND, move |_: Payload| {
+        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto| {
             let (c, p) = (Arc::clone(&c), Arc::clone(&p));
             async move {
                 p.fetch_max(c.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
@@ -417,8 +418,8 @@ mod tests {
                 Ok(())
             }
         });
-        for photo in 0..6 {
-            enqueue(&pool, json!({"photo": photo}), DEFAULT_MAX_ATTEMPTS.get()).await;
+        for _ in 0..6 {
+            enqueue(&pool, DEFAULT_MAX_ATTEMPTS.get()).await;
         }
 
         let (token, task) = start(&pool, handlers, options());
@@ -431,11 +432,11 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn shutdown_waits_for_a_job_that_finishes_within_the_grace(pool: PgPool) {
-        let handlers = HandlerRegistry::default().register(KIND, |_: Payload| async {
+        let handlers = HandlerRegistry::default().register(KIND, |_: ProcessPhoto| async {
             time::sleep(Duration::from_millis(100)).await;
             Ok(())
         });
-        enqueue(&pool, json!({"photo": 1}), 3).await;
+        enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
         wait_for(async || job_count(&pool, Some("running")).await == 1).await;
@@ -447,10 +448,10 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn shutdown_during_a_stuck_job_leaves_it_recoverable(pool: PgPool) {
-        let handlers = HandlerRegistry::default().register(KIND, |_: Payload| {
+        let handlers = HandlerRegistry::default().register(KIND, |_: ProcessPhoto| {
             future::pending::<Result<(), HandlerError>>()
         });
-        enqueue(&pool, json!({"photo": 1}), 3).await;
+        enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
         wait_for(async || job_count(&pool, Some("running")).await == 1).await;

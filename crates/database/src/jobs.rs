@@ -27,7 +27,7 @@
 
 use std::{num::NonZeroU16, str::FromStr, time::Duration};
 
-use pp_core::types::generate::Generate;
+use pp_core::{notifications::PhotoId, types::generate::Generate};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Error as JsonError, Value};
 use sqlx::{AssertSqlSafe, FromRow, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow};
@@ -82,12 +82,17 @@ impl FromStr for JobKind {
     }
 }
 
+/// Turns one uploaded original into its derivatives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessPhoto {
+    pub photo_id: PhotoId,
+}
+
 /// A durable job's tag and body, stored together in the `payload` JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "payload", rename_all = "snake_case")]
 pub enum JobPayload {
-    /// The body remains opaque until the photo-processing contract is defined.
-    ProcessPhoto(Value),
+    ProcessPhoto(ProcessPhoto),
 }
 
 impl JobPayload {
@@ -95,12 +100,6 @@ impl JobPayload {
     pub const fn kind(&self) -> JobKind {
         match self {
             Self::ProcessPhoto(_) => JobKind::ProcessPhoto,
-        }
-    }
-
-    fn body(&self) -> &Value {
-        match self {
-            Self::ProcessPhoto(body) => body,
         }
     }
 }
@@ -115,10 +114,14 @@ pub enum JobState {
 }
 
 /// A claimed job. Hand it back to the repository to renew, complete or fail the claim.
+///
+/// The body stays raw JSON until a handler reads it, so a malformed body is still claimed and
+/// abandoned by the worker instead of failing the claim itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
     pub id: JobId,
-    pub payload: JobPayload,
+    kind: JobKind,
+    body: Value,
     /// Including the current run, so the first run sees `1`.
     pub attempts: u32,
     pub max_attempts: u32,
@@ -127,12 +130,12 @@ pub struct Job {
 impl Job {
     /// Returns the discriminator encoded with this job's payload.
     pub const fn kind(&self) -> JobKind {
-        self.payload.kind()
+        self.kind
     }
 
-    /// Reads the payload as the type the handler for this kind expects.
+    /// Reads the payload body as the type the handler for this kind expects.
     pub fn payload<T: DeserializeOwned>(&self) -> Result<T, JsonError> {
-        serde_json::from_value(self.payload.body().clone())
+        T::deserialize(&self.body)
     }
 }
 
@@ -142,11 +145,15 @@ impl FromRow<'_, PgRow> for Job {
             u32::try_from(row.try_get::<i32, _>(column)?)
                 .map_err(|_| sqlx::Error::Decode(format!("{column} is negative").into()))
         };
+        let kind = row
+            .try_get::<String, _>("kind")?
+            .parse::<JobKind>()
+            .map_err(|error| sqlx::Error::Decode(error.into()))?;
 
         Ok(Self {
             id: row.try_get("id")?,
-            payload: serde_json::from_value(row.try_get("payload")?)
-                .map_err(|error| sqlx::Error::Decode(error.into()))?,
+            kind,
+            body: row.try_get("body")?,
             attempts: count("attempts")?,
             max_attempts: count("max_attempts")?,
         })
@@ -216,7 +223,8 @@ impl<'db> Repository<'db> for JobRepository<'db> {
 }
 
 impl JobRepository<'_> {
-    const COLUMNS: &'static str = "id, payload, attempts, max_attempts";
+    const COLUMNS: &'static str = "id, payload->>'kind' AS kind,
+        COALESCE(payload->'payload', 'null'::jsonb) AS body, attempts, max_attempts";
 
     /// Stores a job, due immediately.
     pub async fn enqueue(
@@ -430,7 +438,7 @@ mod tests {
 
         JobRepository::enqueue_in(
             &mut transaction,
-            JobPayload::ProcessPhoto(json!({"photo_id": "photo-1"})),
+            process_photo(),
             NonZeroU16::new(3).unwrap(),
         )
         .await
@@ -451,13 +459,16 @@ mod tests {
         assert_eq!(count_after_rollback, 0);
     }
 
+    fn process_photo() -> JobPayload {
+        JobPayload::ProcessPhoto(ProcessPhoto {
+            photo_id: PhotoId::from(Uuid::new_v4()),
+        })
+    }
+
     async fn enqueue(database: &Database, max_attempts: u16) -> JobId {
         database
             .repository::<JobRepository>()
-            .enqueue(
-                JobPayload::ProcessPhoto(json!({"photo": 1})),
-                NonZeroU16::new(max_attempts).unwrap(),
-            )
+            .enqueue(process_photo(), NonZeroU16::new(max_attempts).unwrap())
             .await
             .unwrap()
     }
@@ -472,12 +483,16 @@ mod tests {
     }
 
     #[test]
-    fn job_payload_serializes_its_tag_and_body_together() {
-        let payload = JobPayload::ProcessPhoto(json!({"photo": 1}));
+    fn process_photo_payload_keeps_the_stored_shape() {
+        let photo_id = PhotoId::from(Uuid::new_v4());
+        let payload = JobPayload::ProcessPhoto(ProcessPhoto { photo_id });
+        let stored =
+            json!({"kind": "process_photo", "payload": {"photo_id": photo_id.to_string()}});
 
+        assert_eq!(serde_json::to_value(&payload).unwrap(), stored);
         assert_eq!(
-            serde_json::to_value(payload).unwrap(),
-            json!({"kind": "process_photo", "payload": {"photo": 1}})
+            serde_json::from_value::<JobPayload>(stored).unwrap(),
+            payload
         );
     }
 
@@ -608,12 +623,18 @@ mod tests {
     async fn only_requested_kinds_are_claimed(pool: PgPool) {
         let database = Database::new(pool);
         let jobs = database.repository::<JobRepository>();
-        enqueue(&database, 3).await;
+        let payload = process_photo();
+        jobs.enqueue(payload.clone(), NonZeroU16::new(3).unwrap())
+            .await
+            .unwrap();
 
         assert!(jobs.claim(&[], LEASE).await.unwrap().is_none());
         let job = jobs.claim(KINDS, LEASE).await.unwrap().unwrap();
         assert_eq!(job.kind(), JobKind::ProcessPhoto);
-        assert_eq!(job.payload::<Value>().unwrap(), json!({"photo": 1}));
+        assert_eq!(
+            JobPayload::ProcessPhoto(job.payload::<ProcessPhoto>().unwrap()),
+            payload
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
