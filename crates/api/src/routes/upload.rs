@@ -4,7 +4,7 @@ use actix_web::{HttpResponse, get, web::Data};
 use serde::Serialize;
 
 use crate::{
-    api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
+    api::ApiState, config::UploadConfig, error::ErrorResponse, extractors::identity::Authenticated,
     response::ResponseBuilderExt,
 };
 
@@ -17,18 +17,24 @@ struct UploadLimits {
     max_pixels: u64,
 }
 
-#[get("/photo-upload/limits")]
+impl From<&UploadConfig> for UploadLimits {
+    fn from(config: &UploadConfig) -> Self {
+        Self {
+            concurrency: config.concurrency.get(),
+            max_size: config.max_size.get(),
+            max_pixels: config.max_pixels.get(),
+        }
+    }
+}
+
+#[get("/upload/limits")]
 pub async fn upload_limits(
     state: Data<ApiState>,
     _: Authenticated,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let config = state.upload_config();
-
-    Ok(HttpResponse::Ok().no_store().json(UploadLimits {
-        concurrency: config.concurrency.get(),
-        max_size: config.max_size.get(),
-        max_pixels: config.max_pixels.get(),
-    }))
+    Ok(HttpResponse::Ok()
+        .no_store()
+        .json(UploadLimits::from(state.upload_config())))
 }
 
 #[cfg(test)]
@@ -43,7 +49,7 @@ mod tests {
     };
 
     fn limits_request(cookie: Option<&Cookie<'static>>) -> actix_http::Request {
-        let request = test::TestRequest::get().uri("/api/v1/photo-upload/limits");
+        let request = test::TestRequest::get().uri("/api/v1/upload/limits");
 
         match cookie {
             Some(cookie) => request.cookie(cookie.clone()).to_request(),

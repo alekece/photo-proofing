@@ -38,6 +38,13 @@ const MAX_KEEP_ALIVE_SECS: u64 = 5 * 60;
 /// How often an idle event stream is pinged and its session re-checked.
 pub type KeepAlive = BoundedDuration<1, MAX_KEEP_ALIVE_SECS>;
 
+/// Longest [`UploadRetryAfter`]: a browser told to wait longer would leave the queue idle
+/// long after slots free up.
+const MAX_UPLOAD_RETRY_AFTER_SECS: u64 = 60;
+
+/// How long a refused upload is asked to wait; `Retry-After` has whole-second resolution.
+pub type UploadRetryAfter = BoundedDuration<1, MAX_UPLOAD_RETRY_AFTER_SECS>;
+
 /// Everything [`Api`](crate::api::Api) needs to start.
 #[derive(Args, ConfigArgs, Clone)]
 pub struct ApiConfig {
@@ -201,6 +208,13 @@ pub struct UploadConfig {
         default_value = "4"
     )]
     pub concurrency: NonZeroUsize,
+    /// Wait announced to an upload refused because every slot is taken.
+    #[arg(
+        long = "photo-upload-retry-after",
+        env = "PP_PHOTO_UPLOAD_RETRY_AFTER",
+        default_value = "1s"
+    )]
+    pub retry_after: UploadRetryAfter,
 }
 
 /// Live event streams: how idle streams are kept open and how many may be open at once.
@@ -274,6 +288,7 @@ mod tests {
         assert_eq!(api.photo_upload.max_size.get(), 64 * 1024 * 1024);
         assert_eq!(api.photo_upload.max_pixels.get(), 100_000_000);
         assert_eq!(api.photo_upload.concurrency.get(), 4);
+        assert_eq!(api.photo_upload.retry_after.get(), Duration::from_secs(1));
         assert_eq!(api.photo.dir.as_path(), Path::new("./data/photos"));
         assert_eq!(api.events.keep_alive.get(), Duration::from_secs(15));
         assert_eq!(api.events.max_streams.get(), 256);
@@ -314,7 +329,7 @@ mod tests {
         let path = dir.path().join("c.toml");
         fs::write(
             &path,
-            "[photo_upload]\nmax_size = 1234\nmax_pixels = 5678\nconcurrency = 2\n",
+            "[photo_upload]\nmax_size = 1234\nmax_pixels = 5678\nconcurrency = 2\nretry_after = '5s'\n",
         )
         .unwrap();
         let args = ["--config", path.to_str().unwrap()];
@@ -323,6 +338,7 @@ mod tests {
         assert_eq!(config.max_size.get(), 1234);
         assert_eq!(config.max_pixels.get(), 5678);
         assert_eq!(config.concurrency.get(), 2);
+        assert_eq!(config.retry_after.get(), Duration::from_secs(5));
 
         let config = parse(&[args[0], args[1], "--photo-upload-max-size", "4321"])
             .unwrap()
@@ -335,8 +351,14 @@ mod tests {
     }
 
     #[test]
-    fn photo_upload_concurrency_rejects_zero() {
-        assert!(parse(&["--photo-upload-concurrency", "0"]).is_err());
+    fn photo_upload_concurrency_and_retry_after_reject_out_of_range_values() {
+        for args in [
+            ["--photo-upload-concurrency", "0"],
+            ["--photo-upload-retry-after", "0s"],
+            ["--photo-upload-retry-after", "2m"],
+        ] {
+            assert!(parse(&args).is_err(), "{args:?}");
+        }
     }
 
     #[test]

@@ -2,7 +2,6 @@
 
 use std::{
     future::{Ready, ready},
-    num::NonZeroUsize,
     sync::Arc,
     time::Duration,
 };
@@ -10,20 +9,20 @@ use std::{
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::error::ErrorResponse;
-
-/// How long a refused upload is asked to wait; slots free up as other uploads finish.
-const BUSY_RETRY_AFTER: Duration = Duration::from_secs(1);
+use crate::{config::UploadConfig, error::ErrorResponse};
 
 /// One process-wide capacity limit, registered as shared application data across workers.
 pub(crate) struct UploadLimiter {
     slots: Arc<Semaphore>,
+    /// Wait announced to a refused upload; slots free up as other uploads finish.
+    retry_after: Duration,
 }
 
-impl UploadLimiter {
-    pub(crate) fn new(capacity: NonZeroUsize) -> Self {
+impl From<&UploadConfig> for UploadLimiter {
+    fn from(config: &UploadConfig) -> Self {
         Self {
-            slots: Arc::new(Semaphore::new(capacity.get())),
+            slots: Arc::new(Semaphore::new(config.concurrency.get())),
+            retry_after: config.retry_after.get(),
         }
     }
 }
@@ -50,7 +49,7 @@ impl FromRequest for UploadSlot {
         let result = Arc::clone(&limiter.slots)
             .try_acquire_owned()
             .map(|permit| Self { _permit: permit })
-            .map_err(|_| ErrorResponse::busy(BUSY_RETRY_AFTER));
+            .map_err(|_| ErrorResponse::busy(limiter.retry_after));
 
         ready(result)
     }
@@ -58,8 +57,6 @@ impl FromRequest for UploadSlot {
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroUsize;
-
     use actix_web::{
         FromRequest, ResponseError,
         http::{StatusCode, header::RETRY_AFTER},
@@ -68,10 +65,15 @@ mod tests {
     };
 
     use super::{UploadLimiter, UploadSlot};
+    use crate::routes::galleries::photos::tests::upload_config;
 
     #[actix_web::test]
     async fn cloned_applications_share_capacity_without_api_state() {
-        let limiter = Data::new(UploadLimiter::new(NonZeroUsize::new(4).unwrap()));
+        let mut config = upload_config(1024, 2048);
+
+        config.retry_after = "3s".parse().unwrap();
+
+        let limiter = Data::new(UploadLimiter::from(&config));
         let first = test::TestRequest::default()
             .app_data(limiter.clone())
             .to_http_request();
@@ -88,7 +90,7 @@ mod tests {
         let response = error.error_response();
 
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(response.headers().get(RETRY_AFTER).unwrap(), "1");
+        assert_eq!(response.headers().get(RETRY_AFTER).unwrap(), "3");
         drop(slots.pop());
         let slot = UploadSlot::extract(&second).await.unwrap();
 

@@ -1,10 +1,10 @@
 //! Live photo events, from the database to every open event stream.
 //!
-//! One [`relay_photo_events`] task per process listens to the database and publishes on the
-//! [`EventHub`]; each `GET /api/v1/events` stream subscribes and forwards its own workspace's
-//! events (see [`routes::events`](crate::routes::events)). Whenever events may have been lost (a
-//! reconnect, an undecodable notification or a lagging subscriber), streams receive
-//! [`Broadcast::Resync`] so the browser refetches instead of trusting a partial history.
+//! One [`EventHub::relay`] task per process listens to the database and publishes on the hub;
+//! each `GET /api/v1/events` stream subscribes and forwards its own workspace's events (see
+//! [`routes::events`](crate::routes::events)). Whenever events may have been lost (a reconnect,
+//! an undecodable notification or a lagging subscriber), streams receive [`Broadcast::Resync`]
+//! so the browser refetches instead of trusting a partial history.
 
 use std::{
     collections::HashMap,
@@ -16,7 +16,9 @@ use std::{
 use pp_database::{
     Database,
     auth::WorkspaceId,
-    photo_events::{MissedReason, Notification, PhotoEvent},
+    error::DatabaseError,
+    listener::{Listener, MissedReason, Notification},
+    photo_events::PhotoEvent,
 };
 use tokio::{sync::broadcast, time};
 use tokio_util::sync::CancellationToken;
@@ -43,30 +45,9 @@ pub(crate) enum Broadcast {
 /// Fans database events out to the open streams, and bounds how many may be open.
 pub(crate) struct EventHub {
     sender: broadcast::Sender<Broadcast>,
-    counts: Arc<Mutex<StreamCounts>>,
-    closing: CancellationToken,
+    slots: Arc<StreamSlots>,
+    cancellation_token: CancellationToken,
     keep_alive: KeepAlive,
-    max_streams: NonZeroUsize,
-    max_streams_per_workspace: NonZeroUsize,
-}
-
-#[derive(Default)]
-struct StreamCounts {
-    total: usize,
-    per_workspace: HashMap<WorkspaceId, usize>,
-}
-
-/// A stream's receiver and the slot it holds; dropping it frees the slot.
-pub(crate) struct Subscription {
-    pub receiver: broadcast::Receiver<Broadcast>,
-    /// Cancelled when the hub closes: the stream must end so the server can stop.
-    pub closing: CancellationToken,
-    _slot: StreamSlot,
-}
-
-struct StreamSlot {
-    counts: Arc<Mutex<StreamCounts>>,
-    workspace_id: WorkspaceId,
 }
 
 impl EventHub {
@@ -75,11 +56,13 @@ impl EventHub {
 
         Self {
             sender,
-            counts: Arc::default(),
-            closing: CancellationToken::new(),
+            slots: Arc::new(StreamSlots {
+                counts: Mutex::default(),
+                max_streams: config.max_streams,
+                max_streams_per_workspace: config.max_streams_per_workspace,
+            }),
+            cancellation_token: CancellationToken::new(),
             keep_alive: config.keep_alive,
-            max_streams: config.max_streams,
-            max_streams_per_workspace: config.max_streams_per_workspace,
         }
     }
 
@@ -90,101 +73,135 @@ impl EventHub {
     /// Opens a subscription for a stream of `workspace_id`, or `None` when the process or the
     /// workspace already has as many streams as allowed.
     pub fn subscribe(&self, workspace_id: WorkspaceId) -> Option<Subscription> {
-        let mut counts = lock(&self.counts);
-        let open = counts
-            .per_workspace
-            .get(&workspace_id)
-            .copied()
-            .unwrap_or(0);
-
-        if counts.total >= self.max_streams.get() || open >= self.max_streams_per_workspace.get() {
-            return None;
-        }
-
-        counts.total += 1;
-        counts.per_workspace.insert(workspace_id, open + 1);
-        drop(counts);
+        let slot = self.slots.acquire(workspace_id)?;
 
         Some(Subscription {
             receiver: self.sender.subscribe(),
-            closing: self.closing.clone(),
-            _slot: StreamSlot {
-                counts: Arc::clone(&self.counts),
-                workspace_id,
-            },
+            cancellation_token: self.cancellation_token.clone(),
+            _slot: slot,
         })
     }
 
     /// Ends every open stream. A stream otherwise lasts as long as its session, so the server
     /// could not stop gracefully while a dashboard is open.
     pub fn close(&self) {
-        self.closing.cancel();
+        self.cancellation_token.cancel();
     }
 
     pub fn publish(&self, broadcast: Broadcast) {
         // Sending fails only when no stream is open, and then nobody needs the event.
         let _ = self.sender.send(broadcast);
     }
-}
 
-impl Drop for StreamSlot {
-    fn drop(&mut self) {
-        let mut counts = lock(&self.counts);
+    /// Listens to the database for the life of the process and publishes every photo change.
+    ///
+    /// Failures are retried with a growing delay; they never end the task, so the owner aborts
+    /// it on shutdown.
+    pub async fn relay(&self, database: Database) {
+        let mut backoff = RELAY_BACKOFF_START;
 
-        counts.total -= 1;
+        loop {
+            match database.listen::<PhotoEvent>().await {
+                Ok(listener) => {
+                    backoff = RELAY_BACKOFF_START;
 
-        if let Some(open) = counts.per_workspace.get_mut(&self.workspace_id) {
-            *open -= 1;
+                    let error = self.forward(listener).await;
 
-            if *open == 0 {
-                counts.per_workspace.remove(&self.workspace_id);
+                    tracing::warn!(%error, "photo event listener failed");
+                }
+                Err(error) => tracing::warn!(%error, "photo event listener unavailable"),
+            }
+
+            time::sleep(backoff).await;
+            backoff = (backoff * 2).min(RELAY_BACKOFF_CAP);
+        }
+    }
+
+    /// Publishes `listener`'s notifications until it fails. It starts with a resync, since
+    /// changes made while no listener was open were not announced.
+    async fn forward(&self, mut listener: Listener<PhotoEvent>) -> DatabaseError {
+        self.publish(Broadcast::Resync);
+
+        loop {
+            match listener.next().await {
+                Ok(Notification::Event(event)) => self.publish(Broadcast::Photo(event)),
+                Ok(Notification::Missed(reason)) => {
+                    if reason == MissedReason::Undecodable {
+                        tracing::warn!("undecodable photo event notification");
+                    }
+
+                    self.publish(Broadcast::Resync);
+                }
+                Err(error) => return error,
             }
         }
     }
 }
 
-/// The counts stay consistent even if a holder panicked: every update is a single step.
-fn lock(counts: &Mutex<StreamCounts>) -> MutexGuard<'_, StreamCounts> {
-    counts.lock().unwrap_or_else(PoisonError::into_inner)
+/// A stream's receiver and the slot it holds; dropping it frees the slot.
+pub(crate) struct Subscription {
+    pub receiver: broadcast::Receiver<Broadcast>,
+    /// Cancelled when the hub closes: the stream must end so the server can stop.
+    pub cancellation_token: CancellationToken,
+    _slot: StreamSlot,
 }
 
-/// Listens to the database for the life of the process and publishes every photo change.
-///
-/// Every (re)opened listener is followed by a [`Broadcast::Resync`], since changes made while
-/// it was closed were not announced. Failures are retried with a growing delay; they never end
-/// the task, so the owner aborts it on shutdown.
-pub(crate) async fn relay_photo_events(database: Database, hub: Arc<EventHub>) {
-    let mut backoff = RELAY_BACKOFF_START;
+/// How many streams are open, overall and per workspace, against their caps.
+struct StreamSlots {
+    counts: Mutex<StreamCounts>,
+    max_streams: NonZeroUsize,
+    max_streams_per_workspace: NonZeroUsize,
+}
 
-    loop {
-        match database.listen_photo_events().await {
-            Ok(mut listener) => {
-                backoff = RELAY_BACKOFF_START;
-                hub.publish(Broadcast::Resync);
+impl StreamSlots {
+    fn acquire(self: &Arc<Self>, workspace_id: WorkspaceId) -> Option<StreamSlot> {
+        let mut counts = self.counts();
+        let open = counts.workspaces.get(&workspace_id).copied().unwrap_or(0);
 
-                loop {
-                    match listener.next().await {
-                        Ok(Notification::Photo(event)) => hub.publish(Broadcast::Photo(event)),
-                        Ok(Notification::Missed(reason)) => {
-                            if reason == MissedReason::Undecodable {
-                                tracing::warn!("undecodable photo event notification");
-                            }
-
-                            hub.publish(Broadcast::Resync);
-                        }
-                        Err(error) => {
-                            tracing::warn!(%error, "photo event listener failed");
-
-                            break;
-                        }
-                    }
-                }
-            }
-            Err(error) => tracing::warn!(%error, "photo event listener unavailable"),
+        if counts.total >= self.max_streams.get() || open >= self.max_streams_per_workspace.get() {
+            return None;
         }
 
-        time::sleep(backoff).await;
-        backoff = (backoff * 2).min(RELAY_BACKOFF_CAP);
+        counts.total += 1;
+        counts.workspaces.insert(workspace_id, open + 1);
+
+        Some(StreamSlot {
+            slots: Arc::clone(self),
+            workspace_id,
+        })
+    }
+
+    /// The counts stay consistent even if a holder panicked: every update is a single step.
+    fn counts(&self) -> MutexGuard<'_, StreamCounts> {
+        self.counts.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+#[derive(Default)]
+struct StreamCounts {
+    total: usize,
+    workspaces: HashMap<WorkspaceId, usize>,
+}
+
+/// One open stream's place in [`StreamSlots`]; dropping it frees the place.
+struct StreamSlot {
+    slots: Arc<StreamSlots>,
+    workspace_id: WorkspaceId,
+}
+
+impl Drop for StreamSlot {
+    fn drop(&mut self) {
+        let mut counts = self.slots.counts();
+
+        counts.total -= 1;
+
+        if let Some(open) = counts.workspaces.get_mut(&self.workspace_id) {
+            *open -= 1;
+
+            if *open == 0 {
+                counts.workspaces.remove(&self.workspace_id);
+            }
+        }
     }
 }
 
@@ -237,10 +254,10 @@ mod tests {
 
         drop(subscription);
 
-        let counts = lock(&hub.counts);
+        let counts = hub.slots.counts();
 
         assert_eq!(counts.total, 0);
-        assert!(counts.per_workspace.is_empty());
+        assert!(counts.workspaces.is_empty());
     }
 
     struct Relay {
@@ -252,10 +269,12 @@ mod tests {
         async fn start(pool: &PgPool) -> (Self, Subscription) {
             let hub = Arc::new(EventHub::new(&events_config(8, 8), HUB_CAPACITY));
             let mut subscription = hub.subscribe(workspace()).unwrap();
-            let task = tokio::spawn(relay_photo_events(
-                Database::new(pool.clone()),
-                Arc::clone(&hub),
-            ));
+            let database = Database::new(pool.clone());
+            let task = tokio::spawn({
+                let hub = Arc::clone(&hub);
+
+                async move { hub.relay(database).await }
+            });
 
             assert_eq!(recv(&mut subscription).await, Broadcast::Resync);
 

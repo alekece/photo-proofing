@@ -386,6 +386,7 @@ pub(crate) mod tests {
             max_size: NonZeroU64::new(max_size).unwrap(),
             max_pixels: NonZeroU64::new(max_pixels).unwrap(),
             concurrency: NonZeroUsize::new(4).unwrap(),
+            retry_after: "1s".parse().unwrap(),
         }
     }
 
@@ -401,9 +402,7 @@ pub(crate) mod tests {
 
         test::init_service(
             App::new()
-                .app_data(Data::new(upload::limiter::UploadLimiter::new(
-                    config.concurrency,
-                )))
+                .app_data(Data::new(upload::limiter::UploadLimiter::from(&config)))
                 .app_data(Data::new(state_with_upload(pool, storage, config)))
                 .configure(configure_routes),
         )
@@ -527,10 +526,10 @@ pub(crate) mod tests {
         }
 
         let request = upload_request(&cookie, &gallery_id, "proof.jpg", "text/plain", &[], None);
-        let busy = test::call_service(&app, request).await;
+        let busy_response = test::call_service(&app, request).await;
 
-        assert_eq!(busy.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(busy.headers().get(RETRY_AFTER).unwrap(), "1");
+        assert_eq!(busy_response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(busy_response.headers().get(RETRY_AFTER).unwrap(), "1");
         drop(response);
         assert_no_upload_effects(&pool, directory.path()).await;
 

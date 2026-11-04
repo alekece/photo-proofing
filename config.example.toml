@@ -44,6 +44,8 @@ dir = "./data/photos"
 max_size = 67108864
 max_pixels = 100000000
 concurrency = 4
+# Wait announced to an upload refused because every slot is taken (1s to 1m).
+retry_after = "1s"
 
 [events]
 # Live dashboard updates. Keep-alive period (also how soon a signed-out stream closes), and how

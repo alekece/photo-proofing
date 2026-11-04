@@ -25,7 +25,7 @@ use crate::{
     },
     credentials::{HashError, PasswordHash},
     error::ErrorResponse,
-    events::{EventHub, HUB_CAPACITY, relay_photo_events},
+    events::{EventHub, HUB_CAPACITY},
     extractors::session_token::SessionToken,
     limiter::AttemptLimiter,
     middlewares::origin::SameOrigin,
@@ -224,7 +224,7 @@ impl Api {
         database.ensure_reachable().await?;
         database.migrate().await?;
 
-        let upload_limiter = Data::new(UploadLimiter::new(config.photo_upload.concurrency));
+        let upload_limiter = Data::new(UploadLimiter::from(&config.photo_upload));
         let events = Data::new(EventHub::new(&config.events, HUB_CAPACITY));
         let state = ApiState::new(
             database,
@@ -251,10 +251,12 @@ impl Api {
         let state = self.state;
         let upload_limiter = self.upload_limiter;
         let events = self.events;
-        let relay = tokio::spawn(relay_photo_events(
-            state.database().clone(),
-            events.clone().into_inner(),
-        ));
+        let relay = tokio::spawn({
+            let database = state.database().clone();
+            let events = events.clone();
+
+            async move { events.relay(database).await }
+        });
         let server = HttpServer::new({
             let events = events.clone();
 
@@ -283,12 +285,12 @@ impl Api {
             events.close();
             handle.stop(true).await;
         });
-        let served = server.await;
+        let result = server.await;
 
         stopper.abort();
         relay.abort();
 
-        Ok(served?)
+        Ok(result?)
     }
 }
 
@@ -312,7 +314,7 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
             .app_data(PathConfig::default().error_handler(|_, _| ErrorResponse::not_found().into()))
             .service(routes::health::report_health)
             .service(routes::events::stream_events)
-            .service(routes::photo_upload::upload_limits)
+            .service(routes::upload::upload_limits)
             .configure(routes::auth::configure)
             .configure(routes::galleries::configure),
     );

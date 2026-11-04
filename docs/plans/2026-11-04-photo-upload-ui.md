@@ -15,7 +15,7 @@ Local branch `alekece-feat/102-photo-upload-ui` (app prefix), pushed as `feat/10
 
 ## Global Constraints
 
-- Concurrency comes only from `GET /api/v1/photo-upload/limits` (`photo_upload.concurrency`), never hard-coded.
+- Concurrency comes only from `GET /api/v1/upload/limits` (`photo_upload.concurrency`), never hard-coded.
 - No slot free → **429** + `Retry-After`; storage full → **507**; other 503s unchanged.
 - Delete accepted whatever the status; 204 on success, 404 outside workspace/gallery.
 - Files accepted client-side if `type === 'image/jpeg'` or name ends `.jpg`/`.jpeg` (case-insensitive); server authoritative.
@@ -51,7 +51,7 @@ Local branch `alekece-feat/102-photo-upload-ui` (app prefix), pushed as `feat/10
 
 **Files:** Create `crates/api/src/routes/photo_upload.rs`; modify `routes.rs`, `api.rs::configure_routes`.
 
-**Interfaces — Produces:** `GET /api/v1/photo-upload/limits` (`Authenticated`), `no_store` JSON `{"concurrency": n, "max_size": n, "max_pixels": n}` from `state.upload_config()`.
+**Interfaces — Produces:** `GET /api/v1/upload/limits` (`Authenticated`), `no_store` JSON `{"concurrency": n, "max_size": n, "max_pixels": n}` from `state.upload_config()`.
 
 - [ ] Tests: `limits_require_a_session` (401), `limits_return_the_upload_config` (with `upload_config(1024, 2048)` → `{concurrency:4,max_size:1024,max_pixels:2048}`).
 - [ ] Implement, test, commit `feat(api): expose photo upload limits (#102)`.
