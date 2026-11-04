@@ -8,9 +8,12 @@
 //! of a ready photo are served; no route reads the original.
 
 use actix_web::{
-    HttpRequest, HttpResponse, delete, get, post,
-    web::{self, Data, Json, Path as WebPath, ServiceConfig},
+    FromRequest, HttpRequest, HttpResponse, delete,
+    dev::Payload,
+    get, post,
+    web::{self, Data, JsonBody, Path as WebPath, ServiceConfig},
 };
+use futures_util::future::LocalBoxFuture;
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
     gallery::{GalleryId, GalleryRepository},
@@ -18,55 +21,76 @@ use pp_database::{
     photo_intake::{PhotoIntake, PhotoIntakeError},
     photo_retry::PhotoRetry,
 };
-use pp_storage::{PhotoKey, PhotoStorage, StorageError, Variant};
+use pp_storage::{PhotoKey, StorageError, Variant};
 use serde::{Deserialize, Serialize};
 
 use super::DerivativePhoto;
 use crate::{
-    api::{ApiState, json_config},
+    api::ApiState,
     error::ErrorResponse,
     extractors::identity::Authenticated,
     response::{ImageFile, ResponseBuilderExt},
     upload::{PhotoUpload, limiter::UploadSlot},
 };
 
-/// Most photos one bulk delete accepts.
-const MAX_BULK_DELETE: usize = 1000;
-
-/// Fits [`MAX_BULK_DELETE`] ids, at 39 bytes each, with room for whitespace.
-const BULK_DELETE_JSON_LIMIT: usize = 64 * 1024;
-
 /// Registers photo routes inside the `/api/v1/galleries` scope.
 pub fn configure(cfg: &mut ServiceConfig) {
     // The literal `delete` and `retry` segments are registered before the `{photo_id}` routes
     // they would match.
-    cfg.service(
-        web::resource("/{id}/photos/delete")
-            .app_data(json_config(BULK_DELETE_JSON_LIMIT))
-            .route(web::post().to(delete_photos)),
-    )
-    .service(upload_photo)
-    .service(list_photos)
-    .service(retry_gallery)
-    .service(retry_photo)
-    .service(delete_photo)
-    .service(serve_derivative_photo);
+    cfg.service(delete_photos)
+        .service(upload_photo)
+        .service(list_photos)
+        .service(retry_gallery)
+        .service(retry_photo)
+        .service(delete_photo)
+        .service(serve_derivative_photo);
 }
 
 #[derive(Serialize)]
-struct Requeued {
-    requeued: u64,
+struct RequeuedPhotos {
+    count: u64,
 }
 
+#[derive(Serialize)]
+struct DeletedPhotos {
+    count: usize,
+}
+
+/// Body of a bulk delete: between one and [`PhotoSelection::MAX_LEN`] photo ids.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct BulkDelete {
+struct PhotoSelection {
     photo_ids: Vec<PhotoId>,
 }
 
-#[derive(Serialize)]
-struct Deleted {
-    deleted: usize,
+impl PhotoSelection {
+    /// Most photos one bulk delete accepts. Clients split larger selections by it, so it is part
+    /// of the API contract rather than a deployment setting.
+    const MAX_LEN: usize = 1000;
+
+    /// Fits [`Self::MAX_LEN`] ids, at 39 bytes each, with room for whitespace.
+    const JSON_LIMIT: usize = 64 * 1024;
+}
+
+/// Reads the body with its own size limit, larger than the shared JSON one, and rejects an
+/// empty or oversized selection as a bad request.
+impl FromRequest for PhotoSelection {
+    type Error = ErrorResponse;
+    type Future = LocalBoxFuture<'static, Result<Self, ErrorResponse>>;
+
+    fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let body = JsonBody::<Self>::new(request, payload, None, false).limit(Self::JSON_LIMIT);
+
+        Box::pin(async move {
+            let selection = body.await?;
+
+            if selection.photo_ids.is_empty() || selection.photo_ids.len() > Self::MAX_LEN {
+                return Err(ErrorResponse::bad_request());
+            }
+
+            Ok(selection)
+        })
+    }
 }
 
 #[get("/{id}/photos")]
@@ -109,7 +133,9 @@ async fn retry_gallery(
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(HttpResponse::Ok().no_store().json(Requeued { requeued }))
+    Ok(HttpResponse::Ok()
+        .no_store()
+        .json(RequeuedPhotos { count: requeued }))
 }
 
 #[post("/{id}/photos/{photo_id}/retry")]
@@ -126,7 +152,9 @@ async fn retry_photo(
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(HttpResponse::Ok().no_store().json(Requeued { requeued }))
+    Ok(HttpResponse::Ok()
+        .no_store()
+        .json(RequeuedPhotos { count: requeued }))
 }
 
 /// Deletes a photo whatever its status, then its files. The deletion stands once committed:
@@ -154,25 +182,24 @@ async fn delete_photo(
         gallery_id,
     };
 
-    remove_files(state.storage(), location, &[photo_id]).await;
+    for (key, error) in state.storage().remove_many(location, &[photo_id]).await {
+        tracing::error!(%error, ?key, "failed to remove a deleted photo's file");
+    }
 
     Ok(HttpResponse::NoContent().no_store().finish())
 }
 
 /// Deletes several photos of a gallery whatever their status, then their files. Ids outside the
-/// gallery or already gone are ignored and not counted.
+/// gallery or already gone are ignored and not counted; a file that cannot be removed is only
+/// logged.
+#[post("/{id}/photos/delete")]
 async fn delete_photos(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: WebPath<GalleryId>,
-    body: Json<BulkDelete>,
+    selection: PhotoSelection,
 ) -> Result<HttpResponse, ErrorResponse> {
     let gallery_id = id.into_inner();
-    let ids = &body.photo_ids;
-
-    if ids.is_empty() || ids.len() > MAX_BULK_DELETE {
-        return Err(ErrorResponse::bad_request());
-    }
 
     if state
         .database()
@@ -184,39 +211,23 @@ async fn delete_photos(
         return Err(ErrorResponse::not_found());
     }
 
-    let deleted = state
+    let deleted_ids = state
         .database()
         .repository::<PhotoRepository>()
-        .delete(identity.workspace_id, gallery_id, ids)
+        .delete(identity.workspace_id, gallery_id, &selection.photo_ids)
         .await?;
     let location = PhotoLocation {
         workspace_id: identity.workspace_id,
         gallery_id,
     };
 
-    remove_files(state.storage(), location, &deleted).await;
-
-    Ok(HttpResponse::Ok().no_store().json(Deleted {
-        deleted: deleted.len(),
-    }))
-}
-
-/// Removes the files of deleted photos. The deletion stands once committed, so a file that
-/// cannot be removed is only logged.
-async fn remove_files(storage: &PhotoStorage, location: PhotoLocation, ids: &[PhotoId]) {
-    for &photo_id in ids {
-        for variant in [Variant::Original, Variant::Thumbnail, Variant::Preview] {
-            match storage
-                .remove(&PhotoKey::with_location(location, photo_id, variant))
-                .await
-            {
-                Ok(()) | Err(StorageError::NotFound) => {}
-                Err(error) => {
-                    tracing::error!(%error, %photo_id, %variant, "failed to remove a deleted photo's file");
-                }
-            }
-        }
+    for (key, error) in state.storage().remove_many(location, &deleted_ids).await {
+        tracing::error!(%error, ?key, "failed to remove a deleted photo's file");
     }
+
+    Ok(HttpResponse::Ok().no_store().json(DeletedPhotos {
+        count: deleted_ids.len(),
+    }))
 }
 
 /// Serves a derivative of a ready photo; anything else, including a file removed meanwhile,
@@ -1207,7 +1218,7 @@ pub(crate) mod tests {
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, serde_json::json!({"requeued": 2}));
+        assert_eq!(body, serde_json::json!({"count": 2}));
 
         for id in &failed {
             assert_eq!(photo_status(&pool, id).await, PhotoStatus::Waiting);
@@ -1222,7 +1233,7 @@ pub(crate) mod tests {
         )
         .await;
 
-        assert_eq!(body, serde_json::json!({"requeued": 0}));
+        assert_eq!(body, serde_json::json!({"count": 0}));
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -1244,7 +1255,7 @@ pub(crate) mod tests {
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, serde_json::json!({"requeued": 1}));
+        assert_eq!(body, serde_json::json!({"count": 1}));
         assert_eq!(photo_status(&pool, &target).await, PhotoStatus::Waiting);
         assert!(matches!(
             photo_status(&pool, &other).await,
@@ -1642,7 +1653,7 @@ pub(crate) mod tests {
         assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
         assert_eq!(
             test::read_body_json::<Value, _>(response).await,
-            json!({ "deleted": 3 })
+            json!({ "count": 3 })
         );
 
         let tests = Database::new(pool.clone());
@@ -1678,7 +1689,7 @@ pub(crate) mod tests {
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, json!({ "deleted": 1 }));
+        assert_eq!(body, json!({ "count": 1 }));
         assert_eq!(photo_status(&pool, &other).await, PhotoStatus::Waiting);
         assert_eq!(photo_files(directory.path(), &other).len(), 1);
     }
@@ -1700,7 +1711,7 @@ pub(crate) mod tests {
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, json!({ "deleted": 0 }));
+        assert_eq!(body, json!({ "count": 0 }));
 
         for (body, expected) in [
             (photo_ids(&ids(1001)), StatusCode::BAD_REQUEST),

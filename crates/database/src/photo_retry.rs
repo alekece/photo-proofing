@@ -272,16 +272,16 @@ mod tests {
         let database = Database::new(pool.clone());
         let gallery = gallery(&database, &pool).await;
         let id = failed_photo(&database, &pool, &gallery).await;
-        let mut deleting = pool.begin().await.unwrap();
+        let mut delete_transaction = pool.begin().await.unwrap();
 
         // Deleting a photo locks its jobs first, then the photo.
         sqlx::query("SELECT id FROM jobs WHERE payload->'payload'->>'photo_id' = $1 FOR UPDATE")
             .bind(id.to_string())
-            .execute(&mut *deleting)
+            .execute(&mut *delete_transaction)
             .await
             .unwrap();
 
-        let retrying = tokio::spawn({
+        let retry_task = tokio::spawn({
             let database = database.clone();
             let (workspace_id, gallery_id) = (gallery.workspace_id, gallery.gallery_id);
 
@@ -307,12 +307,12 @@ mod tests {
 
         sqlx::query("UPDATE photos SET width = width WHERE id = $1")
             .bind(id)
-            .execute(&mut *deleting)
+            .execute(&mut *delete_transaction)
             .await
             .unwrap();
-        deleting.commit().await.unwrap();
+        delete_transaction.commit().await.unwrap();
 
-        assert_eq!(retrying.await.unwrap().unwrap(), Some(1));
+        assert_eq!(retry_task.await.unwrap().unwrap(), Some(1));
     }
 
     #[sqlx::test(migrations = "./migrations")]

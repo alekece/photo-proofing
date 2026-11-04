@@ -339,7 +339,7 @@
 	/** Deletes the selection chunk by chunk; on a failure, stops and refetches what the server kept. */
 	async function removeSelection() {
 		const ids = selection.map(({ id }) => id);
-		let done = 0;
+		let deletedCount = 0;
 
 		for (const id of ids) deleting.add(id);
 
@@ -347,8 +347,8 @@
 		alert = '';
 
 		try {
-			while (done < ids.length) {
-				const chunk = ids.slice(done, done + BULK_DELETE_LIMIT);
+			while (deletedCount < ids.length) {
+				const chunk = ids.slice(deletedCount, deletedCount + BULK_DELETE_LIMIT);
 
 				await deletePhotos(galleryId, chunk);
 
@@ -358,12 +358,12 @@
 					deleting.delete(id);
 				}
 
-				done += chunk.length;
+				deletedCount += chunk.length;
 			}
 
 			leaveSelectMode();
 		} catch (cause) {
-			for (const id of ids.slice(done)) deleting.delete(id);
+			for (const id of ids.slice(deletedCount)) deleting.delete(id);
 
 			if (cause instanceof GalleryApiError && cause.status === 401) {
 				await signedOut();
@@ -371,7 +371,7 @@
 				return;
 			}
 
-			alert = `Deleted ${done} of ${ids.length} photos. Please try again.`;
+			alert = `Deleted ${deletedCount} of ${ids.length} photos. Please try again.`;
 			await load();
 		}
 	}

@@ -80,7 +80,7 @@ export async function deletePhotos(galleryId: string, photoIds: string[], fetche
 		fetcher
 	);
 
-	return ((await response.json()) as { deleted: number }).deleted;
+	return ((await response.json()) as { count: number }).count;
 }
 
 export async function retryPhoto(galleryId: string, photoId: string, fetcher = fetch) {
