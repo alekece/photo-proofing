@@ -23,6 +23,8 @@ const PREVIEW_EDGE: u32 = 1600;
 const JPEG_OUTPUT: &str = ".jpg[Q=75,strip]";
 /// JPEG decoder downscale factors, largest first.
 const JPEG_SHRINKS: [u32; 3] = [8, 4, 2];
+/// Metadata field holding an embedded ICC profile.
+const ICC_PROFILE: &str = "icc-profile-data";
 
 static VIPS_APP: OnceLock<Mutex<Option<VipsApp>>> = OnceLock::new();
 
@@ -96,6 +98,13 @@ pub fn render(original: &[u8], max_pixels: NonZeroU64) -> Result<Rendered, Rende
         .unwrap_or(1);
     let image = VipsImage::new_from_buffer(original, &format!("shrink={shrink},fail-on=truncated"))
         .map_err(|_| RenderError::Unreadable)?;
+    // `thumbnail_image` ignores embedded RGB profiles, so wide-gamut sources (Display P3,
+    // Adobe RGB) are converted here. A profile libvips rejects leaves the pixels as stored.
+    let image = if image.get_as_string(ICC_PROFILE).is_ok() {
+        ops::icc_transform(&image, "srgb").unwrap_or(image)
+    } else {
+        image
+    };
 
     Ok(Rendered {
         thumbnail: fit(&image, THUMBNAIL_EDGE)?,
@@ -110,7 +119,7 @@ pub fn render(original: &[u8], max_pixels: NonZeroU64) -> Result<Rendered, Rende
 fn fit(image: &VipsImage, edge: u32) -> Result<Vec<u8>, RenderError> {
     let long_edge = image.get_width().max(image.get_height());
     let target = long_edge.min(i32::try_from(edge).unwrap_or(i32::MAX));
-    // `thumbnail_image` applies the EXIF orientation and imports embedded or CMYK profiles.
+    // `thumbnail_image` applies the EXIF orientation.
     let mut fitted = ops::thumbnail_image(image, target).map_err(|_| RenderError::Unreadable)?;
 
     if !matches!(fitted.get_interpretation(), Ok(Interpretation::Srgb)) {
@@ -127,7 +136,7 @@ fn fit(image: &VipsImage, edge: u32) -> Result<Vec<u8>, RenderError> {
 mod tests {
     use libvips::{
         VipsImage,
-        ops::{Interpretation, black, colourspace, gaussnoise, jpegsave_buffer},
+        ops::{BandFormat, Interpretation, black, colourspace, gaussnoise, jpegsave_buffer},
     };
 
     use super::*;
@@ -291,6 +300,93 @@ mod tests {
             ));
             assert_clean(&output);
         }
+    }
+
+    #[test]
+    fn embedded_rgb_profile_is_converted_to_srgb() {
+        install().unwrap();
+
+        let pixels = [200_u8, 60, 60].repeat(40 * 20);
+        let image = VipsImage::new_from_memory_copy(&pixels, 40, 20, 3, BandFormat::Uchar).unwrap();
+        let tagged = with_segment(
+            &jpegsave_buffer(&image).unwrap(),
+            0xe2,
+            &[b"ICC_PROFILE\0\x01\x01".as_slice(), &swapped_profile()].concat(),
+        );
+
+        let rendered = render(&tagged, UNBOUNDED).unwrap();
+
+        for output in [rendered.thumbnail, rendered.preview] {
+            let decoded = VipsImage::new_from_buffer(&output, "").unwrap();
+            let pixel = &decoded.image_write_to_memory()[..3];
+
+            // The profile maps the source's red channel to sRGB green.
+            assert!(pixel[1] > pixel[0] + 50, "pixel {pixel:?}");
+            assert_clean(&output);
+        }
+    }
+
+    /// ICC v2 RGB profile with sRGB primaries whose red and green are swapped.
+    fn swapped_profile() -> Vec<u8> {
+        fn s15(value: f64) -> [u8; 4] {
+            ((value * 65536.0).round() as i32).to_be_bytes()
+        }
+
+        fn xyz(x: f64, y: f64, z: f64) -> Vec<u8> {
+            [b"XYZ \0\0\0\0".as_slice(), &s15(x), &s15(y), &s15(z)].concat()
+        }
+
+        let white = xyz(0.9642, 1.0, 0.8249);
+        let gamma = b"curv\0\0\0\0\0\0\0\x01\x02\x33\0\0".to_vec();
+        let tags: [(&[u8; 4], Vec<u8>); 5] = [
+            (b"wtpt", white.clone()),
+            (b"rXYZ", xyz(0.3851, 0.7169, 0.0971)),
+            (b"gXYZ", xyz(0.4361, 0.2225, 0.0139)),
+            (b"bXYZ", xyz(0.1431, 0.0606, 0.7141)),
+            (b"rTRC", gamma),
+        ];
+        let table = 4 + 12 * (tags.len() + 2);
+        let mut entries = Vec::new();
+        let mut data = Vec::new();
+
+        for (signature, tag) in &tags {
+            entries.extend(*signature);
+            entries.extend(
+                u32::try_from(128 + table + data.len())
+                    .unwrap()
+                    .to_be_bytes(),
+            );
+            entries.extend(u32::try_from(tag.len()).unwrap().to_be_bytes());
+            data.extend(tag);
+        }
+
+        // The green and blue curves share the red one.
+        let curve = &entries[entries.len() - 8..].to_vec();
+
+        for signature in [b"gTRC", b"bTRC"] {
+            entries.extend(signature);
+            entries.extend(curve);
+        }
+
+        let size = u32::try_from(128 + table + data.len()).unwrap();
+        let mut header = vec![0_u8; 128];
+
+        header[..4].copy_from_slice(&size.to_be_bytes());
+        header[8..12].copy_from_slice(&[2, 0x10, 0, 0]);
+        header[12..24].copy_from_slice(b"mntrRGB XYZ ");
+        header[36..40].copy_from_slice(b"acsp");
+        header[68..80].copy_from_slice(&white[8..]);
+
+        [
+            header,
+            u32::try_from(tags.len() + 2)
+                .unwrap()
+                .to_be_bytes()
+                .to_vec(),
+            entries,
+            data,
+        ]
+        .concat()
     }
 
     #[test]

@@ -70,7 +70,8 @@ pub async fn process_photo(
 }
 
 /// Stores both derivatives and marks the photo ready. If the photo was deleted meanwhile, the
-/// derivatives just written are removed so late work leaves nothing behind.
+/// derivatives just written are removed so late work leaves nothing behind; a photo that still
+/// exists keeps them.
 async fn publish(
     context: &ProcessContext,
     location: PhotoLocation,
@@ -94,7 +95,10 @@ async fn publish(
 
     let photos = context.database.repository::<PhotoRepository>();
 
-    if !photos.mark_ready(id).await.map_err(failed)? {
+    // A photo another run already finished keeps the files it serves.
+    if !photos.mark_ready(id).await.map_err(failed)?
+        && photos.locate(id).await.map_err(failed)?.is_none()
+    {
         for (variant, _) in &derivatives {
             // Best effort: a missing file is already the desired outcome.
             let _ = context.storage.remove(&key(location, id, *variant)).await;
@@ -426,6 +430,21 @@ mod tests {
 
         assert_eq!(fixture.file(Variant::Thumbnail), None);
         assert_eq!(fixture.file(Variant::Preview), None);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn late_work_for_a_ready_photo_keeps_its_derivatives(pool: PgPool) {
+        let fixture = Fixture::new(&pool, jpeg()).await;
+        let rendered = render::render(&fixture.original, fixture.context.max_pixels).unwrap();
+
+        fixture.run().await.unwrap();
+        publish(&fixture.context, fixture.location, fixture.id, rendered)
+            .await
+            .unwrap();
+
+        assert_eq!(fixture.status().await, Some(PhotoStatus::Ready));
+        assert!(fixture.file(Variant::Thumbnail).is_some());
+        assert!(fixture.file(Variant::Preview).is_some());
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
