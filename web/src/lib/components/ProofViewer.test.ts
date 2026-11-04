@@ -8,7 +8,10 @@ import ViewerHarness from './ViewerHarness.test.svelte';
 const proofs: Proof[] = [1, 2, 3].map((n) => ({
 	id: `p${n}`,
 	alt: `Proof ${n}`,
-	previewUrl: `data:image/svg+xml,${n}`
+	previewUrl: `data:image/svg+xml,${n}`,
+	thumbnailUrl: `data:,t${n}`,
+	width: 300,
+	height: 200
 }));
 
 const shown = () => screen.getByRole('img').getAttribute('alt');

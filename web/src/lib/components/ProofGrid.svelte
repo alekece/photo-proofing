@@ -21,7 +21,13 @@
 	>
 		{#each proofs as proof, i (proof.id)}
 			<li class={layout === 'masonry' ? 'mb-3 break-inside-avoid' : undefined}>
-				<ProofThumbnail {proof} position={i + 1} total={proofs.length} onopen={() => onopen(i)} />
+				<ProofThumbnail
+					{proof}
+					{layout}
+					position={i + 1}
+					total={proofs.length}
+					onopen={() => onopen(i)}
+				/>
 			</li>
 		{/each}
 	</ul>

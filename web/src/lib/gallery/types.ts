@@ -1,8 +1,19 @@
 export interface Proof {
 	id: string;
 	alt: string;
-	/** Proof preview URL only; source and final assets must never appear here. */
+	/** Proof thumbnail and preview URLs only; source and final assets must never appear here. */
+	thumbnailUrl: string;
 	previewUrl: string;
+	/** Displayed size in pixels, so the page reserves the photo's real shape. */
+	width: number;
+	height: number;
+}
+
+/** A photo a client may see; mirrors the API's `ReadyPhoto`. */
+export interface SharedPhoto {
+	id: string;
+	width: number;
+	height: number;
 }
 
 /** What the private link reveals to a client; mirrors the API's `SharedGallery`. */

@@ -20,9 +20,13 @@ const shared = (overrides: Partial<SharedGallery> = {}): SharedGallery => ({
 const proofs: Proof[] = [1, 2, 3].map((n) => ({
 	id: `p${n}`,
 	alt: `Proof ${n}`,
-	previewUrl: `data:,${n}`
+	previewUrl: `data:,${n}`,
+	thumbnailUrl: `data:,t${n}`,
+	width: 300,
+	height: 200
 }));
-const open = (gallery: SharedGallery | null) => render(Gallery, { props: { data: { gallery } } });
+const open = (gallery: SharedGallery | null, galleryProofs: Proof[] = []) =>
+	render(Gallery, { props: { data: { gallery, proofs: galleryProofs } } });
 
 describe('route shells', () => {
 	it('dashboard renders its heading', () => {
@@ -47,6 +51,15 @@ describe('client gallery route', () => {
 		expect(container.textContent).toMatch(/contact your photographer/i);
 		expect(container.textContent).not.toMatch(/expired|Sample session/i);
 		expect(screen.queryAllByRole('img')).toHaveLength(0);
+	});
+
+	it('shows the proofs the server loaded', () => {
+		open(shared(), proofs);
+		expect(screen.getAllByRole('img').map((img) => img.getAttribute('alt'))).toEqual([
+			'Proof 1',
+			'Proof 2',
+			'Proof 3'
+		]);
 	});
 
 	it('shows the title and the empty state', () => {
