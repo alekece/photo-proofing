@@ -197,10 +197,7 @@ async fn run_job(
     };
 
     let recorded = match outcome {
-        Ok(()) => jobs
-            .complete(&job)
-            .await
-            .map(|current| (current, "completed")),
+        Ok(completion) => Ok((completion.is_current(), "completed")),
         Err(error @ HandlerError::Payload(_)) => {
             warn!(%error, "job abandoned");
             jobs.abandon(&job, &error.to_string())
@@ -250,7 +247,7 @@ mod tests {
     use pp_core::{notifications::PhotoId, types::generate::Generate};
     use pp_database::{
         PgPool,
-        jobs::{DEFAULT_MAX_ATTEMPTS, JobKind, JobPayload, ProcessPhoto},
+        jobs::{Completion, DEFAULT_MAX_ATTEMPTS, JobKind, JobPayload, ProcessPhoto},
     };
     use serde_json::json;
     use sqlx::Row;
@@ -303,6 +300,15 @@ mod tests {
             .get(0)
     }
 
+    /// Finishes `job` the way a successful handler does.
+    async fn finish(pool: PgPool, job: Job) -> Result<Completion, HandlerError> {
+        Database::new(pool)
+            .repository::<JobRepository>()
+            .complete(&job)
+            .await
+            .map_err(|error| HandlerError::Failed(error.into()))
+    }
+
     async fn wait_for(mut condition: impl AsyncFnMut() -> bool) {
         let deadline = time::Instant::now() + Duration::from_secs(10);
         while !condition().await {
@@ -315,9 +321,13 @@ mod tests {
     async fn runs_a_job_and_deletes_it(pool: PgPool) {
         let runs = Arc::new(AtomicUsize::new(0));
         let seen = Arc::clone(&runs);
-        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto| {
-            seen.fetch_add(1, Ordering::SeqCst);
-            future::ready(Ok(()))
+        let handlers = HandlerRegistry::default().register(KIND, {
+            let pool = pool.clone();
+
+            move |_: ProcessPhoto, job| {
+                seen.fetch_add(1, Ordering::SeqCst);
+                finish(pool.clone(), job)
+            }
         });
         enqueue(&pool, 3).await;
 
@@ -333,7 +343,7 @@ mod tests {
     async fn failing_job_is_retried_then_kept_as_failed(pool: PgPool) {
         let runs = Arc::new(AtomicUsize::new(0));
         let seen = Arc::clone(&runs);
-        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto| {
+        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto, _| {
             seen.fetch_add(1, Ordering::SeqCst);
             future::ready(Err(HandlerError::Failed("disk full".into())))
         });
@@ -358,8 +368,9 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn unreadable_payload_fails_without_retrying(pool: PgPool) {
-        let handlers =
-            HandlerRegistry::default().register(KIND, |_: ProcessPhoto| future::ready(Ok(())));
+        let handlers = HandlerRegistry::default().register(KIND, |_: ProcessPhoto, _| {
+            future::ready(Err(HandlerError::Failed("never called".into())))
+        });
         sqlx::query("INSERT INTO jobs(id, payload, max_attempts) VALUES ($1, $2, 5)")
             .bind(Uuid::new_v4())
             .bind(json!({"kind": "process_photo", "payload": {"unexpected": true}}))
@@ -384,11 +395,15 @@ mod tests {
         let runs = Arc::new(AtomicUsize::new(0));
         let handlers = || {
             let seen = Arc::clone(&runs);
-            HandlerRegistry::default().register(KIND, move |_: ProcessPhoto| {
+            let pool = pool.clone();
+
+            HandlerRegistry::default().register(KIND, move |_: ProcessPhoto, job| {
                 seen.fetch_add(1, Ordering::SeqCst);
+                let pool = pool.clone();
+
                 async {
                     time::sleep(Duration::from_millis(1800)).await;
-                    Ok(())
+                    finish(pool, job).await
                 }
             })
         };
@@ -412,13 +427,16 @@ mod tests {
         let current = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
         let (c, p) = (Arc::clone(&current), Arc::clone(&peak));
-        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto| {
+        let finisher = pool.clone();
+        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto, job| {
             let (c, p) = (Arc::clone(&c), Arc::clone(&p));
+            let pool = finisher.clone();
+
             async move {
                 p.fetch_max(c.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
                 time::sleep(Duration::from_millis(150)).await;
                 c.fetch_sub(1, Ordering::SeqCst);
-                Ok(())
+                finish(pool, job).await
             }
         });
         for _ in 0..6 {
@@ -435,9 +453,14 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn shutdown_waits_for_a_job_that_finishes_within_the_grace(pool: PgPool) {
-        let handlers = HandlerRegistry::default().register(KIND, |_: ProcessPhoto| async {
-            time::sleep(Duration::from_millis(100)).await;
-            Ok(())
+        let finisher = pool.clone();
+        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto, job| {
+            let pool = finisher.clone();
+
+            async {
+                time::sleep(Duration::from_millis(100)).await;
+                finish(pool, job).await
+            }
         });
         enqueue(&pool, 3).await;
 
@@ -451,8 +474,8 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn shutdown_during_a_stuck_job_leaves_it_recoverable(pool: PgPool) {
-        let handlers = HandlerRegistry::default().register(KIND, |_: ProcessPhoto| {
-            future::pending::<Result<(), HandlerError>>()
+        let handlers = HandlerRegistry::default().register(KIND, |_: ProcessPhoto, _| {
+            future::pending::<Result<Completion, HandlerError>>()
         });
         enqueue(&pool, 3).await;
 

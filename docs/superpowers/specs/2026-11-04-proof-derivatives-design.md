@@ -77,10 +77,11 @@ My calls (to check while reading):
   deterministic key `<photo-id>-thumbnail` / `-preview` (existing `Thumbnail` and `Preview`
   variants). A rerun replaces them atomically; a partial file is never visible under a final
   key. The original is opened read-only.
-- **State flow.** The photo becomes `processing` when the handler starts and `ready` in the
-  transaction that finishes the job. That final update succeeds only if the photo still exists
-  and is not already `ready`, so late work after a deletion changes nothing. A restart mid-job
-  leaves the lease to expire and the job reruns from the start.
+- **State flow.** The photo becomes `processing` when the handler starts. Its final state
+  (`ready`, or `failed` for a permanent error) is saved in the same transaction that finishes
+  the job, so a crash can never leave one without the other. The `ready` update succeeds only
+  if the photo still exists and is not already `ready`, so late work after a deletion changes
+  nothing. A restart mid-job leaves the lease to expire and the job reruns from the start.
 - **Permanent vs transient.** An unreadable or corrupt image, or one over the pixel bound, is
   permanent: the photo becomes `failed` at once with a short fixed reason, the job completes,
   and the queue does not retry. Disk or other infrastructure errors are returned to the queue,
@@ -93,8 +94,8 @@ My calls (to check while reading):
   `POST /api/v1/galleries/{id}/photos/retry`. Each, in one transaction, sets failed photos to
   `waiting` and clears the reason, and requeues each one's failed job. Only `failed` photos are
   affected; other states are left alone, so repeated calls are safe. Both require workspace
-  ownership; missing and foreign galleries both return 404. The gallery-wide route returns the
-  number of photos requeued.
+  ownership; missing and foreign galleries, and photos missing from the gallery, return 404.
+  The gallery-wide route returns the number of photos requeued.
 - **Serving.** `GET /api/v1/galleries/{id}/photos/{photo_id}/thumbnail` and `/preview`.
   Session plus workspace ownership. 404 unless the photo belongs to that gallery and is
   `ready`, so cross-gallery, cross-workspace and not-ready cases are indistinguishable. There

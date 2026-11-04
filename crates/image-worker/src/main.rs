@@ -76,8 +76,8 @@ async fn main() -> Result<()> {
             max_pixels,
         });
 
-        HandlerRegistry::default().register(JobKind::ProcessPhoto, move |payload| {
-            process_photo(context.clone(), payload)
+        HandlerRegistry::default().register(JobKind::ProcessPhoto, move |payload, job| {
+            process_photo(context.clone(), payload, job)
         })
     })
     .await?;

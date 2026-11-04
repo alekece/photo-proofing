@@ -30,7 +30,9 @@ use std::{num::NonZeroU16, str::FromStr, time::Duration};
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Error as JsonError, Value};
-use sqlx::{AssertSqlSafe, FromRow, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow};
+use sqlx::{
+    AssertSqlSafe, FromRow, PgExecutor, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -162,6 +164,41 @@ impl FromRow<'_, PgRow> for Job {
             max_attempts: count("max_attempts")?,
         })
     }
+}
+
+/// Proof that a job was finished; only [`JobRepository::complete`] and
+/// [`JobRepository::complete_photo`] create one, so a handler cannot succeed without finishing
+/// its job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub struct Completion {
+    current: bool,
+}
+
+impl Completion {
+    /// Whether the claim was still ours; `false` means another run owns the job now.
+    pub const fn is_current(self) -> bool {
+        self.current
+    }
+}
+
+/// The final state a photo job gives its photo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhotoResult<'a> {
+    Ready,
+    /// Failed for good, with a short reason safe to show the photographer.
+    Failed(&'a str),
+}
+
+/// What [`JobRepository::complete_photo`] did to the photo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhotoUpdate {
+    /// The result was saved.
+    Saved,
+    /// The photo exists but was left as is: already finished, or owned by another run.
+    Unchanged,
+    /// The photo no longer exists.
+    Missing,
 }
 
 /// A job as seen by an operator, without the claim bookkeeping.
@@ -335,16 +372,46 @@ impl JobRepository<'_> {
         Ok(done.rows_affected() == 1)
     }
 
-    /// Deletes a finished job. `false` means the claim was no longer current.
-    pub async fn complete(&self, job: &Job) -> Result<bool, DatabaseError> {
-        let done =
-            sqlx::query("DELETE FROM jobs WHERE id = $1 AND state = 'running' AND attempts = $2")
-                .bind(job.id)
-                .bind(attempts_param(job))
-                .execute(self.pool)
-                .await?;
+    /// Deletes a finished job. The completion tells whether the claim was still current.
+    pub async fn complete(&self, job: &Job) -> Result<Completion, DatabaseError> {
+        complete_job(self.pool, job).await
+    }
 
-        Ok(done.rows_affected() == 1)
+    /// Records a photo job's result and finishes the job in one transaction, so a crash can
+    /// never leave one without the other.
+    ///
+    /// Nothing is saved when the claim is no longer current: the run that owns the job now
+    /// records its own result. Otherwise the photo changes only if it still exists and is
+    /// unfinished. Either way, the returned [`PhotoUpdate`] tells whether the photo still
+    /// exists, so late work can remove what it wrote for a deleted one.
+    pub async fn complete_photo(
+        &self,
+        job: &Job,
+        photo_id: PhotoId,
+        result: PhotoResult<'_>,
+    ) -> Result<(Completion, PhotoUpdate), DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
+        let completion = complete_job(&mut *transaction, job).await?;
+        let saved = match (completion.is_current(), result) {
+            (false, _) => false,
+            (true, PhotoResult::Ready) => {
+                PhotoRepository::mark_ready_in(&mut transaction, photo_id).await?
+            }
+            (true, PhotoResult::Failed(reason)) => {
+                PhotoRepository::mark_failed_in(&mut transaction, photo_id, reason).await?
+            }
+        };
+        let update = if saved {
+            PhotoUpdate::Saved
+        } else if PhotoRepository::exists_in(&mut transaction, photo_id).await? {
+            PhotoUpdate::Unchanged
+        } else {
+            PhotoUpdate::Missing
+        };
+
+        transaction.commit().await?;
+
+        Ok((completion, update))
     }
 
     /// Records a recoverable failure: the job is requeued after `backoff`, or becomes
@@ -430,6 +497,22 @@ impl JobRepository<'_> {
         .fetch_all(self.pool)
         .await?)
     }
+}
+
+async fn complete_job(
+    executor: impl PgExecutor<'_>,
+    job: &Job,
+) -> Result<Completion, DatabaseError> {
+    let done =
+        sqlx::query("DELETE FROM jobs WHERE id = $1 AND state = 'running' AND attempts = $2")
+            .bind(job.id)
+            .bind(attempts_param(job))
+            .execute(executor)
+            .await?;
+
+    Ok(Completion {
+        current: done.rows_affected() == 1,
+    })
 }
 
 /// `attempts` fits `i32` because it was read from an `integer` column.
@@ -666,8 +749,8 @@ mod tests {
         assert_eq!((second.id, second.attempts), (id, 2));
         // The first claimer lost the job and can neither renew nor finish it.
         assert!(!jobs.renew(&first, LEASE).await.unwrap());
-        assert!(!jobs.complete(&first).await.unwrap());
-        assert!(jobs.complete(&second).await.unwrap());
+        assert!(!jobs.complete(&first).await.unwrap().is_current());
+        assert!(jobs.complete(&second).await.unwrap().is_current());
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -903,5 +986,84 @@ mod tests {
             Some(JobState::Failed)
         );
         assert_eq!(photo_status(&database, photo_id).await, PhotoStatus::Ready);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn complete_photo_records_the_result_and_finishes_the_job_together(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let jobs = database.repository::<JobRepository>();
+
+        for (result, expected) in [
+            (PhotoResult::Ready, PhotoStatus::Ready),
+            (
+                PhotoResult::Failed("unreadable"),
+                PhotoStatus::Failed("unreadable".to_owned()),
+            ),
+        ] {
+            let photo_id = photo_job(&database, &pool, 3).await;
+            let job = jobs.claim(KINDS, LEASE).await.unwrap().unwrap();
+            let (completion, update) = jobs.complete_photo(&job, photo_id, result).await.unwrap();
+
+            assert!(completion.is_current());
+            assert_eq!(update, PhotoUpdate::Saved);
+            assert_eq!(photo_status(&database, photo_id).await, expected);
+            assert!(jobs.list_failed().await.unwrap().is_empty());
+            assert!(jobs.claim(KINDS, LEASE).await.unwrap().is_none());
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn complete_photo_with_a_lost_claim_changes_nothing(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let jobs = database.repository::<JobRepository>();
+        let photo_id = photo_job(&database, &pool, 3).await;
+        let stale = jobs.claim(KINDS, LEASE).await.unwrap().unwrap();
+
+        time::sleep(LEASE + Duration::from_millis(100)).await;
+        let current = jobs.claim(KINDS, LEASE).await.unwrap().unwrap();
+        let (completion, update) = jobs
+            .complete_photo(&stale, photo_id, PhotoResult::Failed("unreadable"))
+            .await
+            .unwrap();
+
+        assert!(!completion.is_current());
+        assert_eq!(update, PhotoUpdate::Unchanged);
+        assert_eq!(
+            photo_status(&database, photo_id).await,
+            PhotoStatus::Waiting
+        );
+        assert!(jobs.complete(&current).await.unwrap().is_current());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn complete_photo_reports_a_deleted_photo_whether_or_not_the_claim_is_current(
+        pool: PgPool,
+    ) {
+        let database = Database::new(pool.clone());
+        let jobs = database.repository::<JobRepository>();
+        let photo_id = photo_job(&database, &pool, 3).await;
+        let job = jobs.claim(KINDS, LEASE).await.unwrap().unwrap();
+
+        sqlx::query("DELETE FROM photos WHERE id = $1")
+            .bind(photo_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (_, update) = jobs
+            .complete_photo(&job, photo_id, PhotoResult::Ready)
+            .await
+            .unwrap();
+
+        assert_eq!(update, PhotoUpdate::Missing);
+
+        // The job is finished now, so the same claim is no longer current.
+        let (completion, update) = jobs
+            .complete_photo(&job, photo_id, PhotoResult::Ready)
+            .await
+            .unwrap();
+
+        assert!(!completion.is_current());
+        assert_eq!(update, PhotoUpdate::Missing);
     }
 }

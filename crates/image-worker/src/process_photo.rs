@@ -5,7 +5,7 @@ use std::{num::NonZeroU64, sync::Arc};
 use pp_core::notifications::PhotoId;
 use pp_database::{
     Database,
-    jobs::ProcessPhoto,
+    jobs::{Completion, Job, JobRepository, PhotoResult, PhotoUpdate, ProcessPhoto},
     photo::{PhotoLocation, PhotoRepository},
 };
 use pp_storage::{PhotoKey, PhotoStorage, Variant};
@@ -29,25 +29,28 @@ pub struct ProcessContext {
     pub max_pixels: NonZeroU64,
 }
 
-/// Renders and publishes the derivatives of one photo, then marks it ready.
+/// Renders and publishes the derivatives of one photo, then marks it ready and finishes `job`
+/// together.
 ///
-/// An original that cannot be rendered fails the photo for good and completes the job, since
+/// An original that cannot be rendered fails the photo for good and finishes the job, since
 /// retrying cannot change the bytes. Database, storage and library faults are returned for
 /// retry.
 pub async fn process_photo(
     context: Arc<ProcessContext>,
     payload: ProcessPhoto,
-) -> Result<(), HandlerError> {
+    job: Job,
+) -> Result<Completion, HandlerError> {
     let id = payload.photo_id;
     let photos = context.database.repository::<PhotoRepository>();
+    let jobs = context.database.repository::<JobRepository>();
 
     // A deleted photo, or one already finished by an earlier run, needs nothing more.
     let Some(location) = photos.locate(id).await.map_err(failed)? else {
-        return Ok(());
+        return jobs.complete(&job).await.map_err(failed);
     };
 
     if !photos.mark_processing(id).await.map_err(failed)? {
-        return Ok(());
+        return jobs.complete(&job).await.map_err(failed);
     }
 
     let original = read_original(&context.storage, location, id).await?;
@@ -57,27 +60,32 @@ pub async fn process_photo(
         .map_err(failed)?;
 
     let reason = match rendered {
-        Ok(rendered) => return publish(&context, location, id, rendered).await,
+        Ok(rendered) => return publish(&context, job, location, id, rendered).await,
         Err(RenderError::Unreadable) => UNREADABLE_REASON,
         Err(RenderError::TooLarge) => TOO_LARGE_REASON,
         Err(error @ RenderError::Library(_)) => return Err(failed(error)),
     };
 
     warn!(photo = %id, reason, "photo cannot be processed");
-    photos.mark_failed(id, reason).await.map_err(failed)?;
 
-    Ok(())
+    let (completion, _) = jobs
+        .complete_photo(&job, id, PhotoResult::Failed(reason))
+        .await
+        .map_err(failed)?;
+
+    Ok(completion)
 }
 
-/// Stores both derivatives and marks the photo ready. If the photo was deleted meanwhile, the
-/// derivatives just written are removed so late work leaves nothing behind; a photo that still
-/// exists keeps them.
+/// Stores both derivatives, then marks the photo ready and finishes `job` together. If the
+/// photo was deleted meanwhile, the derivatives just written are removed so late work leaves
+/// nothing behind; a photo that still exists keeps them, even if another run finished it.
 async fn publish(
     context: &ProcessContext,
+    job: Job,
     location: PhotoLocation,
     id: PhotoId,
     rendered: Rendered,
-) -> Result<(), HandlerError> {
+) -> Result<Completion, HandlerError> {
     let derivatives = [
         (Variant::Thumbnail, rendered.thumbnail),
         (Variant::Preview, rendered.preview),
@@ -93,19 +101,29 @@ async fn publish(
             .map_err(failed)?;
     }
 
-    let photos = context.database.repository::<PhotoRepository>();
+    // Once the job is finished the runtime may drop this future at any point, so finishing it
+    // and removing late files run together in their own task.
+    let database = context.database.clone();
+    let storage = context.storage.clone();
+    let keys = derivatives.map(|(variant, _)| key(location, id, variant));
+    let finish = tokio::spawn(async move {
+        let (completion, update) = database
+            .repository::<JobRepository>()
+            .complete_photo(&job, id, PhotoResult::Ready)
+            .await
+            .map_err(failed)?;
 
-    // A photo another run already finished keeps the files it serves.
-    if !photos.mark_ready(id).await.map_err(failed)?
-        && photos.locate(id).await.map_err(failed)?.is_none()
-    {
-        for (variant, _) in &derivatives {
-            // Best effort: a missing file is already the desired outcome.
-            let _ = context.storage.remove(&key(location, id, *variant)).await;
+        if update == PhotoUpdate::Missing {
+            for key in &keys {
+                // Best effort: a missing file is already the desired outcome.
+                let _ = storage.remove(key).await;
+            }
         }
-    }
 
-    Ok(())
+        Ok::<_, HandlerError>(completion)
+    });
+
+    finish.await.map_err(failed)?
 }
 
 async fn read_original(
@@ -141,7 +159,7 @@ fn failed(error: impl std::error::Error + Send + Sync + 'static) -> HandlerError
 mod tests {
     use std::{
         fs, future,
-        num::{NonZeroU32, NonZeroUsize},
+        num::{NonZeroU16, NonZeroU32, NonZeroUsize},
         path::Path,
         time::Duration,
     };
@@ -152,7 +170,7 @@ mod tests {
         PgPool,
         auth::WorkspaceId,
         gallery::{GalleryId, GalleryRepository},
-        jobs::{Backoff, JobKind},
+        jobs::{Backoff, JobKind, JobPayload},
         photo::{NewPhoto, PhotoDimensions, PhotoStatus},
         photo_intake::PhotoIntake,
     };
@@ -168,6 +186,7 @@ mod tests {
 
     struct Fixture {
         dir: TempDir,
+        pool: PgPool,
         context: Arc<ProcessContext>,
         location: PhotoLocation,
         id: PhotoId,
@@ -231,6 +250,7 @@ mod tests {
 
             Self {
                 dir,
+                pool: pool.clone(),
                 context: Arc::new(ProcessContext {
                     database,
                     storage,
@@ -242,8 +262,51 @@ mod tests {
             }
         }
 
+        /// Claims the photo's job, enqueueing a new one when an earlier run finished it, and
+        /// processes it. A run that finishes must still own its job.
         async fn run(&self) -> Result<(), HandlerError> {
-            process_photo(self.context.clone(), ProcessPhoto { photo_id: self.id }).await
+            let job = self.claim().await;
+            let completion = process_photo(
+                self.context.clone(),
+                ProcessPhoto { photo_id: self.id },
+                job,
+            )
+            .await?;
+
+            assert!(completion.is_current());
+
+            Ok(())
+        }
+
+        async fn claim(&self) -> Job {
+            let jobs = self.jobs();
+
+            if let Some(job) = jobs.claim(&[JobKind::ProcessPhoto], LEASE).await.unwrap() {
+                return job;
+            }
+
+            jobs.enqueue(
+                JobPayload::ProcessPhoto(ProcessPhoto { photo_id: self.id }),
+                NonZeroU16::new(3).unwrap(),
+            )
+            .await
+            .unwrap();
+            jobs.claim(&[JobKind::ProcessPhoto], LEASE)
+                .await
+                .unwrap()
+                .unwrap()
+        }
+
+        fn jobs(&self) -> JobRepository<'_> {
+            self.context.database.repository::<JobRepository>()
+        }
+
+        /// Whether any job is still queued or running.
+        async fn has_jobs(&self) -> bool {
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM jobs)")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap()
         }
 
         async fn status(&self) -> Option<PhotoStatus> {
@@ -291,6 +354,8 @@ mod tests {
             .join(gallery.0.to_string())
     }
 
+    const LEASE: Duration = Duration::from_secs(30);
+
     fn jpeg() -> Vec<u8> {
         jpegsave_buffer(&gaussnoise(600, 400).unwrap()).unwrap()
     }
@@ -308,6 +373,7 @@ mod tests {
         fixture.run().await.unwrap();
 
         assert_eq!(fixture.status().await, Some(PhotoStatus::Ready));
+        assert!(!fixture.has_jobs().await);
         assert_eq!(fixture.file(Variant::Original).unwrap(), fixture.original);
         assert_eq!(
             dimensions(&fixture.file(Variant::Thumbnail).unwrap()),
@@ -329,6 +395,7 @@ mod tests {
             fixture.status().await,
             Some(PhotoStatus::Failed(UNREADABLE_REASON.to_owned()))
         );
+        assert!(!fixture.has_jobs().await);
         assert_eq!(fixture.file(Variant::Thumbnail), None);
         assert_eq!(fixture.file(Variant::Preview), None);
     }
@@ -360,6 +427,7 @@ mod tests {
 
         assert!(matches!(fixture.run().await, Err(HandlerError::Failed(_))));
         assert_eq!(fixture.status().await, Some(PhotoStatus::Processing));
+        assert!(fixture.has_jobs().await);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -424,9 +492,17 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        publish(&fixture.context, fixture.location, fixture.id, rendered)
-            .await
-            .unwrap();
+        let completion = publish(
+            &fixture.context,
+            fixture.claim().await,
+            fixture.location,
+            fixture.id,
+            rendered,
+        )
+        .await
+        .unwrap();
+
+        assert!(completion.is_current());
 
         assert_eq!(fixture.file(Variant::Thumbnail), None);
         assert_eq!(fixture.file(Variant::Preview), None);
@@ -438,9 +514,17 @@ mod tests {
         let rendered = render::render(&fixture.original, fixture.context.max_pixels).unwrap();
 
         fixture.run().await.unwrap();
-        publish(&fixture.context, fixture.location, fixture.id, rendered)
-            .await
-            .unwrap();
+        let completion = publish(
+            &fixture.context,
+            fixture.claim().await,
+            fixture.location,
+            fixture.id,
+            rendered,
+        )
+        .await
+        .unwrap();
+
+        assert!(completion.is_current());
 
         assert_eq!(fixture.status().await, Some(PhotoStatus::Ready));
         assert!(fixture.file(Variant::Thumbnail).is_some());
@@ -464,7 +548,7 @@ mod tests {
 
             HandlerRegistry::default().register(
                 JobKind::ProcessPhoto,
-                move |payload: ProcessPhoto| {
+                move |payload: ProcessPhoto, _job| {
                     let context = context.clone();
 
                     async move {
@@ -492,9 +576,10 @@ mod tests {
         first.await.unwrap();
 
         let context = fixture.context.clone();
-        let handlers = HandlerRegistry::default().register(JobKind::ProcessPhoto, move |payload| {
-            process_photo(context.clone(), payload)
-        });
+        let handlers = HandlerRegistry::default()
+            .register(JobKind::ProcessPhoto, move |payload, job| {
+                process_photo(context.clone(), payload, job)
+            });
         let shutdown = CancellationToken::new();
         let second = tokio::spawn(
             Worker::new(fixture.context.database.clone(), handlers, options).run(shutdown.clone()),

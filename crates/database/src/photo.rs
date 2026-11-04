@@ -266,6 +266,27 @@ impl PhotoRepository<'_> {
         transition(self.pool, id, "ready", None).await
     }
 
+    /// Same as [`Self::mark_ready`], within the caller's transaction.
+    pub async fn mark_ready_in(
+        transaction: &mut Transaction<'_, Postgres>,
+        id: PhotoId,
+    ) -> Result<bool, DatabaseError> {
+        transition(&mut **transaction, id, "ready", None).await
+    }
+
+    /// Whether the photo exists, within the caller's transaction.
+    pub async fn exists_in(
+        transaction: &mut Transaction<'_, Postgres>,
+        id: PhotoId,
+    ) -> Result<bool, DatabaseError> {
+        Ok(
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM photos WHERE id = $1)")
+                .bind(id)
+                .fetch_one(&mut **transaction)
+                .await?,
+        )
+    }
+
     /// Marks a waiting or processing photo as failed with a user-visible reason.
     pub async fn mark_failed(&self, id: PhotoId, reason: &str) -> Result<bool, DatabaseError> {
         transition(self.pool, id, "failed", Some(reason)).await
