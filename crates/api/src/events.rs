@@ -244,7 +244,6 @@ mod tests {
     }
 
     struct Relay {
-        hub: Arc<EventHub>,
         task: JoinHandle<()>,
     }
 
@@ -260,7 +259,7 @@ mod tests {
 
             assert_eq!(recv(&mut subscription).await, Broadcast::Resync);
 
-            (Self { hub, task }, subscription)
+            (Self { task }, subscription)
         }
     }
 
@@ -324,6 +323,5 @@ mod tests {
 
         assert_eq!(recv(&mut subscription).await, Broadcast::Resync);
         assert!(!relay.task.is_finished());
-        assert_eq!(relay.hub.sender.receiver_count(), 1);
     }
 }

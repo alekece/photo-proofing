@@ -12,7 +12,10 @@ use std::{
 
 use actix_web::{Responder, get, web::Data};
 use actix_web_lab::sse::{self, Sse};
-use futures_util::stream::{self, Stream};
+use futures_util::{
+    future,
+    stream::{self, Stream, StreamExt},
+};
 use pp_core::notifications::PhotoId;
 use pp_database::{
     auth::{AuthRepository, WorkspaceId},
@@ -64,7 +67,6 @@ pub(crate) async fn stream_events(
         token: token.digest(),
         workspace_id,
         session_check: session_check(keep_alive),
-        started: false,
     };
 
     Ok(Sse::from_infallible_stream(events.into_stream()).with_keep_alive(keep_alive))
@@ -85,26 +87,22 @@ struct EventStream {
     token: TokenHash,
     workspace_id: WorkspaceId,
     session_check: Interval,
-    started: bool,
 }
 
 impl EventStream {
+    /// A `resync` first, since the browser cannot know what changed before it connected.
     fn into_stream(self) -> Pin<Box<dyn Stream<Item = sse::Event>>> {
-        Box::pin(stream::unfold(self, |mut events| async move {
+        let following = stream::unfold(self, |mut events| async move {
             let event = events.next().await?;
 
             Some((event, events))
-        }))
+        });
+
+        Box::pin(stream::once(future::ready(resync())).chain(following))
     }
 
     /// The next event to send, or `None` once the stream must end.
     async fn next(&mut self) -> Option<sse::Event> {
-        if !self.started {
-            self.started = true;
-
-            return Some(resync());
-        }
-
         loop {
             tokio::select! {
                 received = self.subscription.receiver.recv() => match received {
@@ -279,7 +277,7 @@ mod tests {
     fn photo_event(workspace_id: WorkspaceId) -> PhotoEvent {
         PhotoEvent {
             workspace_id,
-            gallery_id: serde_json::from_value(json!(Uuid::new_v4())).unwrap(),
+            gallery_id: GalleryId(Uuid::new_v4()),
             photo_id: PhotoId::from(Uuid::new_v4()),
             status: PhotoChange::Ready,
         }
