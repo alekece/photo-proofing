@@ -309,9 +309,24 @@
 		for (const { id } of photos) selected.add(id);
 	}
 
+	/** Whether the key belongs to a field being typed in; tile checkboxes keep the shortcuts. */
+	function typing(target: EventTarget | null) {
+		if (!(target instanceof HTMLElement)) return false;
+
+		if (target instanceof HTMLInputElement) return target.type !== 'checkbox';
+
+		return (
+			target instanceof HTMLTextAreaElement ||
+			target instanceof HTMLSelectElement ||
+			target.isContentEditable
+		);
+	}
+
 	function onkeydown(event: KeyboardEvent) {
 		// The confirmation dialog owns the keyboard; its Escape closes only the dialog.
-		if (!selecting || confirmingSelection || event.defaultPrevented) return;
+		if (!selecting || confirmingSelection || event.defaultPrevented || typing(event.target)) {
+			return;
+		}
 
 		if (event.key === 'Escape') {
 			leaveSelectMode();

@@ -581,6 +581,23 @@ describe('PhotosPanel', () => {
 			expect(screen.getByRole('dialog', { name: 'Delete 1 photo?' })).toBeTruthy();
 		});
 
+		it('leaves keys alone while typing in a text field', async () => {
+			stubApi([photo('p1'), photo('p2')]);
+			const user = userEvent.setup();
+			const field = document.body.appendChild(document.createElement('input'));
+
+			setup();
+			await enter(user);
+			await user.click(checkbox('p1.jpg')!);
+			await user.click(field);
+			await user.keyboard('{Control>}a{/Control}');
+			await user.keyboard('{Escape}');
+
+			expect(counter()).toBe('1 selected');
+
+			field.remove();
+		});
+
 		it('closes only the dialog on Escape', async () => {
 			stubApi([photo('p1')]);
 			const user = userEvent.setup();

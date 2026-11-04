@@ -48,7 +48,8 @@ My calls (to check while reading):
 - **Selection bar.** "n selected · Select all · Delete · Cancel". Select all (or Ctrl/⌘+A in
   select mode) selects the server photos shown at that moment; photos that arrive later are not
   added, so the confirmed count is exactly what is sent. Esc leaves select mode and clears the
-  selection. Delete is disabled with nothing selected and opens the existing `Dialog`: "Delete n
+  selection. Neither key is taken over while typing in a text field or while the confirmation is
+  open. Delete is disabled with nothing selected and opens the existing `Dialog`: "Delete n
   photos? This can't be undone."
 - **Route.** `POST /api/v1/galleries/{id}/photos/delete` with `{"photo_ids": [...]}` (session and
   ownership), answering `{"deleted": n}`. Ids outside this workspace and gallery, or already gone,
@@ -57,7 +58,8 @@ My calls (to check while reading):
   list of UUIDs is rejected like any JSON body (400 when malformed, 422 for a wrong type), with a
   JSON limit sized for 1000; an unknown gallery is 404. It shares the database
   delete and file clean-up of the single delete: jobs and rows go in one transaction, files are
-  removed after commit.
+  removed after commit. Like the worker, it locks jobs before photos, each in id order; retry is
+  brought in line so a retry and a delete of the same failed photos cannot deadlock.
 - **Browser.** Selected tiles disappear at once. A selection larger than 1000 is sent in chunks,
   one after another. If a chunk fails, the rest are not sent, the list is refetched so the page
   shows exactly what the server kept, select mode stays open with the surviving photos still
