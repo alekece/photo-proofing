@@ -6,8 +6,8 @@ use eyre::Result;
 use pp_core::config::{LogConfig, PhotoConfig};
 use pp_database::jobs::JobKind;
 use pp_image_worker::{
-    config::WorkerConfig, handlers::HandlerRegistry, render::ImageRenderer,
-    routines::process_photo::ProcessPhotoRoutine, runtime::Worker,
+    config::WorkerConfig, handlers::HandlerRegistry, handlers::process_photo::ProcessPhotoHandler,
+    render::ImageRenderer, runtime::Worker,
 };
 use pp_storage::PhotoStorage;
 use tokio::{
@@ -65,14 +65,14 @@ async fn main() -> Result<()> {
     });
 
     let worker = Worker::connect(cli.worker, |database| {
-        let routine = Arc::new(ProcessPhotoRoutine::new(
+        let handler = Arc::new(ProcessPhotoHandler::new(
             database.clone(),
             storage,
             renderer,
         ));
 
         HandlerRegistry::default().register(JobKind::ProcessPhoto, move |payload, job| {
-            Arc::clone(&routine).run(payload, job)
+            Arc::clone(&handler).run(payload, job)
         })
     })
     .await?;

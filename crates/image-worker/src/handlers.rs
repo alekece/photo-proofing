@@ -7,6 +7,8 @@ use serde::de::DeserializeOwned;
 use serde_json::Error as JsonError;
 use thiserror::Error;
 
+pub mod process_photo;
+
 type BoxError = Box<dyn Error + Send + Sync>;
 type HandlerFuture = Pin<Box<dyn Future<Output = Result<JobCompletion, HandlerError>> + Send>>;
 type Handler = Arc<dyn Fn(&Job) -> HandlerFuture + Send + Sync>;

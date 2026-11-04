@@ -143,14 +143,8 @@ impl ImageRenderer {
     }
 }
 
-/// Initializes libvips for tests that build images before creating any renderer.
 #[cfg(test)]
-pub(crate) fn init_libvips() {
-    ImageRenderer::new(NonZeroU64::MAX).expect("libvips should initialize");
-}
-
-#[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use libvips::{
         VipsImage,
         ops::{BandFormat, Interpretation, black, colourspace, gaussnoise, jpegsave_buffer},
@@ -159,6 +153,11 @@ mod tests {
     use super::*;
 
     const UNBOUNDED: NonZeroU64 = NonZeroU64::MAX;
+
+    /// Initializes libvips for tests that build images before creating any renderer.
+    pub(crate) fn init_libvips() {
+        ImageRenderer::new(UNBOUNDED).expect("libvips should initialize");
+    }
 
     fn jpeg(width: i32, height: i32) -> Vec<u8> {
         init_libvips();

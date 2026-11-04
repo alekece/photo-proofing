@@ -23,13 +23,13 @@ pub const UNREADABLE_REASON: &str = "The image could not be read.";
 pub const TOO_LARGE_REASON: &str = "The image is too large to process.";
 
 /// Serves `process_photo` jobs: renders a photo's derivatives and publishes them.
-pub struct ProcessPhotoRoutine {
+pub struct ProcessPhotoHandler {
     database: Database,
     storage: PhotoStorage,
     renderer: ImageRenderer,
 }
 
-impl ProcessPhotoRoutine {
+impl ProcessPhotoHandler {
     pub const fn new(database: Database, storage: PhotoStorage, renderer: ImageRenderer) -> Self {
         Self {
             database,
@@ -110,7 +110,7 @@ impl ProcessPhotoRoutine {
 
             staged.write(bytes).await.map_err(HandlerError::failed)?;
             staged
-                .commit(&Self::key(location, id, *variant))
+                .commit(&PhotoKey::with_location(location, id, *variant))
                 .await
                 .map_err(HandlerError::failed)?;
         }
@@ -119,7 +119,7 @@ impl ProcessPhotoRoutine {
         // it and removing late files run together in their own task.
         let database = self.database.clone();
         let storage = self.storage.clone();
-        let keys = derivatives.map(|(variant, _)| Self::key(location, id, variant));
+        let keys = derivatives.map(|(variant, _)| PhotoKey::with_location(location, id, variant));
         let finish = tokio::spawn(async move {
             let (completion, update) = database
                 .repository::<JobRepository>()
@@ -147,7 +147,7 @@ impl ProcessPhotoRoutine {
     ) -> Result<Vec<u8>, HandlerError> {
         let mut file = self
             .storage
-            .read(&Self::key(location, id, Variant::Original))
+            .read(&PhotoKey::with_location(location, id, Variant::Original))
             .await
             .map_err(HandlerError::failed)?;
         let mut original = Vec::new();
@@ -157,15 +157,6 @@ impl ProcessPhotoRoutine {
             .map_err(HandlerError::failed)?;
 
         Ok(original)
-    }
-
-    const fn key(location: PhotoLocation, photo: PhotoId, variant: Variant) -> PhotoKey {
-        PhotoKey {
-            workspace: location.workspace_id,
-            gallery: location.gallery_id,
-            photo,
-            variant,
-        }
     }
 }
 
@@ -200,7 +191,7 @@ mod tests {
 
     struct Fixture {
         dir: TempDir,
-        routine: Arc<ProcessPhotoRoutine>,
+        handler: Arc<ProcessPhotoHandler>,
         location: PhotoLocation,
         id: PhotoId,
         original: Vec<u8>,
@@ -253,13 +244,13 @@ mod tests {
 
             staged.write(&original).await.unwrap();
             staged
-                .commit(&ProcessPhotoRoutine::key(location, id, Variant::Original))
+                .commit(&PhotoKey::with_location(location, id, Variant::Original))
                 .await
                 .unwrap();
 
             Self {
                 dir,
-                routine: Arc::new(ProcessPhotoRoutine::new(
+                handler: Arc::new(ProcessPhotoHandler::new(
                     database,
                     storage,
                     renderer(100_000_000),
@@ -274,7 +265,7 @@ mod tests {
         /// processes it. A run that finishes must still own its job.
         async fn run(&self) -> Result<(), HandlerError> {
             let job = self.claim().await;
-            let completion = Arc::clone(&self.routine)
+            let completion = Arc::clone(&self.handler)
                 .run(ProcessPhoto { photo_id: self.id }, job)
                 .await?;
 
@@ -303,11 +294,11 @@ mod tests {
         }
 
         fn jobs(&self) -> JobRepository<'_> {
-            self.routine.database.repository::<JobRepository>()
+            self.handler.database.repository::<JobRepository>()
         }
 
         fn testing(&self) -> TestRepository<'_> {
-            self.routine.database.repository::<TestRepository>()
+            self.handler.database.repository::<TestRepository>()
         }
 
         /// Whether any job is still queued or running.
@@ -316,7 +307,7 @@ mod tests {
         }
 
         async fn status(&self) -> Option<PhotoStatus> {
-            self.routine
+            self.handler
                 .database
                 .repository::<PhotoRepository>()
                 .get(
@@ -367,7 +358,7 @@ mod tests {
     const LEASE: Duration = Duration::from_secs(30);
 
     fn jpeg() -> Vec<u8> {
-        crate::render::init_libvips();
+        crate::render::tests::init_libvips();
 
         jpegsave_buffer(&gaussnoise(600, 400).unwrap()).unwrap()
     }
@@ -416,7 +407,7 @@ mod tests {
     async fn oversized_original_fails_permanently_with_a_safe_reason(pool: PgPool) {
         let mut fixture = Fixture::new(&pool, jpeg()).await;
 
-        Arc::get_mut(&mut fixture.routine).unwrap().renderer = renderer(600 * 400 - 1);
+        Arc::get_mut(&mut fixture.handler).unwrap().renderer = renderer(600 * 400 - 1);
         fixture.run().await.unwrap();
 
         assert_eq!(
@@ -464,7 +455,7 @@ mod tests {
     #[sqlx::test(migrations = "../database/migrations")]
     async fn finished_photo_is_not_reprocessed(pool: PgPool) {
         let fixture = Fixture::new(&pool, jpeg()).await;
-        let photos = fixture.routine.database.repository::<PhotoRepository>();
+        let photos = fixture.handler.database.repository::<PhotoRepository>();
 
         photos
             .mark_failed(fixture.id, "earlier failure")
@@ -496,7 +487,7 @@ mod tests {
     #[sqlx::test(migrations = "../database/migrations")]
     async fn late_work_for_a_deleted_photo_leaves_nothing(pool: PgPool) {
         let fixture = Fixture::new(&pool, jpeg()).await;
-        let rendered = fixture.routine.renderer.render(&fixture.original).unwrap();
+        let rendered = fixture.handler.renderer.render(&fixture.original).unwrap();
 
         fixture
             .testing()
@@ -504,7 +495,7 @@ mod tests {
             .await
             .unwrap();
         let completion = fixture
-            .routine
+            .handler
             .publish(
                 fixture.claim().await,
                 fixture.location,
@@ -523,11 +514,11 @@ mod tests {
     #[sqlx::test(migrations = "../database/migrations")]
     async fn late_work_for_a_ready_photo_keeps_its_derivatives(pool: PgPool) {
         let fixture = Fixture::new(&pool, jpeg()).await;
-        let rendered = fixture.routine.renderer.render(&fixture.original).unwrap();
+        let rendered = fixture.handler.renderer.render(&fixture.original).unwrap();
 
         fixture.run().await.unwrap();
         let completion = fixture
-            .routine
+            .handler
             .publish(
                 fixture.claim().await,
                 fixture.location,
@@ -557,7 +548,7 @@ mod tests {
 
         // The first worker starts the photo, then never finishes and is stopped.
         let stuck = {
-            let database = fixture.routine.database.clone();
+            let database = fixture.handler.database.clone();
 
             HandlerRegistry::default().register(
                 JobKind::ProcessPhoto,
@@ -577,7 +568,7 @@ mod tests {
         };
         let shutdown = CancellationToken::new();
         let first = tokio::spawn(
-            Worker::new(fixture.routine.database.clone(), stuck, options).run(shutdown.clone()),
+            Worker::new(fixture.handler.database.clone(), stuck, options).run(shutdown.clone()),
         );
 
         while fixture.status().await != Some(PhotoStatus::Processing) {
@@ -587,14 +578,14 @@ mod tests {
         shutdown.cancel();
         first.await.unwrap();
 
-        let routine = fixture.routine.clone();
+        let handler = fixture.handler.clone();
         let handlers = HandlerRegistry::default()
             .register(JobKind::ProcessPhoto, move |payload, job| {
-                Arc::clone(&routine).run(payload, job)
+                Arc::clone(&handler).run(payload, job)
             });
         let shutdown = CancellationToken::new();
         let second = tokio::spawn(
-            Worker::new(fixture.routine.database.clone(), handlers, options).run(shutdown.clone()),
+            Worker::new(fixture.handler.database.clone(), handlers, options).run(shutdown.clone()),
         );
 
         tokio::time::timeout(Duration::from_secs(10), async {

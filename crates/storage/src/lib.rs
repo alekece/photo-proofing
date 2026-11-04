@@ -15,7 +15,7 @@ use std::{
 };
 
 use pp_core::{config::PhotoDir, notifications::PhotoId};
-use pp_database::{auth::WorkspaceId, gallery::GalleryId};
+use pp_database::{auth::WorkspaceId, gallery::GalleryId, photo::PhotoLocation};
 use strum::Display;
 use thiserror::Error;
 use tokio::{
@@ -79,6 +79,15 @@ pub struct PhotoKey {
 }
 
 impl PhotoKey {
+    pub const fn with_location(location: PhotoLocation, photo: PhotoId, variant: Variant) -> Self {
+        Self {
+            workspace: location.workspace_id,
+            gallery: location.gallery_id,
+            photo,
+            variant,
+        }
+    }
+
     fn dir(&self, root: &Path) -> PathBuf {
         root.join(self.workspace.0.to_string())
             .join(self.gallery.0.to_string())

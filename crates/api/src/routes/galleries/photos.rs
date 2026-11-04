@@ -13,7 +13,7 @@ use actix_web::{
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
     gallery::{GalleryId, GalleryRepository},
-    photo::{NewPhoto, PhotoRepository, PhotoStatus},
+    photo::{NewPhoto, PhotoLocation, PhotoRepository, PhotoStatus},
     photo_intake::{PhotoIntake, PhotoIntakeError},
     photo_retry::PhotoRetry,
 };
@@ -141,12 +141,11 @@ async fn serve_derivative_photo(
         return Err(ErrorResponse::not_found());
     }
 
-    let key = PhotoKey {
-        workspace: identity.workspace_id,
-        gallery: gallery_id,
-        photo: photo_id,
-        variant: derivative.into(),
+    let location = PhotoLocation {
+        workspace_id: identity.workspace_id,
+        gallery_id,
     };
+    let key = PhotoKey::with_location(location, photo_id, derivative.into());
     let mut file = match state.storage().read(&key).await {
         Ok(file) => file,
         Err(StorageError::NotFound) => return Err(ErrorResponse::not_found()),
@@ -191,12 +190,11 @@ async fn upload_photo(
     )
     .await?;
     let photo_id = PhotoId::generate();
-    let key = PhotoKey {
-        workspace: identity.workspace_id,
-        gallery: gallery_id,
-        photo: photo_id,
-        variant: Variant::Original,
+    let location = PhotoLocation {
+        workspace_id: identity.workspace_id,
+        gallery_id,
     };
+    let key = PhotoKey::with_location(location, photo_id, Variant::Original);
 
     photo_upload.staged.commit(&key).await?;
 
