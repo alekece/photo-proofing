@@ -1,16 +1,21 @@
 //! Workspace-scoped photo metadata.
 //!
-//! A photo is visible only through its owning workspace and gallery. [`PhotoRepository`] only
-//! inserts photo metadata; [`crate::photo_intake::PhotoIntake`] coordinates that insert with its
-//! processing job in one transaction.
+//! A photo is visible only through its owning workspace and gallery. [`PhotoRepository`] stores
+//! photo metadata and its processing status; [`crate::photo_intake::PhotoIntake`] coordinates the
+//! insert with its processing job in one transaction.
 
 use std::num::{NonZeroU32, NonZeroU64};
 
 use pp_core::{notifications::PhotoId, types::timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool, Postgres, Row, Transaction, postgres::PgRow};
+use sqlx::{
+    AssertSqlSafe, FromRow, PgExecutor, PgPool, Postgres, Row, Transaction, postgres::PgRow,
+};
 
 use crate::{Repository, auth::WorkspaceId, error::DatabaseError, gallery::GalleryId};
+
+/// Reason shown when the worker gives up on a photo after its last attempt.
+pub const PROCESSING_FAILED_REASON: &str = "Processing failed after several attempts.";
 
 /// Current server-side processing state for a photo.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +122,13 @@ pub enum PhotoInsertOutcome {
     MissingGallery,
 }
 
+/// Owning workspace and gallery of a photo, used to build its storage keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromRow)]
+pub struct PhotoLocation {
+    pub workspace_id: WorkspaceId,
+    pub gallery_id: GalleryId,
+}
+
 /// Persistence for accepted photos and their processing jobs.
 #[derive(Clone, Copy)]
 pub struct PhotoRepository<'db> {
@@ -132,6 +144,8 @@ impl<'db> Repository<'db> for PhotoRepository<'db> {
 }
 
 impl PhotoRepository<'_> {
+    const COLUMNS: &'static str = "id, original_name, size, width, height, status::text AS status, failure_reason, created_at";
+
     /// Inserts only photo metadata in the caller's transaction.
     pub async fn insert_in(
         &self,
@@ -201,17 +215,90 @@ impl PhotoRepository<'_> {
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
     ) -> Result<Vec<Photo>, DatabaseError> {
-        Ok(sqlx::query_as(
-            "SELECT id, original_name, size, width, height,
-                    status::text AS status, failure_reason, created_at
-             FROM photos WHERE workspace_id = $1 AND gallery_id = $2
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {} FROM photos
+             WHERE workspace_id = $1 AND gallery_id = $2
              ORDER BY created_at, id",
-        )
+            Self::COLUMNS
+        )))
         .bind(workspace_id)
         .bind(gallery_id)
         .fetch_all(self.pool)
         .await?)
     }
+
+    /// Fetches one photo, scoped to the owning workspace and gallery.
+    pub async fn get(
+        &self,
+        workspace_id: WorkspaceId,
+        gallery_id: GalleryId,
+        id: PhotoId,
+    ) -> Result<Option<Photo>, DatabaseError> {
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {} FROM photos
+             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3",
+            Self::COLUMNS
+        )))
+        .bind(workspace_id)
+        .bind(gallery_id)
+        .bind(id)
+        .fetch_optional(self.pool)
+        .await?)
+    }
+
+    /// Finds the workspace and gallery owning a photo, regardless of its status.
+    pub async fn locate(&self, id: PhotoId) -> Result<Option<PhotoLocation>, DatabaseError> {
+        Ok(
+            sqlx::query_as("SELECT workspace_id, gallery_id FROM photos WHERE id = $1")
+                .bind(id)
+                .fetch_optional(self.pool)
+                .await?,
+        )
+    }
+
+    /// Marks a waiting or processing photo as processing; repeatable after a worker crash.
+    pub async fn mark_processing(&self, id: PhotoId) -> Result<bool, DatabaseError> {
+        transition(self.pool, id, "processing", None).await
+    }
+
+    /// Marks a waiting or processing photo as ready.
+    pub async fn mark_ready(&self, id: PhotoId) -> Result<bool, DatabaseError> {
+        transition(self.pool, id, "ready", None).await
+    }
+
+    /// Marks a waiting or processing photo as failed with a user-visible reason.
+    pub async fn mark_failed(&self, id: PhotoId, reason: &str) -> Result<bool, DatabaseError> {
+        transition(self.pool, id, "failed", Some(reason)).await
+    }
+
+    /// Same as [`Self::mark_failed`], within the caller's transaction.
+    pub async fn mark_failed_in(
+        transaction: &mut Transaction<'_, Postgres>,
+        id: PhotoId,
+        reason: &str,
+    ) -> Result<bool, DatabaseError> {
+        transition(&mut **transaction, id, "failed", Some(reason)).await
+    }
+}
+
+/// Moves an unfinished photo to `status`; returns whether a row changed.
+async fn transition(
+    executor: impl PgExecutor<'_>,
+    id: PhotoId,
+    status: &str,
+    failure_reason: Option<&str>,
+) -> Result<bool, DatabaseError> {
+    let result = sqlx::query(
+        "UPDATE photos SET status = $2::photo_status, failure_reason = $3
+         WHERE id = $1 AND status IN ('waiting', 'processing')",
+    )
+    .bind(id)
+    .bind(status)
+    .bind(failure_reason)
+    .execute(executor)
+    .await?;
+
+    Ok(result.rows_affected() == 1)
 }
 
 #[cfg(test)]
@@ -449,5 +536,153 @@ mod tests {
             .unwrap();
 
         assert_eq!(count, 0);
+    }
+
+    async fn accepted_photo(
+        database: &Database,
+        pool: &PgPool,
+    ) -> (WorkspaceId, GalleryId, PhotoId) {
+        let workspace_id = workspace(pool).await;
+        let gallery = database
+            .repository::<GalleryRepository>()
+            .create(workspace_id)
+            .await
+            .unwrap();
+        let photo_id = PhotoId::from(Uuid::new_v4());
+
+        database
+            .repository::<PhotoIntake>()
+            .try_accept(new_photo(workspace_id, gallery.id, photo_id, "proof.jpg"))
+            .await
+            .unwrap()
+            .unwrap();
+
+        (workspace_id, gallery.id, photo_id)
+    }
+
+    async fn status(
+        photos: &PhotoRepository<'_>,
+        ids: (WorkspaceId, GalleryId, PhotoId),
+    ) -> PhotoStatus {
+        let (workspace_id, gallery_id, photo_id) = ids;
+
+        photos
+            .get(workspace_id, gallery_id, photo_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn mark_ready_requires_a_waiting_or_processing_photo(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let ids = accepted_photo(&database, &pool).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        assert!(photos.mark_ready(ids.2).await.unwrap());
+        assert!(!photos.mark_ready(ids.2).await.unwrap());
+        assert!(!photos.mark_failed(ids.2, "late failure").await.unwrap());
+        assert!(!photos.mark_processing(ids.2).await.unwrap());
+        assert_eq!(status(&photos, ids).await, PhotoStatus::Ready);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn mark_failed_stores_the_reason_and_listing_shows_it(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let ids = accepted_photo(&database, &pool).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        assert!(photos.mark_processing(ids.2).await.unwrap());
+        assert!(photos.mark_failed(ids.2, "decode failed").await.unwrap());
+        assert!(!photos.mark_ready(ids.2).await.unwrap());
+
+        let listed = photos.list(ids.0, ids.1).await.unwrap();
+
+        assert_eq!(
+            listed[0].status,
+            PhotoStatus::Failed("decode failed".to_owned())
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn mark_failed_in_obeys_the_callers_transaction(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let ids = accepted_photo(&database, &pool).await;
+        let photos = database.repository::<PhotoRepository>();
+        let mut transaction = pool.begin().await.unwrap();
+
+        assert!(
+            PhotoRepository::mark_failed_in(&mut transaction, ids.2, PROCESSING_FAILED_REASON)
+                .await
+                .unwrap()
+        );
+        transaction.rollback().await.unwrap();
+
+        assert_eq!(status(&photos, ids).await, PhotoStatus::Waiting);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn mark_processing_is_repeatable_after_a_crash(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let ids = accepted_photo(&database, &pool).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        assert!(photos.mark_processing(ids.2).await.unwrap());
+        assert!(photos.mark_processing(ids.2).await.unwrap());
+        assert_eq!(status(&photos, ids).await, PhotoStatus::Processing);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn get_is_scoped_to_workspace_and_gallery(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let (workspace_id, gallery_id, photo_id) = accepted_photo(&database, &pool).await;
+        let other_workspace = workspace(&pool).await;
+        let other_gallery = database
+            .repository::<GalleryRepository>()
+            .create(workspace_id)
+            .await
+            .unwrap();
+        let photos = database.repository::<PhotoRepository>();
+
+        assert!(
+            photos
+                .get(workspace_id, gallery_id, photo_id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            photos
+                .get(other_workspace, gallery_id, photo_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            photos
+                .get(workspace_id, other_gallery.id, photo_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            photos.locate(photo_id).await.unwrap(),
+            Some(PhotoLocation {
+                workspace_id,
+                gallery_id
+            })
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn locate_returns_none_for_a_missing_photo(pool: PgPool) {
+        let photos = Database::new(pool.clone());
+        let photos = photos.repository::<PhotoRepository>();
+
+        assert_eq!(
+            photos.locate(PhotoId::from(Uuid::new_v4())).await.unwrap(),
+            None
+        );
     }
 }
