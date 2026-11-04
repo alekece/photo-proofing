@@ -6,7 +6,7 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["io-util", "sync"] }
 futures-util.workspace = true
 pp-core.workspace = true
 pp-database.workspace = true
