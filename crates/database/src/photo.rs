@@ -274,6 +274,19 @@ impl PhotoRepository<'_> {
         id: PhotoId,
     ) -> Result<bool, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
+
+        // Jobs before the photo: the worker locks them in that order too, so neither deadlocks.
+        sqlx::query(
+            "DELETE FROM jobs WHERE payload->'payload'->>'photo_id' = $3::text AND EXISTS (
+                 SELECT 1 FROM photos WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3
+             )",
+        )
+        .bind(workspace_id)
+        .bind(gallery_id)
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
+
         let deleted = sqlx::query(
             "DELETE FROM photos WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3",
         )
@@ -287,10 +300,6 @@ impl PhotoRepository<'_> {
             return Ok(false);
         }
 
-        sqlx::query("DELETE FROM jobs WHERE payload->'payload'->>'photo_id' = $1")
-            .bind(id.to_string())
-            .execute(&mut *transaction)
-            .await?;
         transaction.commit().await?;
 
         Ok(true)
@@ -948,6 +957,61 @@ mod tests {
 
         assert_eq!(tests.photo_jobs(kept).await.unwrap().len(), 1);
         assert_eq!(tests.count_photos().await.unwrap(), 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn delete_waits_for_a_worker_finishing_the_photo(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let id = photo_in(&database, location, (20, 10), PhotoStatus::Processing, 1).await;
+        let mut worker = pool.begin().await.unwrap();
+
+        // Completing a job locks its row first, then the photo's.
+        sqlx::query("DELETE FROM jobs WHERE payload->'payload'->>'photo_id' = $1")
+            .bind(id.to_string())
+            .execute(&mut *worker)
+            .await
+            .unwrap();
+
+        let deleting = tokio::spawn({
+            let database = database.clone();
+
+            async move {
+                database
+                    .repository::<PhotoRepository>()
+                    .delete(location.workspace_id, location.gallery_id, id)
+                    .await
+            }
+        });
+
+        while sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM pg_stat_activity
+             WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+            == 0
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        sqlx::query("UPDATE photos SET width = width WHERE id = $1")
+            .bind(id)
+            .execute(&mut *worker)
+            .await
+            .unwrap();
+        worker.commit().await.unwrap();
+
+        assert!(deleting.await.unwrap().unwrap());
+        assert_eq!(
+            database
+                .repository::<TestRepository>()
+                .count_photos()
+                .await
+                .unwrap(),
+            0
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
