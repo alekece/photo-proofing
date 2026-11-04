@@ -36,7 +36,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(list_photos)
         .service(retry_gallery)
         .service(retry_photo)
-        .service(serve_derivative);
+        .service(serve_derivative_photo);
 }
 
 #[derive(Serialize)]
@@ -108,16 +108,16 @@ async fn retry_photo(
 /// lists the same names so any other path misses it, even before authentication.
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Derivative {
+enum DerivativePhoto {
     Thumbnail,
     Preview,
 }
 
-impl From<Derivative> for Variant {
-    fn from(derivative: Derivative) -> Self {
+impl From<DerivativePhoto> for Variant {
+    fn from(derivative: DerivativePhoto) -> Self {
         match derivative {
-            Derivative::Thumbnail => Self::Thumbnail,
-            Derivative::Preview => Self::Preview,
+            DerivativePhoto::Thumbnail => Self::Thumbnail,
+            DerivativePhoto::Preview => Self::Preview,
         }
     }
 }
@@ -125,10 +125,10 @@ impl From<Derivative> for Variant {
 /// Serves a derivative of a ready photo; anything else, including a file removed meanwhile,
 /// is not found.
 #[get("/{id}/photos/{photo_id}/{derivative:thumbnail|preview}")]
-async fn serve_derivative(
+async fn serve_derivative_photo(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    path: WebPath<(GalleryId, PhotoId, Derivative)>,
+    path: WebPath<(GalleryId, PhotoId, DerivativePhoto)>,
 ) -> Result<ImageFile, ErrorResponse> {
     let (gallery_id, photo_id, derivative) = path.into_inner();
     let photo = state

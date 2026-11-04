@@ -6,8 +6,8 @@ use eyre::Result;
 use pp_core::config::{LogConfig, PhotoConfig};
 use pp_database::jobs::JobKind;
 use pp_image_worker::{
-    config::WorkerConfig, handlers::HandlerRegistry, process_photo::ProcessPhotoRoutine,
-    render::ImageRenderer, runtime::Worker,
+    config::WorkerConfig, handlers::HandlerRegistry, render::ImageRenderer,
+    routines::process_photo::ProcessPhotoRoutine, runtime::Worker,
 };
 use pp_storage::PhotoStorage;
 use tokio::{

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use pp_core::notifications::PhotoId;
 use pp_database::{
     Database,
-    jobs::{Completion, Job, JobRepository, PhotoResult, PhotoUpdate, ProcessPhoto},
+    jobs::{Job, JobCompletion, JobRepository, PhotoResult, PhotoUpdate, ProcessPhoto},
     photo::{PhotoLocation, PhotoRepository},
 };
 use pp_storage::{PhotoKey, PhotoStorage, Variant};
@@ -48,7 +48,7 @@ impl ProcessPhotoRoutine {
         self: Arc<Self>,
         payload: ProcessPhoto,
         job: Job,
-    ) -> Result<Completion, HandlerError> {
+    ) -> Result<JobCompletion, HandlerError> {
         let id = payload.photo_id;
         let photos = self.database.repository::<PhotoRepository>();
         let jobs = self.database.repository::<JobRepository>();
@@ -99,7 +99,7 @@ impl ProcessPhotoRoutine {
         location: PhotoLocation,
         id: PhotoId,
         rendered: RenderedPhoto,
-    ) -> Result<Completion, HandlerError> {
+    ) -> Result<JobCompletion, HandlerError> {
         let derivatives = [
             (Variant::Thumbnail, rendered.thumbnail),
             (Variant::Preview, rendered.preview),

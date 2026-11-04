@@ -247,7 +247,7 @@ mod tests {
     use pp_core::{notifications::PhotoId, types::generate::Generate};
     use pp_database::{
         PgPool,
-        jobs::{Completion, DEFAULT_MAX_ATTEMPTS, JobKind, JobPayload, ProcessPhoto},
+        jobs::{DEFAULT_MAX_ATTEMPTS, JobCompletion, JobKind, JobPayload, ProcessPhoto},
     };
     use serde_json::json;
     use sqlx::Row;
@@ -301,7 +301,7 @@ mod tests {
     }
 
     /// Finishes `job` the way a successful handler does.
-    async fn finish(pool: PgPool, job: Job) -> Result<Completion, HandlerError> {
+    async fn finish(pool: PgPool, job: Job) -> Result<JobCompletion, HandlerError> {
         Database::new(pool)
             .repository::<JobRepository>()
             .complete(&job)
@@ -475,7 +475,7 @@ mod tests {
     #[sqlx::test(migrations = "../database/migrations")]
     async fn shutdown_during_a_stuck_job_leaves_it_recoverable(pool: PgPool) {
         let handlers = HandlerRegistry::default().register(KIND, |_: ProcessPhoto, _| {
-            future::pending::<Result<Completion, HandlerError>>()
+            future::pending::<Result<JobCompletion, HandlerError>>()
         });
         enqueue(&pool, 3).await;
 

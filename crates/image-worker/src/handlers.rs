@@ -2,13 +2,13 @@
 
 use std::{collections::HashMap, error::Error, future::Future, pin::Pin, sync::Arc};
 
-use pp_database::jobs::{Completion, Job, JobKind};
+use pp_database::jobs::{Job, JobCompletion, JobKind};
 use serde::de::DeserializeOwned;
 use serde_json::Error as JsonError;
 use thiserror::Error;
 
 type BoxError = Box<dyn Error + Send + Sync>;
-type HandlerFuture = Pin<Box<dyn Future<Output = Result<Completion, HandlerError>> + Send>>;
+type HandlerFuture = Pin<Box<dyn Future<Output = Result<JobCompletion, HandlerError>> + Send>>;
 type Handler = Arc<dyn Fn(&Job) -> HandlerFuture + Send + Sync>;
 
 /// Why a handler did not finish its job.
@@ -38,7 +38,7 @@ impl HandlerError {
 ///
 /// A successful handler finishes its own job, together with its result when it records one
 /// (see [`JobRepository::complete_photo`](pp_database::jobs::JobRepository::complete_photo));
-/// the [`Completion`] it returns proves it did.
+/// the [`JobCompletion`] it returns proves it did.
 #[derive(Default)]
 pub struct HandlerRegistry {
     handlers: HashMap<JobKind, Handler>,
@@ -53,7 +53,7 @@ impl HandlerRegistry {
     where
         P: DeserializeOwned + Send + 'static,
         F: Fn(P, Job) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<Completion, HandlerError>> + Send + 'static,
+        Fut: Future<Output = Result<JobCompletion, HandlerError>> + Send + 'static,
     {
         let erased: Handler = Arc::new(move |job: &Job| match job.payload::<P>() {
             Ok(payload) => Box::pin(handler(payload, job.clone())),

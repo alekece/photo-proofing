@@ -171,11 +171,11 @@ impl FromRow<'_, PgRow> for Job {
 /// its job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
-pub struct Completion {
+pub struct JobCompletion {
     current: bool,
 }
 
-impl Completion {
+impl JobCompletion {
     /// Whether the claim was still ours; `false` means another run owns the job now.
     pub const fn is_current(self) -> bool {
         self.current
@@ -373,7 +373,7 @@ impl JobRepository<'_> {
     }
 
     /// Deletes a finished job. The completion tells whether the claim was still current.
-    pub async fn complete(&self, job: &Job) -> Result<Completion, DatabaseError> {
+    pub async fn complete(&self, job: &Job) -> Result<JobCompletion, DatabaseError> {
         Self::complete_in(self.pool, job).await
     }
 
@@ -389,7 +389,7 @@ impl JobRepository<'_> {
         job: &Job,
         photo_id: PhotoId,
         result: PhotoResult<'_>,
-    ) -> Result<(Completion, PhotoUpdate), DatabaseError> {
+    ) -> Result<(JobCompletion, PhotoUpdate), DatabaseError> {
         let mut transaction = self.pool.begin().await?;
         let completion = Self::complete_in(&mut *transaction, job).await?;
         let saved = match (completion.is_current(), result) {
@@ -502,7 +502,7 @@ impl JobRepository<'_> {
     async fn complete_in(
         executor: impl PgExecutor<'_>,
         job: &Job,
-    ) -> Result<Completion, DatabaseError> {
+    ) -> Result<JobCompletion, DatabaseError> {
         let done =
             sqlx::query("DELETE FROM jobs WHERE id = $1 AND state = 'running' AND attempts = $2")
                 .bind(job.id)
@@ -510,7 +510,7 @@ impl JobRepository<'_> {
                 .execute(executor)
                 .await?;
 
-        Ok(Completion {
+        Ok(JobCompletion {
             current: done.rows_affected() == 1,
         })
     }
