@@ -223,7 +223,7 @@ async fn upload_photo(
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+pub(crate) mod tests {
     use std::{
         fs,
         num::{NonZeroU64, NonZeroUsize},

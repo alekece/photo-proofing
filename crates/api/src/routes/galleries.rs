@@ -25,7 +25,7 @@ use crate::{
     response::ResponseBuilderExt,
 };
 
-mod photos;
+pub(crate) mod photos;
 mod shared;
 
 /// The photo files photographer and client routes may serve; the original is deliberately absent.
