@@ -1,7 +1,7 @@
 import { env } from 'node:process';
 import { error, redirect } from '@sveltejs/kit';
 import type { Gallery, GallerySort } from '#lib/gallery/api.js';
-import type { SharedGallery } from '#lib/gallery/types.js';
+import type { SharedGallery, SharedPhoto } from '#lib/gallery/types.js';
 
 async function readGalleries<T>(fetcher: typeof fetch, cookie: string | null, path: string) {
 	let response: Response;
@@ -45,19 +45,12 @@ export function getGallery(
 	return readGalleries<Gallery>(fetcher, cookie, `/${encodeURIComponent(id)}`);
 }
 
-/**
- * Resolves a private link without credentials. A 404 (unknown, malformed or expired link,
- * which the API deliberately does not distinguish) is `null`; everything else is a 503.
- */
-export async function getSharedGallery(
-	fetcher: typeof fetch,
-	token: string
-): Promise<SharedGallery | null> {
+async function readShared<T>(fetcher: typeof fetch, token: string, path: string) {
 	const unavailable = 'This gallery is temporarily unavailable. Please try again.';
 	let response: Response;
 	try {
 		response = await fetcher(
-			`${env.PP_API_INTERNAL_URL ?? 'http://127.0.0.1:8080'}/api/v1/galleries/shared/${encodeURIComponent(token)}`,
+			`${env.PP_API_INTERNAL_URL ?? 'http://127.0.0.1:8080'}/api/v1/galleries/shared/${encodeURIComponent(token)}${path}`,
 			{ headers: {}, cache: 'no-store', redirect: 'error' }
 		);
 	} catch {
@@ -66,8 +59,27 @@ export async function getSharedGallery(
 	if (response.status === 404) return null;
 	if (!response.ok) error(503, unavailable);
 	try {
-		return (await response.json()) as SharedGallery;
+		return (await response.json()) as T;
 	} catch {
 		error(503, unavailable);
 	}
+}
+
+/**
+ * Resolves a private link without credentials. A 404 (unknown, malformed or expired link,
+ * which the API deliberately does not distinguish) is `null`; everything else is a 503.
+ */
+export function getSharedGallery(
+	fetcher: typeof fetch,
+	token: string
+): Promise<SharedGallery | null> {
+	return readShared<SharedGallery>(fetcher, token, '');
+}
+
+/** Lists the photos a client may see, with the same contract as `getSharedGallery`. */
+export function getSharedPhotos(
+	fetcher: typeof fetch,
+	token: string
+): Promise<SharedPhoto[] | null> {
+	return readShared<SharedPhoto[]>(fetcher, token, '/photos');
 }

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Type};
 
 use super::GalleryLayout;
+use crate::photo::PhotoLocation;
 
 /// The unguessable value that makes up a gallery's private link.
 ///
@@ -30,4 +31,13 @@ pub struct SharedGallery {
     pub layout: GalleryLayout,
     /// `None` means the gallery never expires.
     pub expires_at: Option<Timestamp>,
+}
+
+/// A gallery reached through its private link: where its photos live, and what the client sees.
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct SharedAccess {
+    #[sqlx(flatten)]
+    pub location: PhotoLocation,
+    #[sqlx(flatten)]
+    pub gallery: SharedGallery,
 }

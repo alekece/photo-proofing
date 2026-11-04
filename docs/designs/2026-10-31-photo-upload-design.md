@@ -57,7 +57,8 @@ Responses use the shared API error shape and are not cached.
 Validation checks headers before reading the body, counts actual streamed bytes even when
 Content-Length is absent or inaccurate, rejects empty bodies, then checks the JPEG signature
 and parses dimensions without decoding pixels. This is header validation, not a complete
-pixel-data integrity check; processing belongs to the worker.
+pixel-data integrity check; processing belongs to the worker. The stored dimensions are the
+displayed ones: EXIF orientations 5 to 8 swap width and height.
 
 | Rejection | HTTP status |
 |---|---|

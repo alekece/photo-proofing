@@ -6,7 +6,10 @@ import ProofGrid from './ProofGrid.svelte';
 const proofs = [1, 2].map((n) => ({
 	id: `p${n}`,
 	alt: `Proof ${n}`,
-	previewUrl: `data:,${n}`
+	previewUrl: `data:,${n}`,
+	thumbnailUrl: `data:,t${n}`,
+	width: 300,
+	height: 200
 }));
 
 describe('ProofGrid', () => {

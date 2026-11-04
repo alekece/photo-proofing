@@ -18,9 +18,9 @@ use pp_database::{
     photo_retry::PhotoRetry,
 };
 use pp_storage::{PhotoKey, StorageError, Variant};
-use serde::{Deserialize, Serialize};
-use tokio::io::AsyncReadExt;
+use serde::Serialize;
 
+use super::DerivativePhoto;
 use crate::{
     api::ApiState,
     error::ErrorResponse,
@@ -104,24 +104,6 @@ async fn retry_photo(
     Ok(HttpResponse::Ok().no_store().json(Requeued { requeued }))
 }
 
-/// The photo files clients may fetch; the original is deliberately absent. The route pattern
-/// lists the same names so any other path misses it, even before authentication.
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum DerivativePhoto {
-    Thumbnail,
-    Preview,
-}
-
-impl From<DerivativePhoto> for Variant {
-    fn from(derivative: DerivativePhoto) -> Self {
-        match derivative {
-            DerivativePhoto::Thumbnail => Self::Thumbnail,
-            DerivativePhoto::Preview => Self::Preview,
-        }
-    }
-}
-
 /// Serves a derivative of a ready photo; anything else, including a file removed meanwhile,
 /// is not found.
 #[get("/{id}/photos/{photo_id}/{derivative:thumbnail|preview}")]
@@ -145,19 +127,12 @@ async fn serve_derivative_photo(
         workspace_id: identity.workspace_id,
         gallery_id,
     };
-    let key = PhotoKey::with_location(location, photo_id, derivative.into());
-    let mut file = match state.storage().read(&key).await {
-        Ok(file) => file,
-        Err(StorageError::NotFound) => return Err(ErrorResponse::not_found()),
-        Err(error) => return Err(error.into()),
-    };
-    let mut bytes = Vec::new();
 
-    file.read_to_end(&mut bytes)
-        .await
-        .map_err(|error| ErrorResponse::from(StorageError::from(error)))?;
-
-    Ok(ImageFile::jpeg(bytes))
+    ImageFile::read(
+        state.storage(),
+        &PhotoKey::with_location(location, photo_id, derivative.into()),
+    )
+    .await
 }
 
 #[post("/{id}/photos")]
@@ -248,7 +223,7 @@ async fn upload_photo(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use std::{
         fs,
         num::{NonZeroU64, NonZeroUsize},
@@ -288,7 +263,7 @@ mod tests {
         upload,
     };
 
-    fn upload_config(max_size: u64, max_pixels: u64) -> UploadConfig {
+    pub(crate) fn upload_config(max_size: u64, max_pixels: u64) -> UploadConfig {
         UploadConfig {
             max_size: NonZeroU64::new(max_size).unwrap(),
             max_pixels: NonZeroU64::new(max_pixels).unwrap(),
@@ -296,7 +271,7 @@ mod tests {
         }
     }
 
-    async fn app(
+    pub(crate) async fn app(
         pool: PgPool,
         photo_dir: &Path,
         config: UploadConfig,
@@ -317,13 +292,13 @@ mod tests {
         .await
     }
 
-    fn jpeg(width: i32, height: i32) -> Vec<u8> {
+    pub(crate) fn jpeg(width: i32, height: i32) -> Vec<u8> {
         let image = black(width, height).unwrap();
 
         jpegsave_buffer(&image).unwrap()
     }
 
-    async fn create_gallery<S>(app: &S, cookie: &Cookie<'static>) -> String
+    pub(crate) async fn create_gallery<S>(app: &S, cookie: &Cookie<'static>) -> String
     where
         S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
     {
@@ -338,7 +313,7 @@ mod tests {
         gallery["id"].as_str().unwrap().to_owned()
     }
 
-    fn upload_request(
+    pub(crate) fn upload_request(
         cookie: &Cookie<'static>,
         gallery_id: &str,
         filename: &str,
@@ -364,7 +339,10 @@ mod tests {
         }
     }
 
-    async fn call_request<S>(app: &S, request: actix_http::Request) -> (StatusCode, Value)
+    pub(crate) async fn call_request<S>(
+        app: &S,
+        request: actix_http::Request,
+    ) -> (StatusCode, Value)
     where
         S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
     {
@@ -950,14 +928,18 @@ mod tests {
 
     /// How far a test photo got through processing.
     #[derive(Clone, Copy, Debug)]
-    enum Progress {
+    pub(crate) enum Progress {
         Processing,
         Ready,
         Failed,
     }
 
     /// Uploads a photo, which then waits for processing, returning its id.
-    async fn waiting_photo<S>(app: &S, cookie: &Cookie<'static>, gallery_id: &str) -> String
+    pub(crate) async fn waiting_photo<S>(
+        app: &S,
+        cookie: &Cookie<'static>,
+        gallery_id: &str,
+    ) -> String
     where
         S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
     {
@@ -972,7 +954,7 @@ mod tests {
     /// Uploads a photo and moves it to `progress` as the worker would, returning its id.
     ///
     /// Claims the oldest queued job, so earlier photos must not still be waiting.
-    async fn photo_in<S>(
+    pub(crate) async fn photo_in<S>(
         app: &S,
         pool: &PgPool,
         cookie: &Cookie<'static>,
@@ -1018,7 +1000,7 @@ mod tests {
     }
 
     /// Writes a derivative file where the worker would store it.
-    async fn store_derivative(
+    pub(crate) async fn store_derivative(
         pool: &PgPool,
         photo_dir: &Path,
         photo_id: &str,
@@ -1079,7 +1061,7 @@ mod tests {
         }
     }
 
-    fn get_request(cookie: Option<&Cookie<'static>>, path: &str) -> actix_http::Request {
+    pub(crate) fn get_request(cookie: Option<&Cookie<'static>>, path: &str) -> actix_http::Request {
         let request = test::TestRequest::get().uri(&format!("/api/v1/galleries/{path}"));
 
         match cookie {
@@ -1217,7 +1199,14 @@ mod tests {
                 response.headers().get("Content-Type").unwrap(),
                 "image/jpeg"
             );
-            assert_eq!(response.headers().get("Cache-Control").unwrap(), "private");
+            assert_eq!(
+                response.headers().get("Cache-Control").unwrap(),
+                "private, max-age=3600"
+            );
+            assert_eq!(
+                response.headers().get("Referrer-Policy").unwrap(),
+                "no-referrer"
+            );
             assert_eq!(
                 response.headers().get("X-Content-Type-Options").unwrap(),
                 "nosniff"

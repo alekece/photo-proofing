@@ -28,11 +28,35 @@ pub enum PhotoStatus {
     Failed(String),
 }
 
-/// Header dimensions, both guaranteed to be non-zero.
+/// Displayed dimensions (after the EXIF orientation), both non-zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhotoDimensions {
     pub width: NonZeroU32,
     pub height: NonZeroU32,
+}
+
+impl FromRow<'_, PgRow> for PhotoDimensions {
+    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+        let width = u32::try_from(row.try_get::<i32, _>("width")?)
+            .ok()
+            .and_then(NonZeroU32::new)
+            .ok_or_else(|| sqlx::Error::Decode("photo width must be positive".into()))?;
+        let height = u32::try_from(row.try_get::<i32, _>("height")?)
+            .ok()
+            .and_then(NonZeroU32::new)
+            .ok_or_else(|| sqlx::Error::Decode("photo height must be positive".into()))?;
+
+        Ok(Self { width, height })
+    }
+}
+
+/// A photo a client may see: ready, with the size it displays at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, FromRow)]
+pub struct ReadyPhoto {
+    pub id: PhotoId,
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    pub dimensions: PhotoDimensions,
 }
 
 /// A photo exposed by the workspace-scoped photo repository.
@@ -53,15 +77,7 @@ impl FromRow<'_, PgRow> for Photo {
             .ok()
             .and_then(NonZeroU64::new)
             .ok_or_else(|| sqlx::Error::Decode("photo size must be positive".into()))?;
-        let width = u32::try_from(row.try_get::<i32, _>("width")?)
-            .ok()
-            .and_then(NonZeroU32::new)
-            .ok_or_else(|| sqlx::Error::Decode("photo width must be positive".into()))?;
-        let height = u32::try_from(row.try_get::<i32, _>("height")?)
-            .ok()
-            .and_then(NonZeroU32::new)
-            .ok_or_else(|| sqlx::Error::Decode("photo height must be positive".into()))?;
-
+        let dimensions = PhotoDimensions::from_row(row)?;
         let database_status: String = row.try_get("status")?;
         let failure_reason: Option<String> = row.try_get("failure_reason")?;
         let status = match (database_status.as_str(), failure_reason) {
@@ -80,7 +96,7 @@ impl FromRow<'_, PgRow> for Photo {
             id: row.try_get("id")?,
             original_name: row.try_get("original_name")?,
             size,
-            dimensions: PhotoDimensions { width, height },
+            dimensions,
             status,
             created_at: row.try_get("created_at")?,
         })
@@ -246,6 +262,39 @@ impl PhotoRepository<'_> {
         .await?)
     }
 
+    /// Lists a gallery's ready photos in creation order.
+    pub async fn list_ready(
+        &self,
+        location: PhotoLocation,
+    ) -> Result<Vec<ReadyPhoto>, DatabaseError> {
+        Ok(sqlx::query_as(
+            "SELECT id, width, height FROM photos
+             WHERE workspace_id = $1 AND gallery_id = $2 AND status = 'ready'
+             ORDER BY created_at, id",
+        )
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .fetch_all(self.pool)
+        .await?)
+    }
+
+    /// Whether the gallery at `location` holds `id` and it is ready.
+    pub async fn is_ready(
+        &self,
+        location: PhotoLocation,
+        id: PhotoId,
+    ) -> Result<bool, DatabaseError> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM photos
+             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND status = 'ready')",
+        )
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .bind(id)
+        .fetch_one(self.pool)
+        .await?)
+    }
+
     /// Finds the workspace and gallery owning a photo, regardless of its status.
     pub async fn locate(&self, id: PhotoId) -> Result<Option<PhotoLocation>, DatabaseError> {
         Ok(
@@ -328,6 +377,7 @@ mod tests {
 
     use pp_core::notifications::PhotoId;
     use sqlx::PgPool;
+    use time::OffsetDateTime;
     use uuid::Uuid;
 
     use super::*;
@@ -336,6 +386,7 @@ mod tests {
         auth::WorkspaceId,
         gallery::{GalleryId, GalleryRepository},
         photo_intake::PhotoIntake,
+        tests::TestRepository,
     };
 
     async fn workspace(pool: &PgPool) -> WorkspaceId {
@@ -490,6 +541,110 @@ mod tests {
         assert_eq!(listed[0].original_name, "same.jpg");
         assert_eq!(listed[2].original_name, "same.jpg");
         assert_ne!(listed[0].id, listed[2].id);
+    }
+
+    async fn photo_in(
+        database: &Database,
+        location: PhotoLocation,
+        (width, height): (u32, u32),
+        status: PhotoStatus,
+        created_at: i64,
+    ) -> PhotoId {
+        let id = PhotoId::from(Uuid::new_v4());
+        let mut photo = new_photo(location.workspace_id, location.gallery_id, id, "proof.jpg");
+        let tests = database.repository::<TestRepository>();
+
+        photo.dimensions = PhotoDimensions {
+            width: NonZeroU32::new(width).unwrap(),
+            height: NonZeroU32::new(height).unwrap(),
+        };
+        database
+            .repository::<PhotoIntake>()
+            .try_accept(photo)
+            .await
+            .unwrap()
+            .unwrap();
+        tests.force_photo_status(id, &status).await.unwrap();
+        tests
+            .set_photo_created_at(id, OffsetDateTime::from_unix_timestamp(created_at).unwrap())
+            .await
+            .unwrap();
+
+        id
+    }
+
+    async fn gallery_location(database: &Database, pool: &PgPool) -> PhotoLocation {
+        let workspace_id = workspace(pool).await;
+        let gallery = database
+            .repository::<GalleryRepository>()
+            .create(workspace_id)
+            .await
+            .unwrap();
+
+        PhotoLocation {
+            workspace_id,
+            gallery_id: gallery.id,
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn list_ready_returns_only_ready_photos_of_that_gallery_oldest_first(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let other = gallery_location(&database, &pool).await;
+        let newer = photo_in(&database, location, (30, 40), PhotoStatus::Ready, 30).await;
+        let older = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 10).await;
+
+        for (status, created_at) in [
+            (PhotoStatus::Waiting, 5),
+            (PhotoStatus::Processing, 15),
+            (PhotoStatus::Failed("broken".to_owned()), 25),
+        ] {
+            photo_in(&database, location, (20, 10), status, created_at).await;
+        }
+
+        photo_in(&database, other, (20, 10), PhotoStatus::Ready, 1).await;
+
+        let listed = database
+            .repository::<PhotoRepository>()
+            .list_ready(location)
+            .await
+            .unwrap();
+        let dimensions = |width, height| PhotoDimensions {
+            width: NonZeroU32::new(width).unwrap(),
+            height: NonZeroU32::new(height).unwrap(),
+        };
+
+        assert_eq!(
+            listed,
+            [
+                ReadyPhoto {
+                    id: older,
+                    dimensions: dimensions(20, 10)
+                },
+                ReadyPhoto {
+                    id: newer,
+                    dimensions: dimensions(30, 40)
+                },
+            ]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn is_ready_is_false_for_unready_foreign_and_unknown_ids(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let other = gallery_location(&database, &pool).await;
+        let ready = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let processing = photo_in(&database, location, (20, 10), PhotoStatus::Processing, 2).await;
+        let foreign = photo_in(&database, other, (20, 10), PhotoStatus::Ready, 3).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        assert!(photos.is_ready(location, ready).await.unwrap());
+
+        for id in [processing, foreign, PhotoId::from(Uuid::new_v4())] {
+            assert!(!photos.is_ready(location, id).await.unwrap());
+        }
     }
 
     #[sqlx::test(migrations = "./migrations")]

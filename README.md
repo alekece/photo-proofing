@@ -8,7 +8,7 @@ The planned MVP is a local-network workflow trial with replaceable JPEG photos, 
 
 Development is restarting around the [product specifications](docs/SPECIFICATIONS.md) and [MVP scope and acceptance checklist](docs/releases/MVP.md). These documents describe the target product, not completed features.
 
-The repository supports one-time photographer account setup, email/password login, a protected dashboard, persistent revocable sessions, and persistent galleries with autosaved settings (title, layout, expiry, included photo count, watermark flag) backed by SQLx/PostgreSQL. Auth screens use Tailwind and selected shadcn-svelte components. Configuration/logging, API health, a durable PostgreSQL job queue run by the worker, in-memory notification domain code, private client links (the photographer shares a gallery from its page; `/g/<token>` shows its title, expiry and an empty state to anyone with the link), and a proof viewer also exist. The photo API accepts JPEG uploads and preserves originals. The worker then renders a 400 px thumbnail and a 1600 px preview: upright, sRGB, and stripped of metadata. Failed photos can be retried, and the API serves the derivatives of ready photos to the signed-in photographer, never the original. The hero picker and upload UI, client delivery, and SSE are not implemented.
+The repository supports one-time photographer account setup, email/password login, a protected dashboard, persistent revocable sessions, and persistent galleries with autosaved settings (title, layout, expiry, included photo count, watermark flag) backed by SQLx/PostgreSQL. Auth screens use Tailwind and selected shadcn-svelte components. Configuration/logging, API health, a durable PostgreSQL job queue run by the worker, in-memory notification domain code, private client links (the photographer shares a gallery from its page; `/g/<token>` shows its title, expiry and its ready proofs to anyone with the link; reload the page to see newly processed photos), and a proof viewer also exist. The photo API accepts JPEG uploads and preserves originals. The worker then renders a 400 px thumbnail and a 1600 px preview: upright, sRGB, and stripped of metadata. Failed photos can be retried, and the API serves the derivatives of ready photos to the signed-in photographer and to holders of a valid client link, never the original. The hero picker and upload UI, client delivery, and SSE are not implemented.
 
 - [Product specifications](docs/SPECIFICATIONS.md): requirements, constraints, and exclusions.
 - [MVP release](docs/releases/MVP.md): first-release scope and acceptance evidence to collect.
@@ -201,7 +201,7 @@ cargo run -p pp-image-worker
 pnpm --dir web dev
 ```
 
-Defaults: API at `http://127.0.0.1:8080`, frontend at `http://localhost:5173`. The frontend proxies `/api` to the API. The dashboard, which lists and creates galleries, is at `/dashboard`; a gallery's page creates its private client link, which opens `/g/<token>`; the client page has no photos until the upload UI and client delivery are implemented.
+Defaults: API at `http://127.0.0.1:8080`, frontend at `http://localhost:5173`. The frontend proxies `/api` to the API. The dashboard, which lists and creates galleries, is at `/dashboard`; a gallery's page creates its private client link, which opens `/g/<token>`; the client page shows the gallery's ready proofs (upload photos through the API until the upload UI exists).
 
 ```sh
 curl http://127.0.0.1:8080/api/v1/health

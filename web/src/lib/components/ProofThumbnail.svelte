@@ -3,11 +3,13 @@
 
 	let {
 		proof,
+		layout,
 		position,
 		total,
 		onopen
 	}: {
 		proof: Proof;
+		layout: 'grid' | 'masonry';
 		position: number;
 		total: number;
 		onopen: () => void;
@@ -20,10 +22,15 @@
 	onclick={onopen}
 	aria-label="Open proof {position} of {total}"
 >
+	<!-- The grid crops every tile alike; masonry keeps each photo's own shape. -->
 	<img
-		src={proof.previewUrl}
+		src={proof.thumbnailUrl}
 		alt={proof.alt}
+		width={proof.width}
+		height={proof.height}
 		loading="lazy"
-		class="block aspect-3/2 w-full object-cover"
+		class={layout === 'grid'
+			? 'block aspect-3/2 h-auto w-full object-cover'
+			: 'block h-auto w-full'}
 	/>
 </button>
