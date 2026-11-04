@@ -104,8 +104,8 @@ async fn retry_photo(
     Ok(HttpResponse::Ok().no_store().json(Requeued { requeued }))
 }
 
-/// The photo files clients may fetch; the original is deliberately absent, so its path does
-/// not match.
+/// The photo files clients may fetch; the original is deliberately absent. The route pattern
+/// lists the same names so any other path misses it, even before authentication.
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Derivative {
@@ -124,7 +124,7 @@ impl From<Derivative> for Variant {
 
 /// Serves a derivative of a ready photo; anything else, including a file removed meanwhile,
 /// is not found.
-#[get("/{id}/photos/{photo_id}/{derivative}")]
+#[get("/{id}/photos/{photo_id}/{derivative:thumbnail|preview}")]
 async fn serve_derivative(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
@@ -1341,17 +1341,18 @@ mod tests {
             "download",
             "",
             "thumbnail/../original",
+            "retry",
         ] {
-            let response = test::call_service(
-                &app,
-                get_request(
-                    Some(&cookie),
-                    &format!("{gallery_id}/photos/{photo}/{path}"),
-                ),
-            )
-            .await;
+            // Without a session too, so the path's existence is not revealed.
+            for cookie in [Some(&cookie), None] {
+                let response = test::call_service(
+                    &app,
+                    get_request(cookie, &format!("{gallery_id}/photos/{photo}/{path}")),
+                )
+                .await;
 
-            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+                assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+            }
         }
     }
 }
