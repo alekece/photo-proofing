@@ -55,7 +55,8 @@ impl TestRepository<'_> {
         )
     }
 
-    /// Deletes a gallery and, through cascades, its photos and their jobs' photos.
+    /// Deletes a gallery and, by cascade, its photos. Their jobs remain: they name the photo only
+    /// in their payload.
     pub async fn delete_gallery(&self, id: GalleryId) -> Result<(), DatabaseError> {
         sqlx::query("DELETE FROM galleries WHERE id = $1")
             .bind(id)
