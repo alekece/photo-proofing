@@ -1,10 +1,13 @@
 //! Settings of the worker process, grouped by concern under [`WorkerConfig`].
 
-use std::num::{NonZeroU8, NonZeroUsize};
+use std::num::{NonZeroU8, NonZeroU64, NonZeroUsize};
 
 use clap::Args;
 use clap_config_fallback::ConfigArgs;
-use pp_core::{config::DatabaseConfig, time::BoundedDuration};
+use pp_core::{
+    config::{DEFAULT_MAX_PIXELS, DatabaseConfig},
+    time::BoundedDuration,
+};
 use pp_database::jobs::Backoff;
 
 use crate::runtime::RuntimeOptions;
@@ -25,6 +28,21 @@ pub struct WorkerConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub queue: QueueConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub process: ProcessConfig,
+}
+
+/// Limits on the originals the worker renders into proof derivatives.
+#[derive(Args, ConfigArgs, Debug, Clone)]
+pub struct ProcessConfig {
+    /// Larger originals fail without being decoded; keep it in line with the API's upload limit.
+    #[arg(
+        long = "process-max-pixels",
+        env = "PP_PROCESS_MAX_PIXELS",
+        default_value_t = DEFAULT_MAX_PIXELS
+    )]
+    pub max_pixels: NonZeroU64,
 }
 
 /// How the worker polls, leases and retries jobs.
@@ -136,6 +154,26 @@ mod tests {
 
         assert_eq!(queue.lease.get(), Duration::from_secs(120));
         assert_eq!(queue.concurrency.get(), 4);
+    }
+
+    #[test]
+    fn process_limit_defaults_to_the_upload_limit_and_reads_config_file() {
+        assert_eq!(
+            parse(&[]).unwrap().worker.process.max_pixels,
+            DEFAULT_MAX_PIXELS
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.toml");
+        fs::write(&path, "[process]\nmax_pixels = 5678\n").unwrap();
+
+        let config = parse(&["--config", path.to_str().unwrap()])
+            .unwrap()
+            .worker
+            .process;
+
+        assert_eq!(config.max_pixels.get(), 5678);
+        assert!(parse(&["--process-max-pixels", "0"]).is_err());
     }
 
     #[test]

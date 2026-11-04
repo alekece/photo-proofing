@@ -6,7 +6,7 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["io-util", "sync"] }
 futures-util.workspace = true
 pp-core.workspace = true
 pp-database.workspace = true
@@ -33,7 +33,9 @@ uuid.workspace = true
 workspace = true
 
 [dev-dependencies]
+pp-database = { workspace = true, features = ["tests"] }
 actix-http = "3"
 tempfile = "3"
+time = "0.3"
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "migrate", "macros"] }
 tokio.workspace = true

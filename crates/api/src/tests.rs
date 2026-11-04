@@ -10,7 +10,7 @@ use actix_web::{
     test,
 };
 use pp_core::config::PhotoDir;
-use pp_database::{Database, auth::WorkspaceId};
+use pp_database::{Database, auth::WorkspaceId, tests::TestRepository};
 use pp_storage::PhotoStorage;
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -120,8 +120,9 @@ where
 
 /// Inserts a workspace other than the signed-in one, for cross-workspace denial tests.
 pub(crate) async fn other_workspace(pool: &PgPool) -> WorkspaceId {
-    sqlx::query_scalar("INSERT INTO workspaces(id) VALUES (gen_random_uuid()) RETURNING id")
-        .fetch_one(pool)
+    Database::new(pool.clone())
+        .repository::<TestRepository>()
+        .create_workspace()
         .await
         .unwrap()
 }

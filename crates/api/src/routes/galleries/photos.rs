@@ -1,8 +1,10 @@
-//! Workspace-scoped photo uploads and listing.
+//! Workspace-scoped photo uploads, listing, retries and derivatives.
 //!
 //! Uploads check workspace access and request limits before consuming the body, stage bytes in
 //! storage, inspect only JPEG metadata, then publish the unchanged original and atomically record
 //! its photo/job pair. Listing checks gallery ownership before returning its ordered photo states.
+//! Retries requeue failed photos. Only the thumbnail and preview of a ready photo are served;
+//! no route reads the original.
 
 use actix_web::{
     HttpRequest, HttpResponse, get, post,
@@ -11,22 +13,35 @@ use actix_web::{
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
     gallery::{GalleryId, GalleryRepository},
-    photo::{NewPhoto, PhotoRepository},
+    photo::{NewPhoto, PhotoLocation, PhotoRepository, PhotoStatus},
     photo_intake::{PhotoIntake, PhotoIntakeError},
+    photo_retry::PhotoRetry,
 };
 use pp_storage::{PhotoKey, StorageError, Variant};
+use serde::{Deserialize, Serialize};
+use tokio::io::AsyncReadExt;
 
 use crate::{
     api::ApiState,
     error::ErrorResponse,
     extractors::identity::Authenticated,
-    response::ResponseBuilderExt,
+    response::{ImageFile, ResponseBuilderExt},
     upload::{PhotoUpload, limiter::UploadSlot},
 };
 
 /// Registers photo routes inside the `/api/v1/galleries` scope.
 pub fn configure(cfg: &mut ServiceConfig) {
-    cfg.service(upload_photo).service(list_photos);
+    // The literal `retry` segment is registered before the `{photo_id}` routes it would match.
+    cfg.service(upload_photo)
+        .service(list_photos)
+        .service(retry_gallery)
+        .service(retry_photo)
+        .service(serve_derivative_photo);
+}
+
+#[derive(Serialize)]
+struct Requeued {
+    requeued: u64,
 }
 
 #[get("/{id}/photos")]
@@ -54,6 +69,95 @@ async fn list_photos(
         .await?;
 
     Ok(HttpResponse::Ok().no_store().json(photos))
+}
+
+#[post("/{id}/photos/retry")]
+async fn retry_gallery(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    id: WebPath<GalleryId>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let requeued = state
+        .database()
+        .repository::<PhotoRetry>()
+        .retry_failed(identity.workspace_id, id.into_inner(), None)
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
+
+    Ok(HttpResponse::Ok().no_store().json(Requeued { requeued }))
+}
+
+#[post("/{id}/photos/{photo_id}/retry")]
+async fn retry_photo(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    path: WebPath<(GalleryId, PhotoId)>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let (gallery_id, photo_id) = path.into_inner();
+    let requeued = state
+        .database()
+        .repository::<PhotoRetry>()
+        .retry_failed(identity.workspace_id, gallery_id, Some(photo_id))
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
+
+    Ok(HttpResponse::Ok().no_store().json(Requeued { requeued }))
+}
+
+/// The photo files clients may fetch; the original is deliberately absent. The route pattern
+/// lists the same names so any other path misses it, even before authentication.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DerivativePhoto {
+    Thumbnail,
+    Preview,
+}
+
+impl From<DerivativePhoto> for Variant {
+    fn from(derivative: DerivativePhoto) -> Self {
+        match derivative {
+            DerivativePhoto::Thumbnail => Self::Thumbnail,
+            DerivativePhoto::Preview => Self::Preview,
+        }
+    }
+}
+
+/// Serves a derivative of a ready photo; anything else, including a file removed meanwhile,
+/// is not found.
+#[get("/{id}/photos/{photo_id}/{derivative:thumbnail|preview}")]
+async fn serve_derivative_photo(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    path: WebPath<(GalleryId, PhotoId, DerivativePhoto)>,
+) -> Result<ImageFile, ErrorResponse> {
+    let (gallery_id, photo_id, derivative) = path.into_inner();
+    let photo = state
+        .database()
+        .repository::<PhotoRepository>()
+        .get(identity.workspace_id, gallery_id, photo_id)
+        .await?;
+
+    if !matches!(photo, Some(photo) if photo.status == PhotoStatus::Ready) {
+        return Err(ErrorResponse::not_found());
+    }
+
+    let location = PhotoLocation {
+        workspace_id: identity.workspace_id,
+        gallery_id,
+    };
+    let key = PhotoKey::with_location(location, photo_id, derivative.into());
+    let mut file = match state.storage().read(&key).await {
+        Ok(file) => file,
+        Err(StorageError::NotFound) => return Err(ErrorResponse::not_found()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut bytes = Vec::new();
+
+    file.read_to_end(&mut bytes)
+        .await
+        .map_err(|error| ErrorResponse::from(StorageError::from(error)))?;
+
+    Ok(ImageFile::jpeg(bytes))
 }
 
 #[post("/{id}/photos")]
@@ -86,12 +190,11 @@ async fn upload_photo(
     )
     .await?;
     let photo_id = PhotoId::generate();
-    let key = PhotoKey {
-        workspace: identity.workspace_id,
-        gallery: gallery_id,
-        photo: photo_id,
-        variant: Variant::Original,
+    let location = PhotoLocation {
+        workspace_id: identity.workspace_id,
+        gallery_id,
     };
+    let key = PhotoKey::with_location(location, photo_id, Variant::Original);
 
     photo_upload.staged.commit(&key).await?;
 
@@ -150,6 +253,7 @@ mod tests {
         fs,
         num::{NonZeroU64, NonZeroUsize},
         path::{Path, PathBuf},
+        time::Duration,
     };
 
     use actix_web::{
@@ -162,11 +266,18 @@ mod tests {
     };
     use futures_util::stream;
     use libvips::ops::{black, jpegsave_buffer};
-    use pp_core::config::PhotoDir;
-    use pp_database::{Database, gallery::GalleryRepository};
+    use pp_core::{config::PhotoDir, notifications::PhotoId};
+    use pp_database::{
+        Database,
+        gallery::{GalleryId, GalleryRepository},
+        jobs::{JobKind, JobRepository, JobState, PhotoResult, PhotoUpdate, ProcessPhoto},
+        photo::{PhotoRepository, PhotoStatus},
+        tests::TestRepository,
+    };
     use pp_storage::PhotoStorage;
-    use serde_json::Value;
+    use serde_json::{Value, json};
     use sqlx::PgPool;
+    use time::OffsetDateTime;
     use tokio::sync::oneshot;
     use uuid::Uuid;
 
@@ -285,17 +396,11 @@ mod tests {
     }
 
     async fn assert_no_upload_effects(pool: &PgPool, photo_dir: &Path) {
-        let photo_count: i64 = sqlx::query_scalar("SELECT count(*) FROM photos")
-            .fetch_one(pool)
-            .await
-            .unwrap();
-        let job_count: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
-            .fetch_one(pool)
-            .await
-            .unwrap();
+        let database = Database::new(pool.clone());
+        let testing = database.repository::<TestRepository>();
 
-        assert_eq!(photo_count, 0);
-        assert_eq!(job_count, 0);
+        assert_eq!(testing.count_photos().await.unwrap(), 0);
+        assert_eq!(testing.count_jobs(None).await.unwrap(), 0);
         assert!(stored_files(photo_dir).is_empty());
     }
 
@@ -434,16 +539,15 @@ mod tests {
         assert_eq!(stored_files(directory.path()).len(), 2);
 
         for id in [first_id, second["id"].as_str().unwrap()] {
-            let payload: Value = sqlx::query_scalar(
-                "SELECT payload FROM jobs WHERE payload->'payload'->>'photo_id' = $1",
-            )
-            .bind(id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+            let jobs = Database::new(pool.clone())
+                .repository::<TestRepository>()
+                .photo_jobs(photo_id(id))
+                .await
+                .unwrap();
 
-            assert_eq!(payload["kind"], "process_photo");
-            assert_eq!(payload["payload"]["photo_id"], id);
+            assert_eq!(jobs.len(), 1);
+            assert_eq!(jobs[0].payload["kind"], "process_photo");
+            assert_eq!(jobs[0].payload["payload"]["photo_id"], id);
         }
     }
 
@@ -632,9 +736,9 @@ mod tests {
             }
         }
 
-        sqlx::query("DELETE FROM galleries WHERE id = $1")
-            .bind(Uuid::parse_str(&gallery_id).unwrap())
-            .execute(&pool)
+        Database::new(pool.clone())
+            .repository::<TestRepository>()
+            .delete_gallery(GalleryId(Uuid::parse_str(&gallery_id).unwrap()))
             .await
             .unwrap();
         release_body.send(()).unwrap();
@@ -653,20 +757,11 @@ mod tests {
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
 
-        sqlx::query(
-            "CREATE FUNCTION reject_job_insert() RETURNS trigger LANGUAGE plpgsql AS $$
-             BEGIN RAISE EXCEPTION 'injected test failure'; END; $$",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE TRIGGER reject_job_insert BEFORE INSERT ON jobs
-             FOR EACH ROW EXECUTE FUNCTION reject_job_insert()",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        Database::new(pool.clone())
+            .repository::<TestRepository>()
+            .reject_job_inserts()
+            .await
+            .unwrap();
 
         let request = upload_request(
             &cookie,
@@ -690,21 +785,11 @@ mod tests {
         let gallery_id = create_gallery(&app, &cookie).await;
         let original = jpeg(1, 1);
 
-        sqlx::query(
-            "CREATE FUNCTION interrupt_photo_commit() RETURNS trigger LANGUAGE plpgsql AS $$
-             BEGIN PERFORM pg_terminate_backend(pg_backend_pid()); RETURN NEW; END; $$",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE CONSTRAINT TRIGGER interrupt_photo_commit AFTER INSERT ON photos
-             DEFERRABLE INITIALLY DEFERRED
-             FOR EACH ROW EXECUTE FUNCTION interrupt_photo_commit()",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        Database::new(pool.clone())
+            .repository::<TestRepository>()
+            .interrupt_photo_commits()
+            .await
+            .unwrap();
 
         let request = upload_request(
             &cookie,
@@ -747,14 +832,24 @@ mod tests {
         let gallery_id = create_gallery(&app, &cookie).await;
         let original = jpeg(2, 1);
         let fixtures = [
-            ("late.jpg", 30_i64, "ready", None),
-            ("larger-id.jpg", 20, "failed", Some("processing failed")),
-            ("oldest.jpg", 10, "waiting", None),
-            ("smaller-id.jpg", 20, "processing", None),
+            ("late.jpg", 30_i64, PhotoStatus::Ready, json!("ready")),
+            (
+                "larger-id.jpg",
+                20,
+                PhotoStatus::Failed("processing failed".to_owned()),
+                json!({"failed": "processing failed"}),
+            ),
+            ("oldest.jpg", 10, PhotoStatus::Waiting, json!("waiting")),
+            (
+                "smaller-id.jpg",
+                20,
+                PhotoStatus::Processing,
+                json!("processing"),
+            ),
         ];
         let mut expected = Vec::new();
 
-        for (filename, created_at, status, failure_reason) in fixtures {
+        for (filename, created_at, status, status_json) in fixtures {
             let request = upload_request(
                 &cookie,
                 &gallery_id,
@@ -768,19 +863,21 @@ mod tests {
             assert_eq!(upload_status, StatusCode::CREATED);
 
             let id = Uuid::parse_str(photo["id"].as_str().unwrap()).unwrap();
+            let database = Database::new(pool.clone());
+            let testing = database.repository::<TestRepository>();
 
-            sqlx::query(
-                "UPDATE photos SET status = $2::photo_status, failure_reason = $3,
-                 created_at = to_timestamp($4) WHERE id = $1",
-            )
-            .bind(id)
-            .bind(status)
-            .bind(failure_reason)
-            .bind(created_at)
-            .execute(&pool)
-            .await
-            .unwrap();
-            expected.push((created_at, id, status, filename, failure_reason));
+            testing
+                .force_photo_status(PhotoId::from(id), &status)
+                .await
+                .unwrap();
+            testing
+                .set_photo_created_at(
+                    PhotoId::from(id),
+                    OffsetDateTime::from_unix_timestamp(created_at).unwrap(),
+                )
+                .await
+                .unwrap();
+            expected.push((created_at, id, status_json, filename));
         }
 
         expected.sort_by_key(|(created_at, id, ..)| (*created_at, *id));
@@ -800,8 +897,7 @@ mod tests {
 
         assert_eq!(photos.len(), expected.len());
 
-        for (photo, (_, id, status, filename, failure_reason)) in photos.iter().zip(expected.iter())
-        {
+        for (photo, (_, id, status, filename)) in photos.iter().zip(expected.iter()) {
             assert_eq!(photo["id"], id.to_string());
             assert_eq!(photo["original_name"], *filename);
             assert_eq!(photo["size"], original.len());
@@ -809,11 +905,7 @@ mod tests {
             assert_eq!(photo["height"], 1);
             assert!(photo["created_at"].as_str().is_some());
 
-            if let Some(reason) = failure_reason {
-                assert_eq!(photo["status"], serde_json::json!({"failed": reason}));
-            } else {
-                assert_eq!(photo["status"], *status);
-            }
+            assert_eq!(photo["status"], *status);
             assert!(!photo.as_object().unwrap().contains_key("failure_reason"));
         }
     }
@@ -854,5 +946,394 @@ mod tests {
 
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"], "not found");
+    }
+
+    /// How far a test photo got through processing.
+    #[derive(Clone, Copy, Debug)]
+    enum Progress {
+        Processing,
+        Ready,
+        Failed,
+    }
+
+    /// Uploads a photo, which then waits for processing, returning its id.
+    async fn waiting_photo<S>(app: &S, cookie: &Cookie<'static>, gallery_id: &str) -> String
+    where
+        S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
+    {
+        let request = upload_request(cookie, gallery_id, "a.jpg", "image/jpeg", &jpeg(2, 1), None);
+        let (status, photo) = call_request(app, request).await;
+
+        assert_eq!(status, StatusCode::CREATED);
+
+        photo["id"].as_str().unwrap().to_owned()
+    }
+
+    /// Uploads a photo and moves it to `progress` as the worker would, returning its id.
+    ///
+    /// Claims the oldest queued job, so earlier photos must not still be waiting.
+    async fn photo_in<S>(
+        app: &S,
+        pool: &PgPool,
+        cookie: &Cookie<'static>,
+        gallery_id: &str,
+        progress: Progress,
+    ) -> String
+    where
+        S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
+    {
+        let id = waiting_photo(app, cookie, gallery_id).await;
+        let photo_id = photo_id(&id);
+        let database = Database::new(pool.clone());
+        let jobs = database.repository::<JobRepository>();
+        let job = jobs
+            .claim(&[JobKind::ProcessPhoto], Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(job.payload::<ProcessPhoto>().unwrap().photo_id, photo_id);
+
+        let result = match progress {
+            Progress::Processing => {
+                let photos = database.repository::<PhotoRepository>();
+
+                assert!(photos.mark_processing(photo_id).await.unwrap());
+
+                return id;
+            }
+            Progress::Ready => PhotoResult::Ready,
+            Progress::Failed => PhotoResult::Failed("The image could not be read."),
+        };
+        let (completion, update) = jobs.complete_photo(&job, photo_id, result).await.unwrap();
+
+        assert!(completion.is_current());
+        assert_eq!(update, PhotoUpdate::Saved);
+
+        id
+    }
+
+    fn photo_id(id: &str) -> PhotoId {
+        PhotoId::from(Uuid::parse_str(id).unwrap())
+    }
+
+    /// Writes a derivative file where the worker would store it.
+    async fn store_derivative(
+        pool: &PgPool,
+        photo_dir: &Path,
+        photo_id: &str,
+        variant: &str,
+    ) -> Vec<u8> {
+        let location = Database::new(pool.clone())
+            .repository::<PhotoRepository>()
+            .locate(self::photo_id(photo_id))
+            .await
+            .unwrap()
+            .unwrap();
+        let bytes = format!("{variant} bytes").into_bytes();
+
+        fs::write(
+            photo_dir
+                .join(location.workspace_id.0.to_string())
+                .join(location.gallery_id.0.to_string())
+                .join(format!("{photo_id}-{variant}")),
+            &bytes,
+        )
+        .unwrap();
+
+        bytes
+    }
+
+    async fn photo_status(pool: &PgPool, id: &str) -> PhotoStatus {
+        let database = Database::new(pool.clone());
+        let photos = database.repository::<PhotoRepository>();
+        let location = photos.locate(photo_id(id)).await.unwrap().unwrap();
+
+        photos
+            .get(location.workspace_id, location.gallery_id, photo_id(id))
+            .await
+            .unwrap()
+            .unwrap()
+            .status
+    }
+
+    async fn queued_jobs(pool: &PgPool, id: &str) -> usize {
+        Database::new(pool.clone())
+            .repository::<TestRepository>()
+            .photo_jobs(photo_id(id))
+            .await
+            .unwrap()
+            .iter()
+            .filter(|job| job.state == JobState::Queued)
+            .count()
+    }
+
+    fn retry_request(cookie: Option<&Cookie<'static>>, path: &str) -> actix_http::Request {
+        let request = test::TestRequest::post()
+            .uri(&format!("/api/v1/galleries/{path}"))
+            .insert_header(("Origin", ORIGIN));
+
+        match cookie {
+            Some(cookie) => request.cookie(cookie.clone()).to_request(),
+            None => request.to_request(),
+        }
+    }
+
+    fn get_request(cookie: Option<&Cookie<'static>>, path: &str) -> actix_http::Request {
+        let request = test::TestRequest::get().uri(&format!("/api/v1/galleries/{path}"));
+
+        match cookie {
+            Some(cookie) => request.cookie(cookie.clone()).to_request(),
+            None => request.to_request(),
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn retry_requeues_failed_photos_and_reports_the_count(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let failed = [
+            photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await,
+            photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await,
+        ];
+        let ready = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+
+        let (status, body) = call_request(
+            &app,
+            retry_request(Some(&cookie), &format!("{gallery_id}/photos/retry")),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, serde_json::json!({"requeued": 2}));
+
+        for id in &failed {
+            assert_eq!(photo_status(&pool, id).await, PhotoStatus::Waiting);
+            assert_eq!(queued_jobs(&pool, id).await, 1);
+        }
+
+        assert_eq!(photo_status(&pool, &ready).await, PhotoStatus::Ready);
+
+        let (_, body) = call_request(
+            &app,
+            retry_request(Some(&cookie), &format!("{gallery_id}/photos/retry")),
+        )
+        .await;
+
+        assert_eq!(body, serde_json::json!({"requeued": 0}));
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn retry_one_photo_only_touches_that_photo(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let target = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await;
+        let other = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await;
+
+        let (status, body) = call_request(
+            &app,
+            retry_request(
+                Some(&cookie),
+                &format!("{gallery_id}/photos/{target}/retry"),
+            ),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, serde_json::json!({"requeued": 1}));
+        assert_eq!(photo_status(&pool, &target).await, PhotoStatus::Waiting);
+        assert!(matches!(
+            photo_status(&pool, &other).await,
+            PhotoStatus::Failed(_)
+        ));
+        assert_eq!(queued_jobs(&pool, &other).await, 0);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn retry_requires_authentication_and_ownership(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await;
+        let foreign_gallery = Database::new(pool.clone())
+            .repository::<GalleryRepository>()
+            .create(other_workspace(&pool).await)
+            .await
+            .unwrap()
+            .id
+            .0;
+
+        for path in [
+            format!("{gallery_id}/photos/retry"),
+            format!("{gallery_id}/photos/{photo}/retry"),
+        ] {
+            let (status, _) = call_request(&app, retry_request(None, &path)).await;
+
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{path}");
+        }
+
+        for path in [
+            format!("{foreign_gallery}/photos/retry"),
+            format!("{foreign_gallery}/photos/{photo}/retry"),
+            format!("{gallery_id}/photos/{}/retry", Uuid::new_v4()),
+        ] {
+            let (status, _) = call_request(&app, retry_request(Some(&cookie), &path)).await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+        }
+
+        assert!(matches!(
+            photo_status(&pool, &photo).await,
+            PhotoStatus::Failed(_)
+        ));
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn ready_photo_serves_thumbnail_and_preview(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+
+        for variant in ["thumbnail", "preview"] {
+            let stored = store_derivative(&pool, directory.path(), &photo, variant).await;
+            let response = test::call_service(
+                &app,
+                get_request(
+                    Some(&cookie),
+                    &format!("{gallery_id}/photos/{photo}/{variant}"),
+                ),
+            )
+            .await;
+
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers().get("Content-Type").unwrap(),
+                "image/jpeg"
+            );
+            assert_eq!(response.headers().get("Cache-Control").unwrap(), "private");
+            assert_eq!(
+                response.headers().get("X-Content-Type-Options").unwrap(),
+                "nosniff"
+            );
+            assert_eq!(test::read_body(response).await, stored);
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn serving_returns_404_for_waiting_processing_and_failed_photos(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+
+        // The waiting photo comes last: its queued job would otherwise be claimed first.
+        let photos = [
+            photo_in(&app, &pool, &cookie, &gallery_id, Progress::Processing).await,
+            photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await,
+            waiting_photo(&app, &cookie, &gallery_id).await,
+        ];
+
+        for photo in photos {
+            store_derivative(&pool, directory.path(), &photo, "thumbnail").await;
+
+            let (status, _) = call_request(
+                &app,
+                get_request(
+                    Some(&cookie),
+                    &format!("{gallery_id}/photos/{photo}/thumbnail"),
+                ),
+            )
+            .await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND, "{photo}");
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn serving_returns_404_across_galleries_and_workspaces(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let other_gallery = create_gallery(&app, &cookie).await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+
+        store_derivative(&pool, directory.path(), &photo, "thumbnail").await;
+
+        let foreign_gallery = Database::new(pool.clone())
+            .repository::<GalleryRepository>()
+            .create(other_workspace(&pool).await)
+            .await
+            .unwrap()
+            .id
+            .0;
+
+        for gallery in [other_gallery, foreign_gallery.to_string()] {
+            let (status, _) = call_request(
+                &app,
+                get_request(
+                    Some(&cookie),
+                    &format!("{gallery}/photos/{photo}/thumbnail"),
+                ),
+            )
+            .await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND, "{gallery}");
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn serving_requires_authentication(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+
+        store_derivative(&pool, directory.path(), &photo, "thumbnail").await;
+
+        let (status, _) = call_request(
+            &app,
+            get_request(None, &format!("{gallery_id}/photos/{photo}/thumbnail")),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn no_route_serves_the_original(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+
+        for path in [
+            "original",
+            "Original",
+            "download",
+            "",
+            "thumbnail/../original",
+            "retry",
+        ] {
+            // Without a session too, so the path's existence is not revealed.
+            for cookie in [Some(&cookie), None] {
+                let response = test::call_service(
+                    &app,
+                    get_request(cookie, &format!("{gallery_id}/photos/{photo}/{path}")),
+                )
+                .await;
+
+                assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+            }
+        }
     }
 }

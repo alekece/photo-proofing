@@ -73,15 +73,18 @@ impl Worker {
         }
     }
 
-    /// Connects to PostgreSQL and applies pending migrations.
+    /// Connects to PostgreSQL, applies pending migrations, then builds the handlers, which may
+    /// keep the worker's database.
     pub async fn connect(
         config: WorkerConfig,
-        handlers: HandlerRegistry,
+        handlers: impl FnOnce(&Database) -> HandlerRegistry,
     ) -> Result<Self, WorkerError> {
         let database = Database::connect_lazy(&config.database.url, config.queue.pool_size())?;
 
         database.ensure_reachable().await?;
         database.migrate().await?;
+
+        let handlers = handlers(&database);
 
         Ok(Self::new(database, handlers, config.queue.into()))
     }
@@ -194,10 +197,7 @@ async fn run_job(
     };
 
     let recorded = match outcome {
-        Ok(()) => jobs
-            .complete(&job)
-            .await
-            .map(|current| (current, "completed")),
+        Ok(completion) => Ok((completion.is_current(), "completed")),
         Err(error @ HandlerError::Payload(_)) => {
             warn!(%error, "job abandoned");
             jobs.abandon(&job, &error.to_string())
@@ -244,21 +244,15 @@ mod tests {
         sync::atomic::{AtomicUsize, Ordering},
     };
 
+    use pp_core::{notifications::PhotoId, types::generate::Generate};
     use pp_database::{
         PgPool,
-        jobs::{DEFAULT_MAX_ATTEMPTS, JobKind, JobPayload},
+        jobs::{DEFAULT_MAX_ATTEMPTS, JobCompletion, JobKind, JobPayload, JobState, ProcessPhoto},
+        tests::TestRepository,
     };
-    use serde::Deserialize;
     use serde_json::json;
-    use sqlx::Row;
 
     use super::*;
-
-    #[derive(Deserialize)]
-    struct Payload {
-        #[allow(dead_code)]
-        photo: u32,
-    }
 
     const KIND: JobKind = JobKind::ProcessPhoto;
 
@@ -284,24 +278,33 @@ mod tests {
         (token, task)
     }
 
-    async fn enqueue(pool: &PgPool, payload: serde_json::Value, attempts: u16) {
+    async fn enqueue(pool: &PgPool, attempts: u16) {
+        let payload = JobPayload::ProcessPhoto(ProcessPhoto {
+            photo_id: PhotoId::generate(),
+        });
+
         Database::new(pool.clone())
             .repository::<JobRepository>()
-            .enqueue(
-                JobPayload::ProcessPhoto(payload),
-                attempts.try_into().unwrap(),
-            )
+            .enqueue(payload, attempts.try_into().unwrap())
             .await
             .unwrap();
     }
 
-    async fn job_count(pool: &PgPool, state: Option<&str>) -> i64 {
-        sqlx::query("SELECT count(*) FROM jobs WHERE $1::text IS NULL OR state::text = $1")
-            .bind(state)
-            .fetch_one(pool)
+    async fn job_count(pool: &PgPool, state: Option<JobState>) -> i64 {
+        Database::new(pool.clone())
+            .repository::<TestRepository>()
+            .count_jobs(state)
             .await
             .unwrap()
-            .get(0)
+    }
+
+    /// Finishes `job` the way a successful handler does.
+    async fn finish(pool: PgPool, job: Job) -> Result<JobCompletion, HandlerError> {
+        Database::new(pool)
+            .repository::<JobRepository>()
+            .complete(&job)
+            .await
+            .map_err(|error| HandlerError::Failed(error.into()))
     }
 
     async fn wait_for(mut condition: impl AsyncFnMut() -> bool) {
@@ -316,11 +319,15 @@ mod tests {
     async fn runs_a_job_and_deletes_it(pool: PgPool) {
         let runs = Arc::new(AtomicUsize::new(0));
         let seen = Arc::clone(&runs);
-        let handlers = HandlerRegistry::default().register(KIND, move |_: Payload| {
-            seen.fetch_add(1, Ordering::SeqCst);
-            future::ready(Ok(()))
+        let handlers = HandlerRegistry::default().register(KIND, {
+            let pool = pool.clone();
+
+            move |_: ProcessPhoto, job| {
+                seen.fetch_add(1, Ordering::SeqCst);
+                finish(pool.clone(), job)
+            }
         });
-        enqueue(&pool, json!({"photo": 1}), 3).await;
+        enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
         wait_for(async || job_count(&pool, None).await == 0).await;
@@ -334,14 +341,14 @@ mod tests {
     async fn failing_job_is_retried_then_kept_as_failed(pool: PgPool) {
         let runs = Arc::new(AtomicUsize::new(0));
         let seen = Arc::clone(&runs);
-        let handlers = HandlerRegistry::default().register(KIND, move |_: Payload| {
+        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto, _| {
             seen.fetch_add(1, Ordering::SeqCst);
             future::ready(Err(HandlerError::Failed("disk full".into())))
         });
-        enqueue(&pool, json!({"photo": 1}), 3).await;
+        enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
-        wait_for(async || job_count(&pool, Some("failed")).await == 1).await;
+        wait_for(async || job_count(&pool, Some(JobState::Failed)).await == 1).await;
         token.cancel();
         task.await.unwrap();
 
@@ -359,20 +366,22 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn unreadable_payload_fails_without_retrying(pool: PgPool) {
-        let handlers =
-            HandlerRegistry::default().register(KIND, |_: Payload| future::ready(Ok(())));
-        enqueue(&pool, json!({"unexpected": true}), 5).await;
+        let handlers = HandlerRegistry::default().register(KIND, |_: ProcessPhoto, _| {
+            future::ready(Err(HandlerError::Failed("never called".into())))
+        });
+        let database = Database::new(pool.clone());
+        let testing = database.repository::<TestRepository>();
+        let id = testing
+            .insert_raw_job(json!({"kind": "process_photo", "payload": {"unexpected": true}}))
+            .await
+            .unwrap();
 
         let (token, task) = start(&pool, handlers, options());
-        wait_for(async || job_count(&pool, Some("failed")).await == 1).await;
+        wait_for(async || job_count(&pool, Some(JobState::Failed)).await == 1).await;
         token.cancel();
         task.await.unwrap();
 
-        let attempts: i32 = sqlx::query_scalar("SELECT attempts FROM jobs")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(attempts, 1);
+        assert_eq!(testing.job_attempts(id).await.unwrap(), 1);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -380,15 +389,19 @@ mod tests {
         let runs = Arc::new(AtomicUsize::new(0));
         let handlers = || {
             let seen = Arc::clone(&runs);
-            HandlerRegistry::default().register(KIND, move |_: Payload| {
+            let pool = pool.clone();
+
+            HandlerRegistry::default().register(KIND, move |_: ProcessPhoto, job| {
                 seen.fetch_add(1, Ordering::SeqCst);
+                let pool = pool.clone();
+
                 async {
                     time::sleep(Duration::from_millis(1800)).await;
-                    Ok(())
+                    finish(pool, job).await
                 }
             })
         };
-        enqueue(&pool, json!({"photo": 1}), 3).await;
+        enqueue(&pool, 3).await;
 
         // Two workers: the second would take the job over if the lease lapsed.
         let (token, first) = start(&pool, handlers(), options());
@@ -408,17 +421,20 @@ mod tests {
         let current = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
         let (c, p) = (Arc::clone(&current), Arc::clone(&peak));
-        let handlers = HandlerRegistry::default().register(KIND, move |_: Payload| {
+        let finisher = pool.clone();
+        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto, job| {
             let (c, p) = (Arc::clone(&c), Arc::clone(&p));
+            let pool = finisher.clone();
+
             async move {
                 p.fetch_max(c.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
                 time::sleep(Duration::from_millis(150)).await;
                 c.fetch_sub(1, Ordering::SeqCst);
-                Ok(())
+                finish(pool, job).await
             }
         });
-        for photo in 0..6 {
-            enqueue(&pool, json!({"photo": photo}), DEFAULT_MAX_ATTEMPTS.get()).await;
+        for _ in 0..6 {
+            enqueue(&pool, DEFAULT_MAX_ATTEMPTS.get()).await;
         }
 
         let (token, task) = start(&pool, handlers, options());
@@ -431,14 +447,19 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn shutdown_waits_for_a_job_that_finishes_within_the_grace(pool: PgPool) {
-        let handlers = HandlerRegistry::default().register(KIND, |_: Payload| async {
-            time::sleep(Duration::from_millis(100)).await;
-            Ok(())
+        let finisher = pool.clone();
+        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto, job| {
+            let pool = finisher.clone();
+
+            async {
+                time::sleep(Duration::from_millis(100)).await;
+                finish(pool, job).await
+            }
         });
-        enqueue(&pool, json!({"photo": 1}), 3).await;
+        enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
-        wait_for(async || job_count(&pool, Some("running")).await == 1).await;
+        wait_for(async || job_count(&pool, Some(JobState::Running)).await == 1).await;
         token.cancel();
         task.await.unwrap();
 
@@ -447,13 +468,13 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn shutdown_during_a_stuck_job_leaves_it_recoverable(pool: PgPool) {
-        let handlers = HandlerRegistry::default().register(KIND, |_: Payload| {
-            future::pending::<Result<(), HandlerError>>()
+        let handlers = HandlerRegistry::default().register(KIND, |_: ProcessPhoto, _| {
+            future::pending::<Result<JobCompletion, HandlerError>>()
         });
-        enqueue(&pool, json!({"photo": 1}), 3).await;
+        enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
-        wait_for(async || job_count(&pool, Some("running")).await == 1).await;
+        wait_for(async || job_count(&pool, Some(JobState::Running)).await == 1).await;
         token.cancel();
         task.await.unwrap();
 
@@ -469,6 +490,6 @@ mod tests {
         time::sleep(options().lease + Duration::from_millis(200)).await;
         let recovered = jobs.claim(&[KIND], options().lease).await.unwrap().unwrap();
         assert_eq!(recovered.attempts, 2);
-        assert_eq!(job_count(&pool, Some("running")).await, 1);
+        assert_eq!(job_count(&pool, Some(JobState::Running)).await, 1);
     }
 }

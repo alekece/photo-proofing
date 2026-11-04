@@ -1849,6 +1849,7 @@ dependencies = [
  "sqlx",
  "tempfile",
  "thiserror",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1904,6 +1905,7 @@ dependencies = [
  "derive_more",
  "eyre",
  "libc",
+ "libvips",
  "pp-core",
  "pp-database",
  "pp-storage",
@@ -1917,6 +1919,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
 ]
 
 [[package]]

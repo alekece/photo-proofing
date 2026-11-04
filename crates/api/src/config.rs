@@ -9,7 +9,7 @@ use clap::Args;
 use clap_config_fallback::ConfigArgs;
 use derive_more::Display;
 use pp_core::{
-    config::{DatabaseConfig, PhotoConfig},
+    config::{DEFAULT_MAX_PIXELS, DatabaseConfig, PhotoConfig},
     time::BoundedDuration,
     url::Origin,
 };
@@ -182,7 +182,7 @@ pub struct UploadConfig {
     #[arg(
         long = "photo-upload-max-pixels",
         env = "PP_PHOTO_UPLOAD_MAX_PIXELS",
-        default_value = "100000000"
+        default_value_t = DEFAULT_MAX_PIXELS
     )]
     pub max_pixels: NonZeroU64,
     #[arg(

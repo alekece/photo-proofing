@@ -1,10 +1,14 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
 use eyre::Result;
 use pp_core::config::{LogConfig, PhotoConfig};
-use pp_image_worker::{config::WorkerConfig, handlers::HandlerRegistry, runtime::Worker};
+use pp_database::jobs::JobKind;
+use pp_image_worker::{
+    config::WorkerConfig, handlers::HandlerRegistry, handlers::process_photo::ProcessPhotoHandler,
+    render::ImageRenderer, runtime::Worker,
+};
 use pp_storage::PhotoStorage;
 use tokio::{
     signal::{
@@ -40,7 +44,8 @@ async fn main() -> Result<()> {
         .with_max_level(cli.log.log_level)
         .init();
 
-    PhotoStorage::open(&cli.photo.dir).await?;
+    let renderer = ImageRenderer::new(cli.worker.process.max_pixels)?;
+    let storage = PhotoStorage::open(&cli.photo.dir).await?;
 
     tracing::info!("image worker started");
 
@@ -59,8 +64,19 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Photo processing registers its handler here in a later slice.
-    let worker = Worker::connect(cli.worker, HandlerRegistry::default()).await?;
+    let worker = Worker::connect(cli.worker, |database| {
+        let handler = Arc::new(ProcessPhotoHandler::new(
+            database.clone(),
+            storage,
+            renderer,
+        ));
+
+        HandlerRegistry::default().register(JobKind::ProcessPhoto, move |payload, job| {
+            Arc::clone(&handler).run(payload, job)
+        })
+    })
+    .await?;
+
     worker.run(shutdown).await;
     signals.abort();
 

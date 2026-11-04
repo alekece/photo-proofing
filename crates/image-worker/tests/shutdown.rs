@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sqlx::PgPool;
+use pp_database::{Database, PgPool, tests::TestRepository};
 use url::Url;
 
 /// Runs the real binary against a scratch database: it must apply the migrations, idle on the
@@ -28,10 +28,12 @@ async fn migrates_and_exits_cleanly_on_sigterm(pool: PgPool) {
         .spawn()
         .expect("worker binary should spawn");
 
+    let database = Database::new(pool.clone());
     let start = Instant::now();
     loop {
-        let migrated = sqlx::query_scalar::<_, bool>("SELECT to_regclass('jobs') IS NOT NULL")
-            .fetch_one(&pool)
+        let migrated = database
+            .repository::<TestRepository>()
+            .is_migrated()
             .await
             .expect("jobs lookup should work");
         if migrated {

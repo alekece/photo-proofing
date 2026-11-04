@@ -289,6 +289,7 @@ mod tests {
     use std::iter;
 
     use actix_web::{App, test};
+    use pp_database::{Database, tests::TestRepository};
     use sqlx::PgPool;
 
     use super::*;
@@ -476,11 +477,9 @@ mod tests {
             .to_request();
         let res = test::call_service(&app, req).await;
         let cookie = res.response().cookies().next().unwrap().into_owned();
-        let before: f64 =
-            sqlx::query_scalar("SELECT extract(epoch FROM expires_at)::float8 FROM sessions")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let database = Database::new(pool.clone());
+        let testing = database.repository::<TestRepository>();
+        let before = testing.session_expiry().await.unwrap();
 
         let req = test::TestRequest::get()
             .uri("/api/v1/auth/status")
@@ -497,18 +496,11 @@ mod tests {
         assert_eq!(json["idle_timeout_ms"], 3_600_000);
         assert!(!json.to_string().contains(cookie.value()));
 
-        let after: f64 =
-            sqlx::query_scalar("SELECT extract(epoch FROM expires_at)::float8 FROM sessions")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let after = testing.session_expiry().await.unwrap();
 
         assert_eq!(before, after);
 
-        sqlx::query("UPDATE sessions SET expires_at=now()-interval '1 second'")
-            .execute(&pool)
-            .await
-            .unwrap();
+        testing.expire_sessions().await.unwrap();
 
         let req = test::TestRequest::post()
             .uri("/api/v1/auth/renew")
