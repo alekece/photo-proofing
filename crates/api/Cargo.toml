@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 tokio = { workspace = true, features = ["io-util", "sync", "time"] }
 futures-util.workspace = true
+tokio-util = "0.7"
 pp-core.workspace = true
 pp-database.workspace = true
 pp-storage.workspace = true

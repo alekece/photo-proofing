@@ -115,6 +115,7 @@ impl EventStream {
                     Ok(Broadcast::Resync) | Err(RecvError::Lagged(_)) => return Some(resync()),
                     Err(RecvError::Closed) => return None,
                 },
+                () = self.subscription.closing.cancelled() => return None,
                 _ = self.session_check.tick() => {
                     if !self.session_is_valid().await {
                         return None;
@@ -393,6 +394,20 @@ mod tests {
         .await;
 
         assert!(ended.is_ok(), "the stream ends after sign-out");
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn closing_the_hub_ends_open_streams(pool: PgPool) {
+        let client = client(pool, default_hub()).await;
+        let cookie = sign_up(&client.app).await;
+        let response = test::call_service(&client.app, open(&cookie).to_request()).await;
+        let mut body = response.into_body();
+
+        assert_eq!(next_event(&mut body).await.0, "resync");
+
+        client.hub.close();
+
+        assert_eq!(next_chunk(&mut body).await, None);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

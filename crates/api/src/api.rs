@@ -16,6 +16,7 @@ use pp_database::{Database, auth::AuthRepository, error::DatabaseError};
 use pp_storage::{PhotoStorage, StorageError};
 use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::{
@@ -242,8 +243,9 @@ impl Api {
         })
     }
 
-    /// Serves until the process is stopped.
-    pub async fn run(self) -> Result<(), ApiError> {
+    /// Serves until `shutdown` is cancelled, then closes the event streams and lets in-flight
+    /// requests finish.
+    pub async fn run(self, shutdown: CancellationToken) -> Result<(), ApiError> {
         tracing::info!(host = %self.http.host, port = self.http.port, "api starting");
 
         let state = self.state;
@@ -253,20 +255,37 @@ impl Api {
             state.database().clone(),
             events.clone().into_inner(),
         ));
-        let served = HttpServer::new(move || {
-            App::new()
-                .app_data(state.clone())
-                .app_data(upload_limiter.clone())
-                .app_data(events.clone())
-                .configure(configure_routes)
-        })
-        .bind((self.http.host.as_str(), self.http.port))
-        .map(HttpServer::run);
-        let served = match served {
-            Ok(server) => server.await,
-            Err(error) => Err(error),
-        };
+        let server = HttpServer::new({
+            let events = events.clone();
 
+            move || {
+                App::new()
+                    .app_data(state.clone())
+                    .app_data(upload_limiter.clone())
+                    .app_data(events.clone())
+                    .configure(configure_routes)
+            }
+        })
+        .disable_signals()
+        .bind((self.http.host.as_str(), self.http.port));
+        let server = match server {
+            Ok(server) => server.run(),
+            Err(error) => {
+                relay.abort();
+
+                return Err(error.into());
+            }
+        };
+        let handle = server.handle();
+        // Event streams never finish on their own, so they are closed before the graceful stop.
+        let stopper = tokio::spawn(async move {
+            shutdown.cancelled().await;
+            events.close();
+            handle.stop(true).await;
+        });
+        let served = server.await;
+
+        stopper.abort();
         relay.abort();
 
         Ok(served?)

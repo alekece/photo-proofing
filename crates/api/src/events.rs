@@ -19,6 +19,7 @@ use pp_database::{
     photo_events::{MissedReason, Notification, PhotoEvent},
 };
 use tokio::{sync::broadcast, time};
+use tokio_util::sync::CancellationToken;
 
 use crate::config::{EventsConfig, KeepAlive};
 
@@ -43,6 +44,7 @@ pub(crate) enum Broadcast {
 pub(crate) struct EventHub {
     sender: broadcast::Sender<Broadcast>,
     counts: Arc<Mutex<StreamCounts>>,
+    closing: CancellationToken,
     keep_alive: KeepAlive,
     max_streams: NonZeroUsize,
     max_streams_per_workspace: NonZeroUsize,
@@ -57,6 +59,8 @@ struct StreamCounts {
 /// A stream's receiver and the slot it holds; dropping it frees the slot.
 pub(crate) struct Subscription {
     pub receiver: broadcast::Receiver<Broadcast>,
+    /// Cancelled when the hub closes: the stream must end so the server can stop.
+    pub closing: CancellationToken,
     _slot: StreamSlot,
 }
 
@@ -72,6 +76,7 @@ impl EventHub {
         Self {
             sender,
             counts: Arc::default(),
+            closing: CancellationToken::new(),
             keep_alive: config.keep_alive,
             max_streams: config.max_streams,
             max_streams_per_workspace: config.max_streams_per_workspace,
@@ -102,11 +107,18 @@ impl EventHub {
 
         Some(Subscription {
             receiver: self.sender.subscribe(),
+            closing: self.closing.clone(),
             _slot: StreamSlot {
                 counts: Arc::clone(&self.counts),
                 workspace_id,
             },
         })
+    }
+
+    /// Ends every open stream. A stream otherwise lasts as long as its session, so the server
+    /// could not stop gracefully while a dashboard is open.
+    pub fn close(&self) {
+        self.closing.cancel();
     }
 
     pub fn publish(&self, broadcast: Broadcast) {
