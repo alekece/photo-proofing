@@ -51,10 +51,9 @@ async fn main() -> Result<()> {
         }
     });
     // `Display` describes one layer only; eyre prints the `source()` chain once, here.
-    let served = async { Api::init(cli.api).await?.run(shutdown).await }.await;
+    let result = async { Api::init(cli.api).await?.run(shutdown).await }.await;
 
     signals.abort();
-    served?;
 
-    Ok(())
+    Ok(result?)
 }

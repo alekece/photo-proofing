@@ -5,10 +5,7 @@
 //! events may have been lost. It holds the session read-only: on every keep-alive tick it checks
 //! the session is still valid, never extending it, and ends once it is not.
 
-use std::{
-    pin::Pin,
-    time::{Duration, SystemTime},
-};
+use std::{pin::Pin, time::SystemTime};
 
 use actix_web::{Responder, get, web::Data};
 use actix_web_lab::sse::{self, Sse};
@@ -58,7 +55,9 @@ pub(crate) async fn stream_events(
         .subscribe(workspace_id)
         .ok_or_else(ErrorResponse::unavailable)?;
     let keep_alive = hub.keep_alive();
+    let mut session_check = time::interval_at(Instant::now() + keep_alive, keep_alive);
 
+    session_check.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tracing::info!(workspace_id = %workspace_id.0, "event stream opened");
 
     let events = EventStream {
@@ -66,18 +65,10 @@ pub(crate) async fn stream_events(
         state,
         token: token.digest(),
         workspace_id,
-        session_check: session_check(keep_alive),
+        session_check,
     };
 
     Ok(Sse::from_infallible_stream(events.into_stream()).with_keep_alive(keep_alive))
-}
-
-fn session_check(period: Duration) -> Interval {
-    let mut interval = time::interval_at(Instant::now() + period, period);
-
-    interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-
-    interval
 }
 
 /// One open stream; dropping it (the browser left) frees its hub slot.
@@ -93,27 +84,29 @@ impl EventStream {
     /// A `resync` first, since the browser cannot know what changed before it connected.
     fn into_stream(self) -> Pin<Box<dyn Stream<Item = sse::Event>>> {
         let following = stream::unfold(self, |mut events| async move {
-            let event = events.next().await?;
+            let broadcast = events.next().await?;
 
-            Some((event, events))
+            Some((broadcast, events))
         });
 
-        Box::pin(stream::once(future::ready(resync())).chain(following))
+        Box::pin(
+            stream::once(future::ready(Broadcast::Resync))
+                .chain(following)
+                .map(sse::Event::from),
+        )
     }
 
-    /// The next event to send, or `None` once the stream must end.
-    async fn next(&mut self) -> Option<sse::Event> {
+    /// The next broadcast to send, or `None` once the stream must end.
+    async fn next(&mut self) -> Option<Broadcast> {
         loop {
             tokio::select! {
                 received = self.subscription.receiver.recv() => match received {
-                    Ok(Broadcast::Photo(event)) if event.workspace_id == self.workspace_id => {
-                        return Some(photo(event));
-                    }
-                    Ok(Broadcast::Photo(_)) => {}
-                    Ok(Broadcast::Resync) | Err(RecvError::Lagged(_)) => return Some(resync()),
+                    Ok(Broadcast::Photo(event)) if event.workspace_id != self.workspace_id => {}
+                    Ok(broadcast) => return Some(broadcast),
+                    Err(RecvError::Lagged(_)) => return Some(Broadcast::Resync),
                     Err(RecvError::Closed) => return None,
                 },
-                () = self.subscription.closing.cancelled() => return None,
+                () = self.subscription.cancellation_token.cancelled() => return None,
                 _ = self.session_check.tick() => {
                     if !self.session_is_valid().await {
                         return None;
@@ -143,24 +136,32 @@ impl Drop for EventStream {
     }
 }
 
-fn resync() -> sse::Event {
-    sse::Data::new("{}").event("resync").into()
+impl From<PhotoEvent> for PhotoData {
+    fn from(event: PhotoEvent) -> Self {
+        Self {
+            gallery_id: event.gallery_id,
+            photo_id: event.photo_id,
+            status: event.status,
+        }
+    }
 }
 
-fn photo(event: PhotoEvent) -> sse::Event {
-    let data = PhotoData {
-        gallery_id: event.gallery_id,
-        photo_id: event.photo_id,
-        status: event.status,
-    };
+impl From<Broadcast> for sse::Event {
+    fn from(broadcast: Broadcast) -> Self {
+        let resync = || sse::Data::new("{}").event("resync").into();
 
-    // Ids and a status always serialize; were that to change, a refetch is still correct.
-    sse::Data::new_json(data).map_or_else(|_| resync(), |data| data.event("photo").into())
+        match broadcast {
+            // Ids and a status always serialize; were that to change, a refetch is still correct.
+            Broadcast::Photo(event) => sse::Data::new_json(PhotoData::from(event))
+                .map_or_else(|_| resync(), |data| data.event("photo").into()),
+            Broadcast::Resync => resync(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{future::poll_fn, sync::Arc};
+    use std::{future::poll_fn, sync::Arc, time::Duration};
 
     use actix_web::{
         App,

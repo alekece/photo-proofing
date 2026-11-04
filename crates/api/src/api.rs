@@ -25,7 +25,7 @@ use crate::{
     },
     credentials::{HashError, PasswordHash},
     error::ErrorResponse,
-    events::{EventHub, HUB_CAPACITY, relay_photo_events},
+    events::{EventHub, HUB_CAPACITY},
     extractors::session_token::SessionToken,
     limiter::AttemptLimiter,
     middlewares::origin::SameOrigin,
@@ -251,10 +251,12 @@ impl Api {
         let state = self.state;
         let upload_limiter = self.upload_limiter;
         let events = self.events;
-        let relay = tokio::spawn(relay_photo_events(
-            state.database().clone(),
-            events.clone().into_inner(),
-        ));
+        let relay = tokio::spawn({
+            let database = state.database().clone();
+            let events = events.clone();
+
+            async move { events.relay(database).await }
+        });
         let server = HttpServer::new({
             let events = events.clone();
 
@@ -283,12 +285,12 @@ impl Api {
             events.close();
             handle.stop(true).await;
         });
-        let served = server.await;
+        let result = server.await;
 
         stopper.abort();
         relay.abort();
 
-        Ok(served?)
+        Ok(result?)
     }
 }
 

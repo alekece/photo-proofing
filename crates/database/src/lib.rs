@@ -4,6 +4,7 @@ pub mod auth;
 pub mod error;
 pub mod gallery;
 pub mod jobs;
+pub mod listener;
 pub mod photo;
 pub mod photo_events;
 pub mod photo_intake;

@@ -1,19 +1,11 @@
-//! Live photo changes, announced by PostgreSQL itself.
-//!
-//! Migration `0007_photo_events` adds triggers on `photos` that `NOTIFY` on [`CHANNEL`] for
-//! every insert, status change and delete, whichever process made it. PostgreSQL delivers a
-//! notification only when its transaction commits. [`PhotoEventListener`] decodes them. A
-//! notification is lost while the listening connection is down, so a reconnect, like an
-//! undecodable payload, is reported as [`Notification::Missed`] for callers to resynchronize.
+//! Live photo changes, announced by PostgreSQL itself for every insert, status change and
+//! delete of a photo, whichever process made it. Read them with
+//! [`Database::listen`](crate::Database::listen)`::<PhotoEvent>()`.
 
 use pp_core::notifications::PhotoId;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgListener;
 
-use crate::{Database, auth::WorkspaceId, error::DatabaseError, gallery::GalleryId};
-
-/// Channel the `photos` triggers notify on.
-pub const CHANNEL: &str = "photo_events";
+use crate::{auth::WorkspaceId, gallery::GalleryId, listener::Channel};
 
 /// What happened to a photo: its new processing status, or its deletion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,54 +28,8 @@ pub struct PhotoEvent {
     pub status: PhotoChange,
 }
 
-/// The next thing a [`PhotoEventListener`] has to report.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Notification {
-    Photo(PhotoEvent),
-    /// Changes may have happened without an event; whoever shows photos must refetch them.
-    Missed(MissedReason),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MissedReason {
-    /// The listening connection was lost and has been reopened.
-    Reconnected,
-    /// A notification on the channel was not a valid photo event.
-    Undecodable,
-}
-
-/// A dedicated connection listening on [`CHANNEL`]; it holds one pool connection for its
-/// whole life.
-pub struct PhotoEventListener {
-    listener: PgListener,
-}
-
-impl PhotoEventListener {
-    /// Waits for the next notification.
-    ///
-    /// A lost connection is reopened before this returns [`MissedReason::Reconnected`]; an error
-    /// means it could not be reopened, and the listener should be replaced.
-    pub async fn next(&mut self) -> Result<Notification, DatabaseError> {
-        let Some(notification) = self.listener.try_recv().await? else {
-            return Ok(Notification::Missed(MissedReason::Reconnected));
-        };
-
-        Ok(serde_json::from_str(notification.payload()).map_or(
-            Notification::Missed(MissedReason::Undecodable),
-            Notification::Photo,
-        ))
-    }
-}
-
-impl Database {
-    /// Opens a [`PhotoEventListener`]. Only changes committed after this returns are reported.
-    pub async fn listen_photo_events(&self) -> Result<PhotoEventListener, DatabaseError> {
-        let mut listener = PgListener::connect_with(&self.pool).await?;
-
-        listener.listen(CHANNEL).await?;
-
-        Ok(PhotoEventListener { listener })
-    }
+impl Channel for PhotoEvent {
+    const NAME: &'static str = "photo_events";
 }
 
 #[cfg(test)]
@@ -95,7 +41,13 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::{gallery::GalleryRepository, photo::PhotoStatus, tests::TestRepository};
+    use crate::{
+        Database,
+        gallery::GalleryRepository,
+        listener::{Listener, MissedReason, Notification},
+        photo::PhotoStatus,
+        tests::TestRepository,
+    };
 
     struct Fixture {
         database: Database,
@@ -142,8 +94,8 @@ mod tests {
             id
         }
 
-        fn event(&self, photo_id: PhotoId, status: PhotoChange) -> Notification {
-            Notification::Photo(PhotoEvent {
+        fn event(&self, photo_id: PhotoId, status: PhotoChange) -> Notification<PhotoEvent> {
+            Notification::Event(PhotoEvent {
                 workspace_id: self.workspace_id,
                 gallery_id: self.gallery_id,
                 photo_id,
@@ -152,14 +104,14 @@ mod tests {
         }
     }
 
-    async fn next(listener: &mut PhotoEventListener) -> Notification {
+    async fn next(listener: &mut Listener<PhotoEvent>) -> Notification<PhotoEvent> {
         time::timeout(Duration::from_secs(5), listener.next())
             .await
             .expect("a notification arrives")
             .unwrap()
     }
 
-    async fn assert_silent(listener: &mut PhotoEventListener) {
+    async fn assert_silent(listener: &mut Listener<PhotoEvent>) {
         let received = time::timeout(Duration::from_millis(200), listener.next()).await;
 
         assert!(received.is_err(), "unexpected {received:?}");
@@ -168,7 +120,7 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn insert_status_change_and_delete_each_notify_once(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
-        let mut listener = fixture.database.listen_photo_events().await.unwrap();
+        let mut listener = fixture.database.listen::<PhotoEvent>().await.unwrap();
         let tests = fixture.database.repository::<TestRepository>();
         let id = fixture.insert_photo(&pool).await;
 
@@ -214,7 +166,7 @@ mod tests {
     async fn unchanged_status_and_rolled_back_changes_stay_silent(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
         let id = fixture.insert_photo(&pool).await;
-        let mut listener = fixture.database.listen_photo_events().await.unwrap();
+        let mut listener = fixture.database.listen::<PhotoEvent>().await.unwrap();
         let mut transaction = pool.begin().await.unwrap();
 
         sqlx::query("UPDATE photos SET status = 'waiting', original_name = 'b.jpg' WHERE id = $1")
@@ -232,7 +184,7 @@ mod tests {
     async fn a_gallery_deletion_announces_each_photo(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
         let id = fixture.insert_photo(&pool).await;
-        let mut listener = fixture.database.listen_photo_events().await.unwrap();
+        let mut listener = fixture.database.listen::<PhotoEvent>().await.unwrap();
 
         fixture
             .database
@@ -250,10 +202,10 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn an_undecodable_payload_is_reported_as_missed(pool: PgPool) {
         let database = Database::new(pool.clone());
-        let mut listener = database.listen_photo_events().await.unwrap();
+        let mut listener = database.listen::<PhotoEvent>().await.unwrap();
 
         sqlx::query("SELECT pg_notify($1, 'not json')")
-            .bind(CHANNEL)
+            .bind(PhotoEvent::NAME)
             .execute(&pool)
             .await
             .unwrap();
