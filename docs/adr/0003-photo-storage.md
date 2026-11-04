@@ -1,6 +1,6 @@
 # ADR 0003 — Private photo storage layout
 
-Status: Accepted through the approved [photo-storage design](../superpowers/specs/2026-10-31-photo-storage-design.md), issue [#96](https://github.com/alekece/photo-proofing/issues/96).
+Status: Accepted through the approved [photo-storage design](../designs/2026-10-31-photo-storage-design.md), issue [#96](https://github.com/alekece/photo-proofing/issues/96).
 
 ## Context
 

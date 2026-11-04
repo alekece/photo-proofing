@@ -20,9 +20,8 @@ docs/
   releases/
     MVP.md
   adr/
-  superpowers/
-    specs/
-    plans/
+  designs/
+  plans/
 ```
 
 - README.md: concise product overview, truthful current implementation status, setup/run/verification instructions, and documentation links. Incorporate useful CONTRIBUTING.md material, correct obsolete references to closed issues, and remove CONTRIBUTING.md. Verify commands against current files rather than presenting planned features as working setup.
@@ -30,8 +29,8 @@ docs/
 - SPECIFICATIONS.md: authoritative, evolving product-wide requirements. Use sections: Vision & Problem Statement; Target Users; User Journeys; Functional Requirements; Non-Functional Requirements; Technical Constraints; Scope & Exclusions; Acceptance Criteria. Distinguish personas from application permission roles. Distinguish permanent exclusions from deferred features.
 - releases/MVP.md: release scope, explicit deferrals, and an observable end-to-end acceptance checklist. Reference product requirements instead of restating the whole PRD. Once completed, retain the release as a historical record; do not rewrite it to match later scope. Record the accepted PRD commit/tag at release completion so historical references cannot silently change meaning.
 - adr/: significant architectural decisions, their context, alternatives, and consequences. Start with a concise technology-baseline ADR reaffirming current and agreed choices; do not invent historical rationale or create one ADR per dependency. Additional ADRs need a significant independent decision.
-- superpowers/specs/: retain approved designs. Product-wide specifications own current requirements; dated designs explain particular changes and can be explicitly superseded when requirements change. Preserve the existing approved Rust-guidance design.
-- superpowers/plans/: working implementation plans remain through implementation and PR review, then are removed before merge. Before removal, retain any lasting decisions or needed verification information in the appropriate permanent document or PR. Permanent documents must not depend on links to removed plans. This applies to the existing Rust-guidance plan at its merge boundary too, not by deleting it during this design discussion.
+- designs/: retain approved designs. Product-wide specifications own current requirements; dated designs explain particular changes and can be explicitly superseded when requirements change. Preserve the existing approved Rust-guidance design.
+- plans/: working implementation plans remain through implementation and PR review, then are removed before merge. Before removal, retain any lasting decisions or needed verification information in the appropriate permanent document or PR. Permanent documents must not depend on links to removed plans. This applies to the existing Rust-guidance plan at its merge boundary too, not by deleting it during this design discussion.
 
 ## Approaches
 

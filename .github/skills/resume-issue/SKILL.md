@@ -5,7 +5,7 @@ description: Use when the user wants to pick up issues that need them, for examp
 
 # Resume issue `[N|all]`
 
-Conventions: `agent` = automation may act on the issue; `needs-attention` = it is the user's turn (design or an answer to an agent question); `blocked` = a real blocker; designs live under `docs/superpowers/specs` on the issue's `<type>/<issue>-slug` branch, produced by the Superpowers workflow (brainstorming -> design doc -> plan -> implementation -> review). Never approve a design, merge, or change an issue without the user saying so. When a need is resolved, remove `needs-attention`; add `agent` only if the user hands off (use `delegate-issue`). `gh` targets the current checkout's repository; never pass `--repo`. If a label does not exist, listing by it returns nothing; tell the user instead of failing.
+Conventions: `agent` = automation may act on the issue; `needs-attention` = it is the user's turn (design or an answer to an agent question); `blocked` = a real blocker; designs live under `docs/designs` on the issue's `<type>/<issue>-slug` branch, produced by the Superpowers workflow (brainstorming -> design doc -> plan -> implementation -> review). Never approve a design, merge, or change an issue without the user saying so. When a need is resolved, remove `needs-attention`; add `agent` only if the user hands off (use `delegate-issue`). `gh` targets the current checkout's repository; never pass `--repo`. If a label does not exist, listing by it returns nothing; tell the user instead of failing.
 
 ## `resume-issue <N>`
 

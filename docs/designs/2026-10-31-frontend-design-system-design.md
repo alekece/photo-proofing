@@ -69,4 +69,4 @@ Goal: make the existing UI follow those rules without changing its look or behav
 
 - Exact primitive prop APIs, following the Button/Input conventions.
 - Exact grouping of PR 2 commits.
-- Delivery follows `AGENTS.md`: a focused GitHub issue per PR (or one issue with two PRs), isolated worktree, plan under `docs/superpowers/plans/`, fresh-agent review.
+- Delivery follows `AGENTS.md`: a focused GitHub issue per PR (or one issue with two PRs), isolated worktree, plan under `docs/plans/`, fresh-agent review.

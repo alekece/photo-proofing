@@ -20,5 +20,5 @@ Implement issues labelled `agent` that have a committed design, a bounded number
 - "No existing branch" is read as "no branch other than the design branch": the design lives on `<type>/<N>-slug`, so an implementation branch (`...-impl`) existing makes the issue ineligible (no double pickup, also after a closed PR).
 - The agent job cannot see CI of a PR created by its own safe outputs, hence the `workflow_run` second phase. Tests needing PostgreSQL cannot run in the agent job; CI covers them in Phase 2.
 - Design staleness beyond "design branch changed outside docs" is judged by the agent (design vs. issue vs. code) and ends in a `noop`.
-- `docs/superpowers/specs/` is not excluded from the PR patch because the design commits are already on the branch; the prompt forbids edits to designs.
+- `docs/designs/` is not excluded from the PR patch because the design commits are already on the branch; the prompt forbids edits to designs.
 - Verified: a PR opened with the App identity triggers CI.

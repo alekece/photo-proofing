@@ -28,7 +28,7 @@ The user selected extending AGENTS.md and the README summary. A separate workflo
 
 ## Documentation lifecycle
 
-Approved designs are durable, committed records in docs/superpowers/specs/. Commit working plans under docs/superpowers/plans/ on the branch and retain them through implementation, PR review, and corrections. Remove them before final merge approval; permanent documents must not depend on temporary plan links.
+Approved designs are durable, committed records in docs/designs/. Commit working plans under docs/plans/ on the branch and retain them through implementation, PR review, and corrections. Remove them before final merge approval; permanent documents must not depend on temporary plan links.
 
 Use docs/adr/ for significant architectural decisions, not routine implementation details. docs/SPECIFICATIONS.md remains the product authority, and docs/releases/ owns release scope. Obtain approval before changing product requirements or release scope. Identify superseded design decisions when requirements change.
 
