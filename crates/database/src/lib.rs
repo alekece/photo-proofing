@@ -5,6 +5,7 @@ pub mod error;
 pub mod gallery;
 pub mod jobs;
 pub mod photo;
+pub mod photo_events;
 pub mod photo_intake;
 pub mod photo_retry;
 #[cfg(any(test, feature = "tests"))]
