@@ -65,6 +65,24 @@ export async function deletePhoto(galleryId: string, photoId: string, fetcher = 
 	await request(photosPath(galleryId, photoId), { method: 'DELETE' }, fetcher);
 }
 
+/** Most photos one bulk delete request accepts. */
+export const BULK_DELETE_LIMIT = 1000;
+
+/** Deletes up to `BULK_DELETE_LIMIT` photos; ids already gone are not counted. */
+export async function deletePhotos(galleryId: string, photoIds: string[], fetcher = fetch) {
+	const response = await request(
+		`${photosPath(galleryId)}/delete`,
+		{
+			method: 'POST',
+			body: JSON.stringify({ photo_ids: photoIds }),
+			headers: { 'Content-Type': 'application/json' }
+		},
+		fetcher
+	);
+
+	return ((await response.json()) as { deleted: number }).deleted;
+}
+
 export async function retryPhoto(galleryId: string, photoId: string, fetcher = fetch) {
 	await request(`${photosPath(galleryId, photoId)}/retry`, { method: 'POST' }, fetcher);
 }

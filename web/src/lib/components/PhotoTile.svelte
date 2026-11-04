@@ -21,23 +21,30 @@
 </script>
 
 <script lang="ts">
+	import Checkbox from '#lib/components/ui/checkbox/checkbox.svelte';
+
 	let {
 		name,
 		state,
 		error,
 		thumbnailUrl,
+		selected = false,
 		onremove,
 		onretry,
-		onopen
+		onopen,
+		onselect
 	}: {
 		name: string;
 		state: TileState;
 		/** Replaces the label of a failed or rejected file, e.g. "Storage full". */
 		error?: string;
 		thumbnailUrl?: string;
+		selected?: boolean;
 		onremove: () => void;
 		onretry?: () => void;
 		onopen?: () => void;
+		/** Puts the tile in select mode: clicking it toggles `selected`; no remove, retry or open. */
+		onselect?: () => void;
 	} = $props();
 
 	const failed = $derived(
@@ -47,8 +54,17 @@
 	const still = $derived(state === 'waiting-upload' || state === 'waiting-process');
 </script>
 
-<div class="group relative aspect-square overflow-hidden rounded-xs bg-placeholder-tile">
-	{#if state === 'ready'}
+<svelte:element
+	this={onselect ? 'label' : 'div'}
+	class={[
+		'group relative block aspect-square overflow-hidden rounded-xs bg-placeholder-tile',
+		onselect && 'cursor-pointer',
+		selected && 'outline-2 outline-offset-2 outline-foreground'
+	]}
+>
+	{#if state === 'ready' && onselect}
+		<img src={thumbnailUrl} alt={name} loading="lazy" class="size-full object-cover" />
+	{:else if state === 'ready'}
 		<button
 			type="button"
 			class="block size-full cursor-zoom-in"
@@ -74,21 +90,30 @@
 		{/if}
 	{/if}
 
-	<button
-		type="button"
-		class="absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-xs text-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-		aria-label="Remove {name}"
-		onclick={onremove}>✕</button
-	>
-	{#if onretry && (state === 'upload-failed' || state === 'process-failed')}
+	{#if onselect}
+		<Checkbox
+			class="absolute top-1.5 left-1.5 size-5 cursor-pointer accent-foreground"
+			aria-label="Select {name}"
+			checked={selected}
+			onchange={onselect}
+		/>
+	{:else}
 		<button
 			type="button"
-			class="absolute right-1.5 bottom-1.5 grid size-8 cursor-pointer place-items-center rounded-full bg-panel text-sm text-foreground shadow"
-			aria-label="Retry {name}"
-			onclick={onretry}>↻</button
+			class="absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-xs text-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+			aria-label="Remove {name}"
+			onclick={onremove}>✕</button
 		>
+		{#if onretry && (state === 'upload-failed' || state === 'process-failed')}
+			<button
+				type="button"
+				class="absolute right-1.5 bottom-1.5 grid size-8 cursor-pointer place-items-center rounded-full bg-panel text-sm text-foreground shadow"
+				aria-label="Retry {name}"
+				onclick={onretry}>↻</button
+			>
+		{/if}
 	{/if}
-</div>
+</svelte:element>
 
 <style>
 	.bar {
