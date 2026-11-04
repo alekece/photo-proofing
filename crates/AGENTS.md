@@ -17,7 +17,7 @@ These rules apply to Rust changes. They add to the repository-wide policy in the
   - in `api`, use the actix mechanism: an extractor (`FromRequest`), a middleware, or a `#[get]`/`#[post]` handler registered with `.service`.
   A free function remains acceptable for a private test helper or a genuinely standalone operation; say why in the PR when it is not obvious.
 - Prefer one generic type over several near-identical specific ones when only a type parameter differs (`Database::listen::<T>()` returning `Listener<T>`, not one listener per payload).
-- Make operational limits and timings (concurrency, caps, timeouts, sizes) configuration with a documented default, not constants, unless a value is a protocol or format fact.
+- Make limits an operator may need to tune (concurrency, caps, request sizes, session and timeout lengths) configuration with a documented default. Internal tuning such as retry backoff or buffer sizes may stay a documented constant.
 - Keep SQLx inside the `database` crate. Other crates go through `Database` and its repositories; a repository method takes a transaction only when the caller must compose several steps in it.
 - Make items private by default and widen visibility only when another module needs them. Derive a trait only when something uses it. Implement `Debug`, `Clone`, and `PartialEq` on public types when sound, except on credentials (see Secrets and Observability).
 - Put `#[must_use]` on builders, guards, and `Result`-like values that are a bug to drop.

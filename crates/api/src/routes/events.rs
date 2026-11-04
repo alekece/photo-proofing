@@ -43,6 +43,16 @@ struct PhotoData {
     status: PhotoChange,
 }
 
+impl From<PhotoEvent> for PhotoData {
+    fn from(event: PhotoEvent) -> Self {
+        Self {
+            gallery_id: event.gallery_id,
+            photo_id: event.photo_id,
+            status: event.status,
+        }
+    }
+}
+
 #[get("/events")]
 pub(crate) async fn stream_events(
     Authenticated(identity): Authenticated,
@@ -133,16 +143,6 @@ impl EventStream {
 impl Drop for EventStream {
     fn drop(&mut self) {
         tracing::info!(workspace_id = %self.workspace_id.0, "event stream closed");
-    }
-}
-
-impl From<PhotoEvent> for PhotoData {
-    fn from(event: PhotoEvent) -> Self {
-        Self {
-            gallery_id: event.gallery_id,
-            photo_id: event.photo_id,
-            status: event.status,
-        }
     }
 }
 
