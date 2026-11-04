@@ -73,15 +73,18 @@ impl Worker {
         }
     }
 
-    /// Connects to PostgreSQL and applies pending migrations.
+    /// Connects to PostgreSQL, applies pending migrations, then builds the handlers, which may
+    /// keep the worker's database.
     pub async fn connect(
         config: WorkerConfig,
-        handlers: HandlerRegistry,
+        handlers: impl FnOnce(&Database) -> HandlerRegistry,
     ) -> Result<Self, WorkerError> {
         let database = Database::connect_lazy(&config.database.url, config.queue.pool_size())?;
 
         database.ensure_reachable().await?;
         database.migrate().await?;
+
+        let handlers = handlers(&database);
 
         Ok(Self::new(database, handlers, config.queue.into()))
     }
