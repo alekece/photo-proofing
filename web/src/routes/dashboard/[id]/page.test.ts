@@ -9,6 +9,10 @@ vi.mock('$app/navigation', () => ({
 	goto: vi.fn()
 }));
 vi.mock('$app/state', () => ({ page: { url: new URL('https://pp.test/dashboard/g1') } }));
+// The photos tab has its own tests; here it only has to receive the gallery.
+vi.mock('#lib/components/PhotosPanel.svelte', async () => ({
+	default: (await import('#lib/components/PhotosPanelStub.test.svelte')).default
+}));
 import { goto } from '$app/navigation';
 import type { Gallery } from '#lib/gallery/api.js';
 import GalleryPage from './+page.svelte';
@@ -357,7 +361,7 @@ describe('gallery page', () => {
 			expect(screen.getByRole('tab', { name: 'Photos' }).getAttribute('aria-selected')).toBe(
 				'true'
 			);
-			expect(screen.getByRole('tabpanel').textContent).toMatch(/No photos yet\. Drop JPEGs here/);
+			expect(screen.getByRole('tabpanel').textContent).toMatch(/Photos of g1/);
 		});
 
 		it('switches panels', async () => {
