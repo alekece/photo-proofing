@@ -1,6 +1,6 @@
 # Private photo storage
 
-Issue: #96 (sub-issue of #66). Requirements: FR-05, NF-01, NF-02, NF-04, TC-03; [ADR 0001](../../adr/0001-technology-baseline.md) "Photo storage".
+Issue: #96 (sub-issue of #66). Requirements: FR-05, NF-01, NF-02, NF-04, TC-03; [ADR 0001](../adr/0001-technology-baseline.md) "Photo storage".
 
 ## Intent
 

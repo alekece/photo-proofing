@@ -1,6 +1,6 @@
 # Durable job queue in the image worker
 
-Issue: #97 (sub-issue of #66). Requirements: NF-02, NF-04, TC-04, AC-06; [ADR 0001](../../adr/0001-technology-baseline.md) "Background work".
+Issue: #97 (sub-issue of #66). Requirements: NF-02, NF-04, TC-04, AC-06; [ADR 0001](../adr/0001-technology-baseline.md) "Background work".
 
 ## Intent
 

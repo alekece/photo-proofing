@@ -2,7 +2,7 @@
 
 Current approved design for #98 (part of #66), implemented in #132.
 Requirements: FR-05, NF-01, NF-02, NF-04 and AC-06 in
-[the product specifications](../../SPECIFICATIONS.md).
+[the product specifications](../SPECIFICATIONS.md).
 Foundations: [photo storage](2026-10-31-photo-storage-design.md) (#96) and
 [job queue](2026-10-31-job-queue-design.md) (#97).
 
