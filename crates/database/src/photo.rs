@@ -287,7 +287,7 @@ impl PhotoRepository<'_> {
         .execute(&mut *transaction)
         .await?;
 
-        let deleted_photos = sqlx::query(
+        let deleted_photo_count = sqlx::query(
             "DELETE FROM photos WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3",
         )
         .bind(workspace_id)
@@ -297,7 +297,7 @@ impl PhotoRepository<'_> {
         .await?
         .rows_affected();
 
-        if deleted_photos == 0 {
+        if deleted_photo_count == 0 {
             return Ok(false);
         }
 
