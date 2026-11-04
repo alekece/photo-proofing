@@ -28,7 +28,7 @@ pub enum PhotoStatus {
     Failed(String),
 }
 
-/// Header dimensions, both guaranteed to be non-zero.
+/// Displayed dimensions (after the EXIF orientation), both non-zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhotoDimensions {
     pub width: NonZeroU32,

@@ -86,6 +86,12 @@ pub(crate) async fn inspect(
             .ok()
             .and_then(NonZeroU32::new)
             .ok_or_else(ErrorResponse::invalid_image)?;
+        // EXIF orientations 5 to 8 turn the photo a quarter, so it displays with swapped sides.
+        let (width, height) = if (5..=8).contains(&image.get_orientation()) {
+            (height, width)
+        } else {
+            (width, height)
+        };
 
         validate_pixel_count(u64::from(width.get()), u64::from(height.get()), max_pixels)?;
 
@@ -163,6 +169,65 @@ mod tests {
 
             assert_eq!(error.status_code(), StatusCode::UNPROCESSABLE_ENTITY);
         }
+    }
+
+    #[tokio::test]
+    async fn inspection_applies_the_exif_orientation() {
+        install().unwrap();
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("photo");
+        let jpeg = jpegsave_buffer(&black(20, 10).unwrap()).unwrap();
+        let mut cases = vec![(jpeg.clone(), (20, 10))];
+
+        for (orientation, expected) in [
+            (6, (10, 20)),
+            (8, (10, 20)),
+            (3, (20, 10)),
+            (0, (20, 10)),
+            (9, (20, 10)),
+        ] {
+            let source = with_segment(&jpeg, 0xe1, &orientation_exif(orientation));
+
+            cases.push((source, expected));
+        }
+
+        for (bytes, (width, height)) in cases {
+            fs::write(&path, bytes).unwrap();
+
+            let dimensions = inspect(&path, NonZeroU64::new(200).unwrap()).await.unwrap();
+
+            assert_eq!(
+                (dimensions.width.get(), dimensions.height.get()),
+                (width, height)
+            );
+        }
+    }
+
+    fn with_segment(jpeg: &[u8], marker: u8, payload: &[u8]) -> Vec<u8> {
+        let length = u16::try_from(payload.len() + 2).unwrap();
+        let mut out = jpeg[..2].to_vec();
+
+        out.extend([0xff, marker]);
+        out.extend(length.to_be_bytes());
+        out.extend(payload);
+        out.extend(&jpeg[2..]);
+
+        out
+    }
+
+    /// Big-endian EXIF block whose IFD0 holds only the orientation tag.
+    fn orientation_exif(orientation: u16) -> Vec<u8> {
+        let mut exif = b"Exif\0\0MM\0\x2a\0\0\0\x08".to_vec();
+
+        exif.extend(1_u16.to_be_bytes());
+        exif.extend(0x0112_u16.to_be_bytes());
+        exif.extend(3_u16.to_be_bytes());
+        exif.extend(1_u32.to_be_bytes());
+        exif.extend((u32::from(orientation) << 16).to_be_bytes());
+        exif.extend(0_u32.to_be_bytes());
+
+        exif
     }
 
     #[test]
