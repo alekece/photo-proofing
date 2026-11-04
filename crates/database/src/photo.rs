@@ -429,7 +429,8 @@ mod tests {
         Database,
         auth::WorkspaceId,
         gallery::{GalleryId, GalleryRepository},
-        photo_events::{Notification, PhotoChange},
+        listener::Notification,
+        photo_events::{PhotoChange, PhotoEvent},
         photo_intake::PhotoIntake,
         tests::TestRepository,
     };
@@ -928,7 +929,7 @@ mod tests {
         let location = gallery_location(&database, &pool).await;
         let tests = database.repository::<TestRepository>();
         let photos = database.repository::<PhotoRepository>();
-        let kept = photo_in(&database, location, (20, 10), PhotoStatus::Waiting, 1).await;
+        let kept_photo = photo_in(&database, location, (20, 10), PhotoStatus::Waiting, 1).await;
 
         for status in [
             PhotoStatus::Waiting,
@@ -956,7 +957,7 @@ mod tests {
             assert!(tests.photo_jobs(id).await.unwrap().is_empty());
         }
 
-        assert_eq!(tests.photo_jobs(kept).await.unwrap().len(), 1);
+        assert_eq!(tests.photo_jobs(kept_photo).await.unwrap().len(), 1);
         assert_eq!(tests.count_photos().await.unwrap(), 1);
     }
 
@@ -965,16 +966,16 @@ mod tests {
         let database = Database::new(pool.clone());
         let location = gallery_location(&database, &pool).await;
         let id = photo_in(&database, location, (20, 10), PhotoStatus::Processing, 1).await;
-        let mut worker = pool.begin().await.unwrap();
+        let mut worker_transaction = pool.begin().await.unwrap();
 
         // Completing a job locks its row first, then the photo's.
         sqlx::query("DELETE FROM jobs WHERE payload->'payload'->>'photo_id' = $1")
             .bind(id.to_string())
-            .execute(&mut *worker)
+            .execute(&mut *worker_transaction)
             .await
             .unwrap();
 
-        let deleting = tokio::spawn({
+        let delete_task = tokio::spawn({
             let database = database.clone();
 
             async move {
@@ -999,12 +1000,12 @@ mod tests {
 
         sqlx::query("UPDATE photos SET width = width WHERE id = $1")
             .bind(id)
-            .execute(&mut *worker)
+            .execute(&mut *worker_transaction)
             .await
             .unwrap();
-        worker.commit().await.unwrap();
+        worker_transaction.commit().await.unwrap();
 
-        assert!(deleting.await.unwrap().unwrap());
+        assert!(delete_task.await.unwrap().unwrap());
         assert_eq!(
             database
                 .repository::<TestRepository>()
@@ -1019,13 +1020,13 @@ mod tests {
     async fn delete_is_scoped_to_workspace_and_gallery(pool: PgPool) {
         let database = Database::new(pool.clone());
         let location = gallery_location(&database, &pool).await;
-        let other = gallery_location(&database, &pool).await;
+        let other_location = gallery_location(&database, &pool).await;
         let photos = database.repository::<PhotoRepository>();
         let id = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
 
         for (workspace_id, gallery_id, photo_id) in [
-            (other.workspace_id, location.gallery_id, id),
-            (location.workspace_id, other.gallery_id, id),
+            (other_location.workspace_id, location.gallery_id, id),
+            (location.workspace_id, other_location.gallery_id, id),
             (
                 location.workspace_id,
                 location.gallery_id,

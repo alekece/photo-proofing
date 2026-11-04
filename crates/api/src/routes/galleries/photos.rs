@@ -453,10 +453,10 @@ pub(crate) mod tests {
         }
 
         let request = upload_request(&cookie, &gallery_id, "proof.jpg", "text/plain", &[], None);
-        let busy = test::call_service(&app, request).await;
+        let busy_response = test::call_service(&app, request).await;
 
-        assert_eq!(busy.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(busy.headers().get(RETRY_AFTER).unwrap(), "1");
+        assert_eq!(busy_response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(busy_response.headers().get(RETRY_AFTER).unwrap(), "1");
         drop(response);
         assert_no_upload_effects(&pool, directory.path()).await;
 
