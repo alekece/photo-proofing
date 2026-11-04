@@ -6,7 +6,7 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-tokio = { workspace = true, features = ["io-util", "sync"] }
+tokio = { workspace = true, features = ["io-util", "sync", "time"] }
 futures-util.workspace = true
 pp-core.workspace = true
 pp-database.workspace = true
@@ -16,6 +16,7 @@ thiserror.workspace = true
 eyre.workspace = true
 color-eyre.workspace = true
 actix-web.workspace = true
+actix-web-lab.workspace = true
 clap.workspace = true
 clap-config-fallback.workspace = true
 tracing.workspace = true

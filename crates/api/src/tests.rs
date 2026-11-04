@@ -18,11 +18,20 @@ use tempfile::TempDir;
 
 use crate::{
     api::ApiState,
-    config::{AuthConfig, LimiterConfig, SessionConfig, UploadConfig},
+    config::{AuthConfig, EventsConfig, LimiterConfig, SessionConfig, UploadConfig},
     upload,
 };
 
 pub(crate) const ORIGIN: &str = "http://localhost:5173";
+
+/// Event stream settings with a one-second keep-alive, so session checks happen quickly.
+pub(crate) fn events_config(max_streams: usize, per_workspace: usize) -> EventsConfig {
+    EventsConfig {
+        keep_alive: "1s".parse().unwrap(),
+        max_streams: NonZeroUsize::new(max_streams).unwrap(),
+        max_streams_per_workspace: NonZeroUsize::new(per_workspace).unwrap(),
+    }
+}
 
 pub(crate) async fn upload_resources() -> (PhotoStorage, UploadConfig, TempDir) {
     let directory = tempfile::tempdir().unwrap();

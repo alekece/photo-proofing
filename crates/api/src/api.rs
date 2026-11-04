@@ -24,6 +24,7 @@ use crate::{
     },
     credentials::{HashError, PasswordHash},
     error::ErrorResponse,
+    events::{EventHub, HUB_CAPACITY, relay_photo_events},
     extractors::session_token::SessionToken,
     limiter::AttemptLimiter,
     middlewares::origin::SameOrigin,
@@ -207,6 +208,7 @@ pub struct Api {
     http: HttpConfig,
     state: Data<ApiState>,
     upload_limiter: Data<UploadLimiter>,
+    events: Data<EventHub>,
 }
 
 impl Api {
@@ -215,12 +217,14 @@ impl Api {
 
         jpeg::install()?;
 
-        let database = Database::connect_lazy(&config.database.url, 10)?;
+        // Ten connections for requests, plus the one the photo event listener holds.
+        let database = Database::connect_lazy(&config.database.url, 11)?;
 
         database.ensure_reachable().await?;
         database.migrate().await?;
 
         let upload_limiter = Data::new(UploadLimiter::new(config.photo_upload.concurrency));
+        let events = Data::new(EventHub::new(&config.events, HUB_CAPACITY));
         let state = ApiState::new(
             database,
             config.session,
@@ -234,6 +238,7 @@ impl Api {
             http: config.http,
             state: Data::new(state),
             upload_limiter,
+            events,
         })
     }
 
@@ -243,18 +248,28 @@ impl Api {
 
         let state = self.state;
         let upload_limiter = self.upload_limiter;
-
-        HttpServer::new(move || {
+        let events = self.events;
+        let relay = tokio::spawn(relay_photo_events(
+            state.database().clone(),
+            events.clone().into_inner(),
+        ));
+        let served = HttpServer::new(move || {
             App::new()
                 .app_data(state.clone())
                 .app_data(upload_limiter.clone())
+                .app_data(events.clone())
                 .configure(configure_routes)
         })
-        .bind((self.http.host.as_str(), self.http.port))?
-        .run()
-        .await?;
+        .bind((self.http.host.as_str(), self.http.port))
+        .map(HttpServer::run);
+        let served = match served {
+            Ok(server) => server.await,
+            Err(error) => Err(error),
+        };
 
-        Ok(())
+        relay.abort();
+
+        Ok(served?)
     }
 }
 
@@ -274,6 +289,7 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
             )
             .app_data(PathConfig::default().error_handler(|_, _| ErrorResponse::not_found().into()))
             .service(routes::health::report_health)
+            .service(routes::events::stream_events)
             .configure(routes::auth::configure)
             .configure(routes::galleries::configure),
     );

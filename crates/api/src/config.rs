@@ -31,6 +31,13 @@ pub type CookieDuration = BoundedDuration<1, MAX_COOKIE_SECS>;
 /// How long failed sign-ins are remembered per peer.
 pub type LimiterWindow = BoundedDuration<1, MAX_LIMITER_WINDOW_SECS>;
 
+/// Longest [`KeepAlive`]: proxies commonly drop idle connections after a minute or two, so a
+/// longer period would only let streams die silently.
+const MAX_KEEP_ALIVE_SECS: u64 = 5 * 60;
+
+/// How often an idle event stream is pinged and its session re-checked.
+pub type KeepAlive = BoundedDuration<1, MAX_KEEP_ALIVE_SECS>;
+
 /// Everything [`Api`](crate::api::Api) needs to start.
 #[derive(Args, ConfigArgs, Clone)]
 pub struct ApiConfig {
@@ -45,6 +52,9 @@ pub struct ApiConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub photo_upload: UploadConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub events: EventsConfig,
     #[command(flatten)]
     #[config(no_flatten)]
     pub session: SessionConfig,
@@ -193,6 +203,32 @@ pub struct UploadConfig {
     pub concurrency: NonZeroUsize,
 }
 
+/// Live event streams: how idle streams are kept open and how many may be open at once.
+#[derive(Args, ConfigArgs, Clone)]
+pub struct EventsConfig {
+    /// Period of keep-alive comments, also the delay before a stream notices a signed-out session.
+    #[arg(
+        long = "events-keep-alive",
+        env = "PP_EVENTS_KEEP_ALIVE",
+        default_value = "15s"
+    )]
+    pub keep_alive: KeepAlive,
+    /// Streams open at once across all workspaces; each holds an HTTP connection.
+    #[arg(
+        long = "events-max-streams",
+        env = "PP_EVENTS_MAX_STREAMS",
+        default_value = "256"
+    )]
+    pub max_streams: NonZeroUsize,
+    /// Streams one workspace may hold, so one workspace cannot take every slot.
+    #[arg(
+        long = "events-max-streams-per-workspace",
+        env = "PP_EVENTS_MAX_STREAMS_PER_WORKSPACE",
+        default_value = "32"
+    )]
+    pub max_streams_per_workspace: NonZeroUsize,
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -239,6 +275,37 @@ mod tests {
         assert_eq!(api.photo_upload.max_pixels.get(), 100_000_000);
         assert_eq!(api.photo_upload.concurrency.get(), 4);
         assert_eq!(api.photo.dir.as_path(), Path::new("./data/photos"));
+        assert_eq!(api.events.keep_alive.get(), Duration::from_secs(15));
+        assert_eq!(api.events.max_streams.get(), 256);
+        assert_eq!(api.events.max_streams_per_workspace.get(), 32);
+    }
+
+    #[test]
+    fn events_settings_are_read_from_config_and_validated() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.toml");
+        fs::write(
+            &path,
+            "[events]\nkeep_alive = '30s'\nmax_streams = 10\nmax_streams_per_workspace = 2\n",
+        )
+        .unwrap();
+        let events = parse(&["--config", path.to_str().unwrap()])
+            .unwrap()
+            .api
+            .events;
+
+        assert_eq!(events.keep_alive.get(), Duration::from_secs(30));
+        assert_eq!(events.max_streams.get(), 10);
+        assert_eq!(events.max_streams_per_workspace.get(), 2);
+
+        for args in [
+            ["--events-keep-alive", "0s"],
+            ["--events-keep-alive", "10m"],
+            ["--events-max-streams", "0"],
+            ["--events-max-streams-per-workspace", "0"],
+        ] {
+            assert!(parse(&args).is_err(), "{args:?}");
+        }
     }
 
     #[test]

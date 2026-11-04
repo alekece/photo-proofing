@@ -68,8 +68,10 @@ impl PhotoEventListener {
             return Ok(Notification::Missed(MissedReason::Reconnected));
         };
 
-        Ok(serde_json::from_str(notification.payload())
-            .map_or(Notification::Missed(MissedReason::Undecodable), Notification::Photo))
+        Ok(serde_json::from_str(notification.payload()).map_or(
+            Notification::Missed(MissedReason::Undecodable),
+            Notification::Photo,
+        ))
     }
 }
 
