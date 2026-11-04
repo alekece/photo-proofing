@@ -70,7 +70,7 @@ export async function retryPhoto(galleryId: string, photoId: string, fetcher = f
 }
 
 export async function getUploadLimits(fetcher: typeof fetch = fetch) {
-	const response = await request('/api/v1/photo-upload/limits', {}, fetcher);
+	const response = await request('/api/v1/upload/limits', {}, fetcher);
 
 	return (await response.json()) as UploadLimits;
 }

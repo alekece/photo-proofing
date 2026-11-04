@@ -83,7 +83,7 @@ Decided with the product owner:
 
 My calls (to check while reading):
 
-- **Upload limits route.** `GET /api/v1/photo-upload/limits` (session required) returns
+- **Upload limits route.** `GET /api/v1/upload/limits` (session required) returns
   `{concurrency, max_size, max_pixels}` from the API config. The browser sends at most
   `concurrency` files at a time and rejects files over `max_size` before sending ("Too large").
   Other dashboard users share the same server slots, so the server can still be busy.

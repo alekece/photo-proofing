@@ -17,7 +17,7 @@ struct UploadLimits {
     max_pixels: u64,
 }
 
-#[get("/photo-upload/limits")]
+#[get("/upload/limits")]
 pub async fn upload_limits(
     state: Data<ApiState>,
     _: Authenticated,
@@ -43,7 +43,7 @@ mod tests {
     };
 
     fn limits_request(cookie: Option<&Cookie<'static>>) -> actix_http::Request {
-        let request = test::TestRequest::get().uri("/api/v1/photo-upload/limits");
+        let request = test::TestRequest::get().uri("/api/v1/upload/limits");
 
         match cookie {
             Some(cookie) => request.cookie(cookie.clone()).to_request(),

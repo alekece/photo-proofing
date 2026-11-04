@@ -313,6 +313,7 @@ pub(crate) mod tests {
             max_size: NonZeroU64::new(max_size).unwrap(),
             max_pixels: NonZeroU64::new(max_pixels).unwrap(),
             concurrency: NonZeroUsize::new(4).unwrap(),
+            retry_after: "1s".parse().unwrap(),
         }
     }
 
@@ -328,9 +329,7 @@ pub(crate) mod tests {
 
         test::init_service(
             App::new()
-                .app_data(Data::new(upload::limiter::UploadLimiter::new(
-                    config.concurrency,
-                )))
+                .app_data(Data::new(upload::limiter::UploadLimiter::from(&config)))
                 .app_data(Data::new(state_with_upload(pool, storage, config)))
                 .configure(configure_routes),
         )

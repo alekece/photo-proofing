@@ -46,6 +46,7 @@ pub(crate) async fn upload_resources() -> (PhotoStorage, UploadConfig, TempDir) 
             max_size: NonZeroU64::new(67_108_864).unwrap(),
             max_pixels: NonZeroU64::new(100_000_000).unwrap(),
             concurrency: NonZeroUsize::new(4).unwrap(),
+            retry_after: "1s".parse().unwrap(),
         },
         directory,
     )

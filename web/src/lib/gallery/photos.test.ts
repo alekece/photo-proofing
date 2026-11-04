@@ -116,7 +116,7 @@ describe('photo requests', () => {
 
 		expect(await getUploadLimits(fetcher)).toEqual(limits);
 		expect(fetcher).toHaveBeenCalledWith(
-			'/api/v1/photo-upload/limits',
+			'/api/v1/upload/limits',
 			expect.objectContaining({ credentials: 'same-origin' })
 		);
 	});

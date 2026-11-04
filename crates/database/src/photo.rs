@@ -287,16 +287,17 @@ impl PhotoRepository<'_> {
         .execute(&mut *transaction)
         .await?;
 
-        let deleted = sqlx::query(
+        let deleted_photos = sqlx::query(
             "DELETE FROM photos WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3",
         )
         .bind(workspace_id)
         .bind(gallery_id)
         .bind(id)
         .execute(&mut *transaction)
-        .await?;
+        .await?
+        .rows_affected();
 
-        if deleted.rows_affected() == 0 {
+        if deleted_photos == 0 {
             return Ok(false);
         }
 
@@ -1062,7 +1063,7 @@ mod tests {
         let database = Database::new(pool.clone());
         let location = gallery_location(&database, &pool).await;
         let id = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
-        let mut listener = database.listen_photo_events().await.unwrap();
+        let mut listener = database.listen::<PhotoEvent>().await.unwrap();
 
         database
             .repository::<PhotoRepository>()
@@ -1070,7 +1071,7 @@ mod tests {
             .await
             .unwrap();
 
-        let Notification::Photo(event) = listener.next().await.unwrap() else {
+        let Notification::Event(event) = listener.next().await.unwrap() else {
             panic!("expected a photo event");
         };
 
