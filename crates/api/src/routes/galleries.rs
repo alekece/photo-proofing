@@ -138,7 +138,8 @@ async fn show_shared_gallery(
         .repository::<GalleryRepository>()
         .find_shared(&token.into_inner())
         .await?
-        .ok_or_else(ErrorResponse::not_found)?;
+        .ok_or_else(ErrorResponse::not_found)?
+        .gallery;
 
     Ok(HttpResponse::Ok().no_store().no_referrer().json(gallery))
 }

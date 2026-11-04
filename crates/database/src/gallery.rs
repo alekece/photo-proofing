@@ -16,7 +16,7 @@ use sqlx::{AssertSqlSafe, FromRow, PgPool, Row, Type, postgres::PgRow};
 use thiserror::Error;
 use uuid::Uuid;
 
-pub use self::share::{ShareToken, SharedGallery};
+pub use self::share::{ShareToken, SharedAccess, SharedGallery};
 use crate::{Repository, auth::WorkspaceId, error::DatabaseError};
 
 mod share;
@@ -304,14 +304,14 @@ impl GalleryRepository<'_> {
         .await?)
     }
 
-    /// Finds the gallery behind a private link. Unknown and expired links are the same `None`,
+    /// Finds the gallery behind a private link, with where its photos live. Unknown and expired links are the same `None`,
     /// so a client cannot tell them apart; the database clock decides expiry.
     pub async fn find_shared(
         &self,
         token: &ShareToken,
-    ) -> Result<Option<SharedGallery>, DatabaseError> {
+    ) -> Result<Option<SharedAccess>, DatabaseError> {
         Ok(sqlx::query_as(
-            "SELECT title,layout,expires_at FROM galleries
+            "SELECT id AS gallery_id,workspace_id,title,layout,expires_at FROM galleries
              WHERE share_token=$1 AND (expires_at IS NULL OR expires_at > now())",
         )
         .bind(token)
@@ -382,7 +382,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::Database;
+    use crate::{Database, photo::PhotoLocation};
 
     async fn workspace(pool: &PgPool) -> WorkspaceId {
         let id = WorkspaceId(Uuid::new_v4());
@@ -780,9 +780,16 @@ mod tests {
 
         let found = store.find_shared(&token).await.unwrap().unwrap();
 
-        assert_eq!(found.title.as_deref(), Some("Wedding"));
-        assert_eq!(found.layout, GalleryLayout::Masonry);
-        assert_eq!(found.expires_at, None);
+        assert_eq!(
+            found.location,
+            PhotoLocation {
+                workspace_id: workspace,
+                gallery_id: id
+            }
+        );
+        assert_eq!(found.gallery.title.as_deref(), Some("Wedding"));
+        assert_eq!(found.gallery.layout, GalleryLayout::Masonry);
+        assert_eq!(found.gallery.expires_at, None);
 
         set_expiry(json!("2000-01-01T00:00:00Z")).await;
 
@@ -796,6 +803,7 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap()
+                .gallery
                 .expires_at
                 .is_some()
         );
