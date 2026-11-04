@@ -143,6 +143,12 @@ impl ImageRenderer {
     }
 }
 
+/// Initializes libvips for tests that build images before creating any renderer.
+#[cfg(test)]
+pub(crate) fn init_libvips() {
+    ImageRenderer::new(NonZeroU64::MAX).expect("libvips should initialize");
+}
+
 #[cfg(test)]
 mod tests {
     use libvips::{
@@ -155,6 +161,7 @@ mod tests {
     const UNBOUNDED: NonZeroU64 = NonZeroU64::MAX;
 
     fn jpeg(width: i32, height: i32) -> Vec<u8> {
+        init_libvips();
         jpegsave_buffer(&black(width, height).unwrap()).unwrap()
     }
 
@@ -284,6 +291,8 @@ mod tests {
 
     #[test]
     fn non_srgb_source_is_converted_to_srgb() {
+        init_libvips();
+
         let srgb = colourspace(&black(40, 20).unwrap(), Interpretation::Srgb).unwrap();
         let cmyk = jpegsave_buffer(&colourspace(&srgb, Interpretation::Cmyk).unwrap()).unwrap();
 
@@ -311,6 +320,8 @@ mod tests {
 
     #[test]
     fn embedded_rgb_profile_is_converted_to_srgb() {
+        init_libvips();
+
         let pixels = [200_u8, 60, 60].repeat(40 * 20);
         let image = VipsImage::new_from_memory_copy(&pixels, 40, 20, 3, BandFormat::Uchar).unwrap();
         let tagged = with_segment(
@@ -406,6 +417,8 @@ mod tests {
 
     #[test]
     fn truncated_jpeg_is_unreadable() {
+        init_libvips();
+
         let noisy = jpegsave_buffer(&gaussnoise(600, 400).unwrap()).unwrap();
 
         assert!(render(&noisy, UNBOUNDED).is_ok());
@@ -417,6 +430,8 @@ mod tests {
 
     #[test]
     fn oversized_dimensions_are_too_large_without_decoding() {
+        init_libvips();
+
         let source = jpegsave_buffer(&gaussnoise(300, 200).unwrap()).unwrap();
 
         assert!(render(&source, NonZeroU64::new(60_000).unwrap()).is_ok());
