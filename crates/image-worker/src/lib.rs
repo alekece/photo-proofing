@@ -1,7 +1,7 @@
 //! The image worker: a durable PostgreSQL job runner.
 //!
 //! Job handlers are registered by kind in a [`HandlerRegistry`]; photo processing is served by
-//! [`process_photo`](process_photo::process_photo).
+//! [`ProcessPhotoRoutine`](process_photo::ProcessPhotoRoutine).
 
 pub mod config;
 pub mod handlers;

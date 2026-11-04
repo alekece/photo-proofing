@@ -44,92 +44,103 @@ pub enum RenderError {
 
 /// Encoded JPEG derivatives of one original.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Rendered {
+pub struct RenderedPhoto {
     pub thumbnail: Vec<u8>,
     pub preview: Vec<u8>,
 }
 
-/// Initializes libvips once for the process, with caches off and one thread per operation.
-pub fn install() -> Result<(), RenderError> {
-    let app = VIPS_APP.get_or_init(|| Mutex::new(None));
-    let mut app = app
-        .lock()
-        .map_err(|_| RenderError::Library("initialization state is poisoned".to_owned()))?;
-
-    if app.is_none() {
-        let initialized = VipsApp::new("photo-proofing-worker", false)
-            .map_err(|error| RenderError::Library(format!("{error:?}")))?;
-
-        initialized.concurrency_set(1);
-        initialized.cache_set_max(0);
-        initialized.cache_set_max_mem(0);
-        initialized.cache_set_max_files(0);
-        *app = Some(initialized);
-    }
-
-    Ok(())
+/// Renders proof derivatives from JPEG originals of at most `max_pixels`.
+#[derive(Debug, Clone, Copy)]
+pub struct ImageRenderer {
+    max_pixels: NonZeroU64,
 }
 
-/// Renders the thumbnail and preview of `original`, a JPEG of at most `max_pixels`.
-///
-/// Outputs are auto-rotated, sRGB, stripped of metadata and never larger than the original.
-/// A truncated or otherwise undecodable original is [`RenderError::Unreadable`].
-pub fn render(original: &[u8], max_pixels: NonZeroU64) -> Result<Rendered, RenderError> {
-    // Loading is lazy: this reads the header only.
-    let header = VipsImage::new_from_buffer(original, "").map_err(|_| RenderError::Unreadable)?;
+impl ImageRenderer {
+    /// Initializes libvips once for the process, with caches off and one thread per operation.
+    pub fn new(max_pixels: NonZeroU64) -> Result<Self, RenderError> {
+        let app = VIPS_APP.get_or_init(|| Mutex::new(None));
+        let mut app = app
+            .lock()
+            .map_err(|_| RenderError::Library("initialization state is poisoned".to_owned()))?;
 
-    if header.get_as_string("vips-loader").ok().as_deref() != Some("jpegload_buffer") {
-        return Err(RenderError::Unreadable);
+        if app.is_none() {
+            let initialized = VipsApp::new("photo-proofing-worker", false)
+                .map_err(|error| RenderError::Library(format!("{error:?}")))?;
+
+            initialized.concurrency_set(1);
+            initialized.cache_set_max(0);
+            initialized.cache_set_max_mem(0);
+            initialized.cache_set_max_files(0);
+            *app = Some(initialized);
+        }
+
+        Ok(Self { max_pixels })
     }
 
-    let width = u32::try_from(header.get_width()).map_err(|_| RenderError::Unreadable)?;
-    let height = u32::try_from(header.get_height()).map_err(|_| RenderError::Unreadable)?;
+    /// Renders the thumbnail and preview of `original`.
+    ///
+    /// Outputs are auto-rotated, sRGB, stripped of metadata and never larger than the original.
+    /// A truncated or otherwise undecodable original is [`RenderError::Unreadable`].
+    pub fn render(&self, original: &[u8]) -> Result<RenderedPhoto, RenderError> {
+        // Loading is lazy: this reads the header only.
+        let header =
+            VipsImage::new_from_buffer(original, "").map_err(|_| RenderError::Unreadable)?;
 
-    if u64::from(width) * u64::from(height) > max_pixels.get() {
-        return Err(RenderError::TooLarge);
+        if header.get_as_string("vips-loader").ok().as_deref() != Some("jpegload_buffer") {
+            return Err(RenderError::Unreadable);
+        }
+
+        let width = u32::try_from(header.get_width()).map_err(|_| RenderError::Unreadable)?;
+        let height = u32::try_from(header.get_height()).map_err(|_| RenderError::Unreadable)?;
+
+        if u64::from(width) * u64::from(height) > self.max_pixels.get() {
+            return Err(RenderError::TooLarge);
+        }
+
+        // Decode at the smallest scale that still covers the preview, so a 100 MP original never
+        // occupies full-resolution memory.
+        let long_edge = width.max(height);
+        let shrink = JPEG_SHRINKS
+            .into_iter()
+            .find(|shrink| long_edge / shrink >= PREVIEW_EDGE)
+            .unwrap_or(1);
+        let image =
+            VipsImage::new_from_buffer(original, &format!("shrink={shrink},fail-on=truncated"))
+                .map_err(|_| RenderError::Unreadable)?;
+        // `thumbnail_image` ignores embedded RGB profiles, so wide-gamut sources (Display P3,
+        // Adobe RGB) are converted here. A profile libvips rejects leaves the pixels as stored.
+        let image = if image.get_as_string(ICC_PROFILE).is_ok() {
+            ops::icc_transform(&image, "srgb").unwrap_or(image)
+        } else {
+            image
+        };
+
+        Ok(RenderedPhoto {
+            thumbnail: Self::fit(&image, THUMBNAIL_EDGE)?,
+            preview: Self::fit(&image, PREVIEW_EDGE)?,
+        })
     }
 
-    // Decode at the smallest scale that still covers the preview, so a 100 MP original never
-    // occupies full-resolution memory.
-    let long_edge = width.max(height);
-    let shrink = JPEG_SHRINKS
-        .into_iter()
-        .find(|shrink| long_edge / shrink >= PREVIEW_EDGE)
-        .unwrap_or(1);
-    let image = VipsImage::new_from_buffer(original, &format!("shrink={shrink},fail-on=truncated"))
-        .map_err(|_| RenderError::Unreadable)?;
-    // `thumbnail_image` ignores embedded RGB profiles, so wide-gamut sources (Display P3,
-    // Adobe RGB) are converted here. A profile libvips rejects leaves the pixels as stored.
-    let image = if image.get_as_string(ICC_PROFILE).is_ok() {
-        ops::icc_transform(&image, "srgb").unwrap_or(image)
-    } else {
-        image
-    };
+    /// Encodes `image` with its long edge at most `edge`, without upscaling.
+    ///
+    /// Decoding happens here, so every failure means the original is unreadable: the bindings only
+    /// report static messages, which cannot tell a corrupt stream from a library fault.
+    fn fit(image: &VipsImage, edge: u32) -> Result<Vec<u8>, RenderError> {
+        let long_edge = image.get_width().max(image.get_height());
+        let target = long_edge.min(i32::try_from(edge).unwrap_or(i32::MAX));
+        // `thumbnail_image` applies the EXIF orientation.
+        let mut fitted =
+            ops::thumbnail_image(image, target).map_err(|_| RenderError::Unreadable)?;
 
-    Ok(Rendered {
-        thumbnail: fit(&image, THUMBNAIL_EDGE)?,
-        preview: fit(&image, PREVIEW_EDGE)?,
-    })
-}
+        if !matches!(fitted.get_interpretation(), Ok(Interpretation::Srgb)) {
+            fitted = ops::colourspace(&fitted, Interpretation::Srgb)
+                .map_err(|_| RenderError::Unreadable)?;
+        }
 
-/// Encodes `image` with its long edge at most `edge`, without upscaling.
-///
-/// Decoding happens here, so every failure means the original is unreadable: the bindings only
-/// report static messages, which cannot tell a corrupt stream from a library fault.
-fn fit(image: &VipsImage, edge: u32) -> Result<Vec<u8>, RenderError> {
-    let long_edge = image.get_width().max(image.get_height());
-    let target = long_edge.min(i32::try_from(edge).unwrap_or(i32::MAX));
-    // `thumbnail_image` applies the EXIF orientation.
-    let mut fitted = ops::thumbnail_image(image, target).map_err(|_| RenderError::Unreadable)?;
-
-    if !matches!(fitted.get_interpretation(), Ok(Interpretation::Srgb)) {
-        fitted =
-            ops::colourspace(&fitted, Interpretation::Srgb).map_err(|_| RenderError::Unreadable)?;
+        fitted
+            .image_write_to_buffer(JPEG_OUTPUT)
+            .map_err(|_| RenderError::Unreadable)
     }
-
-    fitted
-        .image_write_to_buffer(JPEG_OUTPUT)
-        .map_err(|_| RenderError::Unreadable)
 }
 
 #[cfg(test)]
@@ -214,10 +225,12 @@ mod tests {
         (image.get_width(), image.get_height())
     }
 
+    fn render(original: &[u8], max_pixels: NonZeroU64) -> Result<RenderedPhoto, RenderError> {
+        ImageRenderer::new(max_pixels).unwrap().render(original)
+    }
+
     #[test]
     fn output_fits_the_long_edge_and_keeps_aspect_ratio() {
-        install().unwrap();
-
         let small = render(&jpeg(300, 200), UNBOUNDED).unwrap();
         let large = render(&jpeg(4000, 2000), UNBOUNDED).unwrap();
         let portrait = render(&jpeg(1000, 2000), UNBOUNDED).unwrap();
@@ -232,8 +245,6 @@ mod tests {
 
     #[test]
     fn exif_orientation_is_applied() {
-        install().unwrap();
-
         // Orientation 6: the camera was turned, so the stored 400×200 displays as 200×400.
         let source = with_segment(&jpeg(400, 200), 0xe1, &exif(0x0112, 3, 6 << 16, false));
 
@@ -253,8 +264,6 @@ mod tests {
 
     #[test]
     fn metadata_is_stripped() {
-        install().unwrap();
-
         let xmp = b"http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x='adobe:ns:meta/'/>";
         let source = with_segment(&jpeg(40, 20), 0xe1, &exif(0x8825, 4, 26, true));
         let source = with_segment(&source, 0xe1, xmp);
@@ -275,8 +284,6 @@ mod tests {
 
     #[test]
     fn non_srgb_source_is_converted_to_srgb() {
-        install().unwrap();
-
         let srgb = colourspace(&black(40, 20).unwrap(), Interpretation::Srgb).unwrap();
         let cmyk = jpegsave_buffer(&colourspace(&srgb, Interpretation::Cmyk).unwrap()).unwrap();
 
@@ -304,8 +311,6 @@ mod tests {
 
     #[test]
     fn embedded_rgb_profile_is_converted_to_srgb() {
-        install().unwrap();
-
         let pixels = [200_u8, 60, 60].repeat(40 * 20);
         let image = VipsImage::new_from_memory_copy(&pixels, 40, 20, 3, BandFormat::Uchar).unwrap();
         let tagged = with_segment(
@@ -391,8 +396,6 @@ mod tests {
 
     #[test]
     fn corrupt_input_is_unreadable() {
-        install().unwrap();
-
         for input in [b"not a JPEG".as_slice(), b"\xff\xd8\xff\xe0garbage", b""] {
             assert!(matches!(
                 render(input, UNBOUNDED),
@@ -403,8 +406,6 @@ mod tests {
 
     #[test]
     fn truncated_jpeg_is_unreadable() {
-        install().unwrap();
-
         let noisy = jpegsave_buffer(&gaussnoise(600, 400).unwrap()).unwrap();
 
         assert!(render(&noisy, UNBOUNDED).is_ok());
@@ -416,8 +417,6 @@ mod tests {
 
     #[test]
     fn oversized_dimensions_are_too_large_without_decoding() {
-        install().unwrap();
-
         let source = jpegsave_buffer(&gaussnoise(300, 200).unwrap()).unwrap();
 
         assert!(render(&source, NonZeroU64::new(60_000).unwrap()).is_ok());

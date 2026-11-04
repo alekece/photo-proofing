@@ -6,11 +6,8 @@ use eyre::Result;
 use pp_core::config::{LogConfig, PhotoConfig};
 use pp_database::jobs::JobKind;
 use pp_image_worker::{
-    config::WorkerConfig,
-    handlers::HandlerRegistry,
-    process_photo::{ProcessContext, process_photo},
-    render,
-    runtime::Worker,
+    config::WorkerConfig, handlers::HandlerRegistry, process_photo::ProcessPhotoRoutine,
+    render::ImageRenderer, runtime::Worker,
 };
 use pp_storage::PhotoStorage;
 use tokio::{
@@ -47,9 +44,8 @@ async fn main() -> Result<()> {
         .with_max_level(cli.log.log_level)
         .init();
 
+    let renderer = ImageRenderer::new(cli.worker.process.max_pixels)?;
     let storage = PhotoStorage::open(&cli.photo.dir).await?;
-
-    render::install()?;
 
     tracing::info!("image worker started");
 
@@ -68,16 +64,15 @@ async fn main() -> Result<()> {
         }
     });
 
-    let max_pixels = cli.worker.photo_process.max_pixels;
     let worker = Worker::connect(cli.worker, |database| {
-        let context = Arc::new(ProcessContext {
-            database: database.clone(),
+        let routine = Arc::new(ProcessPhotoRoutine::new(
+            database.clone(),
             storage,
-            max_pixels,
-        });
+            renderer,
+        ));
 
         HandlerRegistry::default().register(JobKind::ProcessPhoto, move |payload, job| {
-            process_photo(context.clone(), payload, job)
+            Arc::clone(&routine).run(payload, job)
         })
     })
     .await?;

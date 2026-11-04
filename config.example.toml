@@ -45,6 +45,6 @@ max_size = 67108864
 max_pixels = 100000000
 concurrency = 4
 
-[photo_process]
+[process]
 # Positive integer pixel limit for originals the worker renders; match photo_upload.
 max_pixels = 100000000

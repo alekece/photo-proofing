@@ -258,12 +258,12 @@ impl PhotoRepository<'_> {
 
     /// Marks a waiting or processing photo as processing; repeatable after a worker crash.
     pub async fn mark_processing(&self, id: PhotoId) -> Result<bool, DatabaseError> {
-        transition(self.pool, id, "processing", None).await
+        Self::transition_in(self.pool, id, "processing", None).await
     }
 
     /// Marks a waiting or processing photo as ready.
     pub async fn mark_ready(&self, id: PhotoId) -> Result<bool, DatabaseError> {
-        transition(self.pool, id, "ready", None).await
+        Self::transition_in(self.pool, id, "ready", None).await
     }
 
     /// Same as [`Self::mark_ready`], within the caller's transaction.
@@ -271,7 +271,7 @@ impl PhotoRepository<'_> {
         transaction: &mut Transaction<'_, Postgres>,
         id: PhotoId,
     ) -> Result<bool, DatabaseError> {
-        transition(&mut **transaction, id, "ready", None).await
+        Self::transition_in(&mut **transaction, id, "ready", None).await
     }
 
     /// Whether the photo exists, within the caller's transaction.
@@ -289,7 +289,7 @@ impl PhotoRepository<'_> {
 
     /// Marks a waiting or processing photo as failed with a user-visible reason.
     pub async fn mark_failed(&self, id: PhotoId, reason: &str) -> Result<bool, DatabaseError> {
-        transition(self.pool, id, "failed", Some(reason)).await
+        Self::transition_in(self.pool, id, "failed", Some(reason)).await
     }
 
     /// Same as [`Self::mark_failed`], within the caller's transaction.
@@ -298,28 +298,28 @@ impl PhotoRepository<'_> {
         id: PhotoId,
         reason: &str,
     ) -> Result<bool, DatabaseError> {
-        transition(&mut **transaction, id, "failed", Some(reason)).await
+        Self::transition_in(&mut **transaction, id, "failed", Some(reason)).await
     }
-}
 
-/// Moves an unfinished photo to `status`; returns whether a row changed.
-async fn transition(
-    executor: impl PgExecutor<'_>,
-    id: PhotoId,
-    status: &str,
-    failure_reason: Option<&str>,
-) -> Result<bool, DatabaseError> {
-    let result = sqlx::query(
-        "UPDATE photos SET status = $2::photo_status, failure_reason = $3
-         WHERE id = $1 AND status IN ('waiting', 'processing')",
-    )
-    .bind(id)
-    .bind(status)
-    .bind(failure_reason)
-    .execute(executor)
-    .await?;
+    /// Moves an unfinished photo to `status`; returns whether a row changed.
+    async fn transition_in(
+        executor: impl PgExecutor<'_>,
+        id: PhotoId,
+        status: &str,
+        failure_reason: Option<&str>,
+    ) -> Result<bool, DatabaseError> {
+        let result = sqlx::query(
+            "UPDATE photos SET status = $2::photo_status, failure_reason = $3
+             WHERE id = $1 AND status IN ('waiting', 'processing')",
+        )
+        .bind(id)
+        .bind(status)
+        .bind(failure_reason)
+        .execute(executor)
+        .await?;
 
-    Ok(result.rows_affected() == 1)
+        Ok(result.rows_affected() == 1)
+    }
 }
 
 #[cfg(test)]

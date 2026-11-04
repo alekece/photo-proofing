@@ -318,7 +318,7 @@ impl JobRepository<'_> {
             .collect::<Vec<_>>();
 
         let mut transaction = self.pool.begin().await?;
-        let exhausted: Vec<Option<String>> = sqlx::query_scalar(AssertSqlSafe(format!(
+        let expired_photos: Vec<Option<String>> = sqlx::query_scalar(AssertSqlSafe(format!(
             "UPDATE jobs SET state = 'failed', locked_until = NULL,
                  last_error = 'the worker stopped answering on the final attempt'
              WHERE id IN (
@@ -331,8 +331,8 @@ impl JobRepository<'_> {
         .fetch_all(&mut *transaction)
         .await?;
 
-        for photo_id in exhausted {
-            fail_photo(&mut transaction, photo_id).await?;
+        for photo_id in &expired_photos {
+            Self::mark_linked_photo_failed_in(&mut transaction, photo_id.as_deref()).await?;
         }
 
         transaction.commit().await?;
@@ -374,7 +374,7 @@ impl JobRepository<'_> {
 
     /// Deletes a finished job. The completion tells whether the claim was still current.
     pub async fn complete(&self, job: &Job) -> Result<Completion, DatabaseError> {
-        complete_job(self.pool, job).await
+        Self::complete_in(self.pool, job).await
     }
 
     /// Records a photo job's result and finishes the job in one transaction, so a crash can
@@ -391,7 +391,7 @@ impl JobRepository<'_> {
         result: PhotoResult<'_>,
     ) -> Result<(Completion, PhotoUpdate), DatabaseError> {
         let mut transaction = self.pool.begin().await?;
-        let completion = complete_job(&mut *transaction, job).await?;
+        let completion = Self::complete_in(&mut *transaction, job).await?;
         let saved = match (completion.is_current(), result) {
             (false, _) => false,
             (true, PhotoResult::Ready) => {
@@ -450,7 +450,7 @@ impl JobRepository<'_> {
         };
 
         if state == JobState::Failed {
-            fail_photo(&mut transaction, photo_id).await?;
+            Self::mark_linked_photo_failed_in(&mut transaction, photo_id.as_deref()).await?;
         }
 
         transaction.commit().await?;
@@ -497,22 +497,44 @@ impl JobRepository<'_> {
         .fetch_all(self.pool)
         .await?)
     }
-}
 
-async fn complete_job(
-    executor: impl PgExecutor<'_>,
-    job: &Job,
-) -> Result<Completion, DatabaseError> {
-    let done =
-        sqlx::query("DELETE FROM jobs WHERE id = $1 AND state = 'running' AND attempts = $2")
-            .bind(job.id)
-            .bind(attempts_param(job))
-            .execute(executor)
-            .await?;
+    /// Finishes `job` if this run still owns it, through `executor`.
+    async fn complete_in(
+        executor: impl PgExecutor<'_>,
+        job: &Job,
+    ) -> Result<Completion, DatabaseError> {
+        let done =
+            sqlx::query("DELETE FROM jobs WHERE id = $1 AND state = 'running' AND attempts = $2")
+                .bind(job.id)
+                .bind(attempts_param(job))
+                .execute(executor)
+                .await?;
 
-    Ok(Completion {
-        current: done.rows_affected() == 1,
-    })
+        Ok(Completion {
+            current: done.rows_affected() == 1,
+        })
+    }
+
+    /// Marks the photo of a job that failed for good, so the gallery shows why it has no proof.
+    ///
+    /// Jobs without a readable photo id have nothing to update.
+    async fn mark_linked_photo_failed_in(
+        transaction: &mut Transaction<'_, Postgres>,
+        raw_photo_id: Option<&str>,
+    ) -> Result<(), DatabaseError> {
+        let Some(photo_id) = raw_photo_id.and_then(|id| Uuid::parse_str(id).ok()) else {
+            return Ok(());
+        };
+
+        PhotoRepository::mark_failed_in(
+            transaction,
+            PhotoId::from(photo_id),
+            PROCESSING_FAILED_REASON,
+        )
+        .await?;
+
+        Ok(())
+    }
 }
 
 /// `attempts` fits `i32` because it was read from an `integer` column.
@@ -527,27 +549,6 @@ fn clean_error(error: &str) -> String {
         .filter(|c| *c != '\0')
         .take(MAX_ERROR_CHARS)
         .collect()
-}
-
-/// Marks the photo of a job that failed for good, so the gallery shows why it has no proof.
-///
-/// Jobs without a readable photo id have nothing to update.
-async fn fail_photo(
-    transaction: &mut Transaction<'_, Postgres>,
-    photo_id: Option<String>,
-) -> Result<(), DatabaseError> {
-    let Some(photo_id) = photo_id.and_then(|id| Uuid::parse_str(&id).ok()) else {
-        return Ok(());
-    };
-
-    PhotoRepository::mark_failed_in(
-        transaction,
-        PhotoId::from(photo_id),
-        PROCESSING_FAILED_REASON,
-    )
-    .await?;
-
-    Ok(())
 }
 
 #[cfg(test)]

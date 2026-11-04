@@ -30,7 +30,7 @@ pub struct WorkerConfig {
     pub queue: QueueConfig,
     #[command(flatten)]
     #[config(no_flatten)]
-    pub photo_process: ProcessConfig,
+    pub process: ProcessConfig,
 }
 
 /// Limits on the originals the worker renders into proof derivatives.
@@ -38,8 +38,8 @@ pub struct WorkerConfig {
 pub struct ProcessConfig {
     /// Larger originals fail without being decoded; keep it in line with the API's upload limit.
     #[arg(
-        long = "photo-process-max-pixels",
-        env = "PP_PHOTO_PROCESS_MAX_PIXELS",
+        long = "process-max-pixels",
+        env = "PP_PROCESS_MAX_PIXELS",
         default_value_t = DEFAULT_MAX_PIXELS
     )]
     pub max_pixels: NonZeroU64,
@@ -157,23 +157,23 @@ mod tests {
     }
 
     #[test]
-    fn photo_process_limit_defaults_to_the_upload_limit_and_reads_config_file() {
+    fn process_limit_defaults_to_the_upload_limit_and_reads_config_file() {
         assert_eq!(
-            parse(&[]).unwrap().worker.photo_process.max_pixels,
+            parse(&[]).unwrap().worker.process.max_pixels,
             DEFAULT_MAX_PIXELS
         );
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("c.toml");
-        fs::write(&path, "[photo_process]\nmax_pixels = 5678\n").unwrap();
+        fs::write(&path, "[process]\nmax_pixels = 5678\n").unwrap();
 
         let config = parse(&["--config", path.to_str().unwrap()])
             .unwrap()
             .worker
-            .photo_process;
+            .process;
 
         assert_eq!(config.max_pixels.get(), 5678);
-        assert!(parse(&["--photo-process-max-pixels", "0"]).is_err());
+        assert!(parse(&["--process-max-pixels", "0"]).is_err());
     }
 
     #[test]

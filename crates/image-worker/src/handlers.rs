@@ -23,6 +23,13 @@ pub enum HandlerError {
     Failed(#[source] BoxError),
 }
 
+impl HandlerError {
+    /// A recoverable failure caused by `error`.
+    pub fn failed(error: impl Error + Send + Sync + 'static) -> Self {
+        Self::Failed(Box::new(error))
+    }
+}
+
 /// The handler for each job kind the worker serves.
 ///
 /// Handlers must be idempotent: a job can run again after a crash or a lost lease. They

@@ -7,28 +7,25 @@
 //! no route reads the original.
 
 use actix_web::{
-    HttpRequest, HttpResponse, get,
-    http::header::{self, ContentType},
-    post,
+    HttpRequest, HttpResponse, get, post,
     web::{self, Data, Path as WebPath, ServiceConfig},
 };
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
-    auth::WorkspaceId,
     gallery::{GalleryId, GalleryRepository},
     photo::{NewPhoto, PhotoRepository, PhotoStatus},
     photo_intake::{PhotoIntake, PhotoIntakeError},
     photo_retry::PhotoRetry,
 };
 use pp_storage::{PhotoKey, StorageError, Variant};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 
 use crate::{
     api::ApiState,
     error::ErrorResponse,
     extractors::identity::Authenticated,
-    response::ResponseBuilderExt,
+    response::{ImageFile, ResponseBuilderExt},
     upload::{PhotoUpload, limiter::UploadSlot},
 };
 
@@ -39,8 +36,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(list_photos)
         .service(retry_gallery)
         .service(retry_photo)
-        .service(thumbnail)
-        .service(preview);
+        .service(serve_derivative);
 }
 
 #[derive(Serialize)]
@@ -81,7 +77,14 @@ async fn retry_gallery(
     Authenticated(identity): Authenticated,
     id: WebPath<GalleryId>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    retry(&state, identity.workspace_id, id.into_inner(), None).await
+    let requeued = state
+        .database()
+        .repository::<PhotoRetry>()
+        .retry_failed(identity.workspace_id, id.into_inner(), None)
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
+
+    Ok(HttpResponse::Ok().no_store().json(Requeued { requeued }))
 }
 
 #[post("/{id}/photos/{photo_id}/retry")]
@@ -91,75 +94,47 @@ async fn retry_photo(
     path: WebPath<(GalleryId, PhotoId)>,
 ) -> Result<HttpResponse, ErrorResponse> {
     let (gallery_id, photo_id) = path.into_inner();
-
-    retry(&state, identity.workspace_id, gallery_id, Some(photo_id)).await
-}
-
-async fn retry(
-    state: &ApiState,
-    workspace_id: WorkspaceId,
-    gallery_id: GalleryId,
-    photo: Option<PhotoId>,
-) -> Result<HttpResponse, ErrorResponse> {
     let requeued = state
         .database()
         .repository::<PhotoRetry>()
-        .retry_failed(workspace_id, gallery_id, photo)
+        .retry_failed(identity.workspace_id, gallery_id, Some(photo_id))
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
     Ok(HttpResponse::Ok().no_store().json(Requeued { requeued }))
 }
 
-#[get("/{id}/photos/{photo_id}/thumbnail")]
-async fn thumbnail(
-    state: Data<ApiState>,
-    Authenticated(identity): Authenticated,
-    path: WebPath<(GalleryId, PhotoId)>,
-) -> Result<HttpResponse, ErrorResponse> {
-    let (gallery_id, photo_id) = path.into_inner();
-
-    derivative(
-        &state,
-        identity.workspace_id,
-        gallery_id,
-        photo_id,
-        Variant::Thumbnail,
-    )
-    .await
+/// The photo files clients may fetch; the original is deliberately absent, so its path does
+/// not match.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Derivative {
+    Thumbnail,
+    Preview,
 }
 
-#[get("/{id}/photos/{photo_id}/preview")]
-async fn preview(
-    state: Data<ApiState>,
-    Authenticated(identity): Authenticated,
-    path: WebPath<(GalleryId, PhotoId)>,
-) -> Result<HttpResponse, ErrorResponse> {
-    let (gallery_id, photo_id) = path.into_inner();
-
-    derivative(
-        &state,
-        identity.workspace_id,
-        gallery_id,
-        photo_id,
-        Variant::Preview,
-    )
-    .await
+impl From<Derivative> for Variant {
+    fn from(derivative: Derivative) -> Self {
+        match derivative {
+            Derivative::Thumbnail => Self::Thumbnail,
+            Derivative::Preview => Self::Preview,
+        }
+    }
 }
 
 /// Serves a derivative of a ready photo; anything else, including a file removed meanwhile,
 /// is not found.
-async fn derivative(
-    state: &ApiState,
-    workspace_id: WorkspaceId,
-    gallery_id: GalleryId,
-    photo_id: PhotoId,
-    variant: Variant,
-) -> Result<HttpResponse, ErrorResponse> {
+#[get("/{id}/photos/{photo_id}/{derivative}")]
+async fn serve_derivative(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    path: WebPath<(GalleryId, PhotoId, Derivative)>,
+) -> Result<ImageFile, ErrorResponse> {
+    let (gallery_id, photo_id, derivative) = path.into_inner();
     let photo = state
         .database()
         .repository::<PhotoRepository>()
-        .get(workspace_id, gallery_id, photo_id)
+        .get(identity.workspace_id, gallery_id, photo_id)
         .await?;
 
     if !matches!(photo, Some(photo) if photo.status == PhotoStatus::Ready) {
@@ -167,10 +142,10 @@ async fn derivative(
     }
 
     let key = PhotoKey {
-        workspace: workspace_id,
+        workspace: identity.workspace_id,
         gallery: gallery_id,
         photo: photo_id,
-        variant,
+        variant: derivative.into(),
     };
     let mut file = match state.storage().read(&key).await {
         Ok(file) => file,
@@ -183,11 +158,7 @@ async fn derivative(
         .await
         .map_err(|error| ErrorResponse::from(StorageError::from(error)))?;
 
-    Ok(HttpResponse::Ok()
-        .content_type(ContentType::jpeg())
-        .private_cache()
-        .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
-        .body(bytes))
+    Ok(ImageFile::jpeg(bytes))
 }
 
 #[post("/{id}/photos")]
@@ -284,6 +255,7 @@ mod tests {
         fs,
         num::{NonZeroU64, NonZeroUsize},
         path::{Path, PathBuf},
+        time::Duration,
     };
 
     use actix_web::{
@@ -296,8 +268,13 @@ mod tests {
     };
     use futures_util::stream;
     use libvips::ops::{black, jpegsave_buffer};
-    use pp_core::config::PhotoDir;
-    use pp_database::{Database, gallery::GalleryRepository};
+    use pp_core::{config::PhotoDir, notifications::PhotoId};
+    use pp_database::{
+        Database,
+        gallery::GalleryRepository,
+        jobs::{JobKind, JobRepository, PhotoResult, PhotoUpdate, ProcessPhoto},
+        photo::{PhotoRepository, PhotoStatus},
+    };
     use pp_storage::PhotoStorage;
     use serde_json::Value;
     use sqlx::PgPool;
@@ -990,46 +967,73 @@ mod tests {
         assert_eq!(body["error"], "not found");
     }
 
-    /// Uploads a photo and forces it into `status`, returning its id.
-    async fn photo_with_status<S>(
-        app: &S,
-        pool: &PgPool,
-        cookie: &Cookie<'static>,
-        gallery_id: &str,
-        status: &str,
-    ) -> String
+    /// How far a test photo got through processing.
+    #[derive(Clone, Copy, Debug)]
+    enum Progress {
+        Processing,
+        Ready,
+        Failed,
+    }
+
+    /// Uploads a photo, which then waits for processing, returning its id.
+    async fn waiting_photo<S>(app: &S, cookie: &Cookie<'static>, gallery_id: &str) -> String
     where
         S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
     {
         let request = upload_request(cookie, gallery_id, "a.jpg", "image/jpeg", &jpeg(2, 1), None);
-        let (upload_status, photo) = call_request(app, request).await;
+        let (status, photo) = call_request(app, request).await;
 
-        assert_eq!(upload_status, StatusCode::CREATED);
+        assert_eq!(status, StatusCode::CREATED);
 
-        let id = photo["id"].as_str().unwrap().to_owned();
-        let reason = (status == "failed").then_some("The image could not be read.");
+        photo["id"].as_str().unwrap().to_owned()
+    }
 
-        sqlx::query(
-            "UPDATE photos SET status = $2::photo_status, failure_reason = $3 WHERE id = $1",
-        )
-        .bind(Uuid::parse_str(&id).unwrap())
-        .bind(status)
-        .bind(reason)
-        .execute(pool)
-        .await
-        .unwrap();
-
-        if status == "failed" {
-            sqlx::query(
-                "UPDATE jobs SET state = 'failed' WHERE payload->'payload'->>'photo_id' = $1",
-            )
-            .bind(&id)
-            .execute(pool)
+    /// Uploads a photo and moves it to `progress` as the worker would, returning its id.
+    ///
+    /// Claims the oldest queued job, so earlier photos must not still be waiting.
+    async fn photo_in<S>(
+        app: &S,
+        pool: &PgPool,
+        cookie: &Cookie<'static>,
+        gallery_id: &str,
+        progress: Progress,
+    ) -> String
+    where
+        S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
+    {
+        let id = waiting_photo(app, cookie, gallery_id).await;
+        let photo_id = photo_id(&id);
+        let database = Database::new(pool.clone());
+        let jobs = database.repository::<JobRepository>();
+        let job = jobs
+            .claim(&[JobKind::ProcessPhoto], Duration::from_secs(60))
             .await
+            .unwrap()
             .unwrap();
-        }
+
+        assert_eq!(job.payload::<ProcessPhoto>().unwrap().photo_id, photo_id);
+
+        let result = match progress {
+            Progress::Processing => {
+                let photos = database.repository::<PhotoRepository>();
+
+                assert!(photos.mark_processing(photo_id).await.unwrap());
+
+                return id;
+            }
+            Progress::Ready => PhotoResult::Ready,
+            Progress::Failed => PhotoResult::Failed("The image could not be read."),
+        };
+        let (completion, update) = jobs.complete_photo(&job, photo_id, result).await.unwrap();
+
+        assert!(completion.is_current());
+        assert_eq!(update, PhotoUpdate::Saved);
 
         id
+    }
+
+    fn photo_id(id: &str) -> PhotoId {
+        PhotoId::from(Uuid::parse_str(id).unwrap())
     }
 
     /// Writes a derivative file where the worker would store it.
@@ -1039,18 +1043,18 @@ mod tests {
         photo_id: &str,
         variant: &str,
     ) -> Vec<u8> {
-        let (workspace, gallery): (Uuid, Uuid) =
-            sqlx::query_as("SELECT workspace_id, gallery_id FROM photos WHERE id = $1")
-                .bind(Uuid::parse_str(photo_id).unwrap())
-                .fetch_one(pool)
-                .await
-                .unwrap();
+        let location = Database::new(pool.clone())
+            .repository::<PhotoRepository>()
+            .locate(self::photo_id(photo_id))
+            .await
+            .unwrap()
+            .unwrap();
         let bytes = format!("{variant} bytes").into_bytes();
 
         fs::write(
             photo_dir
-                .join(workspace.to_string())
-                .join(gallery.to_string())
+                .join(location.workspace_id.0.to_string())
+                .join(location.gallery_id.0.to_string())
                 .join(format!("{photo_id}-{variant}")),
             &bytes,
         )
@@ -1059,12 +1063,17 @@ mod tests {
         bytes
     }
 
-    async fn photo_status(pool: &PgPool, photo_id: &str) -> String {
-        sqlx::query_scalar("SELECT status::text FROM photos WHERE id = $1")
-            .bind(Uuid::parse_str(photo_id).unwrap())
-            .fetch_one(pool)
+    async fn photo_status(pool: &PgPool, id: &str) -> PhotoStatus {
+        let database = Database::new(pool.clone());
+        let photos = database.repository::<PhotoRepository>();
+        let location = photos.locate(photo_id(id)).await.unwrap().unwrap();
+
+        photos
+            .get(location.workspace_id, location.gallery_id, photo_id(id))
             .await
             .unwrap()
+            .unwrap()
+            .status
     }
 
     async fn queued_jobs(pool: &PgPool, photo_id: &str) -> i64 {
@@ -1105,10 +1114,10 @@ mod tests {
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
         let failed = [
-            photo_with_status(&app, &pool, &cookie, &gallery_id, "failed").await,
-            photo_with_status(&app, &pool, &cookie, &gallery_id, "failed").await,
+            photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await,
+            photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await,
         ];
-        let ready = photo_with_status(&app, &pool, &cookie, &gallery_id, "ready").await;
+        let ready = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
 
         let (status, body) = call_request(
             &app,
@@ -1120,11 +1129,11 @@ mod tests {
         assert_eq!(body, serde_json::json!({"requeued": 2}));
 
         for id in &failed {
-            assert_eq!(photo_status(&pool, id).await, "waiting");
+            assert_eq!(photo_status(&pool, id).await, PhotoStatus::Waiting);
             assert_eq!(queued_jobs(&pool, id).await, 1);
         }
 
-        assert_eq!(photo_status(&pool, &ready).await, "ready");
+        assert_eq!(photo_status(&pool, &ready).await, PhotoStatus::Ready);
 
         let (_, body) = call_request(
             &app,
@@ -1141,8 +1150,8 @@ mod tests {
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
-        let target = photo_with_status(&app, &pool, &cookie, &gallery_id, "failed").await;
-        let other = photo_with_status(&app, &pool, &cookie, &gallery_id, "failed").await;
+        let target = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await;
+        let other = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await;
 
         let (status, body) = call_request(
             &app,
@@ -1155,8 +1164,11 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, serde_json::json!({"requeued": 1}));
-        assert_eq!(photo_status(&pool, &target).await, "waiting");
-        assert_eq!(photo_status(&pool, &other).await, "failed");
+        assert_eq!(photo_status(&pool, &target).await, PhotoStatus::Waiting);
+        assert!(matches!(
+            photo_status(&pool, &other).await,
+            PhotoStatus::Failed(_)
+        ));
         assert_eq!(queued_jobs(&pool, &other).await, 0);
     }
 
@@ -1166,7 +1178,7 @@ mod tests {
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
-        let photo = photo_with_status(&app, &pool, &cookie, &gallery_id, "failed").await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await;
         let foreign_gallery = Database::new(pool.clone())
             .repository::<GalleryRepository>()
             .create(other_workspace(&pool).await)
@@ -1194,7 +1206,10 @@ mod tests {
             assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
         }
 
-        assert_eq!(photo_status(&pool, &photo).await, "failed");
+        assert!(matches!(
+            photo_status(&pool, &photo).await,
+            PhotoStatus::Failed(_)
+        ));
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -1203,7 +1218,7 @@ mod tests {
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
-        let photo = photo_with_status(&app, &pool, &cookie, &gallery_id, "ready").await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
 
         for variant in ["thumbnail", "preview"] {
             let stored = store_derivative(&pool, directory.path(), &photo, variant).await;
@@ -1237,9 +1252,14 @@ mod tests {
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
 
-        for state in ["waiting", "processing", "failed"] {
-            let photo = photo_with_status(&app, &pool, &cookie, &gallery_id, state).await;
+        // The waiting photo comes last: its queued job would otherwise be claimed first.
+        let photos = [
+            photo_in(&app, &pool, &cookie, &gallery_id, Progress::Processing).await,
+            photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await,
+            waiting_photo(&app, &cookie, &gallery_id).await,
+        ];
 
+        for photo in photos {
             store_derivative(&pool, directory.path(), &photo, "thumbnail").await;
 
             let (status, _) = call_request(
@@ -1251,7 +1271,7 @@ mod tests {
             )
             .await;
 
-            assert_eq!(status, StatusCode::NOT_FOUND, "{state}");
+            assert_eq!(status, StatusCode::NOT_FOUND, "{photo}");
         }
     }
 
@@ -1262,7 +1282,7 @@ mod tests {
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
         let other_gallery = create_gallery(&app, &cookie).await;
-        let photo = photo_with_status(&app, &pool, &cookie, &gallery_id, "ready").await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
 
         store_derivative(&pool, directory.path(), &photo, "thumbnail").await;
 
@@ -1294,7 +1314,7 @@ mod tests {
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
-        let photo = photo_with_status(&app, &pool, &cookie, &gallery_id, "ready").await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
 
         store_derivative(&pool, directory.path(), &photo, "thumbnail").await;
 
@@ -1313,7 +1333,7 @@ mod tests {
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
-        let photo = photo_with_status(&app, &pool, &cookie, &gallery_id, "ready").await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
 
         for path in [
             "original",

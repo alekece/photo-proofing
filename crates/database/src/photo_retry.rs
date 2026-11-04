@@ -37,7 +37,7 @@ impl PhotoRetry<'_> {
         photo: Option<PhotoId>,
     ) -> Result<Option<u64>, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
-        let owned: bool = sqlx::query_scalar(
+        let target_exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM galleries WHERE id = $2 AND workspace_id = $1)
                 AND ($3::uuid IS NULL OR EXISTS(
                     SELECT 1 FROM photos
@@ -49,12 +49,12 @@ impl PhotoRetry<'_> {
         .fetch_one(&mut *transaction)
         .await?;
 
-        if !owned {
+        if !target_exists {
             return Ok(None);
         }
 
         // Row locks make a concurrent retry wait, then find the photos no longer failed.
-        let requeued: Vec<PhotoId> = sqlx::query_scalar(
+        let requeued_photo_ids: Vec<PhotoId> = sqlx::query_scalar(
             "UPDATE photos SET status = 'waiting', failure_reason = NULL
              WHERE workspace_id = $1 AND gallery_id = $2 AND status = 'failed'
                AND ($3::uuid IS NULL OR id = $3)
@@ -65,7 +65,10 @@ impl PhotoRetry<'_> {
         .bind(photo)
         .fetch_all(&mut *transaction)
         .await?;
-        let photo_ids = requeued.iter().map(ToString::to_string).collect::<Vec<_>>();
+        let photo_ids = requeued_photo_ids
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
 
         sqlx::query(
             "DELETE FROM jobs
@@ -75,7 +78,7 @@ impl PhotoRetry<'_> {
         .execute(&mut *transaction)
         .await?;
 
-        for &photo_id in &requeued {
+        for &photo_id in &requeued_photo_ids {
             let payload = JobPayload::ProcessPhoto(ProcessPhoto { photo_id });
 
             JobRepository::enqueue_in(&mut transaction, payload, DEFAULT_MAX_ATTEMPTS).await?;
@@ -83,7 +86,7 @@ impl PhotoRetry<'_> {
 
         transaction.commit().await?;
 
-        Ok(Some(requeued.len() as u64))
+        Ok(Some(requeued_photo_ids.len() as u64))
     }
 }
 
