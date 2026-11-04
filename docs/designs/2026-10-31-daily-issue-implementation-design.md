@@ -23,7 +23,7 @@ The maintainer designs issues (brainstorm, written design, approval) but impleme
 ## Constraints
 
 - Default branch is `main`; runs are on GitHub Actions via gh-aw (copilot engine, `strict`), safe-outputs only for writes, matching the existing `specification-alignment-review` workflow.
-- `AGENTS.md` flow applies: design in `docs/superpowers/specs/`, plan in `docs/superpowers/plans/` on the working branch (removed before final merge), branch `feature/<issue>-<name>`, PR references the issue, assigned to the maintainer, fresh-agent review before delivery, squash merge by the maintainer only.
+- `AGENTS.md` flow applies: design in `docs/designs/`, plan in `docs/plans/` on the working branch (removed before final merge), branch `feature/<issue>-<name>`, PR references the issue, assigned to the maintainer, fresh-agent review before delivery, squash merge by the maintainer only.
 - A scheduled run sees `main`; designs live on feature branches until the implementation PR merges them (maintainer's decision), so the issue links its spec on that branch.
 - CI must run on agent-created PRs, which the default `GITHUB_TOKEN` does not trigger.
 - Labels that exist: `agent`, `needs-attention`, `blocked`, `needs-review`.
@@ -32,7 +32,7 @@ The maintainer designs issues (brainstorm, written design, approval) but impleme
 
 An issue is eligible when ALL hold:
 1. It has neither `needs-attention` nor `blocked`. (`needs-attention` is removed by the maintainer once the design is approved and linked.)
-2. Its References link an existing design spec file on a branch (`docs/superpowers/specs/*-design.md`); the file must resolve.
+2. Its References link an existing design spec file on a branch (`docs/designs/*-design.md`); the file must resolve.
 3. No open blocker. A blocked issue is not started; if its blocker is itself eligible, the blocker is selected instead.
 4. It has no open linked PR already.
 
@@ -47,7 +47,7 @@ Up to X eligible issues are selected per run. Blockers chosen this way count tow
 ## Design (as decided)
 
 - **Selector** (`daily-issue-selection.md`): `schedule` daily plus `workflow_dispatch`; read-only permissions; reads open issues, labels, bodies, blockers, linked PRs; applies Eligibility; uses `safe-outputs.dispatch-workflow` (max = X) to start `implement-issue` once per selected issue with input `issue_number`. Posts nothing else.
-- **Worker** (`implement-issue.md`): `workflow_dispatch` with input `issue_number`; checks out the issue's design branch; reads `AGENTS.md`, the issue and its design; rebases the branch on `main`; writes the plan under `docs/superpowers/plans/`; implements per the plan; runs `cargo fmt/clippy` and `pnpm check/test` where possible (network allowed for `rust` and `node` ecosystems); invokes an inline reviewer sub-agent (fresh context, not the author) for a whole-diff review; fixes material findings once; opens the PR (assigned to the maintainer, references the issue, `agent` + `needs-review` labels) via `create-pull-request`.
+- **Worker** (`implement-issue.md`): `workflow_dispatch` with input `issue_number`; checks out the issue's design branch; reads `AGENTS.md`, the issue and its design; rebases the branch on `main`; writes the plan under `docs/plans/`; implements per the plan; runs `cargo fmt/clippy` and `pnpm check/test` where possible (network allowed for `rust` and `node` ecosystems); invokes an inline reviewer sub-agent (fresh context, not the author) for a whole-diff review; fixes material findings once; opens the PR (assigned to the maintainer, references the issue, `agent` + `needs-review` labels) via `create-pull-request`.
 - **Red flag:** if the reviewer reports a critical/major problem the worker cannot resolve, a scope or design contradiction, or tests/lint that cannot pass, the worker still opens the PR (draft), adds `blocked` + `needs-attention` to both the issue and the PR, and posts the problems as review threads/comment. It never marks such a PR ready.
 - **CI on the PR:** the worker's safe outputs mint a short-lived GitHub App installation token (`safe-outputs.github-app`, from the repository variable `APP_ID` and secret `APP_PRIVATE_KEY`); because that App token pushes the PR branch, PR CI runs.
 - **Observability:** each run ends with a short issue comment linking the PR (or explaining why nothing was done).

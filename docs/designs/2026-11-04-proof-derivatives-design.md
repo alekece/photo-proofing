@@ -1,7 +1,7 @@
 # Proof thumbnails and previews
 
 Issue: #99. Requirements: FR-05, FR-06, NF-02, NF-04, TC-03, TC-04 and AC-06 in
-[the product specifications](../../SPECIFICATIONS.md).
+[the product specifications](../SPECIFICATIONS.md).
 Foundations: [photo storage](2026-10-31-photo-storage-design.md) (#96),
 [job queue](2026-10-31-job-queue-design.md) (#97) and
 [photo upload](2026-10-31-photo-upload-design.md) (#98, #132).

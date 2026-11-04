@@ -1,6 +1,6 @@
 # ADR 0002 — Revocable PostgreSQL sessions
 
-Status: Accepted through the approved [account-session design](../superpowers/specs/2026-10-29-account-sessions-design.md), issue [#63](https://github.com/alekece/photo-proofing/issues/63).
+Status: Accepted through the approved [account-session design](../designs/2026-10-29-account-sessions-design.md), issue [#63](https://github.com/alekece/photo-proofing/issues/63).
 
 ## Context
 
