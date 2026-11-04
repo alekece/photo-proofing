@@ -28,9 +28,10 @@ flowchart LR
     F --> G["201: stored photo metadata<br/>Processing status: waiting"]
 ```
 
-Origin failure returns 403. Extraction can return 401 for a missing/invalid session or 503
-when no upload slot is available; these are not sequential body-processing steps. Eager
-admission may return 503 before authentication or gallery/header validation completes.
+Origin failure returns 403. Extraction can return 401 for a missing/invalid session or 429
+with `Retry-After` when no upload slot is available; these are not sequential body-processing
+steps. Eager admission may return 429 before authentication or gallery/header validation
+completes.
 
 The route reads as these steps; storage mechanics and database commit recovery stay behind
 their respective boundaries. Success returns database metadata, never image bytes and never
@@ -67,7 +68,9 @@ displayed ones: EXIF orientations 5 to 8 swap width and height.
 | Malformed Content-Length or interrupted payload | 400 |
 | Empty/invalid JPEG header or excessive dimensions | 422 |
 | No body chunk for 30 seconds | 408 |
-| Admission exhausted, storage full or infrastructure failure | 503 |
+| Admission exhausted | 429 with `Retry-After` |
+| Storage full | 507 |
+| Infrastructure failure | 503 |
 
 ## Bounds and ownership
 
