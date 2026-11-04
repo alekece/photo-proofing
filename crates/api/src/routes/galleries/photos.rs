@@ -79,7 +79,7 @@ impl FromRequest for PhotoSelection {
     type Future = LocalBoxFuture<'static, Result<Self, ErrorResponse>>;
 
     fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
-        let body = JsonBody::<Self>::new(request, payload, None, false).limit(Self::JSON_LIMIT);
+        let body = JsonBody::<Self>::new(request, payload, None, true).limit(Self::JSON_LIMIT);
 
         Box::pin(async move {
             let selection = body.await?;
@@ -1731,6 +1731,26 @@ pub(crate) mod tests {
 
             assert_eq!(status, expected, "{body:.40}");
         }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn bulk_delete_requires_a_json_content_type(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = waiting_photo(&app, &cookie, &gallery_id).await;
+        let request = test::TestRequest::post()
+            .uri(&format!("/api/v1/galleries/{gallery_id}/photos/delete"))
+            .insert_header(("Origin", ORIGIN))
+            .insert_header(("Content-Type", "text/plain"))
+            .cookie(cookie)
+            .set_payload(photo_ids(&[&photo]))
+            .to_request();
+        let (status, _) = call_request(&app, request).await;
+
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        assert_eq!(photo_status(&pool, &photo).await, PhotoStatus::Waiting);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
