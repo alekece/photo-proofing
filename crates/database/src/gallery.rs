@@ -95,6 +95,18 @@ pub enum GalleryLayout {
     Masonry,
 }
 
+/// Where a gallery stands. Exactly one of `Draft`, `Shared` and `Delivered` always applies;
+/// `Archived` and `Expired` are flags that can come on top of any of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GalleryState {
+    Draft,
+    Shared,
+    Delivered,
+    Archived,
+    Expired,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Gallery {
     pub id: GalleryId,
@@ -108,6 +120,8 @@ pub struct Gallery {
     pub watermark_enabled: bool,
     /// `None` means the gallery has not been shared.
     pub share_token: Option<ShareToken>,
+    /// The progress state first, then `Archived` and `Expired` when they apply.
+    pub states: Vec<GalleryState>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }
@@ -124,6 +138,23 @@ impl FromRow<'_, PgRow> for Gallery {
             })
             .transpose()?;
 
+        let progress = if row.try_get::<Option<Timestamp>, _>("delivered_at")?.is_some() {
+            GalleryState::Delivered
+        } else if row.try_get::<Option<Timestamp>, _>("shared_at")?.is_some() {
+            GalleryState::Shared
+        } else {
+            GalleryState::Draft
+        };
+        let mut states = vec![progress];
+
+        if row.try_get::<Option<Timestamp>, _>("archived_at")?.is_some() {
+            states.push(GalleryState::Archived);
+        }
+
+        if row.try_get::<bool, _>("expired")? {
+            states.push(GalleryState::Expired);
+        }
+
         Ok(Self {
             id: row.try_get("id")?,
             title: row.try_get("title")?,
@@ -132,6 +163,7 @@ impl FromRow<'_, PgRow> for Gallery {
             included_photos,
             watermark_enabled: row.try_get("watermark_enabled")?,
             share_token: row.try_get("share_token")?,
+            states,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
         })
@@ -239,7 +271,7 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
 
 impl GalleryRepository<'_> {
     // Interpolated identifiers are fixed here or selected from GallerySort's closed enum.
-    const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,share_token,created_at,updated_at";
+    const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,share_token,shared_at,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
 
     /// Creates an untitled gallery with the default settings.
     pub async fn create(&self, workspace_id: WorkspaceId) -> Result<Gallery, DatabaseError> {
@@ -292,7 +324,8 @@ impl GalleryRepository<'_> {
     ) -> Result<Option<Gallery>, DatabaseError> {
         // The row lock taken by UPDATE makes concurrent calls converge on the first token.
         Ok(sqlx::query_as(AssertSqlSafe(format!(
-            "UPDATE galleries SET share_token = COALESCE(share_token, $3)
+            "UPDATE galleries SET share_token = COALESCE(share_token, $3),
+                 shared_at = COALESCE(shared_at, now())
              WHERE id=$1 AND workspace_id=$2
              RETURNING {}",
             Self::COLUMNS
@@ -398,6 +431,160 @@ mod tests {
 
     fn changes(value: serde_json::Value) -> GalleryChanges {
         serde_json::from_value(value).unwrap()
+    }
+
+    async fn set_column(pool: &PgPool, id: GalleryId, column: &str, value: &str) {
+        sqlx::query(AssertSqlSafe(format!(
+            "UPDATE galleries SET {column} = {value} WHERE id = $1"
+        )))
+        .bind(id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn states_follow_the_timestamps(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let gallery = store.create(workspace).await.unwrap();
+
+        assert_eq!(gallery.states, [GalleryState::Draft]);
+
+        let shared = store.share(workspace, gallery.id).await.unwrap().unwrap();
+
+        assert_eq!(shared.states, [GalleryState::Shared]);
+
+        set_column(&pool, gallery.id, "delivered_at", "now()").await;
+        let delivered = store.get(workspace, gallery.id).await.unwrap().unwrap();
+
+        assert_eq!(delivered.states, [GalleryState::Delivered]);
+
+        set_column(&pool, gallery.id, "archived_at", "now()").await;
+        let archived = store.get(workspace, gallery.id).await.unwrap().unwrap();
+
+        assert_eq!(
+            archived.states,
+            [GalleryState::Delivered, GalleryState::Archived]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn expired_is_a_flag_on_any_progress_state(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let gallery = store.create(workspace).await.unwrap();
+
+        set_column(&pool, gallery.id, "expires_at", "now() + interval '1 day'").await;
+        let future = store.get(workspace, gallery.id).await.unwrap().unwrap();
+
+        assert_eq!(future.states, [GalleryState::Draft]);
+
+        set_column(&pool, gallery.id, "expires_at", "now() - interval '1 day'").await;
+        set_column(&pool, gallery.id, "archived_at", "now()").await;
+        let past = store.get(workspace, gallery.id).await.unwrap().unwrap();
+
+        assert_eq!(
+            past.states,
+            [
+                GalleryState::Draft,
+                GalleryState::Archived,
+                GalleryState::Expired
+            ]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn share_records_when_the_link_was_created(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let gallery = store.create(workspace).await.unwrap();
+        let first = store.share(workspace, gallery.id).await.unwrap().unwrap();
+        let shared_at = |id: GalleryId| {
+            let pool = pool.clone();
+
+            async move {
+                sqlx::query_scalar::<_, Option<Timestamp>>(
+                    "SELECT shared_at FROM galleries WHERE id = $1",
+                )
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            }
+        };
+        let recorded = shared_at(gallery.id).await;
+
+        assert!(recorded.is_some());
+
+        store.share(workspace, gallery.id).await.unwrap();
+
+        assert_eq!(shared_at(gallery.id).await, recorded);
+        assert_eq!(first.updated_at, gallery.updated_at);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn migration_backfills_shared_at(pool: PgPool) {
+        let mut transaction = pool.begin().await.unwrap();
+        let schema = format!("gallery_states_migration_{}", Uuid::new_v4().simple());
+
+        sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(AssertSqlSafe(format!("SET LOCAL search_path TO {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        for migration in [
+            include_str!("../migrations/0001_accounts_sessions.sql"),
+            include_str!("../migrations/0002_galleries.sql"),
+            include_str!("../migrations/0003_share_tokens.sql"),
+        ] {
+            sqlx::raw_sql(migration)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        let workspace = Uuid::new_v4();
+
+        sqlx::query("INSERT INTO workspaces(id) VALUES ($1)")
+            .bind(workspace)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO galleries(id, workspace_id, share_token, updated_at) VALUES
+                 ($1, $3, 'AAAAAAAAAAAAAAAAAAAAAA', '2026-10-31 10:00:00+00'),
+                 ($2, $3, NULL, '2026-10-31 11:00:00+00')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(Uuid::new_v4())
+        .bind(workspace)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!("../migrations/0008_gallery_states.sql"))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let rows: Vec<(Option<Timestamp>, Timestamp)> = sqlx::query_as(
+            "SELECT shared_at, updated_at FROM galleries ORDER BY updated_at",
+        )
+        .fetch_all(&mut *transaction)
+        .await
+        .unwrap();
+
+        assert_eq!(rows[0].0, Some(rows[0].1));
+        assert_eq!(rows[1].0, None);
+
+        transaction.rollback().await.unwrap();
     }
 
     #[sqlx::test(migrations = "./migrations")]
