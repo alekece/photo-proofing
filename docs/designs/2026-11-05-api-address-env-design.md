@@ -30,7 +30,9 @@ the duplicated fallback go away.
 
 The failure happens on the first request rather than at server start. SvelteKit has no startup
 hook here, and adapter-node also runs the build step, where the variable is legitimately absent.
-The thrown error becomes a 500. The variable name appears in the server log, not on the page.
+Callers resolve `apiUrl(path)` before their `try` around `fetch`. Otherwise the existing catch
+blocks would turn the configuration error into an ordinary 503 and hide it. Left uncaught,
+SvelteKit logs it with the variable name and shows the generic error page.
 
 The README sections that describe the default (setup and deployment) are updated: the default
 applies to `pnpm dev` only, and production must set the variable.
@@ -42,3 +44,6 @@ Unit tests for `apiUrl` mock `$env/dynamic/private` and `$app/environment`. They
 - dev with no value (default);
 - production with no value (error naming the variable);
 - a trailing slash in the configured value.
+
+Caller tests check that `getAuthStatus` and the gallery readers let the named error through
+rather than turning it into a 503.
