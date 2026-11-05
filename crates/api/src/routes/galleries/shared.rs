@@ -3,6 +3,7 @@
 //! - `GET /` returns the title, layout and expiry of the gallery behind a private link.
 //! - `GET /photos` lists the photos the client may see, with their displayed size.
 //! - `GET /photos/{photo_id}/thumbnail|preview` serves one of those photos.
+//! - `GET /events` streams selection changes of this gallery (see [`events`]).
 //! - `GET /favorites` lists the ids the client selected; `PUT|DELETE /favorites/{photo_id}`
 //!   selects or unselects one, idempotently, until the gallery is delivered (409).
 //!
@@ -25,6 +26,7 @@ use crate::{
     error::ErrorResponse,
     extractors::client_access::{ClientAccess, ClientPhotoSet},
     response::{ImageFile, ResponseBuilderExt},
+    routes::events,
 };
 
 /// Registers the client routes inside the `/api/v1/galleries` scope.
@@ -34,6 +36,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(list_favorites)
         .service(add_favorite)
         .service(remove_favorite)
+        .service(events::stream_shared_events)
         .service(serve_shared_photo);
 }
 

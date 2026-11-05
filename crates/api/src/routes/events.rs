@@ -1,20 +1,29 @@
-//! `GET /api/v1/events`: the signed-in workspace's live photo changes as Server-Sent Events.
+//! Live changes as Server-Sent Events: `GET /api/v1/events` for the signed-in workspace, and
+//! `GET /api/v1/galleries/shared/{token}/events` for the selection of one shared gallery.
 //!
 //! A stream starts with a `resync` event, then sends `photo` events
 //! (`{workspace_id, gallery_id, photo_id, status}`) and `favorites` events (`{workspace_id,
 //! gallery_id}`, a client changed a selection) for its own workspace only, and `resync` again whenever
 //! events may have been lost. It holds the session read-only: on every keep-alive tick it checks
-//! the session is still valid, never extending it, and ends once it is not.
+//! the session is still valid, never extending it, and ends once it is not. A shared-link stream
+//! sends only `favorites` events of its gallery (and `resync`) and ends once the link stops
+//! working.
 
 use std::time::SystemTime;
 
-use actix_web::{Responder, get, web::Data};
+use actix_web::{
+    Responder, get,
+    web::{Data, Path},
+};
 use actix_web_lab::sse::{self, Sse};
 use futures_util::{
     future,
     stream::{self, Stream, StreamExt},
 };
-use pp_database::auth::{AuthRepository, WorkspaceId};
+use pp_database::{
+    auth::{AuthRepository, WorkspaceId},
+    gallery::{GalleryId, GalleryRepository, ShareToken},
+};
 use tokio::{
     sync::broadcast::error::RecvError,
     time::{self, Instant, Interval, MissedTickBehavior},
@@ -23,19 +32,80 @@ use tokio::{
 use crate::{
     api::ApiState,
     error::ErrorResponse,
-    events::{Broadcast, EventHub, Subscription},
+    events::{Broadcast, EventHub, StreamOwner, Subscription},
     extractors::{
+        client_access::ClientAccess,
         identity::Authenticated,
         session_token::{SessionToken, TokenHash},
     },
 };
 
+/// Who a stream serves, which decides what it may see and what keeps it open.
+enum Scope {
+    Workspace {
+        token: TokenHash,
+        workspace_id: WorkspaceId,
+    },
+    Link {
+        token: ShareToken,
+        gallery_id: GalleryId,
+    },
+}
+
+impl Scope {
+    fn admits(&self, broadcast: &Broadcast) -> bool {
+        match (self, broadcast) {
+            (_, Broadcast::Resync) => true,
+            (Self::Workspace { workspace_id, .. }, Broadcast::Photo(event)) => {
+                event.workspace_id == *workspace_id
+            }
+            (Self::Workspace { workspace_id, .. }, Broadcast::Favorites(event)) => {
+                event.workspace_id == *workspace_id
+            }
+            (Self::Link { gallery_id, .. }, Broadcast::Favorites(event)) => {
+                event.gallery_id == *gallery_id
+            }
+            (Self::Link { .. }, Broadcast::Photo(_)) => false,
+        }
+    }
+
+    /// A database failure keeps the stream: it says nothing about the session or link, and the
+    /// next tick checks again.
+    async fn is_valid(&self, state: &ApiState) -> bool {
+        match self {
+            Self::Workspace { token, .. } => !matches!(
+                state
+                    .database()
+                    .repository::<AuthRepository>()
+                    .authenticate(token.as_bytes(), SystemTime::now())
+                    .await,
+                Ok(None)
+            ),
+            Self::Link { token, .. } => !matches!(
+                state
+                    .database()
+                    .repository::<GalleryRepository>()
+                    .find_shared(token)
+                    .await,
+                Ok(None)
+            ),
+        }
+    }
+
+    /// The link token is a bearer credential, so a link stream is logged by gallery.
+    fn log_fields(&self) -> String {
+        match self {
+            Self::Workspace { workspace_id, .. } => format!("workspace {}", workspace_id.0),
+            Self::Link { gallery_id, .. } => format!("gallery {}", gallery_id.0),
+        }
+    }
+}
+
 /// One open stream; dropping it (the browser left) frees its hub slot.
 struct EventStream {
     subscription: Subscription,
     state: Data<ApiState>,
-    token: TokenHash,
-    workspace_id: WorkspaceId,
+    scope: Scope,
     session_check: Interval,
 }
 
@@ -63,8 +133,7 @@ impl EventStream {
         loop {
             tokio::select! {
                 received = self.subscription.receiver.recv() => match received {
-                    Ok(Broadcast::Photo(event)) if event.workspace_id != self.workspace_id => {}
-                    Ok(Broadcast::Favorites(event)) if event.workspace_id != self.workspace_id => {}
+                    Ok(broadcast) if !self.scope.admits(&broadcast) => {}
                     Ok(broadcast) => return Some(broadcast),
                     Err(RecvError::Lagged(_)) => return Some(Broadcast::Resync),
                     Err(RecvError::Closed) => return None,
@@ -74,8 +143,8 @@ impl EventStream {
                     let cancellation_token = &self.subscription.cancellation_token;
 
                     // A slow check must not hold the stream open past shutdown.
-                    if cancellation_token.run_until_cancelled(self.session_is_valid()).await
-                        != Some(true)
+                    if cancellation_token.run_until_cancelled(self.scope.is_valid(&self.state))
+                        .await != Some(true)
                     {
                         return None;
                     }
@@ -83,24 +152,11 @@ impl EventStream {
             }
         }
     }
-
-    /// A database failure keeps the stream: it says nothing about the session, and the next
-    /// tick checks again.
-    async fn session_is_valid(&self) -> bool {
-        let identity = self
-            .state
-            .database()
-            .repository::<AuthRepository>()
-            .authenticate(self.token.as_bytes(), SystemTime::now())
-            .await;
-
-        !matches!(identity, Ok(None))
-    }
 }
 
 impl Drop for EventStream {
     fn drop(&mut self) {
-        tracing::info!(workspace_id = %self.workspace_id.0, "event stream closed");
+        tracing::info!(scope = %self.scope.log_fields(), "event stream closed");
     }
 }
 
@@ -127,24 +183,53 @@ pub(crate) async fn stream_events(
     hub: Data<EventHub>,
 ) -> Result<impl Responder, ErrorResponse> {
     let workspace_id = identity.workspace_id;
+    let scope = Scope::Workspace {
+        token: token.digest(),
+        workspace_id,
+    };
+
+    open(state, &hub, workspace_id.into(), scope)
+}
+
+/// The selection of the gallery behind a private link, for every browser that has it open.
+#[get("/shared/{token}/events")]
+pub(crate) async fn stream_shared_events(
+    access: ClientAccess,
+    token: Path<String>,
+    state: Data<ApiState>,
+    hub: Data<EventHub>,
+) -> Result<impl Responder, ErrorResponse> {
+    let gallery_id = access.0.location.gallery_id;
+    // `ClientAccess` has parsed this very segment.
+    let token = token.parse().map_err(|_| ErrorResponse::not_found())?;
+    let scope = Scope::Link { token, gallery_id };
+
+    open(state, &hub, gallery_id.into(), scope)
+}
+
+fn open(
+    state: Data<ApiState>,
+    hub: &EventHub,
+    owner: StreamOwner,
+    scope: Scope,
+) -> Result<impl Responder + use<>, ErrorResponse> {
     let subscription = hub
-        .subscribe(workspace_id)
+        .subscribe(owner)
         .ok_or_else(ErrorResponse::unavailable)?;
     let keep_alive = hub.keep_alive();
     let mut session_check = time::interval_at(Instant::now() + keep_alive, keep_alive);
 
     session_check.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    tracing::info!(workspace_id = %workspace_id.0, "event stream opened");
+    tracing::info!(scope = %scope.log_fields(), "event stream opened");
 
     let events = EventStream {
         subscription,
         state,
-        token: token.digest(),
-        workspace_id,
+        scope,
         session_check,
     };
 
-    Ok(Sse::from_infallible_stream(events.into_stream(&hub)).with_keep_alive(keep_alive))
+    Ok(Sse::from_infallible_stream(events.into_stream(hub)).with_keep_alive(keep_alive))
 }
 
 #[cfg(test)]
@@ -161,7 +246,8 @@ mod tests {
     use pp_core::notifications::PhotoId;
     use pp_database::{
         Database,
-        gallery::GalleryId,
+        favorite_events::FavoriteEvent,
+        gallery::{GalleryId, GalleryRepository},
         photo_events::{PhotoChange, PhotoEvent},
         tests::TestRepository,
     };
@@ -276,6 +362,108 @@ mod tests {
             photo_id: PhotoId::from(Uuid::new_v4()),
             status: PhotoChange::Ready,
         }
+    }
+
+    /// A shared gallery of a fresh workspace, and its link.
+    async fn shared_gallery(pool: &PgPool) -> (WorkspaceId, GalleryId, String) {
+        let database = Database::new(pool.clone());
+        let workspace_id = database
+            .repository::<TestRepository>()
+            .create_workspace()
+            .await
+            .unwrap();
+        let store = database.repository::<GalleryRepository>();
+        let gallery_id = store.create(workspace_id).await.unwrap().id;
+        let token = store
+            .share(workspace_id, gallery_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .share_token
+            .unwrap();
+
+        (workspace_id, gallery_id, token.as_str().to_owned())
+    }
+
+    fn open_shared(token: &str) -> test::TestRequest {
+        test::TestRequest::get().uri(&format!("/api/v1/galleries/shared/{token}/events"))
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_link_stream_sends_only_its_own_gallery_favorites(pool: PgPool) {
+        let (workspace_id, gallery_id, token) = shared_gallery(&pool).await;
+        let client = client(pool, default_hub()).await;
+        let response = test::call_service(&client.app, open_shared(&token).to_request()).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let mut body = response.into_body();
+
+        assert_eq!(next_event(&mut body).await.0, "resync");
+
+        client
+            .hub
+            .publish(Broadcast::Photo(photo_event(workspace_id)));
+        client.hub.publish(Broadcast::Favorites(FavoriteEvent {
+            workspace_id,
+            gallery_id: GalleryId(Uuid::new_v4()),
+        }));
+        client.hub.publish(Broadcast::Favorites(FavoriteEvent {
+            workspace_id,
+            gallery_id,
+        }));
+
+        assert_eq!(
+            next_event(&mut body).await,
+            (
+                "favorites".to_owned(),
+                json!({"workspace_id": workspace_id, "gallery_id": gallery_id})
+            )
+        );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn an_unusable_link_gets_no_stream_and_a_revoked_one_loses_it(pool: PgPool) {
+        let (_, _, token) = shared_gallery(&pool).await;
+        let client = client(pool, default_hub()).await;
+        let unshared = ShareToken::generate();
+
+        for token in [unshared.as_str(), "short"] {
+            let (status, _) = call(&client.app, open_shared(token)).await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND, "{token}");
+        }
+
+        let response = test::call_service(&client.app, open_shared(&token).to_request()).await;
+        let mut body = response.into_body();
+
+        assert_eq!(next_event(&mut body).await.0, "resync");
+
+        sqlx::query("UPDATE galleries SET expires_at = '2000-01-01T00:00:00Z'")
+            .execute(&client.pool)
+            .await
+            .unwrap();
+
+        let ended = time::timeout(Duration::from_secs(5), async {
+            while next_chunk(&mut body).await.is_some() {}
+        })
+        .await;
+
+        assert!(ended.is_ok(), "the stream ends once the link expires");
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn link_streams_do_not_use_the_workspace_slots(pool: PgPool) {
+        let (workspace_id, _, token) = shared_gallery(&pool).await;
+        let client = client(pool, EventHub::new(&events_config(8, 1))).await;
+        let _first = test::call_service(&client.app, open_shared(&token).to_request()).await;
+        let (status, _) = call(&client.app, open_shared(&token)).await;
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+
+        let other = client.hub.subscribe(workspace_id);
+
+        assert!(other.is_some());
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

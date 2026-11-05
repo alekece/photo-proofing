@@ -498,6 +498,51 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
+    async fn the_relay_publishes_committed_favorite_changes(pool: PgPool) {
+        let (_relay, mut subscription) = Relay::start(&pool).await;
+        let database = Database::new(pool.clone());
+        let workspace_id = database
+            .repository::<TestRepository>()
+            .create_workspace()
+            .await
+            .unwrap();
+        let gallery_id = database
+            .repository::<GalleryRepository>()
+            .create(workspace_id)
+            .await
+            .unwrap()
+            .id;
+
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height)
+             VALUES (gen_random_uuid(), $1, $2, 'a.jpg', 1, 1, 1)",
+        )
+        .bind(workspace_id)
+        .bind(gallery_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE photos SET favorite = true")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        loop {
+            if let Broadcast::Favorites(event) = recv(&mut subscription).await {
+                assert_eq!(
+                    event,
+                    FavoriteEvent {
+                        workspace_id,
+                        gallery_id
+                    }
+                );
+
+                break;
+            }
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
     async fn a_lost_listener_connection_is_followed_by_a_resync(pool: PgPool) {
         let (relay, mut subscription) = Relay::start(&pool).await;
 
