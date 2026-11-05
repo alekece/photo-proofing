@@ -467,11 +467,18 @@ mod tests {
         let mut body = first.into_body();
 
         next_event(&mut body).await;
-        time::sleep(Duration::from_millis(3500)).await;
 
-        let second = test::call_service(&client.app, open(&cookie).to_request()).await;
+        let deadline = time::Instant::now() + Duration::from_secs(10);
+        let mut status = StatusCode::SERVICE_UNAVAILABLE;
 
-        assert_eq!(second.status(), StatusCode::OK);
+        while status != StatusCode::OK && time::Instant::now() < deadline {
+            time::sleep(Duration::from_millis(250)).await;
+            status = test::call_service(&client.app, open(&cookie).to_request())
+                .await
+                .status();
+        }
+
+        assert_eq!(status, StatusCode::OK, "the stalled stream's slot is freed");
         assert_eq!(next_chunk(&mut body).await, None);
     }
 

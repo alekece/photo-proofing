@@ -40,6 +40,10 @@ const RELAY_BACKOFF_START: Duration = Duration::from_millis(250);
 /// Longest delay between attempts to reopen the database listener.
 const RELAY_BACKOFF_CAP: Duration = Duration::from_secs(30);
 
+/// How many keep-alive periods a stream may go unpolled before it counts as stalled. The
+/// watchdog checks once per period, so a stall is noticed within one more.
+const STALL_INTERVALS: u32 = 3;
+
 /// What the hub sends every subscriber.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Broadcast {
@@ -93,6 +97,7 @@ impl EventHub {
     ///
     /// The server only polls a response body while the client reads it, and an idle stream is
     /// polled at least once per keep-alive period, so a longer silence means a stalled client.
+    /// The watchdog task ends with the stream: dropping it cancels the task's token.
     pub fn watch<S: Stream + Unpin>(&self, stream: S, lease: SlotLease) -> StallWatch<S> {
         let keep_alive = self.keep_alive();
         let last_poll = Arc::new(Mutex::new(Instant::now()));
@@ -191,9 +196,6 @@ impl Drop for Subscription {
         self.lease.release();
     }
 }
-
-/// How many keep-alive periods a stream may go unpolled before it counts as stalled.
-const STALL_INTERVALS: u32 = 3;
 
 /// A stream slot that either its stream or the stall watchdog gives back, whichever is first.
 #[derive(Clone)]
