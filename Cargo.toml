@@ -9,7 +9,7 @@ publish = false
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-clap-config-fallback = { version = "0.1", features = ["derive"] }
+clap-config-fallback = { version = "0.3", features = ["derive"] }
 futures-util = "0.3"
 tracing = "0.1"
 tracing-subscriber = "0.3"

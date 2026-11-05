@@ -390,6 +390,25 @@ mod tests {
     }
 
     #[test]
+    fn invalid_config_file_values_are_rejected_not_replaced_by_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.toml");
+
+        for value in [
+            "max_streams = 0",
+            "keep_alive = '0s'",
+            "stall_intervals = 1",
+        ] {
+            fs::write(&path, format!("[events]\n{value}\n")).unwrap();
+
+            assert!(
+                parse(&["--config", path.to_str().unwrap()]).is_err(),
+                "{value}"
+            );
+        }
+    }
+
+    #[test]
     fn photo_upload_limits_are_read_from_config_and_cli() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("c.toml");
