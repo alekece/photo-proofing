@@ -544,8 +544,7 @@ mod tests {
         let fixture = Fixture::new(&pool, jpeg()).await;
         let original_path = fixture.path(Variant::Original);
 
-        // The worker waits on this pipe for the original, so the photo is deleted while it
-        // processes. A directory on the preview path cuts the publication after the thumbnail.
+        // The worker waits on this pipe for the original, so the test decides when it renders.
         fs::remove_file(&original_path).unwrap();
         assert!(
             Command::new("mkfifo")
@@ -554,40 +553,44 @@ mod tests {
                 .unwrap()
                 .success()
         );
-        fs::create_dir(fixture.path(Variant::Preview)).unwrap();
 
         let handler = fixture.handler.clone();
-        let handlers = HandlerRegistry::default()
-            .register(JobKind::ProcessPhoto, move |payload, job| {
-                Arc::clone(&handler).run(payload, job)
-            });
-        let options = RuntimeOptions {
-            lease: Duration::from_millis(300),
-            ..worker_options()
-        };
+        let run_dropped = CancellationToken::new();
+        let handlers = HandlerRegistry::default().register(JobKind::ProcessPhoto, {
+            let run_dropped = run_dropped.clone();
+
+            move |payload, job| {
+                let handler = Arc::clone(&handler);
+                let guard = run_dropped.clone().drop_guard();
+
+                async move {
+                    let _guard = guard;
+
+                    handler.run(payload, job).await
+                }
+            }
+        });
         let shutdown = CancellationToken::new();
         let worker = tokio::spawn(
-            Worker::new(fixture.handler.database.clone(), handlers, options).run(shutdown.clone()),
+            Worker::new(fixture.handler.database.clone(), handlers, worker_options())
+                .run(shutdown.clone()),
         );
 
         while fixture.status().await != Some(PhotoStatus::Processing) {
             sleep(Duration::from_millis(20)).await;
         }
 
-        // Deleting the photo also deletes its job, so the worker loses its lease.
-        assert!(
-            fixture
-                .handler
-                .database
-                .repository::<PhotoRepository>()
-                .delete(
-                    fixture.location.workspace_id,
-                    fixture.location.gallery_id,
-                    fixture.id,
-                )
-                .await
-                .unwrap()
-        );
+        // A key-share lock on its job holds the publication at its completion, which deletes
+        // that job, once both derivatives are written.
+        let mut completion_gate = pool.begin().await.unwrap();
+
+        sqlx::query(
+            "SELECT 1 FROM jobs WHERE payload->'payload'->>'photo_id' = $1::text FOR KEY SHARE",
+        )
+        .bind(fixture.id)
+        .execute(&mut *completion_gate)
+        .await
+        .unwrap();
 
         let original = fixture.original.clone();
 
@@ -595,12 +598,39 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        // Well past the render, the publication and the lease.
-        sleep(Duration::from_secs(1)).await;
+        timeout(Duration::from_secs(10), async {
+            while fixture.file(Variant::Thumbnail).is_none()
+                || fixture.file(Variant::Preview).is_none()
+            {
+                sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+
+        // The photo goes while its derivatives are published. Its job, held by the gate, stays.
+        sqlx::query("DELETE FROM photos WHERE id = $1")
+            .bind(fixture.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        // Stopping past the grace period drops the run, as losing its lease does.
         shutdown.cancel();
         worker.await.unwrap();
 
-        assert!(fixture.file(Variant::Thumbnail).is_none());
+        assert!(run_dropped.is_cancelled());
+
+        completion_gate.commit().await.unwrap();
+        timeout(Duration::from_secs(10), async {
+            while fixture.file(Variant::Thumbnail).is_some()
+                || fixture.file(Variant::Preview).is_some()
+            {
+                sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+
         assert!(!fixture.has_jobs().await);
     }
 
