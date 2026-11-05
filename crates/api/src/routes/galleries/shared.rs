@@ -104,10 +104,11 @@ mod tests {
     use crate::{
         api::configure_routes,
         routes::galleries::photos::tests::{
-            Progress, app, call_request, create_gallery, photo_in, store_derivative, upload_config,
-            waiting_photo,
+            Progress, create_gallery, photo_in, store_derivative, waiting_photo,
         },
-        tests::{ORIGIN, app_state, call, other_workspace, sign_up},
+        tests::{
+            ORIGIN, app, app_state, call, call_request, other_workspace, sign_up, upload_config,
+        },
     };
 
     async fn shared_gallery(pool: &PgPool, changes: Value) -> String {

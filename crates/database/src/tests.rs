@@ -2,10 +2,13 @@
 //! its repositories. Compiled for this crate's tests and, through the `tests` feature, for the
 //! tests of crates that enable it as a dev-dependency.
 
+use std::time::Duration;
+
 use pp_core::notifications::PhotoId;
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, Transaction};
 use time::OffsetDateTime;
+use tokio::time::sleep;
 
 use crate::{
     Repository,
@@ -15,6 +18,9 @@ use crate::{
     jobs::{JobId, JobState},
     photo::PhotoStatus,
 };
+
+/// How often [`TestRepository::wait_for_a_lock_waiter`] polls.
+const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// A job as stored, for tests that check what was enqueued.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +46,24 @@ impl<'db> Repository<'db> for TestRepository<'db> {
 }
 
 impl TestRepository<'_> {
+    /// Returns once some session of this database waits on a lock, to order concurrent steps.
+    pub async fn wait_for_a_lock_waiter(&self) -> Result<(), DatabaseError> {
+        loop {
+            let lock_waiters: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity
+                 WHERE datname = current_database() AND wait_event_type = 'Lock'",
+            )
+            .fetch_one(self.pool)
+            .await?;
+
+            if lock_waiters > 0 {
+                return Ok(());
+            }
+
+            sleep(LOCK_POLL_INTERVAL).await;
+        }
+    }
+
     /// Whether the migrations created the job table yet.
     pub async fn is_migrated(&self) -> Result<bool, DatabaseError> {
         Ok(sqlx::query_scalar("SELECT to_regclass('jobs') IS NOT NULL")

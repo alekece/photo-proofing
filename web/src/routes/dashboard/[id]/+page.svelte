@@ -239,6 +239,6 @@
 			{cancel}
 		/>
 
-		<GalleryTabs />
+		<GalleryTabs galleryId={saved.id} />
 	</div>
 </PageShell>

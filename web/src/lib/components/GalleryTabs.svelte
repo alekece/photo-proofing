@@ -1,15 +1,13 @@
 <script lang="ts">
+	import PhotosPanel from '#lib/components/PhotosPanel.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
 	import Tabs from '#lib/components/ui/tabs/tabs.svelte';
 
+	let { galleryId }: { galleryId: string } = $props();
+
 	const TABS = [
-		{
-			id: 'photos',
-			label: 'Photos',
-			action: { label: '+ Upload', title: 'Photo upload arrives with a later release' },
-			empty: 'No photos yet. Drop JPEGs here to start.'
-		},
+		{ id: 'photos', label: 'Photos' },
 		{
 			id: 'favorites',
 			label: 'Favorites',
@@ -37,8 +35,11 @@
 <section class="min-w-0">
 	<Tabs bind:value={tab} items={TABS} label="Gallery content">
 		{#snippet panel(active)}
-			{#each TABS as { id, action, empty } (id)}
-				{#if active === id}
+			{#each TABS as item (item.id)}
+				{#if active === item.id && !('action' in item)}
+					<PhotosPanel {galleryId} />
+				{:else if active === item.id && 'action' in item}
+					{@const { action, empty } = item}
 					{#if 'hint' in action}
 						<div class="flex flex-wrap items-center justify-between gap-2">
 							<span class="text-sm text-muted-foreground">{action.hint}</span>

@@ -200,6 +200,7 @@ mod tests {
                 max_size: NonZeroU64::new(1024).unwrap(),
                 max_pixels: NonZeroU64::new(2048).unwrap(),
                 concurrency: NonZeroUsize::new(1).unwrap(),
+                retry_after: "1s".parse().unwrap(),
             },
         )
     }
@@ -290,7 +291,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let (storage, options) = upload_resources(directory.path()).await;
         let request = actix_web::test::TestRequest::default()
-            .app_data(Data::new(UploadLimiter::new(NonZeroUsize::new(1).unwrap())))
+            .app_data(Data::new(UploadLimiter::from(&options)))
             .to_http_request();
         let slot = UploadSlot::extract(&request).await.unwrap();
         let (_sender, body) = actix_http::h1::Payload::create(false);

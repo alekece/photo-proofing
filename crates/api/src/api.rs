@@ -224,7 +224,7 @@ impl Api {
         database.ensure_reachable().await?;
         database.migrate().await?;
 
-        let upload_limiter = Data::new(UploadLimiter::new(config.photo_upload.concurrency));
+        let upload_limiter = Data::new(UploadLimiter::from(&config.photo_upload));
         let events = Data::new(EventHub::new(&config.events, HUB_CAPACITY));
         let state = ApiState::new(
             database,
@@ -311,6 +311,7 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
             .app_data(PathConfig::default().error_handler(|_, _| ErrorResponse::not_found().into()))
             .service(routes::health::report_health)
             .service(routes::events::stream_events)
+            .service(routes::upload::upload_limits)
             .configure(routes::auth::configure)
             .configure(routes::galleries::configure),
     );
