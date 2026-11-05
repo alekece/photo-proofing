@@ -31,7 +31,8 @@ A single root error page reads `page.status` and `page.error` from `$app/state`.
 - **Link back, chosen from the failing URL:**
   - Under `/dashboard`: "Back to your galleries" (`/dashboard`).
   - Under `/g/` (a client's private link): a "Try again" link to the same URL, because the
-    client has no account and sign-in would mislead them.
+    client has no account and sign-in would mislead them. This differs from the issue, which
+    says sign-in for everything outside the dashboard.
   - Elsewhere: "Go to sign in" (`/login`).
 - **Focus:** the `h1` has `tabindex="-1"` and is focused on mount, matching how other pages
   handle focus.
@@ -46,5 +47,6 @@ Component tests with a mocked `$app/state` cover:
 - the link chosen for each URL kind;
 - focus on the heading.
 
-A route-level test checks that a failing `load` produces SvelteKit's error state, using the
-existing dashboard page test setup.
+Component tests can't prove that SvelteKit routes a failure to this page. A Playwright test in the
+existing e2e suite therefore opens an unknown URL and checks the custom heading, its focus and
+the link.
