@@ -29,7 +29,7 @@ use tokio::{
 };
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use crate::config::{EventsConfig, KeepAlive};
+use crate::config::{EventsConfig, KeepAlive, StallIntervals};
 
 /// Events buffered per subscriber before it lags and is told to resync.
 pub(crate) const HUB_CAPACITY: usize = 1024;
@@ -39,10 +39,6 @@ const RELAY_BACKOFF_START: Duration = Duration::from_millis(250);
 
 /// Longest delay between attempts to reopen the database listener.
 const RELAY_BACKOFF_CAP: Duration = Duration::from_secs(30);
-
-/// How many keep-alive periods a stream may go unpolled before it counts as stalled. The
-/// watchdog checks once per period, so a stall is noticed within one more.
-const STALL_INTERVALS: u32 = 3;
 
 /// What the hub sends every subscriber.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +54,7 @@ pub(crate) struct EventHub {
     slots: Arc<StreamSlots>,
     cancellation_token: CancellationToken,
     keep_alive: KeepAlive,
+    stall_intervals: StallIntervals,
 }
 
 impl EventHub {
@@ -73,6 +70,7 @@ impl EventHub {
             }),
             cancellation_token: CancellationToken::new(),
             keep_alive: config.keep_alive,
+            stall_intervals: config.stall_intervals,
         }
     }
 
@@ -93,24 +91,28 @@ impl EventHub {
     }
 
     /// Ends `stream` and gives back its slot when the client stops accepting data for
-    /// [`STALL_INTERVALS`] keep-alive periods.
+    /// `stall_intervals` keep-alive periods. The watchdog checks once per period, so a stall is
+    /// noticed within one more.
     ///
     /// The server only polls a response body while the client reads it, and an idle stream is
     /// polled at least once per keep-alive period, so a longer silence means a stalled client.
     /// The watchdog task ends with the stream: dropping it cancels the task's token.
     pub fn watch<S: Stream + Unpin>(&self, stream: S, lease: SlotLease) -> StallWatch<S> {
-        let keep_alive = self.keep_alive();
         let last_poll = Arc::new(Mutex::new(Instant::now()));
         let stalled = CancellationToken::new();
         let finished = self.cancellation_token.child_token();
 
-        tokio::spawn(watch_for_stall(
-            keep_alive,
-            Arc::clone(&last_poll),
-            stalled.clone(),
-            lease,
-            finished.clone(),
-        ));
+        tokio::spawn(
+            StallWatchdog {
+                period: self.keep_alive(),
+                limit: self.keep_alive() * self.stall_intervals.get(),
+                last_poll: Arc::clone(&last_poll),
+                stalled: stalled.clone(),
+                lease,
+                finished: finished.clone(),
+            }
+            .run(),
+        );
 
         StallWatch {
             inner: stream,
@@ -235,33 +237,42 @@ impl<S: Stream + Unpin> Stream for StallWatch<S> {
     }
 }
 
-async fn watch_for_stall(
-    keep_alive: Duration,
+/// Checks every `period` whether a stream has gone unpolled for `limit`, and if so ends it and
+/// frees its slot.
+struct StallWatchdog {
+    period: Duration,
+    limit: Duration,
     last_poll: Arc<Mutex<Instant>>,
     stalled: CancellationToken,
     lease: SlotLease,
     finished: CancellationToken,
-) {
-    loop {
-        if finished
-            .run_until_cancelled(time::sleep(keep_alive))
-            .await
-            .is_none()
-        {
-            return;
-        }
+}
 
-        let silence = last_poll
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .elapsed();
+impl StallWatchdog {
+    async fn run(self) {
+        loop {
+            if self
+                .finished
+                .run_until_cancelled(time::sleep(self.period))
+                .await
+                .is_none()
+            {
+                return;
+            }
 
-        if silence >= keep_alive * STALL_INTERVALS {
-            tracing::warn!(?silence, "event stream stalled; closing it");
-            stalled.cancel();
-            lease.release();
+            let silence = self
+                .last_poll
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .elapsed();
 
-            return;
+            if silence >= self.limit {
+                tracing::warn!(?silence, "event stream stalled; closing it");
+                self.stalled.cancel();
+                self.lease.release();
+
+                return;
+            }
         }
     }
 }

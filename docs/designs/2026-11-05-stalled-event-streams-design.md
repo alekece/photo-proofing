@@ -12,7 +12,7 @@ other photographers out of live updates.
 - A stream whose client hasn't accepted data for a bounded time ends, and its slot is freed at
   once.
 - Healthy idle streams, which only receive keep-alives, are unaffected.
-- No new configuration: the bound derives from the existing `PP_EVENTS_KEEP_ALIVE`.
+- The bound is a multiple of `PP_EVENTS_KEEP_ALIVE`, set by `PP_EVENTS_STALL_INTERVALS` (default 3, minimum 2, since a healthy idle stream is read once per period).
 
 ## Non-goals
 
@@ -34,7 +34,7 @@ polled for several keep-alive intervals" means the client isn't accepting data.
   taken inside it would go stale and close healthy streams.
 - A small watchdog task, spawned with the stream and stopped when the stream is dropped, checks
   every keep-alive interval.
-- If the stream hasn't been polled for 3 keep-alive intervals (45 s with the default), the
+- If the stream hasn't been polled for `PP_EVENTS_STALL_INTERVALS` keep-alive intervals (3, so 45 s, by default), the
   watchdog:
   - releases the slot;
   - logs that the stream stalled;
