@@ -76,7 +76,7 @@ export class Selection {
 		for (const id of [...this.ids]) {
 			if (!ids.includes(id) && !this.#saving.has(id)) this.ids.delete(id);
 		}
-		for (const id of ids) this.ids.add(id);
+		for (const id of ids) if (!this.#saving.has(id)) this.ids.add(id);
 	}
 
 	async #save(id: string, selected: boolean) {

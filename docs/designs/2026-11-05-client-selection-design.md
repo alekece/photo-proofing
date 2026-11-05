@@ -26,7 +26,7 @@ The client marks favorites through the private link; every browser using the lin
   - `GET .../favorites` returns the favorite photo ids.
   - `PUT .../favorites/{photo_id}` adds and `DELETE` removes. Both are single conditional `UPDATE`s on the photo, so repeated or concurrent requests converge and cannot corrupt the selection.
 - Server checks: the share token must be valid (not expired, not archived); the photo must be a ready photo of that gallery; writes are rejected with a conflict once `delivered_at` is set. (Needs the `delivered_at` column from #86; the delivery slice must also reject favorite writes at its publication boundary.)
-- Photographer route: `GET /api/v1/galleries/{id}/favorites`, scoped to the workspace.
+- Photographer side: no separate route. The workspace-scoped photo list already carries each photo's `favorite` flag, and the Favorites tab filters it.
 - Toggling a favorite does not change `status`, so the existing photo-event triggers stay silent. Changes publish through a separate Postgres notification, in the same way as the photo events, to a per-link event stream for clients and to the photographer's existing stream, which refresh the list.
 
 ## Web
