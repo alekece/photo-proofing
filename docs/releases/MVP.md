@@ -15,6 +15,7 @@ A photographer can prepare and share JPEG proofs, receive a shared client select
 - One photographer account/workspace per installation; one-time setup, email/password, logout, persistent sliding sessions ([FR-01–FR-02](../SPECIFICATIONS.md#fr-01)).
 - Title, hero, two layouts, optional expiry, editable optional included photo allowance, and watermark enablement ([FR-03](../SPECIFICATIONS.md#fr-03)).
 - Empty/progressively populated proofing shares through one private link and one client selection ([FR-04](../SPECIFICATIONS.md#fr-04)).
+- In-app, read-only owner preview of the client page in desktop and mobile views, without a share link ([FR-04](../SPECIFICATIONS.md#fr-04)).
 - JPEG uploads, separate transfer/processing progress, failed-file retry, reduced previews, and optional workspace text/logo watermark ([FR-05–FR-07](../SPECIFICATIONS.md#fr-05)).
 - Editable favorites with informational overflow, and one-click selection ZIP preparation/download ([FR-08–FR-09](../SPECIFICATIONS.md#fr-08)).
 - Private preparation and explicit delivery of independent finished-photo sets, later updates, individual/ZIP client downloads ([FR-10](../SPECIFICATIONS.md#fr-10)).
@@ -44,6 +45,7 @@ Run with synthetic/replaceable photos whose originals are retained elsewhere. Th
 
 - [ ] Create a gallery from the title-only New gallery dialog, then set hero, switch between default uniform grid and masonry, and set/clear expiry and included photo count ([FR-03](../SPECIFICATIONS.md#fr-03)).
 - [ ] Share an empty gallery after a warning; the link opens a useful empty state, with no client account or code required ([FR-04](../SPECIFICATIONS.md#fr-04)).
+- [ ] Open Preview on an unshared gallery, switch between desktop and mobile views, and close it: the client page shows only ready reduced previews, selection and download controls are disabled, and no share link or client activity is created ([FR-04](../SPECIFICATIONS.md#fr-04))
 - [ ] Upload a representative 50–100-JPEG gallery; observe transfer progress separately from processing. Navigate away and return to the current processing state. Ready previews appear progressively at the shared link; pending/failed photos never appear as ready ([FR-04–FR-05](../SPECIFICATIONS.md#fr-04), [NF-04](../SPECIFICATIONS.md#nf-04)).
 - [ ] Reject non-JPEG, malformed, and over-limit photo inputs. Simulate interrupted upload and processing failure: retain successful files, clean incomplete files, and allow retry without duplicates ([FR-05](../SPECIFICATIONS.md#fr-05), [NF-01–NF-02](../SPECIFICATIONS.md#nf-01)).
 - [ ] Save watermark text, logo, and both; verify gallery enable/disable behavior. Check previews preserve orientation/color, reduce usable resolution/quality, and omit source identifying/GPS metadata. Original bytes remain unchanged ([FR-06–FR-07](../SPECIFICATIONS.md#fr-06)).

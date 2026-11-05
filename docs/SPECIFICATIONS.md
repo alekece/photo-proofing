@@ -45,6 +45,8 @@ One workspace groups galleries, settings, and activity. The MVP has one photogra
 
 **Private sharing.** Share gallery creates an unguessable private link; MVP sharing is copying that link. Anyone possessing it can act on the gallery's one shared selection while access is permitted. No viewer account or access code is required for MVP. Sharing works before photos are uploaded or ready, with an empty-gallery warning and a useful client empty state. The photographer may add/remove proofing photos after sharing. Only fully processed photos appear. Removing a selected photo requires confirmation and removes it from the selection. Shared access must still respect expiry, archive, deletion, and finished-delivery state.
 
+**Client preview.** The signed-in photographer can preview the client page inside the app from the gallery page, in desktop and mobile views, whatever the gallery's sharing or expiry state. The preview is read-only, creates no share link, records no client activity, and shows only reduced previews, never originals.
+
 ### FR-05
 
 **Uploads and processing status.** MVP proofing and finished-photo inputs are JPEG files, validated by actual content. Preserve uploaded originals and finished files unchanged. Show upload transfer progress separately from waiting/processing/ready/failed processing status. Processing continues after navigation away, and current status is available on return. Preserve successful uploads when others fail. Failed uploads restart from the beginning; partial-upload resumption is not required for MVP. Clean up incomplete files. Failed processing is visible and can be retried. Bound file size, decoded dimensions, and processing resources; concrete limits belong in technical design.
