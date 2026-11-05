@@ -21,5 +21,8 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # Test-only setup and inspection helpers; enable only as a dev-dependency.
 tests = []
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["time"] }
+
 [lints]
 workspace = true

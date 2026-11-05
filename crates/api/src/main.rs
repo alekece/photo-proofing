@@ -5,6 +5,11 @@ use clap_config_fallback::ConfigParser;
 use eyre::Result;
 use pp_api::{api::Api, config::ApiConfig};
 use pp_core::config::LogConfig;
+use tokio::signal::{
+    self,
+    unix::{SignalKind, signal},
+};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Parser, ConfigParser)]
 #[command(name = "pp-api", about = "Gallery API")]
@@ -29,8 +34,33 @@ async fn main() -> Result<()> {
         .with_max_level(cli.log.log_level)
         .init();
 
-    // `Display` describes one layer only; eyre prints the `source()` chain once, here.
-    Api::init(cli.api).await?.run().await?;
+    // Listening starts before the database is reached so a stop signal during startup is
+    // not lost.
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let shutdown = CancellationToken::new();
+    let signals = tokio::spawn({
+        let shutdown = shutdown.clone();
 
-    Ok(())
+        async move {
+            tokio::select! {
+                _ = signal::ctrl_c() => {}
+                _ = sigterm.recv() => {}
+            }
+
+            shutdown.cancel();
+        }
+    });
+    // `Display` describes one layer only; eyre prints the `source()` chain once, here.
+    let result = async {
+        // A stop signal while the database is unreachable or migrating ends startup.
+        match shutdown.run_until_cancelled(Api::init(cli.api)).await {
+            Some(api) => api?.run(shutdown).await,
+            None => Ok(()),
+        }
+    }
+    .await;
+
+    signals.abort();
+
+    Ok(result?)
 }

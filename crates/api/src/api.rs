@@ -16,6 +16,7 @@ use pp_database::{Database, auth::AuthRepository, error::DatabaseError};
 use pp_storage::{PhotoStorage, StorageError};
 use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::{
@@ -24,6 +25,7 @@ use crate::{
     },
     credentials::{HashError, PasswordHash},
     error::ErrorResponse,
+    events::{EventHub, HUB_CAPACITY},
     extractors::session_token::SessionToken,
     limiter::AttemptLimiter,
     middlewares::origin::SameOrigin,
@@ -207,6 +209,7 @@ pub struct Api {
     http: HttpConfig,
     state: Data<ApiState>,
     upload_limiter: Data<UploadLimiter>,
+    events: Data<EventHub>,
 }
 
 impl Api {
@@ -215,12 +218,14 @@ impl Api {
 
         jpeg::install()?;
 
-        let database = Database::connect_lazy(&config.database.url, 10)?;
+        // Ten connections for requests, plus the one the photo event listener holds.
+        let database = Database::connect_lazy(&config.database.url, 11)?;
 
         database.ensure_reachable().await?;
         database.migrate().await?;
 
         let upload_limiter = Data::new(UploadLimiter::new(config.photo_upload.concurrency));
+        let events = Data::new(EventHub::new(&config.events, HUB_CAPACITY));
         let state = ApiState::new(
             database,
             config.session,
@@ -234,27 +239,58 @@ impl Api {
             http: config.http,
             state: Data::new(state),
             upload_limiter,
+            events,
         })
     }
 
-    /// Serves until the process is stopped.
-    pub async fn run(self) -> Result<(), ApiError> {
+    /// Serves until `shutdown` is cancelled, then closes the event streams and lets in-flight
+    /// requests finish.
+    pub async fn run(self, shutdown: CancellationToken) -> Result<(), ApiError> {
         tracing::info!(host = %self.http.host, port = self.http.port, "api starting");
 
         let state = self.state;
         let upload_limiter = self.upload_limiter;
+        let events = self.events;
+        let relay = tokio::spawn({
+            let database = state.database().clone();
+            let events = events.clone();
 
-        HttpServer::new(move || {
-            App::new()
-                .app_data(state.clone())
-                .app_data(upload_limiter.clone())
-                .configure(configure_routes)
+            async move { events.relay(database).await }
+        });
+        let server = HttpServer::new({
+            let events = events.clone();
+
+            move || {
+                App::new()
+                    .app_data(state.clone())
+                    .app_data(upload_limiter.clone())
+                    .app_data(events.clone())
+                    .configure(configure_routes)
+            }
         })
-        .bind((self.http.host.as_str(), self.http.port))?
-        .run()
-        .await?;
+        .disable_signals()
+        .bind((self.http.host.as_str(), self.http.port));
+        let server = match server {
+            Ok(server) => server.run(),
+            Err(error) => {
+                relay.abort();
 
-        Ok(())
+                return Err(error.into());
+            }
+        };
+        let handle = server.handle();
+        // Event streams never finish on their own, so they are closed before the graceful stop.
+        let stopper = tokio::spawn(async move {
+            shutdown.cancelled().await;
+            events.close();
+            handle.stop(true).await;
+        });
+        let result = server.await;
+
+        stopper.abort();
+        relay.abort();
+
+        Ok(result?)
     }
 }
 
@@ -274,6 +310,7 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
             )
             .app_data(PathConfig::default().error_handler(|_, _| ErrorResponse::not_found().into()))
             .service(routes::health::report_health)
+            .service(routes::events::stream_events)
             .configure(routes::auth::configure)
             .configure(routes::galleries::configure),
     );

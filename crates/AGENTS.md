@@ -6,10 +6,19 @@ These rules apply to Rust changes. They add to the repository-wide policy in the
 
 - Add an abstraction (trait, wrapper, module boundary) when it gives a concept a clear interface or enforces a contract that callers would otherwise have to remember. Do not add extension points for hypothetical future needs.
 - Keep generic mechanisms separate from application-specific policy. Do not refactor unrelated code; if you see a worthwhile improvement outside the task, mention it in your final message or the PR description instead of making it.
-- Encode invariants in types: use newtypes, enums, or typestate when they make an invalid state or call unrepresentable.
+- Encode invariants in types: use newtypes, enums, or typestate when they make an invalid state or call unrepresentable. Do not add a newtype that encodes no invariant; use the existing type (`NonZeroU64`, `Duration`) instead.
 - Never use a primitive with a unit suffix in a field or parameter name (`timeout_ms`, `size_bytes`, `price_cents`). Use a type that carries the unit and its valid range (`Duration`, `Url`, a bounded newtype). Convert to a primitive only at a serialization or foreign-interface boundary. Parse into a validated type once at the boundary instead of calling `validate()` repeatedly.
 - Use traits, generics, and associated types for capabilities that several types share. Use static dispatch unless you need runtime polymorphism (a heterogeneous collection or a plugin boundary).
-- Replace boolean or stringly-typed flags with enums or config types. Put behavior on the type that owns the data. Use a builder when construction has many optional parts or needs validation.
+- Replace boolean or stringly-typed flags with enums or config types. Use a builder when construction has many optional parts or needs validation.
+- Put behavior on the type that owns the data; avoid free functions. Before writing one, use the first that fits:
+  - inline it when it has a single short call site;
+  - make it a method or associated function of the type it works on, introducing a small type when the logic has no owner yet (`Renderer`, `Listener<T>`, `StreamSlots`);
+  - express it as a standard trait (`From`, `TryFrom`, `FromStr`, `Default`) or an extension trait;
+  - in `api`, use the actix mechanism: an extractor (`FromRequest`), a middleware, or a `#[get]`/`#[post]` handler registered with `.service`.
+  A free function remains acceptable for a private test helper or a genuinely standalone operation; say why in the PR when it is not obvious.
+- Prefer one generic type over several near-identical specific ones when only a type parameter differs (`Database::listen::<T>()` returning `Listener<T>`, not one listener per payload).
+- Make limits an operator may need to tune (concurrency, caps, request sizes, session and timeout lengths) configuration with a documented default. Internal tuning such as retry backoff or buffer sizes may stay a documented constant.
+- Keep SQLx inside the `database` crate. Other crates go through `Database` and its repositories; a repository method takes a transaction only when the caller must compose several steps in it.
 - Make items private by default and widen visibility only when another module needs them. Derive a trait only when something uses it. Implement `Debug`, `Clone`, and `PartialEq` on public types when sound, except on credentials (see Secrets and Observability).
 - Put `#[must_use]` on builders, guards, and `Result`-like values that are a bug to drop.
 - Before writing boilerplate (conversions, error derives, newtype wrappers), check whether a maintained, widely used crate such as `derive_more` provides it, and prefer the crate. Write it yourself only if the crate is unmaintained, pulls heavy transitive dependencies, or the need is trivial; say why in the PR description. Declare dependencies in `[workspace.dependencies]` with the minimum features. `cargo deny` (advisories, licenses, duplicates) gates CI.
@@ -20,7 +29,8 @@ These rules apply to Rust changes. They add to the repository-wide policy in the
 
 - Group code into feature or domain modules. Split a module only when it has more than one responsibility or becomes hard to navigate.
 - Use `module.rs` plus `module/child.rs`; never `mod.rs`.
-- Order a file as types, then traits, then implementations, then free functions, keeping related items adjacent.
+- Order a file as constants, error types, other types, traits, implementations, then free functions, keeping related items adjacent. Put a type's `impl` blocks right under its definition, in the same file: inherent methods on a type never live in another module, which instead exposes what the method needs.
+- Keep a module's tests in its own `#[cfg(test)] mod tests`, not in a separate `tests/` directory, unless they exercise only the crate's public interface.
 - Do not add wrapper modules, re-exports, or indirection without a caller that needs them.
 - Put every `use` at the top of its module scope, including inside `mod tests`. Never write imports inside functions, blocks, or `impl` bodies.
 - Import types and refer to them by name. Use an alias or a partial path only to resolve a name clash.
@@ -30,6 +40,8 @@ These rules apply to Rust changes. They add to the repository-wide policy in the
 
 - Choose descriptive names that do not repeat their context (`Session::expires_at`, not `Session::session_expires_at`). Use the conventional single letters `T`, `U`, `E`, `K`, `V` for generic parameters.
 - Name free functions as action plus object (`delete_expired_sessions`, not `delete_expired`). Methods may be shorter because the receiver supplies the object.
+- Name a variable after the value it holds, not the step that produced it or a vague state: `result`, `photo`, `deleted_ids` rather than `served`, `validated`, `exhausted`, `done`. A reader must know what it contains without reading its initializer.
+- Name fields and types after their role in this codebase, not after their mechanism or a near-synonym: `cancellation_token` for a `CancellationToken`, `workspaces` for a per-workspace map.
 - Shadow a variable when you transform it without changing what it means. Use distinct names when both forms are still needed.
 - Follow Rust naming conventions and use the domain terms already used in the codebase.
 
@@ -73,6 +85,7 @@ These rules apply to Rust changes. They add to the repository-wide policy in the
 - Write documentation while implementing, not afterward; it is part of "done" before requesting review.
 - Put documentation comments before all other attributes on an item.
 - Keep documentation short and current. Remove comments that restate the code.
+- Document the item's own contract. Do not restate another layer's implementation (migration names, SQL, trigger details) or reference issues, PRs or ticket ids; those age and belong in the PR or the design.
 
 ## Testing and Verification
 

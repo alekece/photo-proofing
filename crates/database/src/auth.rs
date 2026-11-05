@@ -22,7 +22,7 @@ pub struct AccountId(pub Uuid);
 
 /// Owner of galleries and settings. Kept separate from [`AccountId`] so collaborators can
 /// later join a workspace without changing who owns its data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(transparent)]
 #[sqlx(transparent)]
 pub struct WorkspaceId(pub Uuid);

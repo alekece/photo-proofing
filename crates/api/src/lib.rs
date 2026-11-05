@@ -8,6 +8,7 @@ pub mod extractors;
 pub mod routes;
 
 mod error;
+mod events;
 mod limiter;
 mod middlewares;
 mod request;
