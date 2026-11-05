@@ -40,8 +40,9 @@
 	let grid = $state<HTMLUListElement | null>(null);
 
 	// Bookkeeping that nothing renders, so plain collections on purpose.
+	// Photos whose deletion is pending, as last known, or `null` once known to be gone.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
-	const deleting = new Set<string>();
+	const deleting = new Map<string, Photo | null>();
 	// Changes since the last list request started, which an answer arriving later may predate.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const recentChanges = new Map<string, PhotoChange>();
@@ -71,13 +72,16 @@
 		change === 'failed' ? { failed: 'Processing failed' } : change;
 
 	/** The photo as the latest change seen says, or `null` once deleted. */
-	function withRecentChange(photo: Photo): Photo | null {
+	function changed(photo: Photo): Photo | null {
 		const change = recentChanges.get(photo.id);
 
-		if (deleting.has(photo.id) || change === 'deleted') return null;
+		if (change === 'deleted') return null;
 
 		return change === undefined ? photo : { ...photo, status: statusOf(change) };
 	}
+
+	/** The photo to show, or `null` once deleted or while its deletion is pending. */
+	const withRecentChange = (photo: Photo) => (deleting.has(photo.id) ? null : changed(photo));
 
 	const queued = $derived(queue.forGallery(galleryId));
 	const ready = $derived(photos.filter(({ status }) => status === 'ready'));
@@ -118,6 +122,10 @@
 		const current = ++loads;
 
 		lastLoadAt = Date.now();
+
+		// Changes are cleared below, so a pending deletion keeps what they said about its photo.
+		for (const [id, photo] of deleting) deleting.set(id, photo && changed(photo));
+
 		recentChanges.clear();
 		uploadedDuringLoad.clear();
 
@@ -125,6 +133,10 @@
 			const listed = await listPhotos(id);
 
 			if (current !== loads) return;
+
+			for (const id of deleting.keys()) {
+				deleting.set(id, listed.find((photo) => photo.id === id) ?? null);
+			}
 
 			const missing = photos.filter(
 				(photo) => uploadedDuringLoad.has(photo.id) && !listed.some(({ id }) => id === photo.id)
@@ -247,7 +259,7 @@
 
 		if (index === -1) return;
 
-		deleting.add(photo.id);
+		deleting.set(photo.id, photos[index]);
 		photos.splice(index, 1);
 		alert = '';
 		void focusAfterRemoving(index);
@@ -261,23 +273,24 @@
 			} else if (cause instanceof GalleryApiError && cause.status === 404) {
 				recentChanges.set(photo.id, 'deleted');
 			} else {
-				restore(photo, index);
+				restore(photo.id, index);
 			}
 		} finally {
 			deleting.delete(photo.id);
 		}
 	}
 
-	/** Puts back a photo whose deletion failed, as the events since say, unless they deleted it. */
-	function restore(photo: Photo, index: number) {
-		deleting.delete(photo.id);
+	/** Puts back a photo whose deletion failed, as last known, unless it is gone meanwhile. */
+	function restore(photoId: string, index: number) {
+		const known = deleting.get(photoId);
+		const current = known && changed(known);
 
-		const current = withRecentChange(photo);
+		deleting.delete(photoId);
 
-		if (current === null || photos.some(({ id }) => id === photo.id)) return;
+		if (!current || photos.some(({ id }) => id === photoId)) return;
 
 		photos.splice(Math.min(index, photos.length), 0, current);
-		alert = `Couldn’t delete ${photo.original_name}. Please try again.`;
+		alert = `Couldn’t delete ${current.original_name}. Please try again.`;
 	}
 
 	/** Once the tile at `position` is gone, focuses the one now there, else the previous, else Upload. */
