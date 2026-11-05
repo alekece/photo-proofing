@@ -31,7 +31,7 @@ describe('ClientGallery', () => {
 	});
 
 	it('shows a Preview marker only in preview mode', () => {
-		const gallery = { title: 'T', layout: 'grid' as const, expires_at: null, hero_photo_id: null };
+		const gallery = { title: 'T', layout: 'grid' as const, expires_at: null, hero_id: null };
 		const { unmount } = render(ClientGallery, { gallery });
 		expect(screen.queryByText('Preview')).toBeNull();
 		unmount();
