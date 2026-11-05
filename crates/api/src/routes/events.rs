@@ -5,7 +5,7 @@
 //! events may have been lost. It holds the session read-only: on every keep-alive tick it checks
 //! the session is still valid, never extending it, and ends once it is not.
 
-use std::{pin::Pin, time::SystemTime};
+use std::time::SystemTime;
 
 use actix_web::{Responder, get, web::Data};
 use actix_web_lab::sse::{self, Sse};
@@ -40,18 +40,21 @@ struct EventStream {
 
 impl EventStream {
     /// A `resync` first, since the browser cannot know what changed before it connected.
-    fn into_stream(self) -> Pin<Box<dyn Stream<Item = sse::Event>>> {
+    fn into_stream(self, hub: &EventHub) -> impl Stream<Item = sse::Event> + use<> {
+        let lease = self.subscription.lease();
         let following = stream::unfold(self, |mut events| async move {
             let broadcast = events.next().await?;
 
             Some((broadcast, events))
         });
 
-        Box::pin(
+        let events = Box::pin(
             stream::once(future::ready(Broadcast::Resync))
                 .chain(following)
                 .map(sse::Event::from),
-        )
+        );
+
+        hub.watch(events, lease)
     }
 
     /// The next broadcast to send, or `None` once the stream must end.
@@ -137,12 +140,12 @@ pub(crate) async fn stream_events(
         session_check,
     };
 
-    Ok(Sse::from_infallible_stream(events.into_stream()).with_keep_alive(keep_alive))
+    Ok(Sse::from_infallible_stream(events.into_stream(&hub)).with_keep_alive(keep_alive))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{future::poll_fn, sync::Arc, time::Duration};
+    use std::{future::poll_fn, pin::Pin, sync::Arc, time::Duration};
 
     use actix_web::{
         App,
@@ -454,5 +457,39 @@ mod tests {
         let second = test::call_service(&client.app, open(&cookie).to_request()).await;
 
         assert_eq!(second.status(), StatusCode::OK);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_stream_the_client_stops_reading_is_closed_and_frees_its_slot(pool: PgPool) {
+        let client = client(pool, EventHub::new(&events_config(1, 1), HUB_CAPACITY)).await;
+        let cookie = sign_up(&client.app).await;
+        let first = test::call_service(&client.app, open(&cookie).to_request()).await;
+        let mut body = first.into_body();
+
+        next_event(&mut body).await;
+        time::sleep(Duration::from_millis(3500)).await;
+
+        let second = test::call_service(&client.app, open(&cookie).to_request()).await;
+
+        assert_eq!(second.status(), StatusCode::OK);
+        assert_eq!(next_chunk(&mut body).await, None);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_stream_read_past_the_stall_bound_stays_open(pool: PgPool) {
+        let client = client(pool, EventHub::new(&events_config(1, 1), HUB_CAPACITY)).await;
+        let cookie = sign_up(&client.app).await;
+        let first = test::call_service(&client.app, open(&cookie).to_request()).await;
+        let mut body = first.into_body();
+
+        next_event(&mut body).await;
+
+        for _ in 0..4 {
+            assert!(next_chunk(&mut body).await.is_some());
+        }
+
+        let (status, _) = call(&client.app, open(&cookie)).await;
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     }
 }
