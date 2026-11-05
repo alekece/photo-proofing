@@ -9,6 +9,7 @@ export interface GalleryChanges {
 	expires_at?: string | null;
 	included_photos?: number | null;
 	watermark_enabled?: boolean;
+	hero_id?: string | null;
 }
 
 export class GalleryApiError extends Error {

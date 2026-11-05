@@ -55,11 +55,20 @@
 
 		return () => source.close();
 	});
+	// Proofs are the ready photos, so the cover can only ever be a ready photo's preview.
+	let cover = $derived(proofs.find(({ id }) => id === gallery.hero_id));
 </script>
 
 <main class="mx-auto grid max-w-7xl gap-4 px-4 py-6">
 	{#if preview}
 		<p class="justify-self-center rounded-sm border border-border-strong px-2 text-sm">Preview</p>
+	{/if}
+	{#if cover}
+		<img
+			src={cover.previewUrl}
+			alt="Gallery cover"
+			class="mx-auto max-h-[70vh] w-full rounded-card object-cover"
+		/>
 	{/if}
 	<h1 class="text-center text-[2rem] wrap-anywhere">{gallery.title ?? UNTITLED_GALLERY}</h1>
 	{#if gallery.expires_at}

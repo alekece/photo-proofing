@@ -6,7 +6,8 @@ const gallery = {
 	layout: 'grid',
 	expires_at: null,
 	included_photos: null,
-	delivered: false
+	delivered: false,
+	hero_id: null
 };
 const token = 'A'.repeat(22);
 

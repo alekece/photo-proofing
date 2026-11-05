@@ -3,7 +3,10 @@
 use std::num::NonZeroUsize;
 
 use derive_more::{Deref, FromStr};
-use pp_core::types::{timestamp::Timestamp, token::Token};
+use pp_core::{
+    notifications::PhotoId,
+    types::{timestamp::Timestamp, token::Token},
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row, Type, postgres::PgRow};
 
@@ -38,6 +41,8 @@ pub struct SharedGallery {
     pub included_photos: Option<NonZeroUsize>,
     /// Once delivered, the selection is final.
     pub delivered: bool,
+    /// The gallery's hero photo, only while it is ready.
+    pub hero_id: Option<PhotoId>,
 }
 
 impl FromRow<'_, PgRow> for SharedGallery {
@@ -48,6 +53,7 @@ impl FromRow<'_, PgRow> for SharedGallery {
             expires_at: row.try_get("expires_at")?,
             included_photos: included_photos(row)?,
             delivered: row.try_get("delivered")?,
+            hero_id: row.try_get("hero_id")?,
         })
     }
 }

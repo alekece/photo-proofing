@@ -34,6 +34,14 @@ describe('GallerySettings', () => {
 		expect(onsave).toHaveBeenNthCalledWith(2, { watermark_enabled: true });
 	});
 
+	it('points to the Photos tab for the hero photo', () => {
+		setup();
+
+		expect(
+			screen.getByText('Star a photo in the Photos tab to make it the hero photo.')
+		).toBeTruthy();
+	});
+
 	it('debounces included photos through the page and saves on leaving', async () => {
 		const { onsave, schedule, cancel, user } = setup();
 		const included = screen.getByLabelText('Included photos');

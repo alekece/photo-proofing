@@ -9,8 +9,17 @@ const gallery: SharedGallery = {
 	layout: 'grid',
 	expires_at: null,
 	included_photos: null,
-	delivered: false
+	delivered: false,
+	hero_id: null
 };
+const proof = (id: string): Proof => ({
+	id,
+	alt: `Proof ${id}`,
+	thumbnailUrl: `/thumb/${id}`,
+	previewUrl: `/preview/${id}`,
+	width: 300,
+	height: 200
+});
 const proofs: Proof[] = [1, 2, 3].map((n) => ({
 	id: `p${n}`,
 	alt: `Proof ${n}`,
@@ -19,6 +28,8 @@ const proofs: Proof[] = [1, 2, 3].map((n) => ({
 	width: 300,
 	height: 200
 }));
+
+const shared = (hero_id: string | null): SharedGallery => ({ ...gallery, hero_id });
 
 class FakeEventSource extends EventTarget {
 	static last: FakeEventSource | undefined;
@@ -175,5 +186,24 @@ describe('ClientGallery', () => {
 		expect(screen.getByText('1 selected')).toBeTruthy();
 		expect(screen.queryAllByRole('button', { name: /^favorite proof/i })).toEqual([]);
 		expect(FakeEventSource.last).toBeUndefined();
+	});
+
+	it('shows the hero photo preview as the cover', () => {
+		show({ gallery: shared('b'), proofs: [proof('a'), proof('b')] });
+
+		expect(screen.getByRole('img', { name: 'Gallery cover' }).getAttribute('src')).toBe(
+			'/preview/b'
+		);
+	});
+
+	it('shows no cover without a hero, or when its photo is not among the proofs', () => {
+		const { unmount } = show({ gallery: shared(null), proofs: [proof('a')] });
+
+		expect(screen.queryByRole('img', { name: 'Gallery cover' })).toBeNull();
+
+		unmount();
+		show({ gallery: shared('gone'), proofs: [proof('a')] });
+
+		expect(screen.queryByRole('img', { name: 'Gallery cover' })).toBeNull();
 	});
 });
