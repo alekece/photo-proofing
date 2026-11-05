@@ -41,7 +41,8 @@
 	let picker = $state<HTMLInputElement | null>(null);
 	let selecting = $state(false);
 	let confirmingSelection = $state(false);
-	let announcement = $state('');
+	/** A one-off message, and the summary it went out with: it is cleared when that changes. */
+	let announcement = $state<{ text: string; summary: string } | null>(null);
 	let selectButton = $state<HTMLButtonElement | null>(null);
 	let uploadButton = $state<HTMLElement | null>(null);
 	let grid = $state<HTMLUListElement | null>(null);
@@ -198,13 +199,17 @@
 	}
 
 	$effect(() => {
+		if (announcement && announcement.summary !== summary) announcement = null;
+	});
+
+	$effect(() => {
 		const id = galleryId;
 
 		untrack(() => {
 			photos = [];
 			loaded = false;
 			alert = '';
-			announcement = '';
+			announcement = null;
 			leaveSelectMode();
 			void load();
 		});
@@ -393,7 +398,7 @@
 
 		photos = photos.filter(({ id }) => !deleting.has(id));
 		alert = '';
-		announcement = '';
+		announcement = null;
 
 		try {
 			while (deletedCount < ids.length) {
@@ -413,8 +418,12 @@
 
 			if (!stillShown()) return;
 
-			announcement = `${ids.length} ${ids.length === 1 ? 'photo' : 'photos'} deleted`;
 			await finishSelecting();
+
+			announcement = {
+				text: `${ids.length} ${ids.length === 1 ? 'photo' : 'photos'} deleted`,
+				summary
+			};
 		} catch (cause) {
 			const unresolved = new Set(ids.slice(deletedCount));
 
@@ -508,7 +517,7 @@
 		<p role="alert" class="text-sm text-danger">{alert}</p>
 	{/if}
 	<p role="status" aria-live="polite" class="sr-only">
-		{[announcement, summary].filter(Boolean).join('. ')}
+		{[announcement?.text, summary].filter(Boolean).join('. ')}
 	</p>
 
 	{#if photos.length > 0 || queued.length > 0}

@@ -597,6 +597,22 @@ describe('PhotosPanel', () => {
 			expect(announced()).toContain('2 photos deleted');
 		});
 
+		it('announces a deletion once, not again with the next change', async () => {
+			stubApi([photo('p1'), photo('p2'), photo('p3')]);
+			const user = userEvent.setup();
+			const { emit } = setup();
+
+			await enter(user);
+			await user.click(checkbox('p1.jpg')!);
+			await confirmDeletion(user);
+			await waitFor(() => expect(announced()).toContain('1 photo deleted'));
+
+			emit({ photo_id: 'p2', status: 'processing' });
+
+			await waitFor(() => expect(announced()).toContain('1 processing'));
+			expect(announced()).not.toContain('deleted');
+		});
+
 		it('finishes a confirmed deletion in its own gallery after a gallery change', async () => {
 			let answer: (response: Response) => void = () => {};
 			const api = stubApi(
