@@ -44,8 +44,8 @@ mod tests {
     use sqlx::PgPool;
 
     use crate::{
-        routes::galleries::photos::tests::{app, call_request, upload_config},
         tests::sign_up,
+        tests::{app, call_request, upload_config},
     };
 
     fn limits_request(cookie: Option<&Cookie<'static>>) -> actix_http::Request {

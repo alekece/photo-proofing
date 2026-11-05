@@ -65,7 +65,7 @@ mod tests {
     };
 
     use super::{UploadLimiter, UploadSlot};
-    use crate::routes::galleries::photos::tests::upload_config;
+    use crate::tests::upload_config;
 
     #[actix_web::test]
     async fn cloned_applications_share_capacity_without_api_state() {
