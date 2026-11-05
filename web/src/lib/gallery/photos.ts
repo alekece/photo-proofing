@@ -1,23 +1,14 @@
 import { GalleryApiError } from './api';
-import { everyItem, isPhoto, isUploadLimits } from './validate';
+import {
+	deletedPhotosSchema,
+	parseOrNull,
+	photoSchema,
+	uploadLimitsSchema,
+	type Photo
+} from './schemas';
+import * as v from 'valibot';
 
-export type PhotoStatus = 'waiting' | 'processing' | 'ready' | { failed: string };
-
-export interface Photo {
-	id: string;
-	original_name: string;
-	size: number;
-	width: number;
-	height: number;
-	status: PhotoStatus;
-	created_at: string;
-}
-
-export interface UploadLimits {
-	concurrency: number;
-	max_size: number;
-	max_pixels: number;
-}
+export type { Photo, PhotoStatus, UploadLimits } from './schemas';
 
 /** How one upload ended, already translated for the queue. */
 export type UploadOutcome =
@@ -61,9 +52,9 @@ async function request(path: string, init: RequestInit, fetcher: typeof fetch) {
 export async function listPhotos(galleryId: string, fetcher: typeof fetch = fetch) {
 	const response = await request(photosPath(galleryId), {}, fetcher);
 
-	const photos: unknown = await response.json().catch(() => null);
+	const photos = parseOrNull(v.array(photoSchema), await response.json().catch(() => null));
 
-	if (!everyItem(photos, isPhoto)) throw unexpected();
+	if (!photos) throw unexpected();
 
 	return photos;
 }
@@ -87,12 +78,11 @@ export async function deletePhotos(galleryId: string, photoIds: string[], fetche
 		fetcher
 	);
 
-	const body: unknown = await response.json().catch(() => null);
-	const deleted = (body as { deleted?: unknown } | null)?.deleted;
+	const body = parseOrNull(deletedPhotosSchema, await response.json().catch(() => null));
 
-	if (!Number.isInteger(deleted)) throw unexpected();
+	if (!body) throw unexpected();
 
-	return deleted as number;
+	return body.deleted;
 }
 
 export async function retryPhoto(galleryId: string, photoId: string, fetcher = fetch) {
@@ -102,9 +92,9 @@ export async function retryPhoto(galleryId: string, photoId: string, fetcher = f
 export async function getUploadLimits(fetcher: typeof fetch = fetch) {
 	const response = await request('/api/v1/upload/limits', {}, fetcher);
 
-	const limits: unknown = await response.json().catch(() => null);
+	const limits = parseOrNull(uploadLimitsSchema, await response.json().catch(() => null));
 
-	if (!isUploadLimits(limits)) throw unexpected();
+	if (!limits) throw unexpected();
 
 	return limits;
 }
@@ -133,9 +123,9 @@ export async function uploadPhoto(
 	}
 
 	if (response.status === 201) {
-		const photo: unknown = await response.json().catch(() => null);
+		const photo = parseOrNull(photoSchema, await response.json().catch(() => null));
 
-		return isPhoto(photo) ? { kind: 'created', photo } : { kind: 'failed' };
+		return photo ? { kind: 'created', photo } : { kind: 'failed' };
 	}
 
 	if (response.status === 429) {
