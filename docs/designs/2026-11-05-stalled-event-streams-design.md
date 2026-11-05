@@ -16,8 +16,7 @@ other photographers out of live updates.
 
 ## Non-goals
 
-- Closing the TCP connection itself. The protected resource is the stream slot (and its broadcast
-  receiver). The operating system ends a dead connection on its own.
+- Closing the TCP connection itself. The protected resource is the stream slot. The operating system ends a dead connection on its own.
 - Socket-level options such as `TCP_USER_TIMEOUT`: Linux-only, hard to test, and they affect
   every route.
 
@@ -30,16 +29,19 @@ polled for several keep-alive intervals" means the client isn't accepting data.
 
 ## Approach
 
-- The stream records when it was last polled.
+- A small wrapper around the inner stream records the time on every `poll_next`, then delegates.
+  The record must live there: the async `next()` stays suspended across polls, so a timestamp
+  taken inside it would go stale and close healthy streams.
 - A small watchdog task, spawned with the stream and stopped when the stream is dropped, checks
   every keep-alive interval.
 - If the stream hasn't been polled for 3 keep-alive intervals (45 s with the default), the
   watchdog:
-  - releases the slot and the broadcast receiver;
+  - releases the slot;
   - logs that the stream stalled;
-  - leaves the stream to end on its next poll, if one ever comes.
-- The slot and receiver move behind a shared handle that either the stream or the watchdog can
-  release, exactly once.
+  - marks the stream ended, so it finishes on its next poll if one ever comes.
+- Only the slot moves behind a shared handle that the stream or the watchdog releases, exactly
+  once. The broadcast receiver stays with the stream: the pending `recv()` borrows it, and its
+  memory is bounded by the hub capacity.
 
 ## Testing
 
