@@ -47,6 +47,10 @@ impl ErrorResponse {
         Self::new(StatusCode::NOT_FOUND, "not found")
     }
 
+    pub fn conflict(message: &'static str) -> Self {
+        Self::new(StatusCode::CONFLICT, message)
+    }
+
     pub fn unavailable() -> Self {
         Self::new(StatusCode::SERVICE_UNAVAILABLE, "service unavailable")
     }
