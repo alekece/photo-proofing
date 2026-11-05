@@ -1,14 +1,8 @@
 import { getContext, setContext } from 'svelte';
 import { goto } from '$app/navigation';
+import { parseOrNull, photoEventSchema, type PhotoEvent } from './gallery/schemas';
 
-export type PhotoChange = 'waiting' | 'processing' | 'ready' | 'failed' | 'deleted';
-
-/** One committed change to a photo of the signed-in workspace; details come from the photo list. */
-export interface PhotoEvent {
-	gallery_id: string;
-	photo_id: string;
-	status: PhotoChange;
-}
+export type { PhotoChange, PhotoEvent } from './gallery/schemas';
 
 /** The signed-in area's live updates. A resync means events may have been missed: refetch. */
 export interface LiveEvents {
@@ -27,20 +21,6 @@ interface LiveEventsOptions {
 const FIRST_REOPEN_DELAY_MS = 1000;
 const MAX_REOPEN_DELAY_MS = 30_000;
 const CLOSED = 2;
-
-const CHANGES: readonly string[] = ['waiting', 'processing', 'ready', 'failed', 'deleted'];
-
-function isPhotoEvent(value: unknown): value is PhotoEvent {
-	if (typeof value !== 'object' || value === null) return false;
-	const { gallery_id, photo_id, status } = value as Record<string, unknown>;
-
-	return (
-		typeof gallery_id === 'string' &&
-		typeof photo_id === 'string' &&
-		typeof status === 'string' &&
-		CHANGES.includes(status)
-	);
-}
 
 async function isSignedIn(): Promise<boolean> {
 	const response = await fetch('/api/v1/auth/status', { credentials: 'same-origin' });
@@ -78,14 +58,15 @@ export function createLiveEvents({
 			for (const handler of resyncHandlers) handler();
 		});
 		current.addEventListener('photo', (message) => {
-			let event: unknown;
+			let data: unknown;
 			try {
-				event = JSON.parse((message as MessageEvent<string>).data);
+				data = JSON.parse((message as MessageEvent<string>).data);
 			} catch {
-				event = null;
+				data = null;
 			}
+			const event = parseOrNull(photoEventSchema, data);
 			// A payload the page can't trust is treated as a missed event: refetch instead.
-			if (!isPhotoEvent(event)) {
+			if (!event) {
 				for (const handler of resyncHandlers) handler();
 				return;
 			}

@@ -29,25 +29,25 @@ page shows a clean error or a sensible default instead of breaking in odd ways.
 
 ## Approach
 
-Small hand-written type guards in `web/src/lib/gallery/validate.ts`, next to the types they
-check. No new dependency: the shapes are few and flat, and a library like zod would add weight to
-the client bundle for little gain.
+Valibot schemas in `web/src/lib/gallery/schemas.ts` (see #160). Each schema is the single source
+of truth: the TypeScript type is inferred from it, so shape and check cannot drift apart. Valibot
+is tree-shakeable, so only the used validators reach the client bundle.
 
-- Each guard checks only fields the web app uses, with their types and allowed string values
+- Each schema checks only fields the web app uses, with their types and allowed string values
   (layout, sort, photo status). Extra fields are allowed, so the API can grow without breaking
   the web app.
-- `readGalleries` and `readShared` throw SvelteKit's `error(503)` when a guard fails.
+- `readGalleries` and `readShared` throw SvelteKit's `error(503)` when a schema rejects the body.
 - Browser clients fail in each endpoint's existing way, as listed above, so current UI paths
   handle it.
-- `isGallerySort` replaces the cast in the dashboard's `changeSort`. The server already falls back
-  to `'updated'`; it switches to the same guard.
+- `parseGallerySort` replaces the cast in the dashboard's `changeSort`. The server already falls back
+  to `'updated'`; it switches to the same parser.
 - `events.ts` checks `photo` event payloads. An invalid one triggers the resync handler, so the
   page refetches rather than trusting it. `isSignedIn` stops casting the status body.
 
 ## Testing
 
 Unit tests cover:
-- each guard: valid shapes, missing fields and wrong types;
+- each schema: valid shapes, missing fields and wrong types;
 - every JSON success path gives its controlled failure on a malformed body: `readGalleries`,
   `readShared`, the gallery requests, `listPhotos`, `deletePhotos`, `getUploadLimits` and
   `uploadPhoto`;

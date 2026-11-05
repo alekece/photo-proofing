@@ -1,20 +1,6 @@
-import { isGallery } from './validate';
+import { gallerySchema, parseOrNull, type Gallery, type GalleryLayout } from './schemas';
 
-export type GalleryLayout = 'grid' | 'masonry';
-export type GallerySort = 'updated' | 'created' | 'title';
-
-export interface Gallery {
-	id: string;
-	title: string | null;
-	layout: GalleryLayout;
-	expires_at: string | null;
-	included_photos: number | null;
-	watermark_enabled: boolean;
-	/** The private client link's token once shared; the link never changes afterwards. */
-	share_token: string | null;
-	created_at: string;
-	updated_at: string;
-}
+export type { Gallery, GalleryLayout, GallerySort } from './schemas';
 
 /** Subset of settings sent by a PATCH: a missing key is kept, `null` clears the optional ones. */
 export interface GalleryChanges {
@@ -52,9 +38,9 @@ async function galleryRequest(path: string, init: RequestInit, fetcher: typeof f
 				: undefined
 		);
 	}
-	const gallery: unknown = await response.json().catch(() => null);
+	const gallery = parseOrNull(gallerySchema, await response.json().catch(() => null));
 
-	if (!isGallery(gallery)) throw new GalleryApiError(502, 'Unexpected response from the server.');
+	if (!gallery) throw new GalleryApiError(502, 'Unexpected response from the server.');
 
 	return gallery;
 }

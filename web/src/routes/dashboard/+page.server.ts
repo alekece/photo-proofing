@@ -1,5 +1,5 @@
 import { isHttpError, redirect } from '@sveltejs/kit';
-import { parseGallerySort } from '#lib/gallery/validate.js';
+import { parseGallerySort } from '#lib/gallery/schemas.js';
 import { getAuthStatus } from '#lib/server/auth.js';
 import { listGalleries } from '#lib/server/galleries.js';
 import type { PageServerLoad } from './$types';

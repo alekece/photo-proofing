@@ -15,7 +15,7 @@
 	import Input from '#lib/components/ui/input/input.svelte';
 	import Label from '#lib/components/ui/label/label.svelte';
 	import Select from '#lib/components/ui/select/select.svelte';
-	import { parseGallerySort } from '#lib/gallery/validate.js';
+	import { parseGallerySort } from '#lib/gallery/schemas.js';
 	import { formatEdited, UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
 

@@ -1,14 +1,22 @@
 import { env } from 'node:process';
 import { error, redirect } from '@sveltejs/kit';
-import type { Gallery, GallerySort } from '#lib/gallery/api.js';
-import type { SharedGallery, SharedPhoto } from '#lib/gallery/types.js';
-import { everyItem, isGallery, isSharedGallery, isSharedPhoto } from '#lib/gallery/validate.js';
+import * as v from 'valibot';
+import {
+	gallerySchema,
+	parseOrNull,
+	sharedGallerySchema,
+	sharedPhotoSchema,
+	type Gallery,
+	type GallerySort,
+	type SharedGallery,
+	type SharedPhoto
+} from '#lib/gallery/schemas.js';
 
-async function readGalleries<T>(
+async function readGalleries<const S extends v.GenericSchema>(
 	fetcher: typeof fetch,
 	cookie: string | null,
 	path: string,
-	check: (value: unknown) => value is T
+	schema: S
 ) {
 	let response: Response;
 	try {
@@ -32,8 +40,9 @@ async function readGalleries<T>(
 	} catch {
 		error(503, 'Galleries are temporarily unavailable. Please try again.');
 	}
-	if (!check(body)) error(503, 'Galleries are temporarily unavailable. Please try again.');
-	return body;
+	const parsed = parseOrNull(schema, body);
+	if (parsed === null) error(503, 'Galleries are temporarily unavailable. Please try again.');
+	return parsed;
 }
 
 /** Server-side read with the request cookie; 401 redirects to sign-in, other failures become 503. */
@@ -42,9 +51,7 @@ export function listGalleries(
 	cookie: string | null,
 	sort: GallerySort
 ): Promise<Gallery[]> {
-	return readGalleries<Gallery[]>(fetcher, cookie, `?sort=${sort}`, (value): value is Gallery[] =>
-		everyItem(value, isGallery)
-	);
+	return readGalleries(fetcher, cookie, `?sort=${sort}`, v.array(gallerySchema));
 }
 
 /** Unknown, foreign and malformed ids are all a 404. */
@@ -53,14 +60,14 @@ export function getGallery(
 	cookie: string | null,
 	id: string
 ): Promise<Gallery> {
-	return readGalleries<Gallery>(fetcher, cookie, `/${encodeURIComponent(id)}`, isGallery);
+	return readGalleries(fetcher, cookie, `/${encodeURIComponent(id)}`, gallerySchema);
 }
 
-async function readShared<T>(
+async function readShared<const S extends v.GenericSchema>(
 	fetcher: typeof fetch,
 	token: string,
 	path: string,
-	check: (value: unknown) => value is T
+	schema: S
 ) {
 	const unavailable = 'This gallery is temporarily unavailable. Please try again.';
 	let response: Response;
@@ -80,8 +87,9 @@ async function readShared<T>(
 	} catch {
 		error(503, unavailable);
 	}
-	if (!check(body)) error(503, unavailable);
-	return body;
+	const parsed = parseOrNull(schema, body);
+	if (parsed === null) error(503, unavailable);
+	return parsed;
 }
 
 /**
@@ -92,7 +100,7 @@ export function getSharedGallery(
 	fetcher: typeof fetch,
 	token: string
 ): Promise<SharedGallery | null> {
-	return readShared<SharedGallery>(fetcher, token, '', isSharedGallery);
+	return readShared(fetcher, token, '', sharedGallerySchema);
 }
 
 /** Lists the photos a client may see, with the same contract as `getSharedGallery`. */
@@ -100,7 +108,5 @@ export function getSharedPhotos(
 	fetcher: typeof fetch,
 	token: string
 ): Promise<SharedPhoto[] | null> {
-	return readShared<SharedPhoto[]>(fetcher, token, '/photos', (value): value is SharedPhoto[] =>
-		everyItem(value, isSharedPhoto)
-	);
+	return readShared(fetcher, token, '/photos', v.array(sharedPhotoSchema));
 }
