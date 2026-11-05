@@ -5,6 +5,7 @@
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import { authRequest } from '#lib/auth.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
+	import ClientPreview from '#lib/components/ClientPreview.svelte';
 	import GallerySettings from '#lib/components/GallerySettings.svelte';
 	import GalleryTabs from '#lib/components/GalleryTabs.svelte';
 	import PressAgainButton from '#lib/components/PressAgainButton.svelte';
@@ -33,6 +34,7 @@
 	// svelte-ignore state_referenced_locally
 	let shareToken = $state(data.gallery.share_token);
 	let sharing = $state(false);
+	let previewing = $state(false);
 	let shareFailed = $state(false);
 	let signOutError = $state('');
 	let inflight = $state(0);
@@ -206,6 +208,7 @@
 			</p>
 		</div>
 		<div class="flex flex-wrap items-center gap-2">
+			<Button variant="outline" onclick={() => (previewing = true)}>Preview</Button>
 			{#if shareToken}
 				<Button disabled title="Delivering finished photos arrives with a later release">
 					Deliver to client
@@ -242,3 +245,6 @@
 		<GalleryTabs galleryId={saved.id} />
 	</div>
 </PageShell>
+{#if previewing}
+	<ClientPreview gallery={saved} onclose={() => (previewing = false)} />
+{/if}
