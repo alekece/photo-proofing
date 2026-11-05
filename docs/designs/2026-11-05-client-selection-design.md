@@ -21,10 +21,10 @@ The client marks favorites through the private link; every browser using the lin
 
 ## API and storage
 
-- `photos.favorited_at timestamptz NULL`: set means favorite. The selection is one per gallery by design (no per-person selections, so no identities or reconciliation), which makes a column enough: a deleted photo takes its favorite with it, and a favorite can never point at another gallery. The timestamp orders the Favorites tab, most recently picked first.
+- `photos.favorite boolean NOT NULL DEFAULT false`. The selection is one per gallery by design (no per-person selections, so no identities or reconciliation), which makes a column enough: a deleted photo takes its favorite with it, and a favorite can never point at another gallery. The Favorites tab uses the same order as the Photos tab.
 - Client routes under `/shared/{token}`:
   - `GET .../favorites` returns the favorite photo ids.
-  - `PUT .../favorites/{photo_id}` adds and `DELETE` removes. Both are single conditional `UPDATE`s on the photo, so repeated or concurrent requests converge and cannot corrupt the selection (adding keeps the first `favorited_at`).
+  - `PUT .../favorites/{photo_id}` adds and `DELETE` removes. Both are single conditional `UPDATE`s on the photo, so repeated or concurrent requests converge and cannot corrupt the selection.
 - Server checks: the share token must be valid (not expired, not archived); the photo must be a ready photo of that gallery; writes are rejected with a conflict once `delivered_at` is set. (Needs the `delivered_at` column from #86; the delivery slice must also reject favorite writes at its publication boundary.)
 - Photographer route: `GET /api/v1/galleries/{id}/favorites`, scoped to the workspace.
 - Toggling a favorite does not change `status`, so the existing photo-event triggers stay silent. Changes publish through a separate Postgres notification, in the same way as the photo events, to a per-link event stream for clients and to the photographer's existing stream, which refresh the list.
