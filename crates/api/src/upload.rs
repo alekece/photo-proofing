@@ -20,7 +20,6 @@ use pp_storage::{PhotoStorage, StagedPhoto};
 use crate::{config::UploadConfig, error::ErrorResponse};
 
 const MAX_FILENAME_BYTES: usize = 255;
-const UPLOAD_BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A received and inspected upload; nothing is published until storage commits its staged bytes.
 #[must_use = "a photo upload is discarded unless stored"]
@@ -62,8 +61,13 @@ impl PhotoUpload {
             }
         }
 
-        let (staged, size) =
-            stage_payload(storage, payload, options.max_size, UPLOAD_BODY_IDLE_TIMEOUT).await?;
+        let (staged, size) = stage_payload(
+            storage,
+            payload,
+            options.max_size,
+            options.body_idle_timeout.get(),
+        )
+        .await?;
         let dimensions = jpeg::inspect(staged.temporary_path(), options.max_pixels).await?;
 
         Ok(Self {
@@ -201,6 +205,7 @@ mod tests {
                 max_pixels: NonZeroU64::new(2048).unwrap(),
                 concurrency: NonZeroUsize::new(1).unwrap(),
                 retry_after: "1s".parse().unwrap(),
+                body_idle_timeout: "30s".parse().unwrap(),
             },
         )
     }
@@ -278,7 +283,7 @@ mod tests {
             &storage,
             body.into(),
             options.max_size,
-            UPLOAD_BODY_IDLE_TIMEOUT,
+            options.body_idle_timeout.get(),
         )
         .await;
 

@@ -10,7 +10,7 @@ use thiserror::Error;
 use crate::{
     Repository,
     error::DatabaseError,
-    jobs::{DEFAULT_MAX_ATTEMPTS, JobPayload, JobRepository, ProcessPhoto},
+    jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
     photo::{NewPhoto, Photo, PhotoInsertOutcome, PhotoRepository},
 };
 
@@ -94,13 +94,14 @@ impl PgSeverityExt for PgSeverity {
 /// Composes photo and job persistence for one accepted original.
 pub struct PhotoIntake<'db> {
     pool: &'db PgPool,
+    jobs: JobOptions,
 }
 
 impl<'db> Repository<'db> for PhotoIntake<'db> {
-    type Options = ();
+    type Options = JobOptions;
 
-    fn open(pool: &'db PgPool, (): Self::Options) -> Self {
-        Self { pool }
+    fn open(pool: &'db PgPool, jobs: Self::Options) -> Self {
+        Self { pool, jobs }
     }
 }
 
@@ -148,7 +149,8 @@ impl PhotoIntake<'_> {
             PhotoInsertOutcome::Inserted(inserted) => {
                 let payload = JobPayload::ProcessPhoto(ProcessPhoto { photo_id: photo.id });
 
-                JobRepository::enqueue_in(&mut transaction, payload, DEFAULT_MAX_ATTEMPTS).await?;
+                JobRepository::enqueue_in(&mut transaction, payload, self.jobs.max_attempts)
+                    .await?;
 
                 if let Err(error) = transaction.commit().await {
                     return Err(PhotoIntakeError::from_commit(error));
@@ -279,6 +281,38 @@ mod tests {
             payload,
             serde_json::json!({"kind": "process_photo", "payload": {"photo_id": photo_id.to_string()}})
         );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn accepted_photos_get_the_configured_job_attempts(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let workspace_id = workspace(&pool).await;
+        let gallery = database
+            .repository::<GalleryRepository>()
+            .create(workspace_id)
+            .await
+            .unwrap();
+        let photo_id = PhotoId::from(Uuid::new_v4());
+        let options = JobOptions {
+            max_attempts: std::num::NonZeroU16::new(9).unwrap(),
+        };
+
+        database
+            .repository_with::<PhotoIntake>(options)
+            .try_accept(new_photo(workspace_id, gallery.id, photo_id, "proof.jpg"))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let attempts: i32 = sqlx::query_scalar(
+            "SELECT max_attempts FROM jobs WHERE payload->'payload'->>'photo_id' = $1",
+        )
+        .bind(photo_id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(attempts, 9);
     }
 
     #[sqlx::test(migrations = "./migrations")]

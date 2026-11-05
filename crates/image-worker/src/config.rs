@@ -14,10 +14,10 @@ use crate::runtime::RuntimeOptions;
 
 /// Longest configurable queue duration: a day, beyond which a lease or delay stops meaning
 /// anything for jobs that are meant to be short.
-const MAX_QUEUE_SECS: u64 = 24 * 60 * 60;
+const MAX_QUEUE_MILLIS: u64 = 24 * 60 * 60 * 1000;
 
 /// A queue duration of at least one second, the resolution operators think in.
-pub type QueueDuration = BoundedDuration<1, MAX_QUEUE_SECS>;
+pub type QueueDuration = BoundedDuration<1_000, MAX_QUEUE_MILLIS>;
 
 /// Everything the [`Worker`](crate::runtime::Worker) needs to start.
 #[derive(Args, ConfigArgs, Clone)]

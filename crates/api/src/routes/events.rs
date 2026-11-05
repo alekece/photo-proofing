@@ -145,7 +145,7 @@ pub(crate) async fn stream_events(
 
 #[cfg(test)]
 mod tests {
-    use std::{future::poll_fn, pin::Pin, sync::Arc, time::Duration};
+    use std::{future::poll_fn, num::NonZeroU16, pin::Pin, sync::Arc, time::Duration};
 
     use actix_web::{
         App,
@@ -168,7 +168,7 @@ mod tests {
     use super::*;
     use crate::{
         api::configure_routes,
-        events::HUB_CAPACITY,
+        config::EventsConfig,
         tests::{ORIGIN, app_state, call, events_config, sign_up},
     };
 
@@ -208,7 +208,7 @@ mod tests {
     }
 
     fn default_hub() -> EventHub {
-        EventHub::new(&events_config(8, 8), HUB_CAPACITY)
+        EventHub::new(&events_config(8, 8))
     }
 
     fn open(cookie: &Cookie<'static>) -> test::TestRequest {
@@ -326,7 +326,11 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn a_lagging_stream_is_told_to_resync(pool: PgPool) {
-        let client = client(pool, EventHub::new(&events_config(8, 8), 1)).await;
+        let config = EventsConfig {
+            capacity: NonZeroU16::new(1).unwrap(),
+            ..events_config(8, 8)
+        };
+        let client = client(pool, EventHub::new(&config)).await;
         let cookie = sign_up(&client.app).await;
         let workspace_id = workspace_of(&client.app, &cookie).await;
         let response = test::call_service(&client.app, open(&cookie).to_request()).await;
@@ -442,7 +446,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn streams_beyond_the_cap_are_refused_until_one_closes(pool: PgPool) {
-        let client = client(pool, EventHub::new(&events_config(1, 1), HUB_CAPACITY)).await;
+        let client = client(pool, EventHub::new(&events_config(1, 1))).await;
         let cookie = sign_up(&client.app).await;
         let first = test::call_service(&client.app, open(&cookie).to_request()).await;
 
@@ -461,7 +465,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn a_stream_the_client_stops_reading_is_closed_and_frees_its_slot(pool: PgPool) {
-        let client = client(pool, EventHub::new(&events_config(1, 1), HUB_CAPACITY)).await;
+        let client = client(pool, EventHub::new(&events_config(1, 1))).await;
         let cookie = sign_up(&client.app).await;
         let first = test::call_service(&client.app, open(&cookie).to_request()).await;
         let mut body = first.into_body();
@@ -484,7 +488,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn a_stream_read_past_the_stall_bound_stays_open(pool: PgPool) {
-        let client = client(pool, EventHub::new(&events_config(1, 1), HUB_CAPACITY)).await;
+        let client = client(pool, EventHub::new(&events_config(1, 1))).await;
         let cookie = sign_up(&client.app).await;
         let first = test::call_service(&client.app, open(&cookie).to_request()).await;
         let mut body = first.into_body();

@@ -26,18 +26,18 @@ pub enum ParseBoundedDurationError {
     Range(DurationRangeError),
 }
 
-/// A span of time that lasts at least `MIN` and at most `MAX` whole seconds.
+/// A span of time that lasts at least `MIN` and at most `MAX` milliseconds.
 ///
 /// The bounds are enforced once, at construction, so consumers need no further checks. Parsed
 /// from and displayed as a human duration such as `30d` or `1h 30m`. Const generics cannot be
-/// [`Duration`]s, which is why the bounds are expressed in seconds.
+/// [`Duration`]s, which is why the bounds are expressed in milliseconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct BoundedDuration<const MIN: u64, const MAX: u64>(Duration);
 
 impl<const MIN: u64, const MAX: u64> BoundedDuration<MIN, MAX> {
-    const MIN_DURATION: Duration = Duration::from_secs(MIN);
-    const MAX_DURATION: Duration = Duration::from_secs(MAX);
+    const MIN_DURATION: Duration = Duration::from_millis(MIN);
+    const MAX_DURATION: Duration = Duration::from_millis(MAX);
 
     pub fn get(self) -> Duration {
         self.0
@@ -104,7 +104,7 @@ impl Serialize for Millis {
 mod tests {
     use super::*;
 
-    type Positive = BoundedDuration<1, 1_000_000_000>;
+    type Positive = BoundedDuration<1_000, 1_000_000_000_000>;
 
     #[test]
     fn serializes_durations_as_milliseconds() {
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn rejects_unusable_durations() {
-        for value in ["0s", "500ms", "999999999999999s", "-1s", "nonsense", ""] {
+        for value in ["0s", "999ms", "999999999999999s", "-1s", "nonsense", ""] {
             assert!(value.parse::<Positive>().is_err(), "{value}");
         }
     }
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn bounds_come_from_the_type_parameters() {
-        type Short = BoundedDuration<2, 3>;
+        type Short = BoundedDuration<2_000, 3_000>;
 
         assert!("2s".parse::<Short>().is_ok());
         assert!("3s".parse::<Short>().is_ok());

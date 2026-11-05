@@ -2,7 +2,7 @@
 //! signed-in session, and a request runner that decodes the JSON body.
 
 use std::{
-    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
+    num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize},
     path::Path,
 };
 
@@ -23,7 +23,7 @@ use tempfile::TempDir;
 
 use crate::{
     api::{ApiState, configure_routes},
-    config::{AuthConfig, EventsConfig, LimiterConfig, SessionConfig, UploadConfig},
+    config::{AuthConfig, EventsConfig, LimiterConfig, QueueConfig, SessionConfig, UploadConfig},
     upload::{self, limiter::UploadLimiter},
 };
 
@@ -36,6 +36,15 @@ pub(crate) fn events_config(max_streams: usize, per_workspace: usize) -> EventsC
         stall_intervals: "3".parse().unwrap(),
         max_streams: NonZeroUsize::new(max_streams).unwrap(),
         max_streams_per_workspace: NonZeroUsize::new(per_workspace).unwrap(),
+        capacity: NonZeroU16::new(1024).unwrap(),
+        relay_backoff_start: "250ms".parse().unwrap(),
+        relay_backoff_cap: "30s".parse().unwrap(),
+    }
+}
+
+pub(crate) fn queue_config(max_attempts: u16) -> QueueConfig {
+    QueueConfig {
+        max_attempts: NonZeroU16::new(max_attempts).unwrap(),
     }
 }
 
@@ -45,6 +54,7 @@ pub(crate) fn upload_config(max_size: u64, max_pixels: u64) -> UploadConfig {
         max_pixels: NonZeroU64::new(max_pixels).unwrap(),
         concurrency: NonZeroUsize::new(4).unwrap(),
         retry_after: "1s".parse().unwrap(),
+        body_idle_timeout: "30s".parse().unwrap(),
     }
 }
 
@@ -85,6 +95,7 @@ pub(crate) fn state_with_upload_secure_cookie(
     };
     let auth = AuthConfig {
         app_origin: ORIGIN.parse().unwrap(),
+        hash_concurrency: NonZeroUsize::new(2).unwrap(),
     };
     let limiter = LimiterConfig {
         max_failures: NonZeroU32::new(10).unwrap(),
@@ -99,6 +110,7 @@ pub(crate) fn state_with_upload_secure_cookie(
         limiter,
         storage,
         upload_config,
+        queue_config(5),
     )
     .unwrap()
 }
