@@ -38,6 +38,7 @@ describe('toOwnerProofs', () => {
 		width: 300,
 		height: 200,
 		status,
+		favorite: false,
 		created_at: '2026-01-01T10:00:00Z'
 	});
 
