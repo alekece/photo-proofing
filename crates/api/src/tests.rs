@@ -33,6 +33,7 @@ pub(crate) const ORIGIN: &str = "http://localhost:5173";
 pub(crate) fn events_config(max_streams: usize, per_workspace: usize) -> EventsConfig {
     EventsConfig {
         keep_alive: "1s".parse().unwrap(),
+        stall_intervals: "3".parse().unwrap(),
         max_streams: NonZeroUsize::new(max_streams).unwrap(),
         max_streams_per_workspace: NonZeroUsize::new(per_workspace).unwrap(),
     }

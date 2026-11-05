@@ -9,10 +9,13 @@
 use std::{
     collections::HashMap,
     num::NonZeroUsize,
+    pin::Pin,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
+    task::{Context, Poll},
     time::Duration,
 };
 
+use futures_util::Stream;
 use pp_database::{
     Database,
     auth::WorkspaceId,
@@ -20,10 +23,13 @@ use pp_database::{
     listener::{Listener, MissedReason, Notification},
     photo_events::PhotoEvent,
 };
-use tokio::{sync::broadcast, time};
-use tokio_util::sync::CancellationToken;
+use tokio::{
+    sync::broadcast,
+    time::{self, Instant},
+};
+use tokio_util::sync::{CancellationToken, DropGuard};
 
-use crate::config::{EventsConfig, KeepAlive};
+use crate::config::{EventsConfig, KeepAlive, StallIntervals};
 
 /// Events buffered per subscriber before it lags and is told to resync.
 pub(crate) const HUB_CAPACITY: usize = 1024;
@@ -48,6 +54,7 @@ pub(crate) struct EventHub {
     slots: Arc<StreamSlots>,
     cancellation_token: CancellationToken,
     keep_alive: KeepAlive,
+    stall_intervals: StallIntervals,
 }
 
 impl EventHub {
@@ -63,6 +70,7 @@ impl EventHub {
             }),
             cancellation_token: CancellationToken::new(),
             keep_alive: config.keep_alive,
+            stall_intervals: config.stall_intervals,
         }
     }
 
@@ -78,8 +86,40 @@ impl EventHub {
         Some(Subscription {
             receiver: self.sender.subscribe(),
             cancellation_token: self.cancellation_token.clone(),
-            _slot: slot,
+            lease: SlotLease(Arc::new(Mutex::new(Some(slot)))),
         })
+    }
+
+    /// Ends `stream` and gives back its slot when the client stops accepting data for
+    /// `stall_intervals` keep-alive periods. The watchdog checks once per period, so a stall is
+    /// noticed within one more.
+    ///
+    /// The server only polls a response body while the client reads it, and an idle stream is
+    /// polled at least once per keep-alive period, so a longer silence means a stalled client.
+    /// The watchdog task ends with the stream: dropping it cancels the task's token.
+    pub fn watch<S: Stream + Unpin>(&self, stream: S, lease: SlotLease) -> StallWatch<S> {
+        let last_poll = Arc::new(Mutex::new(Instant::now()));
+        let stalled = CancellationToken::new();
+        let finished = self.cancellation_token.child_token();
+
+        tokio::spawn(
+            StallWatchdog {
+                period: self.keep_alive(),
+                limit: self.keep_alive() * self.stall_intervals.get(),
+                last_poll: Arc::clone(&last_poll),
+                stalled: stalled.clone(),
+                lease,
+                finished: finished.clone(),
+            }
+            .run(),
+        );
+
+        StallWatch {
+            inner: stream,
+            last_poll,
+            stalled,
+            _finished: finished.drop_guard(),
+        }
     }
 
     /// Ends every open stream. A stream otherwise lasts as long as its session, so the server
@@ -143,7 +183,98 @@ pub(crate) struct Subscription {
     pub receiver: broadcast::Receiver<Broadcast>,
     /// Cancelled when the hub closes: the stream must end so the server can stop.
     pub cancellation_token: CancellationToken,
-    _slot: StreamSlot,
+    lease: SlotLease,
+}
+
+impl Subscription {
+    /// The slot's lease, for the watchdog that frees it if the client stalls.
+    pub fn lease(&self) -> SlotLease {
+        self.lease.clone()
+    }
+}
+
+impl Drop for Subscription {
+    fn drop(&mut self) {
+        self.lease.release();
+    }
+}
+
+/// A stream slot that either its stream or the stall watchdog gives back, whichever is first.
+#[derive(Clone)]
+pub(crate) struct SlotLease(Arc<Mutex<Option<StreamSlot>>>);
+
+impl SlotLease {
+    fn release(&self) {
+        let slot = self.0.lock().unwrap_or_else(PoisonError::into_inner).take();
+
+        drop(slot);
+    }
+}
+
+/// A stream that ends once its stall watchdog fires; see [`EventHub::watch`].
+pub(crate) struct StallWatch<S> {
+    inner: S,
+    last_poll: Arc<Mutex<Instant>>,
+    stalled: CancellationToken,
+    /// Stops the watchdog when the stream is dropped.
+    _finished: DropGuard,
+}
+
+impl<S: Stream + Unpin> Stream for StallWatch<S> {
+    type Item = S::Item;
+
+    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        *self
+            .last_poll
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Instant::now();
+
+        if self.stalled.is_cancelled() {
+            return Poll::Ready(None);
+        }
+
+        Pin::new(&mut self.inner).poll_next(context)
+    }
+}
+
+/// Checks every `period` whether a stream has gone unpolled for `limit`, and if so ends it and
+/// frees its slot.
+struct StallWatchdog {
+    period: Duration,
+    limit: Duration,
+    last_poll: Arc<Mutex<Instant>>,
+    stalled: CancellationToken,
+    lease: SlotLease,
+    finished: CancellationToken,
+}
+
+impl StallWatchdog {
+    async fn run(self) {
+        loop {
+            if self
+                .finished
+                .run_until_cancelled(time::sleep(self.period))
+                .await
+                .is_none()
+            {
+                return;
+            }
+
+            let silence = self
+                .last_poll
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .elapsed();
+
+            if silence >= self.limit {
+                tracing::warn!(?silence, "event stream stalled; closing it");
+                self.stalled.cancel();
+                self.lease.release();
+
+                return;
+            }
+        }
+    }
 }
 
 /// How many streams are open, overall and per workspace, against their caps.
