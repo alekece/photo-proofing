@@ -51,7 +51,14 @@ async fn main() -> Result<()> {
         }
     });
     // `Display` describes one layer only; eyre prints the `source()` chain once, here.
-    let result = async { Api::init(cli.api).await?.run(shutdown).await }.await;
+    let result = async {
+        // A stop signal while the database is unreachable or migrating ends startup.
+        match shutdown.run_until_cancelled(Api::init(cli.api)).await {
+            Some(api) => api?.run(shutdown).await,
+            None => Ok(()),
+        }
+    }
+    .await;
 
     signals.abort();
 
