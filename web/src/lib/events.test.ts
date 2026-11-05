@@ -50,12 +50,30 @@ describe('live events', () => {
 		const event = { gallery_id: 'g', photo_id: 'p', status: 'ready' };
 		sources[0].emit('resync');
 		sources[0].emit('photo', JSON.stringify(event));
-		sources[0].emit('photo', 'not json');
 		stop();
 		sources[0].emit('photo', JSON.stringify(event));
 
 		expect(resyncs).toHaveBeenCalledOnce();
 		expect(photos).toEqual([event]);
+	});
+
+	it.each([
+		['not json', 'not json'],
+		['a missing status', JSON.stringify({ gallery_id: 'g', photo_id: 'p' })],
+		['an unknown status', JSON.stringify({ gallery_id: 'g', photo_id: 'p', status: 'exploded' })],
+		['a non-object', 'null']
+	])('refetches instead of trusting a photo event with %s', (_name, data) => {
+		const { events, sources } = setup();
+		const photos = vi.fn();
+		const resyncs = vi.fn();
+		events.onPhoto(photos);
+		events.onResync(resyncs);
+		events.start();
+
+		sources[0].emit('photo', data);
+
+		expect(photos).not.toHaveBeenCalled();
+		expect(resyncs).toHaveBeenCalledOnce();
 	});
 
 	it('leaves reconnecting after a network drop to the browser', async () => {

@@ -146,3 +146,22 @@ describe('photo requests', () => {
 		expect(previewUrl('g1', 'p1')).toBe('/api/v1/galleries/g1/photos/p1/preview');
 	});
 });
+
+describe('malformed success bodies', () => {
+	it('fails an upload whose created photo is not a photo', async () => {
+		const fetcher = respond(201, { id: 'p' });
+
+		expect(await uploadPhoto('g1', jpeg(), new AbortController().signal, fetcher)).toEqual({
+			kind: 'failed'
+		});
+	});
+
+	it.each([
+		['listPhotos', (f: typeof fetch) => listPhotos('g1', f), { not: 'a list' }],
+		['listPhotos entries', (f: typeof fetch) => listPhotos('g1', f), [{ id: 'p' }]],
+		['deletePhotos', (f: typeof fetch) => deletePhotos('g1', ['p'], f), { deleted: 'many' }],
+		['getUploadLimits', (f: typeof fetch) => getUploadLimits(f), { concurrency: 4 }]
+	])('%s rejects an unexpected body', async (_name, call, body) => {
+		await expect(call(respond(200, body))).rejects.toBeInstanceOf(GalleryApiError);
+	});
+});
