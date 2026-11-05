@@ -117,15 +117,21 @@ My calls (to check while reading):
   204 on success, 404 when there is no such photo in this workspace and gallery. One transaction
   deletes the photo's jobs and the photo row; after commit, the original, thumbnail and preview
   are removed, a missing file being fine and any other storage error logged (#73's sweep is the
-  backstop). The worker already handles the race: deleting its running job makes its claim
-  stale, and `complete_photo` then reports `Missing`, so it removes what it just wrote. The
-  `photos` trigger from #80 announces the deletion to every open page.
+  backstop). Delete and retry lock a photo's jobs before the photo (retry reads the failed ids
+  once and locks exactly those jobs), so neither deadlocks the other. Deleting a running job
+  makes the worker lose its lease; from its first final file write, publication and the
+  deleted-photo cleanup run detached from that cancellation, so `complete_photo` reports
+  `Missing` and the worker removes what it wrote, partial publication included. The `photos`
+  trigger from #80 announces the deletion to every open page.
 - **Cancelling an upload.** ✕ on an uploading tile aborts the request without confirmation. If
   the server already answered 201, the queue deletes the new photo. If the abort races a commit the
   browser never hears about, the photo appears on the next event or refresh and can be deleted
   like any other.
 - **Delete in the browser.** The tile disappears immediately (optimistic); a failed request other
-  than 404 puts it back with an error toast. The confirmation uses the existing `Dialog`.
+  than 404 puts it back with an error toast, as last known: live events and list refetches that
+  arrive during the request still apply, and a photo they report deleted stays gone. Removing a
+  tile moves keyboard focus to the next tile, else the previous one, else `+ Upload`. The
+  confirmation uses the existing `Dialog`.
 - **Accessibility.** Tiles are list items with their state as text; ✕ and Retry are buttons with
   labels that name the file; the drop zone has a keyboard-reachable `+ Upload`; state changes are
   announced through a polite live region (count-based, not one message per file).
