@@ -58,20 +58,30 @@ My calls (to check while reading):
   list of UUIDs is rejected like any JSON body (400 when malformed, 422 for a wrong type), with a
   JSON limit sized for 1000; an unknown gallery is 404. It shares the database
   delete and file clean-up of the single delete: jobs and rows go in one transaction, files are
-  removed after commit. Like the worker, it locks jobs before photos, each in id order; retry is
-  brought in line so a retry and a delete of the same failed photos cannot deadlock.
+  removed after commit. Like the worker, it locks jobs before photos, each in id order. Retry
+  follows the same order: it reads the failed photos once, locks their jobs, then requeues only
+  those photos, so a retry and a delete of the same failed photos cannot deadlock.
 - **Browser.** Selected tiles disappear at once. A selection larger than 1000 is sent in chunks,
   one after another. If a chunk fails, the rest are not sent, the list is refetched so the page
   shows exactly what the server kept, select mode stays open with the surviving photos still
-  selected, and the panel's alert says how many were deleted. #80's `deleted` events reconcile any other
-  open tab.
+  selected, and the panel's alert says how many were deleted. If that refetch fails too, the
+  photos not deleted come back as last known, in the server's order, minus those deleted
+  meanwhile. #80's `deleted` events reconcile any other open tab.
+- **A confirmed deletion finishes.** Every chunk goes to the gallery it was confirmed in, even if
+  the panel switches gallery or closes meanwhile. Only the panel still showing that gallery shows
+  the alert and the restored photos; selection, focus and announcement belong to the view it was
+  confirmed in.
+- **Focus and announcements.** Leaving select mode (Esc, Cancel, or a successful delete) puts
+  focus back on Select, or Upload when Select is disabled. The panel's polite status region
+  announces the selection count and, once, "n photos deleted".
 - **Literal route before `{photo_id}`.** `/photos/delete` is registered before the `{photo_id}`
   routes, as `/photos/retry` already is.
 
 ## Left to the builder
 
-- Bar placement and styling within the mockup tokens; whether Ctrl/⌘+A also enters select mode.
-- Name of the shared delete function.
+- Bar placement and styling within the mockup tokens. Ctrl/⌘+A works only in select mode, so the
+  browser's own select-all stays elsewhere.
+- Name of the shared delete function: `PhotoRepository::delete`, taking several ids.
 
 ## Verification
 
