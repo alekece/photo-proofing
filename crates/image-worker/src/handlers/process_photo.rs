@@ -112,15 +112,15 @@ impl ProcessPhotoHandler {
             (Variant::Preview, rendered.preview),
         ]
         .map(|(variant, bytes)| (PhotoKey::with_location(location, id, variant), bytes));
-        let published = match self.store(&derivatives).await {
-            Ok(()) => self
-                .database
+        let published = async {
+            self.store(&derivatives).await?;
+            self.database
                 .repository::<JobRepository>()
                 .complete_photo(&job, id, PhotoResult::Ready)
                 .await
-                .map_err(HandlerError::failed),
-            Err(error) => Err(error),
-        };
+                .map_err(HandlerError::failed)
+        }
+        .await;
         let photo_is_deleted = match &published {
             Ok((_, update)) => *update == PhotoUpdate::Missing,
             Err(_) => matches!(
