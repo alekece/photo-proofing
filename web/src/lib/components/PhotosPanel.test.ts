@@ -428,6 +428,57 @@ describe('PhotosPanel', () => {
 		expect(within(tile('p2.jpg')).getByRole('button', { name: 'Retry p2.jpg' })).toBeTruthy();
 	});
 
+	it('puts a photo back as a reload during its failed deletion listed it', async () => {
+		vi.useFakeTimers();
+		const answer = Promise.withResolvers<number>();
+		const server = [photo('p1'), photo('p2', 'processing')];
+		const api = stubApi(server, { delete: answer.promise });
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
+		const { emit, resync } = setup();
+
+		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		emit({ photo_id: 'p2', status: 'ready' });
+		server[1] = photo('p2', 'ready');
+		await vi.advanceTimersByTimeAsync(1000);
+		resync();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(api.lists()).toBe(2);
+
+		answer.resolve(500);
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(screen.getByRole('alert').textContent).toMatch(/Couldn’t delete p2\.jpg/);
+		expect(screen.getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
+	});
+
+	it('keeps a photo gone when a reload during its failed deletion no longer listed it', async () => {
+		vi.useFakeTimers();
+		const answer = Promise.withResolvers<number>();
+		const server = [photo('p1'), photo('p2')];
+		const api = stubApi(server, { delete: answer.promise });
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
+		const { emit, resync } = setup();
+
+		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		server.pop();
+		emit({ photo_id: 'p2', status: 'deleted' });
+		await vi.advanceTimersByTimeAsync(1000);
+		resync();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(api.lists()).toBe(2);
+
+		answer.resolve(502);
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(screen.queryByRole('alert')).toBeNull();
+		expect(screen.getAllByRole('listitem')).toHaveLength(1);
+		expect(screen.queryByRole('button', { name: 'Open p2.jpg' })).toBeNull();
+	});
+
 	it('goes to sign-in when a deletion finds the session ended', async () => {
 		stubApi([photo('p1')], { delete: 401 });
 		const user = userEvent.setup();

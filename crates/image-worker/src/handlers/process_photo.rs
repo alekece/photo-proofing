@@ -195,6 +195,7 @@ mod tests {
         tests::TestRepository,
     };
     use tempfile::TempDir;
+    use tokio::time::{sleep, timeout};
     use tokio_util::sync::CancellationToken;
 
     use super::*;
@@ -570,7 +571,7 @@ mod tests {
         );
 
         while fixture.status().await != Some(PhotoStatus::Processing) {
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            sleep(Duration::from_millis(20)).await;
         }
 
         // Deleting the photo also deletes its job, so the worker loses its lease.
@@ -596,7 +597,7 @@ mod tests {
             .unwrap()
             .unwrap();
         // Well past the render, the publication and the lease.
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(1)).await;
         shutdown.cancel();
         worker.await.unwrap();
 
@@ -658,7 +659,7 @@ mod tests {
         );
 
         while fixture.status().await != Some(PhotoStatus::Processing) {
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            sleep(Duration::from_millis(20)).await;
         }
 
         shutdown.cancel();
@@ -674,9 +675,9 @@ mod tests {
             Worker::new(fixture.handler.database.clone(), handlers, options).run(shutdown.clone()),
         );
 
-        tokio::time::timeout(Duration::from_secs(10), async {
+        timeout(Duration::from_secs(10), async {
             while fixture.status().await != Some(PhotoStatus::Ready) {
-                tokio::time::sleep(Duration::from_millis(20)).await;
+                sleep(Duration::from_millis(20)).await;
             }
         })
         .await
