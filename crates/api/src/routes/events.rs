@@ -9,7 +9,7 @@
 //! sends only `favorites` events of its gallery (and `resync`) and ends once the link stops
 //! working.
 
-use std::time::SystemTime;
+use std::{fmt, time::SystemTime};
 
 use actix_web::{
     Responder, get,
@@ -91,12 +91,15 @@ impl Scope {
             ),
         }
     }
+}
 
-    /// The link token is a bearer credential, so a link stream is logged by gallery.
-    fn log_fields(&self) -> String {
+/// Names what a stream serves in logs. The link token is a bearer credential, so a link stream
+/// is named by its gallery.
+impl fmt::Display for Scope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Workspace { workspace_id, .. } => format!("workspace {}", workspace_id.0),
-            Self::Link { gallery_id, .. } => format!("gallery {}", gallery_id.0),
+            Self::Workspace { workspace_id, .. } => write!(f, "workspace {}", workspace_id.0),
+            Self::Link { gallery_id, .. } => write!(f, "gallery {}", gallery_id.0),
         }
     }
 }
@@ -110,6 +113,31 @@ struct EventStream {
 }
 
 impl EventStream {
+    fn open(
+        state: Data<ApiState>,
+        hub: &EventHub,
+        owner: StreamOwner,
+        scope: Scope,
+    ) -> Result<impl Responder + use<>, ErrorResponse> {
+        let subscription = hub
+            .subscribe(owner)
+            .ok_or_else(ErrorResponse::unavailable)?;
+        let keep_alive = hub.keep_alive();
+        let mut session_check = time::interval_at(Instant::now() + keep_alive, keep_alive);
+
+        session_check.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        tracing::info!(scope = %scope, "event stream opened");
+
+        let events = EventStream {
+            subscription,
+            state,
+            scope,
+            session_check,
+        };
+
+        Ok(Sse::from_infallible_stream(events.into_stream(hub)).with_keep_alive(keep_alive))
+    }
+
     /// A `resync` first, since the browser cannot know what changed before it connected.
     fn into_stream(self, hub: &EventHub) -> impl Stream<Item = sse::Event> + use<> {
         let lease = self.subscription.lease();
@@ -156,7 +184,7 @@ impl EventStream {
 
 impl Drop for EventStream {
     fn drop(&mut self) {
-        tracing::info!(scope = %self.scope.log_fields(), "event stream closed");
+        tracing::info!(scope = %self.scope, "event stream closed");
     }
 }
 
@@ -188,7 +216,7 @@ pub(crate) async fn stream_events(
         workspace_id,
     };
 
-    open(state, &hub, workspace_id.into(), scope)
+    EventStream::open(state, &hub, workspace_id.into(), scope)
 }
 
 /// The selection of the gallery behind a private link, for every browser that has it open.
@@ -204,32 +232,7 @@ pub(crate) async fn stream_shared_events(
     let token = token.parse().map_err(|_| ErrorResponse::not_found())?;
     let scope = Scope::Link { token, gallery_id };
 
-    open(state, &hub, gallery_id.into(), scope)
-}
-
-fn open(
-    state: Data<ApiState>,
-    hub: &EventHub,
-    owner: StreamOwner,
-    scope: Scope,
-) -> Result<impl Responder + use<>, ErrorResponse> {
-    let subscription = hub
-        .subscribe(owner)
-        .ok_or_else(ErrorResponse::unavailable)?;
-    let keep_alive = hub.keep_alive();
-    let mut session_check = time::interval_at(Instant::now() + keep_alive, keep_alive);
-
-    session_check.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    tracing::info!(scope = %scope.log_fields(), "event stream opened");
-
-    let events = EventStream {
-        subscription,
-        state,
-        scope,
-        session_check,
-    };
-
-    Ok(Sse::from_infallible_stream(events.into_stream(hub)).with_keep_alive(keep_alive))
+    EventStream::open(state, &hub, gallery_id.into(), scope)
 }
 
 #[cfg(test)]

@@ -17,7 +17,7 @@ use actix_web::{
     web::{Data, Path, ServiceConfig},
 };
 use pp_core::notifications::PhotoId;
-use pp_database::photo::{FavoriteChange, PhotoRepository};
+use pp_database::photo::PhotoRepository;
 use pp_storage::PhotoKey;
 
 use super::DerivativePhoto;
@@ -83,7 +83,11 @@ async fn add_favorite(
     access: ClientAccess,
     path: Path<(String, PhotoId)>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    set_favorite(&state, &access, path.into_inner().1, true).await
+    access
+        .set_favorite(&state, path.into_inner().1, true)
+        .await?;
+
+    Ok(HttpResponse::NoContent().no_store().no_referrer().finish())
 }
 
 #[delete("/shared/{token}/favorites/{photo_id}")]
@@ -92,26 +96,11 @@ async fn remove_favorite(
     access: ClientAccess,
     path: Path<(String, PhotoId)>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    set_favorite(&state, &access, path.into_inner().1, false).await
-}
-
-async fn set_favorite(
-    state: &ApiState,
-    access: &ClientAccess,
-    photo_id: PhotoId,
-    favorite: bool,
-) -> Result<HttpResponse, ErrorResponse> {
-    let change = state
-        .database()
-        .repository::<PhotoRepository>()
-        .set_favorite(access.0.location, photo_id, favorite)
+    access
+        .set_favorite(&state, path.into_inner().1, false)
         .await?;
 
-    match change {
-        FavoriteChange::Applied => Ok(HttpResponse::NoContent().no_store().no_referrer().finish()),
-        FavoriteChange::NotFound => Err(ErrorResponse::not_found()),
-        FavoriteChange::Delivered => Err(ErrorResponse::conflict("gallery already delivered")),
-    }
+    Ok(HttpResponse::NoContent().no_store().no_referrer().finish())
 }
 
 #[get("/shared/{token}/photos/{photo_id}/{derivative:thumbnail|preview}")]
