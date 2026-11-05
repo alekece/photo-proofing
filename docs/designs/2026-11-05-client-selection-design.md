@@ -9,7 +9,7 @@ The client marks favorites through the private link; every browser using the lin
 ## Client behaviour
 
 - A heart sits at the top right of each photo, in the grid and in the viewer: shown on hover and keyboard focus, always on touch screens, and always on a favorite. One click toggles the favorite and saves at once. There is no confirmation message and no submit button.
-- The header shows the count, for example "13 selected", and with an included allowance "13 selected · 10 included · 3 extra". Without an allowance, selection is unlimited. Reaching the allowance changes nothing else.
+- The header shows the count, for example "13 selected", and with an included allowance "13 selected · 10 included · 3 extra". Without an allowance, selection is unlimited. Overflow is allowed: when the selection exceeds the allowance, the count is shown in bold in the warning colour (not red, since nothing is wrong). Reaching the allowance changes nothing else. The colour is never the only signal: the "extra" count stays in the text.
 - A failed save reverts the heart and shows a short error; the next click retries.
 - Once the photographer delivers, the hearts disappear and the selection is read-only.
 - Other browsers on the same link see changes live. After a connection loss they refresh the whole selection on reconnect, so the server's list is authoritative.
