@@ -128,7 +128,7 @@ async fn retry_gallery(
 ) -> Result<HttpResponse, ErrorResponse> {
     let requeued = state
         .database()
-        .repository::<PhotoRetry>()
+        .repository_with::<PhotoRetry>(state.job_options())
         .retry_failed(identity.workspace_id, id.into_inner(), None)
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
@@ -147,7 +147,7 @@ async fn retry_photo(
     let (gallery_id, photo_id) = path.into_inner();
     let requeued = state
         .database()
-        .repository::<PhotoRetry>()
+        .repository_with::<PhotoRetry>(state.job_options())
         .retry_failed(identity.workspace_id, gallery_id, Some(photo_id))
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
@@ -310,7 +310,7 @@ async fn upload_photo(
 
     let photo = match state
         .database()
-        .repository::<PhotoIntake>()
+        .repository_with::<PhotoIntake>(state.job_options())
         .try_accept(new_photo)
         .await
     {

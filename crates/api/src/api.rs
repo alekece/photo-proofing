@@ -12,7 +12,7 @@ use actix_web::{
 };
 use derive_more::From;
 use pp_core::url::Origin;
-use pp_database::{Database, auth::AuthRepository, error::DatabaseError};
+use pp_database::{Database, auth::AuthRepository, error::DatabaseError, jobs::JobOptions};
 use pp_storage::{PhotoStorage, StorageError};
 use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -20,12 +20,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::{
-        ApiConfig, AuthConfig, CookieDuration, CookieName, HttpConfig, LimiterConfig,
+        ApiConfig, AuthConfig, CookieDuration, CookieName, HttpConfig, LimiterConfig, QueueConfig,
         SessionConfig, UploadConfig,
     },
     credentials::{HashError, PasswordHash},
     error::ErrorResponse,
-    events::{EventHub, HUB_CAPACITY},
+    events::EventHub,
     extractors::session_token::SessionToken,
     limiter::AttemptLimiter,
     middlewares::origin::SameOrigin,
@@ -39,10 +39,6 @@ use crate::{
 /// Largest accepted JSON body: credentials and gallery changesets are a handful of short
 /// fields, so this is well above any valid request.
 pub(crate) const JSON_LIMIT: usize = 4096;
-
-/// Argon2 is memory heavy, so only this many hashes run at once; further requests are refused
-/// instead of queued.
-const HASH_SLOTS: usize = 2;
 
 /// Failure to start or run the [`Api`].
 ///
@@ -80,6 +76,7 @@ pub(crate) struct ApiState {
     // The same span as `idle_timeout` in the cookie crate's type, converted once at startup.
     cookie_max_age: CookieMaxAge,
     hash_slots: Arc<Semaphore>,
+    job_options: JobOptions,
     failed_attempts: AttemptLimiter,
     dummy_hash: PasswordHash,
 }
@@ -92,6 +89,7 @@ impl ApiState {
         limiter: LimiterConfig,
         storage: PhotoStorage,
         upload_config: UploadConfig,
+        queue: QueueConfig,
     ) -> Result<Self, ApiError> {
         Ok(Self {
             database,
@@ -104,7 +102,10 @@ impl ApiState {
             // `CookieDuration` bounds the timeout far below the cookie and timestamp limits,
             // so adding it to the current time cannot overflow for centuries.
             cookie_max_age: CookieMaxAge::try_from(session.idle_timeout.get())?,
-            hash_slots: Arc::new(Semaphore::new(HASH_SLOTS)),
+            hash_slots: Arc::new(Semaphore::new(auth.hash_concurrency.get())),
+            job_options: JobOptions {
+                max_attempts: queue.max_attempts,
+            },
             failed_attempts: AttemptLimiter::new(limiter),
             dummy_hash: PasswordHash::generate()?,
         })
@@ -112,6 +113,11 @@ impl ApiState {
 
     pub fn database(&self) -> &Database {
         &self.database
+    }
+
+    /// How jobs enqueued for photos are configured.
+    pub fn job_options(&self) -> JobOptions {
+        self.job_options
     }
 
     pub fn storage(&self) -> &PhotoStorage {
@@ -225,7 +231,7 @@ impl Api {
         database.migrate().await?;
 
         let upload_limiter = Data::new(UploadLimiter::from(&config.photo_upload));
-        let events = Data::new(EventHub::new(&config.events, HUB_CAPACITY));
+        let events = Data::new(EventHub::new(&config.events));
         let state = ApiState::new(
             database,
             config.session,
@@ -233,6 +239,7 @@ impl Api {
             config.limiter,
             storage,
             config.photo_upload,
+            config.queue,
         )?;
 
         Ok(Self {

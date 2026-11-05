@@ -20,14 +20,18 @@ url = "postgres://pp:pp-local-only@127.0.0.1:5432/pp"
 
 [auth]
 app_origin = "http://localhost:5173"
+# Password hashes computed at once. Argon2 is memory-hungry: raise it only with memory to match.
+hash_concurrency = 2
 
 [limiter]
 max_failures = 10
 window = "1m"
 max_peers = 1024
 
-# Image worker queue (pp-image-worker).
+# Image worker queue. max_attempts is read by the API, which records it on each job it
+# enqueues; the other keys are read by pp-image-worker.
 [queue]
+max_attempts = 5
 poll_interval = "5s"
 lease = "60s"
 concurrency = 2
@@ -46,6 +50,8 @@ max_pixels = 100000000
 concurrency = 4
 # Wait announced to an upload refused because every slot is taken (1s to 1m).
 retry_after = "1s"
+# How long an upload body may stay silent before it is abandoned with a 408 (1s to 10m).
+body_idle_timeout = "30s"
 
 [events]
 # Live dashboard updates. Keep-alive period (also how soon a signed-out stream closes), and how
@@ -55,6 +61,12 @@ keep_alive = "15s"
 stall_intervals = 3
 max_streams = 256
 max_streams_per_workspace = 32
+# Events buffered per stream before it lags and is told to resync (1 to 65535).
+capacity = 1024
+# Delay before the database listener is reopened after a failure: starts at the first value,
+# doubles per failure up to the cap (10ms to 5m).
+relay_backoff_start = "250ms"
+relay_backoff_cap = "30s"
 
 [process]
 # Positive integer pixel limit for originals the worker renders; match photo_upload.

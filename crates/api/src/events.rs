@@ -31,15 +31,6 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 
 use crate::config::{EventsConfig, KeepAlive, StallIntervals};
 
-/// Events buffered per subscriber before it lags and is told to resync.
-pub(crate) const HUB_CAPACITY: usize = 1024;
-
-/// First delay before reopening a failed database listener; doubled per failure.
-const RELAY_BACKOFF_START: Duration = Duration::from_millis(250);
-
-/// Longest delay between attempts to reopen the database listener.
-const RELAY_BACKOFF_CAP: Duration = Duration::from_secs(30);
-
 /// What the hub sends every subscriber.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Broadcast {
@@ -55,11 +46,13 @@ pub(crate) struct EventHub {
     cancellation_token: CancellationToken,
     keep_alive: KeepAlive,
     stall_intervals: StallIntervals,
+    relay_backoff_start: Duration,
+    relay_backoff_cap: Duration,
 }
 
 impl EventHub {
-    pub fn new(config: &EventsConfig, capacity: usize) -> Self {
-        let (sender, _) = broadcast::channel(capacity);
+    pub fn new(config: &EventsConfig) -> Self {
+        let (sender, _) = broadcast::channel(usize::from(config.capacity.get()));
 
         Self {
             sender,
@@ -71,6 +64,11 @@ impl EventHub {
             cancellation_token: CancellationToken::new(),
             keep_alive: config.keep_alive,
             stall_intervals: config.stall_intervals,
+            relay_backoff_start: config.relay_backoff_start.get(),
+            relay_backoff_cap: config
+                .relay_backoff_cap
+                .get()
+                .max(config.relay_backoff_start.get()),
         }
     }
 
@@ -138,12 +136,12 @@ impl EventHub {
     /// Failures are retried with a growing delay; they never end the task, so the owner aborts
     /// it on shutdown.
     pub async fn relay(&self, database: Database) {
-        let mut backoff = RELAY_BACKOFF_START;
+        let mut backoff = self.relay_backoff_start;
 
         loop {
             match database.listen::<PhotoEvent>().await {
                 Ok(listener) => {
-                    backoff = RELAY_BACKOFF_START;
+                    backoff = self.relay_backoff_start;
 
                     let error = self.forward(listener).await;
 
@@ -153,7 +151,7 @@ impl EventHub {
             }
 
             time::sleep(backoff).await;
-            backoff = (backoff * 2).min(RELAY_BACKOFF_CAP);
+            backoff = (backoff * 2).min(self.relay_backoff_cap);
         }
     }
 
@@ -362,7 +360,7 @@ mod tests {
 
     #[test]
     fn subscriptions_are_capped_overall_and_per_workspace_until_dropped() {
-        let hub = EventHub::new(&events_config(3, 2), HUB_CAPACITY);
+        let hub = EventHub::new(&events_config(3, 2));
         let (first, second, third) = (workspace(), workspace(), workspace());
         let a = hub.subscribe(first).unwrap();
         let _b = hub.subscribe(first).unwrap();
@@ -380,7 +378,7 @@ mod tests {
 
     #[test]
     fn a_workspace_without_streams_is_forgotten() {
-        let hub = EventHub::new(&events_config(3, 2), HUB_CAPACITY);
+        let hub = EventHub::new(&events_config(3, 2));
         let subscription = hub.subscribe(workspace()).unwrap();
 
         drop(subscription);
@@ -398,7 +396,7 @@ mod tests {
     impl Relay {
         /// Starts a relay and waits until its listener is open, signalled by the first resync.
         async fn start(pool: &PgPool) -> (Self, Subscription) {
-            let hub = Arc::new(EventHub::new(&events_config(8, 8), HUB_CAPACITY));
+            let hub = Arc::new(EventHub::new(&events_config(8, 8)));
             let mut subscription = hub.subscribe(workspace()).unwrap();
             let database = Database::new(pool.clone());
             let task = tokio::spawn({

@@ -154,6 +154,7 @@ mod tests {
         };
         let auth = AuthConfig {
             app_origin: "http://localhost:5173".parse().unwrap(),
+            hash_concurrency: NonZeroUsize::new(2).unwrap(),
         };
         let limiter = LimiterConfig {
             max_failures: NonZeroU32::new(2).unwrap(),
@@ -172,6 +173,7 @@ mod tests {
                     limiter,
                     storage,
                     upload_config,
+                    tests::queue_config(5),
                 )
                 .unwrap(),
             ),

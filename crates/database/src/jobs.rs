@@ -47,6 +47,21 @@ const MAX_ERROR_CHARS: usize = 2000;
 /// Attempts a job gets when the caller has no reason to choose another number.
 pub const DEFAULT_MAX_ATTEMPTS: NonZeroU16 = NonZeroU16::new(5).unwrap();
 
+/// How the jobs a repository enqueues are configured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JobOptions {
+    /// Attempts each job gets before it fails for good.
+    pub max_attempts: NonZeroU16,
+}
+
+impl Default for JobOptions {
+    fn default() -> Self {
+        Self {
+            max_attempts: DEFAULT_MAX_ATTEMPTS,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, serde::Deserialize, Type)]
 #[serde(transparent)]
 #[sqlx(transparent)]

@@ -1,7 +1,7 @@
 //! Settings of the API process, grouped by concern under [`ApiConfig`].
 
 use std::{
-    num::{NonZeroU32, NonZeroU64, NonZeroUsize, ParseIntError},
+    num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize, ParseIntError},
     str::FromStr,
 };
 
@@ -18,32 +18,49 @@ use thiserror::Error;
 
 /// Longest [`CookieDuration`]: far beyond any sensible policy, yet small enough that adding it
 /// to the current time cannot overflow a timestamp.
-const MAX_COOKIE_SECS: u64 = 1000 * 365 * 24 * 60 * 60;
+const MAX_COOKIE_MILLIS: u64 = 1000 * 365 * 24 * 60 * 60 * 1000;
 
 /// Longest [`LimiterWindow`]: a day, beyond which a "recent failures" allowance stops meaning
 /// anything.
-const MAX_LIMITER_WINDOW_SECS: u64 = 24 * 60 * 60;
+const MAX_LIMITER_WINDOW_MILLIS: u64 = 24 * 60 * 60 * 1000;
 
 /// How long a cookie may live: at least one second, because `Max-Age` has whole-second
 /// resolution and anything shorter would round to an instant expiry.
-pub type CookieDuration = BoundedDuration<1, MAX_COOKIE_SECS>;
+pub type CookieDuration = BoundedDuration<1_000, MAX_COOKIE_MILLIS>;
 
 /// How long failed sign-ins are remembered per peer.
-pub type LimiterWindow = BoundedDuration<1, MAX_LIMITER_WINDOW_SECS>;
+pub type LimiterWindow = BoundedDuration<1_000, MAX_LIMITER_WINDOW_MILLIS>;
 
 /// Longest [`KeepAlive`]: proxies commonly drop idle connections after a minute or two, so a
 /// longer period would only let streams die silently.
-const MAX_KEEP_ALIVE_SECS: u64 = 5 * 60;
+const MAX_KEEP_ALIVE_MILLIS: u64 = 5 * 60 * 1000;
 
 /// How often an idle event stream is pinged and its session re-checked.
-pub type KeepAlive = BoundedDuration<1, MAX_KEEP_ALIVE_SECS>;
+pub type KeepAlive = BoundedDuration<1_000, MAX_KEEP_ALIVE_MILLIS>;
 
 /// Longest [`UploadRetryAfter`]: a browser told to wait longer would leave the queue idle
 /// long after slots free up.
-const MAX_UPLOAD_RETRY_AFTER_SECS: u64 = 60;
+const MAX_UPLOAD_RETRY_AFTER_MILLIS: u64 = 60 * 1000;
 
 /// How long a refused upload is asked to wait; `Retry-After` has whole-second resolution.
-pub type UploadRetryAfter = BoundedDuration<1, MAX_UPLOAD_RETRY_AFTER_SECS>;
+pub type UploadRetryAfter = BoundedDuration<1_000, MAX_UPLOAD_RETRY_AFTER_MILLIS>;
+
+/// Longest [`UploadIdleTimeout`]: a client silent for ten minutes is gone, and its slot and
+/// staged file are better freed.
+const MAX_UPLOAD_IDLE_TIMEOUT_MILLIS: u64 = 10 * 60 * 1000;
+
+/// How long an upload body may stay silent before it is abandoned.
+pub type UploadIdleTimeout = BoundedDuration<1_000, MAX_UPLOAD_IDLE_TIMEOUT_MILLIS>;
+
+/// Shortest [`RelayBackoff`]: below this a failing listener would be retried in a hot loop.
+const MIN_RELAY_BACKOFF_MILLIS: u64 = 10;
+
+/// Longest [`RelayBackoff`]: the listener is what keeps live streams current, so a longer wait
+/// would leave them stale long after the database is back.
+const MAX_RELAY_BACKOFF_MILLIS: u64 = 5 * 60 * 1000;
+
+/// A delay before the live event listener reconnects.
+pub type RelayBackoff = BoundedDuration<MIN_RELAY_BACKOFF_MILLIS, MAX_RELAY_BACKOFF_MILLIS>;
 
 /// Everything [`Api`](crate::api::Api) needs to start.
 #[derive(Args, ConfigArgs, Clone)]
@@ -71,6 +88,9 @@ pub struct ApiConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub limiter: LimiterConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub queue: QueueConfig,
 }
 
 /// Where the HTTP server listens.
@@ -215,6 +235,14 @@ pub struct AuthConfig {
         default_value = "http://localhost:5173"
     )]
     pub app_origin: Origin,
+    /// Password hashes computed at once. Argon2 is memory-hungry, so raise this only with the
+    /// memory to match; further sign-in and setup requests are refused with 429.
+    #[arg(
+        long = "auth-hash-concurrency",
+        env = "PP_AUTH_HASH_CONCURRENCY",
+        default_value = "2"
+    )]
+    pub hash_concurrency: NonZeroUsize,
 }
 
 /// Allowance of failed sign-ins per peer; see the limiter for how it behaves behind a proxy.
@@ -270,6 +298,26 @@ pub struct UploadConfig {
         default_value = "1s"
     )]
     pub retry_after: UploadRetryAfter,
+    /// How long an upload body may stay silent before the upload is abandoned with a 408.
+    #[arg(
+        long = "photo-upload-body-idle-timeout",
+        env = "PP_PHOTO_UPLOAD_BODY_IDLE_TIMEOUT",
+        default_value = "30s"
+    )]
+    pub body_idle_timeout: UploadIdleTimeout,
+}
+
+/// How the jobs the API enqueues are run by the worker.
+#[derive(Args, ConfigArgs, Clone)]
+pub struct QueueConfig {
+    /// Attempts a photo-processing job gets before it fails for good. It is recorded on the job
+    /// when the API enqueues it, so only the API needs this setting.
+    #[arg(
+        long = "queue-max-attempts",
+        env = "PP_QUEUE_MAX_ATTEMPTS",
+        default_value = "5"
+    )]
+    pub max_attempts: NonZeroU16,
 }
 
 /// Live event streams: how idle streams are kept open and how many may be open at once.
@@ -304,6 +352,27 @@ pub struct EventsConfig {
         default_value = "32"
     )]
     pub max_streams_per_workspace: NonZeroUsize,
+    /// Events buffered per stream before it lags and is told to resync.
+    #[arg(
+        long = "events-capacity",
+        env = "PP_EVENTS_CAPACITY",
+        default_value = "1024"
+    )]
+    pub capacity: NonZeroU16,
+    /// First delay before the database listener is reopened after a failure; doubled per failure.
+    #[arg(
+        long = "events-relay-backoff-start",
+        env = "PP_EVENTS_RELAY_BACKOFF_START",
+        default_value = "250ms"
+    )]
+    pub relay_backoff_start: RelayBackoff,
+    /// Longest delay between attempts to reopen the database listener; at least the start.
+    #[arg(
+        long = "events-relay-backoff-cap",
+        env = "PP_EVENTS_RELAY_BACKOFF_CAP",
+        default_value = "30s"
+    )]
+    pub relay_backoff_cap: RelayBackoff,
 }
 
 #[cfg(test)]
@@ -357,6 +426,68 @@ mod tests {
         assert_eq!(api.events.stall_intervals.get(), 3);
         assert_eq!(api.events.max_streams.get(), 256);
         assert_eq!(api.events.max_streams_per_workspace.get(), 32);
+        assert_eq!(api.events.capacity.get(), 1024);
+        assert_eq!(
+            api.events.relay_backoff_start.get(),
+            Duration::from_millis(250)
+        );
+        assert_eq!(api.events.relay_backoff_cap.get(), Duration::from_secs(30));
+        assert_eq!(
+            api.photo_upload.body_idle_timeout.get(),
+            Duration::from_secs(30)
+        );
+        assert_eq!(api.auth.hash_concurrency.get(), 2);
+        assert_eq!(api.queue.max_attempts.get(), 5);
+    }
+
+    #[test]
+    fn tunable_limits_are_read_from_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.toml");
+        fs::write(
+            &path,
+            "[photo_upload]\nbody_idle_timeout = '1m'\n[auth]\nhash_concurrency = 4\n[queue]\nmax_attempts = 9\n\
+             [events]\ncapacity = 64\nrelay_backoff_start = '1s'\nrelay_backoff_cap = '2m'\n",
+        )
+        .unwrap();
+        let api = parse(&["--config", path.to_str().unwrap()]).unwrap().api;
+
+        assert_eq!(
+            api.photo_upload.body_idle_timeout.get(),
+            Duration::from_secs(60)
+        );
+        assert_eq!(api.auth.hash_concurrency.get(), 4);
+        assert_eq!(api.queue.max_attempts.get(), 9);
+        assert_eq!(api.events.capacity.get(), 64);
+        assert_eq!(api.events.relay_backoff_start.get(), Duration::from_secs(1));
+        assert_eq!(api.events.relay_backoff_cap.get(), Duration::from_secs(120));
+    }
+
+    #[test]
+    fn the_queue_section_may_be_shared_with_the_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.toml");
+        fs::write(&path, "[queue]\nmax_attempts = 7\npoll_interval = '5s'\n").unwrap();
+
+        let api = parse(&["--config", path.to_str().unwrap()]).unwrap().api;
+
+        assert_eq!(api.queue.max_attempts.get(), 7);
+    }
+
+    #[test]
+    fn tunable_limits_reject_out_of_range_values() {
+        for args in [
+            ["--photo-upload-body-idle-timeout", "0s"],
+            ["--photo-upload-body-idle-timeout", "1h"],
+            ["--auth-hash-concurrency", "0"],
+            ["--queue-max-attempts", "0"],
+            ["--events-capacity", "0"],
+            ["--events-capacity", "70000"],
+            ["--events-relay-backoff-start", "1ms"],
+            ["--events-relay-backoff-cap", "1h"],
+        ] {
+            assert!(parse(&args).is_err(), "{args:?}");
+        }
     }
 
     #[test]

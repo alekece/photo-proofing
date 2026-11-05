@@ -8,19 +8,20 @@ use crate::{
     auth::WorkspaceId,
     error::DatabaseError,
     gallery::GalleryId,
-    jobs::{DEFAULT_MAX_ATTEMPTS, JobPayload, JobRepository, ProcessPhoto},
+    jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
 };
 
 /// Resets failed photos to waiting and gives each one a fresh processing job.
 pub struct PhotoRetry<'db> {
     pool: &'db PgPool,
+    jobs: JobOptions,
 }
 
 impl<'db> Repository<'db> for PhotoRetry<'db> {
-    type Options = ();
+    type Options = JobOptions;
 
-    fn open(pool: &'db PgPool, (): Self::Options) -> Self {
-        Self { pool }
+    fn open(pool: &'db PgPool, jobs: Self::Options) -> Self {
+        Self { pool, jobs }
     }
 }
 
@@ -109,7 +110,7 @@ impl PhotoRetry<'_> {
         for &photo_id in &requeued_photo_ids {
             let payload = JobPayload::ProcessPhoto(ProcessPhoto { photo_id });
 
-            JobRepository::enqueue_in(&mut transaction, payload, DEFAULT_MAX_ATTEMPTS).await?;
+            JobRepository::enqueue_in(&mut transaction, payload, self.jobs.max_attempts).await?;
         }
 
         transaction.commit().await?;
@@ -262,6 +263,33 @@ mod tests {
             .unwrap();
 
         assert_eq!(job.attempts, 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn retried_photos_get_the_configured_job_attempts(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let gallery = gallery(&database, &pool).await;
+        let id = failed_photo(&database, &pool, &gallery).await;
+        let options = JobOptions {
+            max_attempts: std::num::NonZeroU16::new(9).unwrap(),
+        };
+
+        database
+            .repository_with::<PhotoRetry>(options)
+            .retry_failed(gallery.workspace_id, gallery.gallery_id, None)
+            .await
+            .unwrap();
+
+        let attempts: i32 = sqlx::query_scalar(
+            "SELECT max_attempts FROM jobs
+             WHERE state = 'queued' AND payload->'payload'->>'photo_id' = $1",
+        )
+        .bind(id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(attempts, 9);
     }
 
     #[sqlx::test(migrations = "./migrations")]
