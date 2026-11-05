@@ -1,12 +1,20 @@
 import { getContext, setContext } from 'svelte';
 import { goto } from '$app/navigation';
-import { parseOrNull, photoEventSchema, type PhotoEvent } from './gallery/schemas';
+import {
+	favoritesEventSchema,
+	parseOrNull,
+	photoEventSchema,
+	type FavoritesEvent,
+	type PhotoEvent
+} from './gallery/schemas';
 
-export type { PhotoChange, PhotoEvent } from './gallery/schemas';
+export type { FavoritesEvent, PhotoChange, PhotoEvent } from './gallery/schemas';
 
 /** The signed-in area's live updates. A resync means events may have been missed: refetch. */
 export interface LiveEvents {
 	onPhoto(handler: (event: PhotoEvent) => void): () => void;
+	/** The client changed the selection of one of the workspace's galleries. */
+	onFavorites(handler: (event: FavoritesEvent) => void): () => void;
 	onResync(handler: () => void): () => void;
 	start(): void;
 	close(): void;
@@ -21,6 +29,14 @@ interface LiveEventsOptions {
 const FIRST_REOPEN_DELAY_MS = 1000;
 const MAX_REOPEN_DELAY_MS = 30_000;
 const CLOSED = 2;
+
+function parseData(message: Event): unknown {
+	try {
+		return JSON.parse((message as MessageEvent<string>).data);
+	} catch {
+		return null;
+	}
+}
 
 async function isSignedIn(): Promise<boolean> {
 	const response = await fetch('/api/v1/auth/status', { credentials: 'same-origin' });
@@ -42,6 +58,7 @@ export function createLiveEvents({
 	onSignedOut = () => void goto('/login?expired=1', { refreshAll: true })
 }: LiveEventsOptions = {}): LiveEvents {
 	const photoHandlers = new Set<(event: PhotoEvent) => void>();
+	const favoritesHandlers = new Set<(event: FavoritesEvent) => void>();
 	const resyncHandlers = new Set<() => void>();
 	let source: EventSource | null = null;
 	let reopen: ReturnType<typeof setTimeout> | undefined;
@@ -58,19 +75,22 @@ export function createLiveEvents({
 			for (const handler of resyncHandlers) handler();
 		});
 		current.addEventListener('photo', (message) => {
-			let data: unknown;
-			try {
-				data = JSON.parse((message as MessageEvent<string>).data);
-			} catch {
-				data = null;
-			}
-			const event = parseOrNull(photoEventSchema, data);
+			const event = parseOrNull(photoEventSchema, parseData(message));
 			// A payload the page can't trust is treated as a missed event: refetch instead.
 			if (!event) {
 				for (const handler of resyncHandlers) handler();
 				return;
 			}
 			for (const handler of photoHandlers) handler(event);
+		});
+		current.addEventListener('favorites', (message) => {
+			const event = parseOrNull(favoritesEventSchema, parseData(message));
+
+			if (!event) {
+				for (const handler of resyncHandlers) handler();
+				return;
+			}
+			for (const handler of favoritesHandlers) handler(event);
 		});
 		current.addEventListener('error', () => {
 			if (current.readyState === CLOSED) void closed();
@@ -98,6 +118,7 @@ export function createLiveEvents({
 
 	return {
 		onPhoto: (handler) => subscribe(photoHandlers, handler),
+		onFavorites: (handler) => subscribe(favoritesHandlers, handler),
 		onResync: (handler) => subscribe(resyncHandlers, handler),
 		start() {
 			if (active) return;

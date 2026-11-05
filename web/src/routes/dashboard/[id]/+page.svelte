@@ -242,7 +242,7 @@
 			{cancel}
 		/>
 
-		<GalleryTabs galleryId={saved.id} />
+		<GalleryTabs galleryId={saved.id} included={saved.included_photos} />
 	</div>
 </PageShell>
 {#if previewing}

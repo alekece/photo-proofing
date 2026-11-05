@@ -57,6 +57,21 @@ describe('live events', () => {
 		expect(photos).toEqual([event]);
 	});
 
+	it('dispatches favorites events, and refetches instead of trusting a malformed one', () => {
+		const { events, sources } = setup();
+		const favorites = vi.fn();
+		const resyncs = vi.fn();
+		events.onFavorites(favorites);
+		events.onResync(resyncs);
+		events.start();
+
+		sources[0].emit('favorites', JSON.stringify({ gallery_id: 'g' }));
+		sources[0].emit('favorites', 'null');
+
+		expect(favorites).toHaveBeenCalledExactlyOnceWith({ gallery_id: 'g' });
+		expect(resyncs).toHaveBeenCalledOnce();
+	});
+
 	it.each([
 		['not json', 'not json'],
 		['a missing status', JSON.stringify({ gallery_id: 'g', photo_id: 'p' })],

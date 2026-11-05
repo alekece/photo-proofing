@@ -13,6 +13,9 @@ vi.mock('$app/state', () => ({ page: { url: new URL('https://pp.test/dashboard/g
 vi.mock('#lib/components/PhotosPanel.svelte', async () => ({
 	default: (await import('#lib/components/PhotosPanelStub.test.svelte')).default
 }));
+vi.mock('#lib/components/FavoritesPanel.svelte', async () => ({
+	default: (await import('#lib/components/FavoritesPanelStub.test.svelte')).default
+}));
 import { goto } from '$app/navigation';
 import type { Gallery } from '#lib/gallery/api.js';
 import GalleryPage from './+page.svelte';

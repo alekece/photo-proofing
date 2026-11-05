@@ -232,6 +232,7 @@
 		const unsubscribe = [
 			events.onPhoto(onPhoto),
 			events.onResync(refresh),
+			events.onFavorites((event) => event.gallery_id === id && refresh()),
 			queue.onUploaded((gallery, photo) => {
 				const current = withRecentChange(photo);
 
@@ -605,6 +606,11 @@
 					<p class="text-sm text-muted-foreground">
 						The photo and its previews are removed for good, wherever it is in processing.
 					</p>
+					{#if confirming?.favorite}
+						<p class="text-sm font-bold text-warning">
+							This photo is one of the client’s favorites. It leaves their selection too.
+						</p>
+					{/if}
 				</div>
 				<div class="flex justify-end gap-2">
 					<Button variant="ghost" onclick={close}>Cancel</Button>
@@ -624,6 +630,7 @@
 
 {#if confirmingSelection}
 	{@const count = selection.length}
+	{@const favoriteCount = selection.filter(({ favorite }) => favorite).length}
 	<Dialog
 		onclose={() => (confirmingSelection = false)}
 		labelledby="delete-selection-title"
@@ -637,6 +644,13 @@
 						{count === 1 ? 'photo' : 'photos'}?
 					</h2>
 					<p class="text-sm text-muted-foreground">This can’t be undone.</p>
+					{#if favoriteCount > 0}
+						<p class="text-sm font-bold text-warning">
+							{favoriteCount === count ? 'All' : favoriteCount} of them {favoriteCount === 1
+								? 'is'
+								: 'are'} the client’s favorites. They leave the client’s selection too.
+						</p>
+					{/if}
 				</div>
 				<div class="flex justify-end gap-2">
 					<Button variant="ghost" onclick={close}>Cancel</Button>

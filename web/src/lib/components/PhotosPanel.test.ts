@@ -37,6 +37,7 @@ function fakeEvents() {
 	const resyncHandlers = new Set<() => void>();
 	const events: LiveEvents = {
 		onPhoto: (handler) => (photoHandlers.add(handler), () => photoHandlers.delete(handler)),
+		onFavorites: () => () => {},
 		onResync: (handler) => (resyncHandlers.add(handler), () => resyncHandlers.delete(handler)),
 		start() {},
 		close() {}
@@ -354,6 +355,52 @@ describe('PhotosPanel', () => {
 		await waitFor(() =>
 			expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open p2.jpg' }))
 		);
+	});
+
+	it('says a favorite is the client’s choice before deleting it, and keeps the others', async () => {
+		const api = stubApi([
+			{ ...photo('p1'), favorite: true },
+			{ ...photo('p2'), favorite: true }
+		]);
+		const user = userEvent.setup();
+
+		setup();
+		await user.click(await screen.findByRole('button', { name: 'Remove p1.jpg' }));
+
+		const dialog = screen.getByRole('dialog', { name: 'Delete p1.jpg?' });
+
+		expect(within(dialog).getByText(/client.s favorites/)).toBeTruthy();
+
+		await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+		expect(api.calls('DELETE')).toHaveLength(1);
+		expect(screen.getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
+	});
+
+	it('does not mention favorites when deleting an ordinary photo', async () => {
+		stubApi([photo('p1')]);
+		const user = userEvent.setup();
+
+		setup();
+		await user.click(await screen.findByRole('button', { name: 'Remove p1.jpg' }));
+
+		expect(within(screen.getByRole('dialog')).queryByText(/favorites/)).toBeNull();
+	});
+
+	it('counts the favorites in a bulk deletion', async () => {
+		stubApi([{ ...photo('p1'), favorite: true }, photo('p2'), { ...photo('p3'), favorite: true }]);
+		const user = userEvent.setup();
+
+		setup();
+		await user.click(await screen.findByRole('button', { name: 'Select' }));
+		await user.click(screen.getByRole('button', { name: 'Select all' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+		expect(
+			within(screen.getByRole('dialog', { name: 'Delete 3 photos?' })).getByText(
+				/2 of them are the client.s favorites/
+			)
+		).toBeTruthy();
 	});
 
 	it('asks before deleting a server photo, then deletes it', async () => {
