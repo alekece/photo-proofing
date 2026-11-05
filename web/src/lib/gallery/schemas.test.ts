@@ -32,6 +32,7 @@ const photo = {
 	width: 4,
 	height: 3,
 	status: 'ready',
+	favorite: false,
 	created_at: '2026-11-05T10:00:00Z'
 };
 
@@ -43,7 +44,13 @@ describe('schemas', () => {
 		});
 		expect(parseOrNull(photoSchema, { ...photo, status: { failed: 'unreadable' } })).not.toBeNull();
 		expect(
-			parseOrNull(sharedGallerySchema, { title: 'T', layout: 'masonry', expires_at: null })
+			parseOrNull(sharedGallerySchema, {
+				title: 'T',
+				layout: 'masonry',
+				expires_at: null,
+				included_photos: null,
+				delivered: false
+			})
 		).not.toBeNull();
 		expect(parseOrNull(sharedPhotoSchema, { id: 'p', width: 4, height: 3 })).not.toBeNull();
 		expect(

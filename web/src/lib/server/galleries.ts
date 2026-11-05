@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import * as v from 'valibot';
 import {
+	favoriteIdsSchema,
 	gallerySchema,
 	parseOrNull,
 	sharedGallerySchema,
@@ -113,4 +114,9 @@ export function getSharedPhotos(
 	token: string
 ): Promise<SharedPhoto[] | null> {
 	return readShared(fetcher, token, '/photos', v.array(sharedPhotoSchema));
+}
+
+/** Lists the ids the client selected, with the same contract as `getSharedGallery`. */
+export function getSharedFavorites(fetcher: typeof fetch, token: string): Promise<string[] | null> {
+	return readShared(fetcher, token, '/favorites', favoriteIdsSchema);
 }

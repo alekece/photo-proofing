@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getGallery, getSharedGallery, getSharedPhotos, listGalleries } from './galleries';
 
-const gallery = { title: 'Wedding', layout: 'grid', expires_at: null };
+const gallery = {
+	title: 'Wedding',
+	layout: 'grid',
+	expires_at: null,
+	included_photos: null,
+	delivered: false
+};
 const token = 'A'.repeat(22);
 
 describe('getSharedGallery', () => {

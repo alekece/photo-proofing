@@ -18,6 +18,7 @@ const photo = {
 	width: 2,
 	height: 1,
 	status: 'waiting',
+	favorite: false,
 	created_at: '2026-11-04T10:00:00Z'
 };
 

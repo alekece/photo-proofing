@@ -4,7 +4,13 @@
 	import { UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import type { Proof, SharedGallery } from '#lib/gallery/types.js';
 
-	let { data }: { data: { gallery: SharedGallery | null; proofs: Proof[] } } = $props();
+	let {
+		data,
+		params
+	}: {
+		data: { gallery: SharedGallery | null; proofs: Proof[]; favorites: string[] };
+		params: { token: string };
+	} = $props();
 </script>
 
 <svelte:head>
@@ -14,7 +20,12 @@
 </svelte:head>
 
 {#if data.gallery}
-	<ClientGallery gallery={data.gallery} proofs={data.proofs} />
+	<ClientGallery
+		token={params.token}
+		gallery={data.gallery}
+		proofs={data.proofs}
+		favorites={data.favorites}
+	/>
 {:else}
 	<AccessUnavailable />
 {/if}

@@ -37,7 +37,11 @@ export const sharedGallerySchema = v.object({
 	title: v.nullable(v.string()),
 	layout: galleryLayoutSchema,
 	/** ISO 8601 access expiry; `null` means the link never expires. */
-	expires_at: v.nullable(v.string())
+	expires_at: v.nullable(v.string()),
+	/** How many photos the package includes; `null` means no limit. */
+	included_photos: v.nullable(finite),
+	/** Once delivered, the selection is final and read-only. */
+	delivered: v.boolean()
 });
 
 /** A photo a client may see; mirrors the API's `ReadyPhoto`. */
@@ -55,6 +59,8 @@ export const photoSchema = v.object({
 	width: finite,
 	height: finite,
 	status: photoStatusSchema,
+	/** Whether the client selected the photo. */
+	favorite: v.boolean(),
 	created_at: v.string()
 });
 
@@ -81,6 +87,12 @@ export const photoEventSchema = v.object({
 	status: photoChangeSchema
 });
 
+/** The favorite ids of a shared gallery, in the photographer's photo order. */
+export const favoriteIdsSchema = v.array(v.string());
+
+/** A change to the selection of a gallery of the signed-in workspace; the favorites come from a refetch. */
+export const favoritesEventSchema = v.object({ gallery_id: v.string() });
+
 export type Gallery = v.InferOutput<typeof gallerySchema>;
 export type GalleryLayout = v.InferOutput<typeof galleryLayoutSchema>;
 export type GallerySort = v.InferOutput<typeof gallerySortSchema>;
@@ -92,6 +104,7 @@ export type PhotoStatus = v.InferOutput<typeof photoStatusSchema>;
 export type UploadLimits = v.InferOutput<typeof uploadLimitsSchema>;
 export type PhotoChange = v.InferOutput<typeof photoChangeSchema>;
 export type PhotoEvent = v.InferOutput<typeof photoEventSchema>;
+export type FavoritesEvent = v.InferOutput<typeof favoritesEventSchema>;
 
 /** The value as `schema` describes it, or `null` when it does not match. */
 export function parseOrNull<const S extends v.GenericSchema>(

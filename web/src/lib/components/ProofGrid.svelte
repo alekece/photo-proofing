@@ -5,8 +5,16 @@
 	let {
 		proofs,
 		layout,
-		onopen
-	}: { proofs: Proof[]; layout: 'grid' | 'masonry'; onopen: (index: number) => void } = $props();
+		isSelected = () => false,
+		onopen,
+		onselect
+	}: {
+		proofs: Proof[];
+		layout: 'grid' | 'masonry';
+		isSelected?: (id: string) => boolean;
+		onopen: (index: number) => void;
+		onselect?: (id: string) => void;
+	} = $props();
 </script>
 
 {#if proofs.length === 0}
@@ -26,7 +34,9 @@
 					{layout}
 					position={i + 1}
 					total={proofs.length}
+					selected={isSelected(proof.id)}
 					onopen={() => onopen(i)}
+					onselect={onselect && (() => onselect(proof.id))}
 				/>
 			</li>
 		{/each}

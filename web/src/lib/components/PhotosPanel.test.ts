@@ -23,6 +23,7 @@ function photo(id: string, status: PhotoStatus = 'ready'): Photo {
 		width: 300,
 		height: 200,
 		status,
+		favorite: false,
 		created_at: '2026-11-04T10:00:00Z'
 	};
 }
