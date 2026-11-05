@@ -15,17 +15,15 @@
 //! route, they must carry the configured `Origin`, which the API-wide middleware checks.
 
 use actix_web::{
-    HttpResponse, get, patch, post,
-    web::{self, Data, Json, Path, Query, ServiceConfig},
+    HttpRequest, HttpResponse, get, patch, post,
+    web::{self, Data, Json, Path, ServiceConfig},
 };
+use actix_web_lab::extract::Query as LabQuery;
 use pp_database::gallery::{
     GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
 };
 use pp_storage::Variant;
-use serde::{
-    Deserialize,
-    de::{IntoDeserializer, value::Error as ValueError},
-};
+use serde::Deserialize;
 
 use crate::{
     api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
@@ -54,43 +52,14 @@ impl From<DerivativePhoto> for Variant {
     }
 }
 
-/// The list query; `state` may repeat, so it is read from the raw key-value pairs.
+/// The list query. `state` may repeat, which actix's own `Query` cannot read, so this goes
+/// through the HTML-form decoder of `actix-web-lab`.
+#[derive(Deserialize)]
 struct ListQuery {
+    #[serde(default)]
     sort: GallerySort,
+    #[serde(default, rename = "state")]
     states: Vec<GalleryState>,
-}
-
-impl ListQuery {
-    /// Parses `sort` (at most once) and every `state`; an unknown or empty value is a 400.
-    fn parse(pairs: Vec<(String, String)>) -> Result<Self, ErrorResponse> {
-        fn value<'de, T: Deserialize<'de>>(text: &'de str) -> Result<T, ErrorResponse> {
-            T::deserialize(text.into_deserializer())
-                .map_err(|_: ValueError| ErrorResponse::bad_request())
-        }
-
-        let mut sort = None;
-        let mut states = Vec::new();
-
-        for (key, text) in &pairs {
-            match key.as_str() {
-                "sort" if sort.is_none() => sort = Some(value(text)?),
-                "sort" => return Err(ErrorResponse::bad_request()),
-                "state" => {
-                    let state = value(text)?;
-
-                    if !states.contains(&state) {
-                        states.push(state);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        Ok(Self {
-            sort: sort.unwrap_or_default(),
-            states,
-        })
-    }
 }
 
 /// Registers the gallery routes.
@@ -125,13 +94,16 @@ async fn create_gallery(
 async fn list_galleries(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    query: Query<Vec<(String, String)>>,
+    request: HttpRequest,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let query = ListQuery::parse(query.into_inner())?;
+    let ListQuery { sort, states } = LabQuery::<ListQuery>::from_query(request.query_string())
+        .map_err(|_| ErrorResponse::bad_request())?
+        .into_inner();
+
     let galleries = state
         .database()
         .repository::<GalleryRepository>()
-        .list(identity.workspace_id, query.sort, &query.states)
+        .list(identity.workspace_id, sort, &states)
         .await?;
 
     Ok(HttpResponse::Ok().no_store().json(galleries))
