@@ -62,7 +62,7 @@ function stubApi(
 		delete?: number | Promise<number>;
 		retry?: number;
 		bulk?: (ids: string[]) => Response | Promise<Response>;
-		list?: () => Response | undefined;
+		list?: () => Response | void | Promise<Response | void>;
 	} = {}
 ) {
 	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
@@ -80,9 +80,9 @@ function stubApi(
 			return new Response(JSON.stringify({ requeued: 1 }), { status: answers.retry ?? 200 });
 		}
 
-		const listed = Array.isArray(server) ? server : server[url.split('/')[4]];
+		const listed = JSON.stringify(Array.isArray(server) ? server : server[url.split('/')[4]]);
 
-		return answers.list?.() ?? new Response(JSON.stringify(listed));
+		return (await answers.list?.()) ?? new Response(listed);
 	});
 
 	vi.stubGlobal('fetch', fetcher);
@@ -479,6 +479,42 @@ describe('PhotosPanel', () => {
 		expect(screen.queryByRole('button', { name: 'Open p2.jpg' })).toBeNull();
 	});
 
+	it('puts back a photo uploaded and deleted while a reload was pending when its deletion fails', async () => {
+		vi.useFakeTimers();
+		const answer = Promise.withResolvers<number>();
+		let listAnswer: PromiseWithResolvers<void> | undefined = undefined;
+		const api = stubApi([photo('p1')], {
+			delete: answer.promise,
+			list: () => listAnswer?.promise ?? Promise.resolve()
+		});
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
+		const { queue, pending, resync } = setup();
+
+		await screen.findByRole('button', { name: 'Open p1.jpg' });
+		listAnswer = Promise.withResolvers<void>();
+		await vi.advanceTimersByTimeAsync(1000);
+		resync();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(api.lists()).toBe(2);
+
+		// A second upload keeps the gallery busy, so finishing the first doesn't refetch.
+		queue.add('g1', [jpeg('new.jpg'), jpeg('next.jpg')]);
+		await vi.advanceTimersByTimeAsync(0);
+		pending[0]({ kind: 'created', photo: photo('new', 'waiting') });
+		await vi.advanceTimersByTimeAsync(0);
+		await user.click(await screen.findByRole('button', { name: 'Remove new.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		listAnswer.resolve();
+		await vi.advanceTimersByTimeAsync(0);
+		answer.resolve(500);
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(screen.getByRole('alert').textContent).toMatch(/Couldn’t delete new\.jpg/);
+		expect(tile('new.jpg').textContent).toContain('Waiting to process');
+		expect(api.lists()).toBe(2);
+	});
+
 	it('goes to sign-in when a deletion finds the session ended', async () => {
 		stubApi([photo('p1')], { delete: 401 });
 		const user = userEvent.setup();
@@ -718,6 +754,41 @@ describe('PhotosPanel', () => {
 			await waitFor(() => expect(api.bulk()).toEqual([['p1', 'p2'], ['p3']]));
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			expect(api.lists()).toBe(1);
+		});
+
+		it('puts back a photo uploaded during a reload when its bulk deletion and refetch fail', async () => {
+			vi.useFakeTimers();
+			const bulkAnswer = Promise.withResolvers<number>();
+			let listAnswer: PromiseWithResolvers<void> | undefined = undefined;
+			let lists = 0;
+			stubApi([photo('p1')], {
+				bulk: async () => new Response(null, { status: await bulkAnswer.promise }),
+				list: () => (++lists === 3 ? new Response(null, { status: 500 }) : listAnswer?.promise)
+			});
+			const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
+			const { queue, pending, resync } = setup();
+
+			await screen.findByRole('button', { name: 'Open p1.jpg' });
+			listAnswer = Promise.withResolvers<void>();
+			await vi.advanceTimersByTimeAsync(1000);
+			resync();
+			await vi.advanceTimersByTimeAsync(0);
+
+			// A second upload keeps the gallery busy, so finishing the first doesn't refetch.
+			queue.add('g1', [jpeg('new.jpg'), jpeg('next.jpg')]);
+			await vi.advanceTimersByTimeAsync(0);
+			pending[0]({ kind: 'created', photo: photo('new', 'waiting') });
+			await vi.advanceTimersByTimeAsync(0);
+			await enter(user);
+			await user.click(checkbox('new.jpg')!);
+			await confirmDeletion(user);
+			listAnswer.resolve();
+			await vi.advanceTimersByTimeAsync(0);
+			bulkAnswer.resolve(500);
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(lists).toBe(3);
+			expect(tile('new.jpg').textContent).toContain('Waiting to process');
 		});
 
 		it('restores the photos left when both the deletion and the refetch fail', async () => {
