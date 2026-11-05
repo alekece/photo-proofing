@@ -258,12 +258,23 @@
 			} else if (cause instanceof GalleryApiError && cause.status === 404) {
 				recentChanges.set(photo.id, 'deleted');
 			} else {
-				photos.splice(Math.min(index, photos.length), 0, photo);
-				alert = `Couldn’t delete ${photo.original_name}. Please try again.`;
+				restore(photo, index);
 			}
 		} finally {
 			deleting.delete(photo.id);
 		}
+	}
+
+	/** Puts back a photo whose deletion failed, as the events since say, unless they deleted it. */
+	function restore(photo: Photo, index: number) {
+		deleting.delete(photo.id);
+
+		const current = withRecentChange(photo);
+
+		if (current === null || photos.some(({ id }) => id === photo.id)) return;
+
+		photos.splice(Math.min(index, photos.length), 0, current);
+		alert = `Couldn’t delete ${photo.original_name}. Please try again.`;
 	}
 
 	async function retry(photo: Photo) {

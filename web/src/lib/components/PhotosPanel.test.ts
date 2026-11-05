@@ -48,9 +48,14 @@ function fakeEvents() {
 }
 
 /** Answers the photo routes like the API; `server` is what the list returns. */
-function stubApi(server: Photo[], answers: { delete?: number; retry?: number } = {}) {
+function stubApi(
+	server: Photo[],
+	answers: { delete?: number | Promise<number>; retry?: number } = {}
+) {
 	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
-		if (init?.method === 'DELETE') return new Response(null, { status: answers.delete ?? 204 });
+		if (init?.method === 'DELETE') {
+			return new Response(null, { status: (await answers.delete) ?? 204 });
+		}
 
 		if (init?.method === 'POST') {
 			return new Response(JSON.stringify({ requeued: 1 }), { status: answers.retry ?? 200 });
@@ -315,6 +320,44 @@ describe('PhotosPanel', () => {
 			'Open p1.jpg',
 			'Open p2.jpg'
 		]);
+	});
+
+	it('keeps a photo gone when it was deleted elsewhere before its deletion failed', async () => {
+		const answer = Promise.withResolvers<number>();
+		stubApi([photo('p1'), photo('p2')], { delete: answer.promise });
+		const user = userEvent.setup();
+		const { emit } = setup();
+
+		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		emit({ photo_id: 'p2', status: 'processing' });
+		emit({ photo_id: 'p2', status: 'deleted' });
+		answer.resolve(500);
+
+		// Lets the failed answer reach the panel.
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		expect(screen.queryByRole('alert')).toBeNull();
+		expect(screen.getAllByRole('listitem')).toHaveLength(1);
+		expect(screen.getByRole('button', { name: 'Open p1.jpg' })).toBeTruthy();
+	});
+
+	it('puts a photo back as its latest status says when its deletion fails', async () => {
+		const answer = Promise.withResolvers<number>();
+		stubApi([photo('p1'), photo('p2', 'waiting')], { delete: answer.promise });
+		const user = userEvent.setup();
+		const { emit } = setup();
+
+		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		emit({ photo_id: 'p2', status: 'processing' });
+		emit({ photo_id: 'p2', status: 'failed' });
+		answer.resolve(500);
+
+		expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t delete p2\.jpg/);
+		expect(screen.getAllByRole('listitem')).toHaveLength(2);
+		expect(tile('p2.jpg').textContent).toContain('Processing failed');
+		expect(within(tile('p2.jpg')).getByRole('button', { name: 'Retry p2.jpg' })).toBeTruthy();
 	});
 
 	it('goes to sign-in when a deletion finds the session ended', async () => {
