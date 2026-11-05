@@ -791,6 +791,70 @@ describe('PhotosPanel', () => {
 			expect(tile('new.jpg').textContent).toContain('Waiting to process');
 		});
 
+		it('restores the photos left after switching away and back during a deletion', async () => {
+			let answer: (response: Response) => void = () => {};
+			const kept = [photo('p1'), photo('p2'), photo('p3')];
+			const api = stubApi(
+				{ g1: kept, g2: [photo('q1', 'waiting')] },
+				{
+					bulk: (ids) =>
+						ids.length === 2
+							? new Promise((resolve) => (answer = resolve))
+							: new Response(null, { status: 500 })
+				}
+			);
+			const { view } = setup();
+			const user = userEvent.setup();
+
+			await enter(user);
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await confirmDeletion(user);
+			await waitFor(() => expect(api.bulk()).toHaveLength(1));
+			await view.rerender({ galleryId: 'g2' });
+			await screen.findByText('q1.jpg');
+			await view.rerender({ galleryId: 'g1' });
+			await waitFor(() => expect(api.lists()).toBe(3));
+			kept.splice(0, 2);
+			answer(Response.json({ deleted: 2 }));
+
+			expect(await screen.findByRole('button', { name: 'Open p3.jpg' })).toBeTruthy();
+			expect(screen.getByRole('alert').textContent).toMatch(/Deleted 2 of 3 photos/);
+			expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull();
+		});
+
+		it('puts restored photos back in server order', async () => {
+			let lists = 0;
+			const at = (id: string, created_at: string) => ({ ...photo(id), created_at });
+			stubApi(
+				[
+					at('w', '2026-11-04T10:00:00Z'),
+					at('x', '2026-11-04T10:00:00.1Z'),
+					at('y', '2026-11-04T10:00:00.5Z'),
+					at('z', '2026-11-04T10:00:00.51Z')
+				],
+				{
+					bulk: () => new Response(null, { status: 500 }),
+					list: () => (++lists > 1 ? new Response(null, { status: 500 }) : undefined)
+				}
+			);
+			setup();
+			const user = userEvent.setup();
+
+			await enter(user);
+			await user.click(checkbox('w.jpg')!);
+			await user.click(checkbox('z.jpg')!);
+			await confirmDeletion(user);
+
+			await waitFor(() => expect(lists).toBe(2));
+			await waitFor(() => expect(checkbox('z.jpg')).not.toBeNull());
+			expect(screen.getAllByRole('checkbox').map((box) => box.getAttribute('aria-label'))).toEqual([
+				'Select w.jpg',
+				'Select x.jpg',
+				'Select y.jpg',
+				'Select z.jpg'
+			]);
+		});
+
 		it('restores the photos left when both the deletion and the refetch fail', async () => {
 			let answer: (response: Response) => void = () => {};
 			let lists = 0;

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { tick, untrack } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import PhotoTile, { type TileState } from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
@@ -60,6 +60,7 @@
 	let loads = 0;
 	// Bumped whenever the panel stops showing a gallery, by a change of gallery or unmounting.
 	let shown = 0;
+	let destroyed = false;
 	let lastLoadAt = -Infinity;
 	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 	let wasInFlight = 0;
@@ -209,6 +210,8 @@
 			refresh();
 		}
 	}
+
+	onDestroy(() => (destroyed = true));
 
 	$effect(() => {
 		if (announcement && announcement.summary !== summary) announcement = null;
@@ -402,7 +405,10 @@
 	async function removeSelection() {
 		const confirmedGallery = galleryId;
 		const view = shown;
+		// Selection, focus and announcement belong to the view the deletion was confirmed in; the
+		// photos and alert to the gallery, which may be shown again after switching away and back.
 		const stillShown = () => view === shown;
+		const showsGallery = () => !destroyed && galleryId === confirmedGallery;
 		const removed = selection;
 		const ids = removed.map(({ id }) => id);
 		let deletedCount = 0;
@@ -444,12 +450,12 @@
 				return;
 			}
 
-			if (!stillShown()) return;
+			if (!showsGallery()) return;
 
 			alert = `Deleted ${deletedCount} of ${ids.length} photos. Please try again.`;
 			await load();
 
-			if (stillShown()) restoreSurvivors(ids.slice(deletedCount));
+			if (showsGallery()) restoreSurvivors(ids.slice(deletedCount));
 		} finally {
 			for (const id of ids) deleting.delete(id);
 		}
@@ -467,8 +473,25 @@
 			.map((known) => known && changed(known))
 			.filter((photo): photo is Photo => !!photo && !photos.some(({ id }) => id === photo.id));
 
-		photos = [...photos, ...back].sort(
-			(a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
+		for (const photo of back) {
+			const index = photos.findIndex((other) => listedBefore(photo, other));
+
+			photos.splice(index === -1 ? photos.length : index, 0, photo);
+		}
+	}
+
+	/** Whether `a` comes before `b` in the server's order, by creation then id. */
+	function listedBefore(a: Photo, b: Photo) {
+		const [atA, atB] = [instant(a.created_at), instant(b.created_at)];
+
+		return atA === atB ? a.id < b.id : atA < atB;
+	}
+
+	/** A UTC RFC 3339 timestamp, with its fraction padded so timestamps compare as strings. */
+	function instant(timestamp: string) {
+		return timestamp.replace(
+			/(?:\.(\d+))?Z$/,
+			(_, fraction = '') => `.${fraction.padEnd(9, '0')}Z`
 		);
 	}
 
