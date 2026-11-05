@@ -13,13 +13,7 @@ use futures_util::{
     future,
     stream::{self, Stream, StreamExt},
 };
-use pp_core::notifications::PhotoId;
-use pp_database::{
-    auth::{AuthRepository, WorkspaceId},
-    gallery::GalleryId,
-    photo_events::{PhotoChange, PhotoEvent},
-};
-use serde::Serialize;
+use pp_database::auth::{AuthRepository, WorkspaceId};
 use tokio::{
     sync::broadcast::error::RecvError,
     time::{self, Instant, Interval, MissedTickBehavior},
@@ -34,24 +28,6 @@ use crate::{
         session_token::{SessionToken, TokenHash},
     },
 };
-
-/// What a `photo` event tells the browser: which photo changed and its new status.
-#[derive(Serialize)]
-struct PhotoData {
-    gallery_id: GalleryId,
-    photo_id: PhotoId,
-    status: PhotoChange,
-}
-
-impl From<PhotoEvent> for PhotoData {
-    fn from(event: PhotoEvent) -> Self {
-        Self {
-            gallery_id: event.gallery_id,
-            photo_id: event.photo_id,
-            status: event.status,
-        }
-    }
-}
 
 #[get("/events")]
 pub(crate) async fn stream_events(
@@ -152,7 +128,7 @@ impl From<Broadcast> for sse::Event {
 
         match broadcast {
             // Ids and a status always serialize; were that to change, a refetch is still correct.
-            Broadcast::Photo(event) => sse::Data::new_json(PhotoData::from(event))
+            Broadcast::Photo(event) => sse::Data::new_json(event)
                 .map_or_else(|_| resync(), |data| data.event("photo").into()),
             Broadcast::Resync => resync(),
         }
@@ -170,7 +146,13 @@ mod tests {
         http::StatusCode,
         test,
     };
-    use pp_database::{Database, tests::TestRepository};
+    use pp_core::notifications::PhotoId;
+    use pp_database::{
+        Database,
+        gallery::GalleryId,
+        photo_events::{PhotoChange, PhotoEvent},
+        tests::TestRepository,
+    };
     use serde_json::{Value, json};
     use sqlx::PgPool;
     use uuid::Uuid;
@@ -320,7 +302,12 @@ mod tests {
             next_event(&mut body).await,
             (
                 "photo".to_owned(),
-                json!({"gallery_id": own.gallery_id, "photo_id": own.photo_id, "status": "ready"})
+                json!({
+                    "workspace_id": own.workspace_id,
+                    "gallery_id": own.gallery_id,
+                    "photo_id": own.photo_id,
+                    "status": "ready",
+                })
             )
         );
 

@@ -75,8 +75,9 @@ My calls (to check while reading):
 - **Events.**
   - `resync` (no data) is always the first event, and is sent again after a lag or a listener
     reconnect. The page refetches what it shows.
-  - `photo` with `{"gallery_id", "photo_id", "status"}`, `status` being `waiting`, `processing`,
-    `ready`, `failed` or `deleted`. A failed photo's reason is read from the list when the page
+  - `photo` with the notification payload as is, `{"workspace_id", "gallery_id", "photo_id",
+    "status"}`, `status` being `waiting`, `processing`, `ready`, `failed` or `deleted`. The page
+    ignores `workspace_id`, which is always its own. A failed photo's reason is read from the list when the page
     needs it, so reasons never travel on the stream.
 - **Slow clients.** The broadcast channel has a fixed capacity; a connection that falls behind gets
   `Lagged`, which it turns into one `resync` and carries on. A connection whose client stopped

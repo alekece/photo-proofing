@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 use serde::de::DeserializeOwned;
 use sqlx::postgres::PgListener;
 
-use crate::{Database, error::DatabaseError};
+use crate::{PgPool, error::DatabaseError};
 
 /// A JSON payload notified on its own channel.
 pub trait Channel: DeserializeOwned {
@@ -41,6 +41,19 @@ pub struct Listener<T> {
 }
 
 impl<T: Channel> Listener<T> {
+    /// Opens a dedicated connection from `pool` and listens on `T`'s channel. Only notifications
+    /// committed after this returns are reported.
+    pub(crate) async fn open(pool: &PgPool) -> Result<Self, DatabaseError> {
+        let mut listener = PgListener::connect_with(pool).await?;
+
+        listener.listen(T::NAME).await?;
+
+        Ok(Self {
+            listener,
+            channel: PhantomData,
+        })
+    }
+
     /// Waits for the next notification.
     ///
     /// A lost connection is reopened before this returns [`MissedReason::Reconnected`]; an error
@@ -54,20 +67,5 @@ impl<T: Channel> Listener<T> {
             Notification::Missed(MissedReason::Undecodable),
             Notification::Event,
         ))
-    }
-}
-
-impl Database {
-    /// Opens a [`Listener`] on `T`'s channel. Only notifications committed after this returns
-    /// are reported.
-    pub async fn listen<T: Channel>(&self) -> Result<Listener<T>, DatabaseError> {
-        let mut listener = PgListener::connect_with(&self.pool).await?;
-
-        listener.listen(T::NAME).await?;
-
-        Ok(Listener {
-            listener,
-            channel: PhantomData,
-        })
     }
 }

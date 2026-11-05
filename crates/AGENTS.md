@@ -29,7 +29,7 @@ These rules apply to Rust changes. They add to the repository-wide policy in the
 
 - Group code into feature or domain modules. Split a module only when it has more than one responsibility or becomes hard to navigate.
 - Use `module.rs` plus `module/child.rs`; never `mod.rs`.
-- Order a file as constants, error types, other types, traits, implementations, then free functions, keeping related items adjacent. Put a type's `impl` blocks right under its definition.
+- Order a file as constants, error types, other types, traits, implementations, then free functions, keeping related items adjacent. Put a type's `impl` blocks right under its definition, in the same file: inherent methods on a type never live in another module, which instead exposes what the method needs.
 - Keep a module's tests in its own `#[cfg(test)] mod tests`, not in a separate `tests/` directory, unless they exercise only the crate's public interface.
 - Do not add wrapper modules, re-exports, or indirection without a caller that needs them.
 - Put every `use` at the top of its module scope, including inside `mod tests`. Never write imports inside functions, blocks, or `impl` bodies.
