@@ -14,8 +14,11 @@ page shows a clean error or a sensible default instead of breaking in odd ways.
   - browser clients in `lib/gallery/api.ts` and `lib/gallery/photos.ts`;
   - live `photo` events in `lib/events.ts`.
 - An invalid body is a controlled failure:
-  - **Server load:** a 503 "Service unavailable", shown by the error page from #152.
-  - **Browser call:** the same error the caller already handles for a failed request.
+  - **Server load:** a 503, handled like an unreachable API. The dashboard keeps its inline
+    "Couldn't load" state; other pages show the error page from #152.
+  - **Browser call:** what the caller already handles for that endpoint. The gallery, photo
+    list, bulk delete and upload limits calls throw `GalleryApiError`. An upload returns
+    `{ kind: 'failed' }`, since uploads only throw on abort.
   - **Live event:** ignored, then a refetch, as a `resync` does.
 - An unknown dashboard `sort` falls back to the default order, on the server and in the browser.
 
@@ -34,7 +37,8 @@ the client bundle for little gain.
   (layout, sort, photo status). Extra fields are allowed, so the API can grow without breaking
   the web app.
 - `readGalleries` and `readShared` throw SvelteKit's `error(503)` when a guard fails.
-- Browser clients throw their existing error type, so current UI paths handle it.
+- Browser clients fail in each endpoint's existing way, as listed above, so current UI paths
+  handle it.
 - `isGallerySort` replaces the cast in the dashboard's `changeSort`. The server already falls back
   to `'updated'`; it switches to the same guard.
 - `events.ts` checks `photo` event payloads. An invalid one triggers the resync handler, so the
@@ -44,6 +48,8 @@ the client bundle for little gain.
 
 Unit tests cover:
 - each guard: valid shapes, missing fields and wrong types;
-- each read path: a malformed body gives the controlled error;
+- every JSON success path gives its controlled failure on a malformed body: `readGalleries`,
+  `readShared`, the gallery requests, `listPhotos`, `deletePhotos`, `getUploadLimits` and
+  `uploadPhoto`;
 - an invalid live event leads to a refetch;
 - an invalid `sort` gives the default order, both in the server load and in the browser handler.
