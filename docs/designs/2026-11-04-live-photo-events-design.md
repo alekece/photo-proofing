@@ -70,7 +70,7 @@ My calls (to check while reading):
   because notifications sent meanwhile are gone.
 - **Stream route.** `GET /api/v1/events` uses `Authenticated` (read-only, never renews), then
   answers with `actix_web_lab::sse`. All actix-web-lab use stays in one module
-  (`crates/api/src/events.rs`), so its evolving API is contained. Each connection subscribes to
+  (`crates/api/src/routes/events.rs`), so its evolving API is contained. Each connection subscribes to
   the broadcast channel and forwards only events of its workspace.
 - **Events.**
   - `resync` (no data) is always the first event, and is sent again after a lag or a listener
@@ -92,7 +92,7 @@ My calls (to check while reading):
 - **Logging.** The `/events` route logs connection open/close with the workspace id only, never
   event payloads.
 - **Web.** A dashboard layout (`routes/dashboard/+layout.svelte`) opens one `EventSource` for the
-  whole signed-in area and exposes the events through a small store (`lib/events.svelte.ts`).
+  whole signed-in area and exposes the events through a small store (`lib/events.ts`).
   Pages subscribe to the events they care about; a `resync` makes them refetch. `EventSource`
   retries by itself only after a network drop: a 401 or 503 answer closes it for good and hides the
   status. So when it closes, the store asks `GET /api/v1/auth/status`; signed out sends the page to
