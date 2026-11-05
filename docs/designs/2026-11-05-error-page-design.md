@@ -25,13 +25,16 @@ not SvelteKit's bare default page.
 A single root error page reads `page.status` and `page.error` from `$app/state`.
 
 - **404:** "We couldn't find this page."
-- **Everything else:** "Something went wrong on our side. Please try again in a moment."
+- **5xx:** "Something went wrong on our side. Please try again in a moment."
+- **Other 4xx:** "We can't show this page." The server isn't blamed for a client error.
 - **Raw error text:** never shown, so internal details don't leak. SvelteKit already replaces
   unexpected errors with a generic message, and the page doesn't display it either.
 - **Link back, chosen from the failing URL:**
   - Under `/dashboard`: "Back to your galleries" (`/dashboard`).
-  - Under `/g/` (a client's private link): a "Try again" link to the same URL, because the
-    client has no account and sign-in would mislead them. This differs from the issue, which
+  - Under `/g/` (a client's private link): a "Try again" link to the same URL for a 5xx,
+    because the client has no account and sign-in would mislead them. A 404 or other 4xx
+    offers no link, since retrying cannot help; a 404 says to ask the photographer for a new
+    link. This differs from the issue, which
     says sign-in for everything outside the dashboard.
   - Elsewhere: "Go to sign in" (`/login`).
 - **Focus:** the `h1` has `tabindex="-1"` and is focused on mount, matching how other pages

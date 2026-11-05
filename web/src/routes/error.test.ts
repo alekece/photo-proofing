@@ -34,6 +34,20 @@ describe('error page', () => {
 		expect(screen.queryByText(/couldn.t find/i)).toBeNull();
 	});
 
+	it('does not blame the server for a client error', () => {
+		show(403, '/nowhere');
+
+		expect(screen.getByRole('heading', { level: 1, name: /can.t show this page/i })).toBeTruthy();
+		expect(screen.queryByText(/our side/i)).toBeNull();
+	});
+
+	it('offers no retry for a missing client link', () => {
+		show(404, '/g/token123');
+
+		expect(screen.queryByRole('link')).toBeNull();
+		expect(screen.getByText(/ask your photographer/i)).toBeTruthy();
+	});
+
 	it('never shows the raw error text', () => {
 		show(500, '/dashboard');
 
