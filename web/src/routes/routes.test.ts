@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$app/navigation', () => ({ afterNavigate: vi.fn(), goto: vi.fn() }));
 vi.mock('$app/state', () => ({ navigating: { to: null } }));
@@ -15,6 +15,8 @@ const shared = (overrides: Partial<SharedGallery> = {}): SharedGallery => ({
 	title: 'Sample session',
 	layout: 'grid',
 	expires_at: null,
+	included_photos: null,
+	delivered: false,
 	hero_id: null,
 	...overrides
 });
@@ -27,7 +29,12 @@ const proofs: Proof[] = [1, 2, 3].map((n) => ({
 	height: 200
 }));
 const open = (gallery: SharedGallery | null, galleryProofs: Proof[] = []) =>
-	render(Gallery, { props: { data: { gallery, proofs: galleryProofs } } });
+	render(Gallery, {
+		props: {
+			data: { gallery, proofs: galleryProofs, favorites: [] },
+			params: { token: 'tok' }
+		}
+	});
 
 describe('route shells', () => {
 	it('dashboard renders its heading', () => {
@@ -45,6 +52,18 @@ describe('route shells', () => {
 		expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeTruthy();
 	});
 });
+
+// jsdom has no EventSource; the client page opens one for live selection updates.
+beforeEach(() =>
+	vi.stubGlobal(
+		'EventSource',
+		class {
+			addEventListener() {}
+			close() {}
+		}
+	)
+);
+afterEach(() => vi.unstubAllGlobals());
 
 describe('client gallery route', () => {
 	it('shows a neutral unavailable page without gallery data', () => {
@@ -89,7 +108,7 @@ describe('client gallery route', () => {
 describe('ClientGallery', () => {
 	it('opens the viewer by keyboard and returns focus to the thumbnail', async () => {
 		const user = userEvent.setup();
-		render(ClientGallery, { gallery: shared(), proofs });
+		render(ClientGallery, { token: 'tok', gallery: shared(), proofs });
 		await user.tab();
 		const thumb = document.activeElement as HTMLElement;
 		await user.keyboard('{Enter}');
@@ -101,7 +120,7 @@ describe('ClientGallery', () => {
 
 	it('has no axe violations for the grid and the open viewer', async () => {
 		const user = userEvent.setup();
-		const { container } = render(ClientGallery, { gallery: shared(), proofs });
+		const { container } = render(ClientGallery, { token: 'tok', gallery: shared(), proofs });
 		expect((await axe(container)).violations).toEqual([]);
 		await user.tab();
 		await user.keyboard('{Enter}');

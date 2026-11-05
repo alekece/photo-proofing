@@ -1,8 +1,8 @@
-//! Live photo events, from the database to every open event stream.
+//! Live photo and favorite events, from the database to every open event stream.
 //!
 //! One [`EventHub::relay`] task per process listens to the database and publishes on the hub;
-//! each `GET /api/v1/events` stream subscribes and forwards its own workspace's events (see
-//! [`routes::events`](crate::routes::events)). Whenever events may have been lost (a reconnect,
+//! each `GET /api/v1/events` stream subscribes and forwards its own workspace's events, and each
+//! shared-link stream its own gallery's favorites (see [`routes::events`](crate::routes::events)). Whenever events may have been lost (a reconnect,
 //! an undecodable notification or a lagging subscriber), streams receive [`Broadcast::Resync`]
 //! so the browser refetches instead of trusting a partial history.
 
@@ -20,7 +20,9 @@ use pp_database::{
     Database,
     auth::WorkspaceId,
     error::DatabaseError,
-    listener::{Listener, MissedReason, Notification},
+    favorite_events::FavoriteEvent,
+    gallery::GalleryId,
+    listener::{Channel, Listener, MissedReason, Notification},
     photo_events::PhotoEvent,
 };
 use tokio::{
@@ -35,8 +37,30 @@ use crate::config::{EventsConfig, KeepAlive, StallIntervals};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Broadcast {
     Photo(PhotoEvent),
+    /// A gallery's selection changed.
+    Favorites(FavoriteEvent),
     /// Events may have been lost: subscribers must refetch.
     Resync,
+}
+
+/// Whose streams a slot counts against: the caps keep one workspace, or one shared link, from
+/// taking every slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum StreamOwner {
+    Workspace(WorkspaceId),
+    Gallery(GalleryId),
+}
+
+impl From<WorkspaceId> for StreamOwner {
+    fn from(workspace_id: WorkspaceId) -> Self {
+        Self::Workspace(workspace_id)
+    }
+}
+
+impl From<GalleryId> for StreamOwner {
+    fn from(gallery_id: GalleryId) -> Self {
+        Self::Gallery(gallery_id)
+    }
 }
 
 /// Fans database events out to the open streams, and bounds how many may be open.
@@ -76,10 +100,10 @@ impl EventHub {
         self.keep_alive.get()
     }
 
-    /// Opens a subscription for a stream of `workspace_id`, or `None` when the process or the
-    /// workspace already has as many streams as allowed.
-    pub fn subscribe(&self, workspace_id: WorkspaceId) -> Option<Subscription> {
-        let slot = self.slots.acquire(workspace_id)?;
+    /// Opens a subscription for a stream of `owner`, or `None` when the process or the owner
+    /// already has as many streams as allowed.
+    pub fn subscribe(&self, owner: impl Into<StreamOwner>) -> Option<Subscription> {
+        let slot = self.slots.acquire(owner.into())?;
 
         Some(Subscription {
             receiver: self.sender.subscribe(),
@@ -131,23 +155,33 @@ impl EventHub {
         let _ = self.sender.send(broadcast);
     }
 
-    /// Listens to the database for the life of the process and publishes every photo change.
+    /// Listens to the database for the life of the process and publishes every photo and
+    /// favorite change.
     ///
     /// Failures are retried with a growing delay; they never end the task, so the owner aborts
     /// it on shutdown.
     pub async fn relay(&self, database: Database) {
+        tokio::join!(
+            self.relay_channel::<PhotoEvent>(&database, Broadcast::Photo),
+            self.relay_channel::<FavoriteEvent>(&database, Broadcast::Favorites),
+        );
+    }
+
+    async fn relay_channel<T: Channel>(&self, database: &Database, broadcast: fn(T) -> Broadcast) {
         let mut backoff = self.relay_backoff_start;
 
         loop {
-            match database.listen::<PhotoEvent>().await {
+            match database.listen::<T>().await {
                 Ok(listener) => {
                     backoff = self.relay_backoff_start;
 
-                    let error = self.forward(listener).await;
+                    let error = self.forward(listener, broadcast).await;
 
-                    tracing::warn!(%error, "photo event listener failed");
+                    tracing::warn!(%error, channel = T::NAME, "event listener failed");
                 }
-                Err(error) => tracing::warn!(%error, "photo event listener unavailable"),
+                Err(error) => {
+                    tracing::warn!(%error, channel = T::NAME, "event listener unavailable");
+                }
             }
 
             time::sleep(backoff).await;
@@ -157,15 +191,19 @@ impl EventHub {
 
     /// Publishes `listener`'s notifications until it fails. It starts with a resync, since
     /// changes made while no listener was open were not announced.
-    async fn forward(&self, mut listener: Listener<PhotoEvent>) -> DatabaseError {
+    async fn forward<T: Channel>(
+        &self,
+        mut listener: Listener<T>,
+        broadcast: fn(T) -> Broadcast,
+    ) -> DatabaseError {
         self.publish(Broadcast::Resync);
 
         loop {
             match listener.next().await {
-                Ok(Notification::Event(event)) => self.publish(Broadcast::Photo(event)),
+                Ok(Notification::Event(event)) => self.publish(broadcast(event)),
                 Ok(Notification::Missed(reason)) => {
                     if reason == MissedReason::Undecodable {
-                        tracing::warn!("undecodable photo event notification");
+                        tracing::warn!(channel = T::NAME, "undecodable event notification");
                     }
 
                     self.publish(Broadcast::Resync);
@@ -275,7 +313,7 @@ impl StallWatchdog {
     }
 }
 
-/// How many streams are open, overall and per workspace, against their caps.
+/// How many streams are open, overall and per owner, against their caps.
 struct StreamSlots {
     counts: Mutex<StreamCounts>,
     max_streams: NonZeroUsize,
@@ -283,20 +321,20 @@ struct StreamSlots {
 }
 
 impl StreamSlots {
-    fn acquire(self: &Arc<Self>, workspace_id: WorkspaceId) -> Option<StreamSlot> {
+    fn acquire(self: &Arc<Self>, owner: StreamOwner) -> Option<StreamSlot> {
         let mut counts = self.counts();
-        let open = counts.workspaces.get(&workspace_id).copied().unwrap_or(0);
+        let open = counts.owners.get(&owner).copied().unwrap_or(0);
 
         if counts.total >= self.max_streams.get() || open >= self.max_streams_per_workspace.get() {
             return None;
         }
 
         counts.total += 1;
-        counts.workspaces.insert(workspace_id, open + 1);
+        counts.owners.insert(owner, open + 1);
 
         Some(StreamSlot {
             slots: Arc::clone(self),
-            workspace_id,
+            owner,
         })
     }
 
@@ -309,13 +347,13 @@ impl StreamSlots {
 #[derive(Default)]
 struct StreamCounts {
     total: usize,
-    workspaces: HashMap<WorkspaceId, usize>,
+    owners: HashMap<StreamOwner, usize>,
 }
 
 /// One open stream's place in [`StreamSlots`]; dropping it frees the place.
 struct StreamSlot {
     slots: Arc<StreamSlots>,
-    workspace_id: WorkspaceId,
+    owner: StreamOwner,
 }
 
 impl Drop for StreamSlot {
@@ -324,11 +362,11 @@ impl Drop for StreamSlot {
 
         counts.total -= 1;
 
-        if let Some(open) = counts.workspaces.get_mut(&self.workspace_id) {
+        if let Some(open) = counts.owners.get_mut(&self.owner) {
             *open -= 1;
 
             if *open == 0 {
-                counts.workspaces.remove(&self.workspace_id);
+                counts.owners.remove(&self.owner);
             }
         }
     }
@@ -386,7 +424,7 @@ mod tests {
         let counts = hub.slots.counts();
 
         assert_eq!(counts.total, 0);
-        assert!(counts.workspaces.is_empty());
+        assert!(counts.owners.is_empty());
     }
 
     struct Relay {
@@ -405,7 +443,10 @@ mod tests {
                 async move { hub.relay(database).await }
             });
 
-            assert_eq!(recv(&mut subscription).await, Broadcast::Resync);
+            // One initial resync per listened channel.
+            for _ in 0..2 {
+                assert_eq!(recv(&mut subscription).await, Broadcast::Resync);
+            }
 
             (Self { task }, subscription)
         }
@@ -454,6 +495,51 @@ mod tests {
                 status: PhotoChange::Waiting,
             })
         );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn the_relay_publishes_committed_favorite_changes(pool: PgPool) {
+        let (_relay, mut subscription) = Relay::start(&pool).await;
+        let database = Database::new(pool.clone());
+        let workspace_id = database
+            .repository::<TestRepository>()
+            .create_workspace()
+            .await
+            .unwrap();
+        let gallery_id = database
+            .repository::<GalleryRepository>()
+            .create(workspace_id)
+            .await
+            .unwrap()
+            .id;
+
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height)
+             VALUES (gen_random_uuid(), $1, $2, 'a.jpg', 1, 1, 1)",
+        )
+        .bind(workspace_id)
+        .bind(gallery_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE photos SET favorite = true")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        loop {
+            if let Broadcast::Favorites(event) = recv(&mut subscription).await {
+                assert_eq!(
+                    event,
+                    FavoriteEvent {
+                        workspace_id,
+                        gallery_id
+                    }
+                );
+
+                break;
+            }
+        }
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

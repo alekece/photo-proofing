@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod error;
+pub mod favorite_events;
 pub mod gallery;
 pub mod jobs;
 pub mod listener;

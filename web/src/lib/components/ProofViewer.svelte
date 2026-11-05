@@ -3,20 +3,26 @@
 	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
 	import { cn } from '#lib/utils.js';
 	import type { Proof } from '../gallery/types';
+	import FavoriteButton from './FavoriteButton.svelte';
 
 	let {
 		proofs,
 		index = $bindable(0),
+		isSelected = () => false,
 		class: className,
 		contained = false,
-		onclose
+		onclose,
+		onselect
 	}: {
 		proofs: Proof[];
 		index?: number;
+		isSelected?: (id: string) => boolean;
 		class?: string;
 		/** Opens inside the nearest positioned ancestor instead of over the whole page. */
 		contained?: boolean;
 		onclose: () => void;
+		/** Without it the proof cannot be selected, as once the gallery is delivered. */
+		onselect?: (id: string) => void;
 	} = $props();
 
 	const controlClass =
@@ -85,6 +91,14 @@
 	{#snippet children(close)}
 		<div class="flex items-center justify-between">
 			<span aria-live="polite">{index + 1} of {proofs.length}</span>
+			{#if onselect}
+				<FavoriteButton
+					selected={isSelected(proof.id)}
+					label="Favorite proof {index + 1}"
+					onclick={() => onselect(proof.id)}
+					class={controlClass}
+				/>
+			{/if}
 			<button
 				type="button"
 				class={controlClass}

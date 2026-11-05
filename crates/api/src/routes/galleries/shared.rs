@@ -3,6 +3,9 @@
 //! - `GET /` returns the title, layout and expiry of the gallery behind a private link.
 //! - `GET /photos` lists the photos the client may see, with their displayed size.
 //! - `GET /photos/{photo_id}/thumbnail|preview` serves one of those photos.
+//! - `GET /events` streams selection changes of this gallery (see [`events`]).
+//! - `GET /favorites` lists the ids the client selected; `PUT|DELETE /favorites/{photo_id}`
+//!   selects or unselects one, idempotently, until the gallery is delivered (409).
 //!
 //! Every route takes [`ClientAccess`], so malformed, unknown, unshared and expired links are
 //! the same 404, and so are unready, foreign and unknown photos. No route serves an original.
@@ -10,7 +13,7 @@
 //! `/galleries/shared/` paths.
 
 use actix_web::{
-    HttpResponse, get,
+    HttpResponse, delete, get, put,
     web::{Data, Path, ServiceConfig},
 };
 use pp_core::notifications::PhotoId;
@@ -23,12 +26,17 @@ use crate::{
     error::ErrorResponse,
     extractors::client_access::{ClientAccess, ClientPhotoSet},
     response::{ImageFile, ResponseBuilderExt},
+    routes::events,
 };
 
 /// Registers the client routes inside the `/api/v1/galleries` scope.
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(show_shared_gallery)
         .service(list_shared_photos)
+        .service(list_favorites)
+        .service(add_favorite)
+        .service(remove_favorite)
+        .service(events::stream_shared_events)
         .service(serve_shared_photo);
 }
 
@@ -53,6 +61,54 @@ async fn list_shared_photos(
     };
 
     Ok(HttpResponse::Ok().no_store().no_referrer().json(photos))
+}
+
+#[get("/shared/{token}/favorites")]
+async fn list_favorites(
+    state: Data<ApiState>,
+    access: ClientAccess,
+) -> Result<HttpResponse, ErrorResponse> {
+    let favorites = state
+        .database()
+        .repository::<PhotoRepository>()
+        .favorites(access.0.location)
+        .await?;
+
+    Ok(HttpResponse::Ok().no_store().no_referrer().json(favorites))
+}
+
+#[put("/shared/{token}/favorites/{photo_id}")]
+async fn add_favorite(
+    state: Data<ApiState>,
+    access: ClientAccess,
+    path: Path<(String, PhotoId)>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let change = state
+        .database()
+        .repository::<PhotoRepository>()
+        .set_favorite(access.0.location, path.into_inner().1, true)
+        .await?;
+
+    ErrorResponse::ensure_favorite_applied(change)?;
+
+    Ok(HttpResponse::NoContent().no_store().no_referrer().finish())
+}
+
+#[delete("/shared/{token}/favorites/{photo_id}")]
+async fn remove_favorite(
+    state: Data<ApiState>,
+    access: ClientAccess,
+    path: Path<(String, PhotoId)>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let change = state
+        .database()
+        .repository::<PhotoRepository>()
+        .set_favorite(access.0.location, path.into_inner().1, false)
+        .await?;
+
+    ErrorResponse::ensure_favorite_applied(change)?;
+
+    Ok(HttpResponse::NoContent().no_store().no_referrer().finish())
 }
 
 #[get("/shared/{token}/photos/{photo_id}/{derivative:thumbnail|preview}")]
@@ -164,6 +220,8 @@ mod tests {
                 "title": "Wedding",
                 "layout": "masonry",
                 "expires_at": null,
+                "included_photos": null,
+                "delivered": false,
                 "hero_id": null
             })
         );
@@ -467,6 +525,122 @@ mod tests {
                 assert_eq!(status, StatusCode::NOT_FOUND, "{token}{path}");
             }
         }
+    }
+
+    fn favorite_request(method: &str, token: &str, photo: &str) -> actix_http::Request {
+        let request = match method {
+            "PUT" => test::TestRequest::put(),
+            _ => test::TestRequest::delete(),
+        };
+
+        request
+            .uri(&format!(
+                "/api/v1/galleries/shared/{token}/favorites/{photo}"
+            ))
+            .insert_header(("Origin", ORIGIN))
+            .to_request()
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_client_selects_and_unselects_photos_idempotently(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let first = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        let second = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        let token = share(&app, &cookie, &gallery_id).await;
+
+        for photo in [&second, &second, &first] {
+            let response = test::call_service(&app, favorite_request("PUT", &token, photo)).await;
+
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        }
+
+        let (_, favorites) = call_request(&app, client_request(&token, "/favorites")).await;
+
+        assert_eq!(favorites, json!([first, second]));
+
+        for _ in 0..2 {
+            let (status, _) = call_request(&app, favorite_request("DELETE", &token, &first)).await;
+
+            assert_eq!(status, StatusCode::NO_CONTENT);
+        }
+
+        let (_, favorites) = call_request(&app, client_request(&token, "/favorites")).await;
+
+        assert_eq!(favorites, json!([second]));
+
+        let (_, shared) = call_request(&app, client_request(&token, "")).await;
+
+        assert_eq!(shared["delivered"], false);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn favorites_reject_foreign_unready_unknown_and_unavailable_links(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let other_gallery = create_gallery(&app, &cookie).await;
+        let ready = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        let failed = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Failed).await;
+        let foreign = photo_in(&app, &pool, &cookie, &other_gallery, Progress::Ready).await;
+        let waiting = waiting_photo(&app, &cookie, &gallery_id).await;
+        let unknown = uuid::Uuid::new_v4().to_string();
+        let token = share(&app, &cookie, &gallery_id).await;
+
+        for photo in [&failed, &foreign, &waiting, &unknown] {
+            for method in ["PUT", "DELETE"] {
+                let (status, _) = call_request(&app, favorite_request(method, &token, photo)).await;
+
+                assert_eq!(status, StatusCode::NOT_FOUND, "{method} {photo}");
+            }
+        }
+
+        expire(&app, &cookie, &gallery_id).await;
+
+        let unshared = ShareToken::generate().as_str().to_owned();
+
+        for token in [token.as_str(), unshared.as_str(), "short"] {
+            for method in ["PUT", "DELETE"] {
+                let (status, _) = call_request(&app, favorite_request(method, token, &ready)).await;
+
+                assert_eq!(status, StatusCode::NOT_FOUND, "{method} {token}");
+            }
+
+            let (status, _) = call_request(&app, client_request(token, "/favorites")).await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND);
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_delivered_gallery_keeps_its_selection(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        let token = share(&app, &cookie, &gallery_id).await;
+
+        call_request(&app, favorite_request("PUT", &token, &photo)).await;
+        sqlx::query("UPDATE galleries SET delivered_at = now()")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        for method in ["PUT", "DELETE"] {
+            let (status, _) = call_request(&app, favorite_request(method, &token, &photo)).await;
+
+            assert_eq!(status, StatusCode::CONFLICT, "{method}");
+        }
+
+        let (_, favorites) = call_request(&app, client_request(&token, "/favorites")).await;
+        let (_, shared) = call_request(&app, client_request(&token, "")).await;
+
+        assert_eq!(favorites, json!([photo]));
+        assert_eq!(shared["delivered"], true);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

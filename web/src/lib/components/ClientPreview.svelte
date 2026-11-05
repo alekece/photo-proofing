@@ -19,6 +19,7 @@
 
 	let view = $state<'desktop' | 'mobile'>('desktop');
 	let proofs = $state<Proof[]>([]);
+	let favorites = $state<string[]>([]);
 	let loaded = $state(false);
 	let failed = $state(false);
 	let closeButton = $state<HTMLButtonElement | null>(null);
@@ -28,7 +29,12 @@
 		let active = true;
 
 		listPhotos(gallery.id)
-			.then((photos) => active && (proofs = toOwnerProofs(gallery.id, photos)))
+			.then((photos) => {
+				if (!active) return;
+
+				proofs = toOwnerProofs(gallery.id, photos);
+				favorites = photos.filter(({ favorite }) => favorite).map(({ id }) => id);
+			})
 			.catch(() => active && (failed = true))
 			.finally(() => active && (loaded = true));
 
@@ -103,7 +109,13 @@
 							Couldn’t load the photos. Close and try again.
 						</p>
 					{:else if loaded}
-						<ClientGallery {gallery} {proofs} preview contained={view === 'mobile'} />
+						<ClientGallery
+							gallery={{ ...gallery, delivered: gallery.states.includes('delivered') }}
+							{proofs}
+							{favorites}
+							preview
+							contained={view === 'mobile'}
+						/>
 					{/if}
 				</div>
 			</div>

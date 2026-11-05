@@ -33,6 +33,7 @@ const photo = {
 	width: 4,
 	height: 3,
 	status: 'ready',
+	favorite: false,
 	created_at: '2026-11-05T10:00:00Z'
 };
 
@@ -48,6 +49,8 @@ describe('schemas', () => {
 				title: 'T',
 				layout: 'masonry',
 				expires_at: null,
+				included_photos: null,
+				delivered: false,
 				hero_id: null
 			})
 		).not.toBeNull();

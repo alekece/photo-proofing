@@ -68,6 +68,8 @@ pub struct Photo {
     #[serde(flatten)]
     pub dimensions: PhotoDimensions,
     pub status: PhotoStatus,
+    /// Whether the client has picked it.
+    pub favorite: bool,
     pub created_at: Timestamp,
 }
 
@@ -98,6 +100,7 @@ impl FromRow<'_, PgRow> for Photo {
             size,
             dimensions,
             status,
+            favorite: row.try_get("favorite")?,
             created_at: row.try_get("created_at")?,
         })
     }
@@ -145,6 +148,17 @@ pub struct PhotoLocation {
     pub gallery_id: GalleryId,
 }
 
+/// What [`PhotoRepository::set_favorite`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FavoriteChange {
+    /// The photo is now, or already was, in the requested state.
+    Applied,
+    /// The gallery has no such ready photo.
+    NotFound,
+    /// The gallery is delivered, so its selection is final.
+    Delivered,
+}
+
 /// Persistence for accepted photos and their processing jobs.
 #[derive(Clone, Copy)]
 pub struct PhotoRepository<'db> {
@@ -160,7 +174,7 @@ impl<'db> Repository<'db> for PhotoRepository<'db> {
 }
 
 impl PhotoRepository<'_> {
-    const COLUMNS: &'static str = "id, original_name, size, width, height, status::text AS status, failure_reason, created_at";
+    const COLUMNS: &'static str = "id, original_name, size, width, height, status::text AS status, failure_reason, favorite, created_at";
 
     /// Inserts only photo metadata in the caller's transaction.
     pub async fn insert_in(
@@ -182,7 +196,7 @@ impl PhotoRepository<'_> {
              WHERE g.id = $3 AND g.workspace_id = $2
              ON CONFLICT (id) DO NOTHING
              RETURNING id, original_name, size, width, height,
-                       status::text AS status, failure_reason, created_at",
+                       status::text AS status, failure_reason, favorite, created_at",
         )
         .bind(photo.id)
         .bind(photo.workspace_id)
@@ -200,7 +214,7 @@ impl PhotoRepository<'_> {
 
         let existing = sqlx::query(
             "SELECT id, workspace_id, gallery_id, original_name, size, width, height,
-                    status::text AS status, failure_reason, created_at
+                    status::text AS status, failure_reason, favorite, created_at
              FROM photos WHERE id = $1",
         )
         .bind(photo.id)
@@ -349,6 +363,58 @@ impl PhotoRepository<'_> {
         .bind(location.gallery_id)
         .bind(id)
         .fetch_one(self.pool)
+        .await?)
+    }
+
+    /// Adds `photo` to the gallery's favorites, or removes it when `favorite` is false.
+    ///
+    /// One conditional `UPDATE` decides everything, so repeated and concurrent calls converge. The
+    /// photo must be a ready one of the gallery at `location`; a delivered gallery's selection
+    /// no longer changes.
+    pub async fn set_favorite(
+        &self,
+        location: PhotoLocation,
+        id: PhotoId,
+        favorite: bool,
+    ) -> Result<FavoriteChange, DatabaseError> {
+        let delivered: Option<bool> = sqlx::query_scalar(
+            "WITH target AS (
+                 SELECT p.id, g.delivered_at IS NOT NULL AS delivered
+                 FROM photos AS p JOIN galleries AS g ON g.id = p.gallery_id
+                 WHERE p.id = $3 AND p.workspace_id = $1 AND p.gallery_id = $2
+                   AND p.status = 'ready'
+             ),
+             changed AS (
+                 UPDATE photos SET favorite = $4
+                 WHERE id IN (SELECT id FROM target WHERE NOT delivered)
+                   AND favorite IS DISTINCT FROM $4
+             )
+             SELECT delivered FROM target",
+        )
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .bind(id)
+        .bind(favorite)
+        .fetch_optional(self.pool)
+        .await?;
+
+        Ok(match delivered {
+            None => FavoriteChange::NotFound,
+            Some(true) => FavoriteChange::Delivered,
+            Some(false) => FavoriteChange::Applied,
+        })
+    }
+
+    /// Lists the ids of the gallery's favorites in the same order as its photos.
+    pub async fn favorites(&self, location: PhotoLocation) -> Result<Vec<PhotoId>, DatabaseError> {
+        Ok(sqlx::query_scalar(
+            "SELECT id FROM photos
+             WHERE workspace_id = $1 AND gallery_id = $2 AND favorite
+             ORDER BY created_at, id",
+        )
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .fetch_all(self.pool)
         .await?)
     }
 
@@ -502,7 +568,7 @@ mod tests {
             let row = sqlx::query(
                 "SELECT $1::uuid AS id, 'proof.jpg'::text AS original_name,
                  1024::bigint AS size, 20::integer AS width, 10::integer AS height,
-                 $2::text AS status, $3::text AS failure_reason, now() AS created_at",
+                 $2::text AS status, $3::text AS failure_reason, false AS favorite, now() AS created_at",
             )
             .bind(Uuid::new_v4())
             .bind(status)
@@ -704,6 +770,147 @@ mod tests {
         for id in [processing, foreign, PhotoId::from(Uuid::new_v4())] {
             assert!(!photos.is_ready(location, id).await.unwrap());
         }
+    }
+
+    async fn deliver(pool: &PgPool, location: PhotoLocation) {
+        sqlx::query("UPDATE galleries SET delivered_at = now() WHERE id = $1")
+            .bind(location.gallery_id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn favorites_are_set_and_cleared_idempotently_and_listed_oldest_first(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let older = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let newer = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 2).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        assert!(photos.favorites(location).await.unwrap().is_empty());
+
+        for id in [newer, older, newer] {
+            assert_eq!(
+                photos.set_favorite(location, id, true).await.unwrap(),
+                FavoriteChange::Applied
+            );
+        }
+
+        assert_eq!(photos.favorites(location).await.unwrap(), [older, newer]);
+
+        for _ in 0..2 {
+            assert_eq!(
+                photos.set_favorite(location, older, false).await.unwrap(),
+                FavoriteChange::Applied
+            );
+        }
+
+        assert_eq!(photos.favorites(location).await.unwrap(), [newer]);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn favorites_reject_unready_foreign_and_unknown_photos(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let other = gallery_location(&database, &pool).await;
+        let processing = photo_in(&database, location, (20, 10), PhotoStatus::Processing, 1).await;
+        let foreign = photo_in(&database, other, (20, 10), PhotoStatus::Ready, 2).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        for id in [processing, foreign, PhotoId::from(Uuid::new_v4())] {
+            assert_eq!(
+                photos.set_favorite(location, id, true).await.unwrap(),
+                FavoriteChange::NotFound
+            );
+        }
+
+        assert!(photos.favorites(location).await.unwrap().is_empty());
+        assert!(photos.favorites(other).await.unwrap().is_empty());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_delivered_gallery_keeps_its_selection(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let chosen = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let spare = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 2).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        photos.set_favorite(location, chosen, true).await.unwrap();
+        deliver(&pool, location).await;
+
+        for (id, favorite) in [(chosen, false), (spare, true)] {
+            assert_eq!(
+                photos.set_favorite(location, id, favorite).await.unwrap(),
+                FavoriteChange::Delivered
+            );
+        }
+
+        assert_eq!(photos.favorites(location).await.unwrap(), [chosen]);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn concurrent_toggles_converge(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let id = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let photos = database.repository::<PhotoRepository>();
+        let (first, second, third) = tokio::join!(
+            photos.set_favorite(location, id, true),
+            photos.set_favorite(location, id, true),
+            photos.set_favorite(location, id, true),
+        );
+
+        for result in [first, second, third] {
+            assert_eq!(result.unwrap(), FavoriteChange::Applied);
+        }
+
+        assert_eq!(photos.favorites(location).await.unwrap(), [id]);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn deleting_a_favorite_removes_only_it(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let doomed = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let kept = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 2).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        for id in [doomed, kept] {
+            photos.set_favorite(location, id, true).await.unwrap();
+        }
+
+        photos
+            .delete(location.workspace_id, location.gallery_id, &[doomed])
+            .await
+            .unwrap();
+
+        assert_eq!(photos.favorites(location).await.unwrap(), [kept]);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn the_workspace_lists_its_favorite_photos_with_the_flag(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let chosen = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let spare = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 2).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        photos.set_favorite(location, chosen, true).await.unwrap();
+
+        let listed = photos
+            .list(location.workspace_id, location.gallery_id)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            listed
+                .iter()
+                .map(|photo| (photo.id, photo.favorite))
+                .collect::<Vec<_>>(),
+            [(chosen, true), (spare, false)]
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]

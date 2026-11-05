@@ -9,7 +9,8 @@ const gallery = {
 	title: 'Wedding',
 	layout: 'grid',
 	expires_at: '2020-01-01T00:00:00Z',
-	share_token: null
+	share_token: null,
+	states: ['draft']
 } as Gallery;
 
 const photo = (id: string, status = 'ready') => ({
@@ -19,6 +20,7 @@ const photo = (id: string, status = 'ready') => ({
 	width: 300,
 	height: 200,
 	status,
+	favorite: false,
 	created_at: '2026-01-01T10:00:00Z'
 });
 
