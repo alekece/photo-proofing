@@ -52,6 +52,8 @@
 	function handleKeydown(event: KeyboardEvent & { currentTarget: HTMLDialogElement }) {
 		if (event.key === 'Escape') {
 			event.preventDefault();
+			// A dialog nested in another must not dismiss its parent too.
+			event.stopPropagation();
 			close();
 
 			return;

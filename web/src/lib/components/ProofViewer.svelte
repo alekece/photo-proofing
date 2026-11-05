@@ -1,15 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
+	import { cn } from '#lib/utils.js';
 	import type { Proof } from '../gallery/types';
 
 	let {
 		proofs,
 		index = $bindable(0),
+		class: className,
 		onclose
 	}: {
 		proofs: Proof[];
 		index?: number;
+		class?: string;
 		onclose: () => void;
 	} = $props();
 
@@ -69,7 +72,10 @@
 	{onkeydown}
 	label="Proof viewer"
 	aria-modal="true"
-	class="m-0 h-dvh max-h-dvh w-screen max-w-screen border-0 bg-viewer p-4 text-viewer-foreground open:flex open:flex-col open:gap-4"
+	class={cn(
+		'm-0 h-dvh max-h-dvh w-screen max-w-screen border-0 bg-viewer p-4 text-viewer-foreground open:flex open:flex-col open:gap-4',
+		className
+	)}
 >
 	{#snippet children(close)}
 		<div class="flex items-center justify-between">
