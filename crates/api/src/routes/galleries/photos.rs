@@ -352,7 +352,7 @@ async fn upload_photo(
 pub(crate) mod tests {
     use std::{
         fs,
-        num::{NonZeroU64, NonZeroUsize},
+        num::{NonZeroU32, NonZeroU64, NonZeroUsize},
         path::{Path, PathBuf},
         time::Duration,
     };
@@ -370,12 +370,13 @@ pub(crate) mod tests {
     };
     use futures_util::stream;
     use libvips::ops::{black, jpegsave_buffer};
-    use pp_core::{config::PhotoDir, notifications::PhotoId};
+    use pp_core::{config::PhotoDir, notifications::PhotoId, types::generate::Generate};
     use pp_database::{
         Database,
         gallery::{GalleryId, GalleryRepository},
         jobs::{JobKind, JobRepository, JobState, PhotoResult, PhotoUpdate, ProcessPhoto},
-        photo::{PhotoRepository, PhotoStatus},
+        photo::{NewPhoto, PhotoDimensions, PhotoRepository, PhotoStatus},
+        photo_intake::PhotoIntake,
         tests::TestRepository,
     };
     use pp_storage::PhotoStorage;
@@ -1692,6 +1693,53 @@ pub(crate) mod tests {
         assert_eq!(body, json!({ "deleted": 1 }));
         assert_eq!(photo_status(&pool, &other).await, PhotoStatus::Waiting);
         assert_eq!(photo_files(directory.path(), &other).len(), 1);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn bulk_delete_leaves_another_workspace_photo_untouched(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let database = Database::new(pool.clone());
+        let foreign_workspace = other_workspace(&pool).await;
+        let foreign_gallery = database
+            .repository::<GalleryRepository>()
+            .create(foreign_workspace)
+            .await
+            .unwrap();
+        let foreign_photo = PhotoId::generate();
+
+        database
+            .repository::<PhotoIntake>()
+            .try_accept(NewPhoto {
+                id: foreign_photo,
+                workspace_id: foreign_workspace,
+                gallery_id: foreign_gallery.id,
+                original_name: "foreign.jpg".to_owned(),
+                size: NonZeroU64::new(1024).unwrap(),
+                dimensions: PhotoDimensions {
+                    width: NonZeroU32::new(2).unwrap(),
+                    height: NonZeroU32::new(1).unwrap(),
+                },
+            })
+            .await
+            .unwrap()
+            .unwrap();
+
+        let foreign_photo = foreign_photo.to_string();
+        let (status, body) = call_request(
+            &app,
+            bulk_delete_request(Some(&cookie), &gallery_id, photo_ids(&[&foreign_photo])),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, json!({ "deleted": 0 }));
+        assert_eq!(
+            photo_status(&pool, &foreign_photo).await,
+            PhotoStatus::Waiting
+        );
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

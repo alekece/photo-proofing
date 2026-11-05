@@ -1075,16 +1075,20 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn delete_removes_several_photos_and_ignores_others(pool: PgPool) {
+    async fn delete_removes_several_photos_and_ignores_other_workspaces_and_unknown_ids(
+        pool: PgPool,
+    ) {
         let database = Database::new(pool.clone());
         let location = gallery_location(&database, &pool).await;
-        let other = gallery_location(&database, &pool).await;
+        let other_workspace = gallery_location(&database, &pool).await;
         let tests = database.repository::<TestRepository>();
         let photos = database.repository::<PhotoRepository>();
         let first = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
         let second = photo_in(&database, location, (20, 10), PhotoStatus::Processing, 2).await;
         let kept = photo_in(&database, location, (20, 10), PhotoStatus::Waiting, 3).await;
-        let foreign = photo_in(&database, other, (20, 10), PhotoStatus::Ready, 4).await;
+        let foreign = photo_in(&database, other_workspace, (20, 10), PhotoStatus::Ready, 4).await;
+
+        assert_ne!(other_workspace.workspace_id, location.workspace_id);
 
         jobs_in_every_state(&pool, first).await;
 
