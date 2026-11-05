@@ -10,12 +10,12 @@ These rules apply to Rust changes. They add to the repository-wide policy in the
 - Never use a primitive with a unit suffix in a field or parameter name (`timeout_ms`, `size_bytes`, `price_cents`). Use a type that carries the unit and its valid range (`Duration`, `Url`, a bounded newtype). Convert to a primitive only at a serialization or foreign-interface boundary. Parse into a validated type once at the boundary instead of calling `validate()` repeatedly.
 - Use traits, generics, and associated types for capabilities that several types share. Use static dispatch unless you need runtime polymorphism (a heterogeneous collection or a plugin boundary).
 - Replace boolean or stringly-typed flags with enums or config types. Use a builder when construction has many optional parts or needs validation.
-- Put behavior on the type that owns the data; avoid free functions. Before writing one, use the first that fits:
+- Never write a free function unless no alternative below works; in practice one always does, and reviewers reject it. This includes private helpers and functions that only reshape data or build log fields. Free functions in test code (`#[cfg(test)]`, `tests/`) are fine. Put behavior on the type that owns the data. Use the first that fits:
   - inline it when it has a single short call site;
   - make it a method or associated function of the type it works on, introducing a small type when the logic has no owner yet (`Renderer`, `Listener<T>`, `StreamSlots`);
   - express it as a standard trait (`From`, `TryFrom`, `FromStr`, `Default`) or an extension trait;
   - in `api`, use the actix mechanism: an extractor (`FromRequest`), a middleware, or a `#[get]`/`#[post]` handler registered with `.service`.
-  A free function remains acceptable for a private test helper or a genuinely standalone operation; say why in the PR when it is not obvious.
+  A free function is a last resort: only after you have tried every option above and can state in the PR why none fits.
 - Prefer one generic type over several near-identical specific ones when only a type parameter differs (`Database::listen::<T>()` returning `Listener<T>`, not one listener per payload).
 - Make limits an operator may need to tune (concurrency, caps, request sizes, session and timeout lengths) configuration with a documented default. Internal tuning such as retry backoff or buffer sizes may stay a documented constant.
 - Keep SQLx inside the `database` crate. Other crates go through `Database` and its repositories; a repository method takes a transaction only when the caller must compose several steps in it.
@@ -39,7 +39,7 @@ These rules apply to Rust changes. They add to the repository-wide policy in the
 ## Naming
 
 - Choose descriptive names that do not repeat their context (`Session::expires_at`, not `Session::session_expires_at`). Use the conventional single letters `T`, `U`, `E`, `K`, `V` for generic parameters.
-- Name free functions as action plus object (`delete_expired_sessions`, not `delete_expired`). Methods may be shorter because the receiver supplies the object.
+- Name the rare free function as action plus object (`delete_expired_sessions`, not `delete_expired`), never with a vague noun such as `log_fields`. Methods may be shorter because the receiver supplies the object.
 - Name a variable after the value it holds, not the step that produced it or a vague state: `result`, `photo`, `deleted_ids` rather than `served`, `validated`, `exhausted`, `done`. A reader must know what it contains without reading its initializer.
 - Name fields and types after their role in this codebase, not after their mechanism or a near-synonym: `cancellation_token` for a `CancellationToken`, `workspaces` for a per-workspace map.
 - Shadow a variable when you transform it without changing what it means. Use distinct names when both forms are still needed.
