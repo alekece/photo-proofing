@@ -7,6 +7,7 @@ import {
 	sharedPhotoSchema,
 	type Gallery,
 	type GallerySort,
+	type GalleryState,
 	type SharedGallery,
 	type SharedPhoto
 } from '#lib/gallery/schemas.js';
@@ -48,9 +49,14 @@ async function readGalleries<const S extends v.GenericSchema>(
 export function listGalleries(
 	fetcher: typeof fetch,
 	cookie: string | null,
-	sort: GallerySort
+	sort: GallerySort,
+	states: GalleryState[]
 ): Promise<Gallery[]> {
-	return readGalleries(fetcher, cookie, `?sort=${sort}`, v.array(gallerySchema));
+	const query = new URLSearchParams({ sort });
+
+	for (const state of states) query.append('state', state);
+
+	return readGalleries(fetcher, cookie, `?${query}`, v.array(gallerySchema));
 }
 
 /** Unknown, foreign and malformed ids are all a 404. */

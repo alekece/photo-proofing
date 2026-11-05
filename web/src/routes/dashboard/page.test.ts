@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,16 +22,18 @@ const gallery = (over: Partial<Gallery> = {}): Gallery => ({
 	included_photos: null,
 	watermark_enabled: false,
 	share_token: null,
+	states: ['draft'],
 	created_at: '2026-01-01T10:00:00Z',
 	updated_at: '2026-01-02T10:00:00Z',
 	...over
 });
-const props = (galleries: Gallery[] | null, sort = 'updated') => ({
+const props = (galleries: Gallery[] | null, sort = 'updated', states: string[] = []) => ({
 	data: {
 		identity: { account_id: 'a', workspace_id: 'w' },
 		idleTimeoutMs: 2592000000,
 		galleries,
-		sort
+		sort,
+		states
 	} as never
 });
 
@@ -167,6 +169,74 @@ describe('dashboard', () => {
 			await search('zzz');
 			expect(screen.getByRole('heading', { name: 'No galleries match' })).toBeTruthy();
 			expect(screen.getByRole('searchbox', { name: 'Search galleries' })).toBeTruthy();
+		});
+	});
+
+	describe('states', () => {
+		it('shows the progress chip and the flags on each card', () => {
+			render(Dashboard, {
+				props: props([
+					gallery({ id: 'a', title: 'One', states: ['shared'] }),
+					gallery({ id: 'b', title: 'Two', states: ['delivered', 'archived', 'expired'] })
+				])
+			});
+			const one = within(screen.getByRole('link', { name: /One/ }));
+			const two = within(screen.getByRole('link', { name: /Two/ }));
+
+			expect(one.getByText('Shared')).toBeTruthy();
+			expect(one.queryByText('Archived')).toBeNull();
+			expect(two.getByText('Delivered')).toBeTruthy();
+			expect(two.getByText('Archived')).toBeTruthy();
+			expect(two.getByText('Expired')).toBeTruthy();
+		});
+
+		it('puts the chosen states in the URL beside the sort', async () => {
+			render(Dashboard, { props: props([gallery()], 'title', ['shared']) });
+			await userEvent.setup().click(screen.getByRole('checkbox', { name: 'Expired' }));
+			expect(goto).toHaveBeenLastCalledWith(
+				'?sort=title&state=shared&state=expired',
+				expect.anything()
+			);
+		});
+
+		it('keeps the chosen states when the sort changes', async () => {
+			render(Dashboard, { props: props([gallery()], 'updated', ['archived']) });
+			await userEvent.setup().selectOptions(screen.getByLabelText('Sort by'), 'created');
+			expect(goto).toHaveBeenLastCalledWith('?sort=created&state=archived', expect.anything());
+		});
+
+		it('shows the no-results screen, not the empty dashboard, when the filter matches nothing', async () => {
+			const { container } = render(Dashboard, { props: props([], 'updated', ['archived']) });
+
+			expect(screen.getByRole('heading', { name: 'No galleries match' })).toBeTruthy();
+			expect(screen.queryByRole('heading', { name: 'Golden hour, no clients.' })).toBeNull();
+			expect(screen.getByRole('group', { name: 'State' })).toBeTruthy();
+			expect((await axe(container)).violations).toEqual([]);
+			await userEvent
+				.setup()
+				.click(screen.getByRole('button', { name: 'Clear search and filter' }));
+			expect(goto).toHaveBeenLastCalledWith('?sort=updated', expect.anything());
+		});
+
+		it('combines search with the filter and clears both', async () => {
+			render(Dashboard, {
+				props: props([gallery({ title: 'Wedding' })], 'updated', ['draft'])
+			});
+			const user = userEvent.setup();
+
+			await user.type(screen.getByRole('searchbox', { name: 'Search galleries' }), 'zzz');
+			expect(screen.getByRole('heading', { name: 'No galleries match' })).toBeTruthy();
+			await user.click(screen.getByRole('button', { name: 'Clear search and filter' }));
+			expect(
+				(screen.getByRole('searchbox', { name: 'Search galleries' }) as HTMLInputElement).value
+			).toBe('');
+			expect(goto).toHaveBeenLastCalledWith('?sort=updated', expect.anything());
+		});
+
+		it('keeps the golden-hour empty state for a workspace without galleries', () => {
+			render(Dashboard, { props: props([]) });
+			expect(screen.getByRole('heading', { name: 'Golden hour, no clients.' })).toBeTruthy();
+			expect(screen.queryByRole('group', { name: 'State' })).toBeNull();
 		});
 	});
 });

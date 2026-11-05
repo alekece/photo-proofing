@@ -16,7 +16,7 @@ function run(query: string) {
 		request: new Request('http://localhost/dashboard'),
 		setHeaders: vi.fn(),
 		url: new URL(`http://localhost/dashboard${query}`)
-	} as unknown as Parameters<typeof load>[0]) as Promise<{ sort: string }>;
+	} as unknown as Parameters<typeof load>[0]) as Promise<{ sort: string; states: string[] }>;
 }
 
 describe('dashboard load', () => {
@@ -36,6 +36,21 @@ describe('dashboard load', () => {
 		['', 'updated']
 	])('reads sort %j as %s', async (query, expected) => {
 		expect((await run(query)).sort).toBe(expected);
-		expect(server.listGalleries).toHaveBeenLastCalledWith(expect.anything(), null, expected);
+		expect(server.listGalleries).toHaveBeenLastCalledWith(expect.anything(), null, expected, []);
+	});
+
+	it.each([
+		['?state=shared&state=bogus&state=shared', ['shared']],
+		['?state=bogus', []],
+		['?state=archived&state=expired', ['archived', 'expired']],
+		['', []]
+	])('reads states %j as %j', async (query, expected) => {
+		expect((await run(query)).states).toEqual(expected);
+		expect(server.listGalleries).toHaveBeenLastCalledWith(
+			expect.anything(),
+			null,
+			'updated',
+			expected
+		);
 	});
 });

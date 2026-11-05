@@ -66,7 +66,7 @@ describe('malformed API bodies', () => {
 	it.each([
 		['getSharedGallery', (f: typeof fetch) => getSharedGallery(f, token)],
 		['getSharedPhotos', (f: typeof fetch) => getSharedPhotos(f, token)],
-		['listGalleries', (f: typeof fetch) => listGalleries(f, null, 'updated')],
+		['listGalleries', (f: typeof fetch) => listGalleries(f, null, 'updated', [])],
 		['getGallery', (f: typeof fetch) => getGallery(f, null, 'g')]
 	])('%s answers 503 for a body that is not the expected shape', async (_name, call) => {
 		for (const body of bodies) {
@@ -74,5 +74,25 @@ describe('malformed API bodies', () => {
 				status: 503
 			});
 		}
+	});
+});
+
+describe('listGalleries', () => {
+	it('sends the sort and one state parameter per chosen state', async () => {
+		const fetcher = vi.fn().mockResolvedValue(new Response('[]'));
+		await listGalleries(fetcher, null, 'title', ['shared', 'expired']);
+		expect(fetcher).toHaveBeenCalledWith(
+			expect.stringContaining('/api/v1/galleries?sort=title&state=shared&state=expired'),
+			expect.anything()
+		);
+	});
+
+	it('sends no state parameter without a filter', async () => {
+		const fetcher = vi.fn().mockResolvedValue(new Response('[]'));
+		await listGalleries(fetcher, null, 'updated', []);
+		expect(fetcher).toHaveBeenCalledWith(
+			expect.stringMatching(/\/api\/v1\/galleries\?sort=updated$/),
+			expect.anything()
+		);
 	});
 });

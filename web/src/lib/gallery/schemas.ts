@@ -9,6 +9,13 @@ const finite = v.pipe(v.number(), v.finite());
 
 export const galleryLayoutSchema = v.picklist(['grid', 'masonry']);
 export const gallerySortSchema = v.picklist(['updated', 'created', 'title']);
+export const galleryStateSchema = v.picklist([
+	'draft',
+	'shared',
+	'delivered',
+	'archived',
+	'expired'
+]);
 
 export const gallerySchema = v.object({
 	id: v.string(),
@@ -19,6 +26,8 @@ export const gallerySchema = v.object({
 	watermark_enabled: v.boolean(),
 	/** The private client link's token once shared; the link never changes afterwards. */
 	share_token: v.nullable(v.string()),
+	/** The progress state first, then `archived` and `expired` when they apply. */
+	states: v.array(galleryStateSchema),
 	created_at: v.string(),
 	updated_at: v.string()
 });
@@ -75,6 +84,7 @@ export const photoEventSchema = v.object({
 export type Gallery = v.InferOutput<typeof gallerySchema>;
 export type GalleryLayout = v.InferOutput<typeof galleryLayoutSchema>;
 export type GallerySort = v.InferOutput<typeof gallerySortSchema>;
+export type GalleryState = v.InferOutput<typeof galleryStateSchema>;
 export type SharedGallery = v.InferOutput<typeof sharedGallerySchema>;
 export type SharedPhoto = v.InferOutput<typeof sharedPhotoSchema>;
 export type Photo = v.InferOutput<typeof photoSchema>;
@@ -96,4 +106,17 @@ export function parseOrNull<const S extends v.GenericSchema>(
 /** An unknown sort, such as one typed into the URL, means the default order. */
 export function parseGallerySort(value: unknown): GallerySort {
 	return parseOrNull(gallerySortSchema, value) ?? 'updated';
+}
+
+/** The valid states among `values`, once each and in order; unknown ones, such as a typo in the URL, are dropped. */
+export function parseGalleryStates(values: unknown[]): GalleryState[] {
+	const states: GalleryState[] = [];
+
+	for (const value of values) {
+		const state = parseOrNull(galleryStateSchema, value);
+
+		if (state !== null && !states.includes(state)) states.push(state);
+	}
+
+	return states;
 }

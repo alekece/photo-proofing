@@ -14,8 +14,10 @@
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
 	import Label from '#lib/components/ui/label/label.svelte';
+	import GalleryStateFilter from '#lib/components/GalleryStateFilter.svelte';
 	import Select from '#lib/components/ui/select/select.svelte';
-	import { parseGallerySort } from '#lib/gallery/schemas.js';
+	import { parseGallerySort, type GalleryState } from '#lib/gallery/schemas.js';
+	import { STATE_LABELS, splitStates } from '#lib/gallery/states.js';
 	import { formatEdited, UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
 
@@ -52,9 +54,17 @@
 			pending = false;
 		}
 	}
+	function show(sort: string, states: GalleryState[]) {
+		const chosen = states.map((state) => `&state=${state}`).join('');
+
+		void goto(`?sort=${sort}${chosen}`, { reset: false });
+	}
 	function changeSort(event: Event) {
-		const sort = parseGallerySort((event.currentTarget as HTMLSelectElement).value);
-		void goto(`?sort=${sort}`, { reset: false });
+		show(parseGallerySort((event.currentTarget as HTMLSelectElement).value), data.states);
+	}
+	function clearAll() {
+		query = '';
+		show(data.sort, []);
 	}
 </script>
 
@@ -67,7 +77,7 @@
 	</div>
 	{#if message}<p role="alert" class="text-danger">{message}</p>{/if}
 
-	{#if loading || (data.galleries && data.galleries.length > 0)}
+	{#if loading || data.states.length > 0 || (data.galleries && data.galleries.length > 0)}
 		<div class="flex flex-wrap items-center gap-4">
 			<Input
 				type="search"
@@ -84,6 +94,7 @@
 					<option value="title">Title</option>
 				</Select>
 			</div>
+			<GalleryStateFilter selected={data.states} onchange={(next) => show(data.sort, next)} />
 		</div>
 	{/if}
 	{#if loading}
@@ -97,17 +108,18 @@
 		</ul>
 	{:else if data.galleries === null}
 		<p role="alert">Couldn’t load your galleries. Please reload the page to try again.</p>
-	{:else if data.galleries.length === 0}
+	{:else if data.galleries.length === 0 && data.states.length === 0}
 		<GoldenHourEmpty />
 	{:else if visible.length === 0}
 		<EmptyState class="rounded-dialog">
 			<h2 class="text-xl">No galleries match</h2>
-			<p class="text-muted-foreground">Try a different title.</p>
-			<Button variant="outline" onclick={() => (query = '')}>Clear search</Button>
+			<p class="text-muted-foreground">Try a different title or filter.</p>
+			<Button variant="outline" onclick={clearAll}>Clear search and filter</Button>
 		</EmptyState>
 	{:else}
 		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 			{#each visible as gallery (gallery.id)}
+				{@const { progress, flags } = splitStates(gallery.states)}
 				<Card as="li" class="overflow-hidden focus-within:ring-2 focus-within:ring-foreground">
 					<a
 						href={`/dashboard/${gallery.id}`}
@@ -120,6 +132,16 @@
 							<h2 class="truncate text-base" class:text-muted-foreground={gallery.title === null}>
 								{gallery.title ?? UNTITLED_GALLERY}
 							</h2>
+							<p class="flex flex-wrap gap-1.5 text-xs">
+								<span class="rounded-full border border-border px-2 py-0.5 font-medium">
+									{STATE_LABELS[progress]}
+								</span>
+								{#each flags as flag (flag)}
+									<span class="rounded-full border border-border px-2 py-0.5 text-muted-foreground">
+										{STATE_LABELS[flag]}
+									</span>
+								{/each}
+							</p>
 							<p class="text-sm text-muted-foreground">
 								{gallery.layout === 'masonry' ? 'Masonry' : 'Grid'} · Edited {formatEdited(
 									gallery.updated_at
