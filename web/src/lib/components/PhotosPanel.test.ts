@@ -59,14 +59,16 @@ function fakeEvents() {
 function stubApi(
 	server: Photo[] | Record<string, Photo[]>,
 	answers: {
-		delete?: number;
+		delete?: number | Promise<number>;
 		retry?: number;
 		bulk?: (ids: string[]) => Response | Promise<Response>;
 		list?: () => Response | undefined;
 	} = {}
 ) {
 	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
-		if (init?.method === 'DELETE') return new Response(null, { status: answers.delete ?? 204 });
+		if (init?.method === 'DELETE') {
+			return new Response(null, { status: (await answers.delete) ?? 204 });
+		}
 
 		if (init?.method === 'POST' && url.endsWith('/photos/delete')) {
 			const ids: string[] = JSON.parse(String(init.body)).photo_ids;
@@ -314,6 +316,45 @@ describe('PhotosPanel', () => {
 		expect(queue.items.map((item) => item.file.name)).toEqual(['a.jpg']);
 	});
 
+	it('moves focus to the next tile, else the previous one, else Upload, when a file is removed', async () => {
+		stubApi([]);
+		const { queue } = setup();
+		const user = userEvent.setup();
+
+		await screen.findByText(/No photos yet/);
+		queue.add('g1', [jpeg('a.jpg'), jpeg('b.jpg'), jpeg('c.jpg')]);
+		await user.click(await screen.findByRole('button', { name: 'Remove b.jpg' }));
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Remove c.jpg' }))
+		);
+
+		await user.click(screen.getByRole('button', { name: 'Remove c.jpg' }));
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Remove a.jpg' }))
+		);
+
+		await user.click(screen.getByRole('button', { name: 'Remove a.jpg' }));
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole('button', { name: '+ Upload' }))
+		);
+	});
+
+	it('moves focus to the next tile once a deletion is confirmed', async () => {
+		stubApi([photo('p1'), photo('p2')]);
+		const user = userEvent.setup();
+
+		setup();
+		await user.click(await screen.findByRole('button', { name: 'Remove p1.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open p2.jpg' }))
+		);
+	});
+
 	it('asks before deleting a server photo, then deletes it', async () => {
 		const api = stubApi([photo('p1'), photo('p2')]);
 		const user = userEvent.setup();
@@ -347,6 +388,44 @@ describe('PhotosPanel', () => {
 			'Open p1.jpg',
 			'Open p2.jpg'
 		]);
+	});
+
+	it('keeps a photo gone when it was deleted elsewhere before its deletion failed', async () => {
+		const answer = Promise.withResolvers<number>();
+		stubApi([photo('p1'), photo('p2')], { delete: answer.promise });
+		const user = userEvent.setup();
+		const { emit } = setup();
+
+		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		emit({ photo_id: 'p2', status: 'processing' });
+		emit({ photo_id: 'p2', status: 'deleted' });
+		answer.resolve(500);
+
+		// Lets the failed answer reach the panel.
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		expect(screen.queryByRole('alert')).toBeNull();
+		expect(screen.getAllByRole('listitem')).toHaveLength(1);
+		expect(screen.getByRole('button', { name: 'Open p1.jpg' })).toBeTruthy();
+	});
+
+	it('puts a photo back as its latest status says when its deletion fails', async () => {
+		const answer = Promise.withResolvers<number>();
+		stubApi([photo('p1'), photo('p2', 'waiting')], { delete: answer.promise });
+		const user = userEvent.setup();
+		const { emit } = setup();
+
+		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		emit({ photo_id: 'p2', status: 'processing' });
+		emit({ photo_id: 'p2', status: 'failed' });
+		answer.resolve(500);
+
+		expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t delete p2\.jpg/);
+		expect(screen.getAllByRole('listitem')).toHaveLength(2);
+		expect(tile('p2.jpg').textContent).toContain('Processing failed');
+		expect(within(tile('p2.jpg')).getByRole('button', { name: 'Retry p2.jpg' })).toBeTruthy();
 	});
 
 	it('goes to sign-in when a deletion finds the session ended', async () => {

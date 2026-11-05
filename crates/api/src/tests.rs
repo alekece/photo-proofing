@@ -1,13 +1,18 @@
-//! Helpers shared by the route tests: an application state over a test pool, a signed-in
-//! session, and a request runner that decodes the JSON body.
+//! Helpers shared by the route tests: an application and its state over a test pool, a
+//! signed-in session, and a request runner that decodes the JSON body.
 
-use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+use std::{
+    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
+    path::Path,
+};
 
 use actix_web::{
+    App,
     cookie::Cookie,
     dev::{Service, ServiceResponse},
     http::StatusCode,
     test,
+    web::Data,
 };
 use pp_core::config::PhotoDir;
 use pp_database::{Database, auth::WorkspaceId, tests::TestRepository};
@@ -17,9 +22,9 @@ use sqlx::PgPool;
 use tempfile::TempDir;
 
 use crate::{
-    api::ApiState,
+    api::{ApiState, configure_routes},
     config::{AuthConfig, EventsConfig, LimiterConfig, SessionConfig, UploadConfig},
-    upload,
+    upload::{self, limiter::UploadLimiter},
 };
 
 pub(crate) const ORIGIN: &str = "http://localhost:5173";
@@ -33,6 +38,15 @@ pub(crate) fn events_config(max_streams: usize, per_workspace: usize) -> EventsC
     }
 }
 
+pub(crate) fn upload_config(max_size: u64, max_pixels: u64) -> UploadConfig {
+    UploadConfig {
+        max_size: NonZeroU64::new(max_size).unwrap(),
+        max_pixels: NonZeroU64::new(max_pixels).unwrap(),
+        concurrency: NonZeroUsize::new(4).unwrap(),
+        retry_after: "1s".parse().unwrap(),
+    }
+}
+
 pub(crate) async fn upload_resources() -> (PhotoStorage, UploadConfig, TempDir) {
     let directory = tempfile::tempdir().unwrap();
     let photo_dir: PhotoDir = directory.path().to_path_buf().try_into().unwrap();
@@ -40,16 +54,7 @@ pub(crate) async fn upload_resources() -> (PhotoStorage, UploadConfig, TempDir) 
 
     upload::jpeg::install().unwrap();
 
-    (
-        storage,
-        UploadConfig {
-            max_size: NonZeroU64::new(67_108_864).unwrap(),
-            max_pixels: NonZeroU64::new(100_000_000).unwrap(),
-            concurrency: NonZeroUsize::new(4).unwrap(),
-            retry_after: "1s".parse().unwrap(),
-        },
-        directory,
-    )
+    (storage, upload_config(67_108_864, 100_000_000), directory)
 }
 
 pub(crate) async fn app_state(pool: PgPool) -> (ApiState, TempDir) {
@@ -97,11 +102,37 @@ pub(crate) fn state_with_upload_secure_cookie(
     .unwrap()
 }
 
+/// An application with every route, its state and upload limiter over `pool` and `photo_dir`.
+pub(crate) async fn app(
+    pool: PgPool,
+    photo_dir: &Path,
+    config: UploadConfig,
+) -> impl Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error> {
+    let photo_dir: PhotoDir = photo_dir.to_path_buf().try_into().unwrap();
+    let storage = PhotoStorage::open(&photo_dir).await.unwrap();
+    upload::jpeg::install().unwrap();
+
+    test::init_service(
+        App::new()
+            .app_data(Data::new(UploadLimiter::from(&config)))
+            .app_data(Data::new(state_with_upload(pool, storage, config)))
+            .configure(configure_routes),
+    )
+    .await
+}
+
 pub(crate) async fn call<S>(app: &S, request: test::TestRequest) -> (StatusCode, Value)
 where
     S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
 {
-    let response = test::call_service(app, request.to_request()).await;
+    call_request(app, request.to_request()).await
+}
+
+pub(crate) async fn call_request<S>(app: &S, request: actix_http::Request) -> (StatusCode, Value)
+where
+    S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
+{
+    let response = test::call_service(app, request).await;
     let status = response.status();
     let bytes = test::read_body(response).await;
     let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);

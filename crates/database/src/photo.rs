@@ -1000,17 +1000,11 @@ mod tests {
             }
         });
 
-        while sqlx::query_scalar::<_, i64>(
-            "SELECT count(*) FROM pg_stat_activity
-             WHERE datname = current_database() AND wait_event_type = 'Lock'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-            == 0
-        {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        database
+            .repository::<TestRepository>()
+            .wait_for_a_lock_waiter()
+            .await
+            .unwrap();
 
         sqlx::query("UPDATE photos SET width = width WHERE id = $1")
             .bind(id)

@@ -43,7 +43,8 @@
 	let confirmingSelection = $state(false);
 	let announcement = $state('');
 	let selectButton = $state<HTMLButtonElement | null>(null);
-	let uploadButton = $state<HTMLButtonElement | null>(null);
+	let uploadButton = $state<HTMLElement | null>(null);
+	let grid = $state<HTMLUListElement | null>(null);
 	const selected = new SvelteSet<string>();
 
 	// Bookkeeping that nothing renders, so plain collections on purpose.
@@ -268,6 +269,7 @@
 		deleting.add(photo.id);
 		photos.splice(index, 1);
 		alert = '';
+		void focusAfterRemoving(index);
 
 		try {
 			await deletePhoto(galleryId, photo.id);
@@ -278,12 +280,33 @@
 			} else if (cause instanceof GalleryApiError && cause.status === 404) {
 				recentChanges.set(photo.id, 'deleted');
 			} else {
-				photos.splice(Math.min(index, photos.length), 0, photo);
-				alert = `Couldn’t delete ${photo.original_name}. Please try again.`;
+				restore(photo, index);
 			}
 		} finally {
 			deleting.delete(photo.id);
 		}
+	}
+
+	/** Puts back a photo whose deletion failed, as the events since say, unless they deleted it. */
+	function restore(photo: Photo, index: number) {
+		deleting.delete(photo.id);
+
+		const current = withRecentChange(photo);
+
+		if (current === null || photos.some(({ id }) => id === photo.id)) return;
+
+		photos.splice(Math.min(index, photos.length), 0, current);
+		alert = `Couldn’t delete ${photo.original_name}. Please try again.`;
+	}
+
+	/** Once the tile at `position` is gone, focuses the one now there, else the previous, else Upload. */
+	async function focusAfterRemoving(position: number) {
+		await tick();
+
+		const tiles = grid?.querySelectorAll('li') ?? [];
+		const neighbour = tiles[position] ?? tiles[position - 1];
+
+		(neighbour?.querySelector('button') ?? uploadButton)?.focus();
 	}
 
 	async function retry(photo: Photo) {
@@ -412,7 +435,7 @@
 			alert = `Deleted ${deletedCount} of ${ids.length} photos. Please try again.`;
 			await load();
 
-			if (stillShown() && listings === listingsBefore) restore(survivors);
+			if (stillShown() && listings === listingsBefore) restoreSurvivors(survivors);
 		}
 	}
 
@@ -422,7 +445,7 @@
 	}
 
 	/** Puts back photos whose deletion failed, unless shown already or deleted since. */
-	function restore(survivors: Photo[]) {
+	function restoreSurvivors(survivors: Photo[]) {
 		const back = withRecentChanges(
 			survivors.filter(({ id }) => !photos.some((photo) => photo.id === id))
 		);
@@ -489,7 +512,11 @@
 	</p>
 
 	{#if photos.length > 0 || queued.length > 0}
-		<ul aria-label="Photos" class="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-2">
+		<ul
+			bind:this={grid}
+			aria-label="Photos"
+			class="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-2"
+		>
 			{#each photos as photo (photo.id)}
 				{@const state = tileState(photo.status)}
 				<li>
@@ -505,13 +532,16 @@
 					/>
 				</li>
 			{/each}
-			{#each queued as item (item.key)}
+			{#each queued as item, position (item.key)}
 				<li>
 					<PhotoTile
 						name={item.file.name}
 						state={QUEUE_STATES[item.state]}
 						error={item.error}
-						onremove={() => queue.cancel(item.key)}
+						onremove={() => {
+							queue.cancel(item.key);
+							void focusAfterRemoving(photos.length + position);
+						}}
 						onretry={() => queue.retry(item.key)}
 					/>
 				</li>

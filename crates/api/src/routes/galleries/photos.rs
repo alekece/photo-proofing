@@ -349,7 +349,7 @@ async fn upload_photo(
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub(super) mod tests {
     use std::{
         fs,
         num::{NonZeroU32, NonZeroU64, NonZeroUsize},
@@ -358,7 +358,6 @@ pub(crate) mod tests {
     };
 
     use actix_web::{
-        App,
         cookie::Cookie,
         dev::{Service, ServiceResponse},
         http::{
@@ -366,11 +365,10 @@ pub(crate) mod tests {
             header::{CONTENT_LENGTH, RETRY_AFTER},
         },
         test,
-        web::Data,
     };
     use futures_util::stream;
     use libvips::ops::{black, jpegsave_buffer};
-    use pp_core::{config::PhotoDir, notifications::PhotoId, types::generate::Generate};
+    use pp_core::{notifications::PhotoId, types::generate::Generate};
     use pp_database::{
         Database,
         gallery::{GalleryId, GalleryRepository},
@@ -379,47 +377,13 @@ pub(crate) mod tests {
         photo_intake::PhotoIntake,
         tests::TestRepository,
     };
-    use pp_storage::PhotoStorage;
     use serde_json::{Value, json};
     use sqlx::PgPool;
     use time::OffsetDateTime;
     use tokio::sync::oneshot;
     use uuid::Uuid;
 
-    use crate::{
-        api::configure_routes,
-        config::UploadConfig,
-        tests::{ORIGIN, call, other_workspace, sign_up, state_with_upload},
-        upload,
-    };
-
-    pub(crate) fn upload_config(max_size: u64, max_pixels: u64) -> UploadConfig {
-        UploadConfig {
-            max_size: NonZeroU64::new(max_size).unwrap(),
-            max_pixels: NonZeroU64::new(max_pixels).unwrap(),
-            concurrency: NonZeroUsize::new(4).unwrap(),
-            retry_after: "1s".parse().unwrap(),
-        }
-    }
-
-    pub(crate) async fn app(
-        pool: PgPool,
-        photo_dir: &Path,
-        config: UploadConfig,
-    ) -> impl Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>
-    {
-        let photo_dir: PhotoDir = photo_dir.to_path_buf().try_into().unwrap();
-        let storage = PhotoStorage::open(&photo_dir).await.unwrap();
-        upload::jpeg::install().unwrap();
-
-        test::init_service(
-            App::new()
-                .app_data(Data::new(upload::limiter::UploadLimiter::from(&config)))
-                .app_data(Data::new(state_with_upload(pool, storage, config)))
-                .configure(configure_routes),
-        )
-        .await
-    }
+    use crate::tests::{ORIGIN, app, call, call_request, other_workspace, sign_up, upload_config};
 
     pub(crate) fn jpeg(width: i32, height: i32) -> Vec<u8> {
         let image = black(width, height).unwrap();
@@ -466,21 +430,6 @@ pub(crate) mod tests {
 
             request
         }
-    }
-
-    pub(crate) async fn call_request<S>(
-        app: &S,
-        request: actix_http::Request,
-    ) -> (StatusCode, Value)
-    where
-        S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
-    {
-        let response = test::call_service(app, request).await;
-        let status = response.status();
-        let bytes = test::read_body(response).await;
-        let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-
-        (status, body)
     }
 
     fn stored_files(root: &Path) -> Vec<PathBuf> {

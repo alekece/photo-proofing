@@ -1,7 +1,7 @@
 //! `GET /api/v1/events`: the signed-in workspace's live photo changes as Server-Sent Events.
 //!
 //! A stream starts with a `resync` event, then sends `photo` events
-//! (`{gallery_id, photo_id, status}`) for its own workspace only, and `resync` again whenever
+//! (`{workspace_id, gallery_id, photo_id, status}`) for its own workspace only, and `resync` again whenever
 //! events may have been lost. It holds the session read-only: on every keep-alive tick it checks
 //! the session is still valid, never extending it, and ends once it is not.
 
@@ -28,34 +28,6 @@ use crate::{
         session_token::{SessionToken, TokenHash},
     },
 };
-
-#[get("/events")]
-pub(crate) async fn stream_events(
-    Authenticated(identity): Authenticated,
-    token: SessionToken,
-    state: Data<ApiState>,
-    hub: Data<EventHub>,
-) -> Result<impl Responder, ErrorResponse> {
-    let workspace_id = identity.workspace_id;
-    let subscription = hub
-        .subscribe(workspace_id)
-        .ok_or_else(ErrorResponse::unavailable)?;
-    let keep_alive = hub.keep_alive();
-    let mut session_check = time::interval_at(Instant::now() + keep_alive, keep_alive);
-
-    session_check.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    tracing::info!(workspace_id = %workspace_id.0, "event stream opened");
-
-    let events = EventStream {
-        subscription,
-        state,
-        token: token.digest(),
-        workspace_id,
-        session_check,
-    };
-
-    Ok(Sse::from_infallible_stream(events.into_stream()).with_keep_alive(keep_alive))
-}
 
 /// One open stream; dropping it (the browser left) frees its hub slot.
 struct EventStream {
@@ -94,7 +66,12 @@ impl EventStream {
                 },
                 () = self.subscription.cancellation_token.cancelled() => return None,
                 _ = self.session_check.tick() => {
-                    if !self.session_is_valid().await {
+                    let cancellation_token = &self.subscription.cancellation_token;
+
+                    // A slow check must not hold the stream open past shutdown.
+                    if cancellation_token.run_until_cancelled(self.session_is_valid()).await
+                        != Some(true)
+                    {
                         return None;
                     }
                 }
@@ -133,6 +110,34 @@ impl From<Broadcast> for sse::Event {
             Broadcast::Resync => resync(),
         }
     }
+}
+
+#[get("/events")]
+pub(crate) async fn stream_events(
+    Authenticated(identity): Authenticated,
+    token: SessionToken,
+    state: Data<ApiState>,
+    hub: Data<EventHub>,
+) -> Result<impl Responder, ErrorResponse> {
+    let workspace_id = identity.workspace_id;
+    let subscription = hub
+        .subscribe(workspace_id)
+        .ok_or_else(ErrorResponse::unavailable)?;
+    let keep_alive = hub.keep_alive();
+    let mut session_check = time::interval_at(Instant::now() + keep_alive, keep_alive);
+
+    session_check.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    tracing::info!(workspace_id = %workspace_id.0, "event stream opened");
+
+    let events = EventStream {
+        subscription,
+        state,
+        token: token.digest(),
+        workspace_id,
+        session_check,
+    };
+
+    Ok(Sse::from_infallible_stream(events.into_stream()).with_keep_alive(keep_alive))
 }
 
 #[cfg(test)]
@@ -394,6 +399,42 @@ mod tests {
         client.hub.close();
 
         assert_eq!(next_chunk(&mut body).await, None);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn closing_the_hub_ends_a_stream_waiting_on_its_session_check(pool: PgPool) {
+        let client = client(pool, default_hub()).await;
+        let cookie = sign_up(&client.app).await;
+        let response = test::call_service(&client.app, open(&cookie).to_request()).await;
+        let mut body = response.into_body();
+
+        assert_eq!(next_event(&mut body).await.0, "resync");
+
+        let tests = Database::new(client.pool.clone());
+        let sessions_lock = tests
+            .repository::<TestRepository>()
+            .lock_sessions()
+            .await
+            .unwrap();
+
+        // Keep reading so the stream reaches its session check, which then waits on the lock.
+        let _ = time::timeout(Duration::from_millis(1500), async {
+            while next_chunk(&mut body).await.is_some() {}
+        })
+        .await;
+        client.hub.close();
+
+        let ended = time::timeout(Duration::from_secs(5), async {
+            while next_chunk(&mut body).await.is_some() {}
+        })
+        .await;
+
+        drop(sessions_lock);
+
+        assert!(
+            ended.is_ok(),
+            "the stream ends while its session check waits"
+        );
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

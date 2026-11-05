@@ -120,7 +120,10 @@ impl PhotoRetry<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::num::{NonZeroU32, NonZeroU64};
+    use std::{
+        num::{NonZeroU32, NonZeroU64},
+        time::Duration,
+    };
 
     use pp_core::types::generate::Generate;
     use uuid::Uuid;
@@ -132,6 +135,7 @@ mod tests {
         jobs::{JobKind, JobRepository, JobState},
         photo::{NewPhoto, PhotoDimensions, PhotoRepository, PhotoStatus},
         photo_intake::PhotoIntake,
+        tests::TestRepository,
     };
 
     struct Gallery {
@@ -209,21 +213,6 @@ mod tests {
             .unwrap();
     }
 
-    /// Waits until a session of the test database is blocked on a lock.
-    async fn wait_for_a_lock_waiter(pool: &PgPool) {
-        while sqlx::query_scalar::<_, i64>(
-            "SELECT count(*) FROM pg_stat_activity
-             WHERE datname = current_database() AND wait_event_type = 'Lock'",
-        )
-        .fetch_one(pool)
-        .await
-        .unwrap()
-            == 0
-        {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    }
-
     async fn status(database: &Database, gallery: &Gallery, id: PhotoId) -> PhotoStatus {
         database
             .repository::<PhotoRepository>()
@@ -267,7 +256,7 @@ mod tests {
 
         let job = database
             .repository::<JobRepository>()
-            .claim(&[JobKind::ProcessPhoto], std::time::Duration::from_secs(60))
+            .claim(&[JobKind::ProcessPhoto], Duration::from_secs(60))
             .await
             .unwrap()
             .unwrap();
@@ -299,16 +288,16 @@ mod tests {
         let database = Database::new(pool.clone());
         let gallery = gallery(&database, &pool).await;
         let id = failed_photo(&database, &pool, &gallery).await;
-        let mut delete_transaction = pool.begin().await.unwrap();
+        let mut deleting = pool.begin().await.unwrap();
 
         // Deleting a photo locks its jobs first, then the photo.
         sqlx::query("SELECT id FROM jobs WHERE payload->'payload'->>'photo_id' = $1 FOR UPDATE")
             .bind(id.to_string())
-            .execute(&mut *delete_transaction)
+            .execute(&mut *deleting)
             .await
             .unwrap();
 
-        let retry_task = tokio::spawn({
+        let retrying = tokio::spawn({
             let database = database.clone();
             let (workspace_id, gallery_id) = (gallery.workspace_id, gallery.gallery_id);
 
@@ -320,15 +309,20 @@ mod tests {
             }
         });
 
-        wait_for_a_lock_waiter(&pool).await;
-        sqlx::query("UPDATE photos SET width = width WHERE id = $1")
-            .bind(id)
-            .execute(&mut *delete_transaction)
+        database
+            .repository::<TestRepository>()
+            .wait_for_a_lock_waiter()
             .await
             .unwrap();
-        delete_transaction.commit().await.unwrap();
 
-        assert_eq!(retry_task.await.unwrap().unwrap(), Some(1));
+        sqlx::query("UPDATE photos SET width = width WHERE id = $1")
+            .bind(id)
+            .execute(&mut *deleting)
+            .await
+            .unwrap();
+        deleting.commit().await.unwrap();
+
+        assert_eq!(retrying.await.unwrap().unwrap(), Some(1));
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -345,7 +339,7 @@ mod tests {
             .await
             .unwrap();
 
-        let retry_task = tokio::spawn({
+        let retrying = tokio::spawn({
             let database = database.clone();
             let (workspace_id, gallery_id) = (gallery.workspace_id, gallery.gallery_id);
 
@@ -357,11 +351,16 @@ mod tests {
             }
         });
 
-        wait_for_a_lock_waiter(&pool).await;
+        database
+            .repository::<TestRepository>()
+            .wait_for_a_lock_waiter()
+            .await
+            .unwrap();
+
         fail(&database, &pool, failing_meanwhile).await;
         lock_holder.commit().await.unwrap();
 
-        assert_eq!(retry_task.await.unwrap().unwrap(), Some(1));
+        assert_eq!(retrying.await.unwrap().unwrap(), Some(1));
         assert_eq!(
             status(&database, &gallery, locked).await,
             PhotoStatus::Waiting

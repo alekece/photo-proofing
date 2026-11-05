@@ -90,7 +90,8 @@ My calls (to check while reading):
 - **Busy is not broken.** Today every 503 looks alike. The upload route now answers **429** with
   `Retry-After` when no upload slot is free, and **507** when photo storage is full; other 503s stay
   server errors. On 429 the queue puts the file back to wait and retries after the given delay,
-  and only after several in a row shows "Upload failed" with Retry. On 507 that file and every
+  doubled at each answer up to a minute. Only after several in a row, none while another of its
+  own uploads holds a slot, does it show "Upload failed" with Retry. On 507 that file and every
   file still waiting in the queue show "Storage full" with Retry, so a full disk does not receive
   the rest of the batch.
 - **Answer mapping.** 201: the tile now follows the server photo. 413, 415, 422: rejected with a
