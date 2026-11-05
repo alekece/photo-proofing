@@ -4,7 +4,8 @@
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
 	import Tabs from '#lib/components/ui/tabs/tabs.svelte';
 
-	let { galleryId }: { galleryId: string } = $props();
+	let { galleryId, heroId = $bindable(null) }: { galleryId: string; heroId?: string | null } =
+		$props();
 
 	const TABS = [
 		{ id: 'photos', label: 'Photos' },
@@ -37,7 +38,7 @@
 		{#snippet panel(active)}
 			{#each TABS as item (item.id)}
 				{#if active === item.id && !('action' in item)}
-					<PhotosPanel {galleryId} />
+					<PhotosPanel {galleryId} bind:heroId />
 				{:else if active === item.id && 'action' in item}
 					{@const { action, empty } = item}
 					{#if 'hint' in action}

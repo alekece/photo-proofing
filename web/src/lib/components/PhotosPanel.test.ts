@@ -63,9 +63,16 @@ function stubApi(
 		retry?: number;
 		bulk?: (ids: string[]) => Response | Promise<Response>;
 		list?: () => Response | void | Promise<Response | void>;
+		hero?: (heroId: string | null) => Response | Promise<Response>;
 	} = {}
 ) {
 	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+		if (init?.method === 'PATCH') {
+			const { hero_id } = JSON.parse(String(init.body));
+
+			return answers.hero?.(hero_id) ?? Response.json({ ...gallery, hero_id });
+		}
+
 		if (init?.method === 'DELETE') {
 			return new Response(null, { status: (await answers.delete) ?? 204 });
 		}
@@ -89,6 +96,10 @@ function stubApi(
 
 	return {
 		lists: () => fetcher.mock.calls.filter(([, init]) => init?.method === undefined).length,
+		heroes: () =>
+			fetcher.mock.calls
+				.filter(([, init]) => init?.method === 'PATCH')
+				.map(([, init]) => JSON.parse(String(init?.body)).hero_id as string | null),
 		calls: (method: string) =>
 			fetcher.mock.calls.filter(([, init]) => init?.method === method).map(([url]) => url),
 		bulk: () =>
@@ -102,7 +113,21 @@ function stubApi(
 	};
 }
 
-function setup(upload?: (file: File) => Promise<UploadOutcome>) {
+const gallery = {
+	id: 'g1',
+	title: null,
+	layout: 'grid',
+	expires_at: null,
+	included_photos: null,
+	watermark_enabled: false,
+	hero_id: null,
+	share_token: null,
+	states: ['draft'],
+	created_at: '2026-11-04T10:00:00Z',
+	updated_at: '2026-11-04T10:00:00Z'
+};
+
+function setup(upload?: (file: File) => Promise<UploadOutcome>, heroId: string | null = null) {
 	const pending: ((outcome: UploadOutcome) => void)[] = [];
 	const queue = new UploadQueue({
 		upload: (_, file) =>
@@ -112,7 +137,7 @@ function setup(upload?: (file: File) => Promise<UploadOutcome>) {
 	});
 	const live = fakeEvents();
 	const view = render(PhotosPanelHarness, {
-		props: { galleryId: 'g1', queue, events: live.events }
+		props: { galleryId: 'g1', queue, events: live.events, heroId }
 	});
 
 	return { ...live, queue, pending, view };
@@ -552,6 +577,85 @@ describe('PhotosPanel', () => {
 		expect(within(viewer).getByRole('img').getAttribute('src')).toBe(
 			'/api/v1/galleries/g1/photos/p3/preview'
 		);
+	});
+
+	describe('hero photo', () => {
+		const star = (name: string, label = 'Set as hero photo') =>
+			within(tile(name)).getByRole('button', { name: label });
+
+		it('moves the hero with one click and clears it by clicking the hero again', async () => {
+			const api = stubApi([photo('p1'), photo('p2')]);
+			const user = userEvent.setup();
+
+			setup(undefined, 'p1');
+			await screen.findByRole('button', { name: 'Open p2.jpg' });
+
+			expect(star('p1.jpg', 'Remove hero photo').getAttribute('aria-pressed')).toBe('true');
+			expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false');
+
+			await user.click(star('p2.jpg'));
+
+			await waitFor(() =>
+				expect(star('p2.jpg', 'Remove hero photo').getAttribute('aria-pressed')).toBe('true')
+			);
+			expect(star('p1.jpg').getAttribute('aria-pressed')).toBe('false');
+
+			await user.click(star('p2.jpg', 'Remove hero photo'));
+
+			await waitFor(() => expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false'));
+			expect(api.heroes()).toEqual(['p2', null]);
+		});
+
+		it('keeps the previous hero and says so when saving fails', async () => {
+			stubApi([photo('p1'), photo('p2')], {
+				hero: () => Response.json({ error: 'nope' }, { status: 500 })
+			});
+			const user = userEvent.setup();
+
+			setup(undefined, 'p1');
+			await user.click(await waitFor(() => star('p2.jpg')));
+
+			expect((await screen.findByRole('alert')).textContent).toContain('hero photo');
+			expect(star('p1.jpg', 'Remove hero photo').getAttribute('aria-pressed')).toBe('true');
+			expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false');
+		});
+
+		it('goes to sign-in when saving finds the session ended', async () => {
+			stubApi([photo('p1')], { hero: () => new Response(null, { status: 401 }) });
+			const user = userEvent.setup();
+
+			setup();
+			await user.click(await waitFor(() => star('p1.jpg')));
+
+			await waitFor(() =>
+				expect(goto).toHaveBeenCalledWith('/login?expired=1', { refreshAll: true })
+			);
+		});
+
+		it('offers no star on photos that are not ready, or while selecting', async () => {
+			stubApi([photo('p1'), photo('p2', 'processing')]);
+			const user = userEvent.setup();
+
+			setup();
+			await screen.findByText('p2.jpg');
+
+			expect(within(tile('p2.jpg')).queryByRole('button', { name: /hero photo/ })).toBeNull();
+
+			await user.click(screen.getByRole('button', { name: 'Select' }));
+
+			expect(screen.queryAllByRole('button', { name: /hero photo/ })).toEqual([]);
+		});
+
+		it('forgets the hero once its photo is gone', async () => {
+			stubApi([photo('p1'), photo('p2')]);
+			const { emit } = setup(undefined, 'p1');
+
+			await screen.findByRole('button', { name: 'Open p2.jpg' });
+			emit({ photo_id: 'p1', status: 'deleted' });
+
+			await waitFor(() => expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull());
+			expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false');
+		});
 	});
 
 	it('has no detectable accessibility violations', async () => {

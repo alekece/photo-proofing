@@ -32,7 +32,9 @@
 		onremove,
 		onretry,
 		onopen,
-		onselect
+		onselect,
+		hero = false,
+		onhero
 	}: {
 		name: string;
 		state: TileState;
@@ -45,6 +47,10 @@
 		onopen?: () => void;
 		/** Puts the tile in select mode: clicking it toggles `selected`; no remove, retry or open. */
 		onselect?: () => void;
+		/** Whether this photo is the gallery's hero. */
+		hero?: boolean;
+		/** Toggles the hero star; only a ready photo outside select mode offers it. */
+		onhero?: () => void;
 	} = $props();
 
 	const failed = $derived(
@@ -98,6 +104,18 @@
 			onchange={onselect}
 		/>
 	{:else}
+		{#if state === 'ready' && onhero}
+			<button
+				type="button"
+				class={[
+					'absolute top-1.5 right-9 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-sm text-foreground focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
+					hero ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100'
+				]}
+				aria-label={hero ? 'Remove hero photo' : 'Set as hero photo'}
+				aria-pressed={hero}
+				onclick={onhero}>{hero ? '★' : '☆'}</button
+			>
+		{/if}
 		<button
 			type="button"
 			class="absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-xs text-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
