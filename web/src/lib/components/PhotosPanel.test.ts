@@ -52,13 +52,17 @@ function fakeEvents() {
 	};
 }
 
-/** Answers the photo routes like the API; `server` is what the list returns. */
+/**
+ * Answers the photo routes like the API; `server` is what the list returns, per gallery id when
+ * it is a record.
+ */
 function stubApi(
-	server: Photo[],
+	server: Photo[] | Record<string, Photo[]>,
 	answers: {
 		delete?: number;
 		retry?: number;
 		bulk?: (ids: string[]) => Response | Promise<Response>;
+		list?: () => Response | undefined;
 	} = {}
 ) {
 	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
@@ -74,7 +78,9 @@ function stubApi(
 			return new Response(JSON.stringify({ requeued: 1 }), { status: answers.retry ?? 200 });
 		}
 
-		return new Response(JSON.stringify(server));
+		const listed = Array.isArray(server) ? server : server[url.split('/')[4]];
+
+		return answers.list?.() ?? new Response(JSON.stringify(listed));
 	});
 
 	vi.stubGlobal('fetch', fetcher);
@@ -86,7 +92,11 @@ function stubApi(
 		bulk: () =>
 			fetcher.mock.calls
 				.filter(([url, init]) => init?.method === 'POST' && url.endsWith('/photos/delete'))
-				.map(([, init]) => JSON.parse(String(init?.body)).photo_ids as string[])
+				.map(([, init]) => JSON.parse(String(init?.body)).photo_ids as string[]),
+		bulkUrls: () =>
+			fetcher.mock.calls
+				.filter(([url, init]) => init?.method === 'POST' && url.endsWith('/photos/delete'))
+				.map(([url]) => url)
 	};
 }
 
@@ -392,7 +402,15 @@ describe('PhotosPanel', () => {
 	describe('select mode', () => {
 		const checkbox = (name: string) =>
 			screen.queryByRole<HTMLInputElement>('checkbox', { name: `Select ${name}` });
-		const counter = () => screen.getByText(/\d+ selected/).textContent;
+		const counter = () =>
+			screen.getByText(/\d+ selected/, { selector: ':not(.sr-only)' }).textContent;
+		const announced = () => screen.getByRole('status').textContent;
+		const selectButton = () => screen.getByRole('button', { name: 'Select' });
+
+		async function confirmDeletion(user: ReturnType<typeof userEvent.setup>) {
+			await user.click(screen.getByRole('button', { name: 'Delete' }));
+			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+		}
 
 		async function enter(user: ReturnType<typeof userEvent.setup>) {
 			await user.click(await screen.findByRole('button', { name: 'Select' }));
@@ -419,9 +437,12 @@ describe('PhotosPanel', () => {
 			expect(screen.queryByRole('dialog')).toBeNull();
 			expect(counter()).toBe('1 selected');
 
+			expect(announced()).toContain('1 selected');
+
 			await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
 			expect(checkbox('p1.jpg')).toBeNull();
+			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
 
 			await enter(user);
 
@@ -432,6 +453,7 @@ describe('PhotosPanel', () => {
 
 			expect(checkbox('p2.jpg')).toBeNull();
 			expect(screen.getByRole('button', { name: 'Remove p1.jpg' })).toBeTruthy();
+			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
 		});
 
 		it('select all takes only the photos shown now', async () => {
@@ -492,6 +514,93 @@ describe('PhotosPanel', () => {
 			await waitFor(() => expect(checkbox('p2.jpg')).toBeNull());
 			expect(api.bulk()).toEqual([['p1', 'p3']]);
 			expect(screen.getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
+			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
+			expect(announced()).toContain('2 photos deleted');
+		});
+
+		it('finishes a confirmed deletion in its own gallery after a gallery change', async () => {
+			let answer: (response: Response) => void = () => {};
+			const api = stubApi(
+				{ g1: [photo('p1'), photo('p2'), photo('p3')], g2: [photo('q1', 'waiting')] },
+				{
+					bulk: (ids) =>
+						ids.length === 2
+							? new Promise((resolve) => (answer = resolve))
+							: Response.json({ deleted: ids.length })
+				}
+			);
+			const { view } = setup();
+			const user = userEvent.setup();
+
+			await enter(user);
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await confirmDeletion(user);
+			await waitFor(() => expect(api.bulk()).toHaveLength(1));
+			await view.rerender({ galleryId: 'g2' });
+			await screen.findByText('q1.jpg');
+			answer(Response.json({ deleted: 2 }));
+
+			await waitFor(() => expect(api.bulk()).toEqual([['p1', 'p2'], ['p3']]));
+			expect(api.bulkUrls()).toEqual([
+				'/api/v1/galleries/g1/photos/delete',
+				'/api/v1/galleries/g1/photos/delete'
+			]);
+			expect(api.lists()).toBe(2);
+			expect(screen.queryByRole('alert')).toBeNull();
+			expect(screen.getByText('q1.jpg')).toBeTruthy();
+			expect(announced()).not.toContain('deleted');
+		});
+
+		it('finishes a confirmed deletion after the panel is gone, without touching it', async () => {
+			let answer: (response: Response) => void = () => {};
+			const api = stubApi([photo('p1'), photo('p2'), photo('p3')], {
+				bulk: (ids) =>
+					ids.length === 2
+						? new Promise((resolve) => (answer = resolve))
+						: Promise.reject(new TypeError('network'))
+			});
+			const { view } = setup();
+			const user = userEvent.setup();
+
+			await enter(user);
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await confirmDeletion(user);
+			await waitFor(() => expect(api.bulk()).toHaveLength(1));
+			view.unmount();
+			answer(Response.json({ deleted: 2 }));
+
+			await waitFor(() => expect(api.bulk()).toEqual([['p1', 'p2'], ['p3']]));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(api.lists()).toBe(1);
+		});
+
+		it('restores the photos left when both the deletion and the refetch fail', async () => {
+			let answer: (response: Response) => void = () => {};
+			let lists = 0;
+			stubApi([photo('p1'), photo('p2'), photo('p3'), photo('p4')], {
+				bulk: () => new Promise((resolve) => (answer = resolve)),
+				list: () => (++lists > 1 ? new Response(null, { status: 500 }) : undefined)
+			});
+			const { emit } = setup();
+			const user = userEvent.setup();
+
+			await enter(user);
+			await user.click(checkbox('p1.jpg')!);
+			await user.click(checkbox('p2.jpg')!);
+			await user.click(checkbox('p3.jpg')!);
+			await confirmDeletion(user);
+			emit({ photo_id: 'p2', status: 'deleted' });
+			answer(new Response(null, { status: 500 }));
+
+			await waitFor(() => expect(lists).toBe(2));
+			await waitFor(() => expect(checkbox('p3.jpg')).not.toBeNull());
+			expect(screen.getAllByRole('checkbox').map((box) => box.getAttribute('aria-label'))).toEqual([
+				'Select p1.jpg',
+				'Select p3.jpg',
+				'Select p4.jpg'
+			]);
+			expect(screen.queryByText(/No photos yet/)).toBeNull();
+			expect(checkbox('p1.jpg')!.checked).toBe(true);
 		});
 
 		it('sends a large selection in chunks, one after another', async () => {

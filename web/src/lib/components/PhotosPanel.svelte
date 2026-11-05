@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import PhotoTile, { type TileState } from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
@@ -41,6 +41,9 @@
 	let picker = $state<HTMLInputElement | null>(null);
 	let selecting = $state(false);
 	let confirmingSelection = $state(false);
+	let announcement = $state('');
+	let selectButton = $state<HTMLButtonElement | null>(null);
+	let uploadButton = $state<HTMLButtonElement | null>(null);
 	const selected = new SvelteSet<string>();
 
 	// Bookkeeping that nothing renders, so plain collections on purpose.
@@ -52,6 +55,10 @@
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const uploadedDuringLoad = new Set<string>();
 	let loads = 0;
+	// Successful list answers, so a recovery can tell whether the server view was reloaded.
+	let listings = 0;
+	// Bumped whenever the panel stops showing a gallery, by a change of gallery or unmounting.
+	let shown = 0;
 	let lastLoadAt = -Infinity;
 	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 	let wasInFlight = 0;
@@ -104,6 +111,7 @@
 		];
 		const count = (...kinds: TileState[]) => states.filter((state) => kinds.includes(state)).length;
 		const parts = [
+			[selecting ? selection.length : 0, 'selected'],
 			[count('waiting-upload', 'uploading'), 'uploading'],
 			[count('waiting-process', 'processing'), 'processing'],
 			[count('upload-failed', 'rejected', 'process-failed'), 'failed']
@@ -136,7 +144,8 @@
 				(photo) => uploadedDuringLoad.has(photo.id) && !listed.some(({ id }) => id === photo.id)
 			);
 
-			photos = [...listed, ...missing].map(withRecentChange).filter((photo) => photo !== null);
+			photos = withRecentChanges([...listed, ...missing]);
+			listings++;
 		} catch (cause) {
 			if (current !== loads) return;
 
@@ -194,6 +203,7 @@
 			photos = [];
 			loaded = false;
 			alert = '';
+			announcement = '';
 			leaveSelectMode();
 			void load();
 		});
@@ -213,6 +223,7 @@
 		];
 
 		return () => {
+			shown++;
 			clearTimeout(refreshTimer);
 			refreshTimer = undefined;
 
@@ -300,6 +311,13 @@
 		selected.clear();
 	}
 
+	/** Leaves select mode from its own controls, which vanish, so focus lands back on Select. */
+	async function finishSelecting() {
+		leaveSelectMode();
+		await tick();
+		(selectButton?.disabled ? uploadButton : selectButton)?.focus();
+	}
+
 	function toggle(id: string) {
 		if (!selected.delete(id)) selected.add(id);
 	}
@@ -329,41 +347,55 @@
 		}
 
 		if (event.key === 'Escape') {
-			leaveSelectMode();
+			void finishSelecting();
 		} else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
 			event.preventDefault();
 			selectAll();
 		}
 	}
 
-	/** Deletes the selection chunk by chunk; on a failure, stops and refetches what the server kept. */
+	/**
+	 * Deletes the selection chunk by chunk in the gallery it was confirmed in, even if the panel
+	 * moves on; on a failure, stops and refetches what the server kept.
+	 */
 	async function removeSelection() {
-		const ids = selection.map(({ id }) => id);
+		const confirmedGallery = galleryId;
+		const view = shown;
+		const stillShown = () => view === shown;
+		const removed = selection;
+		const ids = removed.map(({ id }) => id);
 		let deletedCount = 0;
 
 		for (const id of ids) deleting.add(id);
 
 		photos = photos.filter(({ id }) => !deleting.has(id));
 		alert = '';
+		announcement = '';
 
 		try {
 			while (deletedCount < ids.length) {
 				const chunk = ids.slice(deletedCount, deletedCount + BULK_DELETE_LIMIT);
 
-				await deletePhotos(galleryId, chunk);
+				await deletePhotos(confirmedGallery, chunk);
 
 				for (const id of chunk) {
 					recentChanges.set(id, 'deleted');
-					selected.delete(id);
 					deleting.delete(id);
+
+					if (stillShown()) selected.delete(id);
 				}
 
 				deletedCount += chunk.length;
 			}
 
-			leaveSelectMode();
+			if (!stillShown()) return;
+
+			announcement = `${ids.length} ${ids.length === 1 ? 'photo' : 'photos'} deleted`;
+			await finishSelecting();
 		} catch (cause) {
-			for (const id of ids.slice(deletedCount)) deleting.delete(id);
+			const unresolved = new Set(ids.slice(deletedCount));
+
+			for (const id of unresolved) deleting.delete(id);
 
 			if (cause instanceof GalleryApiError && cause.status === 401) {
 				await signedOut();
@@ -371,9 +403,33 @@
 				return;
 			}
 
+			if (!stillShown()) return;
+
+			// The refetch forgets the changes seen so far, so apply them first.
+			const survivors = withRecentChanges(removed.filter(({ id }) => unresolved.has(id)));
+			const listingsBefore = listings;
+
 			alert = `Deleted ${deletedCount} of ${ids.length} photos. Please try again.`;
 			await load();
+
+			if (stillShown() && listings === listingsBefore) restore(survivors);
 		}
+	}
+
+	/** The photos as the latest changes seen say, without those deleted. */
+	function withRecentChanges(records: Photo[]) {
+		return records.map(withRecentChange).filter((photo) => photo !== null);
+	}
+
+	/** Puts back photos whose deletion failed, unless shown already or deleted since. */
+	function restore(survivors: Photo[]) {
+		const back = withRecentChanges(
+			survivors.filter(({ id }) => !photos.some((photo) => photo.id === id))
+		);
+
+		photos = [...photos, ...back].sort(
+			(a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
+		);
 	}
 
 	function open(photo: Photo) {
@@ -401,16 +457,19 @@
 				disabled={selection.length === 0}
 				onclick={() => (confirmingSelection = true)}>Delete</Button
 			>
-			<Button variant="ghost" size="sm" onclick={leaveSelectMode}>Cancel</Button>
+			<Button variant="ghost" size="sm" onclick={finishSelecting}>Cancel</Button>
 		{:else}
 			<Button
+				bind:ref={selectButton}
 				variant="ghost"
 				size="sm"
 				disabled={photos.length === 0}
 				onclick={() => (selecting = true)}>Select</Button
 			>
 		{/if}
-		<Button variant="outline" size="sm" onclick={() => picker?.click()}>+ Upload</Button>
+		<Button bind:ref={uploadButton} variant="outline" size="sm" onclick={() => picker?.click()}
+			>+ Upload</Button
+		>
 		<input
 			bind:this={picker}
 			type="file"
@@ -425,7 +484,9 @@
 	{#if alert}
 		<p role="alert" class="text-sm text-danger">{alert}</p>
 	{/if}
-	<p role="status" aria-live="polite" class="sr-only">{summary}</p>
+	<p role="status" aria-live="polite" class="sr-only">
+		{[announcement, summary].filter(Boolean).join('. ')}
+	</p>
 
 	{#if photos.length > 0 || queued.length > 0}
 		<ul aria-label="Photos" class="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-2">
