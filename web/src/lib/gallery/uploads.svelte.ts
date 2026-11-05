@@ -34,8 +34,14 @@ interface Sending {
 	notBefore: number;
 }
 
-/** Busy answers in a row before a file shows "Upload failed". */
-export const MAX_BUSY_RETRIES = 5;
+/**
+ * Busy answers in a row before a file shows "Upload failed". An answer while another of the
+ * queue's own uploads holds a slot does not count: that upload keeps the server busy for a while.
+ */
+export const MAX_BUSY_RETRIES = 8;
+
+/** Each busy answer doubles the wait from the server's `Retry-After`, up to this cap. */
+const MAX_BUSY_WAIT_MS = 60_000;
 
 const UNREACHABLE_LIMITS = { concurrency: 1, max_size: Infinity };
 
@@ -262,17 +268,25 @@ export class UploadQueue {
 
 				break;
 			case 'busy': {
-				const busyAnswers = (this.#sending.get(item.key)?.busyAnswers ?? 0) + 1;
+				const ownUploadRunning = this.items.some(
+					(other) => other !== item && other.state === 'uploading'
+				);
+				const busyAnswers =
+					(this.#sending.get(item.key)?.busyAnswers ?? 0) + (ownUploadRunning ? 0 : 1);
 
 				if (busyAnswers >= MAX_BUSY_RETRIES) {
 					this.#fail(item, 'Upload failed');
-				} else {
-					this.#sending.set(item.key, {
-						busyAnswers,
-						notBefore: Date.now() + outcome.retryAfterMs
-					});
-					item.state = 'waiting';
+
+					break;
 				}
+
+				const backoff = Math.min(MAX_BUSY_WAIT_MS, outcome.retryAfterMs * 2 ** (busyAnswers - 1));
+
+				this.#sending.set(item.key, {
+					busyAnswers,
+					notBefore: Date.now() + Math.max(outcome.retryAfterMs, backoff)
+				});
+				item.state = 'waiting';
 
 				break;
 			}

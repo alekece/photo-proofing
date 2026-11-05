@@ -155,31 +155,74 @@ describe('UploadQueue', () => {
 		]);
 	});
 
-	it('waits out a busy server, then gives up after several busy answers in a row', async () => {
+	it('waits out a busy server longer each time, up to a minute, then gives up', async () => {
 		const { queue, calls } = setup({ concurrency: 1 });
 
 		queue.add('g1', [jpeg('a.jpg')]);
 		await settle();
-		calls[0].resolve({ kind: 'busy', retryAfterMs: 2000 });
+
+		const waits = [2000, 4000, 8000, 16000, 32000, 60000, 60000];
+
+		for (const [answer, wait] of waits.entries()) {
+			calls[answer].resolve({ kind: 'busy', retryAfterMs: 2000 });
+			await settle();
+
+			expect(states(queue)).toEqual([['a.jpg', 'waiting', undefined]]);
+
+			await vi.advanceTimersByTimeAsync(wait - 1);
+
+			expect(calls).toHaveLength(answer + 1);
+
+			await vi.advanceTimersByTimeAsync(1);
+
+			expect(calls).toHaveLength(answer + 2);
+		}
+
+		expect(calls).toHaveLength(MAX_BUSY_RETRIES);
+
+		calls.at(-1)!.resolve({ kind: 'busy', retryAfterMs: 2000 });
 		await settle();
 
-		expect(states(queue)).toEqual([['a.jpg', 'waiting', undefined]]);
+		expect(states(queue)).toEqual([['a.jpg', 'failed', 'Upload failed']]);
+	});
 
-		await vi.advanceTimersByTimeAsync(1999);
+	it('honours a Retry-After longer than a minute', async () => {
+		const { queue, calls } = setup({ concurrency: 1 });
+
+		queue.add('g1', [jpeg('a.jpg')]);
+		await settle();
+		calls[0].resolve({ kind: 'busy', retryAfterMs: 90_000 });
+		await vi.advanceTimersByTimeAsync(89_999);
 
 		expect(calls).toHaveLength(1);
 
 		await vi.advanceTimersByTimeAsync(1);
 
 		expect(calls).toHaveLength(2);
+	});
 
-		for (let attempt = 2; attempt <= MAX_BUSY_RETRIES; attempt++) {
+	it('keeps a file waiting while the server stays busy with one of its own uploads', async () => {
+		const { queue, calls } = setup({ concurrency: 2 });
+
+		queue.add('g1', [jpeg('a.jpg'), jpeg('b.jpg')]);
+		await settle();
+
+		for (let answer = 1; answer <= MAX_BUSY_RETRIES * 3; answer++) {
 			calls.at(-1)!.resolve({ kind: 'busy', retryAfterMs: 1000 });
 			await vi.advanceTimersByTimeAsync(1000);
 		}
 
-		expect(calls).toHaveLength(MAX_BUSY_RETRIES);
-		expect(states(queue)).toEqual([['a.jpg', 'failed', 'Upload failed']]);
+		expect(states(queue)).toEqual([
+			['a.jpg', 'uploading', undefined],
+			['b.jpg', 'uploading', undefined]
+		]);
+
+		calls[0].resolve({ kind: 'created', photo: photo('a') });
+		await settle();
+		calls.at(-1)!.resolve({ kind: 'busy', retryAfterMs: 1000 });
+		await settle();
+
+		expect(states(queue)).toEqual([['b.jpg', 'waiting', undefined]]);
 	});
 
 	it('marks the file and everything still waiting as storage full', async () => {
