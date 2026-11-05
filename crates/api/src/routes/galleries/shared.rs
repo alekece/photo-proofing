@@ -160,7 +160,12 @@ mod tests {
 
         assert_eq!(
             body,
-            json!({"title": "Wedding", "layout": "masonry", "expires_at": null})
+            json!({
+                "title": "Wedding",
+                "layout": "masonry",
+                "expires_at": null,
+                "hero_photo_id": null
+            })
         );
     }
 
@@ -259,6 +264,38 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["expires_at"], "2999-01-01T00:00:00Z");
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn shared_page_exposes_the_hero_only_while_it_is_ready(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let hero = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        let token = share(&app, &cookie, &gallery_id).await;
+        let request = test::TestRequest::patch()
+            .uri(&format!("/api/v1/galleries/{gallery_id}"))
+            .insert_header(("Origin", ORIGIN))
+            .cookie(cookie.clone())
+            .set_json(json!({"hero_photo_id": hero}));
+
+        assert_eq!(call(&app, request).await.0, StatusCode::OK);
+
+        let (status, body) = call(&app, get(&token)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["hero_photo_id"], hero.as_str());
+
+        sqlx::query("UPDATE photos SET status = 'processing' WHERE id = $1::uuid")
+            .bind(&hero)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (_, body) = call(&app, get(&token)).await;
+
+        assert_eq!(body["hero_photo_id"], Value::Null);
     }
 
     /// Shares the gallery through the photographer route and returns its token.

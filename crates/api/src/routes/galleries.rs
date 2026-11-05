@@ -164,11 +164,13 @@ mod tests {
     use pp_database::{Database, gallery::GalleryRepository};
     use serde_json::{Value, json};
     use sqlx::PgPool;
+    use uuid::Uuid;
 
     use super::*;
     use crate::{
         api::configure_routes,
-        tests::{ORIGIN, app_state, call, other_workspace, sign_up},
+        routes::galleries::photos::tests::{Progress, create_gallery, photo_in},
+        tests::{ORIGIN, app, app_state, call, other_workspace, sign_up, upload_config},
     };
 
     fn patch(id: &str, cookie: &Cookie<'static>, body: Value) -> test::TestRequest {
@@ -359,6 +361,61 @@ mod tests {
         ] {
             assert_eq!(ids(uri).await.0, StatusCode::BAD_REQUEST, "{uri}");
         }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn hero_photo_round_trips_and_rejects_unusable_photos(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let other_gallery_id = create_gallery(&app, &cookie).await;
+        let first = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        let second = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        let processing = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Processing).await;
+        let foreign = photo_in(&app, &pool, &cookie, &other_gallery_id, Progress::Ready).await;
+
+        for expected in [Value::from(first.clone()), Value::from(second.clone())] {
+            let (status, body) = call(
+                &app,
+                patch(&gallery_id, &cookie, json!({"hero_photo_id": expected})),
+            )
+            .await;
+
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body["hero_photo_id"], expected);
+        }
+
+        for rejected in [processing, foreign, Uuid::new_v4().to_string()] {
+            let (status, _) = call(
+                &app,
+                patch(&gallery_id, &cookie, json!({"hero_photo_id": rejected})),
+            )
+            .await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND);
+        }
+
+        let (_, kept) = call(&app, patch(&gallery_id, &cookie, json!({"title": "T"}))).await;
+
+        assert_eq!(kept["hero_photo_id"], second.as_str());
+
+        let (status, cleared) = call(
+            &app,
+            patch(&gallery_id, &cookie, json!({"hero_photo_id": null})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cleared["hero_photo_id"], Value::Null);
+
+        let (status, _) = call(
+            &app,
+            patch(&gallery_id, &cookie, json!({"hero_photo_id": "nope"})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

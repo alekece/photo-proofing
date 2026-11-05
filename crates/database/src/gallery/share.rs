@@ -1,7 +1,10 @@
 //! The private link token of a gallery and the client's view of a shared gallery.
 
 use derive_more::{Deref, FromStr};
-use pp_core::types::{timestamp::Timestamp, token::Token};
+use pp_core::{
+    notifications::PhotoId,
+    types::{timestamp::Timestamp, token::Token},
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Type};
 
@@ -31,6 +34,8 @@ pub struct SharedGallery {
     pub layout: GalleryLayout,
     /// `None` means the gallery never expires.
     pub expires_at: Option<Timestamp>,
+    /// The gallery's hero photo, only while it is ready.
+    pub hero_photo_id: Option<PhotoId>,
 }
 
 /// A gallery reached through its private link: where its photos live, and what the client sees.

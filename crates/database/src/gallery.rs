@@ -10,7 +10,10 @@
 use std::num::NonZeroUsize;
 
 use derive_more::Display;
-use pp_core::types::{generate::Generate, timestamp::Timestamp};
+use pp_core::{
+    notifications::PhotoId,
+    types::{generate::Generate, timestamp::Timestamp},
+};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{AssertSqlSafe, FromRow, PgPool, Row, Type, postgres::PgRow};
 use thiserror::Error;
@@ -118,6 +121,8 @@ pub struct Gallery {
     /// `None` means selection is unlimited.
     pub included_photos: Option<NonZeroUsize>,
     pub watermark_enabled: bool,
+    /// `None` means the gallery has no hero photo.
+    pub hero_photo_id: Option<PhotoId>,
     /// `None` means the gallery has not been shared.
     pub share_token: Option<ShareToken>,
     /// The progress state first, then `Archived` and `Expired` when they apply.
@@ -168,6 +173,7 @@ impl FromRow<'_, PgRow> for Gallery {
             expires_at: row.try_get("expires_at")?,
             included_photos,
             watermark_enabled: row.try_get("watermark_enabled")?,
+            hero_photo_id: row.try_get("hero_photo_id")?,
             share_token: row.try_get("share_token")?,
             states,
             created_at: row.try_get("created_at")?,
@@ -214,6 +220,13 @@ pub struct GalleryChanges {
         skip_serializing_if = "Option::is_none"
     )]
     pub watermark_enabled: Option<bool>,
+    /// Must be a ready photo of the gallery; anything else leaves the gallery unchanged.
+    #[serde(
+        default,
+        with = "serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub hero_photo_id: Option<Option<PhotoId>>,
 }
 
 impl GalleryChanges {
@@ -290,7 +303,7 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
 
 impl GalleryRepository<'_> {
     // Interpolated identifiers are fixed here or selected from GallerySort's closed enum.
-    const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,share_token,shared_at,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
+    const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,hero_photo_id,share_token,shared_at,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
 
     /// Creates an untitled gallery with the default settings.
     pub async fn create(&self, workspace_id: WorkspaceId) -> Result<Gallery, DatabaseError> {
@@ -373,8 +386,11 @@ impl GalleryRepository<'_> {
         token: &ShareToken,
     ) -> Result<Option<SharedAccess>, DatabaseError> {
         Ok(sqlx::query_as(
-            "SELECT id AS gallery_id,workspace_id,title,layout,expires_at FROM galleries
-             WHERE share_token=$1 AND (expires_at IS NULL OR expires_at > now())",
+            "SELECT g.id AS gallery_id,g.workspace_id,g.title,g.layout,g.expires_at,
+                    (SELECT p.id FROM photos p
+                     WHERE p.id = g.hero_photo_id AND p.status = 'ready') AS hero_photo_id
+             FROM galleries g
+             WHERE g.share_token=$1 AND (g.expires_at IS NULL OR g.expires_at > now())",
         )
         .bind(token)
         .fetch_optional(self.pool)
@@ -382,7 +398,8 @@ impl GalleryRepository<'_> {
     }
 
     /// Applies `changes` and returns the gallery, or `None` if the workspace has no such
-    /// gallery. The title is trimmed, and a blank one clears it. An empty changeset only reads, so it does not
+    /// gallery or the requested hero is not one of its ready photos, in which case nothing
+    /// changes. The title is trimmed, and a blank one clears it. An empty changeset only reads, so it does not
     /// count as an edit.
     pub async fn update(
         &self,
@@ -418,8 +435,13 @@ impl GalleryRepository<'_> {
                 expires_at = CASE WHEN $6 THEN $7 ELSE expires_at END,
                 included_photos = CASE WHEN $8 THEN $9 ELSE included_photos END,
                 watermark_enabled = COALESCE($10, watermark_enabled),
+                hero_photo_id = CASE WHEN $11 THEN $12 ELSE hero_photo_id END,
                 updated_at = now()
              WHERE id=$1 AND workspace_id=$2
+               AND (NOT $11 OR $12::uuid IS NULL OR EXISTS (
+                   SELECT 1 FROM photos
+                   WHERE id=$12 AND gallery_id=$1 AND workspace_id=$2 AND status='ready'
+                   FOR KEY SHARE))
              RETURNING {}",
             Self::COLUMNS
         )))
@@ -433,6 +455,8 @@ impl GalleryRepository<'_> {
         .bind(included_photos.is_some())
         .bind(included_photos.flatten())
         .bind(changes.watermark_enabled)
+        .bind(changes.hero_photo_id.is_some())
+        .bind(changes.hero_photo_id.flatten())
         .fetch_optional(self.pool)
         .await
         .map_err(GalleryError::classify)
@@ -444,7 +468,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{Database, photo::PhotoLocation};
+    use crate::{
+        Database,
+        photo::{PhotoLocation, PhotoRepository},
+    };
 
     async fn workspace(pool: &PgPool) -> WorkspaceId {
         let id = WorkspaceId(Uuid::new_v4());
@@ -817,6 +844,180 @@ mod tests {
 
         assert!(edited.updated_at > gallery.updated_at);
         assert_eq!(edited.created_at, gallery.created_at);
+    }
+
+    async fn photo_in(
+        pool: &PgPool,
+        workspace_id: WorkspaceId,
+        gallery_id: GalleryId,
+        status: &str,
+    ) -> PhotoId {
+        let id = PhotoId::from(Uuid::new_v4());
+
+        sqlx::query(
+            "INSERT INTO photos(id, workspace_id, gallery_id, original_name, size, width, height, status)
+             VALUES ($1, $2, $3, 'p.jpg', 1, 1, 1, $4::photo_status)",
+        )
+        .bind(id)
+        .bind(workspace_id)
+        .bind(gallery_id)
+        .bind(status)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        id
+    }
+
+    fn hero(id: Option<PhotoId>) -> GalleryChanges {
+        GalleryChanges {
+            hero_photo_id: Some(id),
+            ..GalleryChanges::default()
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn hero_is_set_changed_and_cleared_by_ready_photos_of_the_gallery(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let gallery = store.create(workspace).await.unwrap();
+        let (first, second) = (
+            photo_in(&pool, workspace, gallery.id, "ready").await,
+            photo_in(&pool, workspace, gallery.id, "ready").await,
+        );
+
+        assert_eq!(gallery.hero_photo_id, None);
+
+        for expected in [Some(first), Some(second), None] {
+            let updated = store
+                .update(workspace, gallery.id, &hero(expected))
+                .await
+                .unwrap()
+                .unwrap();
+
+            assert_eq!(updated.hero_photo_id, expected);
+        }
+
+        store
+            .update(workspace, gallery.id, &hero(Some(first)))
+            .await
+            .unwrap();
+
+        let kept = store
+            .update(workspace, gallery.id, &changes(json!({"title": "Kept"})))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(kept.hero_photo_id, Some(first));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn hero_rejects_foreign_unknown_and_unready_photos(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let (mine, other) = (workspace(&pool).await, workspace(&pool).await);
+        let gallery = store.create(mine).await.unwrap();
+        let sibling = store.create(mine).await.unwrap();
+        let foreign_gallery = store.create(other).await.unwrap();
+        let ready = photo_in(&pool, mine, gallery.id, "ready").await;
+        let candidates = [
+            photo_in(&pool, mine, sibling.id, "ready").await,
+            photo_in(&pool, other, foreign_gallery.id, "ready").await,
+            photo_in(&pool, mine, gallery.id, "waiting").await,
+            photo_in(&pool, mine, gallery.id, "processing").await,
+            PhotoId::from(Uuid::new_v4()),
+        ];
+
+        store
+            .update(mine, gallery.id, &hero(Some(ready)))
+            .await
+            .unwrap();
+
+        for candidate in candidates {
+            let result = store
+                .update(mine, gallery.id, &hero(Some(candidate)))
+                .await
+                .unwrap();
+
+            assert_eq!(result, None);
+        }
+
+        let current = store.get(mine, gallery.id).await.unwrap().unwrap();
+
+        assert_eq!(current.hero_photo_id, Some(ready));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn deleting_the_hero_photo_clears_the_hero(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let gallery = store.create(workspace).await.unwrap();
+        let (hero_photo, other) = (
+            photo_in(&pool, workspace, gallery.id, "ready").await,
+            photo_in(&pool, workspace, gallery.id, "ready").await,
+        );
+
+        store
+            .update(workspace, gallery.id, &hero(Some(hero_photo)))
+            .await
+            .unwrap();
+        database
+            .repository::<PhotoRepository>()
+            .delete(workspace, gallery.id, &[hero_photo])
+            .await
+            .unwrap();
+
+        let current = store.get(workspace, gallery.id).await.unwrap().unwrap();
+
+        assert_eq!(current.hero_photo_id, None);
+        assert!(
+            database
+                .repository::<PhotoRepository>()
+                .get(workspace, gallery.id, other)
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn hero_can_change_after_sharing_and_clients_see_it_only_while_ready(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let id = store.create(workspace).await.unwrap().id;
+        let (first, second) = (
+            photo_in(&pool, workspace, id, "ready").await,
+            photo_in(&pool, workspace, id, "ready").await,
+        );
+        let token = store
+            .share(workspace, id)
+            .await
+            .unwrap()
+            .unwrap()
+            .share_token
+            .unwrap();
+
+        for expected in [Some(first), Some(second)] {
+            store.update(workspace, id, &hero(expected)).await.unwrap();
+
+            let shared = store.find_shared(&token).await.unwrap().unwrap();
+
+            assert_eq!(shared.gallery.hero_photo_id, expected);
+        }
+
+        sqlx::query("UPDATE photos SET status = 'processing' WHERE id = $1")
+            .bind(second)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let shared = store.find_shared(&token).await.unwrap().unwrap();
+
+        assert_eq!(shared.gallery.hero_photo_id, None);
     }
 
     #[sqlx::test(migrations = "./migrations")]
