@@ -287,6 +287,45 @@ describe('PhotosPanel', () => {
 		expect(queue.items.map((item) => item.file.name)).toEqual(['a.jpg']);
 	});
 
+	it('moves focus to the next tile, else the previous one, else Upload, when a file is removed', async () => {
+		stubApi([]);
+		const { queue } = setup();
+		const user = userEvent.setup();
+
+		await screen.findByText(/No photos yet/);
+		queue.add('g1', [jpeg('a.jpg'), jpeg('b.jpg'), jpeg('c.jpg')]);
+		await user.click(await screen.findByRole('button', { name: 'Remove b.jpg' }));
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Remove c.jpg' }))
+		);
+
+		await user.click(screen.getByRole('button', { name: 'Remove c.jpg' }));
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Remove a.jpg' }))
+		);
+
+		await user.click(screen.getByRole('button', { name: 'Remove a.jpg' }));
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole('button', { name: '+ Upload' }))
+		);
+	});
+
+	it('moves focus to the next tile once a deletion is confirmed', async () => {
+		stubApi([photo('p1'), photo('p2')]);
+		const user = userEvent.setup();
+
+		setup();
+		await user.click(await screen.findByRole('button', { name: 'Remove p1.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open p2.jpg' }))
+		);
+	});
+
 	it('asks before deleting a server photo, then deletes it', async () => {
 		const api = stubApi([photo('p1'), photo('p2')]);
 		const user = userEvent.setup();
