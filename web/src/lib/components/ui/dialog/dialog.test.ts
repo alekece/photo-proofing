@@ -56,4 +56,24 @@ describe('Dialog', () => {
 		expect(document.querySelector('dialog')).toBeNull();
 		expect(document.activeElement).toBe(opener);
 	});
+
+	it('opens non-modally when asked to', () => {
+		const showModal = vi.fn();
+		const show = vi.fn();
+		const proto = HTMLDialogElement.prototype;
+		proto.showModal = showModal;
+		proto.show = show;
+
+		try {
+			render(DialogHarness, { onclose: () => {}, modal: false });
+
+			expect(show).toHaveBeenCalledTimes(1);
+			expect(showModal).not.toHaveBeenCalled();
+		} finally {
+			// @ts-expect-error jsdom has neither method; restore that
+			delete proto.showModal;
+			// @ts-expect-error jsdom has neither method; restore that
+			delete proto.show;
+		}
+	});
 });

@@ -122,4 +122,24 @@ describe('ClientPreview', () => {
 		expect(onclose).not.toHaveBeenCalled();
 		expect(screen.queryByRole('dialog', { name: 'Proof viewer' })).toBeNull();
 	});
+
+	it('keeps the viewer inside the frame in Mobile view and over the page in Desktop view', async () => {
+		stub([photo('a')]);
+		const user = userEvent.setup();
+		render(ClientPreview, { gallery, onclose: () => {} });
+		await screen.findByRole('button', { name: /open proof 1 of 1/i });
+
+		await user.click(screen.getByRole('button', { name: /open proof 1 of 1/i }));
+		const desktopFrame = document.querySelector('[data-frame="desktop"]') as HTMLElement;
+		const viewer = () => screen.getByRole('dialog', { name: 'Proof viewer' });
+		expect(desktopFrame.contains(viewer())).toBe(true);
+		expect(viewer().classList.contains('absolute')).toBe(false);
+		await user.keyboard('{Escape}');
+
+		await user.click(screen.getByRole('button', { name: 'Mobile view' }));
+		await user.click(await screen.findByRole('button', { name: /open proof 1 of 1/i }));
+		const frame = document.querySelector('[data-frame="mobile"]') as HTMLElement;
+		expect(frame.contains(viewer())).toBe(true);
+		expect(viewer().classList.contains('absolute')).toBe(true);
+	});
 });

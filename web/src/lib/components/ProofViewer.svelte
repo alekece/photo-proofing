@@ -8,11 +8,14 @@
 		proofs,
 		index = $bindable(0),
 		class: className,
+		contained = false,
 		onclose
 	}: {
 		proofs: Proof[];
 		index?: number;
 		class?: string;
+		/** Opens inside the nearest positioned ancestor instead of over the whole page. */
+		contained?: boolean;
 		onclose: () => void;
 	} = $props();
 
@@ -71,9 +74,11 @@
 	{onclose}
 	{onkeydown}
 	label="Proof viewer"
+	modal={!contained}
 	aria-modal="true"
 	class={cn(
 		'm-0 h-dvh max-h-dvh w-screen max-w-screen border-0 bg-viewer p-4 text-viewer-foreground open:flex open:flex-col open:gap-4',
+		contained && 'absolute inset-0 h-full max-h-full w-full max-w-full',
 		className
 	)}
 >

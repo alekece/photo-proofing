@@ -16,7 +16,6 @@
 		{ id: 'desktop', label: 'Desktop view', icon: '🖥' },
 		{ id: 'mobile', label: 'Mobile view', icon: '📱' }
 	] as const;
-	const MOBILE_VIEWER = 'm-auto h-[min(100dvh,52rem)] w-[390px] max-w-full';
 
 	let view = $state<'desktop' | 'mobile'>('desktop');
 	let proofs = $state<Proof[]>([]);
@@ -94,21 +93,19 @@
 			<div
 				data-frame={view}
 				class={cn(
-					'bg-background',
-					view === 'mobile' &&
-						'mx-auto my-4 h-[min(100%,52rem)] w-[390px] max-w-full overflow-y-auto border'
+					'relative bg-background',
+					view === 'mobile' && 'mx-auto my-4 h-[min(100%,52rem)] w-[390px] max-w-full border'
 				)}
 			>
-				{#if failed}
-					<p role="alert" class="p-4 text-danger">Couldn’t load the photos. Close and try again.</p>
-				{:else if loaded}
-					<ClientGallery
-						{gallery}
-						{proofs}
-						preview
-						viewerClass={view === 'mobile' ? MOBILE_VIEWER : undefined}
-					/>
-				{/if}
+				<div class={cn(view === 'mobile' && 'h-full overflow-y-auto')}>
+					{#if failed}
+						<p role="alert" class="p-4 text-danger">
+							Couldn’t load the photos. Close and try again.
+						</p>
+					{:else if loaded}
+						<ClientGallery {gallery} {proofs} preview contained={view === 'mobile'} />
+					{/if}
+				</div>
 			</div>
 		</div>
 	{/snippet}

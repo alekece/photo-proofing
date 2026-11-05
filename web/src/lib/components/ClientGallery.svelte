@@ -9,14 +9,14 @@
 		gallery,
 		proofs = [],
 		preview = false,
-		viewerClass
+		contained = false
 	}: {
 		gallery: SharedGallery;
 		proofs?: Proof[];
 		/** The owner's read-only preview: marks the page and gates every write action. */
 		preview?: boolean;
-		/** Sizes the photo viewer, so a preview frame can keep it inside the frame. */
-		viewerClass?: string;
+		/** Opens the photo viewer inside the nearest positioned ancestor, e.g. a preview frame. */
+		contained?: boolean;
 	} = $props();
 	let viewerIndex = $state<number | null>(null);
 </script>
@@ -38,10 +38,5 @@
 	{/if}
 </main>
 {#if viewerIndex !== null}
-	<ProofViewer
-		{proofs}
-		bind:index={viewerIndex}
-		class={viewerClass}
-		onclose={() => (viewerIndex = null)}
-	/>
+	<ProofViewer {proofs} bind:index={viewerIndex} {contained} onclose={() => (viewerIndex = null)} />
 {/if}
