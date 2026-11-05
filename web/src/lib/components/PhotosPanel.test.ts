@@ -50,7 +50,7 @@ function fakeEvents() {
 /** Answers the photo routes like the API; `server` is what the list returns. */
 function stubApi(
 	server: Photo[],
-	answers: { delete?: number | Promise<number>; retry?: number } = {}
+	answers: { delete?: number | Promise<number>; retry?: number; list?: () => Promise<void> } = {}
 ) {
 	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
 		if (init?.method === 'DELETE') {
@@ -61,7 +61,11 @@ function stubApi(
 			return new Response(JSON.stringify({ requeued: 1 }), { status: answers.retry ?? 200 });
 		}
 
-		return new Response(JSON.stringify(server));
+		const listed = JSON.stringify(server);
+
+		await answers.list?.();
+
+		return new Response(listed);
 	});
 
 	vi.stubGlobal('fetch', fetcher);
@@ -448,6 +452,42 @@ describe('PhotosPanel', () => {
 		expect(screen.queryByRole('alert')).toBeNull();
 		expect(screen.getAllByRole('listitem')).toHaveLength(1);
 		expect(screen.queryByRole('button', { name: 'Open p2.jpg' })).toBeNull();
+	});
+
+	it('puts back a photo uploaded and deleted while a reload was pending when its deletion fails', async () => {
+		vi.useFakeTimers();
+		const answer = Promise.withResolvers<number>();
+		let listAnswer: PromiseWithResolvers<void> | undefined = undefined;
+		const api = stubApi([photo('p1')], {
+			delete: answer.promise,
+			list: () => listAnswer?.promise ?? Promise.resolve()
+		});
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
+		const { queue, pending, resync } = setup();
+
+		await screen.findByRole('button', { name: 'Open p1.jpg' });
+		listAnswer = Promise.withResolvers<void>();
+		await vi.advanceTimersByTimeAsync(1000);
+		resync();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(api.lists()).toBe(2);
+
+		// A second upload keeps the gallery busy, so finishing the first doesn't refetch.
+		queue.add('g1', [jpeg('new.jpg'), jpeg('next.jpg')]);
+		await vi.advanceTimersByTimeAsync(0);
+		pending[0]({ kind: 'created', photo: photo('new', 'waiting') });
+		await vi.advanceTimersByTimeAsync(0);
+		await user.click(await screen.findByRole('button', { name: 'Remove new.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		listAnswer.resolve();
+		await vi.advanceTimersByTimeAsync(0);
+		answer.resolve(500);
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(screen.getByRole('alert').textContent).toMatch(/Couldn’t delete new\.jpg/);
+		expect(tile('new.jpg').textContent).toContain('Waiting to process');
+		expect(api.lists()).toBe(2);
 	});
 
 	it('goes to sign-in when a deletion finds the session ended', async () => {

@@ -134,8 +134,11 @@
 
 			if (current !== loads) return;
 
-			for (const id of deleting.keys()) {
-				deleting.set(id, listed.find((photo) => photo.id === id) ?? null);
+			// A photo uploaded after the list was requested may be missing from it, not gone.
+			for (const [id, known] of deleting) {
+				const fresh = listed.find((photo) => photo.id === id);
+
+				deleting.set(id, fresh ?? (uploadedDuringLoad.has(id) ? known : null));
 			}
 
 			const missing = photos.filter(
