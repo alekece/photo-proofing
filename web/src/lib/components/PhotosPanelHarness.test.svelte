@@ -3,8 +3,17 @@
 	import { setUploadQueue, type UploadQueue } from '#lib/gallery/uploads.svelte.js';
 	import PhotosPanel from './PhotosPanel.svelte';
 
-	let { galleryId, queue, events }: { galleryId: string; queue: UploadQueue; events: LiveEvents } =
-		$props();
+	let {
+		galleryId,
+		queue,
+		events,
+		heroPhotoId = $bindable(null)
+	}: {
+		galleryId: string;
+		queue: UploadQueue;
+		events: LiveEvents;
+		heroPhotoId?: string | null;
+	} = $props();
 
 	// svelte-ignore state_referenced_locally
 	setUploadQueue(queue);
@@ -12,4 +21,4 @@
 	setLiveEvents(events);
 </script>
 
-<PhotosPanel {galleryId} />
+<PhotosPanel {galleryId} bind:heroPhotoId />

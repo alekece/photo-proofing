@@ -101,7 +101,9 @@
 		</div>
 	</fieldset>
 
-	<p class="text-sm text-muted-foreground">Hero photo: set once photos are added.</p>
+	<p class="text-sm text-muted-foreground">
+		Star a photo in the Photos tab to make it the hero photo.
+	</p>
 
 	<div class="grid gap-2">
 		<Label for="expiry" class="text-sm">Expiry</Label>

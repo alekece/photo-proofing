@@ -18,6 +18,7 @@
 	import Select from '#lib/components/ui/select/select.svelte';
 	import { parseGallerySort, type GalleryState } from '#lib/gallery/schemas.js';
 	import { STATE_LABELS, splitStates } from '#lib/gallery/states.js';
+	import { previewUrl } from '#lib/gallery/photos.js';
 	import { formatEdited, UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
 
@@ -126,7 +127,16 @@
 						class="block text-foreground no-underline outline-none"
 					>
 						<div class="aspect-[3/2]">
-							<Placeholder background="sheet" icon label="Your hero photo will appear here" />
+							{#if gallery.hero_photo_id}
+								<img
+									src={previewUrl(gallery.id, gallery.hero_photo_id)}
+									alt=""
+									loading="lazy"
+									class="size-full object-cover"
+								/>
+							{:else}
+								<Placeholder background="sheet" icon label="Your hero photo will appear here" />
+							{/if}
 						</div>
 						<div class="grid gap-1 p-4">
 							<h2 class="truncate text-base" class:text-muted-foreground={gallery.title === null}>

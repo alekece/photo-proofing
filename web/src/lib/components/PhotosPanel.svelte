@@ -8,7 +8,7 @@
 	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
 	import { getLiveEvents, type PhotoChange, type PhotoEvent } from '#lib/events.js';
-	import { GalleryApiError } from '#lib/gallery/api.js';
+	import { GalleryApiError, updateGallery } from '#lib/gallery/api.js';
 	import {
 		BULK_DELETE_LIMIT,
 		deletePhoto,
@@ -23,7 +23,10 @@
 	import type { Proof } from '#lib/gallery/types.js';
 	import { getUploadQueue, type QueueState } from '#lib/gallery/uploads.svelte.js';
 
-	let { galleryId }: { galleryId: string } = $props();
+	let {
+		galleryId,
+		heroPhotoId = $bindable(null)
+	}: { galleryId: string; heroPhotoId?: string | null } = $props();
 
 	/** Event storms and resyncs refetch the list at most this often. */
 	const REFRESH_INTERVAL_MS = 1000;
@@ -126,6 +129,42 @@
 			.filter(([n]) => n > 0)
 			.map(([n, label]) => `${n} ${label}`)
 			.join(', ');
+	});
+
+	let savingHero = false;
+
+	/** Stars `photo`, or clears the star when it already is the hero; the old hero stays on failure. */
+	async function toggleHero(photo: Photo) {
+		if (savingHero) return;
+
+		const target = photo.id === heroPhotoId ? null : photo.id;
+		const id = galleryId;
+
+		savingHero = true;
+		alert = '';
+
+		try {
+			const gallery = await updateGallery(id, { hero_photo_id: target });
+
+			if (galleryId === id) heroPhotoId = gallery.hero_photo_id;
+		} catch (cause) {
+			if (cause instanceof GalleryApiError && cause.status === 401) {
+				await signedOut();
+
+				return;
+			}
+
+			if (galleryId === id) alert = 'Couldn’t update the hero photo. Please try again.';
+		} finally {
+			savingHero = false;
+		}
+	}
+
+	// A deleted photo cannot stay the hero; the server clears it the same way.
+	$effect(() => {
+		if (loaded && heroPhotoId !== null && !photos.some(({ id }) => id === heroPhotoId)) {
+			heroPhotoId = null;
+		}
 	});
 
 	async function signedOut() {
@@ -568,6 +607,8 @@
 						onremove={() => (confirming = photo)}
 						onretry={() => retry(photo)}
 						onopen={() => open(photo)}
+						hero={photo.id === heroPhotoId}
+						onhero={() => toggleHero(photo)}
 						onselect={selecting ? () => toggle(photo.id) : undefined}
 					/>
 				</li>

@@ -21,6 +21,7 @@ const gallery = (over: Partial<Gallery> = {}): Gallery => ({
 	expires_at: null,
 	included_photos: null,
 	watermark_enabled: false,
+	hero_photo_id: null,
 	share_token: null,
 	states: ['draft'],
 	created_at: '2026-01-01T10:00:00Z',
@@ -61,6 +62,18 @@ describe('dashboard', () => {
 		await userEvent.setup().selectOptions(screen.getByLabelText('Sort by'), 'title');
 		expect(goto).toHaveBeenCalledWith('?sort=title', expect.anything());
 		expect((await axe(container)).violations).toEqual([]);
+	});
+
+	it('shows the hero preview on the card, else the placeholder', () => {
+		const { container } = render(Dashboard, {
+			props: props([gallery({ hero_photo_id: 'p1' }), gallery({ id: 'g2', title: 'Plain' })])
+		});
+		const images = [...container.querySelectorAll('img')];
+
+		expect(images.map((img) => img.getAttribute('src'))).toEqual([
+			'/api/v1/galleries/g1/photos/p1/preview'
+		]);
+		expect(screen.getAllByText('Your hero photo will appear here')).toHaveLength(1);
 	});
 
 	it('shows the untitled text for a gallery without a title', () => {

@@ -24,6 +24,7 @@ const base: Gallery = {
 	expires_at: null,
 	included_photos: 5,
 	watermark_enabled: false,
+	hero_photo_id: null,
 	share_token: null,
 	states: ['draft'],
 	created_at: '2026-01-01T10:00:00Z',
