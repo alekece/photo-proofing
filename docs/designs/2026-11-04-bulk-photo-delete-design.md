@@ -52,7 +52,7 @@ My calls (to check while reading):
   open. Delete is disabled with nothing selected and opens the existing `Dialog`: "Delete n
   photos? This can't be undone."
 - **Route.** `POST /api/v1/galleries/{id}/photos/delete` with `{"photo_ids": [...]}` (session and
-  ownership), answering `{"count": n}`. Ids outside this workspace and gallery, or already gone,
+  ownership), answering `{"deleted": n}`. Ids outside this workspace and gallery, or already gone,
   are ignored rather than failing the request, so a selection racing another tab still succeeds;
   a repeated id counts once. An empty list or more than 1000 ids is 400; a body that is not a
   list of UUIDs is rejected like any JSON body (400 when malformed, 422 for a wrong type), with a

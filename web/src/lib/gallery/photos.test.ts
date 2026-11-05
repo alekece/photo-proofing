@@ -96,7 +96,7 @@ describe('photo requests', () => {
 
 	it('deletes and retries one photo', async () => {
 		const deleted = respond(204);
-		const retried = respond(200, { count: 1 });
+		const retried = respond(200, { requeued: 1 });
 
 		await deletePhoto('g1', 'p 1', deleted);
 		await retryPhoto('g1', 'p 1', retried);
@@ -112,7 +112,7 @@ describe('photo requests', () => {
 	});
 
 	it('deletes several photos in one request', async () => {
-		const fetcher = respond(200, { count: 2 });
+		const fetcher = respond(200, { deleted: 2 });
 
 		expect(await deletePhotos('g 1', ['p1', 'p2'], fetcher)).toBe(2);
 		expect(fetcher).toHaveBeenCalledWith('/api/v1/galleries/g%201/photos/delete', {

@@ -48,12 +48,12 @@ pub fn configure(cfg: &mut ServiceConfig) {
 
 #[derive(Serialize)]
 struct RequeuedPhotos {
-    count: u64,
+    requeued: u64,
 }
 
 #[derive(Serialize)]
 struct DeletedPhotos {
-    count: usize,
+    deleted: usize,
 }
 
 /// Body of a bulk delete: between one and [`PhotoSelection::MAX_LEN`] photo ids.
@@ -135,7 +135,7 @@ async fn retry_gallery(
 
     Ok(HttpResponse::Ok()
         .no_store()
-        .json(RequeuedPhotos { count: requeued }))
+        .json(RequeuedPhotos { requeued }))
 }
 
 #[post("/{id}/photos/{photo_id}/retry")]
@@ -154,7 +154,7 @@ async fn retry_photo(
 
     Ok(HttpResponse::Ok()
         .no_store()
-        .json(RequeuedPhotos { count: requeued }))
+        .json(RequeuedPhotos { requeued }))
 }
 
 /// Deletes a photo whatever its status, then its files. The deletion stands once committed:
@@ -226,7 +226,7 @@ async fn delete_photos(
     }
 
     Ok(HttpResponse::Ok().no_store().json(DeletedPhotos {
-        count: deleted_ids.len(),
+        deleted: deleted_ids.len(),
     }))
 }
 
@@ -1218,7 +1218,7 @@ pub(crate) mod tests {
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, serde_json::json!({"count": 2}));
+        assert_eq!(body, serde_json::json!({"requeued": 2}));
 
         for id in &failed {
             assert_eq!(photo_status(&pool, id).await, PhotoStatus::Waiting);
@@ -1233,7 +1233,7 @@ pub(crate) mod tests {
         )
         .await;
 
-        assert_eq!(body, serde_json::json!({"count": 0}));
+        assert_eq!(body, serde_json::json!({"requeued": 0}));
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -1255,7 +1255,7 @@ pub(crate) mod tests {
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, serde_json::json!({"count": 1}));
+        assert_eq!(body, serde_json::json!({"requeued": 1}));
         assert_eq!(photo_status(&pool, &target).await, PhotoStatus::Waiting);
         assert!(matches!(
             photo_status(&pool, &other).await,
@@ -1653,7 +1653,7 @@ pub(crate) mod tests {
         assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
         assert_eq!(
             test::read_body_json::<Value, _>(response).await,
-            json!({ "count": 3 })
+            json!({ "deleted": 3 })
         );
 
         let tests = Database::new(pool.clone());
@@ -1689,7 +1689,7 @@ pub(crate) mod tests {
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, json!({ "count": 1 }));
+        assert_eq!(body, json!({ "deleted": 1 }));
         assert_eq!(photo_status(&pool, &other).await, PhotoStatus::Waiting);
         assert_eq!(photo_files(directory.path(), &other).len(), 1);
     }
@@ -1711,7 +1711,7 @@ pub(crate) mod tests {
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, json!({ "count": 0 }));
+        assert_eq!(body, json!({ "deleted": 0 }));
 
         for (body, expected) in [
             (photo_ids(&ids(1001)), StatusCode::BAD_REQUEST),

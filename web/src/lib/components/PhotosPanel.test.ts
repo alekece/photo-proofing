@@ -67,11 +67,11 @@ function stubApi(
 		if (init?.method === 'POST' && url.endsWith('/photos/delete')) {
 			const ids: string[] = JSON.parse(String(init.body)).photo_ids;
 
-			return answers.bulk?.(ids) ?? Response.json({ count: ids.length });
+			return answers.bulk?.(ids) ?? Response.json({ deleted: ids.length });
 		}
 
 		if (init?.method === 'POST') {
-			return new Response(JSON.stringify({ count: 1 }), { status: answers.retry ?? 200 });
+			return new Response(JSON.stringify({ requeued: 1 }), { status: answers.retry ?? 200 });
 		}
 
 		return new Response(JSON.stringify(server));
@@ -500,7 +500,7 @@ describe('PhotosPanel', () => {
 				bulk: (ids) =>
 					ids.length === 2
 						? new Promise((resolve) => (answer = resolve))
-						: Response.json({ count: ids.length })
+						: Response.json({ deleted: ids.length })
 			});
 			const user = userEvent.setup();
 
@@ -512,7 +512,7 @@ describe('PhotosPanel', () => {
 
 			await waitFor(() => expect(api.bulk()).toEqual([['p1', 'p2']]));
 
-			answer(Response.json({ count: 2 }));
+			answer(Response.json({ deleted: 2 }));
 
 			await waitFor(() => expect(api.bulk()).toEqual([['p1', 'p2'], ['p3']]));
 			await waitFor(() => expect(screen.queryByText(/selected/)).toBeNull());
@@ -526,7 +526,7 @@ describe('PhotosPanel', () => {
 
 					server.splice(0, ids.length);
 
-					return Response.json({ count: ids.length });
+					return Response.json({ deleted: ids.length });
 				}
 			});
 			const user = userEvent.setup();
