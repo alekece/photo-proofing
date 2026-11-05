@@ -155,6 +155,29 @@ impl PhotoStorage {
     pub async fn remove(&self, key: &PhotoKey) -> Result<(), StorageError> {
         Ok(fs::remove_file(key.path(&self.root)).await?)
     }
+
+    /// Deletes every file of the given photos, going on past failures. A file already gone
+    /// counts as removed; the others that could not be removed are returned with their error.
+    pub async fn remove_many(
+        &self,
+        location: PhotoLocation,
+        photos: &[PhotoId],
+    ) -> Vec<(PhotoKey, StorageError)> {
+        let mut failures = Vec::new();
+
+        for &photo in photos {
+            for variant in [Variant::Original, Variant::Thumbnail, Variant::Preview] {
+                let key = PhotoKey::with_location(location, photo, variant);
+
+                match self.remove(&key).await {
+                    Ok(()) | Err(StorageError::NotFound) => {}
+                    Err(error) => failures.push((key, error)),
+                }
+            }
+        }
+
+        failures
+    }
 }
 
 /// A file being written. Dropping it, committed or not, deletes its temp file.
@@ -539,6 +562,37 @@ mod tests {
             storage.remove(&key).await,
             Err(StorageError::NotFound)
         ));
+    }
+
+    #[tokio::test]
+    async fn remove_many_deletes_every_file_of_the_photos() {
+        let (dir, storage) = storage().await;
+        let location = PhotoLocation {
+            workspace_id: WorkspaceId(Uuid::new_v4()),
+            gallery_id: GalleryId(Uuid::new_v4()),
+        };
+        let removed: PhotoId = Uuid::new_v4().into();
+        let kept: PhotoId = Uuid::new_v4().into();
+
+        for variant in [Variant::Original, Variant::Thumbnail] {
+            store(
+                &storage,
+                &PhotoKey::with_location(location, removed, variant),
+                b"x",
+            )
+            .await;
+        }
+
+        let kept_key = PhotoKey::with_location(location, kept, Variant::Original);
+
+        store(&storage, &kept_key, b"x").await;
+
+        assert!(storage.remove_many(location, &[removed]).await.is_empty());
+        assert_eq!(read_all(&storage, &kept_key).await, b"x");
+        assert_eq!(
+            std_fs::read_dir(kept_key.dir(dir.path())).unwrap().count(),
+            1
+        );
     }
 
     #[test]

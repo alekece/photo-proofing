@@ -3,14 +3,17 @@
 //! Uploads check workspace access and request limits before consuming the body, stage bytes in
 //! storage, inspect only JPEG metadata, then publish the unchanged original and atomically record
 //! its photo/job pair. Listing checks gallery ownership before returning its ordered photo states.
-//! Retries requeue failed photos. Deleting a photo is accepted whatever its status and removes
-//! its jobs, then its files. Only the thumbnail and preview of a ready photo are served;
-//! no route reads the original.
+//! Retries requeue failed photos. Deleting photos, one or up to a thousand at once, is accepted
+//! whatever their status and removes their jobs, then their files. Only the thumbnail and preview
+//! of a ready photo are served; no route reads the original.
 
 use actix_web::{
-    HttpRequest, HttpResponse, delete, get, post,
-    web::{self, Data, Path as WebPath, ServiceConfig},
+    FromRequest, HttpRequest, HttpResponse, delete,
+    dev::Payload,
+    get, post,
+    web::{self, Data, JsonBody, Path as WebPath, ServiceConfig},
 };
+use futures_util::future::LocalBoxFuture;
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
     gallery::{GalleryId, GalleryRepository},
@@ -19,7 +22,7 @@ use pp_database::{
     photo_retry::PhotoRetry,
 };
 use pp_storage::{PhotoKey, StorageError, Variant};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::DerivativePhoto;
 use crate::{
@@ -32,8 +35,10 @@ use crate::{
 
 /// Registers photo routes inside the `/api/v1/galleries` scope.
 pub fn configure(cfg: &mut ServiceConfig) {
-    // The literal `retry` segment is registered before the `{photo_id}` routes it would match.
-    cfg.service(upload_photo)
+    // The literal `delete` and `retry` segments are registered before the `{photo_id}` routes
+    // they would match.
+    cfg.service(delete_photos)
+        .service(upload_photo)
         .service(list_photos)
         .service(retry_gallery)
         .service(retry_photo)
@@ -42,8 +47,50 @@ pub fn configure(cfg: &mut ServiceConfig) {
 }
 
 #[derive(Serialize)]
-struct Requeued {
+struct RequeuedPhotos {
     requeued: u64,
+}
+
+#[derive(Serialize)]
+struct DeletedPhotos {
+    deleted: usize,
+}
+
+/// Body of a bulk delete: between one and [`PhotoSelection::MAX_LEN`] photo ids.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PhotoSelection {
+    photo_ids: Vec<PhotoId>,
+}
+
+impl PhotoSelection {
+    /// Most photos one bulk delete accepts. Clients split larger selections by it, so it is part
+    /// of the API contract rather than a deployment setting.
+    const MAX_LEN: usize = 1000;
+
+    /// Fits [`Self::MAX_LEN`] ids, at 39 bytes each, with room for whitespace.
+    const JSON_LIMIT: usize = 64 * 1024;
+}
+
+/// Reads the body with its own size limit, larger than the shared JSON one, and rejects an
+/// empty or oversized selection as a bad request.
+impl FromRequest for PhotoSelection {
+    type Error = ErrorResponse;
+    type Future = LocalBoxFuture<'static, Result<Self, ErrorResponse>>;
+
+    fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let body = JsonBody::<Self>::new(request, payload, None, true).limit(Self::JSON_LIMIT);
+
+        Box::pin(async move {
+            let selection = body.await?;
+
+            if selection.photo_ids.is_empty() || selection.photo_ids.len() > Self::MAX_LEN {
+                return Err(ErrorResponse::bad_request());
+            }
+
+            Ok(selection)
+        })
+    }
 }
 
 #[get("/{id}/photos")]
@@ -86,7 +133,9 @@ async fn retry_gallery(
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(HttpResponse::Ok().no_store().json(Requeued { requeued }))
+    Ok(HttpResponse::Ok()
+        .no_store()
+        .json(RequeuedPhotos { requeued }))
 }
 
 #[post("/{id}/photos/{photo_id}/retry")]
@@ -103,7 +152,9 @@ async fn retry_photo(
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(HttpResponse::Ok().no_store().json(Requeued { requeued }))
+    Ok(HttpResponse::Ok()
+        .no_store()
+        .json(RequeuedPhotos { requeued }))
 }
 
 /// Deletes a photo whatever its status, then its files. The deletion stands once committed:
@@ -116,11 +167,12 @@ async fn delete_photo(
 ) -> Result<HttpResponse, ErrorResponse> {
     let (gallery_id, photo_id) = path.into_inner();
 
-    if !state
+    if state
         .database()
         .repository::<PhotoRepository>()
-        .delete(identity.workspace_id, gallery_id, photo_id)
+        .delete(identity.workspace_id, gallery_id, &[photo_id])
         .await?
+        .is_empty()
     {
         return Err(ErrorResponse::not_found());
     }
@@ -130,20 +182,52 @@ async fn delete_photo(
         gallery_id,
     };
 
-    for variant in [Variant::Original, Variant::Thumbnail, Variant::Preview] {
-        match state
-            .storage()
-            .remove(&PhotoKey::with_location(location, photo_id, variant))
-            .await
-        {
-            Ok(()) | Err(StorageError::NotFound) => {}
-            Err(error) => {
-                tracing::error!(%error, %photo_id, %variant, "failed to remove a deleted photo's file");
-            }
-        }
+    for (key, error) in state.storage().remove_many(location, &[photo_id]).await {
+        tracing::error!(%error, ?key, "failed to remove a deleted photo's file");
     }
 
     Ok(HttpResponse::NoContent().no_store().finish())
+}
+
+/// Deletes several photos of a gallery whatever their status, then their files. Ids outside the
+/// gallery or already gone are ignored and not counted; a file that cannot be removed is only
+/// logged.
+#[post("/{id}/photos/delete")]
+async fn delete_photos(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    id: WebPath<GalleryId>,
+    selection: PhotoSelection,
+) -> Result<HttpResponse, ErrorResponse> {
+    let gallery_id = id.into_inner();
+
+    if state
+        .database()
+        .repository::<GalleryRepository>()
+        .get(identity.workspace_id, gallery_id)
+        .await?
+        .is_none()
+    {
+        return Err(ErrorResponse::not_found());
+    }
+
+    let deleted_ids = state
+        .database()
+        .repository::<PhotoRepository>()
+        .delete(identity.workspace_id, gallery_id, &selection.photo_ids)
+        .await?;
+    let location = PhotoLocation {
+        workspace_id: identity.workspace_id,
+        gallery_id,
+    };
+
+    for (key, error) in state.storage().remove_many(location, &deleted_ids).await {
+        tracing::error!(%error, ?key, "failed to remove a deleted photo's file");
+    }
+
+    Ok(HttpResponse::Ok().no_store().json(DeletedPhotos {
+        deleted: deleted_ids.len(),
+    }))
 }
 
 /// Serves a derivative of a ready photo; anything else, including a file removed meanwhile,
@@ -268,7 +352,7 @@ async fn upload_photo(
 pub(super) mod tests {
     use std::{
         fs,
-        num::NonZeroUsize,
+        num::{NonZeroU32, NonZeroU64, NonZeroUsize},
         path::{Path, PathBuf},
         time::Duration,
     };
@@ -284,12 +368,13 @@ pub(super) mod tests {
     };
     use futures_util::stream;
     use libvips::ops::{black, jpegsave_buffer};
-    use pp_core::notifications::PhotoId;
+    use pp_core::{notifications::PhotoId, types::generate::Generate};
     use pp_database::{
         Database,
         gallery::{GalleryId, GalleryRepository},
         jobs::{JobKind, JobRepository, JobState, PhotoResult, PhotoUpdate, ProcessPhoto},
-        photo::{PhotoRepository, PhotoStatus},
+        photo::{NewPhoto, PhotoDimensions, PhotoRepository, PhotoStatus},
+        photo_intake::PhotoIntake,
         tests::TestRepository,
     };
     use serde_json::{Value, json};
@@ -1464,5 +1549,240 @@ pub(super) mod tests {
 
         assert_eq!(photo_status(&pool, &photo).await, PhotoStatus::Waiting);
         assert_eq!(photo_files(directory.path(), &photo).len(), 1);
+    }
+
+    fn bulk_delete_request(
+        cookie: Option<&Cookie<'static>>,
+        gallery_id: &str,
+        body: impl Into<String>,
+    ) -> actix_http::Request {
+        let request = test::TestRequest::post()
+            .uri(&format!("/api/v1/galleries/{gallery_id}/photos/delete"))
+            .insert_header(("Origin", ORIGIN))
+            .insert_header(("Content-Type", "application/json"))
+            .set_payload(body.into());
+
+        match cookie {
+            Some(cookie) => request.cookie(cookie.clone()).to_request(),
+            None => request.to_request(),
+        }
+    }
+
+    fn photo_ids(ids: &[impl AsRef<str>]) -> String {
+        json!({ "photo_ids": ids.iter().map(AsRef::as_ref).collect::<Vec<_>>() }).to_string()
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn bulk_delete_removes_photos_jobs_and_files(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let mut photos = Vec::new();
+
+        for progress in [Progress::Processing, Progress::Ready, Progress::Failed] {
+            photos.push(photo_in(&app, &pool, &cookie, &gallery_id, progress).await);
+        }
+
+        photos.push(waiting_photo(&app, &cookie, &gallery_id).await);
+
+        for photo in &photos {
+            for variant in ["thumbnail", "preview"] {
+                store_derivative(&pool, directory.path(), photo, variant).await;
+            }
+        }
+
+        let kept = photos.pop().unwrap();
+        let response = test::call_service(
+            &app,
+            bulk_delete_request(Some(&cookie), &gallery_id, photo_ids(&photos)),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
+        assert_eq!(
+            test::read_body_json::<Value, _>(response).await,
+            json!({ "deleted": 3 })
+        );
+
+        let tests = Database::new(pool.clone());
+        let tests = tests.repository::<TestRepository>();
+
+        for photo in &photos {
+            assert!(photo_files(directory.path(), photo).is_empty());
+            assert!(tests.photo_jobs(photo_id(photo)).await.unwrap().is_empty());
+        }
+
+        assert_eq!(photo_files(directory.path(), &kept).len(), 3);
+        assert_eq!(photo_status(&pool, &kept).await, PhotoStatus::Waiting);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn bulk_delete_ignores_foreign_unknown_and_repeated_ids(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let other_gallery = create_gallery(&app, &cookie).await;
+        let own = waiting_photo(&app, &cookie, &gallery_id).await;
+        let other = waiting_photo(&app, &cookie, &other_gallery).await;
+        let unknown = Uuid::new_v4().to_string();
+        let (status, body) = call_request(
+            &app,
+            bulk_delete_request(
+                Some(&cookie),
+                &gallery_id,
+                photo_ids(&[&own, &own, &other, &unknown]),
+            ),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, json!({ "deleted": 1 }));
+        assert_eq!(photo_status(&pool, &other).await, PhotoStatus::Waiting);
+        assert_eq!(photo_files(directory.path(), &other).len(), 1);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn bulk_delete_leaves_another_workspace_photo_untouched(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let database = Database::new(pool.clone());
+        let foreign_workspace = other_workspace(&pool).await;
+        let foreign_gallery = database
+            .repository::<GalleryRepository>()
+            .create(foreign_workspace)
+            .await
+            .unwrap();
+        let foreign_photo = PhotoId::generate();
+
+        database
+            .repository::<PhotoIntake>()
+            .try_accept(NewPhoto {
+                id: foreign_photo,
+                workspace_id: foreign_workspace,
+                gallery_id: foreign_gallery.id,
+                original_name: "foreign.jpg".to_owned(),
+                size: NonZeroU64::new(1024).unwrap(),
+                dimensions: PhotoDimensions {
+                    width: NonZeroU32::new(2).unwrap(),
+                    height: NonZeroU32::new(1).unwrap(),
+                },
+            })
+            .await
+            .unwrap()
+            .unwrap();
+
+        let foreign_photo = foreign_photo.to_string();
+        let (status, body) = call_request(
+            &app,
+            bulk_delete_request(Some(&cookie), &gallery_id, photo_ids(&[&foreign_photo])),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, json!({ "deleted": 0 }));
+        assert_eq!(
+            photo_status(&pool, &foreign_photo).await,
+            PhotoStatus::Waiting
+        );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn bulk_delete_accepts_1000_ids_and_rejects_more(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let ids = |count: usize| -> Vec<String> {
+            (0..count).map(|_| Uuid::new_v4().to_string()).collect()
+        };
+        let pretty = serde_json::to_string_pretty(&json!({ "photo_ids": ids(1000) })).unwrap();
+        let (status, body) = call_request(
+            &app,
+            bulk_delete_request(Some(&cookie), &gallery_id, pretty),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, json!({ "deleted": 0 }));
+
+        for (body, expected) in [
+            (photo_ids(&ids(1001)), StatusCode::BAD_REQUEST),
+            (photo_ids(&ids(0)), StatusCode::BAD_REQUEST),
+            ("not json".to_owned(), StatusCode::BAD_REQUEST),
+            (
+                json!({ "photo_ids": "x" }).to_string(),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (photo_ids(&["not-a-uuid"]), StatusCode::UNPROCESSABLE_ENTITY),
+        ] {
+            let (status, _) = call_request(
+                &app,
+                bulk_delete_request(Some(&cookie), &gallery_id, body.clone()),
+            )
+            .await;
+
+            assert_eq!(status, expected, "{body:.40}");
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn bulk_delete_requires_a_json_content_type(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = waiting_photo(&app, &cookie, &gallery_id).await;
+        let request = test::TestRequest::post()
+            .uri(&format!("/api/v1/galleries/{gallery_id}/photos/delete"))
+            .insert_header(("Origin", ORIGIN))
+            .insert_header(("Content-Type", "text/plain"))
+            .cookie(cookie)
+            .set_payload(photo_ids(&[&photo]))
+            .to_request();
+        let (status, _) = call_request(&app, request).await;
+
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        assert_eq!(photo_status(&pool, &photo).await, PhotoStatus::Waiting);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn bulk_delete_requires_authentication_and_ownership(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = waiting_photo(&app, &cookie, &gallery_id).await;
+        let foreign_gallery = Database::new(pool.clone())
+            .repository::<GalleryRepository>()
+            .create(other_workspace(&pool).await)
+            .await
+            .unwrap()
+            .id
+            .0
+            .to_string();
+        let (status, _) = call_request(
+            &app,
+            bulk_delete_request(None, &gallery_id, photo_ids(&[&photo])),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        for gallery in [foreign_gallery, Uuid::new_v4().to_string()] {
+            let (status, _) = call_request(
+                &app,
+                bulk_delete_request(Some(&cookie), &gallery, photo_ids(&[&photo])),
+            )
+            .await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND, "{gallery}");
+        }
+
+        assert_eq!(photo_status(&pool, &photo).await, PhotoStatus::Waiting);
     }
 }

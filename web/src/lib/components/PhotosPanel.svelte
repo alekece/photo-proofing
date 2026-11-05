@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { tick, untrack } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import PhotoTile, { type TileState } from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
@@ -9,7 +10,9 @@
 	import { getLiveEvents, type PhotoChange, type PhotoEvent } from '#lib/events.js';
 	import { GalleryApiError } from '#lib/gallery/api.js';
 	import {
+		BULK_DELETE_LIMIT,
 		deletePhoto,
+		deletePhotos,
 		listPhotos,
 		previewUrl,
 		retryPhoto,
@@ -36,8 +39,14 @@
 	let viewIndex = $state(0);
 	let dragging = $state(false);
 	let picker = $state<HTMLInputElement | null>(null);
+	let selecting = $state(false);
+	let confirmingSelection = $state(false);
+	/** A one-off message, and the summary it went out with: it is cleared when that changes. */
+	let announcement = $state<{ text: string; summary: string } | null>(null);
+	let selectButton = $state<HTMLButtonElement | null>(null);
 	let uploadButton = $state<HTMLElement | null>(null);
 	let grid = $state<HTMLUListElement | null>(null);
+	const selected = new SvelteSet<string>();
 
 	// Bookkeeping that nothing renders, so plain collections on purpose.
 	// Photos whose deletion is pending, as last known, or `null` once known to be gone.
@@ -49,6 +58,9 @@
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const uploadedDuringLoad = new Set<string>();
 	let loads = 0;
+	// Bumped whenever the panel stops showing a gallery, by a change of gallery or unmounting.
+	let shown = 0;
+	let destroyed = false;
 	let lastLoadAt = -Infinity;
 	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 	let wasInFlight = 0;
@@ -84,6 +96,8 @@
 	const withRecentChange = (photo: Photo) => (deleting.has(photo.id) ? null : changed(photo));
 
 	const queued = $derived(queue.forGallery(galleryId));
+	// Photos deleted meanwhile drop out, so the confirmed count is what is sent.
+	const selection = $derived(photos.filter(({ id }) => selected.has(id)));
 	const ready = $derived(photos.filter(({ status }) => status === 'ready'));
 	const proofs = $derived<Proof[]>(
 		ready.map(({ id, original_name, width, height }) => ({
@@ -102,6 +116,7 @@
 		];
 		const count = (...kinds: TileState[]) => states.filter((state) => kinds.includes(state)).length;
 		const parts = [
+			[selecting ? selection.length : 0, 'selected'],
 			[count('waiting-upload', 'uploading'), 'uploading'],
 			[count('waiting-process', 'processing'), 'processing'],
 			[count('upload-failed', 'rejected', 'process-failed'), 'failed']
@@ -145,7 +160,7 @@
 				(photo) => uploadedDuringLoad.has(photo.id) && !listed.some(({ id }) => id === photo.id)
 			);
 
-			photos = [...listed, ...missing].map(withRecentChange).filter((photo) => photo !== null);
+			photos = withRecentChanges([...listed, ...missing]);
 		} catch (cause) {
 			if (current !== loads) return;
 
@@ -196,6 +211,12 @@
 		}
 	}
 
+	onDestroy(() => (destroyed = true));
+
+	$effect(() => {
+		if (announcement && announcement.summary !== summary) announcement = null;
+	});
+
 	$effect(() => {
 		const id = galleryId;
 
@@ -203,6 +224,8 @@
 			photos = [];
 			loaded = false;
 			alert = '';
+			announcement = null;
+			leaveSelectMode();
 			void load();
 		});
 
@@ -221,6 +244,7 @@
 		];
 
 		return () => {
+			shown++;
 			clearTimeout(refreshTimer);
 			refreshTimer = undefined;
 
@@ -326,11 +350,158 @@
 		}
 	}
 
+	function leaveSelectMode() {
+		selecting = false;
+		selected.clear();
+	}
+
+	/** Leaves select mode from its own controls, which vanish, so focus lands back on Select. */
+	async function finishSelecting() {
+		leaveSelectMode();
+		await tick();
+		(selectButton?.disabled ? uploadButton : selectButton)?.focus();
+	}
+
+	function toggle(id: string) {
+		if (!selected.delete(id)) selected.add(id);
+	}
+
+	/** Selects the server photos shown now; later arrivals stay unselected. */
+	function selectAll() {
+		for (const { id } of photos) selected.add(id);
+	}
+
+	/** Whether the key belongs to a field being typed in; tile checkboxes keep the shortcuts. */
+	function typing(target: EventTarget | null) {
+		if (!(target instanceof HTMLElement)) return false;
+
+		if (target instanceof HTMLInputElement) return target.type !== 'checkbox';
+
+		return (
+			target instanceof HTMLTextAreaElement ||
+			target instanceof HTMLSelectElement ||
+			target.isContentEditable
+		);
+	}
+
+	function onkeydown(event: KeyboardEvent) {
+		// The confirmation dialog owns the keyboard; its Escape closes only the dialog.
+		if (!selecting || confirmingSelection || event.defaultPrevented || typing(event.target)) {
+			return;
+		}
+
+		if (event.key === 'Escape') {
+			void finishSelecting();
+		} else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+			event.preventDefault();
+			selectAll();
+		}
+	}
+
+	/**
+	 * Deletes the selection chunk by chunk in the gallery it was confirmed in, even if the panel
+	 * moves on; on a failure, stops and refetches what the server kept.
+	 */
+	async function removeSelection() {
+		const confirmedGallery = galleryId;
+		const view = shown;
+		// Selection, focus and announcement belong to the view the deletion was confirmed in; the
+		// photos and alert to the gallery, which may be shown again after switching away and back.
+		const stillShown = () => view === shown;
+		const showsGallery = () => !destroyed && galleryId === confirmedGallery;
+		const removed = selection;
+		const ids = removed.map(({ id }) => id);
+		let deletedCount = 0;
+
+		for (const photo of removed) deleting.set(photo.id, photo);
+
+		photos = photos.filter(({ id }) => !deleting.has(id));
+		alert = '';
+		announcement = null;
+
+		try {
+			while (deletedCount < ids.length) {
+				const chunk = ids.slice(deletedCount, deletedCount + BULK_DELETE_LIMIT);
+
+				await deletePhotos(confirmedGallery, chunk);
+
+				for (const id of chunk) {
+					recentChanges.set(id, 'deleted');
+					deleting.delete(id);
+
+					if (stillShown()) selected.delete(id);
+				}
+
+				deletedCount += chunk.length;
+			}
+
+			if (!stillShown()) return;
+
+			await finishSelecting();
+
+			announcement = {
+				text: `${ids.length} ${ids.length === 1 ? 'photo' : 'photos'} deleted`,
+				summary
+			};
+		} catch (cause) {
+			if (cause instanceof GalleryApiError && cause.status === 401) {
+				await signedOut();
+
+				return;
+			}
+
+			if (!showsGallery()) return;
+
+			alert = `Deleted ${deletedCount} of ${ids.length} photos. Please try again.`;
+			await load();
+
+			if (showsGallery()) restoreSurvivors(ids.slice(deletedCount));
+		} finally {
+			for (const id of ids) deleting.delete(id);
+		}
+	}
+
+	/** The photos as the latest changes seen say, without those deleted. */
+	function withRecentChanges(records: Photo[]) {
+		return records.map(withRecentChange).filter((photo) => photo !== null);
+	}
+
+	/** Puts back photos whose deletion failed, as last known, unless shown already or gone since. */
+	function restoreSurvivors(photoIds: string[]) {
+		const back = photoIds
+			.map((photoId) => deleting.get(photoId))
+			.map((known) => known && changed(known))
+			.filter((photo): photo is Photo => !!photo && !photos.some(({ id }) => id === photo.id));
+
+		for (const photo of back) {
+			const index = photos.findIndex((other) => listedBefore(photo, other));
+
+			photos.splice(index === -1 ? photos.length : index, 0, photo);
+		}
+	}
+
+	/** Whether `a` comes before `b` in the server's order, by creation then id. */
+	function listedBefore(a: Photo, b: Photo) {
+		const [atA, atB] = [instant(a.created_at), instant(b.created_at)];
+
+		return atA === atB ? a.id < b.id : atA < atB;
+	}
+
+	/** A UTC RFC 3339 timestamp, with its fraction padded so timestamps compare as strings. */
+	function instant(timestamp: string) {
+		return timestamp.replace(
+			/(?:\.(\d+))?Z$/,
+			(_, fraction = '') => `.${fraction.padEnd(9, '0')}Z`
+		);
+	}
+
 	function open(photo: Photo) {
 		viewIndex = ready.indexOf(photo);
 		viewing = true;
 	}
 </script>
+
+<svelte:window {onkeydown} />
 
 <section
 	aria-label="Photos"
@@ -339,7 +510,26 @@
 	ondragleave={() => (dragging = false)}
 	{ondrop}
 >
-	<div class="flex justify-end">
+	<div class="flex flex-wrap items-center justify-end gap-2">
+		{#if selecting}
+			<p class="mr-auto text-sm">{selection.length} selected</p>
+			<Button variant="ghost" size="sm" onclick={selectAll}>Select all</Button>
+			<Button
+				variant="outline"
+				size="sm"
+				disabled={selection.length === 0}
+				onclick={() => (confirmingSelection = true)}>Delete</Button
+			>
+			<Button variant="ghost" size="sm" onclick={finishSelecting}>Cancel</Button>
+		{:else}
+			<Button
+				bind:ref={selectButton}
+				variant="ghost"
+				size="sm"
+				disabled={photos.length === 0}
+				onclick={() => (selecting = true)}>Select</Button
+			>
+		{/if}
 		<Button bind:ref={uploadButton} variant="outline" size="sm" onclick={() => picker?.click()}
 			>+ Upload</Button
 		>
@@ -357,7 +547,9 @@
 	{#if alert}
 		<p role="alert" class="text-sm text-danger">{alert}</p>
 	{/if}
-	<p role="status" aria-live="polite" class="sr-only">{summary}</p>
+	<p role="status" aria-live="polite" class="sr-only">
+		{[announcement?.text, summary].filter(Boolean).join('. ')}
+	</p>
 
 	{#if photos.length > 0 || queued.length > 0}
 		<ul
@@ -372,9 +564,11 @@
 						name={photo.original_name}
 						{state}
 						thumbnailUrl={state === 'ready' ? thumbnailUrl(galleryId, photo.id) : undefined}
+						selected={selected.has(photo.id)}
 						onremove={() => (confirming = photo)}
 						onretry={() => retry(photo)}
 						onopen={() => open(photo)}
+						onselect={selecting ? () => toggle(photo.id) : undefined}
 					/>
 				</li>
 			{/each}
@@ -420,6 +614,36 @@
 
 							close();
 							if (photo) void remove(photo);
+						}}>Delete</Button
+					>
+				</div>
+			</div>
+		{/snippet}
+	</Dialog>
+{/if}
+
+{#if confirmingSelection}
+	{@const count = selection.length}
+	<Dialog
+		onclose={() => (confirmingSelection = false)}
+		labelledby="delete-selection-title"
+		class="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
+	>
+		{#snippet children(close)}
+			<div class="grid gap-4">
+				<div class="grid gap-1">
+					<h2 id="delete-selection-title" class="text-xl">
+						Delete {count}
+						{count === 1 ? 'photo' : 'photos'}?
+					</h2>
+					<p class="text-sm text-muted-foreground">This can’t be undone.</p>
+				</div>
+				<div class="flex justify-end gap-2">
+					<Button variant="ghost" onclick={close}>Cancel</Button>
+					<Button
+						onclick={() => {
+							close();
+							void removeSelection();
 						}}>Delete</Button
 					>
 				</div>

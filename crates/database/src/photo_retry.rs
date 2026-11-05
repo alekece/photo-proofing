@@ -339,7 +339,7 @@ mod tests {
             .await
             .unwrap();
 
-        let retry_task = tokio::spawn({
+        let retrying = tokio::spawn({
             let database = database.clone();
             let (workspace_id, gallery_id) = (gallery.workspace_id, gallery.gallery_id);
 
@@ -356,10 +356,11 @@ mod tests {
             .wait_for_a_lock_waiter()
             .await
             .unwrap();
+
         fail(&database, &pool, failing_meanwhile).await;
         lock_holder.commit().await.unwrap();
 
-        assert_eq!(retry_task.await.unwrap().unwrap(), Some(1));
+        assert_eq!(retrying.await.unwrap().unwrap(), Some(1));
         assert_eq!(
             status(&database, &gallery, locked).await,
             PhotoStatus::Waiting

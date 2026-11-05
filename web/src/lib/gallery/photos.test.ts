@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { GalleryApiError } from './api';
 import {
 	deletePhoto,
+	deletePhotos,
 	getUploadLimits,
 	listPhotos,
 	previewUrl,
@@ -108,6 +109,18 @@ describe('photo requests', () => {
 			'/api/v1/galleries/g1/photos/p%201/retry',
 			expect.objectContaining({ method: 'POST' })
 		);
+	});
+
+	it('deletes several photos in one request', async () => {
+		const fetcher = respond(200, { deleted: 2 });
+
+		expect(await deletePhotos('g 1', ['p1', 'p2'], fetcher)).toBe(2);
+		expect(fetcher).toHaveBeenCalledWith('/api/v1/galleries/g%201/photos/delete', {
+			method: 'POST',
+			body: JSON.stringify({ photo_ids: ['p1', 'p2'] }),
+			headers: { 'Content-Type': 'application/json' },
+			credentials: 'same-origin'
+		});
 	});
 
 	it('reads the upload limits', async () => {
