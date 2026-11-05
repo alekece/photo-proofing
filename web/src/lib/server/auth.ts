@@ -1,6 +1,6 @@
-import { env } from 'node:process';
 import { error } from '@sveltejs/kit';
 import type { AuthStatus } from '#lib/auth.js';
+import { apiUrl } from './api';
 
 /**
  * Asks the API who the request's cookie belongs to, from the server only. The cookie goes to
@@ -11,15 +11,14 @@ export async function getAuthStatus(
 	fetcher: typeof fetch,
 	cookie: string | null
 ): Promise<AuthStatus> {
+	const url = apiUrl('/api/v1/auth/status');
+
 	try {
-		const response = await fetcher(
-			`${env.PP_API_INTERNAL_URL ?? 'http://127.0.0.1:8080'}/api/v1/auth/status`,
-			{
-				headers: cookie ? { Cookie: cookie } : {},
-				cache: 'no-store',
-				redirect: 'error'
-			}
-		);
+		const response = await fetcher(url, {
+			headers: cookie ? { Cookie: cookie } : {},
+			cache: 'no-store',
+			redirect: 'error'
+		});
 		if (!response.ok) throw new Error('Authentication unavailable');
 		const result: AuthStatus = await response.json();
 		if (

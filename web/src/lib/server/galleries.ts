@@ -1,4 +1,3 @@
-import { env } from 'node:process';
 import { error, redirect } from '@sveltejs/kit';
 import * as v from 'valibot';
 import {
@@ -11,6 +10,7 @@ import {
 	type SharedGallery,
 	type SharedPhoto
 } from '#lib/gallery/schemas.js';
+import { apiUrl } from './api';
 
 async function readGalleries<const S extends v.GenericSchema>(
 	fetcher: typeof fetch,
@@ -18,16 +18,15 @@ async function readGalleries<const S extends v.GenericSchema>(
 	path: string,
 	schema: S
 ) {
+	const url = apiUrl(`/api/v1/galleries${path}`);
 	let response: Response;
+
 	try {
-		response = await fetcher(
-			`${env.PP_API_INTERNAL_URL ?? 'http://127.0.0.1:8080'}/api/v1/galleries${path}`,
-			{
-				headers: cookie ? { Cookie: cookie } : {},
-				cache: 'no-store',
-				redirect: 'error'
-			}
-		);
+		response = await fetcher(url, {
+			headers: cookie ? { Cookie: cookie } : {},
+			cache: 'no-store',
+			redirect: 'error'
+		});
 	} catch {
 		error(503, 'Galleries are temporarily unavailable. Please try again.');
 	}
@@ -70,12 +69,11 @@ async function readShared<const S extends v.GenericSchema>(
 	schema: S
 ) {
 	const unavailable = 'This gallery is temporarily unavailable. Please try again.';
+	const url = apiUrl(`/api/v1/galleries/shared/${encodeURIComponent(token)}${path}`);
 	let response: Response;
+
 	try {
-		response = await fetcher(
-			`${env.PP_API_INTERNAL_URL ?? 'http://127.0.0.1:8080'}/api/v1/galleries/shared/${encodeURIComponent(token)}${path}`,
-			{ headers: {}, cache: 'no-store', redirect: 'error' }
-		);
+		response = await fetcher(url, { headers: {}, cache: 'no-store', redirect: 'error' });
 	} catch {
 		error(503, unavailable);
 	}
