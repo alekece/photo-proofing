@@ -53,21 +53,31 @@ impl PhotoRetry<'_> {
             return Ok(None);
         }
 
-        // Jobs are locked before photos, each in id order, like the worker and delete do;
-        // otherwise a concurrent delete deadlocks. A concurrent retry waits, then finds the
-        // photos no longer failed.
-        sqlx::query(
-            "SELECT id FROM jobs
-             WHERE payload->'payload'->>'photo_id' IN (
-                 SELECT id::text FROM photos
-                 WHERE workspace_id = $1 AND gallery_id = $2 AND status = 'failed'
-                   AND ($3::uuid IS NULL OR id = $3))
-             ORDER BY id
-             FOR UPDATE",
+        let failed_photo_ids: Vec<PhotoId> = sqlx::query_scalar(
+            "SELECT id FROM photos
+             WHERE workspace_id = $1 AND gallery_id = $2 AND status = 'failed'
+               AND ($3::uuid IS NULL OR id = $3)",
         )
         .bind(workspace_id)
         .bind(gallery_id)
         .bind(photo)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let failed_photo_keys = failed_photo_ids
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+
+        // Jobs are locked before photos, each in id order, like the worker and delete do;
+        // otherwise a concurrent delete deadlocks. Only the photos read above are touched, so a
+        // photo failing meanwhile is never updated without its jobs locked. A concurrent retry
+        // waits, then finds the photos no longer failed.
+        sqlx::query(
+            "SELECT id FROM jobs WHERE payload->'payload'->>'photo_id' = ANY($1)
+             ORDER BY id
+             FOR UPDATE",
+        )
+        .bind(&failed_photo_keys)
         .execute(&mut *transaction)
         .await?;
 
@@ -75,15 +85,12 @@ impl PhotoRetry<'_> {
             "UPDATE photos SET status = 'waiting', failure_reason = NULL
              WHERE id IN (
                  SELECT id FROM photos
-                 WHERE workspace_id = $1 AND gallery_id = $2 AND status = 'failed'
-                   AND ($3::uuid IS NULL OR id = $3)
+                 WHERE id = ANY($1) AND status = 'failed'
                  ORDER BY id
                  FOR UPDATE)
              RETURNING id",
         )
-        .bind(workspace_id)
-        .bind(gallery_id)
-        .bind(photo)
+        .bind(&failed_photo_ids)
         .fetch_all(&mut *transaction)
         .await?;
         let photo_ids = requeued_photo_ids
@@ -184,6 +191,13 @@ mod tests {
     async fn failed_photo(database: &Database, pool: &PgPool, gallery: &Gallery) -> PhotoId {
         let id = photo(database, gallery).await;
 
+        fail(database, pool, id).await;
+
+        id
+    }
+
+    /// Fails the photo's job and the photo for good.
+    async fn fail(database: &Database, pool: &PgPool, id: PhotoId) {
         sqlx::query(
             "UPDATE jobs SET state = 'failed', last_error = 'boom'
              WHERE payload->'payload'->>'photo_id' = $1",
@@ -197,8 +211,6 @@ mod tests {
             .mark_failed(id, "Processing failed after several attempts.")
             .await
             .unwrap();
-
-        id
     }
 
     async fn status(database: &Database, gallery: &Gallery, id: PhotoId) -> PhotoStatus {
@@ -311,6 +323,51 @@ mod tests {
         deleting.commit().await.unwrap();
 
         assert_eq!(retrying.await.unwrap().unwrap(), Some(1));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn retry_requeues_only_the_failed_photos_whose_jobs_it_locked(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let gallery = gallery(&database, &pool).await;
+        let locked = failed_photo(&database, &pool, &gallery).await;
+        let failing_meanwhile = photo(&database, &gallery).await;
+        let mut lock_holder = pool.begin().await.unwrap();
+
+        sqlx::query("SELECT id FROM jobs WHERE payload->'payload'->>'photo_id' = $1 FOR UPDATE")
+            .bind(locked.to_string())
+            .execute(&mut *lock_holder)
+            .await
+            .unwrap();
+
+        let retry_task = tokio::spawn({
+            let database = database.clone();
+            let (workspace_id, gallery_id) = (gallery.workspace_id, gallery.gallery_id);
+
+            async move {
+                database
+                    .repository::<PhotoRetry>()
+                    .retry_failed(workspace_id, gallery_id, None)
+                    .await
+            }
+        });
+
+        database
+            .repository::<TestRepository>()
+            .wait_for_a_lock_waiter()
+            .await
+            .unwrap();
+        fail(&database, &pool, failing_meanwhile).await;
+        lock_holder.commit().await.unwrap();
+
+        assert_eq!(retry_task.await.unwrap().unwrap(), Some(1));
+        assert_eq!(
+            status(&database, &gallery, locked).await,
+            PhotoStatus::Waiting
+        );
+        assert!(matches!(
+            status(&database, &gallery, failing_meanwhile).await,
+            PhotoStatus::Failed(_)
+        ));
     }
 
     #[sqlx::test(migrations = "./migrations")]
