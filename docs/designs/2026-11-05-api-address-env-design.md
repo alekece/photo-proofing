@@ -21,29 +21,27 @@ A deployment that forgot `PP_API_INTERNAL_URL` says so plainly, instead of quiet
 
 ## Approach
 
-`apiUrl(path)` returns the configured base joined with the path:
-- In dev (`dev` from `$app/environment`), it falls back to the default.
-- Otherwise, it throws `PP_API_INTERNAL_URL is not set`.
+SvelteKit 3 declares environment variables in `web/src/env.ts` with `defineEnvVars`, and
+`$app/env/private` exposes them to server code. The `$env/*` modules are deprecated, so this is the
+current way to read private env.
 
-`auth.ts` and `galleries.ts` (the three current call sites) use it. The `node:process` reads and
-the duplicated fallback go away.
+- `PP_API_INTERNAL_URL` has a validator, `resolveApiAddress` in `web/src/lib/api-address.ts`:
+  - set: used, without a trailing slash;
+  - unset in dev (`pnpm dev`): the default `http://127.0.0.1:8080`;
+  - unset while building: accepted, since the build runs without deployment settings;
+  - otherwise: an error naming the variable.
+- SvelteKit runs the validator when the server starts, so a misconfigured deployment refuses to
+  start with a clear message rather than failing on its first request. This replaces the earlier
+  idea of failing on first request.
+- `apiUrl(path)` in `web/src/lib/server/api.ts` is the single place that joins the address and a
+  path. `auth.ts` and `galleries.ts` use it, and the `node:process` reads and duplicated fallbacks
+  go away.
 
-The failure happens on the first request rather than at server start. SvelteKit has no startup
-hook here, and adapter-node also runs the build step, where the variable is legitimately absent.
-Callers resolve `apiUrl(path)` before their `try` around `fetch`. Otherwise the existing catch
-blocks would turn the configuration error into an ordinary 503 and hide it. Left uncaught,
-SvelteKit logs it with the variable name and shows the generic error page.
-
-The README sections that describe the default (setup and deployment) are updated: the default
-applies to `pnpm dev` only, and production must set the variable.
+The README sections that describe the default are updated: it applies to `pnpm dev` only, and
+production must set the variable.
 
 ## Testing
 
-Unit tests for `apiUrl` mock `$env/dynamic/private` and `$app/environment`. They cover:
-- a configured value;
-- dev with no value (default);
-- production with no value (error naming the variable);
-- a trailing slash in the configured value.
-
-Caller tests check that `getAuthStatus` and the gallery readers let the named error through
-rather than turning it into a 503.
+- Unit tests for `resolveApiAddress`: configured (trailing slash removed), dev default, building,
+  and unset or empty in production naming the variable.
+- Manual check of the built server: it exits at startup without the variable and listens with it.
