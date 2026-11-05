@@ -126,17 +126,21 @@ pub struct Gallery {
     pub updated_at: Timestamp,
 }
 
+/// The photo allowance of a gallery row, where `None` means selection is unlimited.
+pub(crate) fn included_photos(row: &PgRow) -> Result<Option<NonZeroUsize>, sqlx::Error> {
+    row.try_get::<Option<i32>, _>("included_photos")?
+        .map(|count| {
+            usize::try_from(count)
+                .ok()
+                .and_then(NonZeroUsize::new)
+                .ok_or_else(|| sqlx::Error::Decode("included_photos is not positive".into()))
+        })
+        .transpose()
+}
+
 impl FromRow<'_, PgRow> for Gallery {
     fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
-        let included_photos = row
-            .try_get::<Option<i32>, _>("included_photos")?
-            .map(|count| {
-                usize::try_from(count)
-                    .ok()
-                    .and_then(NonZeroUsize::new)
-                    .ok_or_else(|| sqlx::Error::Decode("included_photos is not positive".into()))
-            })
-            .transpose()?;
+        let included_photos = included_photos(row)?;
 
         let progress = if row
             .try_get::<Option<Timestamp>, _>("delivered_at")?
@@ -366,15 +370,17 @@ impl GalleryRepository<'_> {
         .await?)
     }
 
-    /// Finds the gallery behind a private link, with where its photos live. Unknown and expired links are the same `None`,
+    /// Finds the gallery behind a private link, with where its photos live. Unknown, archived and expired links are the same `None`,
     /// so a client cannot tell them apart; the database clock decides expiry.
     pub async fn find_shared(
         &self,
         token: &ShareToken,
     ) -> Result<Option<SharedAccess>, DatabaseError> {
         Ok(sqlx::query_as(
-            "SELECT id AS gallery_id,workspace_id,title,layout,expires_at FROM galleries
-             WHERE share_token=$1 AND (expires_at IS NULL OR expires_at > now())",
+            "SELECT id AS gallery_id,workspace_id,title,layout,expires_at,included_photos,
+                    delivered_at IS NOT NULL AS delivered FROM galleries
+             WHERE share_token=$1 AND archived_at IS NULL
+               AND (expires_at IS NULL OR expires_at > now())",
         )
         .bind(token)
         .fetch_optional(self.pool)
@@ -1108,6 +1114,47 @@ mod tests {
         set_expiry(serde_json::Value::Null).await;
 
         assert!(store.find_shared(&token).await.unwrap().is_some());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn find_shared_hides_archived_galleries_and_reports_delivery_and_allowance(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let id = store.create(workspace).await.unwrap().id;
+
+        store
+            .update(workspace, id, &changes(json!({"included_photos": 10})))
+            .await
+            .unwrap();
+
+        let token = store
+            .share(workspace, id)
+            .await
+            .unwrap()
+            .unwrap()
+            .share_token
+            .unwrap();
+        let found = store.find_shared(&token).await.unwrap().unwrap().gallery;
+
+        assert_eq!(found.included_photos, NonZeroUsize::new(10));
+        assert!(!found.delivered);
+
+        set_column(&pool, id, "delivered_at", "now()").await;
+
+        assert!(
+            store
+                .find_shared(&token)
+                .await
+                .unwrap()
+                .unwrap()
+                .gallery
+                .delivered
+        );
+
+        set_column(&pool, id, "archived_at", "now()").await;
+
+        assert_eq!(store.find_shared(&token).await.unwrap(), None);
     }
 
     #[sqlx::test(migrations = "./migrations")]
