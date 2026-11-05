@@ -15,7 +15,7 @@ const shared = (overrides: Partial<SharedGallery> = {}): SharedGallery => ({
 	title: 'Sample session',
 	layout: 'grid',
 	expires_at: null,
-	hero_photo_id: null,
+	hero_id: null,
 	...overrides
 });
 const proofs: Proof[] = [1, 2, 3].map((n) => ({

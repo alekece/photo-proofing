@@ -17,14 +17,14 @@ The photographer marks one ready photo as the gallery's hero with a star. The da
 
 ## API and storage
 
-- `galleries.hero_photo_id uuid NULL`, a foreign key to `photos(id)` with `ON DELETE SET NULL`.
-- `PATCH /api/v1/galleries/{id}` accepts `hero_photo_id`, a photo id or `null` to clear it, with the same keep and clear semantics as the other optional settings. The update is refused (404 for an unknown photo, same as other missing resources) unless the photo is ready, in the same gallery and in the caller's workspace, so a photo from another gallery or workspace is never accepted.
-- `Gallery` exposes `hero_photo_id`. The dashboard card and the shared page build the preview URL from it with the existing preview route; the original is never used.
-- The shared-gallery payload carries `hero_photo_id` only if that photo is still ready.
+- `galleries.hero_id uuid NULL`, a foreign key to `photos(id)` with `ON DELETE SET NULL`.
+- `PATCH /api/v1/galleries/{id}` accepts `hero_id`, a photo id or `null` to clear it, with the same keep and clear semantics as the other optional settings. The update is refused (404 for an unknown photo, same as other missing resources) unless the photo is ready, in the same gallery and in the caller's workspace, so a photo from another gallery or workspace is never accepted.
+- `Gallery` exposes `hero_id`. The dashboard card and the shared page build the preview URL from it with the existing preview route; the original is never used.
+- The shared-gallery payload carries `hero_id` only if that photo is still ready.
 
 ## Web
 
-- `gallerySchema` gains `hero_photo_id` (nullable); the shared schema gains the same.
+- `gallerySchema` gains `hero_id` (nullable); the shared schema gains the same.
 - `PhotoTile` gets the star toggle (`aria-pressed`, label "Set as hero photo" or "Remove hero photo"). The Photos panel calls the gallery update and refreshes the tile state; a failed save shows an error and leaves the previous hero.
 - `GalleryCard` and the client cover render the hero's preview image.
 

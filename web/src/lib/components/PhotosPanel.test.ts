@@ -63,14 +63,14 @@ function stubApi(
 		retry?: number;
 		bulk?: (ids: string[]) => Response | Promise<Response>;
 		list?: () => Response | void | Promise<Response | void>;
-		hero?: (heroPhotoId: string | null) => Response | Promise<Response>;
+		hero?: (heroId: string | null) => Response | Promise<Response>;
 	} = {}
 ) {
 	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
 		if (init?.method === 'PATCH') {
-			const { hero_photo_id } = JSON.parse(String(init.body));
+			const { hero_id } = JSON.parse(String(init.body));
 
-			return answers.hero?.(hero_photo_id) ?? Response.json({ ...gallery, hero_photo_id });
+			return answers.hero?.(hero_id) ?? Response.json({ ...gallery, hero_id });
 		}
 
 		if (init?.method === 'DELETE') {
@@ -99,7 +99,7 @@ function stubApi(
 		heroes: () =>
 			fetcher.mock.calls
 				.filter(([, init]) => init?.method === 'PATCH')
-				.map(([, init]) => JSON.parse(String(init?.body)).hero_photo_id as string | null),
+				.map(([, init]) => JSON.parse(String(init?.body)).hero_id as string | null),
 		calls: (method: string) =>
 			fetcher.mock.calls.filter(([, init]) => init?.method === method).map(([url]) => url),
 		bulk: () =>
@@ -120,13 +120,13 @@ const gallery = {
 	expires_at: null,
 	included_photos: null,
 	watermark_enabled: false,
-	hero_photo_id: null,
+	hero_id: null,
 	share_token: null,
 	created_at: '2026-11-04T10:00:00Z',
 	updated_at: '2026-11-04T10:00:00Z'
 };
 
-function setup(upload?: (file: File) => Promise<UploadOutcome>, heroPhotoId: string | null = null) {
+function setup(upload?: (file: File) => Promise<UploadOutcome>, heroId: string | null = null) {
 	const pending: ((outcome: UploadOutcome) => void)[] = [];
 	const queue = new UploadQueue({
 		upload: (_, file) =>
@@ -136,7 +136,7 @@ function setup(upload?: (file: File) => Promise<UploadOutcome>, heroPhotoId: str
 	});
 	const live = fakeEvents();
 	const view = render(PhotosPanelHarness, {
-		props: { galleryId: 'g1', queue, events: live.events, heroPhotoId }
+		props: { galleryId: 'g1', queue, events: live.events, heroId }
 	});
 
 	return { ...live, queue, pending, view };

@@ -35,7 +35,7 @@ pub struct SharedGallery {
     /// `None` means the gallery never expires.
     pub expires_at: Option<Timestamp>,
     /// The gallery's hero photo, only while it is ready.
-    pub hero_photo_id: Option<PhotoId>,
+    pub hero_id: Option<PhotoId>,
 }
 
 /// A gallery reached through its private link: where its photos live, and what the client sees.

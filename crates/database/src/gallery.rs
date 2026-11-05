@@ -122,7 +122,7 @@ pub struct Gallery {
     pub included_photos: Option<NonZeroUsize>,
     pub watermark_enabled: bool,
     /// `None` means the gallery has no hero photo.
-    pub hero_photo_id: Option<PhotoId>,
+    pub hero_id: Option<PhotoId>,
     /// `None` means the gallery has not been shared.
     pub share_token: Option<ShareToken>,
     /// The progress state first, then `Archived` and `Expired` when they apply.
@@ -173,7 +173,7 @@ impl FromRow<'_, PgRow> for Gallery {
             expires_at: row.try_get("expires_at")?,
             included_photos,
             watermark_enabled: row.try_get("watermark_enabled")?,
-            hero_photo_id: row.try_get("hero_photo_id")?,
+            hero_id: row.try_get("hero_id")?,
             share_token: row.try_get("share_token")?,
             states,
             created_at: row.try_get("created_at")?,
@@ -226,7 +226,7 @@ pub struct GalleryChanges {
         with = "serde_with::rust::double_option",
         skip_serializing_if = "Option::is_none"
     )]
-    pub hero_photo_id: Option<Option<PhotoId>>,
+    pub hero_id: Option<Option<PhotoId>>,
 }
 
 impl GalleryChanges {
@@ -303,7 +303,7 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
 
 impl GalleryRepository<'_> {
     // Interpolated identifiers are fixed here or selected from GallerySort's closed enum.
-    const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,hero_photo_id,share_token,shared_at,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
+    const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,hero_id,share_token,shared_at,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
 
     /// Creates an untitled gallery with the default settings.
     pub async fn create(&self, workspace_id: WorkspaceId) -> Result<Gallery, DatabaseError> {
@@ -388,7 +388,7 @@ impl GalleryRepository<'_> {
         Ok(sqlx::query_as(
             "SELECT g.id AS gallery_id,g.workspace_id,g.title,g.layout,g.expires_at,
                     (SELECT p.id FROM photos p
-                     WHERE p.id = g.hero_photo_id AND p.status = 'ready') AS hero_photo_id
+                     WHERE p.id = g.hero_id AND p.status = 'ready') AS hero_id
              FROM galleries g
              WHERE g.share_token=$1 AND (g.expires_at IS NULL OR g.expires_at > now())",
         )
@@ -435,7 +435,7 @@ impl GalleryRepository<'_> {
                 expires_at = CASE WHEN $6 THEN $7 ELSE expires_at END,
                 included_photos = CASE WHEN $8 THEN $9 ELSE included_photos END,
                 watermark_enabled = COALESCE($10, watermark_enabled),
-                hero_photo_id = CASE WHEN $11 THEN $12 ELSE hero_photo_id END,
+                hero_id = CASE WHEN $11 THEN $12 ELSE hero_id END,
                 updated_at = now()
              WHERE id=$1 AND workspace_id=$2
                AND (NOT $11 OR $12::uuid IS NULL OR EXISTS (
@@ -455,8 +455,8 @@ impl GalleryRepository<'_> {
         .bind(included_photos.is_some())
         .bind(included_photos.flatten())
         .bind(changes.watermark_enabled)
-        .bind(changes.hero_photo_id.is_some())
-        .bind(changes.hero_photo_id.flatten())
+        .bind(changes.hero_id.is_some())
+        .bind(changes.hero_id.flatten())
         .fetch_optional(self.pool)
         .await
         .map_err(GalleryError::classify)
@@ -470,7 +470,7 @@ mod tests {
     use super::*;
     use crate::{
         Database,
-        photo::{PhotoLocation, PhotoRepository},
+        photo::{PhotoLocation, PhotoRepository, PhotoStatus},
     };
 
     async fn workspace(pool: &PgPool) -> WorkspaceId {
@@ -850,9 +850,15 @@ mod tests {
         pool: &PgPool,
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
-        status: &str,
+        status: PhotoStatus,
     ) -> PhotoId {
         let id = PhotoId::from(Uuid::new_v4());
+        let status = match status {
+            PhotoStatus::Waiting => "waiting",
+            PhotoStatus::Processing => "processing",
+            PhotoStatus::Ready => "ready",
+            PhotoStatus::Failed(_) => unreachable!("failed photos need a reason"),
+        };
 
         sqlx::query(
             "INSERT INTO photos(id, workspace_id, gallery_id, original_name, size, width, height, status)
@@ -871,7 +877,7 @@ mod tests {
 
     fn hero(id: Option<PhotoId>) -> GalleryChanges {
         GalleryChanges {
-            hero_photo_id: Some(id),
+            hero_id: Some(id),
             ..GalleryChanges::default()
         }
     }
@@ -883,11 +889,11 @@ mod tests {
         let workspace = workspace(&pool).await;
         let gallery = store.create(workspace).await.unwrap();
         let (first, second) = (
-            photo_in(&pool, workspace, gallery.id, "ready").await,
-            photo_in(&pool, workspace, gallery.id, "ready").await,
+            photo_in(&pool, workspace, gallery.id, PhotoStatus::Ready).await,
+            photo_in(&pool, workspace, gallery.id, PhotoStatus::Ready).await,
         );
 
-        assert_eq!(gallery.hero_photo_id, None);
+        assert_eq!(gallery.hero_id, None);
 
         for expected in [Some(first), Some(second), None] {
             let updated = store
@@ -896,7 +902,7 @@ mod tests {
                 .unwrap()
                 .unwrap();
 
-            assert_eq!(updated.hero_photo_id, expected);
+            assert_eq!(updated.hero_id, expected);
         }
 
         store
@@ -910,7 +916,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(kept.hero_photo_id, Some(first));
+        assert_eq!(kept.hero_id, Some(first));
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -921,12 +927,12 @@ mod tests {
         let gallery = store.create(mine).await.unwrap();
         let sibling = store.create(mine).await.unwrap();
         let foreign_gallery = store.create(other).await.unwrap();
-        let ready = photo_in(&pool, mine, gallery.id, "ready").await;
+        let ready = photo_in(&pool, mine, gallery.id, PhotoStatus::Ready).await;
         let candidates = [
-            photo_in(&pool, mine, sibling.id, "ready").await,
-            photo_in(&pool, other, foreign_gallery.id, "ready").await,
-            photo_in(&pool, mine, gallery.id, "waiting").await,
-            photo_in(&pool, mine, gallery.id, "processing").await,
+            photo_in(&pool, mine, sibling.id, PhotoStatus::Ready).await,
+            photo_in(&pool, other, foreign_gallery.id, PhotoStatus::Ready).await,
+            photo_in(&pool, mine, gallery.id, PhotoStatus::Waiting).await,
+            photo_in(&pool, mine, gallery.id, PhotoStatus::Processing).await,
             PhotoId::from(Uuid::new_v4()),
         ];
 
@@ -946,7 +952,7 @@ mod tests {
 
         let current = store.get(mine, gallery.id).await.unwrap().unwrap();
 
-        assert_eq!(current.hero_photo_id, Some(ready));
+        assert_eq!(current.hero_id, Some(ready));
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -956,8 +962,8 @@ mod tests {
         let workspace = workspace(&pool).await;
         let gallery = store.create(workspace).await.unwrap();
         let (hero_photo, other) = (
-            photo_in(&pool, workspace, gallery.id, "ready").await,
-            photo_in(&pool, workspace, gallery.id, "ready").await,
+            photo_in(&pool, workspace, gallery.id, PhotoStatus::Ready).await,
+            photo_in(&pool, workspace, gallery.id, PhotoStatus::Ready).await,
         );
 
         store
@@ -972,7 +978,7 @@ mod tests {
 
         let current = store.get(workspace, gallery.id).await.unwrap().unwrap();
 
-        assert_eq!(current.hero_photo_id, None);
+        assert_eq!(current.hero_id, None);
         assert!(
             database
                 .repository::<PhotoRepository>()
@@ -990,8 +996,8 @@ mod tests {
         let workspace = workspace(&pool).await;
         let id = store.create(workspace).await.unwrap().id;
         let (first, second) = (
-            photo_in(&pool, workspace, id, "ready").await,
-            photo_in(&pool, workspace, id, "ready").await,
+            photo_in(&pool, workspace, id, PhotoStatus::Ready).await,
+            photo_in(&pool, workspace, id, PhotoStatus::Ready).await,
         );
         let token = store
             .share(workspace, id)
@@ -1006,7 +1012,7 @@ mod tests {
 
             let shared = store.find_shared(&token).await.unwrap().unwrap();
 
-            assert_eq!(shared.gallery.hero_photo_id, expected);
+            assert_eq!(shared.gallery.hero_id, expected);
         }
 
         sqlx::query("UPDATE photos SET status = 'processing' WHERE id = $1")
@@ -1017,7 +1023,7 @@ mod tests {
 
         let shared = store.find_shared(&token).await.unwrap().unwrap();
 
-        assert_eq!(shared.gallery.hero_photo_id, None);
+        assert_eq!(shared.gallery.hero_id, None);
     }
 
     #[sqlx::test(migrations = "./migrations")]

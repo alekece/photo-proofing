@@ -11,18 +11,18 @@ const proof = (id: string): Proof => ({
 	width: 300,
 	height: 200
 });
-const shared = (hero_photo_id: string | null): SharedGallery => ({
+const shared = (hero_id: string | null): SharedGallery => ({
 	title: 'Wedding',
 	layout: 'grid',
 	expires_at: null,
-	hero_photo_id
+	hero_id
 });
 
 describe('ClientGallery', () => {
 	it('wraps a long unbroken title with a utility class, not an inline style', () => {
 		const title = 'x'.repeat(200);
 		render(ClientGallery, {
-			gallery: { title, layout: 'grid', expires_at: null, hero_photo_id: null }
+			gallery: { title, layout: 'grid', expires_at: null, hero_id: null }
 		});
 		const heading = screen.getByRole('heading', { level: 1 });
 		expect(heading.textContent).toBe(title);

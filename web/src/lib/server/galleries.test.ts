@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getGallery, getSharedGallery, getSharedPhotos, listGalleries } from './galleries';
 
-const gallery = { title: 'Wedding', layout: 'grid', expires_at: null, hero_photo_id: null };
+const gallery = { title: 'Wedding', layout: 'grid', expires_at: null, hero_id: null };
 const token = 'A'.repeat(22);
 
 describe('getSharedGallery', () => {

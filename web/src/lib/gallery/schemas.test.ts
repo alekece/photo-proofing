@@ -20,7 +20,7 @@ const gallery = {
 	expires_at: null,
 	included_photos: null,
 	watermark_enabled: false,
-	hero_photo_id: null,
+	hero_id: null,
 	share_token: null,
 	states: ['draft'],
 	created_at: '2026-11-05T10:00:00Z',
@@ -48,7 +48,7 @@ describe('schemas', () => {
 				title: 'T',
 				layout: 'masonry',
 				expires_at: null,
-				hero_photo_id: null
+				hero_id: null
 			})
 		).not.toBeNull();
 		expect(parseOrNull(sharedPhotoSchema, { id: 'p', width: 4, height: 3 })).not.toBeNull();

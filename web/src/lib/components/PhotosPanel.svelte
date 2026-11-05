@@ -23,10 +23,8 @@
 	import type { Proof } from '#lib/gallery/types.js';
 	import { getUploadQueue, type QueueState } from '#lib/gallery/uploads.svelte.js';
 
-	let {
-		galleryId,
-		heroPhotoId = $bindable(null)
-	}: { galleryId: string; heroPhotoId?: string | null } = $props();
+	let { galleryId, heroId = $bindable(null) }: { galleryId: string; heroId?: string | null } =
+		$props();
 
 	/** Event storms and resyncs refetch the list at most this often. */
 	const REFRESH_INTERVAL_MS = 1000;
@@ -137,16 +135,16 @@
 	async function toggleHero(photo: Photo) {
 		if (savingHero) return;
 
-		const target = photo.id === heroPhotoId ? null : photo.id;
+		const target = photo.id === heroId ? null : photo.id;
 		const id = galleryId;
 
 		savingHero = true;
 		alert = '';
 
 		try {
-			const gallery = await updateGallery(id, { hero_photo_id: target });
+			const gallery = await updateGallery(id, { hero_id: target });
 
-			if (galleryId === id) heroPhotoId = gallery.hero_photo_id;
+			if (galleryId === id) heroId = gallery.hero_id;
 		} catch (cause) {
 			if (cause instanceof GalleryApiError && cause.status === 401) {
 				await signedOut();
@@ -162,8 +160,8 @@
 
 	// A deleted photo cannot stay the hero; the server clears it the same way.
 	$effect(() => {
-		if (loaded && heroPhotoId !== null && !photos.some(({ id }) => id === heroPhotoId)) {
-			heroPhotoId = null;
+		if (loaded && heroId !== null && !photos.some(({ id }) => id === heroId)) {
+			heroId = null;
 		}
 	});
 
@@ -607,7 +605,7 @@
 						onremove={() => (confirming = photo)}
 						onretry={() => retry(photo)}
 						onopen={() => open(photo)}
-						hero={photo.id === heroPhotoId}
+						hero={photo.id === heroId}
 						onhero={() => toggleHero(photo)}
 						onselect={selecting ? () => toggle(photo.id) : undefined}
 					/>

@@ -378,18 +378,18 @@ mod tests {
         for expected in [Value::from(first.clone()), Value::from(second.clone())] {
             let (status, body) = call(
                 &app,
-                patch(&gallery_id, &cookie, json!({"hero_photo_id": expected})),
+                patch(&gallery_id, &cookie, json!({"hero_id": expected})),
             )
             .await;
 
             assert_eq!(status, StatusCode::OK);
-            assert_eq!(body["hero_photo_id"], expected);
+            assert_eq!(body["hero_id"], expected);
         }
 
         for rejected in [processing, foreign, Uuid::new_v4().to_string()] {
             let (status, _) = call(
                 &app,
-                patch(&gallery_id, &cookie, json!({"hero_photo_id": rejected})),
+                patch(&gallery_id, &cookie, json!({"hero_id": rejected})),
             )
             .await;
 
@@ -398,20 +398,17 @@ mod tests {
 
         let (_, kept) = call(&app, patch(&gallery_id, &cookie, json!({"title": "T"}))).await;
 
-        assert_eq!(kept["hero_photo_id"], second.as_str());
+        assert_eq!(kept["hero_id"], second.as_str());
 
-        let (status, cleared) = call(
-            &app,
-            patch(&gallery_id, &cookie, json!({"hero_photo_id": null})),
-        )
-        .await;
+        let (status, cleared) =
+            call(&app, patch(&gallery_id, &cookie, json!({"hero_id": null}))).await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(cleared["hero_photo_id"], Value::Null);
+        assert_eq!(cleared["hero_id"], Value::Null);
 
         let (status, _) = call(
             &app,
-            patch(&gallery_id, &cookie, json!({"hero_photo_id": "nope"})),
+            patch(&gallery_id, &cookie, json!({"hero_id": "nope"})),
         )
         .await;
 

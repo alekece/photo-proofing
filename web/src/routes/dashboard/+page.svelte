@@ -127,9 +127,9 @@
 						class="block text-foreground no-underline outline-none"
 					>
 						<div class="aspect-[3/2]">
-							{#if gallery.hero_photo_id}
+							{#if gallery.hero_id}
 								<img
-									src={previewUrl(gallery.id, gallery.hero_photo_id)}
+									src={previewUrl(gallery.id, gallery.hero_id)}
 									alt=""
 									loading="lazy"
 									class="size-full object-cover"

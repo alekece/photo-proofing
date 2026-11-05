@@ -21,7 +21,7 @@ const gallery = (over: Partial<Gallery> = {}): Gallery => ({
 	expires_at: null,
 	included_photos: null,
 	watermark_enabled: false,
-	hero_photo_id: null,
+	hero_id: null,
 	share_token: null,
 	states: ['draft'],
 	created_at: '2026-01-01T10:00:00Z',
@@ -66,7 +66,7 @@ describe('dashboard', () => {
 
 	it('shows the hero preview on the card, else the placeholder', () => {
 		const { container } = render(Dashboard, {
-			props: props([gallery({ hero_photo_id: 'p1' }), gallery({ id: 'g2', title: 'Plain' })])
+			props: props([gallery({ hero_id: 'p1' }), gallery({ id: 'g2', title: 'Plain' })])
 		});
 		const images = [...container.querySelectorAll('img')];
 

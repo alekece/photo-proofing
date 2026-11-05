@@ -164,7 +164,7 @@ mod tests {
                 "title": "Wedding",
                 "layout": "masonry",
                 "expires_at": null,
-                "hero_photo_id": null
+                "hero_id": null
             })
         );
     }
@@ -278,14 +278,14 @@ mod tests {
             .uri(&format!("/api/v1/galleries/{gallery_id}"))
             .insert_header(("Origin", ORIGIN))
             .cookie(cookie.clone())
-            .set_json(json!({"hero_photo_id": hero}));
+            .set_json(json!({"hero_id": hero}));
 
         assert_eq!(call(&app, request).await.0, StatusCode::OK);
 
         let (status, body) = call(&app, get(&token)).await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["hero_photo_id"], hero.as_str());
+        assert_eq!(body["hero_id"], hero.as_str());
 
         sqlx::query("UPDATE photos SET status = 'processing' WHERE id = $1::uuid")
             .bind(&hero)
@@ -295,7 +295,7 @@ mod tests {
 
         let (_, body) = call(&app, get(&token)).await;
 
-        assert_eq!(body["hero_photo_id"], Value::Null);
+        assert_eq!(body["hero_id"], Value::Null);
     }
 
     /// Shares the gallery through the photographer route and returns its token.

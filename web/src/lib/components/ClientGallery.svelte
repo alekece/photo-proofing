@@ -20,7 +20,7 @@
 	} = $props();
 	let viewerIndex = $state<number | null>(null);
 	// Proofs are the ready photos, so the cover can only ever be a ready photo's preview.
-	let cover = $derived(proofs.find(({ id }) => id === gallery.hero_photo_id));
+	let cover = $derived(proofs.find(({ id }) => id === gallery.hero_id));
 </script>
 
 <main class="mx-auto grid max-w-7xl gap-4 px-4 py-6">

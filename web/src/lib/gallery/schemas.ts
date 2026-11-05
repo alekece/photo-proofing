@@ -25,7 +25,7 @@ export const gallerySchema = v.object({
 	included_photos: v.nullable(finite),
 	watermark_enabled: v.boolean(),
 	/** The ready photo starred as the gallery's cover; `null` means none. */
-	hero_photo_id: v.nullable(v.string()),
+	hero_id: v.nullable(v.string()),
 	/** The private client link's token once shared; the link never changes afterwards. */
 	share_token: v.nullable(v.string()),
 	/** The progress state first, then `archived` and `expired` when they apply. */
@@ -41,7 +41,7 @@ export const sharedGallerySchema = v.object({
 	/** ISO 8601 access expiry; `null` means the link never expires. */
 	expires_at: v.nullable(v.string()),
 	/** The cover photo, only while it is ready; `null` means no cover. */
-	hero_photo_id: v.nullable(v.string())
+	hero_id: v.nullable(v.string())
 });
 
 /** A photo a client may see; mirrors the API's `ReadyPhoto`. */

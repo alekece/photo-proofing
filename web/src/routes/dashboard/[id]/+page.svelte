@@ -242,7 +242,7 @@
 			{cancel}
 		/>
 
-		<GalleryTabs galleryId={saved.id} bind:heroPhotoId={saved.hero_photo_id} />
+		<GalleryTabs galleryId={saved.id} bind:heroId={saved.hero_id} />
 	</div>
 </PageShell>
 {#if previewing}
