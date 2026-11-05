@@ -1,4 +1,5 @@
 import { GalleryApiError } from './api';
+import { everyItem, isPhoto, isUploadLimits } from './validate';
 
 export type PhotoStatus = 'waiting' | 'processing' | 'ready' | { failed: string };
 
@@ -40,6 +41,8 @@ function photosPath(galleryId: string, photoId?: string) {
 	return photoId === undefined ? base : `${base}/${encodeURIComponent(photoId)}`;
 }
 
+const unexpected = () => new GalleryApiError(502, 'Unexpected response from the server.');
+
 async function request(path: string, init: RequestInit, fetcher: typeof fetch) {
 	const response = await fetcher(path, { ...init, credentials: 'same-origin' });
 
@@ -58,7 +61,11 @@ async function request(path: string, init: RequestInit, fetcher: typeof fetch) {
 export async function listPhotos(galleryId: string, fetcher: typeof fetch = fetch) {
 	const response = await request(photosPath(galleryId), {}, fetcher);
 
-	return (await response.json()) as Photo[];
+	const photos: unknown = await response.json().catch(() => null);
+
+	if (!everyItem(photos, isPhoto)) throw unexpected();
+
+	return photos;
 }
 
 export async function deletePhoto(galleryId: string, photoId: string, fetcher = fetch) {
@@ -80,7 +87,12 @@ export async function deletePhotos(galleryId: string, photoIds: string[], fetche
 		fetcher
 	);
 
-	return ((await response.json()) as { deleted: number }).deleted;
+	const body: unknown = await response.json().catch(() => null);
+	const deleted = (body as { deleted?: unknown } | null)?.deleted;
+
+	if (!Number.isInteger(deleted)) throw unexpected();
+
+	return deleted as number;
 }
 
 export async function retryPhoto(galleryId: string, photoId: string, fetcher = fetch) {
@@ -90,7 +102,11 @@ export async function retryPhoto(galleryId: string, photoId: string, fetcher = f
 export async function getUploadLimits(fetcher: typeof fetch = fetch) {
 	const response = await request('/api/v1/upload/limits', {}, fetcher);
 
-	return (await response.json()) as UploadLimits;
+	const limits: unknown = await response.json().catch(() => null);
+
+	if (!isUploadLimits(limits)) throw unexpected();
+
+	return limits;
 }
 
 /** Sends one file; only an abort throws, every server answer becomes an outcome. */
@@ -116,7 +132,11 @@ export async function uploadPhoto(
 		return { kind: 'failed' };
 	}
 
-	if (response.status === 201) return { kind: 'created', photo: await response.json() };
+	if (response.status === 201) {
+		const photo: unknown = await response.json().catch(() => null);
+
+		return isPhoto(photo) ? { kind: 'created', photo } : { kind: 'failed' };
+	}
 
 	if (response.status === 429) {
 		const seconds = Number(response.headers.get('Retry-After'));

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getSharedGallery, getSharedPhotos } from './galleries';
+import { getGallery, getSharedGallery, getSharedPhotos, listGalleries } from './galleries';
 
 const gallery = { title: 'Wedding', layout: 'grid', expires_at: null };
 const token = 'A'.repeat(22);
@@ -57,5 +57,22 @@ describe('getSharedPhotos', () => {
 		await expect(
 			getSharedPhotos(vi.fn().mockResolvedValue(new Response('', { status: 500 })), token)
 		).rejects.toMatchObject({ status: 503 });
+	});
+});
+
+describe('malformed API bodies', () => {
+	const bodies = ['not json', 'null', '{"id":1}', '[{"id":1}]'];
+
+	it.each([
+		['getSharedGallery', (f: typeof fetch) => getSharedGallery(f, token)],
+		['getSharedPhotos', (f: typeof fetch) => getSharedPhotos(f, token)],
+		['listGalleries', (f: typeof fetch) => listGalleries(f, null, 'updated')],
+		['getGallery', (f: typeof fetch) => getGallery(f, null, 'g')]
+	])('%s answers 503 for a body that is not the expected shape', async (_name, call) => {
+		for (const body of bodies) {
+			await expect(call(vi.fn().mockResolvedValue(new Response(body)))).rejects.toMatchObject({
+				status: 503
+			});
+		}
 	});
 });

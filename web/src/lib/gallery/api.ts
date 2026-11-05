@@ -1,3 +1,5 @@
+import { isGallery } from './validate';
+
 export type GalleryLayout = 'grid' | 'masonry';
 export type GallerySort = 'updated' | 'created' | 'title';
 
@@ -50,7 +52,11 @@ async function galleryRequest(path: string, init: RequestInit, fetcher: typeof f
 				: undefined
 		);
 	}
-	return (await response.json()) as Gallery;
+	const gallery: unknown = await response.json().catch(() => null);
+
+	if (!isGallery(gallery)) throw new GalleryApiError(502, 'Unexpected response from the server.');
+
+	return gallery;
 }
 
 export function createGallery(fetcher: typeof fetch = fetch): Promise<Gallery> {

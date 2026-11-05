@@ -28,10 +28,26 @@ const FIRST_REOPEN_DELAY_MS = 1000;
 const MAX_REOPEN_DELAY_MS = 30_000;
 const CLOSED = 2;
 
+const CHANGES: readonly string[] = ['waiting', 'processing', 'ready', 'failed', 'deleted'];
+
+function isPhotoEvent(value: unknown): value is PhotoEvent {
+	if (typeof value !== 'object' || value === null) return false;
+	const { gallery_id, photo_id, status } = value as Record<string, unknown>;
+
+	return (
+		typeof gallery_id === 'string' &&
+		typeof photo_id === 'string' &&
+		typeof status === 'string' &&
+		CHANGES.includes(status)
+	);
+}
+
 async function isSignedIn(): Promise<boolean> {
 	const response = await fetch('/api/v1/auth/status', { credentials: 'same-origin' });
 	if (!response.ok) throw new Error(`auth status ${response.status}`);
-	const status: { identity: unknown } = await response.json();
+	const status: unknown = await response.json();
+	if (typeof status !== 'object' || status === null || !('identity' in status))
+		throw new Error('invalid auth status');
 	return status.identity !== null;
 }
 
@@ -62,10 +78,15 @@ export function createLiveEvents({
 			for (const handler of resyncHandlers) handler();
 		});
 		current.addEventListener('photo', (message) => {
-			let event: PhotoEvent;
+			let event: unknown;
 			try {
 				event = JSON.parse((message as MessageEvent<string>).data);
 			} catch {
+				event = null;
+			}
+			// A payload the page can't trust is treated as a missed event: refetch instead.
+			if (!isPhotoEvent(event)) {
+				for (const handler of resyncHandlers) handler();
 				return;
 			}
 			for (const handler of photoHandlers) handler(event);
