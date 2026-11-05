@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use pp_core::notifications::PhotoId;
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use time::OffsetDateTime;
 use tokio::time::sleep;
 
@@ -29,6 +29,9 @@ pub struct StoredJob {
     /// The tagged payload, `{"kind": …, "payload": …}`.
     pub payload: Value,
 }
+
+/// Holds an exclusive lock on the sessions table until dropped, so session lookups block.
+pub struct SessionsLock(#[allow(dead_code)] Transaction<'static, Postgres>);
 
 pub struct TestRepository<'db> {
     pool: &'db PgPool,
@@ -193,6 +196,16 @@ impl TestRepository<'_> {
             .await?;
 
         Ok(())
+    }
+
+    pub async fn lock_sessions(&self) -> Result<SessionsLock, DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
+
+        sqlx::query("LOCK TABLE sessions IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *transaction)
+            .await?;
+
+        Ok(SessionsLock(transaction))
     }
 
     /// Makes every later job insert fail, as a database fault would.
