@@ -53,11 +53,32 @@ impl PhotoRetry<'_> {
             return Ok(None);
         }
 
-        // Row locks make a concurrent retry wait, then find the photos no longer failed.
+        // Jobs are locked before photos, each in id order, like the worker and delete do;
+        // otherwise a concurrent delete deadlocks. A concurrent retry waits, then finds the
+        // photos no longer failed.
+        sqlx::query(
+            "SELECT id FROM jobs
+             WHERE payload->'payload'->>'photo_id' IN (
+                 SELECT id::text FROM photos
+                 WHERE workspace_id = $1 AND gallery_id = $2 AND status = 'failed'
+                   AND ($3::uuid IS NULL OR id = $3))
+             ORDER BY id
+             FOR UPDATE",
+        )
+        .bind(workspace_id)
+        .bind(gallery_id)
+        .bind(photo)
+        .execute(&mut *transaction)
+        .await?;
+
         let requeued_photo_ids: Vec<PhotoId> = sqlx::query_scalar(
             "UPDATE photos SET status = 'waiting', failure_reason = NULL
-             WHERE workspace_id = $1 AND gallery_id = $2 AND status = 'failed'
-               AND ($3::uuid IS NULL OR id = $3)
+             WHERE id IN (
+                 SELECT id FROM photos
+                 WHERE workspace_id = $1 AND gallery_id = $2 AND status = 'failed'
+                   AND ($3::uuid IS NULL OR id = $3)
+                 ORDER BY id
+                 FOR UPDATE)
              RETURNING id",
         )
         .bind(workspace_id)
@@ -92,7 +113,10 @@ impl PhotoRetry<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::num::{NonZeroU32, NonZeroU64};
+    use std::{
+        num::{NonZeroU32, NonZeroU64},
+        time::Duration,
+    };
 
     use pp_core::types::generate::Generate;
     use uuid::Uuid;
@@ -104,6 +128,7 @@ mod tests {
         jobs::{JobKind, JobRepository, JobState},
         photo::{NewPhoto, PhotoDimensions, PhotoRepository, PhotoStatus},
         photo_intake::PhotoIntake,
+        tests::TestRepository,
     };
 
     struct Gallery {
@@ -219,7 +244,7 @@ mod tests {
 
         let job = database
             .repository::<JobRepository>()
-            .claim(&[JobKind::ProcessPhoto], std::time::Duration::from_secs(60))
+            .claim(&[JobKind::ProcessPhoto], Duration::from_secs(60))
             .await
             .unwrap()
             .unwrap();
@@ -244,6 +269,48 @@ mod tests {
             PhotoStatus::Failed(_)
         ));
         assert_eq!(job_states(&pool, untouched).await, [JobState::Failed]);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn retry_locks_jobs_before_photos_like_delete(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let gallery = gallery(&database, &pool).await;
+        let id = failed_photo(&database, &pool, &gallery).await;
+        let mut deleting = pool.begin().await.unwrap();
+
+        // Deleting a photo locks its jobs first, then the photo.
+        sqlx::query("SELECT id FROM jobs WHERE payload->'payload'->>'photo_id' = $1 FOR UPDATE")
+            .bind(id.to_string())
+            .execute(&mut *deleting)
+            .await
+            .unwrap();
+
+        let retrying = tokio::spawn({
+            let database = database.clone();
+            let (workspace_id, gallery_id) = (gallery.workspace_id, gallery.gallery_id);
+
+            async move {
+                database
+                    .repository::<PhotoRetry>()
+                    .retry_failed(workspace_id, gallery_id, Some(id))
+                    .await
+            }
+        });
+
+        database
+            .repository::<TestRepository>()
+            .wait_for_a_lock_waiter()
+            .await
+            .unwrap();
+
+        sqlx::query("UPDATE photos SET width = width WHERE id = $1")
+            .bind(id)
+            .execute(&mut *deleting)
+            .await
+            .unwrap();
+        deleting.commit().await.unwrap();
+
+        assert_eq!(retrying.await.unwrap().unwrap(), Some(1));
     }
 
     #[sqlx::test(migrations = "./migrations")]

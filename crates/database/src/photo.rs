@@ -275,7 +275,7 @@ impl PhotoRepository<'_> {
     ) -> Result<bool, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
 
-        // Jobs before the photo: the worker locks them in that order too, so neither deadlocks.
+        // Jobs before the photo, the lock order the worker and a retry follow too.
         sqlx::query(
             "DELETE FROM jobs WHERE payload->'payload'->>'photo_id' = $3::text AND EXISTS (
                  SELECT 1 FROM photos WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3
@@ -986,17 +986,11 @@ mod tests {
             }
         });
 
-        while sqlx::query_scalar::<_, i64>(
-            "SELECT count(*) FROM pg_stat_activity
-             WHERE datname = current_database() AND wait_event_type = 'Lock'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-            == 0
-        {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        database
+            .repository::<TestRepository>()
+            .wait_for_a_lock_waiter()
+            .await
+            .unwrap();
 
         sqlx::query("UPDATE photos SET width = width WHERE id = $1")
             .bind(id)
