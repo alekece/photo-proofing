@@ -50,6 +50,21 @@ afterEach(() => {
 });
 
 describe('gallery page', () => {
+	it('previews an unshared gallery and returns focus to Preview when closed', async () => {
+		vi.stubGlobal('fetch', async () => new Response('[]'));
+		const user = userEvent.setup();
+		open({ share_token: null });
+		const button = screen.getByRole('button', { name: 'Preview' });
+
+		await user.click(button);
+		expect(screen.getByRole('dialog', { name: 'Client preview' })).toBeTruthy();
+
+		await user.click(screen.getByRole('button', { name: 'Close preview' }));
+		expect(screen.queryByRole('dialog', { name: 'Client preview' })).toBeNull();
+		expect(document.activeElement).toBe(button);
+		expect(screen.queryByLabelText('Client link')).toBeNull();
+	});
+
 	it('renders the share control with a link built from the page origin', () => {
 		open({ share_token: 'B'.repeat(22) });
 		expect((screen.getByLabelText('Client link') as HTMLInputElement).value).toBe(

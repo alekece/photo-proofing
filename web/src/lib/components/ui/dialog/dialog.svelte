@@ -13,6 +13,8 @@
 		onclose: () => void;
 		labelledby?: string;
 		label?: string;
+		/** Non-modal dialogs stay in the page flow, so a parent can contain them. */
+		modal?: boolean;
 		children: Snippet<[() => void]>;
 	};
 
@@ -20,6 +22,7 @@
 		onclose,
 		labelledby,
 		label,
+		modal = true,
 		class: className,
 		onkeydown,
 		children,
@@ -33,7 +36,8 @@
 		const opener = document.activeElement;
 
 		// jsdom and very old browsers lack showModal; fall back to a plain open dialog.
-		if (typeof dialog.showModal === 'function') dialog.showModal();
+		if (modal && typeof dialog.showModal === 'function') dialog.showModal();
+		else if (!modal && typeof dialog.show === 'function') dialog.show();
 		else dialog.setAttribute('open', '');
 
 		return () => {
@@ -52,6 +56,8 @@
 	function handleKeydown(event: KeyboardEvent & { currentTarget: HTMLDialogElement }) {
 		if (event.key === 'Escape') {
 			event.preventDefault();
+			// A dialog nested in another must not dismiss its parent too.
+			event.stopPropagation();
 			close();
 
 			return;

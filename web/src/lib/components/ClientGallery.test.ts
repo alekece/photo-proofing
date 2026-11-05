@@ -13,4 +13,13 @@ describe('ClientGallery', () => {
 		expect(heading.classList.contains('wrap-anywhere')).toBe(true);
 		expect(heading.hasAttribute('style')).toBe(false);
 	});
+
+	it('shows a Preview marker only in preview mode', () => {
+		const gallery = { title: 'T', layout: 'grid' as const, expires_at: null };
+		const { unmount } = render(ClientGallery, { gallery });
+		expect(screen.queryByText('Preview')).toBeNull();
+		unmount();
+		render(ClientGallery, { gallery, preview: true });
+		expect(screen.getByText('Preview')).toBeTruthy();
+	});
 });

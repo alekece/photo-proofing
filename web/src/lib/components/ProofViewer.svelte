@@ -1,15 +1,21 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
+	import { cn } from '#lib/utils.js';
 	import type { Proof } from '../gallery/types';
 
 	let {
 		proofs,
 		index = $bindable(0),
+		class: className,
+		contained = false,
 		onclose
 	}: {
 		proofs: Proof[];
 		index?: number;
+		class?: string;
+		/** Opens inside the nearest positioned ancestor instead of over the whole page. */
+		contained?: boolean;
 		onclose: () => void;
 	} = $props();
 
@@ -68,8 +74,13 @@
 	{onclose}
 	{onkeydown}
 	label="Proof viewer"
+	modal={!contained}
 	aria-modal="true"
-	class="m-0 h-dvh max-h-dvh w-screen max-w-screen border-0 bg-viewer p-4 text-viewer-foreground open:flex open:flex-col open:gap-4"
+	class={cn(
+		'm-0 h-dvh max-h-dvh w-screen max-w-screen border-0 bg-viewer p-4 text-viewer-foreground open:flex open:flex-col open:gap-4',
+		contained && 'absolute inset-0 h-full max-h-full w-full max-w-full',
+		className
+	)}
 >
 	{#snippet children(close)}
 		<div class="flex items-center justify-between">
