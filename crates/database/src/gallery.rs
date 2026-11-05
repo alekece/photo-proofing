@@ -97,7 +97,7 @@ pub enum GalleryLayout {
 
 /// Where a gallery stands. Exactly one of `Draft`, `Shared` and `Delivered` always applies;
 /// `Archived` and `Expired` are flags that can come on top of any of them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GalleryState {
     Draft,
@@ -138,7 +138,10 @@ impl FromRow<'_, PgRow> for Gallery {
             })
             .transpose()?;
 
-        let progress = if row.try_get::<Option<Timestamp>, _>("delivered_at")?.is_some() {
+        let progress = if row
+            .try_get::<Option<Timestamp>, _>("delivered_at")?
+            .is_some()
+        {
             GalleryState::Delivered
         } else if row.try_get::<Option<Timestamp>, _>("shared_at")?.is_some() {
             GalleryState::Shared
@@ -147,7 +150,10 @@ impl FromRow<'_, PgRow> for Gallery {
         };
         let mut states = vec![progress];
 
-        if row.try_get::<Option<Timestamp>, _>("archived_at")?.is_some() {
+        if row
+            .try_get::<Option<Timestamp>, _>("archived_at")?
+            .is_some()
+        {
             states.push(GalleryState::Archived);
         }
 
@@ -255,6 +261,19 @@ impl GallerySort {
     }
 }
 
+impl GalleryState {
+    /// The `WHERE` condition matching galleries in this state.
+    fn condition(self) -> &'static str {
+        match self {
+            Self::Draft => "(shared_at IS NULL AND delivered_at IS NULL)",
+            Self::Shared => "(shared_at IS NOT NULL AND delivered_at IS NULL)",
+            Self::Delivered => "(delivered_at IS NOT NULL)",
+            Self::Archived => "(archived_at IS NOT NULL)",
+            Self::Expired => "COALESCE(expires_at <= now(), false)",
+        }
+    }
+}
+
 /// Data access for galleries; see the module docs.
 #[derive(Clone, Copy)]
 pub struct GalleryRepository<'db> {
@@ -285,13 +304,23 @@ impl GalleryRepository<'_> {
         .await?)
     }
 
+    /// Lists the workspace's galleries that are in any of `states`; an empty slice lists all.
     pub async fn list(
         &self,
         workspace_id: WorkspaceId,
         sort: GallerySort,
+        states: &[GalleryState],
     ) -> Result<Vec<Gallery>, DatabaseError> {
+        let filter = if states.is_empty() {
+            String::new()
+        } else {
+            let conditions = states.iter().map(|state| state.condition());
+
+            format!(" AND ({})", conditions.collect::<Vec<_>>().join(" OR "))
+        };
+
         Ok(sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {} FROM galleries WHERE workspace_id=$1 ORDER BY {}",
+            "SELECT {} FROM galleries WHERE workspace_id=$1{filter} ORDER BY {}",
             Self::COLUMNS,
             sort.order_by()
         )))
@@ -574,12 +603,11 @@ mod tests {
             .await
             .unwrap();
 
-        let rows: Vec<(Option<Timestamp>, Timestamp)> = sqlx::query_as(
-            "SELECT shared_at, updated_at FROM galleries ORDER BY updated_at",
-        )
-        .fetch_all(&mut *transaction)
-        .await
-        .unwrap();
+        let rows: Vec<(Option<Timestamp>, Timestamp)> =
+            sqlx::query_as("SELECT shared_at, updated_at FROM galleries ORDER BY updated_at")
+                .fetch_all(&mut *transaction)
+                .await
+                .unwrap();
 
         assert_eq!(rows[0].0, Some(rows[0].1));
         assert_eq!(rows[1].0, None);
@@ -606,7 +634,7 @@ mod tests {
         assert_eq!(store.get(other, gallery.id).await.unwrap(), None);
         assert!(
             store
-                .list(other, GallerySort::Updated)
+                .list(other, GallerySort::Updated, &[])
                 .await
                 .unwrap()
                 .is_empty()
@@ -820,7 +848,7 @@ mod tests {
 
         let titles = |sort| async move {
             store
-                .list(workspace, sort)
+                .list(workspace, sort, &[])
                 .await
                 .unwrap()
                 .into_iter()
@@ -847,6 +875,87 @@ mod tests {
             titles(GallerySort::Title).await,
             ["Apple", "banana", "cherry", ""]
         );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn list_filters_by_any_chosen_state(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let mut ids = Vec::new();
+
+        for title in ["draft", "shared", "delivered", "archived", "expired"] {
+            let gallery = store.create(workspace).await.unwrap();
+
+            store
+                .update(workspace, gallery.id, &changes(json!({"title": title})))
+                .await
+                .unwrap();
+            ids.push(gallery.id);
+        }
+
+        store.share(workspace, ids[1]).await.unwrap();
+        set_column(&pool, ids[2], "shared_at", "now()").await;
+        set_column(&pool, ids[2], "delivered_at", "now()").await;
+        set_column(&pool, ids[3], "archived_at", "now()").await;
+        set_column(&pool, ids[4], "expires_at", "now() - interval '1 day'").await;
+
+        let titles = |sort, states: &'static [GalleryState]| async move {
+            store
+                .list(workspace, sort, states)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|gallery| gallery.title.unwrap_or_default())
+                .collect::<Vec<_>>()
+        };
+
+        use GalleryState::{Archived, Delivered, Draft, Expired, Shared};
+
+        assert_eq!(titles(GallerySort::Title, &[]).await.len(), 5);
+        assert_eq!(titles(GallerySort::Title, &[Shared]).await, ["shared"]);
+        assert_eq!(
+            titles(GallerySort::Title, &[Shared, Shared]).await,
+            ["shared"]
+        );
+        assert_eq!(
+            titles(GallerySort::Title, &[Delivered, Archived]).await,
+            ["archived", "delivered"]
+        );
+        assert_eq!(
+            titles(GallerySort::Title, &[Draft, Expired]).await,
+            ["archived", "draft", "expired"]
+        );
+        assert_eq!(titles(GallerySort::Created, &[Expired]).await, ["expired"]);
+        assert_eq!(
+            titles(GallerySort::Updated, &[Archived]).await,
+            ["archived"]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn list_filter_stays_in_the_workspace(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let (mine, other) = (workspace(&pool).await, workspace(&pool).await);
+
+        store.create(mine).await.unwrap();
+
+        for state in [
+            GalleryState::Draft,
+            GalleryState::Shared,
+            GalleryState::Delivered,
+            GalleryState::Archived,
+            GalleryState::Expired,
+        ] {
+            assert!(
+                store
+                    .list(other, GallerySort::Updated, &[state])
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
     }
 
     #[sqlx::test(migrations = "./migrations")]
