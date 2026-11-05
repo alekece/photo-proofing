@@ -1,7 +1,9 @@
 //! Gallery endpoints under `/api/v1/galleries`, scoped to the session's workspace.
 //!
 //! - `POST /` creates an untitled gallery with the default settings.
-//! - `GET /?sort=updated|created|title` lists the workspace's galleries.
+//! - `GET /?sort=updated|created|title&state=…` lists the workspace's galleries. `state` is
+//!   `draft|shared|delivered|archived|expired`, may repeat, and keeps galleries in any of the
+//!   given states; unknown or empty values are a 400.
 //! - `GET /{id}` returns one gallery.
 //! - `PATCH /{id}` applies a [`GalleryChanges`] changeset and returns the updated gallery.
 //! - `POST /{id}/share` creates the gallery's private link if it has none and returns the
@@ -13,10 +15,13 @@
 //! route, they must carry the configured `Origin`, which the API-wide middleware checks.
 
 use actix_web::{
-    HttpResponse, get, patch, post,
-    web::{self, Data, Json, Path, Query, ServiceConfig},
+    HttpRequest, HttpResponse, get, patch, post,
+    web::{self, Data, Json, Path, ServiceConfig},
 };
-use pp_database::gallery::{GalleryChanges, GalleryId, GalleryRepository, GallerySort};
+use actix_web_lab::extract::Query as LabQuery;
+use pp_database::gallery::{
+    GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
+};
 use pp_storage::Variant;
 use serde::Deserialize;
 
@@ -47,10 +52,14 @@ impl From<DerivativePhoto> for Variant {
     }
 }
 
+/// The list query. `state` may repeat, which actix's own `Query` cannot read, so this goes
+/// through the HTML-form decoder of `actix-web-lab`.
 #[derive(Deserialize)]
 struct ListQuery {
     #[serde(default)]
     sort: GallerySort,
+    #[serde(default, rename = "state")]
+    states: Vec<GalleryState>,
 }
 
 /// Registers the gallery routes.
@@ -85,12 +94,16 @@ async fn create_gallery(
 async fn list_galleries(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    query: Query<ListQuery>,
+    request: HttpRequest,
 ) -> Result<HttpResponse, ErrorResponse> {
+    let ListQuery { sort, states } = LabQuery::<ListQuery>::from_query(request.query_string())
+        .map_err(|_| ErrorResponse::bad_request())?
+        .into_inner();
+
     let galleries = state
         .database()
         .repository::<GalleryRepository>()
-        .list(identity.workspace_id, query.sort)
+        .list(identity.workspace_id, sort, &states)
         .await?;
 
     Ok(HttpResponse::Ok().no_store().json(galleries))
@@ -248,6 +261,104 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(shown["id"], id.as_str());
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn listing_filters_by_state_and_stays_in_the_workspace(pool: PgPool) {
+        let foreign = Database::new(pool.clone())
+            .repository::<GalleryRepository>()
+            .create(other_workspace(&pool).await)
+            .await
+            .unwrap();
+        let (state, _directory) = app_state(pool.clone()).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let (_, draft) = call(&app, post_gallery(&cookie)).await;
+        let (_, expired) = call(&app, post_gallery(&cookie)).await;
+        let (_, shared) = call(&app, post_gallery(&cookie)).await;
+        let shared_id = shared["id"].as_str().unwrap();
+        let expired_id = expired["id"].as_str().unwrap();
+
+        call(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/{shared_id}/share"))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(cookie.clone()),
+        )
+        .await;
+        call(
+            &app,
+            patch(
+                expired_id,
+                &cookie,
+                json!({"expires_at": "2000-01-01T00:00:00Z"}),
+            ),
+        )
+        .await;
+
+        let ids = |uri: &'static str| {
+            let (app, cookie) = (&app, cookie.clone());
+
+            async move {
+                let request = test::TestRequest::get().uri(uri).cookie(cookie);
+                let (status, body) = call(app, request).await;
+
+                (
+                    status,
+                    body.as_array()
+                        .map(|list| {
+                            list.iter()
+                                .map(|gallery| gallery["id"].as_str().unwrap().to_owned())
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default(),
+                )
+            }
+        };
+
+        let (status, listed) =
+            ids("/api/v1/galleries?state=shared&state=expired&sort=created").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(listed, [shared_id, expired_id]);
+
+        let (_, listed) = ids("/api/v1/galleries?state=shared&state=shared").await;
+
+        assert_eq!(listed, [shared_id]);
+
+        let (_, listed) = ids("/api/v1/galleries?state=draft&sort=title").await;
+
+        let mut expected = [draft["id"].as_str().unwrap(), expired_id];
+
+        expected.sort_unstable();
+
+        assert_eq!(listed, expected);
+        assert!(!listed.contains(&foreign.id.0.to_string()));
+
+        let (_, all) = ids("/api/v1/galleries").await;
+
+        assert_eq!(all.len(), 3);
+
+        let request = test::TestRequest::get()
+            .uri("/api/v1/galleries?state=expired")
+            .cookie(cookie.clone());
+        let (_, body) = call(&app, request).await;
+
+        assert_eq!(body[0]["states"], json!(["draft", "expired"]));
+
+        for uri in [
+            "/api/v1/galleries?state=bogus",
+            "/api/v1/galleries?state=",
+            "/api/v1/galleries?state=shared&sort=oldest",
+        ] {
+            assert_eq!(ids(uri).await.0, StatusCode::BAD_REQUEST, "{uri}");
+        }
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

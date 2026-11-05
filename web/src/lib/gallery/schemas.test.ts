@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	deletedPhotosSchema,
 	gallerySchema,
+	parseGalleryStates,
 	parseGallerySort,
 	parseOrNull,
 	photoEventSchema,
@@ -20,6 +21,7 @@ const gallery = {
 	included_photos: null,
 	watermark_enabled: false,
 	share_token: null,
+	states: ['draft'],
 	created_at: '2026-11-05T10:00:00Z',
 	updated_at: '2026-11-05T10:00:00Z'
 };
@@ -63,7 +65,9 @@ describe('schemas', () => {
 		['a wrong layout', { ...gallery, layout: 'list' }],
 		['a missing id', { ...gallery, id: undefined }],
 		['a numeric title', { ...gallery, title: 3 }],
-		['a missing flag', { ...gallery, watermark_enabled: undefined }]
+		['a missing flag', { ...gallery, watermark_enabled: undefined }],
+		['missing states', { ...gallery, states: undefined }],
+		['an unknown state', { ...gallery, states: ['draft', 'sleeping'] }]
 	])('reject a gallery that is %s', (_name, value) => {
 		expect(parseOrNull(gallerySchema, value)).toBeNull();
 	});
@@ -98,5 +102,15 @@ describe('schemas', () => {
 		expect(parseGallerySort('created')).toBe('created');
 		expect(parseGallerySort('random')).toBe('updated');
 		expect(parseGallerySort(null)).toBe('updated');
+	});
+});
+
+describe('parseGalleryStates', () => {
+	it('keeps valid states once, in order, and drops the rest', () => {
+		expect(parseGalleryStates(['shared', 'bogus', 'shared', 'expired', null])).toEqual([
+			'shared',
+			'expired'
+		]);
+		expect(parseGalleryStates([])).toEqual([]);
 	});
 });

@@ -25,6 +25,7 @@ const validGallery = {
 	included_photos: null,
 	watermark_enabled: false,
 	share_token: null,
+	states: ['draft'],
 	created_at: '2026-11-05T10:00:00Z',
 	updated_at: '2026-11-05T10:00:00Z'
 };
