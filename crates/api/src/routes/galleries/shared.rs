@@ -83,9 +83,13 @@ async fn add_favorite(
     access: ClientAccess,
     path: Path<(String, PhotoId)>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    access
-        .set_favorite(&state, path.into_inner().1, true)
+    let change = state
+        .database()
+        .repository::<PhotoRepository>()
+        .set_favorite(access.0.location, path.into_inner().1, true)
         .await?;
+
+    ErrorResponse::ensure_favorite_applied(change)?;
 
     Ok(HttpResponse::NoContent().no_store().no_referrer().finish())
 }
@@ -96,9 +100,13 @@ async fn remove_favorite(
     access: ClientAccess,
     path: Path<(String, PhotoId)>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    access
-        .set_favorite(&state, path.into_inner().1, false)
+    let change = state
+        .database()
+        .repository::<PhotoRepository>()
+        .set_favorite(access.0.location, path.into_inner().1, false)
         .await?;
+
+    ErrorResponse::ensure_favorite_applied(change)?;
 
     Ok(HttpResponse::NoContent().no_store().no_referrer().finish())
 }

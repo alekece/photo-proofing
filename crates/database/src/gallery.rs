@@ -131,21 +131,23 @@ pub struct Gallery {
     pub updated_at: Timestamp,
 }
 
-/// The photo allowance of a gallery row, where `None` means selection is unlimited.
-pub(crate) fn included_photos(row: &PgRow) -> Result<Option<NonZeroUsize>, sqlx::Error> {
-    row.try_get::<Option<i32>, _>("included_photos")?
-        .map(|count| {
-            usize::try_from(count)
-                .ok()
-                .and_then(NonZeroUsize::new)
-                .ok_or_else(|| sqlx::Error::Decode("included_photos is not positive".into()))
-        })
-        .transpose()
+impl Gallery {
+    /// The photo allowance of a gallery row, where `None` means selection is unlimited.
+    pub(crate) fn included_photos(row: &PgRow) -> Result<Option<NonZeroUsize>, sqlx::Error> {
+        row.try_get::<Option<i32>, _>("included_photos")?
+            .map(|count| {
+                usize::try_from(count)
+                    .ok()
+                    .and_then(NonZeroUsize::new)
+                    .ok_or_else(|| sqlx::Error::Decode("included_photos is not positive".into()))
+            })
+            .transpose()
+    }
 }
 
 impl FromRow<'_, PgRow> for Gallery {
     fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
-        let included_photos = included_photos(row)?;
+        let included_photos = Self::included_photos(row)?;
 
         let progress = if row
             .try_get::<Option<Timestamp>, _>("delivered_at")?

@@ -1,11 +1,7 @@
 use std::{future::Future, pin::Pin};
 
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
-use pp_core::notifications::PhotoId;
-use pp_database::{
-    gallery::{GalleryRepository, ShareToken, SharedAccess},
-    photo::{FavoriteChange, PhotoRepository},
-};
+use pp_database::gallery::{GalleryRepository, ShareToken, SharedAccess};
 
 use crate::{api::ApiState, error::ErrorResponse};
 
@@ -24,27 +20,6 @@ pub(crate) enum ClientPhotoSet {
 impl ClientAccess {
     pub(crate) fn photo_set(&self) -> ClientPhotoSet {
         ClientPhotoSet::Proofs
-    }
-
-    /// Adds or removes a favorite; a photo outside the link's gallery is a 404 and a delivered
-    /// gallery a 409.
-    pub(crate) async fn set_favorite(
-        &self,
-        state: &ApiState,
-        photo_id: PhotoId,
-        favorite: bool,
-    ) -> Result<(), ErrorResponse> {
-        let change = state
-            .database()
-            .repository::<PhotoRepository>()
-            .set_favorite(self.0.location, photo_id, favorite)
-            .await?;
-
-        match change {
-            FavoriteChange::Applied => Ok(()),
-            FavoriteChange::NotFound => Err(ErrorResponse::not_found()),
-            FavoriteChange::Delivered => Err(ErrorResponse::conflict("gallery already delivered")),
-        }
     }
 }
 

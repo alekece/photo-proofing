@@ -78,6 +78,19 @@ mod tests {
             }
         }
 
+        async fn next(listener: &mut Listener<FavoriteEvent>) -> Notification<FavoriteEvent> {
+            time::timeout(Duration::from_secs(5), listener.next())
+                .await
+                .expect("a notification arrives")
+                .unwrap()
+        }
+
+        async fn assert_silent(listener: &mut Listener<FavoriteEvent>) {
+            let received = time::timeout(Duration::from_millis(200), listener.next()).await;
+
+            assert!(received.is_err(), "unexpected {received:?}");
+        }
+
         async fn set_favorite(&self, pool: &PgPool, favorite: bool) {
             sqlx::query("UPDATE photos SET favorite = $2 WHERE id = $1")
                 .bind(self.photo_id)
@@ -88,19 +101,6 @@ mod tests {
         }
     }
 
-    async fn next(listener: &mut Listener<FavoriteEvent>) -> Notification<FavoriteEvent> {
-        time::timeout(Duration::from_secs(5), listener.next())
-            .await
-            .expect("a notification arrives")
-            .unwrap()
-    }
-
-    async fn assert_silent(listener: &mut Listener<FavoriteEvent>) {
-        let received = time::timeout(Duration::from_millis(200), listener.next()).await;
-
-        assert!(received.is_err(), "unexpected {received:?}");
-    }
-
     #[sqlx::test(migrations = "./migrations")]
     async fn each_change_of_the_flag_notifies_once(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
@@ -108,15 +108,15 @@ mod tests {
 
         fixture.set_favorite(&pool, true).await;
 
-        assert_eq!(next(&mut listener).await, fixture.event);
+        assert_eq!(Fixture::next(&mut listener).await, fixture.event);
 
         fixture.set_favorite(&pool, true).await;
 
-        assert_silent(&mut listener).await;
+        Fixture::assert_silent(&mut listener).await;
 
         fixture.set_favorite(&pool, false).await;
 
-        assert_eq!(next(&mut listener).await, fixture.event);
+        assert_eq!(Fixture::next(&mut listener).await, fixture.event);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -130,13 +130,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert_silent(&mut listener).await;
+        Fixture::assert_silent(&mut listener).await;
 
         let fixture = Fixture::new(&pool).await;
         let mut listener = fixture.database.listen::<FavoriteEvent>().await.unwrap();
 
         fixture.set_favorite(&pool, true).await;
-        next(&mut listener).await;
+        Fixture::next(&mut listener).await;
 
         sqlx::query("DELETE FROM photos WHERE id = $1")
             .bind(fixture.photo_id)
@@ -144,6 +144,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(next(&mut listener).await, fixture.event);
+        assert_eq!(Fixture::next(&mut listener).await, fixture.event);
     }
 }

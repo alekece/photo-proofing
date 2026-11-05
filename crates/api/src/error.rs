@@ -11,7 +11,7 @@ use actix_web::{
     error::JsonPayloadError,
     http::{StatusCode, header::RETRY_AFTER},
 };
-use pp_database::{error::DatabaseError, gallery::GalleryError};
+use pp_database::{error::DatabaseError, gallery::GalleryError, photo::FavoriteChange};
 use pp_storage::StorageError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -49,6 +49,16 @@ impl ErrorResponse {
 
     pub fn conflict(message: &'static str) -> Self {
         Self::new(StatusCode::CONFLICT, message)
+    }
+
+    /// Succeeds only when the change was applied; a photo outside the gallery is a 404 and a
+    /// delivered gallery a 409.
+    pub fn ensure_favorite_applied(change: FavoriteChange) -> Result<(), Self> {
+        match change {
+            FavoriteChange::Applied => Ok(()),
+            FavoriteChange::NotFound => Err(Self::not_found()),
+            FavoriteChange::Delivered => Err(Self::conflict("gallery already delivered")),
+        }
     }
 
     pub fn unavailable() -> Self {

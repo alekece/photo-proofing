@@ -10,7 +10,7 @@ use pp_core::{
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row, Type, postgres::PgRow};
 
-use super::{GalleryLayout, included_photos};
+use super::{Gallery, GalleryLayout};
 use crate::photo::PhotoLocation;
 
 /// The unguessable value that makes up a gallery's private link.
@@ -51,7 +51,7 @@ impl FromRow<'_, PgRow> for SharedGallery {
             title: row.try_get("title")?,
             layout: row.try_get("layout")?,
             expires_at: row.try_get("expires_at")?,
-            included_photos: included_photos(row)?,
+            included_photos: Gallery::included_photos(row)?,
             delivered: row.try_get("delivered")?,
             hero_id: row.try_get("hero_id")?,
         })
