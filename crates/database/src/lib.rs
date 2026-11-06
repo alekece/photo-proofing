@@ -1,6 +1,7 @@
 //! PostgreSQL persistence and versioned application migrations.
 
 pub mod auth;
+pub mod deletion;
 pub mod error;
 pub mod favorite_events;
 pub mod gallery;

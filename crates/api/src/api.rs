@@ -12,7 +12,12 @@ use actix_web::{
 };
 use derive_more::From;
 use pp_core::url::Origin;
-use pp_database::{Database, auth::AuthRepository, error::DatabaseError, jobs::JobOptions};
+use pp_database::{
+    Database,
+    auth::AuthRepository,
+    error::DatabaseError,
+    jobs::{JobOptions, JobPayload, JobRepository},
+};
 use pp_storage::{PhotoStorage, StorageError};
 use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -91,6 +96,11 @@ impl ApiState {
         upload_config: UploadConfig,
         queue: QueueConfig,
     ) -> Result<Self, ApiError> {
+        let job_options = JobOptions {
+            max_attempts: queue.max_attempts,
+            cleanup_batch: queue.cleanup_batch,
+        };
+
         Ok(Self {
             database,
             storage,
@@ -103,9 +113,7 @@ impl ApiState {
             // so adding it to the current time cannot overflow for centuries.
             cookie_max_age: CookieMaxAge::try_from(session.idle_timeout.get())?,
             hash_slots: Arc::new(Semaphore::new(auth.hash_concurrency.get())),
-            job_options: JobOptions {
-                max_attempts: queue.max_attempts,
-            },
+            job_options,
             failed_attempts: AttemptLimiter::new(limiter),
             dummy_hash: PasswordHash::generate()?,
         })
@@ -115,7 +123,7 @@ impl ApiState {
         &self.database
     }
 
-    /// How jobs enqueued for photos are configured.
+    /// How the jobs the API enqueues are configured.
     pub fn job_options(&self) -> JobOptions {
         self.job_options
     }
@@ -241,6 +249,16 @@ impl Api {
             config.photo_upload,
             config.queue,
         )?;
+
+        // A failed sweep only delays the removal of leftover files, so it must not stop startup.
+        if let Err(error) = state
+            .database()
+            .repository::<JobRepository>()
+            .enqueue(JobPayload::SweepOrphans, state.job_options().max_attempts)
+            .await
+        {
+            tracing::warn!(%error, "could not queue the orphaned file sweep");
+        }
 
         Ok(Self {
             http: config.http,
