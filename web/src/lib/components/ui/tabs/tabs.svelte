@@ -48,22 +48,24 @@
 			aria-selected={value === id}
 			aria-controls={`panel-${id}`}
 			tabindex={value === id ? 0 : -1}
-			class="-mb-px flex items-center gap-2 border-b-2 pt-1.5 pb-2.5 text-[0.9rem] font-medium sm:text-[0.9375rem] {value ===
+			class="-mb-px flex items-baseline gap-1.5 border-b-2 pt-1.5 pb-[0.5625rem] text-[0.90625rem] leading-[1.2] hover:text-foreground sm:gap-2 sm:pb-2.5 sm:text-[0.9375rem] {value ===
 			id
-				? 'border-foreground text-foreground'
-				: 'border-transparent text-muted-foreground'}"
+				? 'border-foreground font-semibold text-foreground'
+				: 'border-transparent font-medium text-muted-foreground'}"
 			onclick={() => (value = id)}
 			onkeydown={moveTab}
 		>
 			{label}
 			{#if count != null}
 				<em
-					class="rounded-full border px-1.5 py-px text-[0.65625rem] font-bold not-italic {value ===
+					class="rounded-full border px-1.5 py-px text-[0.65625rem] font-bold tracking-[0.04em] not-italic {value ===
 					id
 						? 'bg-white'
 						: 'bg-panel'} {accent
-						? 'border-danger/40 text-danger'
-						: 'border-border-strong text-muted-foreground'}">{count}</em
+						? 'border-danger/40 font-extrabold text-danger'
+						: value === id
+							? 'border-[#cdbda9] text-foreground'
+							: 'border-border text-muted-foreground'}">{count}</em
 				>
 			{/if}
 			{#if locked}

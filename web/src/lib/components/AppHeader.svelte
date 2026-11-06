@@ -30,7 +30,7 @@
 		'z-20 flex items-center gap-2.5 px-3.5 py-3 sm:gap-4 sm:px-8 sm:py-3.5',
 		overlay
 			? 'absolute inset-x-0 top-0 text-panel'
-			: 'relative border-b border-border bg-panel text-foreground'
+			: 'relative border-b border-border text-foreground'
 	)}
 >
 	<a href="/dashboard" class="brand text-lg whitespace-nowrap sm:text-[1.3125rem]">PhotoProofing</a>
@@ -73,7 +73,7 @@
 	<Popover
 		label="Account menu"
 		align="end"
-		class="{round} {hover} size-[2.125rem] border-2 border-panel bg-border-strong text-foreground ring-1 ring-border"
+		class="grid place-items-center rounded-full {hover} size-[2.125rem] border-2 border-panel bg-border-strong text-foreground ring-1 ring-border"
 		panelClass="w-48 text-foreground"
 	>
 		{#snippet trigger()}<User size={16} aria-hidden="true" />{/snippet}

@@ -77,6 +77,7 @@
 			<SelectPill
 				count={mode.count}
 				actionLabel="Delete"
+				destructive
 				actionDisabled={!ondelete || mode.count === 0}
 				onaction={() => ondelete?.(photos.filter(({ id }) => mode.has(id)))}
 				onselectall={() => mode.selectAll(photos.map(({ id }) => id))}
