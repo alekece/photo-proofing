@@ -71,8 +71,9 @@ accent when over the allowance. After delivery Favorites shows a padlock: the se
 
 The proofs. Toolbar: **Select** and **Upload**. Tiles show only:
 
-- a star at the top right: **Set as hero** / **Remove hero** (a toggle; the hero's star stays
-  visible and reads "Hero"). Hover and focus only; on touch screens use the viewer instead;
+- a star at the top right: **Set as hero** / **Remove hero** (a toggle). On hover and focus only,
+  except the hero's own star, which stays visible as a gold star with no text (its tooltip and
+  screen-reader label are "Remove hero"). On touch screens use the viewer instead;
 - a × to delete, which always asks first.
 
 No hearts or favorite marks here: favorites belong to the Favorites tab. Clicking a photo opens
