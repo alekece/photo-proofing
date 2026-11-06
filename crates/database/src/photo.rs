@@ -276,63 +276,6 @@ impl PhotoRepository<'_> {
         .await?)
     }
 
-    /// Deletes photos whatever their status, together with all of their jobs, in one transaction.
-    ///
-    /// Returns the ids removed, each once; ids outside this workspace and gallery, or already
-    /// gone, are ignored. Their files are the caller's to remove. A worker still rendering one
-    /// finds its claim gone and removes whatever it writes late.
-    pub async fn delete(
-        &self,
-        workspace_id: WorkspaceId,
-        gallery_id: GalleryId,
-        ids: &[PhotoId],
-    ) -> Result<Vec<PhotoId>, DatabaseError> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let mut transaction = self.pool.begin().await?;
-
-        // Jobs before photos, each in id order: the worker locks a job then its photo, so neither
-        // it nor an overlapping delete deadlocks with this one.
-        sqlx::query(
-            "DELETE FROM jobs WHERE id IN (
-                 SELECT id FROM jobs WHERE payload->'payload'->>'photo_id' IN (
-                     SELECT id::text FROM photos
-                     WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)
-                 )
-                 ORDER BY id FOR UPDATE
-             )",
-        )
-        .bind(workspace_id)
-        .bind(gallery_id)
-        .bind(ids)
-        .execute(&mut *transaction)
-        .await?;
-
-        let deleted_ids: Vec<PhotoId> = sqlx::query_scalar(
-            "DELETE FROM photos WHERE id IN (
-                 SELECT id FROM photos
-                 WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)
-                 ORDER BY id FOR UPDATE
-             )
-             RETURNING id",
-        )
-        .bind(workspace_id)
-        .bind(gallery_id)
-        .bind(ids)
-        .fetch_all(&mut *transaction)
-        .await?;
-
-        if deleted_ids.is_empty() {
-            return Ok(deleted_ids);
-        }
-
-        transaction.commit().await?;
-
-        Ok(deleted_ids)
-    }
-
     /// Lists a gallery's ready photos in creation order.
     pub async fn list_ready(
         &self,
@@ -496,7 +439,7 @@ impl PhotoRepository<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::num::{NonZeroU32, NonZeroU64};
+    use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 
     use pp_core::notifications::PhotoId;
     use sqlx::PgPool;
@@ -507,7 +450,9 @@ mod tests {
     use crate::{
         Database,
         auth::WorkspaceId,
+        deletion::WorkspaceDeletion,
         gallery::{GalleryId, GalleryRepository},
+        jobs::{DEFAULT_CLEANUP_BATCH, JobOptions},
         listener::Notification,
         photo_events::{PhotoChange, PhotoEvent},
         photo_intake::PhotoIntake,
@@ -881,8 +826,9 @@ mod tests {
             photos.set_favorite(location, id, true).await.unwrap();
         }
 
-        photos
-            .delete(location.workspace_id, location.gallery_id, &[doomed])
+        database
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(location.workspace_id, location.gallery_id, &[doomed])
             .await
             .unwrap();
 
@@ -1162,8 +1108,9 @@ mod tests {
             jobs_in_every_state(&pool, id).await;
 
             assert_eq!(
-                photos
-                    .delete(location.workspace_id, location.gallery_id, &[id])
+                database
+                    .repository::<WorkspaceDeletion>()
+                    .delete_photos(location.workspace_id, location.gallery_id, &[id])
                     .await
                     .unwrap(),
                 vec![id]
@@ -1180,6 +1127,127 @@ mod tests {
 
         assert_eq!(tests.photo_jobs(kept_photo).await.unwrap().len(), 1);
         assert_eq!(tests.count_photos().await.unwrap(), 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn delete_queues_cleanup_for_exactly_the_removed_photos(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let tests = database.repository::<TestRepository>();
+        let location = gallery_location(&database, &pool).await;
+        let other = gallery_location(&database, &pool).await;
+        let first = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let kept = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 2).await;
+        let foreign = photo_in(&database, other, (20, 10), PhotoStatus::Ready, 3).await;
+
+        database
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(
+                location.workspace_id,
+                location.gallery_id,
+                &[first, foreign],
+            )
+            .await
+            .unwrap();
+        database
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(location.workspace_id, location.gallery_id, &[first])
+            .await
+            .unwrap();
+        database
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(location.workspace_id, location.gallery_id, &[kept])
+            .await
+            .unwrap();
+
+        let cleanups = tests.jobs_of_kind("cleanup_photos").await.unwrap();
+        let named: Vec<_> = cleanups
+            .iter()
+            .map(|job| job.payload["payload"]["photo_ids"].clone())
+            .collect();
+
+        assert_eq!(
+            named,
+            [
+                serde_json::json!([first.to_string()]),
+                serde_json::json!([kept.to_string()])
+            ]
+        );
+        assert_eq!(
+            cleanups[0].payload["payload"]["gallery_id"],
+            location.gallery_id.0.to_string()
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn delete_honors_the_configured_cleanup_batch(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let deletion = database.repository_with::<WorkspaceDeletion>(JobOptions {
+            cleanup_batch: NonZeroUsize::new(2).unwrap(),
+            ..JobOptions::default()
+        });
+        let location = gallery_location(&database, &pool).await;
+        let mut ids = Vec::new();
+
+        for _ in 0..3 {
+            ids.push(photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await);
+        }
+
+        deletion
+            .delete_photos(location.workspace_id, location.gallery_id, &ids)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            database
+                .repository::<TestRepository>()
+                .jobs_of_kind("cleanup_photos")
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn delete_splits_large_cleanups_and_keeps_earlier_cleanup_jobs(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let tests = database.repository::<TestRepository>();
+        let location = gallery_location(&database, &pool).await;
+        let mut ids = Vec::new();
+
+        for _ in 0..=DEFAULT_CLEANUP_BATCH.get() {
+            ids.push(PhotoId::from(Uuid::new_v4()));
+        }
+
+        sqlx::query(
+            "INSERT INTO photos(id, workspace_id, gallery_id, original_name, size, width, height, status)
+             SELECT unnest($3::uuid[]), $1, $2, 'p.jpg', 1, 1, 1, 'ready'",
+        )
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .bind(&ids)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let deleted = database
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(location.workspace_id, location.gallery_id, &ids)
+            .await
+            .unwrap();
+
+        assert_eq!(deleted.len(), ids.len());
+        assert_eq!(tests.jobs_of_kind("cleanup_photos").await.unwrap().len(), 2);
+
+        let more = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+
+        database
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(location.workspace_id, location.gallery_id, &[more])
+            .await
+            .unwrap();
+
+        assert_eq!(tests.jobs_of_kind("cleanup_photos").await.unwrap().len(), 3);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -1201,8 +1269,8 @@ mod tests {
 
             async move {
                 database
-                    .repository::<PhotoRepository>()
-                    .delete(location.workspace_id, location.gallery_id, &[id])
+                    .repository::<WorkspaceDeletion>()
+                    .delete_photos(location.workspace_id, location.gallery_id, &[id])
                     .await
             }
         });
@@ -1249,8 +1317,9 @@ mod tests {
             ),
         ] {
             assert!(
-                photos
-                    .delete(workspace_id, gallery_id, &[photo_id])
+                database
+                    .repository::<WorkspaceDeletion>()
+                    .delete_photos(workspace_id, gallery_id, &[photo_id])
                     .await
                     .unwrap()
                     .is_empty()
@@ -1283,7 +1352,6 @@ mod tests {
         let location = gallery_location(&database, &pool).await;
         let other_workspace = gallery_location(&database, &pool).await;
         let tests = database.repository::<TestRepository>();
-        let photos = database.repository::<PhotoRepository>();
         let first = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
         let second = photo_in(&database, location, (20, 10), PhotoStatus::Processing, 2).await;
         let kept = photo_in(&database, location, (20, 10), PhotoStatus::Waiting, 3).await;
@@ -1293,8 +1361,9 @@ mod tests {
 
         jobs_in_every_state(&pool, first).await;
 
-        let mut deleted = photos
-            .delete(
+        let mut deleted = database
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(
                 location.workspace_id,
                 location.gallery_id,
                 &[first, second, foreign, PhotoId::from(Uuid::new_v4()), first],
@@ -1327,8 +1396,8 @@ mod tests {
         let mut listener = database.listen::<PhotoEvent>().await.unwrap();
 
         database
-            .repository::<PhotoRepository>()
-            .delete(location.workspace_id, location.gallery_id, &[id])
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(location.workspace_id, location.gallery_id, &[id])
             .await
             .unwrap();
 
