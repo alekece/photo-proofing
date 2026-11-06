@@ -151,7 +151,8 @@ mod tests {
     };
     use pp_database::{
         Database,
-        gallery::{GalleryChanges, GalleryRepository, ShareToken},
+        gallery::{GalleryChanges, GalleryId, GalleryRepository, ShareToken},
+        tests::TestRepository,
     };
     use serde_json::{Value, json};
     use sqlx::PgPool;
@@ -664,5 +665,178 @@ mod tests {
 
             assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
         }
+    }
+
+    fn lifecycle(
+        method: &str,
+        gallery_id: &str,
+        action: &str,
+        cookie: &Cookie<'static>,
+    ) -> test::TestRequest {
+        let request = match method {
+            "DELETE" => test::TestRequest::delete(),
+            _ => test::TestRequest::post(),
+        };
+
+        request
+            .uri(&format!("/api/v1/galleries/{gallery_id}{action}"))
+            .insert_header(("Origin", ORIGIN))
+            .cookie(cookie.clone())
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn archiving_hides_the_link_and_restoring_brings_it_back(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+
+        store_derivative(&pool, directory.path(), &photo, "thumbnail").await;
+
+        let token = share(&app, &cookie, &gallery_id).await;
+        let paths = [
+            "".to_owned(),
+            "/photos".to_owned(),
+            "/favorites".to_owned(),
+            format!("/photos/{photo}/thumbnail"),
+        ];
+
+        let (status, archived) =
+            call(&app, lifecycle("POST", &gallery_id, "/archive", &cookie)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            archived["states"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("archived"))
+        );
+
+        for path in &paths {
+            let (status, _) = call_request(&app, client_request(&token, path)).await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+        }
+
+        let response = test::call_service(&app, favorite_request("PUT", &token, &photo)).await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let (status, restored) =
+            call(&app, lifecycle("POST", &gallery_id, "/restore", &cookie)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            !restored["states"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("archived"))
+        );
+
+        for path in &paths {
+            let (status, _) = call_request(&app, client_request(&token, path)).await;
+
+            assert_eq!(status, StatusCode::OK, "{path}");
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn deleting_a_gallery_ends_its_link_and_queues_one_cleanup(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let token = share(&app, &cookie, &gallery_id).await;
+
+        photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        waiting_photo(&app, &cookie, &gallery_id).await;
+
+        let response = test::call_service(
+            &app,
+            lifecycle("DELETE", &gallery_id, "", &cookie).to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
+        assert_eq!(
+            call_request(&app, client_request(&token, "")).await.0,
+            StatusCode::NOT_FOUND
+        );
+
+        let tests = Database::new(pool.clone());
+        let tests = tests.repository::<TestRepository>();
+
+        assert_eq!(
+            tests.jobs_of_kind("cleanup_gallery").await.unwrap().len(),
+            1
+        );
+        assert_eq!(tests.count_jobs(None).await.unwrap(), 1);
+
+        let (status, _) = call(&app, lifecycle("DELETE", &gallery_id, "", &cookie)).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(
+            tests.jobs_of_kind("cleanup_gallery").await.unwrap().len(),
+            1
+        );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn lifecycle_routes_need_a_session_and_the_owning_workspace(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let foreign = Database::new(pool.clone())
+            .repository::<GalleryRepository>()
+            .create(other_workspace(&pool).await)
+            .await
+            .unwrap()
+            .id
+            .0
+            .to_string();
+
+        for (method, action) in [("POST", "/archive"), ("POST", "/restore"), ("DELETE", "")] {
+            let anonymous = match method {
+                "DELETE" => test::TestRequest::delete(),
+                _ => test::TestRequest::post(),
+            }
+            .uri(&format!("/api/v1/galleries/{gallery_id}{action}"))
+            .insert_header(("Origin", ORIGIN));
+
+            assert_eq!(call(&app, anonymous).await.0, StatusCode::UNAUTHORIZED);
+
+            let (status, _) = call(&app, lifecycle(method, &foreign, action, &cookie)).await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND, "{method} {action}");
+        }
+
+        assert_eq!(
+            call(&app, lifecycle("POST", &gallery_id, "/archive", &cookie))
+                .await
+                .0,
+            StatusCode::OK
+        );
+        assert!(
+            Database::new(pool)
+                .repository::<GalleryRepository>()
+                .exists(GalleryId(foreign.parse().unwrap()))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn photographers_can_still_upload_to_an_archived_gallery(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+
+        call(&app, lifecycle("POST", &gallery_id, "/archive", &cookie)).await;
+
+        waiting_photo(&app, &cookie, &gallery_id).await;
     }
 }

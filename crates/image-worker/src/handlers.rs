@@ -7,6 +7,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Error as JsonError;
 use thiserror::Error;
 
+pub mod cleanup;
 pub mod process_photo;
 
 type BoxError = Box<dyn Error + Send + Sync>;

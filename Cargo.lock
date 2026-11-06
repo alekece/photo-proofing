@@ -1992,6 +1992,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "sqlx",
+ "strum",
  "thiserror",
  "time",
  "tokio",

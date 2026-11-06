@@ -66,3 +66,25 @@ export function updateGallery(
 export function shareGallery(id: string, fetcher: typeof fetch = fetch): Promise<Gallery> {
 	return galleryRequest(`/${encodeURIComponent(id)}/share`, { method: 'POST' }, fetcher);
 }
+
+/** Hides the gallery from its client; the gallery and its photos are kept. */
+export function archiveGallery(id: string, fetcher: typeof fetch = fetch): Promise<Gallery> {
+	return galleryRequest(`/${encodeURIComponent(id)}/archive`, { method: 'POST' }, fetcher);
+}
+
+/** Makes an archived gallery reachable by its client again. */
+export function restoreGallery(id: string, fetcher: typeof fetch = fetch): Promise<Gallery> {
+	return galleryRequest(`/${encodeURIComponent(id)}/restore`, { method: 'POST' }, fetcher);
+}
+
+/** Deletes the gallery and its photos for good; there is no response body to read. */
+export async function deleteGallery(id: string, fetcher: typeof fetch = fetch): Promise<void> {
+	const response = await fetcher(`/api/v1/galleries/${encodeURIComponent(id)}`, {
+		method: 'DELETE',
+		credentials: 'same-origin'
+	});
+
+	if (!response.ok) {
+		throw new GalleryApiError(response.status, 'Unable to delete the gallery.');
+	}
+}
