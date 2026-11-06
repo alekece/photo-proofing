@@ -17,7 +17,6 @@
 	import Input from '#lib/components/ui/input/input.svelte';
 	import Label from '#lib/components/ui/label/label.svelte';
 	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
-	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import {
 		GalleryApiError,
 		shareGallery,
@@ -197,9 +196,14 @@
 </script>
 
 <svelte:head><title>{saved.title ?? UNTITLED_GALLERY} — PhotoProofing</title></svelte:head>
-<AppHeader back={{ href: '/dashboard', label: 'All galleries' }} onsignout={logout} />
-<PageShell width="wide">
-	{#if signOutError}<p role="alert" class="text-danger">{signOutError}</p>{/if}
+<div class="relative">
+	<AppHeader overlay crumb={saved.title ?? UNTITLED_GALLERY} onsignout={logout} />
+	{#if signOutError}<p
+			role="alert"
+			class="absolute inset-x-0 top-16 z-20 text-center text-warning-on-dark"
+		>
+			{signOutError}
+		</p>{/if}
 
 	<GalleryHeader
 		gallery={{ ...saved, share_token: shareToken }}
@@ -215,7 +219,7 @@
 				<Label srOnly for="title">Gallery title</Label>
 				<Input
 					id="title"
-					class="min-h-0 flex-1 border-transparent bg-transparent px-2 py-1 font-serif text-3xl text-inverse placeholder:text-inverse/70 hover:border-white/40 focus:border-inverse"
+					class="mt-2 mb-1.5 min-h-0 flex-1 rounded-none border-0 border-b border-transparent bg-transparent p-0 font-serif text-[2rem] leading-none text-panel placeholder:text-panel/70 hover:border-dotted hover:border-panel/50 focus:border-solid focus:border-panel sm:text-[2.875rem]"
 					bind:value={title}
 					placeholder={UNTITLED_GALLERY}
 					maxlength={TITLE_MAX}
@@ -249,31 +253,31 @@
 			</div>
 		{/snippet}
 	</GalleryHeader>
+</div>
+<div class="grid min-h-[calc(100vh-25rem)] grid-cols-[3.5rem_1fr] md:grid-cols-[18.75rem_1fr]">
+	<GallerySettings
+		gallery={saved}
+		{shareToken}
+		origin={page.url.origin}
+		onsave={save}
+		schedule={debounce}
+		{cancel}
+		onarchive={() => (confirming = 'archive')}
+		onrestore={restore}
+		ondelete={() => (confirming = 'delete')}
+	/>
 
-	<div class="grid gap-6 md:grid-cols-[20rem_1fr]">
-		<GallerySettings
-			gallery={saved}
-			{shareToken}
-			origin={page.url.origin}
-			onsave={save}
-			schedule={debounce}
-			{cancel}
-			onarchive={() => (confirming = 'archive')}
-			onrestore={restore}
-			ondelete={() => (confirming = 'delete')}
-		/>
-
-		<GalleryTabs
-			galleryId={saved.id}
-			included={saved.included_photos}
-			bind:heroId={saved.hero_id}
-			bind:photoCount
-			bind:favoriteCount
-			watermarked={saved.watermark_enabled}
-			delivered={saved.states.includes('delivered')}
-		/>
-	</div>
-</PageShell>
+	<GalleryTabs
+		galleryId={saved.id}
+		included={saved.included_photos}
+		layout={saved.layout}
+		bind:heroId={saved.hero_id}
+		bind:photoCount
+		bind:favoriteCount
+		watermarked={saved.watermark_enabled}
+		delivered={saved.states.includes('delivered')}
+	/>
+</div>
 {#if previewing}
 	<ClientPreview gallery={saved} onclose={() => (previewing = false)} />
 {/if}

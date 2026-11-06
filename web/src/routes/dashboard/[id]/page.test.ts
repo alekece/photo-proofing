@@ -342,7 +342,7 @@ describe('gallery page', () => {
 		it('shows the title and the draft status', () => {
 			open();
 			expect(screen.getByText('Draft')).toBeTruthy();
-			expect(screen.getByText('not shared yet')).toBeTruthy();
+			expect(screen.getByText(/created /)).toBeTruthy();
 			expect(screen.getByLabelText('Gallery title')).toBeTruthy();
 		});
 

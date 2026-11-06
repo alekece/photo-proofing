@@ -21,19 +21,19 @@
 	}
 </script>
 
-<div class="grid gap-2">
-	<div class="flex gap-2">
-		<Input
-			bind:ref={input}
-			readonly
-			value={link}
-			aria-label="Client link"
-			class="min-w-0 flex-1 text-sm"
-		/>
-		<Button variant="outline" size="sm" onclick={copyLink}>Copy link</Button>
+<div class="grid gap-2.5">
+	<Input
+		bind:ref={input}
+		readonly
+		value={link}
+		aria-label="Client link"
+		class="min-h-0 min-w-0 truncate rounded-lg bg-background px-2.5 py-[0.5625rem] font-mono text-sm"
+	/>
+	<div class="flex gap-2 [&>*]:min-h-9! [&>*]:flex-1">
+		<Button size="sm" onclick={copyLink}>Copy link</Button>
 		<Button variant="outline" size="sm" href={link} target="_blank" rel="noopener noreferrer"
 			>Open</Button
 		>
 	</div>
-	<p class="text-xs" role="status">{copyStatus}</p>
+	<p class="text-xs empty:hidden" role="status">{copyStatus}</p>
 </div>

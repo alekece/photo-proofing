@@ -12,7 +12,7 @@ describe('EmptyState', () => {
 
 		const box = screen.getByText('Nothing here').parentElement as HTMLElement;
 
-		expect(box.className).toContain('rounded-card border border-dashed border-border-strong');
+		expect(box.className).toContain('rounded-xl border-[1.5px] border-dashed');
 		expect(box.className).toContain('p-12 text-center');
 		expect(box.className).toContain('justify-items-center');
 		expect((await axe(container)).violations).toEqual([]);

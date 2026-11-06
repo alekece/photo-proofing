@@ -18,11 +18,7 @@ const photo = (id: string, favorite: boolean): Photo => ({
 	created_at: '2026-11-04T10:00:00Z'
 });
 
-function setup(
-	initial: Photo[],
-	included: number | null = 1,
-	ondownload?: (photos: Photo[]) => void
-) {
+function setup(initial: Photo[], ondownload?: (photos: Photo[]) => void) {
 	let server = initial;
 	const handlers = new Set<(event: FavoritesEvent) => void>();
 	const events: LiveEvents = {
@@ -37,7 +33,7 @@ function setup(
 		'fetch',
 		vi.fn(async () => new Response(JSON.stringify(server)))
 	);
-	render(Harness, { props: { events, included, ondownload } });
+	render(Harness, { props: { events, ondownload } });
 
 	return {
 		change(next: Photo[]) {
@@ -50,14 +46,12 @@ function setup(
 afterEach(() => vi.unstubAllGlobals());
 
 describe('FavoritesPanel', () => {
-	it('lists only favorites and counts the extras', async () => {
+	it('lists only favorites', async () => {
 		setup([photo('p1', true), photo('p2', false), photo('p3', true)]);
 
 		expect(await screen.findByAltText('p1.jpg')).toBeTruthy();
 		expect(screen.getByAltText('p3.jpg')).toBeTruthy();
 		expect(screen.queryByAltText('p2.jpg')).toBeNull();
-		expect(screen.getByText(/2 selected · 1 included/)).toBeTruthy();
-		expect(screen.getByText('1 extra')).toBeTruthy();
 	});
 
 	it('shows the empty state without favorites', async () => {
@@ -96,7 +90,7 @@ describe('FavoritesPanel', () => {
 		const ondownload = vi.fn();
 		const user = userEvent.setup();
 
-		setup([photo('p1', true), photo('p2', true)], 5, ondownload);
+		setup([photo('p1', true), photo('p2', true)], ondownload);
 		await screen.findByAltText('p1.jpg');
 		await user.click(screen.getByRole('button', { name: 'Download p2.jpg' }));
 
@@ -117,11 +111,5 @@ describe('FavoritesPanel', () => {
 		await user.click(screen.getByRole('button', { name: 'Cancel selection' }));
 
 		expect(screen.queryByText('2 selected')).toBeNull();
-	});
-
-	it('shows the extras in bold accent', async () => {
-		setup([photo('p1', true), photo('p2', true)]);
-
-		expect((await screen.findByText('1 extra')).className).toContain('text-danger');
 	});
 });

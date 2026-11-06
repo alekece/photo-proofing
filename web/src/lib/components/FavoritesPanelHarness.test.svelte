@@ -5,11 +5,9 @@
 
 	let {
 		events,
-		included,
 		ondownload
 	}: {
 		events: LiveEvents;
-		included: number | null;
 		ondownload?: (photos: Photo[]) => void;
 	} = $props();
 
@@ -17,4 +15,4 @@
 	setLiveEvents(events);
 </script>
 
-<FavoritesPanel galleryId="g1" {included} {ondownload} />
+<FavoritesPanel galleryId="g1" {ondownload} />

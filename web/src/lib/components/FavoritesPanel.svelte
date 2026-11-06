@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { Download, Heart } from '@lucide/svelte';
-	import PhotoTile from '#lib/components/PhotoTile.svelte';
+	import { CircleCheck, Download, Heart } from '@lucide/svelte';
+	import PhotoTile, { GRID_CLASSES, ITEM_CLASSES } from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
+	import type { GalleryLayout } from '#lib/gallery/api.js';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
 	import SelectPill from '#lib/components/ui/select-pill/select-pill.svelte';
@@ -12,12 +13,13 @@
 
 	let {
 		galleryId,
-		included,
+		layout = 'masonry',
 		oncount,
 		ondownload
 	}: {
 		galleryId: string;
-		included: number | null;
+		/** How the tiles are laid out: the gallery's setting. */
+		layout?: GalleryLayout;
 		/** How many favorites the client has picked, for the tab. */
 		oncount?: (count: number | null) => void;
 		/**
@@ -77,8 +79,6 @@
 		};
 	});
 
-	const extra = $derived(included === null ? 0 : Math.max(0, favorites.length - included));
-
 	const proofs = $derived<Proof[]>(
 		favorites.map(({ id, original_name, width, height }) => ({
 			id,
@@ -134,28 +134,22 @@
 			{#snippet icon()}<Download size={16} aria-hidden="true" />{/snippet}
 		</SelectPill>
 	{:else}
-		<span class="mr-auto text-sm text-muted-foreground">
-			{#if included === null}
-				{favorites.length} selected
-			{:else}
-				{favorites.length} selected · {included} included
-				{#if extra > 0}
-					· <strong class="text-danger">{extra} extra</strong>
-				{/if}
-			{/if}
-		</span>
-		<Button variant="ghost" size="sm" disabled={favorites.length === 0} onclick={() => mode.enter()}
-			>Select</Button
-		>
 		<Button
 			variant="outline"
 			size="sm"
+			class="min-h-9! gap-1.5"
+			disabled={favorites.length === 0}
+			onclick={() => mode.enter()}><CircleCheck size={16} aria-hidden="true" />Select</Button
+		>
+		<Button
+			size="sm"
+			class="min-h-9! gap-1.5"
 			disabled={!ondownload || favorites.length === 0}
 			aria-busy={downloading}
 			title={ondownload ? undefined : 'Downloads arrive with a later release'}
 			onclick={() => download(favorites)}
 		>
-			<Download size={16} aria-hidden="true" class="mr-1.5" />Download
+			<Download size={16} aria-hidden="true" />Download
 		</Button>
 	{/if}
 </div>
@@ -163,18 +157,21 @@
 {#if failed}
 	<p role="alert" class="text-sm text-danger">Couldn’t load the favorites. Please reload.</p>
 {:else if loaded && favorites.length === 0}
-	<EmptyState class="text-muted-foreground">
-		<Heart size={32} aria-hidden="true" />
-		<p class="text-lg text-foreground">No favorites yet</p>
+	<EmptyState class="border-solid bg-panel">
+		<span class="grid size-14 place-items-center rounded-full bg-background"
+			><Heart size={26} aria-hidden="true" /></span
+		>
+		<h3>No favorites yet</h3>
 		<p class="text-sm">The client’s selection will appear here.</p>
 	</EmptyState>
 {:else}
-	<ul aria-label="Favorites" class="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-2">
+	<ul aria-label="Favorites" class={GRID_CLASSES[layout]}>
 		{#each favorites as photo, index (photo.id)}
-			<li>
+			<li class={ITEM_CLASSES[layout]}>
 				<PhotoTile
 					name={photo.original_name}
 					state="ready"
+					ratio={layout === 'masonry' ? photo.width / photo.height : 3 / 2}
 					thumbnailUrl={thumbnailUrl(galleryId, photo.id)}
 					selected={mode.has(photo.id)}
 					onselect={mode.active ? () => mode.toggle(photo.id) : undefined}
