@@ -6,12 +6,14 @@
 		proofs,
 		layout,
 		isSelected = () => false,
+		readonly = false,
 		onopen,
 		onselect
 	}: {
 		proofs: Proof[];
 		layout: 'grid' | 'masonry';
 		isSelected?: (id: string) => boolean;
+		readonly?: boolean;
 		onopen: (index: number) => void;
 		onselect?: (id: string) => void;
 	} = $props();
@@ -35,6 +37,7 @@
 					position={i + 1}
 					total={proofs.length}
 					selected={isSelected(proof.id)}
+					{readonly}
 					onopen={() => onopen(i)}
 					onselect={onselect && (() => onselect(proof.id))}
 				/>

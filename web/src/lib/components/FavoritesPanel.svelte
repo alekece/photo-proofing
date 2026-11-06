@@ -190,5 +190,11 @@
 {/if}
 
 {#if viewing && proofs[viewIndex]}
-	<ProofViewer {proofs} bind:index={viewIndex} onclose={() => (viewing = false)} />
+	<ProofViewer
+		{proofs}
+		bind:index={viewIndex}
+		readonly
+		isSelected={() => true}
+		onclose={() => (viewing = false)}
+	/>
 {/if}

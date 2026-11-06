@@ -671,10 +671,49 @@ describe('PhotosPanel', () => {
 
 		const viewer = screen.getByRole('dialog', { name: /proof viewer/i });
 
-		expect(within(viewer).getByText('2 of 2')).toBeTruthy();
+		expect(within(viewer).getByText('3 of 3')).toBeTruthy();
 		expect(within(viewer).getByRole('img').getAttribute('src')).toBe(
 			'/api/v1/galleries/g1/photos/p3/preview'
 		);
+	});
+
+	it('sets and removes the hero from the viewer', async () => {
+		const api = stubApi([photo('p1'), photo('p2')]);
+		const user = userEvent.setup();
+
+		setup();
+		await user.click(await screen.findByRole('button', { name: 'Open p2.jpg' }));
+
+		const viewer = screen.getByRole('dialog', { name: /proof viewer/i });
+
+		await user.click(within(viewer).getByRole('button', { name: 'Set as hero' }));
+		await waitFor(() =>
+			expect(within(viewer).getByRole('button', { name: 'Remove hero' })).toBeTruthy()
+		);
+		expect(api.heroes()).toEqual(['p2']);
+	});
+
+	it('deletes from the viewer after confirming and moves to the next photo', async () => {
+		const api = stubApi([photo('p1'), photo('p2')]);
+		const user = userEvent.setup();
+
+		setup();
+		await user.click(await screen.findByRole('button', { name: 'Open p1.jpg' }));
+		await user.click(
+			within(screen.getByRole('dialog', { name: /proof viewer/i })).getByRole('button', {
+				name: 'Delete'
+			})
+		);
+		await user.click(
+			within(screen.getByRole('dialog', { name: /delete p1\.jpg/i })).getByRole('button', {
+				name: 'Delete'
+			})
+		);
+
+		await waitFor(() => expect(api.calls('DELETE')).toEqual(['/api/v1/galleries/g1/photos/p1']));
+		expect(
+			within(screen.getByRole('dialog', { name: /proof viewer/i })).getByText('1 of 1')
+		).toBeTruthy();
 	});
 
 	describe('hero photo', () => {

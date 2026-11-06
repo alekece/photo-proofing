@@ -172,19 +172,16 @@ describe('ClientGallery', () => {
 		await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy());
 	});
 
-	it('shows a Preview marker only in preview mode', () => {
-		const { unmount } = show();
-		expect(screen.queryByText('Preview')).toBeNull();
-		unmount();
-		show({ preview: true });
-		expect(screen.getByText('Preview')).toBeTruthy();
-	});
-
 	it('shows the selection but cannot change it in preview mode', () => {
 		show({ preview: true, favorites: ['p1'] });
 
 		expect(screen.getByText('1 selected')).toBeTruthy();
-		expect(screen.queryAllByRole('button', { name: /^favorite proof/i })).toEqual([]);
+		const hearts = screen.getAllByRole('button', { name: /^favorite proof/i });
+		expect(hearts).toHaveLength(3);
+		for (const heart of hearts) expect((heart as HTMLButtonElement).disabled).toBe(true);
+		expect(
+			screen.getByRole('button', { name: 'Favorite proof 1' }).getAttribute('aria-pressed')
+		).toBe('true');
 		expect(FakeEventSource.last).toBeUndefined();
 	});
 

@@ -60,9 +60,6 @@
 </script>
 
 <main class="mx-auto grid max-w-7xl gap-4 px-4 py-6">
-	{#if preview}
-		<p class="justify-self-center rounded-sm border border-border-strong px-2 text-sm">Preview</p>
-	{/if}
 	{#if cover}
 		<img
 			src={cover.previewUrl}
@@ -90,6 +87,7 @@
 			{proofs}
 			layout={gallery.layout}
 			isSelected={(id) => selection.has(id)}
+			readonly={preview}
 			onopen={(i) => (viewerIndex = i)}
 			onselect={select}
 		/>
@@ -100,6 +98,7 @@
 		{proofs}
 		bind:index={viewerIndex}
 		{contained}
+		readonly={preview}
 		isSelected={(id) => selection.has(id)}
 		onclose={() => (viewerIndex = null)}
 		onselect={select}
