@@ -12,6 +12,7 @@
 use std::{
     io::{self, ErrorKind},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use pp_core::{config::PhotoDir, notifications::PhotoId};
@@ -177,6 +178,113 @@ impl PhotoStorage {
         }
 
         failures
+    }
+
+    /// Deletes a gallery's whole directory. A directory already gone counts as removed.
+    pub async fn remove_gallery(
+        &self,
+        workspace: WorkspaceId,
+        gallery: GalleryId,
+    ) -> Result<(), StorageError> {
+        let dir = self
+            .root
+            .join(workspace.0.to_string())
+            .join(gallery.0.to_string());
+
+        match fs::remove_dir_all(dir).await {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Deletes photo files no stored photo owns, such as leftovers of a crash between a
+    /// deletion and its cleanup. Only files older than `grace` are considered, so an upload in
+    /// flight is never taken for an orphan; `is_stored` is asked about each remaining photo.
+    /// Names that are not `<photo-uuid>-<variant>` are left alone. Returns how many files went.
+    pub async fn sweep_orphans(
+        &self,
+        grace: Duration,
+        is_stored: impl AsyncFn(PhotoLocation, PhotoId) -> bool,
+    ) -> Result<usize, StorageError> {
+        let mut removed = 0;
+        let mut workspaces = fs::read_dir(&self.root).await?;
+
+        while let Some(workspace_entry) = workspaces.next_entry().await? {
+            let Some(workspace) = Self::uuid_name(&workspace_entry) else {
+                continue;
+            };
+            let mut galleries = fs::read_dir(workspace_entry.path()).await?;
+
+            while let Some(gallery_entry) = galleries.next_entry().await? {
+                let Some(gallery) = Self::uuid_name(&gallery_entry) else {
+                    continue;
+                };
+                let location = PhotoLocation {
+                    workspace_id: WorkspaceId(workspace),
+                    gallery_id: GalleryId(gallery),
+                };
+
+                removed += self
+                    .sweep_gallery(&gallery_entry.path(), location, grace, &is_stored)
+                    .await?;
+
+                // Only succeeds on an empty directory, so a racing upload is never lost.
+                let _ = fs::remove_dir(gallery_entry.path()).await;
+            }
+        }
+
+        Ok(removed)
+    }
+
+    async fn sweep_gallery(
+        &self,
+        dir: &Path,
+        location: PhotoLocation,
+        grace: Duration,
+        is_stored: &impl AsyncFn(PhotoLocation, PhotoId) -> bool,
+    ) -> Result<usize, StorageError> {
+        let mut removed = 0;
+        let mut files = fs::read_dir(dir).await?;
+
+        while let Some(file) = files.next_entry().await? {
+            let Some(photo) = Self::photo_name(&file) else {
+                continue;
+            };
+            let age = file
+                .metadata()
+                .await?
+                .modified()?
+                .elapsed()
+                .unwrap_or_default();
+
+            if age < grace || is_stored(location, photo).await {
+                continue;
+            }
+
+            match fs::remove_file(file.path()).await {
+                Ok(()) => removed += 1,
+                Err(error) if error.kind() == ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+
+        Ok(removed)
+    }
+
+    fn uuid_name(entry: &fs::DirEntry) -> Option<Uuid> {
+        entry.file_name().to_str()?.parse().ok()
+    }
+
+    fn photo_name(entry: &fs::DirEntry) -> Option<PhotoId> {
+        let name = entry.file_name();
+        let (photo, variant) = name.to_str()?.rsplit_once('-')?;
+
+        if !["original", "thumbnail", "preview"].contains(&variant) {
+            return None;
+        }
+
+        photo.parse::<Uuid>().ok().map(PhotoId::from)
     }
 }
 
@@ -667,5 +775,89 @@ mod tests {
         if enforced {
             assert!(matches!(result, Err(StorageError::Unusable { .. })));
         }
+    }
+
+    fn at(workspace: u128, gallery: u128, photo: u128, variant: Variant) -> PhotoKey {
+        PhotoKey {
+            workspace: WorkspaceId(Uuid::from_u128(workspace)),
+            gallery: GalleryId(Uuid::from_u128(gallery)),
+            photo: Uuid::from_u128(photo).into(),
+            variant,
+        }
+    }
+
+    #[tokio::test]
+    async fn remove_gallery_deletes_only_that_gallery_and_tolerates_a_missing_one() {
+        let (_dir, storage) = storage().await;
+        let doomed = at(1, 2, 3, Variant::Original);
+        let sibling = at(1, 9, 3, Variant::Original);
+
+        store(&storage, &doomed, b"a").await;
+        store(&storage, &sibling, b"b").await;
+
+        storage
+            .remove_gallery(doomed.workspace, doomed.gallery)
+            .await
+            .unwrap();
+        storage
+            .remove_gallery(doomed.workspace, doomed.gallery)
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            storage.read(&doomed).await,
+            Err(StorageError::NotFound)
+        ));
+        assert_eq!(read_all(&storage, &sibling).await, b"b");
+    }
+
+    #[tokio::test]
+    async fn sweep_removes_only_old_unowned_photo_files() {
+        let (dir, storage) = storage().await;
+        let owned = at(1, 2, 3, Variant::Original);
+        let orphan = at(1, 2, 4, Variant::Thumbnail);
+        let emptied = at(1, 7, 5, Variant::Preview);
+
+        for key in [&owned, &orphan, &emptied] {
+            store(&storage, key, b"x").await;
+        }
+
+        std_fs::write(dir.path().join("1").parent().unwrap().join("stray"), b"x").unwrap();
+
+        let owned_photo = owned.photo;
+        let is_stored = async |_: PhotoLocation, photo: PhotoId| photo == owned_photo;
+
+        assert_eq!(
+            storage
+                .sweep_orphans(Duration::from_secs(3600), is_stored)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            storage
+                .sweep_orphans(Duration::ZERO, is_stored)
+                .await
+                .unwrap(),
+            2
+        );
+
+        assert_eq!(read_all(&storage, &owned).await, b"x");
+        assert!(matches!(
+            storage.read(&orphan).await,
+            Err(StorageError::NotFound)
+        ));
+        assert!(matches!(
+            storage.read(&emptied).await,
+            Err(StorageError::NotFound)
+        ));
+        assert!(
+            !dir.path()
+                .join(emptied.workspace.0.to_string())
+                .join(emptied.gallery.0.to_string())
+                .exists()
+        );
+        assert!(dir.path().join(STAGING_DIR).exists());
+        assert!(dir.path().join("stray").exists());
     }
 }
