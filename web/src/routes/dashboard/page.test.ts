@@ -28,13 +28,12 @@ const gallery = (over: Partial<Gallery> = {}): Gallery => ({
 	updated_at: '2026-01-02T10:00:00Z',
 	...over
 });
-const props = (galleries: Gallery[] | null, sort = 'updated', states: string[] = []) => ({
+const props = (galleries: Gallery[] | null, sort = 'updated') => ({
 	data: {
 		identity: { account_id: 'a', workspace_id: 'w' },
 		idleTimeoutMs: 2592000000,
 		galleries,
-		sort,
-		states
+		sort
 	} as never
 });
 
@@ -45,42 +44,35 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('dashboard', () => {
-	it('lists galleries as cards with sort options', async () => {
+	it('greets the photographer and lists galleries as cover cards with sort options', async () => {
 		const { container } = render(Dashboard, {
 			props: props([gallery(), gallery({ id: 'g2', title: 'Portraits', layout: 'masonry' })])
 		});
+
+		expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(
+			/^Good (morning|afternoon|evening)/
+		);
 		expect(screen.getByRole('heading', { name: 'Wedding' })).toBeTruthy();
 		expect(screen.getByRole('link', { name: /Portraits/ }).getAttribute('href')).toBe(
 			'/dashboard/g2'
 		);
-		expect(container.textContent).toMatch(/Masonry · Edited/);
 		expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
-			'Last edited',
-			'Date created',
-			'Title'
+			'Last updated',
+			'Newest created',
+			'Title A–Z'
 		]);
 		await userEvent.setup().selectOptions(screen.getByLabelText('Sort by'), 'title');
 		expect(goto).toHaveBeenCalledWith('?sort=title', expect.anything());
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('shows the hero preview on the card, else the placeholder', () => {
-		const { container } = render(Dashboard, {
-			props: props([gallery({ hero_id: 'p1' }), gallery({ id: 'g2', title: 'Plain' })])
-		});
-		const images = [...container.querySelectorAll('img')];
+	it('closes the grid with a card that creates a gallery, and totals in the footer', async () => {
+		render(Dashboard, { props: props([gallery(), gallery({ id: 'g2', title: 'Portraits' })]) });
+		const user = userEvent.setup();
 
-		expect(images.map((img) => img.getAttribute('src'))).toEqual([
-			'/api/v1/galleries/g1/photos/p1/preview'
-		]);
-		expect(screen.getAllByText('Your hero photo will appear here')).toHaveLength(1);
-	});
-
-	it('shows the untitled text for a gallery without a title', () => {
-		render(Dashboard, { props: props([gallery({ title: null })]) });
-		expect(screen.getByRole('heading', { name: 'Untitled gallery' }).className).toMatch(
-			/text-muted-foreground/
-		);
+		expect(screen.getByText('2 galleries')).toBeTruthy();
+		await user.click(screen.getByRole('button', { name: /Who’s in front of your lens next/ }));
+		expect(screen.getByRole('dialog', { name: 'New gallery' })).toBeTruthy();
 	});
 
 	it('shows loading placeholders while the sort change loads', async () => {
@@ -92,10 +84,17 @@ describe('dashboard', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('shows the golden-hour empty state without a search box, and an error state', async () => {
+	it('shows the empty workspace with the toolbar disabled, and an error state', async () => {
 		const { container, unmount } = render(Dashboard, { props: props([]) });
-		expect(screen.getByRole('heading', { name: 'Golden hour, no clients.' })).toBeTruthy();
-		expect(screen.queryByRole('searchbox', { name: 'Search galleries' })).toBeNull();
+		expect(screen.getByText('Nothing in frame yet.')).toBeTruthy();
+		expect(screen.queryByText('Golden hour, no clients.')).toBeNull();
+		expect(
+			(screen.getByRole('searchbox', { name: 'Search galleries' }) as HTMLInputElement).disabled
+		).toBe(true);
+		expect((screen.getByLabelText('Sort by') as HTMLSelectElement).disabled).toBe(true);
+		expect((screen.getByRole('button', { name: 'Status' }) as HTMLButtonElement).disabled).toBe(
+			true
+		);
 		expect((await axe(container)).violations).toEqual([]);
 		unmount();
 		render(Dashboard, { props: props(null) });
@@ -161,7 +160,11 @@ describe('dashboard', () => {
 				.setup()
 				.type(screen.getByRole('searchbox', { name: 'Search galleries' }), text);
 		};
-		const titles = () => screen.queryAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+		const titles = () =>
+			screen
+				.queryAllByRole('heading', { level: 2 })
+				.filter((h) => h.closest('a'))
+				.map((h) => h.textContent);
 
 		it('filters cards by title, ignoring case', async () => {
 			await search('martin');
@@ -180,76 +183,81 @@ describe('dashboard', () => {
 
 		it('shows a no-match state and keeps the search box', async () => {
 			await search('zzz');
-			expect(screen.getByRole('heading', { name: 'No galleries match' })).toBeTruthy();
+			expect(screen.getByRole('heading', { name: 'No gallery called “zzz”' })).toBeTruthy();
 			expect(screen.getByRole('searchbox', { name: 'Search galleries' })).toBeTruthy();
 		});
 	});
 
 	describe('states', () => {
-		it('shows the progress chip and the flags on each card', () => {
+		const choose = async (user: ReturnType<typeof userEvent.setup>, ...names: RegExp[]) => {
+			await user.click(screen.getByRole('button', { name: /^Status|Shared|Draft|Archived/ }));
+			for (const name of names) await user.click(screen.getByRole('checkbox', { name }));
+		};
+
+		it('shows the one chip of each card, with expired winning', () => {
 			render(Dashboard, {
 				props: props([
 					gallery({ id: 'a', title: 'One', states: ['shared'] }),
-					gallery({ id: 'b', title: 'Two', states: ['delivered', 'archived', 'expired'] })
+					gallery({
+						id: 'b',
+						title: 'Two',
+						states: ['shared', 'expired'],
+						expires_at: '2026-01-01T00:00:00Z'
+					})
 				])
 			});
-			const one = within(screen.getByRole('link', { name: /One/ }));
-			const two = within(screen.getByRole('link', { name: /Two/ }));
 
-			expect(one.getByText('Shared')).toBeTruthy();
-			expect(one.queryByText('Archived')).toBeNull();
-			expect(two.getByText('Delivered')).toBeTruthy();
-			expect(two.getByText('Archived')).toBeTruthy();
-			expect(two.getByText('Expired')).toBeTruthy();
+			expect(within(screen.getByRole('link', { name: /One/ })).getByText('Shared')).toBeTruthy();
+			expect(within(screen.getByRole('link', { name: /Two/ })).getByText('Expired')).toBeTruthy();
 		});
 
-		it('puts the chosen states in the URL beside the sort', async () => {
-			render(Dashboard, { props: props([gallery()], 'title', ['shared']) });
-			await userEvent.setup().click(screen.getByRole('checkbox', { name: 'Expired' }));
-			expect(goto).toHaveBeenLastCalledWith(
-				'?sort=title&state=shared&state=expired',
-				expect.anything()
-			);
-		});
-
-		it('keeps the chosen states when the sort changes', async () => {
-			render(Dashboard, { props: props([gallery()], 'updated', ['archived']) });
-			await userEvent.setup().selectOptions(screen.getByLabelText('Sort by'), 'created');
-			expect(goto).toHaveBeenLastCalledWith('?sort=created&state=archived', expect.anything());
-		});
-
-		it('shows the no-results screen, not the empty dashboard, when the filter matches nothing', async () => {
-			const { container } = render(Dashboard, { props: props([], 'updated', ['archived']) });
-
-			expect(screen.getByRole('heading', { name: 'No galleries match' })).toBeTruthy();
-			expect(screen.queryByRole('heading', { name: 'Golden hour, no clients.' })).toBeNull();
-			expect(screen.getByRole('group', { name: 'State' })).toBeTruthy();
-			expect((await axe(container)).violations).toEqual([]);
-			await userEvent
-				.setup()
-				.click(screen.getByRole('button', { name: 'Clear search and filter' }));
-			expect(goto).toHaveBeenLastCalledWith('?sort=updated', expect.anything());
-		});
-
-		it('combines search with the filter and clears both', async () => {
-			render(Dashboard, {
-				props: props([gallery({ title: 'Wedding' })], 'updated', ['draft'])
-			});
+		it('hides archived galleries until the filter asks for them', async () => {
 			const user = userEvent.setup();
+			render(Dashboard, {
+				props: props([
+					gallery({ id: 'a', title: 'Live' }),
+					gallery({ id: 'b', title: 'Old', states: ['delivered', 'archived'] })
+				])
+			});
 
+			expect(screen.queryByRole('link', { name: /Old/ })).toBeNull();
+			expect(screen.getByText('1 gallery')).toBeTruthy();
+			await choose(user, /Archived/);
+			expect(screen.getByRole('link', { name: /Old/ })).toBeTruthy();
+		});
+
+		it('tells which statuses hide matches and clears search and status together', async () => {
+			const user = userEvent.setup();
+			render(Dashboard, {
+				props: props([gallery({ title: 'Old', states: ['delivered', 'archived'] })])
+			});
+
+			expect(
+				screen.getByRole('heading', { name: 'No galleries with these statuses' })
+			).toBeTruthy();
 			await user.type(screen.getByRole('searchbox', { name: 'Search galleries' }), 'zzz');
-			expect(screen.getByRole('heading', { name: 'No galleries match' })).toBeTruthy();
-			await user.click(screen.getByRole('button', { name: 'Clear search and filter' }));
+			await user.click(screen.getByRole('button', { name: 'Clear search and status' }));
 			expect(
 				(screen.getByRole('searchbox', { name: 'Search galleries' }) as HTMLInputElement).value
 			).toBe('');
-			expect(goto).toHaveBeenLastCalledWith('?sort=updated', expect.anything());
+			expect(
+				screen.getByRole('heading', { name: 'No galleries with these statuses' })
+			).toBeTruthy();
 		});
 
-		it('keeps the golden-hour empty state for a workspace without galleries', () => {
+		it('highlights the search match in a card title', async () => {
+			const { container } = render(Dashboard, { props: props([gallery({ title: 'Wedding' })]) });
+
+			await userEvent
+				.setup()
+				.type(screen.getByRole('searchbox', { name: 'Search galleries' }), 'edd');
+			expect(container.querySelector('mark')?.textContent).toBe('edd');
+		});
+
+		it('keeps the workspace-empty screen only when there are no galleries at all', () => {
 			render(Dashboard, { props: props([]) });
-			expect(screen.getByRole('heading', { name: 'Golden hour, no clients.' })).toBeTruthy();
-			expect(screen.queryByRole('group', { name: 'State' })).toBeNull();
+
+			expect(screen.getByText('Nothing in frame yet.')).toBeTruthy();
 		});
 	});
 });

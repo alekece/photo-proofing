@@ -47,3 +47,69 @@ export function galleryInitials(title: string | null): string {
 		.map((word) => word[0].toUpperCase())
 		.join('');
 }
+
+/** Splits `text` into runs, flagging each case-insensitive literal occurrence of `needle`. */
+export function highlightParts(text: string, needle: string) {
+	const wanted = needle.trim().toLowerCase();
+	const lower = text.toLowerCase();
+	const parts: { text: string; match: boolean }[] = [];
+	let from = 0;
+
+	if (wanted !== '') {
+		for (let at = lower.indexOf(wanted); at !== -1; at = lower.indexOf(wanted, from)) {
+			if (at > from) parts.push({ text: text.slice(from, at), match: false });
+			parts.push({ text: text.slice(at, at + wanted.length), match: true });
+			from = at + wanted.length;
+		}
+	}
+
+	if (from < text.length) parts.push({ text: text.slice(from), match: false });
+
+	return parts;
+}
+
+/** How far along draft → shared → delivered a status is, from 0 to 1. */
+export function journeyProgress(status: ReturnType<typeof galleryStatus>): number {
+	return { draft: 1 / 3, shared: 2 / 3, expired: 2 / 3, delivered: 1, archived: 1 }[status];
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function expiredAgo(iso: string | null, now: Date): string {
+	if (iso === null) return 'Expired';
+
+	const days = Math.floor((now.getTime() - new Date(iso).getTime()) / DAY_MS);
+
+	if (days < 1) return 'Expired today';
+	if (days === 1) return 'Expired yesterday';
+
+	return `Expired ${days} days ago`;
+}
+
+/**
+ * The one line on a gallery card. Photo, selection and download counts arrive with the
+ * activity data of #72; until then the line only uses what the gallery itself carries.
+ */
+export function gallerySummary(
+	gallery: {
+		states: Parameters<typeof galleryStatus>[0];
+		included_photos: number | null;
+		expires_at: string | null;
+	},
+	now: Date = new Date()
+): string {
+	switch (galleryStatus(gallery.states)) {
+		case 'draft':
+			return 'Not shared yet';
+		case 'shared':
+			return gallery.included_photos === null
+				? 'Shared with your client'
+				: `Shared · ${gallery.included_photos} photos included`;
+		case 'expired':
+			return expiredAgo(gallery.expires_at, now);
+		case 'delivered':
+			return 'Final photos delivered';
+		case 'archived':
+			return 'Archived';
+	}
+}
