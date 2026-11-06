@@ -10,6 +10,7 @@
 //! Cancellation after publication can leave an orphan; it cannot roll back asynchronously.
 
 use std::{
+    future::Future,
     io::{self, ErrorKind},
     path::{Path, PathBuf},
     time::Duration,
@@ -202,11 +203,14 @@ impl PhotoStorage {
     /// deletion and its cleanup. Only files older than `grace` are considered, so an upload in
     /// flight is never taken for an orphan; `is_stored` is asked about each remaining photo.
     /// Names that are not `<photo-uuid>-<variant>` are left alone. Returns how many files went.
-    pub async fn sweep_orphans(
+    pub async fn sweep_orphans<Fut>(
         &self,
         grace: Duration,
-        is_stored: impl AsyncFn(PhotoLocation, PhotoId) -> bool,
-    ) -> Result<usize, StorageError> {
+        is_stored: impl Fn(PhotoLocation, PhotoId) -> Fut,
+    ) -> Result<usize, StorageError>
+    where
+        Fut: Future<Output = bool>,
+    {
         let mut removed = 0;
         let mut workspaces = fs::read_dir(&self.root).await?;
 
@@ -237,13 +241,16 @@ impl PhotoStorage {
         Ok(removed)
     }
 
-    async fn sweep_gallery(
+    async fn sweep_gallery<Fut>(
         &self,
         dir: &Path,
         location: PhotoLocation,
         grace: Duration,
-        is_stored: &impl AsyncFn(PhotoLocation, PhotoId) -> bool,
-    ) -> Result<usize, StorageError> {
+        is_stored: &impl Fn(PhotoLocation, PhotoId) -> Fut,
+    ) -> Result<usize, StorageError>
+    where
+        Fut: Future<Output = bool>,
+    {
         let mut removed = 0;
         let mut files = fs::read_dir(dir).await?;
 
@@ -825,7 +832,7 @@ mod tests {
         std_fs::write(dir.path().join("1").parent().unwrap().join("stray"), b"x").unwrap();
 
         let owned_photo = owned.photo;
-        let is_stored = async |_: PhotoLocation, photo: PhotoId| photo == owned_photo;
+        let is_stored = |_: PhotoLocation, photo: PhotoId| async move { photo == owned_photo };
 
         assert_eq!(
             storage
