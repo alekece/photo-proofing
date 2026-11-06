@@ -1,111 +1,182 @@
+<script lang="ts">
+	// x, y and size as percentages of the viewfinder, then the bokeh color.
+	const BOKEH = [
+		['22%', '58%', '34%', '#f2b27a'],
+		['8%', '20%', '22%', '#e9c9a0'],
+		['70%', '24%', '28%', '#f0a48c'],
+		['55%', '62%', '18%', '#cfa98a'],
+		['38%', '12%', '14%', '#f6cf8f'],
+		['80%', '66%', '20%', '#dba27e'],
+		['30%', '40%', '12%', '#e7b7a8']
+	];
+	const CORNERS = [
+		'top-4 left-4 border-t-2 border-l-2',
+		'top-4 right-4 border-t-2 border-r-2',
+		'bottom-4 left-4 border-b-2 border-l-2',
+		'bottom-4 right-4 border-r-2 border-b-2'
+	];
+</script>
+
 <main
-	class="grid min-h-dvh content-center justify-items-center gap-2 bg-dark px-4 py-6 text-center text-inverse"
+	class="flex min-h-dvh flex-col items-center justify-center gap-[34px] bg-dark px-6 py-10 text-[#efe6da]"
 >
-	<svg
-		class="mb-4 h-auto max-w-full rounded-sm shadow-viewfinder"
-		viewBox="0 0 340 210"
-		width="340"
-		height="210"
-		role="presentation"
-		aria-hidden="true"
+	<div
+		role="img"
+		aria-label="A camera viewfinder failing to focus"
+		class="relative aspect-3/2 w-[min(640px,100%)] overflow-hidden rounded-[4px] bg-[#1c1612] max-[700px]:aspect-3/4"
 	>
-		<defs>
-			<linearGradient id="vf-scene" x1="0" y1="0" x2="1" y2="1">
-				<stop offset="0" stop-color="#c9b8a6" />
-				<stop offset="1" stop-color="#6b7f8e" />
-			</linearGradient>
-			<clipPath id="vf-clip"><rect width="340" height="210" rx="4" /></clipPath>
-		</defs>
-		<g clip-path="url(#vf-clip)">
-			<rect width="340" height="210" fill="#111" />
-			<rect width="340" height="210" fill="url(#vf-scene)" opacity=".9" />
-			<g class="bokeh" fill="#e8c49a" opacity=".35">
-				<circle cx="70" cy="60" r="22" />
-				<circle cx="270" cy="50" r="28" />
-				<circle cx="110" cy="130" r="30" />
-				<circle cx="240" cy="125" r="18" />
-			</g>
-			<path
-				d="M113.3 0v210M226.6 0v210M0 70h340M0 140h340"
-				stroke="#fff"
-				stroke-opacity=".18"
-				stroke-width="1"
-			/>
-			<g class="top" fill="#f5f5f5">
-				<text x="12" y="18"><tspan class="af">AF</tspan> ● ONE SHOT</text>
-				<text x="328" y="18" text-anchor="end">[ 000 ]</text>
-			</g>
-			<g class="focus">
-				<path
-					d="M139 76v-14h14M201 76v-14h-14M139 124v14h14M201 124v14h-14"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-				/>
-			</g>
-			<rect y="180" width="340" height="30" fill="#0a0a0a" opacity=".78" />
-			<g class="info" fill="#f5f5f5">
-				<text x="38" y="199">1/250</text>
-				<text x="92" y="199">F2.8</text>
-				<text x="136" y="199">ISO 100</text>
-				<text x="204" y="199">·····0·····</text>
-				<text x="278" y="199" fill="#ff9a2e">AF failed</text>
-			</g>
-		</g>
-	</svg>
-	<h1 class="font-serif text-[1.5rem] italic">Focus not locked</h1>
-	<p class="max-w-80 text-inverse/70">
-		This link no longer works. Ask your photographer for a new one.
-	</p>
-	<p class="mt-6 font-mono text-xs tracking-[0.25em] text-inverse/50 uppercase">PhotoProofing</p>
+		<div class="bokeh absolute inset-0">
+			{#each BOKEH as [x, y, size, color] (x)}
+				<b
+					class="absolute rounded-full opacity-55 mix-blend-screen"
+					style="left:{x};top:{y};width:{size};height:{size};background:radial-gradient(circle,{color} 0,{color} 55%,transparent 72%)"
+				></b>
+			{/each}
+		</div>
+		{#each CORNERS as corner (corner)}
+			<span class="absolute size-[26px] border-[rgb(239_230_218/0.7)] {corner}"></span>
+		{/each}
+		<div
+			class="seek absolute top-[38%] left-[42%] h-[12%] w-[16%] border-2 border-[rgb(239_230_218/0.85)]"
+		></div>
+		<div
+			class="absolute inset-x-0 bottom-4 flex items-center justify-center gap-[18px] font-mono text-xs tracking-[0.08em] text-[#cfc3b5] max-[700px]:gap-2.5 max-[700px]:text-[0.625rem]"
+		>
+			<span>1/125</span>
+			<span>F2</span>
+			<span class="scale relative flex gap-4 pt-[9px]">
+				0.5&nbsp;&nbsp;1&nbsp;&nbsp;3&nbsp;&nbsp;10&nbsp;&nbsp;∞<i
+					class="needle absolute -top-1 left-[10%] h-3 w-0.5 bg-warning-on-dark"
+				></i>
+			</span>
+			<span class="bad font-bold text-warning-on-dark">AF</span>
+		</div>
+	</div>
+	<div class="text-center">
+		<h1 class="font-serif text-[clamp(28px,4vw,40px)] font-normal italic">Focus not locked</h1>
+		<p class="mt-2 text-[#bfb2a4]">
+			This link no longer works. Ask your photographer for a new one.
+		</p>
+	</div>
+	<p class="text-xs tracking-[0.06em] text-muted-foreground">PhotoProofing</p>
 </main>
 
 <style>
-	/* Scoped child selectors for SVG <text>/<g> artwork and the keyframe animation. */
-	text {
-		font:
-			11px ui-monospace,
-			Menlo,
-			monospace;
+	.bokeh {
+		animation: hunt 3.2s ease-in-out infinite;
 	}
-	.top text {
-		font-size: 10px;
+	.seek {
+		animation: seek 3.2s ease-in-out infinite;
 	}
-	.focus {
-		color: var(--color-autofocus);
-		transform-box: fill-box;
-		transform-origin: center;
-		animation: hunt 2.4s ease-in-out 1 both;
+	.needle {
+		animation: needle 3.2s ease-in-out infinite;
+	}
+	.bad {
+		animation: blink 3.2s steps(1) infinite;
+	}
+	.scale::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 5px;
+		background: repeating-linear-gradient(90deg, #cfc3b5 0 1px, transparent 1px 8px);
+		opacity: 0.6;
 	}
 	@keyframes hunt {
-		0% {
-			transform: translate(-60px, 12px) scale(1.25);
-			color: var(--color-inverse);
-		}
-		18% {
-			transform: translate(40px, -14px) scale(0.9);
-		}
-		34% {
-			transform: translate(-20px, -10px) scale(1.1);
-			color: var(--color-inverse);
-		}
-		55%,
+		0%,
 		100% {
-			transform: none;
-			color: var(--color-autofocus);
+			filter: blur(16px);
+			transform: scale(1.06);
+		}
+		22% {
+			filter: blur(3px);
+			transform: scale(1);
+		}
+		30% {
+			filter: blur(9px);
+			transform: scale(1.03);
+		}
+		55% {
+			filter: blur(1.5px);
+			transform: scale(0.99);
+		}
+		64% {
+			filter: blur(12px);
+			transform: scale(1.05);
+		}
+		82% {
+			filter: blur(5px);
+			transform: scale(1.01);
 		}
 	}
-	.af {
-		animation: blink 1.2s steps(2, jump-none) infinite;
+	@keyframes seek {
+		0%,
+		100% {
+			transform: translate(0, 0);
+			border-color: rgb(239 230 218 / 0.85);
+		}
+		22% {
+			transform: translate(-120%, 30%);
+		}
+		30% {
+			transform: translate(-120%, 30%);
+			border-color: var(--color-warning-on-dark);
+		}
+		55% {
+			transform: translate(110%, -40%);
+			border-color: rgb(239 230 218 / 0.85);
+		}
+		64% {
+			transform: translate(110%, -40%);
+			border-color: var(--color-warning-on-dark);
+		}
+		82% {
+			transform: translate(20%, 60%);
+			border-color: rgb(239 230 218 / 0.85);
+		}
+	}
+	@keyframes needle {
+		0%,
+		100% {
+			left: 85%;
+		}
+		22% {
+			left: 30%;
+		}
+		30% {
+			left: 40%;
+		}
+		55% {
+			left: 12%;
+		}
+		64% {
+			left: 70%;
+		}
+		82% {
+			left: 48%;
+		}
 	}
 	@keyframes blink {
-		50% {
-			opacity: 0.25;
+		0%,
+		29%,
+		36%,
+		63%,
+		70%,
+		100% {
+			opacity: 0.35;
+		}
+		30%,
+		64% {
+			opacity: 1;
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.focus,
-		.af {
+		.bokeh,
+		.seek,
+		.needle,
+		.bad {
 			animation: none;
 		}
 	}

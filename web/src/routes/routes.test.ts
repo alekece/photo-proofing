@@ -70,7 +70,9 @@ describe('client gallery route', () => {
 		expect(screen.getByRole('heading', { level: 1, name: 'Focus not locked' })).toBeTruthy();
 		expect(container.textContent).toMatch(/ask your photographer for a new one/i);
 		expect(container.textContent).not.toMatch(/expired|Sample session/i);
-		expect(screen.queryAllByRole('img')).toHaveLength(0);
+		expect(screen.getAllByRole('img').map((img) => img.getAttribute('aria-label'))).toEqual([
+			'A camera viewfinder failing to focus'
+		]);
 	});
 
 	it('shows the proofs the server loaded', () => {

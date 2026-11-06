@@ -48,6 +48,8 @@ class FakeEventSource extends EventTarget {
 const show = (props: Partial<Parameters<typeof render<typeof ClientGallery>>[1]> = {}) =>
 	render(ClientGallery, { token: 'tok', gallery, proofs, favorites: [], ...props });
 const hearts = () => screen.getAllByRole('button', { name: /^favorite proof/i });
+const favoritesToggle = () => screen.getByRole('button', { name: 'Favorites' });
+const count = () => favoritesToggle().textContent?.trim();
 
 describe('ClientGallery', () => {
 	const fetcher = vi.fn();
@@ -78,7 +80,7 @@ describe('ClientGallery', () => {
 			'true',
 			'false'
 		]);
-		expect(screen.getByText('1 selected')).toBeTruthy();
+		expect(count()).toBe('1');
 	});
 
 	it('selects a photo at once and saves it', async () => {
@@ -88,7 +90,7 @@ describe('ClientGallery', () => {
 		await user.click(hearts()[0]);
 
 		expect(hearts()[0].getAttribute('aria-pressed')).toBe('true');
-		expect(screen.getByText('1 selected')).toBeTruthy();
+		expect(count()).toBe('1');
 		expect(fetcher).toHaveBeenCalledWith(
 			'/api/v1/galleries/shared/tok/favorites/p1',
 			expect.objectContaining({ method: 'PUT' })
@@ -127,16 +129,15 @@ describe('ClientGallery', () => {
 	it('shows the package allowance and warns about extras in words', () => {
 		show({ gallery: { ...gallery, included_photos: 1 }, favorites: ['p1', 'p2', 'p3'] });
 
-		const summary = screen.getByText(/3 selected/);
-
-		expect(summary.textContent).toBe('3 selected · 1 included · 2 extra');
-		expect(summary.querySelector('.font-bold')?.textContent).toBe('2 extra');
+		expect(count()).toBe('3');
+		expect(screen.getByText('2 extra').classList.contains('font-bold')).toBe(true);
 	});
 
 	it('shows no extras within the allowance', () => {
 		show({ gallery: { ...gallery, included_photos: 5 }, favorites: ['p1'] });
 
-		expect(screen.getByText(/1 selected/).textContent).toBe('1 selected · 5 included');
+		expect(count()).toBe('1');
+		expect(screen.queryByText(/extra/)).toBeNull();
 	});
 
 	it('offers downloads instead of hearts once delivered', () => {
@@ -148,8 +149,7 @@ describe('ClientGallery', () => {
 		});
 
 		expect(screen.queryAllByRole('button', { name: /^favorite proof/i })).toEqual([]);
-		expect(screen.queryByText(/selected/)).toBeNull();
-		expect(screen.queryByRole('button', { name: /^♥/ })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Favorites' })).toBeNull();
 		expect(screen.getByText('Your photos are ready')).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'Download photo 1' }).getAttribute('href')).toBe(
 			'/final/a'
@@ -163,7 +163,7 @@ describe('ClientGallery', () => {
 		const user = userEvent.setup();
 		show({ favorites: ['p2'] });
 
-		await user.click(screen.getByRole('button', { name: /^♥/ }));
+		await user.click(screen.getByRole('button', { name: 'Favorites' }));
 
 		expect(hearts()).toHaveLength(1);
 
@@ -171,7 +171,7 @@ describe('ClientGallery', () => {
 
 		expect(hearts()).toHaveLength(3);
 
-		await user.click(screen.getByRole('button', { name: /^♥/ }));
+		await user.click(screen.getByRole('button', { name: 'Favorites' }));
 		await user.click(hearts()[0]);
 
 		expect(screen.getByText('No favorites yet')).toBeTruthy();
@@ -181,7 +181,7 @@ describe('ClientGallery', () => {
 		const user = userEvent.setup();
 		show({ favorites: ['p3'] });
 
-		await user.click(screen.getByRole('button', { name: /^♥/ }));
+		await user.click(screen.getByRole('button', { name: 'Favorites' }));
 		await user.click(screen.getByRole('button', { name: 'Open proof 1 of 1' }));
 		await user.click(screen.getByRole('button', { name: 'Favorite' }));
 
@@ -193,7 +193,9 @@ describe('ClientGallery', () => {
 		show({ studio: 'Studio Lune' });
 
 		expect(screen.getAllByText('Studio Lune')).toHaveLength(1);
-		expect(screen.getByRole('contentinfo').textContent).toContain('Studio Lune · PhotoProofing');
+		expect(screen.getByRole('contentinfo').textContent).toContain(
+			'Studio Lune · PhotoProofing'.toUpperCase()
+		);
 	});
 
 	it('shows the favorites count in the viewer', async () => {
@@ -227,13 +229,13 @@ describe('ClientGallery', () => {
 
 		FakeEventSource.last!.dispatchEvent(new Event('resync'));
 
-		await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy());
+		await waitFor(() => expect(count()).toBe('1'));
 	});
 
 	it('shows the selection but cannot change it in preview mode', () => {
 		show({ preview: true, favorites: ['p1'] });
 
-		expect(screen.getByText('1 selected')).toBeTruthy();
+		expect(count()).toBe('1');
 		const hearts = screen.getAllByRole('button', { name: /^favorite proof/i });
 		expect(hearts).toHaveLength(3);
 		for (const heart of hearts) expect((heart as HTMLButtonElement).disabled).toBe(true);

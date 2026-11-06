@@ -2,18 +2,18 @@
 	import { ChevronLeft, ChevronRight, Download, Heart, LoaderCircle, X } from '@lucide/svelte';
 	import { onMount, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import Button from '#lib/components/ui/button/button.svelte';
 	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
 	import { cn } from '#lib/utils.js';
 	import type { Proof } from '../gallery/types';
 	import FavoriteButton from './FavoriteButton.svelte';
+	import ViewerButton from './ViewerButton.svelte';
 
 	let {
 		proofs,
 		index = $bindable(0),
 		isSelected = () => false,
 		class: className,
-		contained = false,
+		title,
 		favoriteCount,
 		readonly = false,
 		actions,
@@ -25,8 +25,11 @@
 		index?: number;
 		isSelected?: (id: string) => boolean;
 		class?: string;
-		/** Opens inside the nearest positioned ancestor instead of over the whole page. */
-		contained?: boolean;
+		/**
+		 * The gallery's title in the top bar, as the client sees it. Without it the viewer is the
+		 * photographer's: the file name takes its place.
+		 */
+		title?: string;
 		/** Shown in the top bar beside the photo's position. */
 		favoriteCount?: number;
 		/** Shows the heart without letting it change, as in the owner's views. */
@@ -40,18 +43,20 @@
 		onretry?: (id: string) => void;
 	} = $props();
 
-	const controlClass =
-		'grid min-h-11 min-w-11 cursor-pointer place-items-center rounded-full border border-viewer-foreground/30 bg-viewer-control text-viewer-foreground focus-visible:outline-3 focus-visible:outline-offset-2! focus-visible:outline-viewer-focus! disabled:cursor-default disabled:opacity-40 aria-disabled:cursor-default aria-disabled:opacity-40';
-
 	// The heart sits in the top bar on wide screens and under the photo, in thumb reach, on phones.
 	const wide =
-		typeof matchMedia === 'function' ? new MediaQuery('min-width: 640px') : { current: true };
-	const heartClass = $derived(cn(controlClass, 'gap-2 px-4', !onselect && 'disabled:opacity-100'));
+		typeof matchMedia === 'function' ? new MediaQuery('min-width: 701px') : { current: true };
+	const arrow =
+		'absolute top-1/2 z-[2] grid size-12 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-white/8 text-panel transition-colors hover:bg-white/16 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus aria-disabled:cursor-default aria-disabled:opacity-40 aria-disabled:hover:bg-white/8 max-[700px]:hidden';
+	const overlay =
+		'absolute right-3.5 bottom-3.5 z-[3] grid size-[46px] place-items-center rounded-full backdrop-blur-[4px] transition-[background-color,opacity] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus';
+	const pill =
+		'inline-flex h-[52px] cursor-pointer items-center gap-2.5 rounded-full pr-[22px] pl-[18px] text-[0.9375rem] font-semibold transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus';
 
 	let closeButton: HTMLButtonElement;
 	const proof = $derived(proofs[index]);
 	const status = $derived(proof.status ?? 'ready');
-	const hearted = $derived(onselect !== undefined || readonly);
+	const client = $derived(title !== undefined);
 
 	const go = (to: number) => (index = Math.min(Math.max(to, 0), proofs.length - 1));
 
@@ -97,25 +102,30 @@
 	}
 </script>
 
-{#snippet action()}
-	{#if status === 'ready'}
-		{#if proof.downloadUrl}
-			<a href={proof.downloadUrl} download class={cn(controlClass, 'gap-2 px-4')}>
-				<span class="flex items-center gap-2"
-					><Download size={20} aria-hidden="true" />Download</span
-				>
-			</a>
-		{:else if hearted}
-			<FavoriteButton
-				selected={isSelected(proof.id)}
-				disabled={!onselect}
-				onclick={() => onselect?.(proof.id)}
-				class={cn(heartClass, 'inline-flex items-center')}
-			>
-				{isSelected(proof.id) ? 'Favorite' : 'Add to favorites'}
-			</FavoriteButton>
-		{/if}
-	{/if}
+{#snippet heartPill(big: boolean)}
+	<FavoriteButton
+		selected={isSelected(proof.id)}
+		disabled={!onselect}
+		onclick={() => onselect?.(proof.id)}
+		size={big ? 20 : 17}
+		class={big
+			? cn(
+					pill,
+					isSelected(proof.id)
+						? 'bg-panel text-foreground [&_svg]:text-danger'
+						: 'bg-white/10 text-panel',
+					!onselect && 'cursor-not-allowed opacity-50'
+				)
+			: cn(
+					'inline-flex h-10 cursor-pointer items-center gap-2 rounded-full px-3.5 text-[0.84375rem] font-semibold whitespace-nowrap transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus [&_svg]:text-panel',
+					isSelected(proof.id)
+						? 'bg-panel text-foreground [&_svg]:text-danger'
+						: 'bg-white/8 text-[#efe6da] hover:bg-white/14',
+					!onselect && 'cursor-not-allowed opacity-50 hover:bg-white/8'
+				)}
+	>
+		{isSelected(proof.id) ? 'Favorite' : 'Add to favorites'}
+	</FavoriteButton>
 {/snippet}
 
 <!-- Key handling lives on the dialog so it applies wherever focus is inside it. -->
@@ -123,82 +133,127 @@
 	{onclose}
 	{onkeydown}
 	label="Proof viewer"
-	modal={!contained}
 	aria-modal="true"
 	class={cn(
-		'm-0 h-dvh max-h-dvh w-screen max-w-screen border-0 bg-viewer p-3 text-viewer-foreground open:flex open:flex-col open:gap-3 sm:p-4',
-		contained && 'absolute inset-0 h-full max-h-full w-full max-w-full',
+		'm-0 h-dvh max-h-dvh w-screen max-w-screen animate-photo-in overflow-hidden border-0 bg-dark p-0 text-[0.875rem] font-medium text-[#efe6da] open:grid',
+		client
+			? 'grid-rows-[60px_1fr_44px] max-[700px]:grid-rows-[56px_1fr_104px]'
+			: 'grid-rows-[60px_1fr_44px] max-[700px]:grid-rows-[56px_1fr_20px]',
 		className
 	)}
 >
 	{#snippet children(close)}
-		<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-			<span class="min-w-0 flex-1 truncate font-medium">{proof.alt}</span>
-			<span aria-live="polite" class="text-sm text-viewer-foreground/70"
+		<div class="flex min-w-0 items-center gap-3.5 px-5 max-[700px]:gap-2 max-[700px]:px-3">
+			{#if client}
+				<span class="truncate font-serif text-[1.1875rem] text-panel max-[700px]:hidden"
+					>{title}</span
+				>
+			{:else}
+				<span class="font-mono text-[0.8125rem] whitespace-nowrap text-[#a8998a]">{proof.alt}</span>
+			{/if}
+			<span aria-live="polite" class="whitespace-nowrap text-[#a8998a] tabular-nums"
 				>{index + 1} of {proofs.length}</span
 			>
+			<span class="flex-1"></span>
 			{#if favoriteCount !== undefined}
-				<span class="flex items-center gap-1 text-sm text-viewer-foreground/70">
-					<Heart size={16} aria-hidden="true" />
+				<span class="flex items-center gap-1.5 font-semibold text-panel">
+					<Heart size={17} aria-hidden="true" fill="currentColor" class="text-[#e4573b]" />
 					<span class="sr-only">Favorites:</span>{favoriteCount}
 				</span>
 			{/if}
+			{#if client && wide.current && status === 'ready' && (onselect || readonly) && !proof.downloadUrl}
+				{@render heartPill(false)}
+			{/if}
 			{@render actions?.(proof)}
-			{#if wide.current}{@render action()}{/if}
 			<button
 				type="button"
-				class={controlClass}
 				bind:this={closeButton}
 				onclick={close}
 				aria-label="Close viewer"
+				class="inline-grid size-10 cursor-pointer place-items-center rounded-full bg-white/8 text-[#efe6da] transition-colors hover:bg-white/14 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
 			>
 				<X size={20} aria-hidden="true" />
 			</button>
 		</div>
-		<div class="flex min-h-0 flex-1 items-center gap-2">
+		<div
+			class="relative flex min-h-0 items-center justify-center overflow-hidden px-[84px] max-[700px]:px-0"
+		>
+			{#if status === 'ready'}
+				{#key proof.id}
+					<span class="relative flex animate-photo-in">
+						<img
+							src={proof.previewUrl}
+							alt={proof.alt}
+							class="block max-h-[calc(100dvh-124px)] max-w-[calc(100vw-168px)] rounded-[2px] object-contain shadow-[0_30px_80px_rgb(0_0_0/0.5)] max-[700px]:max-h-[calc(100dvh-160px)] max-[700px]:max-w-screen max-[700px]:rounded-none max-[700px]:shadow-none"
+						/>
+						{#if wide.current && proof.downloadUrl}
+							<a
+								href={proof.downloadUrl}
+								download
+								aria-label="Download this photo"
+								class="{overlay} bg-panel text-foreground shadow-[0_6px_18px_rgb(0_0_0/0.25)]"
+							>
+								<Download size={20} aria-hidden="true" />
+							</a>
+						{:else if !client && readonly && isSelected(proof.id)}
+							<span
+								role="img"
+								aria-label="Marked as a favorite by the client"
+								class="{overlay} bg-panel text-danger"
+							>
+								<Heart size={20} aria-hidden="true" fill="currentColor" />
+							</span>
+						{/if}
+					</span>
+				{/key}
+			{:else if status === 'processing'}
+				<p role="status" class="flex items-center gap-3 font-serif text-lg text-[#a8998a] italic">
+					<LoaderCircle size={20} class="animate-spin-slow" aria-hidden="true" />
+					Processing…
+				</p>
+			{:else}
+				<div
+					class="grid aspect-3/2 w-[min(560px,100%)] place-items-center rounded-md border border-dashed border-[#5a4d43] bg-[#241e1a] text-center text-[#a8998a]"
+				>
+					<div>
+						<p role="alert" class="mb-3 text-[0.9375rem] font-semibold text-warning-on-dark">
+							This photo could not be processed
+						</p>
+						{#if onretry}
+							<ViewerButton onclick={() => onretry(proof.id)}>Try again</ViewerButton>
+						{/if}
+					</div>
+				</div>
+			{/if}
 			<button
 				type="button"
-				class={controlClass}
+				class="{arrow} left-5"
 				aria-disabled={index === 0}
 				onclick={() => go(index - 1)}
 				aria-label="Previous proof"><ChevronLeft size={22} aria-hidden="true" /></button
 			>
-			<div class="relative grid h-full min-w-0 flex-1 place-items-center">
-				{#if status === 'ready'}
-					{#key proof.id}
-						<img
-							src={proof.previewUrl}
-							alt={proof.alt}
-							class="max-h-full max-w-full animate-photo-in object-contain"
-						/>
-					{/key}
-				{:else if status === 'processing'}
-					<p role="status" class="flex items-center gap-2 text-viewer-foreground/80">
-						<LoaderCircle size={20} class="animate-spin-slow" aria-hidden="true" />
-						Processing…
-					</p>
-				{:else}
-					<div class="grid justify-items-center gap-3 text-center">
-						<p role="alert">This photo could not be processed</p>
-						{#if onretry}
-							<Button
-								variant="outline"
-								size="sm"
-								class="border-viewer-foreground/50 text-viewer-foreground"
-								onclick={() => onretry(proof.id)}>Try again</Button
-							>
-						{/if}
-					</div>
-				{/if}
-			</div>
 			<button
 				type="button"
-				class={controlClass}
+				class="{arrow} right-5"
 				aria-disabled={index === proofs.length - 1}
 				onclick={() => go(index + 1)}
 				aria-label="Next proof"><ChevronRight size={22} aria-hidden="true" /></button
 			>
 		</div>
-		{#if !wide.current}<div class="flex justify-center">{@render action()}</div>{/if}
+		<div class="flex items-center justify-center gap-3">
+			{#if client && !wide.current && status === 'ready'}
+				{#if proof.downloadUrl}
+					<a
+						href={proof.downloadUrl}
+						download
+						class="{pill} bg-panel pr-[22px] pl-[22px] text-foreground"
+					>
+						<Download size={20} aria-hidden="true" />Download
+					</a>
+				{:else if onselect || readonly}
+					{@render heartPill(true)}
+				{/if}
+			{/if}
+		</div>
 	{/snippet}
 </Dialog>

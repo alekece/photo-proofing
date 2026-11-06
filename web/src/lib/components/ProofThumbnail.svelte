@@ -24,12 +24,15 @@
 		/** Without it the proof cannot be selected, as once the gallery is delivered. */
 		onselect?: () => void;
 	} = $props();
+
+	const BADGE =
+		'absolute right-2.5 bottom-2.5 z-[3] grid size-[34px] place-items-center rounded-full backdrop-blur-[4px] transition-[background-color,opacity] duration-200 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus @max-[700px]:right-1.5 @max-[700px]:bottom-1.5 @max-[700px]:size-[30px]';
 </script>
 
-<div class="group relative">
+<div class="group relative animate-photo-in overflow-hidden rounded-[4px]">
 	<button
 		type="button"
-		class="block w-full cursor-zoom-in overflow-hidden rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2! focus-visible:outline-focus!"
+		class="block w-full cursor-zoom-in focus-visible:outline-3 focus-visible:outline-offset-2! focus-visible:outline-focus!"
 		onclick={onopen}
 		aria-label="Open proof {position} of {total}"
 	>
@@ -50,9 +53,9 @@
 			href={proof.downloadUrl}
 			download
 			aria-label="Download photo {position}"
-			class="absolute right-2 bottom-2 grid min-h-11 min-w-11 place-items-center rounded-full bg-viewer-control text-viewer-foreground focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus"
+			class="{BADGE} bg-panel text-foreground shadow-none"
 		>
-			<Download size={20} aria-hidden="true" />
+			<Download size={15} aria-hidden="true" />
 		</a>
 	{:else if onselect || readonly}
 		<FavoriteButton
@@ -60,11 +63,13 @@
 			label="Favorite proof {position}"
 			disabled={!onselect}
 			onclick={onselect}
-			class="absolute right-2 bottom-2 grid min-h-11 min-w-11 cursor-pointer place-items-center rounded-full bg-viewer-control text-viewer-foreground transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-default pointer-coarse:opacity-100 {!onselect
-				? 'opacity-60'
+			class="{BADGE} {selected
+				? 'bg-panel text-danger'
+				: 'bg-[rgb(32_26_22/0.45)] text-panel'} {!onselect
+				? 'cursor-not-allowed opacity-50 group-hover:opacity-50'
 				: selected
-					? 'opacity-100'
-					: 'opacity-0'}"
+					? 'cursor-pointer opacity-100'
+					: 'cursor-pointer opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100'} focus-visible:opacity-100"
 		/>
 	{/if}
 </div>

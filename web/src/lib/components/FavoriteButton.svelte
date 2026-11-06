@@ -7,6 +7,7 @@
 		label,
 		onclick,
 		disabled = false,
+		size = 17,
 		class: className = '',
 		children
 	}: {
@@ -16,6 +17,8 @@
 		onclick?: () => void;
 		/** Shows the state without letting it change, as in the owner's preview. */
 		disabled?: boolean;
+		/** Heart size in pixels. */
+		size?: number;
 		class?: string;
 		/** Visible text beside the heart. */
 		children?: Snippet;
@@ -42,7 +45,7 @@
 		class="inline-grid {popping && selected ? 'animate-heart-pop' : ''}"
 		onanimationend={() => (popping = false)}
 	>
-		<Heart aria-hidden="true" size={22} fill={selected ? 'currentColor' : 'none'} />
+		<Heart aria-hidden="true" {size} fill={selected ? 'currentColor' : 'none'} />
 	</span>
 	{@render children?.()}
 </button>

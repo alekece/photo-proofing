@@ -34,9 +34,8 @@ describe('ProofViewer', () => {
 			isSelected: () => true,
 			onclose: () => {}
 		});
-		const heart = screen.getByRole('button', { name: 'Favorite' }) as HTMLButtonElement;
-		expect(heart.disabled).toBe(true);
-		expect(heart.getAttribute('aria-pressed')).toBe('true');
+		expect(screen.getByRole('img', { name: 'Marked as a favorite by the client' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: /favorite/i })).toBeNull();
 	});
 
 	it('shows the favorites count and a Download button once delivered', () => {
@@ -44,17 +43,20 @@ describe('ProofViewer', () => {
 			proofs: [{ ...proofs[0], downloadUrl: '/final/p1' }],
 			index: 0,
 			favoriteCount: 2,
+			title: 'Gallery',
 			onclose: () => {}
 		});
 		expect(screen.getByText('Favorites:').parentElement?.textContent).toContain('2');
-		expect(screen.getByRole('link', { name: 'Download' }).getAttribute('href')).toBe('/final/p1');
+		expect(screen.getByRole('link', { name: 'Download this photo' }).getAttribute('href')).toBe(
+			'/final/p1'
+		);
 		expect(screen.queryByRole('button', { name: /favorite/i })).toBeNull();
 	});
 
 	it('labels the heart by what a click does', async () => {
 		const user = userEvent.setup();
 		const onselect = vi.fn();
-		render(ProofViewer, { proofs, index: 0, onselect, onclose: () => {} });
+		render(ProofViewer, { proofs, index: 0, onselect, title: 'Gallery', onclose: () => {} });
 		await user.click(screen.getByRole('button', { name: 'Add to favorites' }));
 		expect(onselect).toHaveBeenCalledWith('p1');
 	});
