@@ -6,6 +6,7 @@
 	import { authRequest } from '#lib/auth.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
 	import ClientPreview from '#lib/components/ClientPreview.svelte';
+	import GalleryActions from '#lib/components/GalleryActions.svelte';
 	import GallerySettings from '#lib/components/GallerySettings.svelte';
 	import GalleryTabs from '#lib/components/GalleryTabs.svelte';
 	import PressAgainButton from '#lib/components/PressAgainButton.svelte';
@@ -234,13 +235,16 @@
 	{/if}
 
 	<div class="grid gap-6 md:grid-cols-[20rem_1fr]">
-		<GallerySettings
-			gallery={saved}
-			bind:failed
-			onsave={(changes) => void save(changes)}
-			schedule={debounce}
-			{cancel}
-		/>
+		<div class="grid content-start gap-4">
+			<GallerySettings
+				gallery={saved}
+				bind:failed
+				onsave={(changes) => void save(changes)}
+				schedule={debounce}
+				{cancel}
+			/>
+			<GalleryActions gallery={saved} onchange={(gallery) => (saved = gallery)} />
+		</div>
 
 		<GalleryTabs
 			galleryId={saved.id}

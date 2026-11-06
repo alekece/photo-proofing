@@ -295,6 +295,7 @@ mod tests {
         let photo_id = PhotoId::from(Uuid::new_v4());
         let options = JobOptions {
             max_attempts: std::num::NonZeroU16::new(9).unwrap(),
+            ..JobOptions::default()
         };
 
         database
