@@ -37,7 +37,9 @@ use uuid::Uuid;
 
 use crate::{
     Repository,
+    auth::WorkspaceId,
     error::DatabaseError,
+    gallery::GalleryId,
     photo::{PROCESSING_FAILED_REASON, PhotoRepository},
 };
 
@@ -78,6 +80,9 @@ impl Generate for JobId {
 #[serde(rename_all = "snake_case")]
 pub enum JobKind {
     ProcessPhoto,
+    CleanupGallery,
+    CleanupPhotos,
+    SweepOrphans,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -88,6 +93,9 @@ impl JobKind {
     const fn as_str(self) -> &'static str {
         match self {
             Self::ProcessPhoto => "process_photo",
+            Self::CleanupGallery => "cleanup_gallery",
+            Self::CleanupPhotos => "cleanup_photos",
+            Self::SweepOrphans => "sweep_orphans",
         }
     }
 }
@@ -98,6 +106,9 @@ impl FromStr for JobKind {
     fn from_str(tag: &str) -> Result<Self, Self::Err> {
         match tag {
             "process_photo" => Ok(Self::ProcessPhoto),
+            "cleanup_gallery" => Ok(Self::CleanupGallery),
+            "cleanup_photos" => Ok(Self::CleanupPhotos),
+            "sweep_orphans" => Ok(Self::SweepOrphans),
             _ => Err(ParseJobKindError),
         }
     }
@@ -109,11 +120,31 @@ pub struct ProcessPhoto {
     pub photo_id: PhotoId,
 }
 
+/// Removes every file of a deleted gallery. The ids alone locate them, so the job outlives the
+/// rows it was created for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupGallery {
+    pub workspace_id: WorkspaceId,
+    pub gallery_id: GalleryId,
+}
+
+/// Removes every file of photos deleted from one gallery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupPhotos {
+    pub workspace_id: WorkspaceId,
+    pub gallery_id: GalleryId,
+    pub photo_ids: Vec<PhotoId>,
+}
+
 /// A durable job's tag and body, stored together in the `payload` JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "payload", rename_all = "snake_case")]
 pub enum JobPayload {
     ProcessPhoto(ProcessPhoto),
+    CleanupGallery(CleanupGallery),
+    CleanupPhotos(CleanupPhotos),
+    /// Removes photo files that no photo row owns.
+    SweepOrphans,
 }
 
 impl JobPayload {
@@ -121,6 +152,9 @@ impl JobPayload {
     pub const fn kind(&self) -> JobKind {
         match self {
             Self::ProcessPhoto(_) => JobKind::ProcessPhoto,
+            Self::CleanupGallery(_) => JobKind::CleanupGallery,
+            Self::CleanupPhotos(_) => JobKind::CleanupPhotos,
+            Self::SweepOrphans => JobKind::SweepOrphans,
         }
     }
 }
@@ -315,6 +349,27 @@ impl JobRepository<'_> {
             .await?;
 
         Ok(id)
+    }
+
+    /// Stores a sweep unless one is already queued or running, so restarts do not pile them up.
+    /// Returns whether a sweep was stored.
+    pub async fn enqueue_sweep(&self, max_attempts: NonZeroU16) -> Result<bool, DatabaseError> {
+        let payload = serde_json::to_value(JobPayload::SweepOrphans)
+            .map_err(|e| sqlx::Error::Encode(e.into()))?;
+        let stored = sqlx::query(
+            "INSERT INTO jobs(id, payload, max_attempts)
+             SELECT $1, $2, $3
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM jobs
+                 WHERE payload->>'kind' = 'sweep_orphans' AND state IN ('queued', 'running'))",
+        )
+        .bind(JobId::generate())
+        .bind(payload)
+        .bind(i32::from(max_attempts.get()))
+        .execute(self.pool)
+        .await?;
+
+        Ok(stored.rows_affected() == 1)
     }
 
     /// Claims the oldest due job among `kinds`, leasing it for `lease`.
@@ -719,6 +774,70 @@ mod tests {
             JobKind::ProcessPhoto
         );
         assert!("unknown".parse::<JobKind>().is_err());
+    }
+
+    #[test]
+    fn cleanup_payloads_keep_their_tag_and_ids() {
+        let workspace_id = WorkspaceId(Uuid::new_v4());
+        let gallery_id = GalleryId(Uuid::new_v4());
+        let photo_id = PhotoId::from(Uuid::new_v4());
+        let cases = [
+            (
+                JobPayload::CleanupGallery(CleanupGallery {
+                    workspace_id,
+                    gallery_id,
+                }),
+                JobKind::CleanupGallery,
+                json!({"kind": "cleanup_gallery", "payload": {
+                    "workspace_id": workspace_id.0, "gallery_id": gallery_id.0}}),
+            ),
+            (
+                JobPayload::CleanupPhotos(CleanupPhotos {
+                    workspace_id,
+                    gallery_id,
+                    photo_ids: vec![photo_id],
+                }),
+                JobKind::CleanupPhotos,
+                json!({"kind": "cleanup_photos", "payload": {
+                    "workspace_id": workspace_id.0, "gallery_id": gallery_id.0,
+                    "photo_ids": [photo_id.to_string()]}}),
+            ),
+            (
+                JobPayload::SweepOrphans,
+                JobKind::SweepOrphans,
+                json!({"kind": "sweep_orphans"}),
+            ),
+        ];
+
+        for (payload, kind, stored) in cases {
+            assert_eq!(payload.kind(), kind);
+            assert_eq!(serde_json::to_value(&payload).unwrap(), stored);
+            assert_eq!(
+                serde_json::from_value::<JobPayload>(stored).unwrap(),
+                payload
+            );
+            assert_eq!(kind.as_str().parse::<JobKind>().unwrap(), kind);
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_sweep_is_enqueued_once_until_it_completes(pool: PgPool) {
+        let database = Database::new(pool);
+        let jobs = database.repository::<JobRepository>();
+        let attempts = NonZeroU16::new(3).unwrap();
+
+        assert!(jobs.enqueue_sweep(attempts).await.unwrap());
+        assert!(!jobs.enqueue_sweep(attempts).await.unwrap());
+
+        let sweep = jobs
+            .claim(&[JobKind::SweepOrphans], Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(!jobs.enqueue_sweep(attempts).await.unwrap());
+        assert!(jobs.complete(&sweep).await.unwrap().is_current());
+        assert!(jobs.enqueue_sweep(attempts).await.unwrap());
     }
 
     #[sqlx::test(migrations = "./migrations")]
