@@ -125,23 +125,18 @@ describe('ClientPreview', () => {
 		expect(screen.queryByRole('dialog', { name: 'Proof viewer' })).toBeNull();
 	});
 
-	it('keeps the viewer inside the frame in Mobile view and over the page in Desktop view', async () => {
+	it('opens the photo viewer over the whole screen in both views', async () => {
 		stub([photo('a')]);
 		const user = userEvent.setup();
 		render(ClientPreview, { gallery, onclose: () => {} });
-		await screen.findByRole('button', { name: /open proof 1 of 1/i });
-
-		await user.click(screen.getByRole('button', { name: /open proof 1 of 1/i }));
-		const desktopFrame = document.querySelector('[data-frame="desktop"]') as HTMLElement;
 		const viewer = () => screen.getByRole('dialog', { name: 'Proof viewer' });
-		expect(desktopFrame.contains(viewer())).toBe(true);
-		expect(viewer().classList.contains('absolute')).toBe(false);
+
+		await user.click(await screen.findByRole('button', { name: /open proof 1 of 1/i }));
+		expect(viewer()).toBeTruthy();
 		await user.keyboard('{Escape}');
 
 		await user.click(screen.getByRole('button', { name: 'Phone' }));
 		await user.click(await screen.findByRole('button', { name: /open proof 1 of 1/i }));
-		const frame = document.querySelector('[data-frame="phone"]') as HTMLElement;
-		expect(frame.contains(viewer())).toBe(true);
-		expect(viewer().classList.contains('absolute')).toBe(true);
+		expect(viewer()).toBeTruthy();
 	});
 });

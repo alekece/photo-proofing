@@ -24,13 +24,15 @@
 {:else}
 	<ul
 		class={layout === 'masonry'
-			? 'block columns-[14rem] gap-3'
-			: 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-3'}
+			? 'block [columns:3_240px] gap-x-2.5 px-7 pt-3.5 pb-10 @max-[700px]:columns-2 @max-[700px]:gap-x-1.5 @max-[700px]:px-2 @max-[700px]:pt-2 @max-[700px]:pb-[1.875rem]'
+			: 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-2.5 px-7 pt-3.5 pb-10 @max-[700px]:grid-cols-2 @max-[700px]:gap-1.5 @max-[700px]:px-2 @max-[700px]:pt-2 @max-[700px]:pb-[1.875rem]'}
 		data-layout={layout}
 		aria-label="Proofs"
 	>
 		{#each proofs as proof, i (proof.id)}
-			<li class={layout === 'masonry' ? 'mb-3 break-inside-avoid' : undefined}>
+			<li
+				class={layout === 'masonry' ? 'mb-2.5 break-inside-avoid @max-[700px]:mb-1.5' : undefined}
+			>
 				<ProofThumbnail
 					{proof}
 					{layout}

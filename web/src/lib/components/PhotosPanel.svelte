@@ -10,6 +10,7 @@
 		type TileState
 	} from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
+	import ViewerButton from '#lib/components/ViewerButton.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import ConfirmDialog from '#lib/components/ui/confirm-dialog/confirm-dialog.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
@@ -782,31 +783,27 @@
 		{#snippet actions(proof)}
 			{@const photo = current(proof.id)}
 			{#if photo && photo.status === 'ready'}
-				<Button
-					variant="outline"
-					size="sm"
-					class="border-viewer-foreground/50 text-viewer-foreground"
-					aria-pressed={photo.id === heroId}
+				<ViewerButton
+					pressed={photo.id === heroId}
+					aria-label={photo.id === heroId ? 'Remove hero' : 'Set as hero'}
 					onclick={() => void toggleHero(photo)}
 				>
 					<Star
-						size={16}
+						size={18}
 						fill={photo.id === heroId ? 'currentColor' : 'none'}
 						aria-hidden="true"
-						class="mr-1.5"
+						class="text-[#f2c063]"
 					/>
-					{photo.id === heroId ? 'Remove hero' : 'Set as hero'}
-				</Button>
+					<span class="max-[700px]:hidden"
+						>{photo.id === heroId ? 'Remove hero' : 'Set as hero'}</span
+					>
+				</ViewerButton>
 			{/if}
 			{#if photo}
-				<Button
-					variant="outline"
-					size="sm"
-					class="border-viewer-foreground/50 text-viewer-foreground"
-					onclick={() => (confirming = photo)}
-				>
-					<Trash2 size={16} aria-hidden="true" class="mr-1.5" />Delete
-				</Button>
+				<ViewerButton tone="warn" aria-label="Delete" onclick={() => (confirming = photo)}>
+					<Trash2 size={18} aria-hidden="true" />
+					<span class="max-[700px]:hidden">Delete</span>
+				</ViewerButton>
 			{/if}
 		{/snippet}
 	</ProofViewer>
