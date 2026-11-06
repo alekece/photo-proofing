@@ -18,6 +18,7 @@ Where the photographer runs one shoot from upload to delivery. Route `/dashboard
 | Deliver | ![](gallery/deliver-confirm.desktop.png) | ![](gallery/deliver-confirm.phone.png) |
 | Delete | ![](gallery/delete-confirm.desktop.png) | ![](gallery/delete-confirm.phone.png) |
 | Side nav editing | ![](gallery/side-nav-edit.desktop.png) | |
+| Photos in French | ![](gallery/photos-fr.desktop.png) | ![](gallery/photos-fr.phone.png) |
 
 ## Header: hero and journey
 
@@ -54,6 +55,7 @@ Four cards on the left; on phones an icon rail whose buttons pop the same cards 
   a red toast and reverts. A past "Open until" makes the gallery Expired; a future or cleared one lifts it. The prototype
   seeds every gallery with a date, a count and staggered columns and refuses empty values; build
   to this doc and the PRD instead.
+- The prototype's date input follows the browser's locale; the real app must format it in the workspace language.
 - The watermark switch is the only watermark control here. Mark, repeat, position and size live in
   [Settings](settings.md) and apply to every gallery.
 - Archive asks first ("Archive this gallery?", "The client link stops working. You can restore it
@@ -69,8 +71,9 @@ accent when over the allowance. After delivery Favorites shows a padlock: the se
 
 The proofs. Toolbar: **Select** and **Upload**. Tiles show only:
 
-- a star at the top right: **Set as hero** / **Remove hero** (a toggle; the hero's star stays
-  visible and reads "Hero"). Hover and focus only; on touch screens use the viewer instead;
+- a star at the top right: **Set as hero** / **Remove hero** (a toggle). On hover and focus only,
+  except the hero's own star, which stays visible as a gold star with no text (its tooltip and
+  screen-reader label are "Remove hero"). On touch screens use the viewer instead;
 - a × to delete, which always asks first.
 
 No hearts or favorite marks here: favorites belong to the Favorites tab. Clicking a photo opens

@@ -12,8 +12,9 @@ The photographer's home: what's new, and every gallery as a cover. Route `/dashb
 
 ## Layout
 
-1. **Top bar:** brand on the left; on the right the notifications bell (dot when unread) and the
-   avatar.
+1. **Top bar:** brand on the left; on the right the **language button** ("EN" or "FR", opening a small menu with English and
+   Français; saves at once with the usual toast), the notifications bell (dot when unread) and the
+   avatar. See the [languages design](../../2026-11-06-ui-languages-design.md).
 2. **Greeting:** a Georgia title that says what needs attention, for example "Good morning, Léa.
    *Two galleries* have news." or "Good morning, Léa. *All quiet* for now." Below it, up to three
    news chips (gallery thumbnail, title, "13 selected" or "4 new downloads"). The **+ New
@@ -22,6 +23,17 @@ The photographer's home: what's new, and every gallery as a cover. Route `/dashb
 4. **Grid of cover cards**, ending with a "Who's in front of your lens next?" card that also
    creates a gallery.
 5. **Footer:** workspace name and totals ("9 galleries · 412 photos").
+
+## Languages
+
+The workspace has one language, English or French, chosen from the top bar. Every screen follows it,
+including the client pages. Dates and plurals follow the language too, except the browser's native date input in the prototype. User content (gallery titles,
+studio name, file names) is never translated.
+
+| | Desktop | Phone |
+|---|---|---|
+| Language menu | ![](dashboard/language-menu.desktop.png) | ![](dashboard/language-menu.phone.png) |
+| Galleries in French | ![](dashboard/default-fr.desktop.png) | ![](dashboard/default-fr.phone.png) |
 
 ## Gallery card
 

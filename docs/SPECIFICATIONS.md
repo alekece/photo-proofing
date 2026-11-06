@@ -35,7 +35,11 @@ One workspace groups galleries, settings, and activity. The MVP has one photogra
 
 ### FR-02
 
-**Workspace ownership.** Galleries, saved watermark settings, activity, and notification read state belong to the workspace. The MVP provides a single account in a single workspace, with no collaborator-management interface. The ownership boundary must allow later collaboration without assigning existing galleries to isolated personal environments.
+**Workspace ownership.** Galleries, saved watermark settings, the interface language, activity, and notification read state belong to the workspace. The MVP provides a single account in a single workspace, with no collaborator-management interface. The ownership boundary must allow later collaboration without assigning existing galleries to isolated personal environments.
+
+### FR-02a
+
+**Languages.** The product is available in English and French, covering the photographer app, every client page and the unavailable page, including dates. The photographer chooses the language once for the workspace with a switch beside the notifications bell, and it saves immediately. Clients always see the workspace language. New workspaces start in English; the first-run sign-in page follows the browser language, falling back to English. Photographers' own content (gallery titles, studio name) is not translated.
 
 ### FR-03
 
@@ -127,7 +131,7 @@ One workspace groups galleries, settings, and activity. The MVP has one photogra
 
 The [MVP release document](releases/MVP.md) defines delivery scope and acceptance. Its fixed defaults are local-network evaluation, one account/workspace, JPEG photo inputs, direct local-disk storage, full retry of failed uploads, and unchanged source/finished downloads. Keep resource validation, privacy, accessibility, and restart safety in scope.
 
-**Future product direction:** built-in email/SMS sharing, Google sign-in, additional photo formats including RAW, collaborator accounts in a workspace, and isolated-installation SaaS provisioning with private setup links. These have no committed release dates.
+**Future product direction:** more languages, a language per gallery, built-in email/SMS sharing, Google sign-in, additional photo formats including RAW, collaborator accounts in a workspace, and isolated-installation SaaS provisioning with private setup links. These have no committed release dates.
 
 **Deferred possibilities, subject to need:** password recovery, backup/restore tooling, client confirmation of selection, access codes, configurable metadata policies, resumable uploads, object storage, more gallery layouts, and manual photo ordering (out of the MVP unless a design specifies it). They are not automatically promised for the next release.
 
