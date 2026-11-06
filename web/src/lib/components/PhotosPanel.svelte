@@ -5,8 +5,9 @@
 	import PhotoTile, { type TileState } from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
-	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
+	import ConfirmDialog from '#lib/components/ui/confirm-dialog/confirm-dialog.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
+	import PhotoStack from '#lib/components/ui/photo-stack/photo-stack.svelte';
 	import { getLiveEvents, type PhotoChange, type PhotoEvent } from '#lib/events.js';
 	import { GalleryApiError, updateGallery } from '#lib/gallery/api.js';
 	import {
@@ -633,76 +634,56 @@
 </section>
 
 {#if confirming}
-	<Dialog
+	{@const photo = confirming}
+	<ConfirmDialog
+		title="Delete {photo.original_name}?"
+		confirmLabel="Delete"
+		cancelLabel="Cancel"
+		destructive
 		onclose={() => (confirming = null)}
-		labelledby="delete-photo-title"
-		class="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
+		onconfirm={() => void remove(photo)}
 	>
-		{#snippet children(close)}
-			<div class="grid gap-4">
-				<div class="grid gap-1">
-					<h2 id="delete-photo-title" class="text-xl">Delete {confirming?.original_name}?</h2>
-					<p class="text-sm text-muted-foreground">
-						The photo and its previews are removed for good, wherever it is in processing.
-					</p>
-					{#if confirming?.favorite}
-						<p class="text-sm font-bold text-warning">
-							This photo is one of the client’s favorites. It leaves their selection too.
-						</p>
-					{/if}
-				</div>
-				<div class="flex justify-end gap-2">
-					<Button variant="ghost" onclick={close}>Cancel</Button>
-					<Button
-						onclick={() => {
-							const photo = confirming;
-
-							close();
-							if (photo) void remove(photo);
-						}}>Delete</Button
-					>
-				</div>
-			</div>
+		{#snippet visual()}
+			<PhotoStack {galleryId} photoIds={[photo.id]} />
 		{/snippet}
-	</Dialog>
+		{#snippet description()}
+			<p class="text-sm text-muted-foreground">
+				The photo and its previews are removed for good, wherever it is in processing.
+			</p>
+			{#if photo.favorite}
+				<p class="text-sm font-bold text-warning">
+					This photo is one of the client’s favorites. It leaves their selection too.
+				</p>
+			{/if}
+		{/snippet}
+	</ConfirmDialog>
 {/if}
 
 {#if confirmingSelection}
 	{@const count = selection.length}
 	{@const favoriteCount = selection.filter(({ favorite }) => favorite).length}
-	<Dialog
+	<ConfirmDialog
+		title="Delete {count} {count === 1 ? 'photo' : 'photos'}?"
+		confirmLabel="Delete"
+		cancelLabel="Cancel"
+		destructive
 		onclose={() => (confirmingSelection = false)}
-		labelledby="delete-selection-title"
-		class="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
+		onconfirm={() => void removeSelection()}
 	>
-		{#snippet children(close)}
-			<div class="grid gap-4">
-				<div class="grid gap-1">
-					<h2 id="delete-selection-title" class="text-xl">
-						Delete {count}
-						{count === 1 ? 'photo' : 'photos'}?
-					</h2>
-					<p class="text-sm text-muted-foreground">This can’t be undone.</p>
-					{#if favoriteCount > 0}
-						<p class="text-sm font-bold text-warning">
-							{favoriteCount === count ? 'All' : favoriteCount} of them {favoriteCount === 1
-								? 'is'
-								: 'are'} the client’s favorites. They leave the client’s selection too.
-						</p>
-					{/if}
-				</div>
-				<div class="flex justify-end gap-2">
-					<Button variant="ghost" onclick={close}>Cancel</Button>
-					<Button
-						onclick={() => {
-							close();
-							void removeSelection();
-						}}>Delete</Button
-					>
-				</div>
-			</div>
+		{#snippet visual()}
+			<PhotoStack {galleryId} photoIds={selection.map(({ id }) => id)} />
 		{/snippet}
-	</Dialog>
+		{#snippet description()}
+			<p class="text-sm text-muted-foreground">This can’t be undone.</p>
+			{#if favoriteCount > 0}
+				<p class="text-sm font-bold text-warning">
+					{favoriteCount === count ? 'All' : favoriteCount} of them {favoriteCount === 1
+						? 'is'
+						: 'are'} the client’s favorites. They leave the client’s selection too.
+				</p>
+			{/if}
+		{/snippet}
+	</ConfirmDialog>
 {/if}
 
 {#if viewing && proofs[viewIndex]}
