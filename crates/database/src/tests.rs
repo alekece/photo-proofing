@@ -163,6 +163,21 @@ impl TestRepository<'_> {
             .collect())
     }
 
+    /// The jobs whose payload has the given `kind` tag, oldest first.
+    pub async fn jobs_of_kind(&self, kind: &str) -> Result<Vec<StoredJob>, DatabaseError> {
+        let rows: Vec<(JobState, Value)> = sqlx::query_as(
+            "SELECT state, payload FROM jobs WHERE payload->>'kind' = $1 ORDER BY created_at, id",
+        )
+        .bind(kind)
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(state, payload)| StoredJob { state, payload })
+            .collect())
+    }
+
     /// Queues a job with an arbitrary, possibly malformed, payload.
     pub async fn insert_raw_job(&self, payload: Value) -> Result<JobId, DatabaseError> {
         Ok(sqlx::query_scalar(
