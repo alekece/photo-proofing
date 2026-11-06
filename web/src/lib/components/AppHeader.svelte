@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowLeft, LogOut, User } from '@lucide/svelte';
+	import { ArrowLeft, LogOut, Settings, User } from '@lucide/svelte';
 	import Popover from '#lib/components/ui/popover/popover.svelte';
 	import type { Snippet } from 'svelte';
 
@@ -39,6 +39,13 @@
 			panelClass="w-48"
 		>
 			{#snippet trigger()}<User size={18} aria-hidden="true" />{/snippet}
+			<a
+				href="/settings"
+				class="flex min-h-10 w-full items-center gap-2 rounded-control px-3 text-sm text-foreground hover:bg-border/60"
+			>
+				<Settings size={16} aria-hidden="true" />
+				Settings
+			</a>
 			<button
 				type="button"
 				class="flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-control px-3 text-left text-sm text-foreground hover:bg-border/60"
