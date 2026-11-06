@@ -265,6 +265,9 @@
 									{#key selection.count}<span class="inline-block animate-heart-pop tabular-nums"
 											>{selection.count}</span
 										>{/key}
+									{#if gallery.included_photos !== null}
+										<span class="font-medium opacity-75">of {gallery.included_photos}</span>
+									{/if}
 								{:else}
 									All
 								{/if}

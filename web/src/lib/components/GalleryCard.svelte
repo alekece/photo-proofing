@@ -1,6 +1,6 @@
 <script lang="ts">
 	import StatusChip from '#lib/components/ui/status-chip/status-chip.svelte';
-	import type { Gallery } from '#lib/gallery/api.js';
+	import type { GalleryOverview } from '#lib/gallery/api.js';
 	import {
 		galleryStatus,
 		gallerySummary,
@@ -14,7 +14,7 @@
 		query = '',
 		news
 	}: {
-		gallery: Gallery;
+		gallery: GalleryOverview;
 		/** The search text to highlight in the title. */
 		query?: string;
 		/** "New selection" or "New downloads"; set once #72 reports unread activity. */
@@ -67,7 +67,11 @@
 							class="rounded-[2px] bg-hero/55 px-px text-inherit">{part.text}</mark
 						>{:else}{part.text}{/if}{/each}
 			</h2>
-			<p class="text-[0.71875rem] opacity-90 sm:text-[0.8125rem]">{gallerySummary(gallery)}</p>
+			<p class="text-[0.71875rem] opacity-90 sm:text-[0.8125rem]">
+				{#each gallerySummary(gallery) as part, index (index)}{#if part.over}<b
+							class="font-extrabold text-warning-on-dark">{part.text}</b
+						>{:else}{part.text}{/if}{/each}
+			</p>
 		</div>
 	</a>
 </li>

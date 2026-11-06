@@ -31,6 +31,7 @@ describe('dashboard load', () => {
 	it.each([
 		['?sort=title', 'title'],
 		['?sort=created', 'created'],
+		['?sort=oldest', 'oldest'],
 		['?sort=bogus', 'updated'],
 		['?sort=', 'updated'],
 		['', 'updated']

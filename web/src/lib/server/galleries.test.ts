@@ -94,6 +94,37 @@ describe('listGalleries', () => {
 		);
 	});
 
+	it('parses the photo and favorite totals of each gallery', async () => {
+		const row = {
+			id: 'g',
+			title: null,
+			layout: 'grid',
+			expires_at: null,
+			included_photos: 10,
+			watermark_enabled: false,
+			hero_id: null,
+			share_token: null,
+			states: ['shared'],
+			created_at: '2026-01-01T00:00:00Z',
+			updated_at: '2026-01-01T00:00:00Z'
+		};
+		const fetcher = vi
+			.fn()
+			.mockResolvedValue(
+				new Response(JSON.stringify([{ ...row, photo_count: 3, favorite_count: 2 }]))
+			);
+
+		expect(await listGalleries(fetcher, null, 'oldest', [])).toMatchObject([
+			{ photo_count: 3, favorite_count: 2 }
+		]);
+
+		const missing = vi.fn().mockResolvedValue(new Response(JSON.stringify([row])));
+
+		await expect(listGalleries(missing, null, 'updated', [])).rejects.toMatchObject({
+			status: 503
+		});
+	});
+
 	it('sends no state parameter without a filter', async () => {
 		const fetcher = vi.fn().mockResolvedValue(new Response('[]'));
 		await listGalleries(fetcher, null, 'updated', []);

@@ -11,10 +11,10 @@ vi.mock('$app/navigation', () => ({
 const state = vi.hoisted(() => ({ navigating: { to: null as null | { route: { id: string } } } }));
 vi.mock('$app/state', () => state);
 import { goto } from '$app/navigation';
-import type { Gallery } from '#lib/gallery/api.js';
+import type { GalleryOverview } from '#lib/gallery/api.js';
 import Dashboard from './+page.svelte';
 
-const gallery = (over: Partial<Gallery> = {}): Gallery => ({
+const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 	id: 'g1',
 	title: 'Wedding',
 	layout: 'grid',
@@ -26,9 +26,11 @@ const gallery = (over: Partial<Gallery> = {}): Gallery => ({
 	states: ['draft'],
 	created_at: '2026-01-01T10:00:00Z',
 	updated_at: '2026-01-02T10:00:00Z',
+	photo_count: 0,
+	favorite_count: 0,
 	...over
 });
-const props = (galleries: Gallery[] | null, sort = 'updated') => ({
+const props = (galleries: GalleryOverview[] | null, sort = 'updated') => ({
 	data: {
 		identity: { account_id: 'a', workspace_id: 'w' },
 		idleTimeoutMs: 2592000000,
@@ -62,6 +64,7 @@ describe('dashboard', () => {
 		expect(screen.getAllByRole('radio').map((o) => o.textContent?.trim())).toEqual([
 			'Recently updated',
 			'Newest created',
+			'Oldest created',
 			'Title A–Z'
 		]);
 		await user.click(screen.getByRole('radio', { name: 'Title A–Z' }));
@@ -73,9 +76,21 @@ describe('dashboard', () => {
 		render(Dashboard, { props: props([gallery(), gallery({ id: 'g2', title: 'Portraits' })]) });
 		const user = userEvent.setup();
 
-		expect(screen.getByText('2 galleries')).toBeTruthy();
+		expect(screen.getByText('2 galleries · 0 photos')).toBeTruthy();
 		await user.click(screen.getByRole('button', { name: /Who’s in front of your lens next/ }));
 		expect(screen.getByRole('dialog', { name: 'New gallery' })).toBeTruthy();
+	});
+
+	it('sums the photos of the galleries that are not archived in the footer', () => {
+		render(Dashboard, {
+			props: props([
+				gallery({ id: 'a', photo_count: 32 }),
+				gallery({ id: 'b', photo_count: 1 }),
+				gallery({ id: 'c', photo_count: 80, states: ['delivered', 'archived'] })
+			])
+		});
+
+		expect(screen.getByText('2 galleries · 33 photos')).toBeTruthy();
 	});
 
 	it('shows loading placeholders while the sort change loads', async () => {
@@ -226,7 +241,7 @@ describe('dashboard', () => {
 			});
 
 			expect(screen.queryByRole('link', { name: /Old/ })).toBeNull();
-			expect(screen.getByText('2 galleries')).toBeTruthy();
+			expect(screen.getByText('1 gallery · 0 photos')).toBeTruthy();
 			await choose(user, /Archived/);
 			expect(screen.getByRole('link', { name: /Old/ })).toBeTruthy();
 		});

@@ -7,6 +7,7 @@
 	const SORTS: [GallerySort, string][] = [
 		['updated', 'Recently updated'],
 		['created', 'Newest created'],
+		['oldest', 'Oldest created'],
 		['title', 'Title A–Z']
 	];
 

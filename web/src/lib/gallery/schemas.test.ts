@@ -109,6 +109,7 @@ describe('schemas', () => {
 	it('fall back to the default sort for unknown values', () => {
 		expect(parseGallerySort('title')).toBe('title');
 		expect(parseGallerySort('created')).toBe('created');
+		expect(parseGallerySort('oldest')).toBe('oldest');
 		expect(parseGallerySort('random')).toBe('updated');
 		expect(parseGallerySort(null)).toBe('updated');
 	});

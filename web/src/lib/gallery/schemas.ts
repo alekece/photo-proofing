@@ -8,7 +8,7 @@ import * as v from 'valibot';
 const finite = v.pipe(v.number(), v.finite());
 
 export const galleryLayoutSchema = v.picklist(['grid', 'masonry']);
-export const gallerySortSchema = v.picklist(['updated', 'created', 'title']);
+export const gallerySortSchema = v.picklist(['updated', 'created', 'oldest', 'title']);
 export const galleryStateSchema = v.picklist([
 	'draft',
 	'shared',
@@ -32,6 +32,14 @@ export const gallerySchema = v.object({
 	states: v.array(galleryStateSchema),
 	created_at: v.string(),
 	updated_at: v.string()
+});
+
+/** A gallery in the dashboard list, with totals over its ready photos. */
+export const galleryOverviewSchema = v.object({
+	...gallerySchema.entries,
+	photo_count: v.pipe(finite, v.integer(), v.minValue(0)),
+	/** How many of the ready photos the client chose. */
+	favorite_count: v.pipe(finite, v.integer(), v.minValue(0))
 });
 
 /** What the private link reveals to a client; mirrors the API's `SharedGallery`. */
@@ -98,6 +106,7 @@ export const favoriteIdsSchema = v.array(v.string());
 export const favoritesEventSchema = v.object({ gallery_id: v.string() });
 
 export type Gallery = v.InferOutput<typeof gallerySchema>;
+export type GalleryOverview = v.InferOutput<typeof galleryOverviewSchema>;
 export type GalleryLayout = v.InferOutput<typeof galleryLayoutSchema>;
 export type GallerySort = v.InferOutput<typeof gallerySortSchema>;
 export type GalleryState = v.InferOutput<typeof galleryStateSchema>;

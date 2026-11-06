@@ -19,5 +19,5 @@
 </script>
 
 <p class={days <= 7 ? 'text-[0.9rem] font-semibold' : 'text-[0.9rem] opacity-85'}>
-	Access until <time datetime={expiresAt}>{formatted}</time> ({remaining})
+	Open until <time datetime={expiresAt}>{formatted}</time> ({remaining})
 </p>

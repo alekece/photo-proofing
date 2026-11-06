@@ -1,7 +1,7 @@
 //! Gallery endpoints under `/api/v1/galleries`, scoped to the session's workspace.
 //!
 //! - `POST /` creates an untitled gallery with the default settings.
-//! - `GET /?sort=updated|created|title&state=…` lists the workspace's galleries. `state` is
+//! - `GET /?sort=updated|created|oldest|title&state=…` lists the workspace's galleries. `state` is
 //!   `draft|shared|delivered|archived|expired`, may repeat, and keeps galleries in any of the
 //!   given states; unknown or empty values are a 400.
 //! - `GET /{id}` returns one gallery.
@@ -266,6 +266,42 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
+    async fn listing_reports_photo_and_favorite_counts_and_sorts_oldest_first(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let first = create_gallery(&app, &cookie).await;
+        let second = create_gallery(&app, &cookie).await;
+        let chosen = photo_in(&app, &pool, &cookie, &first, Progress::Ready).await;
+
+        photo_in(&app, &pool, &cookie, &first, Progress::Ready).await;
+        photo_in(&app, &pool, &cookie, &first, Progress::Processing).await;
+
+        sqlx::query("UPDATE photos SET favorite = true WHERE id = $1::uuid")
+            .bind(&chosen)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let request = test::TestRequest::get()
+            .uri("/api/v1/galleries?sort=oldest")
+            .cookie(cookie);
+        let (status, list) = call(&app, request).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(list[0]["id"], first.as_str());
+        assert_eq!(
+            (&list[0]["photo_count"], &list[0]["favorite_count"]),
+            (&json!(2), &json!(1))
+        );
+        assert_eq!(list[1]["id"], second.as_str());
+        assert_eq!(
+            (&list[1]["photo_count"], &list[1]["favorite_count"]),
+            (&json!(0), &json!(0))
+        );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
     async fn listing_filters_by_state_and_stays_in_the_workspace(pool: PgPool) {
         let foreign = Database::new(pool.clone())
             .repository::<GalleryRepository>()
@@ -357,7 +393,7 @@ mod tests {
         for uri in [
             "/api/v1/galleries?state=bogus",
             "/api/v1/galleries?state=",
-            "/api/v1/galleries?state=shared&sort=oldest",
+            "/api/v1/galleries?state=shared&sort=bogus",
         ] {
             assert_eq!(ids(uri).await.0, StatusCode::BAD_REQUEST, "{uri}");
         }
@@ -490,7 +526,7 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
         let request = test::TestRequest::get()
-            .uri("/api/v1/galleries?sort=oldest")
+            .uri("/api/v1/galleries?sort=bogus")
             .cookie(cookie.clone());
 
         assert_eq!(call(&app, request).await.0, StatusCode::BAD_REQUEST);

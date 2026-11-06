@@ -2,11 +2,13 @@ import { error, redirect } from '@sveltejs/kit';
 import * as v from 'valibot';
 import {
 	favoriteIdsSchema,
+	galleryOverviewSchema,
 	gallerySchema,
 	parseOrNull,
 	sharedGallerySchema,
 	sharedPhotoSchema,
 	type Gallery,
+	type GalleryOverview,
 	type GallerySort,
 	type GalleryState,
 	type SharedGallery,
@@ -52,12 +54,12 @@ export function listGalleries(
 	cookie: string | null,
 	sort: GallerySort,
 	states: GalleryState[]
-): Promise<Gallery[]> {
+): Promise<GalleryOverview[]> {
 	const query = new URLSearchParams({ sort });
 
 	for (const state of states) query.append('state', state);
 
-	return readGalleries(fetcher, cookie, `?${query}`, v.array(gallerySchema));
+	return readGalleries(fetcher, cookie, `?${query}`, v.array(galleryOverviewSchema));
 }
 
 /** Unknown, foreign and malformed ids are all a 404. */
