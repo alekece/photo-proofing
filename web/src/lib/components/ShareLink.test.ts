@@ -15,12 +15,12 @@ const clipboard = (writeText: unknown) =>
 afterEach(() => clipboard(undefined));
 
 describe('ShareLink', () => {
-	it('shows the private link built from the origin and the empty-gallery note', () => {
+	it('shows the private link built from the origin and opens it in a new tab', () => {
 		render(ShareLink, { token, origin: 'https://pp.test' });
 
 		expect((screen.getByLabelText('Client link') as HTMLInputElement).value).toBe(link);
-		expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy();
-		expect(screen.getByText(/no photos yet/i)).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Copy link' })).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Open' }).getAttribute('href')).toBe(link);
 	});
 
 	it('copies the exact link and announces it', async () => {
@@ -29,7 +29,7 @@ describe('ShareLink', () => {
 		clipboard(writeText);
 		render(ShareLink, { token, origin: 'https://pp.test' });
 
-		await user.click(screen.getByRole('button', { name: 'Copy' }));
+		await user.click(screen.getByRole('button', { name: 'Copy link' }));
 
 		expect(writeText).toHaveBeenCalledWith(link);
 		expect((await screen.findByRole('status')).textContent).toMatch(/Copied/);
@@ -42,7 +42,7 @@ describe('ShareLink', () => {
 			clipboard(writeText);
 			render(ShareLink, { token, origin: 'https://pp.test' });
 
-			await user.click(screen.getByRole('button', { name: 'Copy' }));
+			await user.click(screen.getByRole('button', { name: 'Copy link' }));
 
 			const input = screen.getByLabelText('Client link') as HTMLInputElement;
 
@@ -60,6 +60,6 @@ describe('ShareLink', () => {
 		expect(document.activeElement).toBe(screen.getByLabelText('Client link'));
 
 		await user.tab();
-		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Copy' }));
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Copy link' }));
 	});
 });

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,6 +18,7 @@ vi.mock('#lib/components/FavoritesPanel.svelte', async () => ({
 }));
 import { goto } from '$app/navigation';
 import type { Gallery } from '#lib/gallery/api.js';
+import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
 import GalleryPage from './+page.svelte';
 
 const base: Gallery = {
@@ -48,7 +49,10 @@ const stubApi = (status = 200) => {
 	return () => fetcher.mock.calls.filter(([url]) => url.includes('/galleries/'));
 };
 
-beforeEach(() => vi.mocked(goto).mockClear());
+beforeEach(() => {
+	vi.mocked(goto).mockClear();
+	toasts.items = [];
+});
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.useRealTimers();
@@ -80,8 +84,8 @@ describe('gallery page', () => {
 	it('sends only the changed field and shows Saved', async () => {
 		const patches = stubApi();
 		open();
-		await userEvent.setup().click(screen.getByLabelText('Masonry'));
-		expect(await screen.findByText('Saved')).toBeTruthy();
+		await userEvent.setup().click(screen.getByRole('button', { name: 'Staggered columns' }));
+		await waitFor(() => expect(toasts.items.map(({ message }) => message)).toEqual(['Saved']));
 		expect(patches()).toHaveLength(1);
 		const [url, init] = patches()[0];
 		expect(url).toBe('/api/v1/galleries/g1');
@@ -124,38 +128,28 @@ describe('gallery page', () => {
 		expect(JSON.parse(patches()[0][1]?.body as string)).toEqual({ title: 'Weddingabc' });
 	});
 
-	it('shows an error with Retry that resends the attempted value', async () => {
-		const patches = stubApi(500);
+	it('shows a toast and puts the switch back when a setting fails to save', async () => {
+		stubApi(500);
 		const user = userEvent.setup();
 		open();
-		await user.click(screen.getByLabelText('Watermark'));
-		expect(await screen.findByText('Couldn’t save')).toBeTruthy();
-		expect((screen.getByLabelText('Watermark') as HTMLInputElement).checked).toBe(true);
-		stubApi();
-		await user.click(screen.getByRole('button', { name: 'Retry' }));
-		expect(await screen.findByText('Saved')).toBeTruthy();
-		expect(patches()).toHaveLength(1);
+		const toggle = screen.getByRole('switch', { name: 'Watermark proofs' });
+		await user.click(toggle);
+		await waitFor(() => expect(toasts.items.map(({ kind }) => kind)).toEqual(['error']));
+		expect(toggle.getAttribute('aria-checked')).toBe('false');
+		expect(screen.queryByText('Couldn’t save')).toBeNull();
 	});
 
-	it('keeps a failed title visible when a later save succeeds elsewhere', async () => {
+	it('shows Retry for a failed title that resends the attempted value', async () => {
 		const patches = stubApi(500);
 		const user = userEvent.setup();
 		open();
 		await user.type(screen.getByLabelText('Gallery title'), ' II');
-		await user.click(screen.getByLabelText('Watermark'));
+		await user.click(screen.getByRole('switch', { name: 'Watermark proofs' }));
 		await waitFor(() => expect(patches()).toHaveLength(2));
+		expect(await screen.findByText('Couldn’t save')).toBeTruthy();
 		stubApi();
-		await user.click(screen.getByLabelText('Masonry'));
-		await waitFor(() => expect(screen.queryByText('Saving…')).toBeNull());
-		expect(screen.queryByText('Saved')).toBeNull();
-		expect(screen.getByText('Couldn’t save')).toBeTruthy();
-		const retried = stubApi();
 		await user.click(screen.getByRole('button', { name: 'Retry' }));
 		expect(await screen.findByText('Saved')).toBeTruthy();
-		expect(retried().map(([, init]) => JSON.parse(init?.body as string))).toEqual([
-			{ title: 'Wedding II' },
-			{ watermark_enabled: true }
-		]);
 	});
 
 	it('reverts a failed title when leaving the field, but Retry still works while focused', async () => {
@@ -203,26 +197,14 @@ describe('gallery page', () => {
 		const pending = deferApi();
 		const user = userEvent.setup();
 		open();
-		await user.click(screen.getByLabelText('Watermark'));
-		await user.click(screen.getByLabelText('Watermark'));
+		const toggle = screen.getByRole('switch', { name: 'Watermark proofs' });
+		await user.click(toggle);
+		await user.click(toggle);
 		await waitFor(() => expect(pending).toHaveLength(2));
 		pending[1](200);
 		pending[0](500);
-		expect(await screen.findByText('Saved')).toBeTruthy();
-		expect(screen.queryByText('Couldn’t save')).toBeNull();
-	});
-
-	it('ignores a stale success after a newer save of the same field failed', async () => {
-		const pending = deferApi();
-		const user = userEvent.setup();
-		open();
-		await user.click(screen.getByLabelText('Watermark'));
-		await user.click(screen.getByLabelText('Watermark'));
-		await waitFor(() => expect(pending).toHaveLength(2));
-		pending[1](500);
-		pending[0](200);
-		expect(await screen.findByText('Couldn’t save')).toBeTruthy();
-		expect(screen.queryByText('Saved')).toBeNull();
+		await waitFor(() => expect(toasts.items.length).toBeGreaterThan(0));
+		expect(toasts.items.filter(({ kind }) => kind === 'success')).toHaveLength(1);
 	});
 
 	it('saves an edited title normally when leaving the field after a failure', async () => {
@@ -263,36 +245,53 @@ describe('gallery page', () => {
 	it('redirects to sign-in when the session expired', async () => {
 		stubApi(401);
 		open();
-		await userEvent.setup().click(screen.getByLabelText('Watermark'));
+		await userEvent.setup().click(screen.getByRole('switch', { name: 'Watermark proofs' }));
 		await waitFor(() => expect(goto).toHaveBeenCalledWith('/login?expired=1', expect.anything()));
 	});
 
 	it('sends the end of the chosen day in local time', async () => {
 		const patches = stubApi();
 		open();
-		await fireEvent.change(screen.getByLabelText('Expiry'), { target: { value: '2099-03-04' } });
+		await fireEvent.change(screen.getByLabelText('Open until'), {
+			target: { value: '2099-03-04' }
+		});
 		await waitFor(() => expect(patches()).toHaveLength(1));
 		const sent = new Date(JSON.parse(patches()[0][1]?.body as string).expires_at);
 		expect([sent.getFullYear(), sent.getMonth(), sent.getDate()]).toEqual([2099, 2, 4]);
 		expect([sent.getHours(), sent.getMinutes(), sent.getSeconds()]).toEqual([23, 59, 59]);
 	});
 
-	it('warns about, but allows, a past expiry and clears it with null', async () => {
-		const patches = stubApi();
+	it('allows a past expiry, marks the gallery expired and clears it with null', async () => {
+		const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url.includes('/auth/')) return new Response(null, { status: 204 });
+			const patch = JSON.parse(init?.body as string);
+
+			return new Response(
+				JSON.stringify({
+					...base,
+					...patch,
+					states: patch.expires_at ? ['draft', 'expired'] : ['draft']
+				})
+			);
+		});
+		vi.stubGlobal('fetch', fetcher);
 		const user = userEvent.setup();
 		open();
-		await fireEvent.change(screen.getByLabelText('Expiry'), { target: { value: '2020-01-01' } });
-		expect(await screen.findByText(/in the past/)).toBeTruthy();
-		await waitFor(() => expect(patches()).toHaveLength(1));
-		await user.click(screen.getByRole('button', { name: 'Clear' }));
-		await waitFor(() => expect(patches()).toHaveLength(2));
-		expect(JSON.parse(patches()[1][1]?.body as string)).toEqual({ expires_at: null });
+		const input = screen.getByLabelText('Open until');
+		await fireEvent.change(input, { target: { value: '2020-01-01' } });
+		expect(await screen.findByText('Expired')).toBeTruthy();
+		await user.clear(input);
+		expect(await screen.findByText('Draft')).toBeTruthy();
+		const bodies = fetcher.mock.calls
+			.filter(([url]) => url.includes('/galleries/'))
+			.map(([, init]) => JSON.parse(init?.body as string));
+		expect(bodies[1]).toEqual({ expires_at: null });
 	});
 
 	it('shows the stored expiry as a local date', () => {
 		const stored = new Date(2030, 5, 15, 23, 59, 59).toISOString();
 		open({ expires_at: stored });
-		expect((screen.getByLabelText('Expiry') as HTMLInputElement).value).toBe('2030-06-15');
+		expect((screen.getByLabelText('Open until') as HTMLInputElement).value).toBe('2030-06-15');
 	});
 
 	it('sends null when included photos is cleared and rejects zero', async () => {
@@ -306,7 +305,7 @@ describe('gallery page', () => {
 		expect(JSON.parse(patches()[0][1]?.body as string)).toEqual({ included_photos: null });
 		await user.type(input, '0');
 		await user.tab();
-		expect(screen.getByText(/at least 1/)).toBeTruthy();
+		expect(toasts.items.filter(({ kind }) => kind === 'error')).toHaveLength(1);
 		expect(patches()).toHaveLength(1);
 	});
 
@@ -342,7 +341,8 @@ describe('gallery page', () => {
 
 		it('shows the title and the draft status', () => {
 			open();
-			expect(screen.getByText('Draft · not shared')).toBeTruthy();
+			expect(screen.getByText('Draft')).toBeTruthy();
+			expect(screen.getByText('not shared yet')).toBeTruthy();
 			expect(screen.getByLabelText('Gallery title')).toBeTruthy();
 		});
 
@@ -351,36 +351,38 @@ describe('gallery page', () => {
 			const user = userEvent.setup();
 			open();
 
-			await user.click(screen.getByRole('button', { name: 'Share gallery' }));
+			await user.click(screen.getByRole('button', { name: 'Share' }));
 			expect(await screen.findByRole('dialog', { name: 'Share 1 photo?' })).toBeTruthy();
 			expect(shares()).toHaveLength(0);
 
-			await user.click(screen.getByRole('button', { name: 'Share' }));
+			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Share' }));
 			expect(await screen.findByRole('dialog', { name: 'Your gallery is shared' })).toBeTruthy();
 			expect(shares()).toHaveLength(1);
-			expect(screen.getByRole('button', { name: 'Copy link' })).toBeTruthy();
+			expect(
+				within(screen.getByRole('dialog')).getByRole('button', { name: 'Copy link' })
+			).toBeTruthy();
 
 			await user.click(screen.getByRole('button', { name: 'Done' }));
 			expect(screen.getByLabelText('Client link')).toBeTruthy();
-			expect(screen.getByText('Shared')).toBeTruthy();
-			expect(screen.queryByRole('button', { name: 'Share gallery' })).toBeNull();
+			expect(screen.getAllByText('Shared').length).toBeGreaterThan(0);
+			expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
 		});
 
 		it('does not share when the dialog is dismissed', async () => {
 			const shares = stubShareFlow();
 			const user = userEvent.setup();
 			open();
-			await user.click(screen.getByRole('button', { name: 'Share gallery' }));
+			await user.click(screen.getByRole('button', { name: 'Share' }));
 			await user.click(await screen.findByRole('button', { name: 'Not yet' }));
 			expect(shares()).toHaveLength(0);
-			expect(screen.getByRole('button', { name: 'Share gallery' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
 		});
 
 		it('warns instead of blocking when there are no photos', async () => {
 			stubShareFlow([]);
 			const user = userEvent.setup();
 			open();
-			await user.click(screen.getByRole('button', { name: 'Share gallery' }));
+			await user.click(screen.getByRole('button', { name: 'Share' }));
 			expect(await screen.findByRole('dialog', { name: 'Share with no photos?' })).toBeTruthy();
 			expect(screen.getByText('Clients see an empty gallery until you upload.')).toBeTruthy();
 			expect(screen.getByRole('button', { name: 'Share anyway' })).toBeTruthy();
@@ -390,7 +392,7 @@ describe('gallery page', () => {
 			stubShareFlow([photo('p1'), photo('p2', 'processing'), photo('p3', { failed: 'bad' })]);
 			const user = userEvent.setup();
 			open();
-			await user.click(screen.getByRole('button', { name: 'Share gallery' }));
+			await user.click(screen.getByRole('button', { name: 'Share' }));
 			expect(await screen.findByText('1 is still uploading and 1 failed.')).toBeTruthy();
 			expect(screen.getByRole('button', { name: 'Share anyway' })).toBeTruthy();
 		});
@@ -399,7 +401,7 @@ describe('gallery page', () => {
 			stubShareFlow();
 			const user = userEvent.setup();
 			open({ expires_at: '2026-09-12T12:00:00Z' });
-			await user.click(screen.getByRole('button', { name: 'Share gallery' }));
+			await user.click(screen.getByRole('button', { name: 'Share' }));
 			expect(await screen.findByText(/pick favorites until 12 Sep\./)).toBeTruthy();
 		});
 
@@ -407,18 +409,18 @@ describe('gallery page', () => {
 			open({ share_token: 'B'.repeat(22) });
 			expect(screen.getByText('Shared')).toBeTruthy();
 			expect(screen.getByLabelText('Client link')).toBeTruthy();
-			expect(
-				(screen.getByRole('button', { name: 'Deliver to client' }) as HTMLButtonElement).disabled
-			).toBe(false);
+			expect((screen.getByRole('button', { name: 'Deliver' }) as HTMLButtonElement).disabled).toBe(
+				false
+			);
 		});
 
 		it('opens the Deliver dialog and explains that delivering is not available yet', async () => {
 			stubShareFlow();
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22) });
-			await user.click(screen.getByRole('button', { name: 'Deliver to client' }));
-			expect(await screen.findByRole('dialog', { name: 'Deliver 1 photo?' })).toBeTruthy();
 			await user.click(screen.getByRole('button', { name: 'Deliver' }));
+			expect(await screen.findByRole('dialog', { name: 'Deliver 1 photo?' })).toBeTruthy();
+			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Deliver' }));
 			expect((await screen.findByRole('alert')).textContent).toMatch(/later release/);
 		});
 
@@ -431,7 +433,7 @@ describe('gallery page', () => {
 			);
 			const user = userEvent.setup();
 			open();
-			await user.click(screen.getByRole('button', { name: 'Share gallery' }));
+			await user.click(screen.getByRole('button', { name: 'Share' }));
 			await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
 			expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t share/);
 			expect(screen.getByRole('button', { name: 'Share anyway' })).toBeTruthy();

@@ -27,3 +27,23 @@ export function endOfLocalDay(day: string): string {
 	const [year, month, date] = day.split('-').map(Number);
 	return new Date(year, month - 1, date, 23, 59, 59).toISOString();
 }
+
+/** The one status a gallery shows: archived and expired win over its progress state. */
+export function galleryStatus(
+	states: readonly ('draft' | 'shared' | 'delivered' | 'archived' | 'expired')[]
+) {
+	if (states.includes('archived')) return 'archived';
+	if (states.includes('expired')) return 'expired';
+
+	return states[0] ?? 'draft';
+}
+
+/** Up to two capitals for a gallery without a hero photo; "Camille & Hugo" gives "CH". */
+export function galleryInitials(title: string | null): string {
+	const words = (title ?? '').match(/[\p{L}\p{N}]+/gu) ?? [];
+
+	return words
+		.slice(0, 2)
+		.map((word) => word[0].toUpperCase())
+		.join('');
+}

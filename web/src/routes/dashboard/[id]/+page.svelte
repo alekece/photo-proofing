@@ -6,14 +6,17 @@
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import { authRequest } from '#lib/auth.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
+	import ArchiveGalleryDialog from '#lib/components/ArchiveGalleryDialog.svelte';
 	import ClientPreview from '#lib/components/ClientPreview.svelte';
+	import DeleteGalleryDialog from '#lib/components/DeleteGalleryDialog.svelte';
+	import GalleryHeader from '#lib/components/GalleryHeader.svelte';
 	import GallerySettings from '#lib/components/GallerySettings.svelte';
 	import GalleryTabs from '#lib/components/GalleryTabs.svelte';
 	import PublishDialog from '#lib/components/PublishDialog.svelte';
-	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
 	import Label from '#lib/components/ui/label/label.svelte';
+	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
 	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import {
 		GalleryApiError,
@@ -36,6 +39,9 @@
 	// svelte-ignore state_referenced_locally
 	let shareToken = $state(data.gallery.share_token);
 	let publishing = $state<'share' | 'deliver' | null>(null);
+	let confirming = $state<'archive' | 'delete' | null>(null);
+	let photoCount = $state<number | null>(null);
+	let favoriteCount = $state<number | null>(null);
 	let previewing = $state(false);
 	let signOutError = $state('');
 	let inflight = $state(0);
@@ -66,11 +72,14 @@
 	const latestSave: Record<string, number> = {};
 	let saveCount = 0;
 
-	async function save(changes: GalleryChanges) {
+	async function save(changes: GalleryChanges): Promise<boolean> {
 		const keys = Object.keys(changes) as (keyof GalleryChanges)[];
 		const number = ++saveCount;
 		for (const key of keys) latestSave[key] = number;
 		const isLatest = (key: keyof GalleryChanges) => latestSave[key] === number;
+		// Only the title keeps its inline status; the side nav answers with toasts.
+		const inTitle = keys.length === 1 && keys[0] === 'title';
+
 		inflight++;
 		justSaved = false;
 		void activity();
@@ -81,13 +90,27 @@
 				saved = { ...saved, [key]: result[key], updated_at: result.updated_at };
 				delete failed[key];
 			}
-			if (current.length > 0) justSaved = true;
+			// Expiry decides whether the gallery counts as expired.
+			saved = { ...saved, states: result.states };
+			if (inTitle) {
+				if (current.length > 0) justSaved = true;
+			} else toasts.success('Saved');
+
+			return true;
 		} catch (error) {
 			if (error instanceof GalleryApiError && error.status === 401) {
 				await goto('/login?expired=1', { refreshAll: true });
-				return;
+				return false;
 			}
-			for (const key of keys.filter(isLatest)) failed = { ...failed, [key]: changes[key] };
+			if (inTitle) {
+				for (const key of keys.filter(isLatest)) failed = { ...failed, [key]: changes[key] };
+			} else {
+				toasts.error(
+					error instanceof GalleryApiError ? error.message : 'Couldn’t save. Please try again.'
+				);
+			}
+
+			return false;
 		} finally {
 			inflight--;
 		}
@@ -148,6 +171,16 @@
 	async function deliver(): Promise<void> {
 		throw new Error('Delivering finished photos arrives with a later release.');
 	}
+	/** Archiving, restoring and deleting arrive with #73; the dialogs are ready for it. */
+	async function archive(): Promise<void> {
+		throw new Error('Archiving galleries arrives with a later release.');
+	}
+	async function remove(): Promise<void> {
+		throw new Error('Deleting galleries arrives with a later release.');
+	}
+	function restore() {
+		toasts.error('Restoring galleries arrives with a later release.');
+	}
 	async function logout() {
 		signOutError = '';
 		try {
@@ -168,13 +201,21 @@
 <PageShell width="wide">
 	{#if signOutError}<p role="alert" class="text-danger">{signOutError}</p>{/if}
 
-	<div class="flex flex-wrap items-start justify-between gap-4">
-		<div class="grid min-w-0 flex-1 gap-1">
+	<GalleryHeader
+		gallery={{ ...saved, share_token: shareToken }}
+		{photoCount}
+		{favoriteCount}
+		onpreview={() => (previewing = true)}
+		onshare={() => (publishing = 'share')}
+		ondeliver={() => (publishing = 'deliver')}
+		onrestore={restore}
+	>
+		{#snippet heading()}
 			<div class="flex flex-wrap items-center gap-3">
 				<Label srOnly for="title">Gallery title</Label>
 				<Input
 					id="title"
-					class="min-h-0 flex-1 border-transparent bg-transparent px-2 py-1 font-serif text-3xl hover:border-border-strong focus:border-foreground"
+					class="min-h-0 flex-1 border-transparent bg-transparent px-2 py-1 font-serif text-3xl text-inverse placeholder:text-inverse/70 hover:border-white/40 focus:border-inverse"
 					bind:value={title}
 					placeholder={UNTITLED_GALLERY}
 					maxlength={TITLE_MAX}
@@ -197,6 +238,7 @@
 							variant="outline"
 							size="sm"
 							data-retry
+							class="border-white/60 bg-transparent text-inverse hover:bg-white/15"
 							onmousedown={(event) => event.preventDefault()}
 							onclick={retry}>Retry</Button
 						>
@@ -205,39 +247,28 @@
 					{/if}
 				</div>
 			</div>
-			<p class="px-2 text-sm text-muted-foreground">
-				{#if shareToken}<span>Shared</span>{:else}<span>Draft · not shared</span>{/if}
-			</p>
-		</div>
-		<div class="flex flex-wrap items-center gap-2">
-			<Button variant="outline" onclick={() => (previewing = true)}>Preview</Button>
-			{#if shareToken}
-				<Button onclick={() => (publishing = 'deliver')}>Deliver to client</Button>
-			{:else}
-				<Button onclick={() => (publishing = 'share')}>Share gallery</Button>
-			{/if}
-		</div>
-	</div>
-	{#if shareToken}
-		<div class="grid gap-1">
-			<h2 class="text-sm font-medium">Client link</h2>
-			<ShareLink token={shareToken} origin={page.url.origin} />
-		</div>
-	{/if}
+		{/snippet}
+	</GalleryHeader>
 
 	<div class="grid gap-6 md:grid-cols-[20rem_1fr]">
 		<GallerySettings
 			gallery={saved}
-			bind:failed
-			onsave={(changes) => void save(changes)}
+			{shareToken}
+			origin={page.url.origin}
+			onsave={save}
 			schedule={debounce}
 			{cancel}
+			onarchive={() => (confirming = 'archive')}
+			onrestore={restore}
+			ondelete={() => (confirming = 'delete')}
 		/>
 
 		<GalleryTabs
 			galleryId={saved.id}
 			included={saved.included_photos}
 			bind:heroId={saved.hero_id}
+			bind:photoCount
+			bind:favoriteCount
 			watermarked={saved.watermark_enabled}
 			delivered={saved.states.includes('delivered')}
 		/>
@@ -245,6 +276,11 @@
 </PageShell>
 {#if previewing}
 	<ClientPreview gallery={saved} onclose={() => (previewing = false)} />
+{/if}
+{#if confirming === 'archive'}
+	<ArchiveGalleryDialog onconfirm={archive} onclose={() => (confirming = null)} />
+{:else if confirming === 'delete'}
+	<DeleteGalleryDialog onconfirm={remove} onclose={() => (confirming = null)} />
 {/if}
 {#if publishing}
 	<PublishDialog
