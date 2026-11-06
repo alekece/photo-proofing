@@ -6,8 +6,10 @@ use eyre::Result;
 use pp_core::config::{LogConfig, PhotoConfig};
 use pp_database::jobs::JobKind;
 use pp_image_worker::{
-    config::WorkerConfig, handlers::HandlerRegistry, handlers::process_photo::ProcessPhotoHandler,
-    render::ImageRenderer, runtime::Worker,
+    config::WorkerConfig,
+    handlers::{HandlerRegistry, cleanup::CleanupHandler, process_photo::ProcessPhotoHandler},
+    render::ImageRenderer,
+    runtime::Worker,
 };
 use pp_storage::PhotoStorage;
 use tokio::{
@@ -64,16 +66,38 @@ async fn main() -> Result<()> {
         }
     });
 
+    let orphan_grace = cli.worker.cleanup.orphan_grace.get();
+    let sweep_interval = cli.worker.cleanup.sweep_interval.get();
     let worker = Worker::connect(cli.worker, |database| {
-        let handler = Arc::new(ProcessPhotoHandler::new(
+        let process_handler = Arc::new(ProcessPhotoHandler::new(
             database.clone(),
-            storage,
+            storage.clone(),
             renderer,
         ));
+        let cleanup_handler = Arc::new(CleanupHandler::new(
+            database.clone(),
+            storage,
+            orphan_grace,
+            sweep_interval,
+        ));
 
-        HandlerRegistry::default().register(JobKind::ProcessPhoto, move |payload, job| {
-            Arc::clone(&handler).run(payload, job)
-        })
+        HandlerRegistry::default()
+            .register(JobKind::ProcessPhoto, move |payload, job| {
+                Arc::clone(&process_handler).run(payload, job)
+            })
+            .register(JobKind::CleanupGallery, {
+                let cleanup_handler = Arc::clone(&cleanup_handler);
+
+                move |payload, job| Arc::clone(&cleanup_handler).remove_gallery(payload, job)
+            })
+            .register(JobKind::CleanupPhotos, {
+                let cleanup_handler = Arc::clone(&cleanup_handler);
+
+                move |payload, job| Arc::clone(&cleanup_handler).remove_photos(payload, job)
+            })
+            .register(JobKind::SweepOrphans, move |payload, job| {
+                Arc::clone(&cleanup_handler).sweep_orphans(payload, job)
+            })
     })
     .await?;
 
