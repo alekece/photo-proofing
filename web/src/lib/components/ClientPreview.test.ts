@@ -54,7 +54,7 @@ describe('ClientPreview', () => {
 		stub([]);
 		render(ClientPreview, { gallery, onclose: () => {} });
 
-		expect(await screen.findByText(/hasn't added photos yet/i)).toBeTruthy();
+		expect(await screen.findByText('Your photos are on their way.')).toBeTruthy();
 	});
 
 	it('says so when the photos cannot be loaded', async () => {

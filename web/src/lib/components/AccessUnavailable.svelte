@@ -1,4 +1,6 @@
-<main class="grid min-h-screen content-center justify-items-center gap-2 px-4 py-6 text-center">
+<main
+	class="grid min-h-dvh content-center justify-items-center gap-2 bg-dark px-4 py-6 text-center text-inverse"
+>
 	<svg
 		class="mb-4 h-auto max-w-full rounded-sm shadow-viewfinder"
 		viewBox="0 0 340 210"
@@ -17,6 +19,12 @@
 		<g clip-path="url(#vf-clip)">
 			<rect width="340" height="210" fill="#111" />
 			<rect width="340" height="210" fill="url(#vf-scene)" opacity=".9" />
+			<g class="bokeh" fill="#e8c49a" opacity=".35">
+				<circle cx="70" cy="60" r="22" />
+				<circle cx="270" cy="50" r="28" />
+				<circle cx="110" cy="130" r="30" />
+				<circle cx="240" cy="125" r="18" />
+			</g>
 			<path
 				d="M113.3 0v210M226.6 0v210M0 70h340M0 140h340"
 				stroke="#fff"
@@ -24,7 +32,7 @@
 				stroke-width="1"
 			/>
 			<g class="top" fill="#f5f5f5">
-				<text x="12" y="18">AF ● ONE SHOT</text>
+				<text x="12" y="18"><tspan class="af">AF</tspan> ● ONE SHOT</text>
 				<text x="328" y="18" text-anchor="end">[ 000 ]</text>
 			</g>
 			<g class="focus">
@@ -45,10 +53,11 @@
 			</g>
 		</g>
 	</svg>
-	<h1 class="text-[1.5rem]">Focus not locked</h1>
-	<p class="max-w-80 text-muted-foreground">
-		We couldn't lock onto this gallery. Please contact your photographer.
+	<h1 class="font-serif text-[1.5rem] italic">Focus not locked</h1>
+	<p class="max-w-80 text-inverse/70">
+		This link no longer works. Ask your photographer for a new one.
 	</p>
+	<p class="mt-6 font-mono text-xs tracking-[0.25em] text-inverse/50 uppercase">PhotoProofing</p>
 </main>
 
 <style>
@@ -86,8 +95,17 @@
 			color: var(--color-autofocus);
 		}
 	}
+	.af {
+		animation: blink 1.2s steps(2, jump-none) infinite;
+	}
+	@keyframes blink {
+		50% {
+			opacity: 0.25;
+		}
+	}
 	@media (prefers-reduced-motion: reduce) {
-		.focus {
+		.focus,
+		.af {
 			animation: none;
 		}
 	}
