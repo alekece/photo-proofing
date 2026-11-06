@@ -352,21 +352,27 @@ impl JobRepository<'_> {
         Ok(id)
     }
 
-    /// Stores a sweep unless one is already queued or running, so restarts do not pile them up.
-    /// Returns whether a sweep was stored.
-    pub async fn enqueue_sweep(&self, max_attempts: NonZeroU16) -> Result<bool, DatabaseError> {
-        let payload = serde_json::to_value(JobPayload::SweepOrphans)
-            .map_err(|e| sqlx::Error::Encode(e.into()))?;
+    /// Stores a job unless one of the same kind is already queued or running, so repeated
+    /// requests, such as restarts, do not pile them up. Returns whether the job was stored.
+    pub async fn enqueue_unique(
+        &self,
+        payload: impl Into<JobPayload>,
+        max_attempts: NonZeroU16,
+    ) -> Result<bool, DatabaseError> {
+        let payload = payload.into();
+        let kind = payload.kind();
+        let payload = serde_json::to_value(payload).map_err(|e| sqlx::Error::Encode(e.into()))?;
         let stored = sqlx::query(
             "INSERT INTO jobs(id, payload, max_attempts)
              SELECT $1, $2, $3
              WHERE NOT EXISTS (
                  SELECT 1 FROM jobs
-                 WHERE payload->>'kind' = 'sweep_orphans' AND state IN ('queued', 'running'))",
+                 WHERE payload->>'kind' = $4 AND state IN ('queued', 'running'))",
         )
         .bind(JobId::generate())
         .bind(payload)
         .bind(i32::from(max_attempts.get()))
+        .bind(kind.as_str())
         .execute(self.pool)
         .await?;
 
@@ -827,8 +833,17 @@ mod tests {
         let jobs = database.repository::<JobRepository>();
         let attempts = NonZeroU16::new(3).unwrap();
 
-        assert!(jobs.enqueue_sweep(attempts).await.unwrap());
-        assert!(!jobs.enqueue_sweep(attempts).await.unwrap());
+        assert!(
+            jobs.enqueue_unique(JobPayload::SweepOrphans, attempts)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !jobs
+                .enqueue_unique(JobPayload::SweepOrphans, attempts)
+                .await
+                .unwrap()
+        );
 
         let sweep = jobs
             .claim(&[JobKind::SweepOrphans], Duration::from_secs(60))
@@ -836,9 +851,18 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert!(!jobs.enqueue_sweep(attempts).await.unwrap());
+        assert!(
+            !jobs
+                .enqueue_unique(JobPayload::SweepOrphans, attempts)
+                .await
+                .unwrap()
+        );
         assert!(jobs.complete(&sweep).await.unwrap().is_current());
-        assert!(jobs.enqueue_sweep(attempts).await.unwrap());
+        assert!(
+            jobs.enqueue_unique(JobPayload::SweepOrphans, attempts)
+                .await
+                .unwrap()
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]

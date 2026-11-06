@@ -17,7 +17,7 @@ use pp_database::{
     auth::AuthRepository,
     deletion::DeletionOptions,
     error::DatabaseError,
-    jobs::{JobOptions, JobRepository},
+    jobs::{JobOptions, JobPayload, JobRepository},
 };
 use pp_storage::{PhotoStorage, StorageError};
 use thiserror::Error;
@@ -264,7 +264,7 @@ impl Api {
         if let Err(error) = state
             .database()
             .repository::<JobRepository>()
-            .enqueue_sweep(state.job_options().max_attempts)
+            .enqueue_unique(JobPayload::SweepOrphans, state.job_options().max_attempts)
             .await
         {
             tracing::warn!(%error, "could not queue the orphaned file sweep");
