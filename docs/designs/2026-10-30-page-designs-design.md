@@ -1,8 +1,9 @@
 # MVP page designs
 
-Status: approved. Visual references live in
-`docs/designs/assets/pages/` (HTML is the source of truth, see its
-README). Product requirements: `docs/SPECIFICATIONS.md` and
+Status: approved, partly superseded by the
+[UI redesign](2026-11-06-ui-redesign-design.md) (#172), which lists the replaced
+decisions. Current visuals: [`ui/DESIGN.md`](ui/DESIGN.md); the original mockups are in
+git history. Product requirements: `docs/SPECIFICATIONS.md` and
 `docs/releases/MVP.md`. Issue: #84.
 
 ## Intent
@@ -72,7 +73,7 @@ client gallery, and client 404.
   download and Download all (ZIP).
 - **Client 404:** the viewfinder "Focus not locked", shown for every
   unavailable link.
-- **Full flow:** `prototype.html` is the reference for how pages connect.
+- **Full flow:** the original prototype (git history; now replaced by `ui/prototype.html`) was the reference for how pages connect.
 
 ## Approaches
 
