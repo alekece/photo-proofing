@@ -139,12 +139,70 @@ describe('ClientGallery', () => {
 		expect(screen.getByText(/1 selected/).textContent).toBe('1 selected · 5 included');
 	});
 
-	it('is read-only once delivered', () => {
-		show({ gallery: { ...gallery, delivered: true }, favorites: ['p1'] });
+	it('offers downloads instead of hearts once delivered', () => {
+		show({
+			gallery: { ...gallery, delivered: true },
+			proofs: [{ ...proof('a'), downloadUrl: '/final/a' }],
+			downloadAllUrl: '/all.zip',
+			favorites: ['a']
+		});
 
 		expect(screen.queryAllByRole('button', { name: /^favorite proof/i })).toEqual([]);
-		expect(screen.getByText('1 selected')).toBeTruthy();
+		expect(screen.queryByText(/selected/)).toBeNull();
+		expect(screen.queryByRole('button', { name: /^♥/ })).toBeNull();
+		expect(screen.getByText('Your photos are ready')).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Download photo 1' }).getAttribute('href')).toBe(
+			'/final/a'
+		);
+		for (const link of screen.getAllByRole('link', { name: /download all/i }))
+			expect(link.getAttribute('href')).toBe('/all.zip');
 		expect(FakeEventSource.last).toBeUndefined();
+	});
+
+	it('filters to favorites and says when there are none', async () => {
+		const user = userEvent.setup();
+		show({ favorites: ['p2'] });
+
+		await user.click(screen.getByRole('button', { name: /^♥/ }));
+
+		expect(hearts()).toHaveLength(1);
+
+		await user.click(screen.getByRole('button', { name: 'All' }));
+
+		expect(hearts()).toHaveLength(3);
+
+		await user.click(screen.getByRole('button', { name: /^♥/ }));
+		await user.click(hearts()[0]);
+
+		expect(screen.getByText('No favorites yet')).toBeTruthy();
+	});
+
+	it('keeps the viewer on its photo when unfavoriting under the filter', async () => {
+		const user = userEvent.setup();
+		show({ favorites: ['p3'] });
+
+		await user.click(screen.getByRole('button', { name: /^♥/ }));
+		await user.click(screen.getByRole('button', { name: 'Open proof 1 of 1' }));
+		await user.click(screen.getByRole('button', { name: 'Favorite' }));
+
+		expect(screen.getByText('1 of 1')).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Add to favorites' })).toBeTruthy();
+	});
+
+	it('signs the cover and footer with the studio', () => {
+		show({ studio: 'Studio Lune' });
+
+		expect(screen.getAllByText('Studio Lune')).toHaveLength(1);
+		expect(screen.getByRole('contentinfo').textContent).toContain('Studio Lune · PhotoProofing');
+	});
+
+	it('shows the favorites count in the viewer', async () => {
+		const user = userEvent.setup();
+		show({ favorites: ['p1', 'p2'] });
+
+		await user.click(screen.getByRole('button', { name: 'Open proof 3 of 3' }));
+
+		expect(screen.getByText('Favorites:').parentElement?.textContent).toContain('2');
 	});
 
 	it('refreshes from the link stream and closes it on leaving', async () => {
@@ -197,6 +255,7 @@ describe('ClientGallery', () => {
 		const { unmount } = show({ gallery: shared(null), proofs: [proof('a')] });
 
 		expect(screen.queryByRole('img', { name: 'Gallery cover' })).toBeNull();
+		expect(screen.getByTestId('no-hero')).toBeTruthy();
 
 		unmount();
 		show({ gallery: shared('gone'), proofs: [proof('a')] });

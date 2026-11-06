@@ -1,18 +1,33 @@
 <script lang="ts">
+	import { Heart } from '@lucide/svelte';
+	import type { Snippet } from 'svelte';
+
 	let {
 		selected,
 		label,
 		onclick,
 		disabled = false,
-		class: className = ''
+		class: className = '',
+		children
 	}: {
 		selected: boolean;
-		label: string;
+		/** Accessible name; omit it when `children` is the visible label. */
+		label?: string;
 		onclick?: () => void;
 		/** Shows the state without letting it change, as in the owner's preview. */
 		disabled?: boolean;
 		class?: string;
+		/** Visible text beside the heart. */
+		children?: Snippet;
 	} = $props();
+
+	// Only a click that favorites pops the heart, so photos that load as favorites stay still.
+	let popping = $state(false);
+
+	function click() {
+		popping = !selected;
+		onclick?.();
+	}
 </script>
 
 <button
@@ -21,19 +36,13 @@
 	aria-pressed={selected}
 	aria-label={label}
 	{disabled}
-	{onclick}
+	onclick={click}
 >
-	<svg
-		aria-hidden="true"
-		viewBox="0 0 24 24"
-		class="size-6"
-		fill={selected ? 'currentColor' : 'none'}
-		stroke="currentColor"
-		stroke-width="2"
-		stroke-linejoin="round"
+	<span
+		class="inline-grid {popping && selected ? 'animate-heart-pop' : ''}"
+		onanimationend={() => (popping = false)}
 	>
-		<path
-			d="M12 21s-7.5-4.6-9.6-9.2C.9 8.3 3 4.5 6.8 4.5c2.1 0 3.9 1.2 5.2 3 1.3-1.8 3.1-3 5.2-3 3.8 0 5.9 3.8 4.4 7.3C19.5 16.4 12 21 12 21z"
-		/>
-	</svg>
+		<Heart aria-hidden="true" size={22} fill={selected ? 'currentColor' : 'none'} />
+	</span>
+	{@render children?.()}
 </button>
