@@ -16,4 +16,12 @@ describe('StatusChip', () => {
 		expect(screen.getByText(label)).toBeTruthy();
 		expect((await axe(container)).violations).toEqual([]);
 	});
+
+	it('shows its colour dot only when asked', () => {
+		const { container, rerender } = render(StatusChip, { status: 'shared' });
+
+		expect(container.querySelector('[data-slot="status-chip-dot"]')).toBeNull();
+		rerender({ status: 'shared', dot: true });
+		expect(container.querySelector('[data-slot="status-chip-dot"]')).toBeTruthy();
+	});
 });

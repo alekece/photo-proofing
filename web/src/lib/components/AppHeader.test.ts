@@ -4,6 +4,11 @@ import { axe } from 'vitest-axe';
 import { describe, expect, it, vi } from 'vitest';
 
 import AppHeader from './AppHeader.svelte';
+import { createRawSnippet } from 'svelte';
+
+const bell = createRawSnippet(() => ({
+	render: () => '<button type="button" aria-label="Notifications">Bell</button>'
+}));
 
 describe('AppHeader', () => {
 	it('shows the brand and no back link by default', () => {
@@ -25,9 +30,19 @@ describe('AppHeader', () => {
 		const onsignout = vi.fn();
 		render(AppHeader, { onsignout });
 
-		await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out' }));
+		const user = userEvent.setup();
+
+		expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull();
+		await user.click(screen.getByRole('button', { name: 'Account menu' }));
+		await user.click(screen.getByRole('button', { name: 'Sign out' }));
 
 		expect(onsignout).toHaveBeenCalledOnce();
+	});
+
+	it('shows what the page puts beside the account menu, such as the bell', () => {
+		render(AppHeader, { actions: bell });
+
+		expect(screen.getByRole('button', { name: 'Notifications' })).toBeTruthy();
 	});
 
 	it('has no axe violations', async () => {

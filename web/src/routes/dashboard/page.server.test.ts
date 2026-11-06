@@ -16,7 +16,7 @@ function run(query: string) {
 		request: new Request('http://localhost/dashboard'),
 		setHeaders: vi.fn(),
 		url: new URL(`http://localhost/dashboard${query}`)
-	} as unknown as Parameters<typeof load>[0]) as Promise<{ sort: string; states: string[] }>;
+	} as unknown as Parameters<typeof load>[0]) as Promise<{ sort: string }>;
 }
 
 describe('dashboard load', () => {
@@ -39,18 +39,9 @@ describe('dashboard load', () => {
 		expect(server.listGalleries).toHaveBeenLastCalledWith(expect.anything(), null, expected, []);
 	});
 
-	it.each([
-		['?state=shared&state=bogus&state=shared', ['shared']],
-		['?state=bogus', []],
-		['?state=archived&state=expired', ['archived', 'expired']],
-		['', []]
-	])('reads states %j as %j', async (query, expected) => {
-		expect((await run(query)).states).toEqual(expected);
-		expect(server.listGalleries).toHaveBeenLastCalledWith(
-			expect.anything(),
-			null,
-			'updated',
-			expected
-		);
+	it('always loads every gallery; the page filters by status itself', async () => {
+		await run('?state=shared&sort=title');
+
+		expect(server.listGalleries).toHaveBeenLastCalledWith(expect.anything(), null, 'title', []);
 	});
 });

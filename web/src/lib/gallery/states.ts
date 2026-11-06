@@ -17,3 +17,11 @@ export function splitStates(states: GalleryState[]) {
 
 	return { progress, flags };
 }
+
+/** What the dashboard shows until the photographer chooses otherwise: everything but Archived. */
+export const DEFAULT_STATES: GalleryState[] = ALL_STATES.filter((state) => state !== 'archived');
+
+/** Whether two choices pick the same states, whatever their order. */
+export function sameStates(a: readonly GalleryState[], b: readonly GalleryState[]): boolean {
+	return a.length === b.length && a.every((state) => b.includes(state));
+}

@@ -1,8 +1,19 @@
+<script module lang="ts">
+	export type GalleryStatus = 'draft' | 'shared' | 'delivered' | 'expired' | 'archived';
+
+	/** The colour of each status's dot, shared with the dashboard's status filter. */
+	export const statusDots: Record<GalleryStatus, string> = {
+		draft: 'bg-muted-foreground',
+		shared: 'bg-info',
+		delivered: 'bg-ok',
+		expired: 'bg-danger',
+		archived: 'bg-border-strong'
+	};
+</script>
+
 <script lang="ts">
 	import { cn } from '#lib/utils.js';
 	import type { HTMLAttributes } from 'svelte/elements';
-
-	export type GalleryStatus = 'draft' | 'shared' | 'delivered' | 'expired' | 'archived';
 
 	const labels: Record<GalleryStatus, string> = {
 		draft: 'Draft',
@@ -20,19 +31,24 @@
 		archived: 'border-border-strong bg-border text-muted-foreground'
 	};
 
-	type Props = HTMLAttributes<HTMLSpanElement> & { status: GalleryStatus };
+	type Props = HTMLAttributes<HTMLSpanElement> & { status: GalleryStatus; dot?: boolean };
 
-	let { status, class: className, ...restProps }: Props = $props();
+	let { status, dot = false, class: className, ...restProps }: Props = $props();
 </script>
 
 <span
 	data-slot="status-chip"
 	class={cn(
-		'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium tracking-wide',
+		'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium tracking-wide',
 		tones[status],
 		className
 	)}
 	{...restProps}
 >
+	{#if dot}<span
+			data-slot="status-chip-dot"
+			aria-hidden="true"
+			class={cn('size-1.5 rounded-full', statusDots[status])}
+		></span>{/if}
 	{labels[status]}
 </span>

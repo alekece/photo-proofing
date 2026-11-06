@@ -44,12 +44,11 @@ describe('route shells', () => {
 					identity: { account_id: 'account', workspace_id: 'workspace' },
 					idleTimeoutMs: 2592000000,
 					galleries: [],
-					sort: 'updated',
-					states: []
+					sort: 'updated'
 				}
 			}
 		});
-		expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeTruthy();
+		expect(screen.getByText('Nothing in frame yet.')).toBeTruthy();
 	});
 });
 

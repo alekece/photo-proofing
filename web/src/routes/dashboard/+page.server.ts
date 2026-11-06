@@ -1,5 +1,5 @@
 import { isHttpError, redirect } from '@sveltejs/kit';
-import { parseGallerySort, parseGalleryStates } from '#lib/gallery/schemas.js';
+import { parseGallerySort } from '#lib/gallery/schemas.js';
 import { getAuthStatus } from '#lib/server/auth.js';
 import { listGalleries } from '#lib/server/galleries.js';
 import type { PageServerLoad } from './$types';
@@ -11,9 +11,9 @@ export const load: PageServerLoad = async ({ fetch, request, setHeaders, url }) 
 	const status = await getAuthStatus(fetch, cookie);
 	if (!status.identity) redirect(303, '/login');
 	const sort = parseGallerySort(url.searchParams.get('sort'));
-	const states = parseGalleryStates(url.searchParams.getAll('state'));
+	// Every status is loaded so the page can count and filter them without another request.
 	// A list outage keeps the page (and sign-out) usable; `null` renders the error state.
-	const galleries = await listGalleries(fetch, cookie, sort, states).catch((error) => {
+	const galleries = await listGalleries(fetch, cookie, sort, []).catch((error) => {
 		if (isHttpError(error) && error.status === 503) return null;
 		throw error;
 	});
@@ -21,7 +21,6 @@ export const load: PageServerLoad = async ({ fetch, request, setHeaders, url }) 
 		identity: status.identity,
 		idleTimeoutMs: status.idle_timeout_ms,
 		galleries,
-		sort,
-		states
+		sort
 	};
 };

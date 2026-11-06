@@ -6,20 +6,20 @@
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import Placeholder from '#lib/components/Placeholder.svelte';
 	import AppHeader from '#lib/components/AppHeader.svelte';
-	import GoldenHourEmpty from '#lib/components/GoldenHourEmpty.svelte';
+	import EmptyWorkspace from '#lib/components/EmptyWorkspace.svelte';
+	import GalleryCard from '#lib/components/GalleryCard.svelte';
 	import NewGalleryDialog from '#lib/components/NewGalleryDialog.svelte';
-	import Card from '#lib/components/ui/card/card.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
 	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
 	import Label from '#lib/components/ui/label/label.svelte';
+	import { Plus, Search } from '@lucide/svelte';
 	import GalleryStateFilter from '#lib/components/GalleryStateFilter.svelte';
 	import Select from '#lib/components/ui/select/select.svelte';
 	import { parseGallerySort, type GalleryState } from '#lib/gallery/schemas.js';
-	import { STATE_LABELS, splitStates } from '#lib/gallery/states.js';
-	import { previewUrl } from '#lib/gallery/photos.js';
-	import { formatEdited, UNTITLED_GALLERY } from '#lib/gallery/format.js';
+	import { ALL_STATES, DEFAULT_STATES } from '#lib/gallery/states.js';
+	import { galleryStatus, UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -29,13 +29,32 @@
 	let query = $state('');
 	// Only a same-page navigation (changing the sort) shows the loading cards.
 	let loading = $derived(navigating.to?.route.id === '/dashboard');
+	let selected = $state<GalleryState[]>([...DEFAULT_STATES]);
+	let all = $derived(data.galleries ?? []);
+	let counts = $derived(
+		Object.fromEntries(
+			ALL_STATES.map((state) => [
+				state,
+				all.filter((g) => galleryStatus(g.states) === state).length
+			])
+		) as Record<GalleryState, number>
+	);
 	// Plain substring match on the displayed title; never a regular expression.
-	let visible = $derived.by(() => {
+	let matching = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
 
-		return (data.galleries ?? []).filter((gallery) =>
+		return all.filter((gallery) =>
 			(gallery.title ?? UNTITLED_GALLERY).toLowerCase().includes(needle)
 		);
+	});
+	let visible = $derived(
+		matching.filter((gallery) => selected.includes(galleryStatus(gallery.states)))
+	);
+	let hiddenMatches = $derived(matching.length - visible.length);
+	let greeting = $derived.by(() => {
+		const hour = new Date().getHours();
+
+		return hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
 	});
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
 	afterNavigate(() => {
@@ -55,113 +74,119 @@
 			pending = false;
 		}
 	}
-	function show(sort: string, states: GalleryState[]) {
-		const chosen = states.map((state) => `&state=${state}`).join('');
-
-		void goto(`?sort=${sort}${chosen}`, { reset: false });
-	}
 	function changeSort(event: Event) {
-		show(parseGallerySort((event.currentTarget as HTMLSelectElement).value), data.states);
+		const sort = parseGallerySort((event.currentTarget as HTMLSelectElement).value);
+
+		void goto(`?sort=${sort}`, { reset: false });
 	}
 	function clearAll() {
 		query = '';
-		show(data.sort, []);
+		selected = [...DEFAULT_STATES];
 	}
 </script>
 
 <svelte:head><title>Dashboard — PhotoProofing</title></svelte:head>
+<!-- The bell joins AppHeader's `actions` once #72 provides unread activity. -->
 <AppHeader onsignout={logout} />
-<PageShell>
+<PageShell width="wide">
 	<div class="flex flex-wrap items-end justify-between gap-4">
-		<h1 class="text-3xl">Dashboard</h1>
-		<Button onclick={() => (dialogOpen = true)}>New gallery</Button>
+		<div class="grid gap-1">
+			<h1 class="text-3xl sm:text-4xl">{greeting}</h1>
+			<!-- News chips ("13 selected", "4 new downloads") come with #72. -->
+			<p class="text-muted-foreground">
+				{all.length === 0
+					? 'Your galleries will live here.'
+					: 'Here is where your galleries stand.'}
+			</p>
+		</div>
+		<Button onclick={() => (dialogOpen = true)}
+			><Plus size={16} aria-hidden="true" />New gallery</Button
+		>
 	</div>
 	{#if message}<p role="alert" class="text-danger">{message}</p>{/if}
 
-	{#if loading || data.states.length > 0 || (data.galleries && data.galleries.length > 0)}
-		<div class="flex flex-wrap items-center gap-4">
-			<Input
-				type="search"
-				aria-label="Search galleries"
-				placeholder="Search title"
-				bind:value={query}
-				class="max-w-64"
+	{#if data.galleries !== null}
+		{@const none = all.length === 0}
+		<div class="flex flex-wrap items-center gap-3">
+			<div class="relative max-w-72 grow">
+				<Search
+					size={16}
+					aria-hidden="true"
+					class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
+				/>
+				<Input
+					type="search"
+					aria-label="Search galleries"
+					placeholder="Search title"
+					bind:value={query}
+					disabled={none}
+					class="w-full rounded-full pl-9"
+				/>
+			</div>
+			<GalleryStateFilter
+				{selected}
+				{counts}
+				disabled={none}
+				onchange={(next) => (selected = next)}
 			/>
 			<div class="flex items-center gap-2">
 				<Label for="sort" class="text-sm font-normal">Sort by</Label>
-				<Select id="sort" value={data.sort} onchange={changeSort}>
-					<option value="updated">Last edited</option>
-					<option value="created">Date created</option>
-					<option value="title">Title</option>
+				<Select id="sort" value={data.sort} onchange={changeSort} disabled={none}>
+					<option value="updated">Last updated</option>
+					<option value="created">Newest created</option>
+					<option value="title">Title A–Z</option>
 				</Select>
 			</div>
-			<GalleryStateFilter selected={data.states} onchange={(next) => show(data.sort, next)} />
 		</div>
 	{/if}
 	{#if loading}
 		<p class="sr-only" role="status">Loading galleries…</p>
 		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
 			{#each [1, 2, 3] as n (n)}
-				<li class="aspect-[3/2] overflow-hidden rounded-card border border-border">
+				<li class="aspect-[4/5] overflow-hidden rounded-card border border-border">
 					<Placeholder background="sheet" loading />
 				</li>
 			{/each}
 		</ul>
 	{:else if data.galleries === null}
 		<p role="alert">Couldn’t load your galleries. Please reload the page to try again.</p>
-	{:else if data.galleries.length === 0 && data.states.length === 0}
-		<GoldenHourEmpty />
+	{:else if all.length === 0}
+		<EmptyWorkspace />
 	{:else if visible.length === 0}
 		<EmptyState class="rounded-dialog">
-			<h2 class="text-xl">No galleries match</h2>
-			<p class="text-muted-foreground">Try a different title or filter.</p>
-			<Button variant="outline" onclick={clearAll}>Clear search and filter</Button>
+			<h2 class="text-xl">
+				{query.trim() !== '' && matching.length === 0
+					? `No gallery called “${query.trim()}”`
+					: 'No galleries with these statuses'}
+			</h2>
+			{#if hiddenMatches > 0}
+				<p class="text-muted-foreground">
+					{hiddenMatches === 1 ? '1 match is' : `${hiddenMatches} matches are`} hidden in unselected statuses.
+				</p>
+			{/if}
+			<Button variant="outline" onclick={clearAll}>Clear search and status</Button>
 		</EmptyState>
 	{:else}
-		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 			{#each visible as gallery (gallery.id)}
-				{@const { progress, flags } = splitStates(gallery.states)}
-				<Card as="li" class="overflow-hidden focus-within:ring-2 focus-within:ring-foreground">
-					<a
-						href={`/dashboard/${gallery.id}`}
-						class="block text-foreground no-underline outline-none"
-					>
-						<div class="aspect-[3/2]">
-							{#if gallery.hero_id}
-								<img
-									src={previewUrl(gallery.id, gallery.hero_id)}
-									alt=""
-									loading="lazy"
-									class="size-full object-cover"
-								/>
-							{:else}
-								<Placeholder background="sheet" icon label="Your hero photo will appear here" />
-							{/if}
-						</div>
-						<div class="grid gap-1 p-4">
-							<h2 class="truncate text-base" class:text-muted-foreground={gallery.title === null}>
-								{gallery.title ?? UNTITLED_GALLERY}
-							</h2>
-							<p class="flex flex-wrap gap-1.5 text-xs">
-								<span class="rounded-full border border-border px-2 py-0.5 font-medium">
-									{STATE_LABELS[progress]}
-								</span>
-								{#each flags as flag (flag)}
-									<span class="rounded-full border border-border px-2 py-0.5 text-muted-foreground">
-										{STATE_LABELS[flag]}
-									</span>
-								{/each}
-							</p>
-							<p class="text-sm text-muted-foreground">
-								{gallery.layout === 'masonry' ? 'Masonry' : 'Grid'} · Edited {formatEdited(
-									gallery.updated_at
-								)}
-							</p>
-						</div>
-					</a>
-				</Card>
+				<GalleryCard {gallery} {query} />
 			{/each}
+			<li class="aspect-[4/5]">
+				<button
+					type="button"
+					class="grid size-full cursor-pointer place-items-center content-center gap-2 rounded-card border-2 border-dashed border-border-strong p-4 text-center text-muted-foreground hover:border-foreground hover:text-foreground"
+					onclick={() => (dialogOpen = true)}
+				>
+					<Plus size={28} aria-hidden="true" />
+					<span class="brand text-xl">Who’s in front of your lens next?</span>
+				</button>
+			</li>
 		</ul>
+	{/if}
+	{#if data.galleries !== null && all.length > 0}
+		<footer class="text-sm text-muted-foreground">
+			{visible.length === 1 ? '1 gallery' : `${visible.length} galleries`}
+		</footer>
 	{/if}
 </PageShell>
 {#if dialogOpen}
