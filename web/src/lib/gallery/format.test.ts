@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-	galleryInitials,
-	gallerySummary,
-	galleryStatus,
-	highlightParts,
-	journeyProgress
-} from './format.js';
+import { galleryInitials, gallerySummary, galleryStatus, highlightParts } from './format.js';
 
 describe('galleryStatus', () => {
 	it('lets archived and expired win over the progress state', () => {
@@ -40,15 +34,6 @@ describe('highlightParts', () => {
 			{ text: 'a.b', match: true }
 		]);
 		expect(highlightParts('Wedding', ' ')).toEqual([{ text: 'Wedding', match: false }]);
-	});
-});
-
-describe('journeyProgress', () => {
-	it('moves along the journey and ends full once delivered or archived', () => {
-		expect(journeyProgress('draft')).toBeLessThan(journeyProgress('shared'));
-		expect(journeyProgress('shared')).toBeLessThan(journeyProgress('delivered'));
-		expect(journeyProgress('delivered')).toBe(1);
-		expect(journeyProgress('archived')).toBe(1);
 	});
 });
 

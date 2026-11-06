@@ -68,11 +68,6 @@ export function highlightParts(text: string, needle: string) {
 	return parts;
 }
 
-/** How far along draft → shared → delivered a status is, from 0 to 1. */
-export function journeyProgress(status: ReturnType<typeof galleryStatus>): number {
-	return { draft: 1 / 3, shared: 2 / 3, expired: 2 / 3, delivered: 1, archived: 1 }[status];
-}
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function expiredAgo(iso: string | null, now: Date): string {

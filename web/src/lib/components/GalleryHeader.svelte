@@ -124,11 +124,7 @@
 	></div>
 
 	<div class="grid min-w-0 flex-none gap-0 sm:flex-1">
-		<StatusChip
-			{status}
-			dot
-			class="w-fit border-transparent bg-panel/90 {status === 'shared' ? 'text-info' : ''}"
-		/>
+		<StatusChip {status} dot cover class="w-fit" />
 		{@render heading()}
 		<p class="mb-3 text-[0.8125rem] opacity-90 sm:mb-0 sm:text-sm">{meta}</p>
 	</div>

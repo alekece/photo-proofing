@@ -9,15 +9,11 @@
 	import EmptyWorkspace from '#lib/components/EmptyWorkspace.svelte';
 	import GalleryCard from '#lib/components/GalleryCard.svelte';
 	import NewGalleryDialog from '#lib/components/NewGalleryDialog.svelte';
-	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
-	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
-	import Input from '#lib/components/ui/input/input.svelte';
-	import Label from '#lib/components/ui/label/label.svelte';
 	import { Plus, Search } from '@lucide/svelte';
 	import GalleryStateFilter from '#lib/components/GalleryStateFilter.svelte';
-	import Select from '#lib/components/ui/select/select.svelte';
-	import { parseGallerySort, type GalleryState } from '#lib/gallery/schemas.js';
+	import GallerySortMenu from '#lib/components/GallerySortMenu.svelte';
+	import type { GallerySort, GalleryState } from '#lib/gallery/schemas.js';
 	import { ALL_STATES, DEFAULT_STATES } from '#lib/gallery/states.js';
 	import { galleryStatus, UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
@@ -25,6 +21,10 @@
 	let { data }: { data: PageData } = $props();
 	let pending = $state(false);
 	let message = $state('');
+
+	const gridClass =
+		'grid grid-cols-2 gap-2.5 px-2.5 sm:grid-cols-[repeat(auto-fill,minmax(230px,1fr))] sm:gap-5 sm:px-8';
+
 	let dialogOpen = $state(false);
 	let query = $state('');
 	// Only a same-page navigation (changing the sort) shows the loading cards.
@@ -54,7 +54,7 @@
 	let greeting = $derived.by(() => {
 		const hour = new Date().getHours();
 
-		return hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
+		return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 	});
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
 	afterNavigate(() => {
@@ -74,9 +74,7 @@
 			pending = false;
 		}
 	}
-	function changeSort(event: Event) {
-		const sort = parseGallerySort((event.currentTarget as HTMLSelectElement).value);
-
+	function changeSort(sort: GallerySort) {
 		void goto(`?sort=${sort}`, { reset: false });
 	}
 	function clearAll() {
@@ -88,107 +86,130 @@
 <svelte:head><title>Dashboard — PhotoProofing</title></svelte:head>
 <!-- The bell joins AppHeader's `actions` once #72 provides unread activity. -->
 <AppHeader onsignout={logout} />
-<PageShell width="wide">
-	<div class="flex flex-wrap items-end justify-between gap-4">
-		<div class="grid gap-1">
-			<h1 class="text-3xl sm:text-4xl">{greeting}</h1>
-			<!-- News chips ("13 selected", "4 new downloads") come with #72. -->
-			<p class="text-muted-foreground">
-				{all.length === 0
-					? 'Your galleries will live here.'
-					: 'Here is where your galleries stand.'}
-			</p>
+<main class="flex min-h-[calc(100dvh-3.6rem)] flex-col">
+	<div
+		class="grid items-end gap-3 px-3.5 pt-[1.125rem] pb-[1.125rem] sm:grid-cols-[1fr_auto] sm:gap-6 sm:px-8 sm:pt-6 sm:pb-[1.625rem]"
+	>
+		<div>
+			<!-- The name and the news count ("Two galleries have news", the news chips) come with #72. -->
+			<h1 class="text-[1.875rem] leading-[1.05] sm:text-[2.75rem]">
+				{greeting}. <em class="text-danger">All quiet</em> for now.
+			</h1>
 		</div>
-		<Button onclick={() => (dialogOpen = true)}
-			><Plus size={16} aria-hidden="true" />New gallery</Button
+		<Button class="justify-self-start sm:justify-self-auto" onclick={() => (dialogOpen = true)}
+			>+ New gallery</Button
 		>
 	</div>
-	{#if message}<p role="alert" class="text-danger">{message}</p>{/if}
+	{#if message}<p role="alert" class="px-3.5 pb-3 text-danger sm:px-8">{message}</p>{/if}
 
 	{#if data.galleries !== null}
 		{@const none = all.length === 0}
-		<div class="flex flex-wrap items-center gap-3">
-			<div class="relative max-w-72 grow">
-				<Search
-					size={16}
-					aria-hidden="true"
-					class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
-				/>
-				<Input
+		<div
+			class="sticky top-2 z-[6] mx-2.5 mb-4 flex flex-wrap items-center gap-2 rounded-[0.875rem] border border-border bg-panel p-2 sm:mx-8 sm:mb-[1.375rem] sm:gap-3.5 sm:py-2.5 sm:pr-3 sm:pl-4 {none
+				? 'opacity-55'
+				: ''}"
+		>
+			<label
+				class="flex min-w-40 flex-1 items-center gap-2 rounded-md has-focus-visible:outline-3 has-focus-visible:outline-focus max-sm:basis-full"
+			>
+				<Search size={16} aria-hidden="true" class="shrink-0" />
+				<input
 					type="search"
 					aria-label="Search galleries"
-					placeholder="Search title"
+					placeholder="Search galleries"
 					bind:value={query}
 					disabled={none}
-					class="w-full rounded-full pl-9"
+					class="w-full border-0 bg-transparent text-[0.9375rem] outline-none placeholder:text-muted-foreground focus-visible:outline-none [&::-webkit-search-cancel-button]:hidden"
 				/>
-			</div>
+			</label>
 			<GalleryStateFilter
 				{selected}
 				{counts}
 				disabled={none}
 				onchange={(next) => (selected = next)}
 			/>
-			<div class="flex items-center gap-2">
-				<Label for="sort" class="text-sm font-normal">Sort by</Label>
-				<Select id="sort" value={data.sort} onchange={changeSort} disabled={none}>
-					<option value="updated">Last updated</option>
-					<option value="created">Newest created</option>
-					<option value="title">Title A–Z</option>
-				</Select>
-			</div>
+			<GallerySortMenu value={data.sort} disabled={none} onchange={changeSort} />
 		</div>
 	{/if}
 	{#if loading}
 		<p class="sr-only" role="status">Loading galleries…</p>
-		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
-			{#each [1, 2, 3] as n (n)}
-				<li class="aspect-[4/5] overflow-hidden rounded-card border border-border">
+		<ul class={gridClass} aria-busy="true">
+			{#each [1, 2, 3, 4] as n (n)}
+				<li class="aspect-[3/4] overflow-hidden rounded-card border border-border sm:aspect-[4/5]">
 					<Placeholder background="sheet" loading />
 				</li>
 			{/each}
 		</ul>
 	{:else if data.galleries === null}
-		<p role="alert">Couldn’t load your galleries. Please reload the page to try again.</p>
+		<p role="alert" class="px-3.5 sm:px-8">
+			Couldn’t load your galleries. Please reload the page to try again.
+		</p>
 	{:else if all.length === 0}
 		<EmptyWorkspace />
-	{:else if visible.length === 0}
-		<EmptyState class="rounded-dialog">
-			<h2 class="text-xl">
-				{query.trim() !== '' && matching.length === 0
-					? `No gallery called “${query.trim()}”`
-					: 'No galleries with these statuses'}
-			</h2>
-			{#if hiddenMatches > 0}
-				<p class="text-muted-foreground">
-					{hiddenMatches === 1 ? '1 match is' : `${hiddenMatches} matches are`} hidden in unselected statuses.
-				</p>
-			{/if}
-			<Button variant="outline" onclick={clearAll}>Clear search and status</Button>
-		</EmptyState>
 	{:else}
-		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+		<ul class="{gridClass} mb-12">
 			{#each visible as gallery (gallery.id)}
 				<GalleryCard {gallery} {query} />
+			{:else}
+				<li class="col-span-full px-0 pt-14 pb-10 text-center text-muted-foreground">
+					<h2 class="mb-1.5 text-2xl leading-[1.2] text-foreground">
+						{query.trim() !== '' && matching.length === 0
+							? `No gallery called “${query.trim()}”`
+							: 'No galleries with these statuses'}
+					</h2>
+					<p>
+						{#if hiddenMatches > 0}
+							{hiddenMatches === 1 ? '1 match is' : `${hiddenMatches} matches are`} hidden in unselected
+							statuses.
+						{:else}
+							Check the spelling, or try part of the client’s name.
+						{/if}
+					</p>
+					<Button variant="outline" class="mt-3.5" onclick={clearAll}
+						>Clear search and status</Button
+					>
+				</li>
 			{/each}
-			<li class="aspect-[4/5]">
-				<button
-					type="button"
-					class="grid size-full cursor-pointer place-items-center content-center gap-2 rounded-card border-2 border-dashed border-border-strong p-4 text-center text-muted-foreground hover:border-foreground hover:text-foreground"
-					onclick={() => (dialogOpen = true)}
-				>
-					<Plus size={28} aria-hidden="true" />
-					<span class="brand text-xl">Who’s in front of your lens next?</span>
-				</button>
-			</li>
+			{#if visible.length > 0}
+				<li class="aspect-[3/4] sm:aspect-[4/5]">
+					<button
+						type="button"
+						class="group grid size-full cursor-pointer content-center justify-items-center gap-2.5 rounded-card border-[1.5px] border-dashed border-[#cdbda9] bg-[radial-gradient(120%_80%_at_50%_30%,#faf5ee,transparent_70%)] text-center text-muted-foreground transition-colors duration-250 hover:border-danger hover:bg-[#f8f1e8]"
+						onclick={() => (dialogOpen = true)}
+					>
+						<span
+							class="relative mb-2 grid h-16 w-[5.375rem] place-items-center text-[#a8977f] transition duration-300 group-hover:scale-[0.88] group-hover:text-danger"
+						>
+							<i class="absolute top-0 left-0 size-3.5 border-t-2 border-l-2"></i>
+							<i class="absolute top-0 right-0 size-3.5 border-t-2 border-r-2"></i>
+							<i class="absolute bottom-0 left-0 size-3.5 border-b-2 border-l-2"></i>
+							<i class="absolute right-0 bottom-0 size-3.5 border-r-2 border-b-2"></i>
+							<Plus size={30} strokeWidth={1.4} aria-hidden="true" />
+						</span>
+						<strong
+							class="px-2 font-serif text-[1.0625rem] leading-[1.2] font-normal text-foreground italic sm:text-[1.375rem]"
+							>Who’s in front of <br />your lens next?</strong
+						>
+					</button>
+				</li>
+			{/if}
 		</ul>
-	{/if}
-	{#if data.galleries !== null && all.length > 0}
-		<footer class="text-sm text-muted-foreground">
-			{visible.length === 1 ? '1 gallery' : `${visible.length} galleries`}
+		<footer
+			class="mt-auto flex flex-col items-start justify-between gap-4 border-t border-border px-3.5 pt-6 pb-6 sm:flex-row sm:items-end sm:px-8 sm:pt-[2.125rem] sm:pb-[1.875rem]"
+		>
+			<div class="font-serif text-[1.625rem] leading-none italic">
+				Your workspace
+				<small
+					class="mt-1.5 block font-sans text-[0.8125rem] leading-[1.6] text-muted-foreground not-italic"
+					>on PhotoProofing</small
+				>
+			</div>
+			<p class="text-[0.8125rem] text-muted-foreground sm:text-right">
+				{all.length === 1 ? '1 gallery' : `${all.length} galleries`}
+			</p>
 		</footer>
 	{/if}
-</PageShell>
+</main>
 {#if dialogOpen}
 	<NewGalleryDialog onclose={() => (dialogOpen = false)} />
 {/if}

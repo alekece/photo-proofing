@@ -22,7 +22,7 @@ function setup() {
 
 const titleField = () => screen.getByLabelText('Title') as HTMLInputElement;
 const submit = (user: ReturnType<typeof userEvent.setup>) =>
-	user.click(screen.getByRole('button', { name: 'Create gallery' }));
+	user.click(screen.getByRole('button', { name: 'Create' }));
 
 beforeEach(() => vi.mocked(goto).mockClear());
 
