@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createGallery, GalleryApiError, shareGallery, updateGallery } from './api';
+import {
+	archiveGallery,
+	createGallery,
+	deleteGallery,
+	GalleryApiError,
+	restoreGallery,
+	shareGallery,
+	updateGallery
+} from './api';
 
 describe('gallery API errors', () => {
 	it('reads the failing setting from context[0] of a 422', async () => {
@@ -35,7 +43,9 @@ describe('malformed gallery responses', () => {
 	it.each([
 		['createGallery', (f: typeof fetch) => createGallery(f)],
 		['updateGallery', (f: typeof fetch) => updateGallery('g', {}, f)],
-		['shareGallery', (f: typeof fetch) => shareGallery('g', f)]
+		['shareGallery', (f: typeof fetch) => shareGallery('g', f)],
+		['archiveGallery', (f: typeof fetch) => archiveGallery('g', f)],
+		['restoreGallery', (f: typeof fetch) => restoreGallery('g', f)]
 	])('%s rejects a body that is not a gallery', async (_name, call) => {
 		for (const body of ['{"id":"g"}', 'null', 'not json']) {
 			const fetcher = vi.fn().mockResolvedValue(new Response(body));
@@ -54,5 +64,24 @@ describe('shareGallery', () => {
 			'/api/v1/galleries/g%201/share',
 			expect.objectContaining({ method: 'POST' })
 		);
+	});
+});
+
+describe('deleteGallery', () => {
+	it('sends a DELETE and accepts an empty answer', async () => {
+		const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+
+		await deleteGallery('g 1', fetcher);
+
+		expect(fetcher).toHaveBeenCalledWith(
+			'/api/v1/galleries/g%201',
+			expect.objectContaining({ method: 'DELETE' })
+		);
+	});
+
+	it('reports the failing status', async () => {
+		const fetcher = vi.fn().mockResolvedValue(new Response('{}', { status: 404 }));
+
+		await expect(deleteGallery('g', fetcher)).rejects.toMatchObject({ status: 404 });
 	});
 });
