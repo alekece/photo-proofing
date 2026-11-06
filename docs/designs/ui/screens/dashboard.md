@@ -24,6 +24,17 @@ The photographer's home: what's new, and every gallery as a cover. Route `/dashb
    creates a gallery.
 5. **Footer:** workspace name and totals ("9 galleries · 412 photos").
 
+## Languages
+
+The workspace has one language, English or French, chosen from the top bar. Every screen follows it,
+including the client pages. Dates and plurals follow the language too, except the browser's native date input in the prototype. User content (gallery titles,
+studio name, file names) is never translated.
+
+| | Desktop | Phone |
+|---|---|---|
+| Language menu | ![](dashboard/language-menu.desktop.png) | ![](dashboard/language-menu.phone.png) |
+| Galleries in French | ![](dashboard/default-fr.desktop.png) | ![](dashboard/default-fr.phone.png) |
+
 ## Gallery card
 
 Portrait (4:5) cover of the hero photo with a dark gradient at the bottom:

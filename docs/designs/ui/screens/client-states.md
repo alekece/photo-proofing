@@ -8,6 +8,7 @@ calm pages that use film and camera imagery instead of error wording.
 | Photos on their way | ![](client-states/empty.desktop.png) | ![](client-states/empty.phone.png) |
 | Finished photos on their way | ![](client-states/finals-coming.desktop.png) | ![](client-states/finals-coming.phone.png) |
 | Unavailable | ![](client-states/unavailable.desktop.png) | ![](client-states/unavailable.phone.png) |
+| Unavailable in French | ![](client-states/unavailable-fr.desktop.png) | ![](client-states/unavailable-fr.phone.png) |
 
 ## Photos on their way
 

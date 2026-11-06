@@ -32,6 +32,13 @@ img{-webkit-user-drag:none}
 .crumb{color:var(--muted);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .bell{position:relative;width:38px;height:38px;border-radius:50%;display:grid;place-items:center}
 .bell:hover{background:rgba(120,100,80,.12)}
+.langb{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font:600 12.5px/1 system-ui;letter-spacing:.04em}
+.langb:hover,.langb[aria-expanded=true]{background:rgba(120,100,80,.12)}
+.menu button{display:flex;width:100%;gap:10px;align-items:center;padding:8px 12px;border-radius:6px;font-size:14px;text-align:left;color:var(--ink)}
+.menu button:hover{background:#efe7dc}
+.menu.lm{min-width:170px}
+.menu .tick{width:16px;display:grid;place-items:center;visibility:hidden}
+.menu [aria-checked=true] .tick{visibility:visible}
 .bell b{position:absolute;top:4px;right:3px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--accent);color:#fff;font:700 10px/17px system-ui;text-align:center;border:2px solid var(--page)}
 .avatar{width:34px;height:34px;border-radius:50%;background:#c9b49a url(https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=80&q=70&auto=format) center/cover;border:2px solid var(--panel);box-shadow:0 0 0 1px var(--line)}
 .menuwrap{position:relative}
@@ -161,7 +168,7 @@ mark{background:rgba(255,213,150,.55);color:inherit;border-radius:2px;padding:0 
 .wrap{position:relative}
 .wrap>.top{position:absolute;inset:0 0 auto 0;border:0;color:#fbf8f3}
 .wrap>.top .crumb{color:rgba(251,248,243,.8)}
-.wrap>.top .bell:hover{background:rgba(251,248,243,.14)}
+.wrap>.top .bell:hover,.wrap>.top .langb:hover,.wrap>.top .langb[aria-expanded=true]{background:rgba(251,248,243,.14)}
 .wrap>.top .bell b{border-color:transparent}
 .banner{position:relative;height:400px;color:#fbf8f3;display:flex;align-items:flex-end;gap:16px;padding:26px 32px 98px;overflow:hidden}
 .banner>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 50%;animation:fadein .5s ease-out}
@@ -860,13 +867,285 @@ const UPI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-wid
 const ONE='<svg class="pi" viewBox="0 0 30 22"><rect x="1" y="1" width="28" height="20" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="8" width="8" height="6" rx="1.5" fill="currentColor"/></svg>';
 const REP='<svg class="pi" viewBox="0 0 30 22"><rect x="1" y="1" width="28" height="20" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/>'+[[5,5],[13,5],[21,5],[9,10],[17,10],[5,15],[13,15],[21,15]].map(([x,y])=>`<rect x="${x}" y="${y}" width="4" height="2.4" rx="1" fill="currentColor"/>`).join('')+'</svg>';
 
+/* ---------- i18n: one workspace language (S.lang) for every screen; add a language by adding a column ---------- */
+// Keys ending in .one/.other are plural pairs read by tn(); {name} placeholders are filled by t().
+// French uses no-break spaces before ? ! : » and after «.
+const LANGS=[['en','English','en-GB'],['fr','Français','fr-FR']];
+const T={
+ // common
+ 'saved':{en:'Saved',fr:'Enregistré'},
+ 'cancel':{en:'Cancel',fr:'Annuler'},
+ 'save':{en:'Save',fr:'Enregistrer'},
+ 'close':{en:'Close',fr:'Fermer'},
+ 'notYet':{en:'Not yet',fr:'Pas maintenant'},
+ 'keepIt':{en:'Keep it',fr:'La garder'},
+ 'keepThem':{en:'Keep them',fr:'Les garder'},
+ 'delete':{en:'Delete',fr:'Supprimer'},
+ 'archive':{en:'Archive',fr:'Archiver'},
+ 'restore':{en:'Restore',fr:'Restaurer'},
+ 'upload':{en:'Upload',fr:'Importer'},
+ 'select':{en:'Select',fr:'Sélectionner'},
+ 'selectAll':{en:'Select all',fr:'Tout sélectionner'},
+ 'download':{en:'Download',fr:'Télécharger'},
+ 'downloaded':{en:'Downloaded',fr:'Téléchargement terminé'},
+ 'copyLink':{en:'Copy link',fr:'Copier le lien'},
+ 'open':{en:'Open',fr:'Ouvrir'},
+ 'share':{en:'Share',fr:'Partager'},
+ 'deliver':{en:'Deliver',fr:'Livrer'},
+ 'delivered':{en:'Delivered',fr:'Livrée'},
+ 'preview':{en:'Preview',fr:'Aperçu'},
+ 'retry':{en:'Retry',fr:'Réessayer'},
+ 'tryAgain':{en:'Try again',fr:'Réessayer'},
+ 'dismiss':{en:'Dismiss',fr:'Fermer'},
+ 'settings':{en:'Settings',fr:'Paramètres'},
+ 'favorites':{en:'Favorites',fr:'Favoris'},
+ 'favorite':{en:'Favorite',fr:'Favori'},
+ 'addFav':{en:'Add to favorites',fr:'Ajouter aux favoris'},
+ 'removeFav':{en:'Remove from favorites',fr:'Retirer des favoris'},
+ 'noFav':{en:'No favorites yet',fr:'Pas encore de favoris'},
+ 'hero':{en:'Hero',fr:'Couverture'},
+ 'setHero':{en:'Set as hero',fr:'Définir comme couverture'},
+ 'removeHero':{en:'Remove hero',fr:'Retirer la couverture'},
+ 'heroUpdated':{en:'Hero updated',fr:'Couverture mise à jour'},
+ 'heroRemoved':{en:'Hero removed',fr:'Couverture retirée'},
+ 'notInPreview':{en:'Not available in preview',fr:'Indisponible dans l’aperçu'},
+ 'and':{en:' and ',fr:' et '},
+ // plurals
+ 'photos.one':{en:'{n} photo',fr:'{n} photo'},
+ 'photos.other':{en:'{n} photos',fr:'{n} photos'},
+ 'galleries.one':{en:'{n} gallery',fr:'{n} galerie'},
+ 'galleries.other':{en:'{n} galleries',fr:'{n} galeries'},
+ 'finals.one':{en:'{n} final',fr:'{n} photo finale'},
+ 'finals.other':{en:'{n} finals',fr:'{n} photos finales'},
+ 'finished.one':{en:'{n} finished photo',fr:'{n} photo finale'},
+ 'finished.other':{en:'{n} finished photos',fr:'{n} photos finales'},
+ 'finalsReady.one':{en:'{n} final ready',fr:'{n} finale prête'},
+ 'finalsReady.other':{en:'{n} finals ready',fr:'{n} finales prêtes'},
+ 'selected.one':{en:'{n} selected',fr:'{n} sélectionnée'},
+ 'selected.other':{en:'{n} selected',fr:'{n} sélectionnées'},
+ 'dled.one':{en:'{n} downloaded',fr:'{n} téléchargée'},
+ 'dled.other':{en:'{n} downloaded',fr:'{n} téléchargées'},
+ 'dlOf.one':{en:'{d} of {n} downloaded',fr:'{d} sur {n} téléchargée'},
+ 'dlOf.other':{en:'{d} of {n} downloaded',fr:'{d} sur {n} téléchargées'},
+ 'allDled':{en:'all downloaded',fr:'toutes téléchargées'},
+ 'noteDl.one':{en:'{n} photo downloaded',fr:'{n} photo téléchargée'},
+ 'noteDl.other':{en:'{n} photos downloaded',fr:'{n} photos téléchargées'},
+ 'newDl.one':{en:'{n} new download',fr:'{n} nouveau téléchargement'},
+ 'newDl.other':{en:'{n} new downloads',fr:'{n} nouveaux téléchargements'},
+ 'dling.one':{en:'Downloading {n} photo',fr:'Téléchargement de {n} photo'},
+ 'dling.other':{en:'Downloading {n} photos',fr:'Téléchargement de {n} photos'},
+ 'ago.now':{en:'just now',fr:'à l’instant'},
+ 'ago.min':{en:'{n} min ago',fr:'il y a {n} min'},
+ 'ago.h':{en:'{n} h ago',fr:'il y a {n} h'},
+ 'ago.yest':{en:'yesterday',fr:'hier'},
+ 'ago.days':{en:'{n} days ago',fr:'il y a {n} jours'},
+ // statuses
+ 'st.dra':{en:'Draft',fr:'Brouillon'},
+ 'st.pro':{en:'Shared',fr:'Partagée'},
+ 'st.del':{en:'Delivered',fr:'Livrée'},
+ 'st.exp':{en:'Expired',fr:'Expirée'},
+ 'st.arc':{en:'Archived',fr:'Archivée'},
+ // top bar
+ 'top.lang':{en:'Language',fr:'Langue'},
+ 'top.langBtn':{en:'Language: {name}',fr:'Langue\u00a0: {name}'},
+ 'top.notif.one':{en:'Notifications, {n} unread',fr:'Notifications, {n} non lue'},
+ 'top.notif.other':{en:'Notifications, {n} unread',fr:'Notifications, {n} non lues'},
+ 'top.account':{en:'Account menu',fr:'Menu du compte'},
+ 'top.signout':{en:'Sign out',fr:'Se déconnecter'},
+ 'top.notifTitle':{en:'Notifications',fr:'Notifications'},
+ 'top.markAll':{en:'Mark all as read',fr:'Tout marquer comme lu'},
+ 'top.nothing':{en:'Nothing new.',fr:'Rien de nouveau.'},
+ 'noteSel.one':{en:'Selection changed: {n} selected',fr:'Sélection modifiée\u00a0: {n} photo'},
+ 'noteSel.other':{en:'Selection changed: {n} selected',fr:'Sélection modifiée\u00a0: {n} photos'},
+ 'signedOut':{en:'Signed out of the demo. Welcome back.',fr:'Vous avez été déconnecté·e de la démo.'},
+ // dashboard
+ 'greet.am':{en:'Good morning',fr:'Bonjour'},
+ 'greet.pm':{en:'Good afternoon',fr:'Bon après-midi'},
+ 'greet.eve':{en:'Good evening',fr:'Bonsoir'},
+ 'dash.newsOne':{en:'{greet}, {name}. <em>One gallery</em> has news.',fr:'{greet}, {name}. <em>Une galerie</em> a du nouveau.'},
+ 'dash.newsMany':{en:'{greet}, {name}. <em>{w} galleries</em> have news.',fr:'{greet}, {name}. <em>{w} galeries</em> ont du nouveau.'},
+ 'dash.quiet':{en:'{greet}, {name}. <em>All quiet</em> for now.',fr:'{greet}, {name}. <em>Tout est calme</em> pour l’instant.'},
+ 'dash.new':{en:'+ New gallery',fr:'+ Nouvelle galerie'},
+ 'dash.search':{en:'Search galleries',fr:'Rechercher une galerie'},
+ 'dash.status':{en:'Status',fr:'Statut'},
+ 'dash.allStatuses':{en:'All statuses',fr:'Tous les statuts'},
+ 'dash.none':{en:'None',fr:'Aucun'},
+ 'dash.reset':{en:'Reset',fr:'Réinitialiser'},
+ 'sort.upd':{en:'Recently updated',fr:'Dernière mise à jour'},
+ 'sort.new':{en:'Newest created',fr:'Plus récentes'},
+ 'sort.old':{en:'Oldest created',fr:'Plus anciennes'},
+ 'sort.az':{en:'Title A–Z',fr:'Titre A–Z'},
+ 'dash.noneCalled':{en:'No gallery called “{q}”',fr:'Aucune galerie nommée «\u00a0{q}\u00a0»'},
+ 'dash.noStatus':{en:'No galleries with these statuses',fr:'Aucune galerie avec ces statuts'},
+ 'hidden.one':{en:'{n} match in statuses you’ve hidden.',fr:'{n} résultat dans des statuts masqués.'},
+ 'hidden.other':{en:'{n} matches in statuses you’ve hidden.',fr:'{n} résultats dans des statuts masqués.'},
+ 'dash.spelling':{en:'Check the spelling, or try part of the client’s name.',fr:'Vérifiez l’orthographe ou essayez une partie du nom du client.'},
+ 'dash.clear':{en:'Clear search and status',fr:'Effacer la recherche et le statut'},
+ 'dash.workspace':{en:'Your workspace on PhotoProofing',fr:'Votre espace sur PhotoProofing'},
+ 'dash.next':{en:'Who’s in front of<br>your lens next?',fr:'Qui sera devant<br>votre objectif\u00a0?'},
+ 'dash.newAria':{en:'Create a new gallery',fr:'Créer une nouvelle galerie'},
+ 'badge.sel':{en:'New selection',fr:'Nouvelle sélection'},
+ 'badge.dl':{en:'New downloads',fr:'Nouveaux téléchargements'},
+ 'sub.archived':{en:'{x} · archived',fr:'{x} · archivée'},
+ 'sub.noPhotos':{en:'No photos yet',fr:'Aucune photo'},
+ 'sub.expired':{en:'{x} · expired {ago}',fr:'{x} · expirée {ago}'},
+ 'blank.aria':{en:'An empty contact sheet seen through a camera viewfinder',fr:'Une planche-contact vide vue à travers le viseur d’un appareil photo'},
+ 'blank.title':{en:'Nothing in frame yet.',fr:'Rien dans le cadre pour l’instant.'},
+ // gallery
+ 'step.upload':{en:'Upload',fr:'Importer'},
+ 'step.share':{en:'Share',fr:'Partager'},
+ 'step.collect':{en:'Collect favorites',fr:'Recueillir les favoris'},
+ 'step.deliver':{en:'Deliver',fr:'Livrer'},
+ 'step.addProofs':{en:'Add your proofs',fr:'Ajoutez vos épreuves'},
+ 'step.copyLink':{en:'Copy the link',fr:'Copiez le lien'},
+ 'step.clientPicks':{en:'Client picks',fr:'Le client choisit'},
+ 'step.finalsThen':{en:'Upload finals, then deliver',fr:'Importez les finales, puis livrez'},
+ 'step.shared':{en:'Shared {d}',fr:'Partagée le {d}'},
+ 'step.expired':{en:'Expired {d}',fr:'Expirée le {d}'},
+ 'ban.delivered':{en:'{x} · delivered {d}',fr:'{x} · livrée le {d}'},
+ 'ban.created':{en:'{x} · created {d}',fr:'{x} · créée le {d}'},
+ 'ban.createdNone':{en:'Created {d} · no photos yet',fr:'Créée le {d} · aucune photo'},
+ 'ban.shared':{en:'{x} · shared {d}',fr:'{x} · partagée le {d}'},
+ 'lbl.link':{en:'Client link',fr:'Lien client'},
+ 'lbl.access':{en:'Client access',fr:'Accès client'},
+ 'lbl.look':{en:'Look',fr:'Apparence'},
+ 'lbl.gallery':{en:'Gallery',fr:'Galerie'},
+ 'notShared':{en:'Not shared yet',fr:'Pas encore partagée'},
+ 'openUntil':{en:'Open until',fr:'Jusqu’au'},
+ 'included':{en:'Included photos',fr:'Photos incluses'},
+ 'layout':{en:'Layout',fr:'Disposition'},
+ 'layout.mas':{en:'Staggered columns',fr:'Colonnes décalées'},
+ 'layout.rows':{en:'Even rows',fr:'Lignes régulières'},
+ 'wmProofs':{en:'Watermark proofs',fr:'Filigrane sur les épreuves'},
+ 'tile.failed':{en:'Upload failed',fr:'Échec de l’import'},
+ 'tile.lost':{en:'Connection lost',fr:'Connexion perdue'},
+ 'tile.delete':{en:'Delete photo',fr:'Supprimer la photo'},
+ 'tile.wait':{en:'Waiting',fr:'En attente'},
+ 'tile.up':{en:'Uploading',fr:'Import en cours'},
+ 'tile.proc':{en:'Processing',fr:'Traitement'},
+ 'tile.dlAria':{en:'Download photo',fr:'Télécharger la photo'},
+ 'tab.photos':{en:'Photos',fr:'Photos'},
+ 'tab.favorites':{en:'Favorites',fr:'Favoris'},
+ 'tab.final':{en:'Final',fr:'Finales'},
+ 'tab.locked':{en:'Locked after delivery',fr:'Verrouillés après la livraison'},
+ 'drop.final':{en:'Drop the finished photos here',fr:'Déposez les photos finales ici'},
+ 'drop.photos':{en:'Drop the shoot here',fr:'Déposez la séance ici'},
+ 'regen':{en:'Updating watermarks…',fr:'Mise à jour des filigranes…'},
+ 'sel.cancel':{en:'Cancel selection',fr:'Annuler la sélection'},
+ 'sel.downloading':{en:'Downloading',fr:'Téléchargement'},
+ 'upload.fail':{en:'1 photo failed to upload.',fr:'1 photo n’a pas pu être importée.'},
+ // dialogs
+ 'new.title':{en:'New gallery',fr:'Nouvelle galerie'},
+ 'new.label':{en:'Title',fr:'Titre'},
+ 'new.create':{en:'Create',fr:'Créer'},
+ 'del1.title':{en:'Delete this photo?',fr:'Supprimer cette photo\u00a0?'},
+ 'del1.text':{en:'It leaves the gallery for good.',fr:'Elle sera supprimée définitivement de la galerie.'},
+ 'del1.textFav':{en:'It leaves the gallery for good, along with the client’s favorite on it.',fr:'Elle sera supprimée définitivement de la galerie, ainsi que le favori du client.'},
+ 'delN.title':{en:'Delete {n} photos?',fr:'Supprimer {n} photos\u00a0?'},
+ 'delN.text':{en:'They leave the gallery for good.',fr:'Elles seront supprimées définitivement de la galerie.'},
+ 'delN.textFav':{en:'They leave the gallery for good, along with any client favorites on them.',fr:'Elles seront supprimées définitivement de la galerie, ainsi que les favoris du client.'},
+ 'delN.ok':{en:'Delete {n} photos',fr:'Supprimer {n} photos'},
+ 'arch.title':{en:'Archive this gallery?',fr:'Archiver cette galerie\u00a0?'},
+ 'arch.text':{en:'The client link stops working. You can restore it any time.',fr:'Le lien client cessera de fonctionner. Vous pourrez la restaurer à tout moment.'},
+ 'archived':{en:'Archived',fr:'Archivée'},
+ 'restored':{en:'Restored',fr:'Restaurée'},
+ 'gdel.title':{en:'Delete this gallery?',fr:'Supprimer cette galerie\u00a0?'},
+ 'gdel.text':{en:'Its photos, favorites and client link go for good.',fr:'Ses photos, ses favoris et son lien client seront définitivement supprimés.'},
+ 'gdel.done':{en:'Gallery deleted',fr:'Galerie supprimée'},
+ 'share.empty':{en:'Share with no photos?',fr:'Partager sans photos\u00a0?'},
+ 'share.private':{en:'This creates a private link.',fr:'Cela crée un lien privé.'},
+ 'share.emptyWarn':{en:'Clients see an empty gallery until you upload.',fr:'Vos clients verront une galerie vide tant que vous n’aurez rien importé.'},
+ 'share.title':{en:'Share {n} photos?',fr:'Partager {n} photos\u00a0?'},
+ 'share.text':{en:'This creates a private link. Anyone with it can see the proofs and pick favorites until {until}.',fr:'Cela crée un lien privé. Toute personne qui le détient peut voir les épreuves et choisir ses favoris jusqu’au {until}.'},
+ 'share.done':{en:'Your gallery is shared',fr:'Votre galerie est partagée'},
+ 'share.open':{en:'Open until {until}.',fr:'Ouverte jusqu’au {until}.'},
+ 'share.anyway':{en:'Share anyway',fr:'Partager quand même'},
+ 'email':{en:'Email',fr:'E-mail'},
+ 'sms':{en:'SMS',fr:'SMS'},
+ 'emailOpened':{en:'Email draft opened',fr:'Brouillon d’e-mail ouvert'},
+ 'smsOpened':{en:'Message draft opened',fr:'Brouillon de message ouvert'},
+ 'linkCopied':{en:'Link copied',fr:'Lien copié'},
+ 'pendUp.one':{en:'{n} is still uploading',fr:'{n} en cours d’import'},
+ 'pendUp.other':{en:'{n} are still uploading',fr:'{n} en cours d’import'},
+ 'pendFail':{en:'{n} failed',fr:'{n} en échec'},
+ 'dlv.title':{en:'Deliver {n} photos?',fr:'Livrer {n} photos\u00a0?'},
+ 'dlv.text':{en:'{title} sees them at the same link and can download them. Favorites are locked from now on.',fr:'{title} les verra au même lien et pourra les télécharger. Les favoris seront verrouillés dès maintenant.'},
+ 'dlv.textMany':{en:'{title} see them at the same link and can download them. Favorites are locked from now on.',fr:'{title} les verront au même lien et pourront les télécharger. Les favoris seront verrouillés dès maintenant.'},
+ 'dlv.emptyTitle':{en:'Deliver with no photos?',fr:'Livrer sans photos\u00a0?'},
+ 'dlv.emptyText':{en:'Clients see an empty gallery until you upload the finished photos. Favorites are locked from now on.',fr:'Vos clients verront une galerie vide tant que vous n’aurez pas importé les photos finales. Les favoris seront verrouillés dès maintenant.'},
+ 'dlv.anyway':{en:'Deliver anyway',fr:'Livrer quand même'},
+ // preview & viewer
+ 'pv.desktop':{en:'Desktop',fr:'Ordinateur'},
+ 'pv.phone':{en:'Phone',fr:'Téléphone'},
+ 'pv.close':{en:'✕ Close',fr:'✕ Fermer'},
+ 'vw.aria':{en:'Photo viewer',fr:'Visionneuse de photos'},
+ 'vw.of':{en:'{i} of {n}',fr:'{i} sur {n}'},
+ 'vw.prev':{en:'Previous',fr:'Précédente'},
+ 'vw.next':{en:'Next',fr:'Suivante'},
+ 'vw.clientFav':{en:'Client favorite',fr:'Favori du client'},
+ 'vw.dlThis':{en:'Download this photo',fr:'Télécharger cette photo'},
+ 'vw.failed':{en:'This photo could not be processed',fr:'Cette photo n’a pas pu être traitée'},
+ // settings
+ 'stg.cancel':{en:'Cancel',fr:'Annuler'},
+ 'stg.save':{en:'Save changes',fr:'Enregistrer'},
+ 'stg.reverted':{en:'Reverted',fr:'Rétabli'},
+ 'stg.removeLogo':{en:'Remove logo',fr:'Supprimer le logo'},
+ 'stg.logo':{en:'Logo',fr:'Logo'},
+ 'stg.studio':{en:'Studio name',fr:'Nom du studio'},
+ 'stg.wmTitle':{en:'Watermark on proofs',fr:'Filigrane sur les épreuves'},
+ 'stg.name':{en:'Name',fr:'Nom'},
+ 'stg.nameLogo':{en:'Name and logo',fr:'Nom et logo'},
+ 'stg.repeat':{en:'Repeat',fr:'Répété'},
+ 'stg.once':{en:'Once',fr:'Une fois'},
+ 'stg.position':{en:'Position',fr:'Position'},
+ 'stg.positionN':{en:'Position {n}',fr:'Position {n}'},
+ 'stg.size':{en:'Watermark size',fr:'Taille du filigrane'},
+ 'stg.sigTitle':{en:'Cover signature',fr:'Signature de couverture'},
+ 'stg.both':{en:'Both',fr:'Les deux'},
+ 'stg.noneSig':{en:'None',fr:'Aucune'},
+ 'stg.regen':{en:'Watermarked proofs are being regenerated',fr:'Les épreuves filigranées sont en cours de régénération'},
+ 'stg.badNumber':{en:'Enter a whole number from 0 to 999',fr:'Saisissez un nombre entier de 0 à 999'},
+ 'stg.badDate':{en:'Enter a valid date',fr:'Saisissez une date valide'},
+ // client pages
+ 'cl.onWay':{en:'Your photos are on their way.',fr:'Vos photos arrivent bientôt.'},
+ 'cl.finalsOnWay':{en:'Your finished photos are on their way.',fr:'Vos photos finales arrivent bientôt.'},
+ 'cl.back':{en:'Check back soon.',fr:'Revenez bientôt.'},
+ 'cl.sharedWith':{en:'Shared with PhotoProofing',fr:'Partagé avec PhotoProofing'},
+ 'cl.ready':{en:'Your photos are ready',fr:'Vos photos sont prêtes'},
+ 'cl.downloadAll':{en:'Download all',fr:'Tout télécharger'},
+ 'cl.view':{en:'View the gallery',fr:'Voir la galerie'},
+ 'cl.all':{en:'All',fr:'Toutes'},
+ 'nf.aria':{en:'A camera viewfinder failing to focus',fr:'Un viseur d’appareil photo qui n’arrive pas à faire la mise au point'},
+ 'nf.title':{en:'Focus not locked',fr:'Mise au point impossible'},
+ 'nf.text':{en:'This link no longer works. Ask your photographer for a new one.',fr:'Ce lien ne fonctionne plus. Demandez-en un nouveau à votre photographe.'},
+ // demo controls
+ 'demo.pill':{en:'Demo',fr:'Démo'},
+ 'demo.aria':{en:'Demo controls',fr:'Commandes de la démo'},
+ 'demo.photographer':{en:'Photographer',fr:'Photographe'},
+ 'demo.client':{en:'Client',fr:'Client'},
+ 'demo.photographerView':{en:'Photographer view',fr:'Vue photographe'},
+ 'demo.clientView':{en:'Client view',fr:'Vue client'},
+ 'demo.emptyDash':{en:'Empty dashboard',fr:'Tableau de bord vide'},
+ 'demo.reset':{en:'Reset demo data',fr:'Réinitialiser la démo'},
+ 'demo.resetDone':{en:'Demo reset',fr:'Démo réinitialisée'},
+ 'cs.proof':{en:'Proofs',fr:'Épreuves'},
+ 'cs.em':{en:'Shared, empty',fr:'Partagée, vide'},
+ 'cs.fin':{en:'Delivered',fr:'Livrée'},
+ 'cs.cl':{en:'Delivered, empty',fr:'Livrée, vide'},
+ 'cs.nf':{en:'Unavailable',fr:'Indisponible'},
+};
+const WORDS={en:['No','One','Two','Three','Four','Five','Six','Seven','Eight','Nine'],fr:['Aucune','Une','Deux','Trois','Quatre','Cinq','Six','Sept','Huit','Neuf']};
+const t=(k,v)=>{const e=T[k];if(!e){console.warn('i18n: missing key',k);return k}
+  const s=e[S.lang]??e.en;return v?s.replace(/\{(\w+)\}/g,(m,n)=>n in v?v[n]:m):s};
+const tn=(k,n,v)=>t(`${k}.${new Intl.PluralRules(S.lang).select(n)==='one'?'one':'other'}`,{n,...v});
+const locale=()=>LANGS.find(l=>l[0]===S.lang)[2];
+
 /* ---------- formatting ---------- */
-const MON=['January','February','March','April','May','June','July','August','September','October','November','December'];
-const fmtS=t=>new Date(t).toLocaleDateString('en-US',{month:'short',day:'numeric'});
-const fmtL=t=>new Date(t).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-const fmtLong=t=>{const d=new Date(t);return `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`};
-const ago=t=>{const m=Math.round((Date.now()-t)/6e4);if(m<1)return 'just now';if(m<60)return `${m} min ago`;const h=Math.round(m/60);if(h<24)return `${h} h ago`;const d=Math.round(h/24);return d===1?'yesterday':`${d} days ago`};
-const WORDS=['No','One','Two','Three','Four','Five','Six','Seven','Eight','Nine'];
+// en-GB writes September as "Sept"; the design wants "Sep".
+const fmtS=t=>new Date(t).toLocaleDateString(locale(),{day:'numeric',month:'short'}).replace('Sept','Sep');
+const fmtL=t=>new Date(t).toLocaleDateString(locale(),{day:'numeric',month:'short',year:'numeric'}).replace('Sept','Sep');
+const fmtLong=t=>new Date(t).toLocaleDateString(locale(),{day:'numeric',month:'long',year:'numeric'});
+const ago=at=>{const m=Math.round((Date.now()-at)/6e4);if(m<1)return t('ago.now');if(m<60)return t('ago.min',{n:m});const h=Math.round(m/60);if(h<24)return t('ago.h',{n:h});const d=Math.round(h/24);return d===1?t('ago.yest'):t('ago.days',{n:d})};
 const isoDay=t=>new Date(t).toISOString().slice(0,10);
 const titleHTML=t=>esc(t).replace(' &amp; ',' <em>&amp;</em> ');
 const tok=()=>Math.random().toString(36).slice(2,10);
@@ -881,13 +1160,13 @@ function seed(){
   const g=(o)=>{const x=Object.assign({id:'g'+(++uid),token:tok(),date:'',place:'',status:'draft',archived:false,deleted:false,photos:[],finals:[],hero:null,layout:'mas',wm:{on:true},included:10,until:Date.UTC(2026,11,20),sharedAt:null,deliveredAt:null},o);x.hero=x.hero||(x.photos[0]&&x.photos[0].id)||null;return x};
   const favs=(ps,n)=>{ps.forEach(p=>p.fav=false);for(let i=0;i<n;i++)ps[(i*3+1)%ps.length].fav=true;return ps};
   const G=[
-    g({id:'camille',token:'k7Qm2xPa',title:'Camille & Hugo',date:'14 June 2025',place:'Provence',status:'shared',photos:favs(mkPhotos(32),12),created:NOW-40*DAY,updated:NOW-10*6e4,sharedAt:NOW-12*DAY}),
-    g({id:'ines',title:'Inès, studio portraits',date:'2 September 2025',place:'Lyon',status:'shared',photos:favs(mkPhotos(14,{first:INES,off:3}),7),included:8,created:NOW-30*DAY,updated:NOW-DAY,sharedAt:NOW-6*DAY}),
-    g({id:'martin',title:'Martin family',date:'21 August 2025',place:'Annecy',status:'delivered',photos:favs(mkPhotos(30,{first:'1469371670807-013ccf25f16a',off:5}),9),finals:mkPhotos(24,{first:'1469371670807-013ccf25f16a',off:6,dl:18}),created:NOW-50*DAY,updated:NOW-2*36e5,sharedAt:NOW-35*DAY,deliveredAt:NOW-9*DAY}),
+    g({id:'camille',token:'k7Qm2xPa',title:'Camille & Hugo',date:Date.UTC(2025,5,14,12),place:'Provence',status:'shared',photos:favs(mkPhotos(32),12),created:NOW-40*DAY,updated:NOW-10*6e4,sharedAt:NOW-12*DAY}),
+    g({id:'ines',title:'Inès, studio portraits',date:Date.UTC(2025,8,2,12),place:'Lyon',status:'shared',photos:favs(mkPhotos(14,{first:INES,off:3}),7),included:8,created:NOW-30*DAY,updated:NOW-DAY,sharedAt:NOW-6*DAY}),
+    g({id:'martin',title:'Martin family',date:Date.UTC(2025,7,21,12),place:'Annecy',status:'delivered',photos:favs(mkPhotos(30,{first:'1469371670807-013ccf25f16a',off:5}),9),finals:mkPhotos(24,{first:'1469371670807-013ccf25f16a',off:6,dl:18}),created:NOW-50*DAY,updated:NOW-2*36e5,sharedAt:NOW-35*DAY,deliveredAt:NOW-9*DAY}),
     g({id:'harbor',title:'Harbor engagement',created:NOW-2*DAY,updated:NOW-3*DAY}),
-    g({id:'chloe',title:'Chloé & Sam, garden wedding',date:'5 July 2025',place:'Giverny',status:'delivered',photos:favs(mkPhotos(60,{first:'1519741497674-611481863552',off:1}),25),finals:mkPhotos(40,{first:'1519741497674-611481863552',off:2,dl:40}),included:25,created:NOW-80*DAY,updated:NOW-4*DAY,sharedAt:NOW-70*DAY,deliveredAt:NOW-40*DAY}),
-    g({id:'noah',title:'Noah, first birthday',date:'30 September 2025',place:'Paris',photos:mkPhotos(22,{first:'1511285560929-80b456fea0bc',off:4}),created:NOW-12*DAY,updated:NOW-5*DAY}),
-    g({id:'lucas',title:'Lucas & Emma, beach session',date:'12 May 2025',place:'Biarritz',status:'expired',photos:favs(mkPhotos(48,{first:'1515934751635-c81c6bc9a2d8',off:7}),20),included:15,until:NOW-3*DAY,created:NOW-90*DAY,updated:NOW-6*DAY,sharedAt:NOW-60*DAY}),
+    g({id:'chloe',title:'Chloé & Sam, garden wedding',date:Date.UTC(2025,6,5,12),place:'Giverny',status:'delivered',photos:favs(mkPhotos(60,{first:'1519741497674-611481863552',off:1}),25),finals:mkPhotos(40,{first:'1519741497674-611481863552',off:2,dl:40}),included:25,created:NOW-80*DAY,updated:NOW-4*DAY,sharedAt:NOW-70*DAY,deliveredAt:NOW-40*DAY}),
+    g({id:'noah',title:'Noah, first birthday',date:Date.UTC(2025,8,30,12),place:'Paris',photos:mkPhotos(22,{first:'1511285560929-80b456fea0bc',off:4}),created:NOW-12*DAY,updated:NOW-5*DAY}),
+    g({id:'lucas',title:'Lucas & Emma, beach session',date:Date.UTC(2025,4,12,12),place:'Biarritz',status:'expired',photos:favs(mkPhotos(48,{first:'1515934751635-c81c6bc9a2d8',off:7}),20),included:15,until:NOW-3*DAY,created:NOW-90*DAY,updated:NOW-6*DAY,sharedAt:NOW-60*DAY}),
     g({id:'margaux',title:'Margaux, headshots',status:'delivered',archived:true,photos:mkPhotos(12,{first:MARGAUX,off:8}),finals:mkPhotos(9,{first:MARGAUX,off:9,dl:9}),created:NOW-200*DAY,updated:NOW-150*DAY,sharedAt:NOW-190*DAY,deliveredAt:NOW-180*DAY}),
     g({id:'dupont',title:'Dupont reunion',status:'delivered',archived:true,photos:mkPhotos(80,{first:'1460978812857-470ed1c77af0',off:10}),finals:mkPhotos(60,{first:'1460978812857-470ed1c77af0',off:11,dl:60}),created:NOW-300*DAY,updated:NOW-250*DAY,sharedAt:NOW-290*DAY,deliveredAt:NOW-280*DAY})];
   return {
@@ -896,7 +1175,7 @@ function seed(){
     notes:[{gid:'camille',kind:'sel',n:0,unread:true,at:NOW-10*6e4},{gid:'martin',kind:'dl',n:3,unread:true,at:NOW-2*36e5},{gid:'ines',kind:'sel',n:0,unread:false,at:NOW-DAY},{gid:'chloe',kind:'dl',n:6,unread:false,at:NOW-4*DAY}],
   };
 }
-const S=Object.assign(seed(),{ui:{q:'',on:new Set(['dra','pro','del','exp']),sort:'Recently updated',menu:null,sel:null,fly:null,cf:'all',emptyWs:false,lastG:'camille',busy:{},regen:{}}});
+const S=Object.assign(seed(),{lang:'en',ui:{q:'',on:new Set(['dra','pro','del','exp']),sort:'upd',menu:null,sel:null,fly:null,cf:'all',emptyWs:false,lastG:'camille',busy:{},regen:{}}});
 let timers=[];
 const later=(fn,ms)=>{const t=setTimeout(()=>{timers=timers.filter(x=>x!==t);fn()},ms);timers.push(t);return t};
 
@@ -906,14 +1185,15 @@ const ready=a=>a.filter(p=>p.st==='ok');
 const favCount=g=>g.photos.filter(p=>p.fav).length;
 const over=g=>favCount(g)>g.included;
 const code=g=>g.archived?'arc':{draft:'dra',shared:'pro',delivered:'del',expired:'exp'}[g.status];
-const NAME={dra:'Draft',pro:'Shared',del:'Delivered',exp:'Expired',arc:'Archived'};
+const NAME=k=>t('st.'+k);
 const ORDER=['dra','pro','del','exp','arc'];
-const SORTS=['Recently updated','Newest created','Oldest created','Title A–Z'];
+const SORTS=['upd','new','old','az'];
 // The hero is only what the photographer picked; with none, covers fall back to the typographic default.
 const heroOf=g=>ready(g.photos).find(p=>p.id===g.hero)||null;
 const thumbOf=g=>heroOf(g)||ready(g.photos)[0]||ready(g.finals)[0]||null;
 const initials=t=>t.split(',')[0].split(/\s*&\s*/).map(w=>w.trim()[0]||'').join('&');
-const deco=(g,extra=[])=>`<div class="deco" aria-hidden="true"><span class="leak"></span><span class="ini">${esc(initials(g.title))}</span><span class="edge">▸&nbsp;&nbsp;${[g.date||(g.created&&fmtLong(g.created)),g.place,...extra].filter(Boolean).map(x=>esc(String(x).toUpperCase())).join('&nbsp;&nbsp;·&nbsp;&nbsp;')}</span></div>`;
+const dateOf=g=>g.date?fmtLong(g.date):'';
+const deco=(g,extra=[])=>`<div class="deco" aria-hidden="true"><span class="leak"></span><span class="ini">${esc(initials(g.title))}</span><span class="edge">▸&nbsp;&nbsp;${[dateOf(g)||(g.created&&fmtLong(g.created)),g.place,...extra].filter(Boolean).map(x=>esc(String(x).toUpperCase())).join('&nbsp;&nbsp;·&nbsp;&nbsp;')}</span></div>`;
 const regenOn=g=>S.ui.regen[g.id]>Date.now();
 const touch=g=>{g.updated=Date.now()};
 const clientState=g=>{if(!g||g.deleted||g.archived||g.status==='draft'||g.status==='expired')return 'nf';
@@ -926,7 +1206,7 @@ function notify(gid,kind,n=1){
   no.kind=kind;no.unread=true;no.at=Date.now();no.n+=n;
   const g=G(gid);if(g)touch(g);
 }
-const noteText=no=>{const g=G(no.gid);return no.kind==='sel'?`Selection changed: ${favCount(g)} selected`:`${no.n} photo${no.n>1?'s':''} downloaded`};
+const noteText=no=>{const g=G(no.gid);return no.kind==='sel'?tn('noteSel',favCount(g)):tn('noteDl',no.n)};
 const unread=()=>S.ui.emptyWs?[]:S.notes.filter(n=>n.unread&&G(n.gid));
 
 /* ---------- studio chrome ---------- */
@@ -936,138 +1216,141 @@ function topbar(crumb=''){
   return `<div class="top" data-r="top">
     <a class="brand" href="#/dashboard">PhotoProofing</a>${crumb?`<span class="crumb">${crumb}</span>`:''}
     <span class="sp"></span>
-    <button class="bell" data-a="bell" aria-label="Notifications, ${un.length} unread">${I.bell}${un.length?`<b>${un.length}</b>`:''}</button>
-    <div class="menuwrap"><button class="avatar" data-a="avatar" aria-label="Account menu" style="background-image:url(${U('1438761681033-6461ffad8d80',100)})"></button>
-      <div class="menu${S.ui.menu==='avatar'?' open':''}"><div class="who"><strong>Léa Moreau</strong><span>lea@moreau-photo.fr</span></div><a href="#/settings">${I.gear} Settings</a><a data-a="signout">${I.out} Sign out</a></div></div>
-    <div class="panel${S.ui.menu==='bell'?' open':''}"><div class="ph"><strong>Notifications</strong><a data-a="markall" class="${un.length?'':'dis'}">Mark all as read</a></div>
-      ${list.length?list.map(n=>{const g=G(n.gid);return `<button class="it${n.unread?' un':''}" data-a="note" data-g="${g.id}">${thumb(g)}<div><strong>${esc(g.title)}</strong><span>${noteText(n)} · ${ago(n.at)}</span></div></button>`}).join(''):'<div class="zero">Nothing new.</div>'}</div>
+    <div class="menuwrap"><button class="langb" data-a="lang" aria-haspopup="menu" aria-expanded="${S.ui.menu==='lang'}" aria-label="${esc(t('top.langBtn',{name:LANGS.find(l=>l[0]===S.lang)[1]}))}">${S.lang.toUpperCase()}</button>
+      <div class="menu lm${S.ui.menu==='lang'?' open':''}" role="menu" aria-label="${esc(t('top.lang'))}">${LANGS.map(([c,n])=>`<button role="menuitemradio" aria-checked="${c===S.lang}" data-a="setlang" data-v="${c}" lang="${c}"><span class="tick">${I.tickD}</span>${n}</button>`).join('')}</div></div>
+    <button class="bell" data-a="bell" aria-label="${tn('top.notif',un.length)}">${I.bell}${un.length?`<b>${un.length}</b>`:''}</button>
+    <div class="menuwrap"><button class="avatar" data-a="avatar" aria-label="${t('top.account')}" style="background-image:url(${U('1438761681033-6461ffad8d80',100)})"></button>
+      <div class="menu${S.ui.menu==='avatar'?' open':''}"><div class="who"><strong>Léa Moreau</strong><span>lea@moreau-photo.fr</span></div><a href="#/settings">${I.gear} ${t('settings')}</a><a data-a="signout">${I.out} ${t('top.signout')}</a></div></div>
+    <div class="panel${S.ui.menu==='bell'?' open':''}"><div class="ph"><strong>${t('top.notifTitle')}</strong><a data-a="markall" class="${un.length?'':'dis'}">${t('top.markAll')}</a></div>
+      ${list.length?list.map(n=>{const g=G(n.gid);return `<button class="it${n.unread?' un':''}" data-a="note" data-g="${g.id}">${thumb(g)}<div><strong>${esc(g.title)}</strong><span>${noteText(n)} · ${ago(n.at)}</span></div></button>`}).join(''):`<div class="zero">${t('top.nothing')}</div>`}</div>
   </div>`;
 }
 
 /* ---------- dashboard ---------- */
-const NEXT=`<button class="nextcard" data-a="new" aria-label="Create a new gallery"><span class="frm"><i></i><i></i><i></i><i></i>${sv('<path d="M12 5v14M5 12h14"/>',1.4,30)}</span><strong>Who’s in front of<br>your lens next?</strong></button>`;
+const next=()=>`<button class="nextcard" data-a="new" aria-label="${t('dash.newAria')}"><span class="frm"><i></i><i></i><i></i><i></i>${sv('<path d="M12 5v14M5 12h14"/>',1.4,30)}</span><strong>${t('dash.next')}</strong></button>`;
 function cardSub(g){
   const ph=ready(g.photos).length,fi=ready(g.finals).length,f=favCount(g);
-  if(g.archived)return `${fi||ph} ${fi?'finals':'photos'} · archived`;
-  if(g.status==='draft')return ph?`${ph} photo${ph>1?'s':''}`:'No photos yet';
-  if(g.status==='delivered'){const d=g.finals.filter(p=>p.dl).length;return `${fi} finals · ${d===fi&&fi?'all':d} downloaded`}
-  const s=`${ph} photos · ${f>g.included?`<b class="x">${f}</b>`:f} selected`;
-  return g.status==='expired'?`${s} · expired ${ago(g.until)}`:s;
+  if(g.archived)return t('sub.archived',{x:fi?tn('finals',fi):tn('photos',ph)});
+  if(g.status==='draft')return ph?tn('photos',ph):t('sub.noPhotos');
+  if(g.status==='delivered'){const d=g.finals.filter(p=>p.dl).length;return `${tn('finals',fi)} · ${d===fi&&fi?t('allDled'):tn('dled',d)}`}
+  const s=`${tn('photos',ph)} · ${tn('selected',f,f>g.included?{n:`<b class="x">${f}</b>`}:{})}`;
+  return g.status==='expired'?t('sub.expired',{x:s,ago:ago(g.until)}):s;
 }
 function dashboard(){
   const u=S.ui,empty=u.emptyWs||!S.galleries.some(g=>!g.deleted),live=empty?[]:S.galleries.filter(g=>!g.deleted);
   const q=empty?'':u.q.trim().toLowerCase(),off=empty?' disabled':'';
   const hl=t=>{t=esc(t);if(!q)return t;const i=t.toLowerCase().indexOf(esc(q));return i<0?t:`${t.slice(0,i)}<mark>${t.slice(i,i+esc(q).length)}</mark>${t.slice(i+esc(q).length)}`};
   const match=g=>!q||g.title.toLowerCase().includes(q);
-  const list=live.filter(g=>u.on.has(code(g))&&match(g)).sort((a,b)=>u.sort==='Title A–Z'?a.title.localeCompare(b.title):u.sort==='Oldest created'?a.created-b.created:u.sort==='Newest created'?b.created-a.created:b.updated-a.updated);
+  const list=live.filter(g=>u.on.has(code(g))&&match(g)).sort((a,b)=>u.sort==='az'?a.title.localeCompare(b.title,S.lang):u.sort==='old'?a.created-b.created:u.sort==='new'?b.created-a.created:b.updated-a.updated);
   const un=unread().sort((a,b)=>b.at-a.at);
   const hidden=live.filter(g=>!u.on.has(code(g))&&match(g)).length;
   const def=u.on.size===4&&!u.on.has('arc');
-  const slabel=def?'Status':u.on.size===5?'<b>All statuses</b>':!u.on.size?'<b>None</b>':`<b>${ORDER.filter(k=>u.on.has(k)).map(k=>NAME[k]).join(', ')}</b>`;
+  const slabel=def?t('dash.status'):u.on.size===5?`<b>${t('dash.allStatuses')}</b>`:!u.on.size?`<b>${t('dash.none')}</b>`:`<b>${ORDER.filter(k=>u.on.has(k)).map(NAME).join(', ')}</b>`;
   const count=k=>live.filter(g=>code(g)===k).length;
-  const row=k=>`<button role="menuitemcheckbox" aria-checked="${u.on.has(k)}" data-a="st" data-k="${k}"><span class="box">${u.on.has(k)?I.tickW:''}</span><span class="dot s-${k}"></span>${NAME[k]}<span class="n">${count(k)}</span></button>`;
+  const row=k=>`<button role="menuitemcheckbox" aria-checked="${u.on.has(k)}" data-a="st" data-k="${k}"><span class="box">${u.on.has(k)?I.tickW:''}</span><span class="dot s-${k}"></span>${NAME(k)}<span class="n">${count(k)}</span></button>`;
   const card=g=>{const h=thumbOf(g),c=code(g),n=S.notes.find(x=>x.gid===g.id&&x.unread);
-    return `<button class="bcard ${c}" data-a="open" data-g="${g.id}">${h?`<img src="${U(h.img,700)}" alt="">`:'<div class="empty"></div>'}<span class="chip s-${c}"><i></i>${NAME[c]}</span><div class="ov">${n?`<span class="new">${n.kind==='sel'?'New selection':'New downloads'}</span>`:''}<h3>${hl(g.title)}</h3><div class="s">${cardSub(g)}</div></div></button>`};
-  const newsItem=n=>{const g=G(n.gid),h=thumbOf(g);return `<button data-a="note" data-g="${g.id}">${h?`<img src="${U(h.img,120)}" alt="">`:'<span class="ei"></span>'}<div><strong>${esc(g.title)}</strong><span>${n.kind==='sel'?`${over(g)?`<b class="x">${favCount(g)}</b>`:favCount(g)} selected`:`${n.n} new download${n.n>1?'s':''}`}</span></div></button>`};
-  const hour=new Date().getHours(),greet=hour<12?'Good morning':hour<18?'Good afternoon':'Good evening';
-  const nw=un.length;
-  const h1=nw?`${greet}, Léa. <em>${nw===1?'One gallery':`${WORDS[nw]||nw} galleries`}</em> ${nw===1?'has':'have'} news.`:`${greet}, Léa. <em>All quiet</em> for now.`;
+    return `<button class="bcard ${c}" data-a="open" data-g="${g.id}">${h?`<img src="${U(h.img,700)}" alt="">`:'<div class="empty"></div>'}<span class="chip s-${c}"><i></i>${NAME(c)}</span><div class="ov">${n?`<span class="new">${t(n.kind==='sel'?'badge.sel':'badge.dl')}</span>`:''}<h3>${hl(g.title)}</h3><div class="s">${cardSub(g)}</div></div></button>`};
+  const newsItem=n=>{const g=G(n.gid),h=thumbOf(g);return `<button data-a="note" data-g="${g.id}">${h?`<img src="${U(h.img,120)}" alt="">`:'<span class="ei"></span>'}<div><strong>${esc(g.title)}</strong><span>${n.kind==='sel'?tn('selected',favCount(g),over(g)?{n:`<b class="x">${favCount(g)}</b>`}:{}):tn('newDl',n.n)}</span></div></button>`};
+  const hour=new Date().getHours(),greet=t(hour<12?'greet.am':hour<18?'greet.pm':'greet.eve');
+  const nw=un.length,gv={greet,name:'Léa',w:(WORDS[S.lang][nw]||nw)+''};
+  const h1=t(nw?nw===1?'dash.newsOne':'dash.newsMany':'dash.quiet',gv);
   const total=live.filter(g=>!g.archived),phs=total.reduce((s,g)=>s+ready(g.photos).length,0);
   return `<div class="dash">${topbar()}
     <div class="dhero" data-r="dhero"><div><h1>${h1}</h1>${nw?`<div class="news">${un.slice(0,3).map(newsItem).join('')}</div>`:''}</div>
-      <button class="btn pri" data-a="new">+ New gallery</button></div>
+      <button class="btn pri" data-a="new">${t('dash.new')}</button></div>
     <div class="dbar${empty?' off':''}">
-      <label class="q">${I.search}<input data-in="q" placeholder="Search galleries" value="${empty?'':esc(u.q)}" aria-label="Search galleries"${off}></label>
+      <label class="q" data-r="dq">${I.search}<input data-in="q" placeholder="${esc(t('dash.search'))}" value="${empty?'':esc(u.q)}" aria-label="${esc(t('dash.search'))}"${off}></label>
       <div class="dd${u.menu==='status'?' open':''}" data-r="dd1"><button class="ddb" data-a="dd" data-k="status" aria-haspopup="true"${off}>${I.filter}<span>${slabel}</span>${I.chev}</button>
-        <div class="ddm" role="menu">${['dra','pro','del'].map(row).join('')}${['exp','arc'].map(row).join('')}<div class="sep"></div><div class="foot"><a data-a="stall">Select all</a><a data-a="streset">Reset</a></div></div></div>
-      <div class="dd${u.menu==='sort'?' open':''}" data-r="dd2"><button class="ddb" data-a="dd" data-k="sort" aria-haspopup="true"${off}>${I.sort}<span>${u.sort}</span>${I.chev}</button>
-        <div class="ddm" role="menu">${SORTS.map(s=>`<button role="menuitemradio" aria-checked="${s===u.sort}" data-a="sort" data-k="${s}"><span class="tick">${I.tickD}</span>${s}</button>`).join('')}</div></div>
+        <div class="ddm" role="menu">${['dra','pro','del'].map(row).join('')}${['exp','arc'].map(row).join('')}<div class="sep"></div><div class="foot"><a data-a="stall">${t('selectAll')}</a><a data-a="streset">${t('dash.reset')}</a></div></div></div>
+      <div class="dd${u.menu==='sort'?' open':''}" data-r="dd2"><button class="ddb" data-a="dd" data-k="sort" aria-haspopup="true"${off}>${I.sort}<span>${t('sort.'+u.sort)}</span>${I.chev}</button>
+        <div class="ddm" role="menu">${SORTS.map(s=>`<button role="menuitemradio" aria-checked="${s===u.sort}" data-a="sort" data-k="${s}"><span class="tick">${I.tickD}</span>${t('sort.'+s)}</button>`).join('')}</div></div>
     </div>
-    ${empty?emptyArt():`<div class="grid" data-r="grid">${list.length?list.map(card).join('')+NEXT
-      :`<div class="none"><h3>${q?`No gallery called “${esc(u.q)}”`:'No galleries with these statuses'}</h3><div>${hidden?`${hidden} match${hidden>1?'':'es'} in statuses you’ve hidden.`:'Check the spelling, or try part of the client’s name.'}</div><button data-a="clear">Clear search and status</button></div>`}</div>
-    <footer data-r="foot"><div class="sig">${esc(S.ws.name)}<small>Your workspace on PhotoProofing</small></div><div class="meta">${total.length} galleries · ${phs} photos</div></footer>`}
+    ${empty?emptyArt():`<div class="grid" data-r="grid">${list.length?list.map(card).join('')+next()
+      :`<div class="none"><h3>${q?t('dash.noneCalled',{q:esc(u.q)}):t('dash.noStatus')}</h3><div>${hidden?tn('hidden',hidden):t('dash.spelling')}</div><button data-a="clear">${t('dash.clear')}</button></div>`}</div>
+    <footer data-r="foot"><div class="sig">${esc(S.ws.name)}<small>${t('dash.workspace')}</small></div><div class="meta">${tn('galleries',total.length)} · ${tn('photos',phs)}</div></footer>`}
   </div>`;
 }
 
 /* ---------- empty workspace: a contact sheet of blank frames; the viewfinder breathes, finding nothing to lock on ---------- */
 function emptyArt(){
   const roll=(from)=>{const one=Array.from({length:9},(_,i)=>{const n=from+i;return `<div class="fx"><span>${n%3?`▸ ${n}&nbsp;&nbsp;&nbsp;${n}A`:'PHOTOPROOFING 400'}</span></div>`}).join('');return `<div class="rn">${one}${one}</div>`};
-  return `<div class="blank" data-r="grid"><div class="cs" role="img" aria-label="An empty contact sheet seen through a camera viewfinder">
+  return `<div class="blank" data-r="grid"><div class="cs" role="img" aria-label="${t('blank.aria')}">
     <div class="sheet"><div class="rl r1">${roll(1)}</div><div class="rl r2">${roll(10)}</div></div><span class="leak"></span>
     <div class="vfx"><i></i><i></i><i></i><i></i><b></b></div>
     <div class="hud"><span>1/125</span><span>F2.8</span><span>ISO 400</span><span class="bad">[ 0 ]</span></div></div>
-    <h2>Nothing in frame yet.</h2></div>`;
+    <h2>${t('blank.title')}</h2></div>`;
 }
 
 /* ---------- gallery page ---------- */
-const CHIP={draft:['draft','Draft'],shared:['live','Shared'],delivered:['done','Delivered'],expired:['exp','Expired']};
+const CHIP={draft:'draft',shared:'live',delivered:'done',expired:'exp'};
 function strip(g){
   const ph=ready(g.photos).length,f=favCount(g),fi=ready(g.finals).length;
-  const st=(cls,n,t,s)=>`<div class="st ${cls}"><span class="n">${cls==='done'?'✓':n}</span><div><strong>${t}</strong>${s}</div></div>`;
+  const st=(cls,n,ttl,s)=>`<div class="st ${cls}"><span class="n">${cls==='done'?'✓':n}</span><div><strong>${ttl}</strong>${s}</div></div>`;
   const ln=ok=>`<i class="ln${ok?' ok':''}"></i>`;
-  const sel=`<span${over(g)?' class="x"':''}>${f} selected</span>`;
+  const sel=`<span${over(g)?' class="x"':''}>${tn('selected',f)}</span>`;
+  const [U1,S2,C3,D4,fin]=[t('step.upload'),t('step.share'),t('step.collect'),t('step.deliver'),t('step.finalsThen')];
   let s;
-  if(g.status==='draft')s=[st(ph?'done':'cur',1,'Upload',ph?`${ph} photo${ph>1?'s':''}`:'Add your proofs'),ln(ph),st(ph?'cur':'',2,'Share','Copy the link'),ln(),st('',3,'Collect favorites','Client picks'),ln(),st('',4,'Deliver','Upload finals, then deliver')];
-  else if(g.status==='delivered'){const d=g.finals.filter(p=>p.dl).length;s=[st('done',1,'Upload',`${ph} photos`),ln(1),st('done',2,'Share',`Shared ${fmtS(g.sharedAt)}`),ln(1),st('done',3,'Collect favorites',`${f} selected`),ln(1),st('done',4,'Delivered',`${fmtS(g.deliveredAt)} · ${d} of ${fi} downloaded`)]}
-  else s=[st('done',1,'Upload',`${ph} photos`),ln(1),st('done',2,'Share',g.status==='expired'?`<span class="x">Expired ${fmtS(g.until)}</span>`:`Shared ${fmtS(g.sharedAt)}`),ln(1),st('cur',3,'Collect favorites',sel),ln(),st(fi?'cur':'',4,'Deliver',fi?`${fi} finals ready`:'Upload finals, then deliver')];
+  if(g.status==='draft')s=[st(ph?'done':'cur',1,U1,ph?tn('photos',ph):t('step.addProofs')),ln(ph),st(ph?'cur':'',2,S2,t('step.copyLink')),ln(),st('',3,C3,t('step.clientPicks')),ln(),st('',4,D4,fin)];
+  else if(g.status==='delivered'){const d=g.finals.filter(p=>p.dl).length;s=[st('done',1,U1,tn('photos',ph)),ln(1),st('done',2,S2,t('step.shared',{d:fmtS(g.sharedAt)})),ln(1),st('done',3,C3,tn('selected',f)),ln(1),st('done',4,t('delivered'),`${fmtS(g.deliveredAt)} · ${tn('dlOf',fi,{d})}`)]}
+  else s=[st('done',1,U1,tn('photos',ph)),ln(1),st('done',2,S2,g.status==='expired'?`<span class="x">${t('step.expired',{d:fmtS(g.until)})}</span>`:t('step.shared',{d:fmtS(g.sharedAt)})),ln(1),st('cur',3,C3,sel),ln(),st(fi?'cur':'',4,D4,fi?tn('finalsReady',fi):fin)];
   const step=g.status==='draft'?(ph?1:0):g.status==='delivered'?4:2;
-  const lab=g.status==='draft'?(ph?['Share','Copy the link']:['Upload','Add your proofs']):g.status==='delivered'?['Delivered',`${g.finals.filter(p=>p.dl).length} of ${fi} downloaded`]:['Collect favorites',`<span${over(g)?' class="x"':''}>${f} selected</span>`];
+  const lab=g.status==='draft'?(ph?[S2,t('step.copyLink')]:[U1,t('step.addProofs')]):g.status==='delivered'?[t('delivered'),tn('dlOf',fi,{d:g.finals.filter(p=>p.dl).length})]:[C3,sel];
   return `<div class="strip on">${s.join('')}</div><div class="ps"><div class="dots">${[0,1,2,3].map(i=>`<i class="${i<step?'d':i===step?'c':''}"></i>`).join('')}</div><div><b>${lab[0]}</b> <span>· ${lab[1]}</span></div></div>`;
 }
 function banner(g){
-  const h=heroOf(g),[cc,cl]=g.archived?['arc','Archived']:CHIP[g.status];
+  const h=heroOf(g),cc=g.archived?'arc':CHIP[g.status],cl=NAME(g.archived?'arc':{draft:'dra',shared:'pro',delivered:'del',expired:'exp'}[g.status]);
   const ph=ready(g.photos).length,fi=ready(g.finals).length;
-  const meta=g.status==='delivered'?`${fi} finished photos · delivered ${fmtS(g.deliveredAt)}`:g.status==='draft'?(ph?`${ph} photos · created ${fmtS(g.created)}`:`Created ${fmtS(g.created)} · no photos yet`):`${ph} photos · shared ${fmtS(g.sharedAt)}`;
-  const main=g.archived?`<button class="btn pri" data-a="restore">${ic.restore.replace(/20/g,'16')} Restore</button>`:g.status==='draft'?`<button class="btn pri" data-a="share">${I.send} Share</button>`:g.status==='delivered'?'':`<button class="btn pri" data-a="deliver">${I.send} Deliver</button>`;
+  const meta=g.status==='delivered'?t('ban.delivered',{x:tn('finished',fi),d:fmtS(g.deliveredAt)}):g.status==='draft'?(ph?t('ban.created',{x:tn('photos',ph),d:fmtS(g.created)}):t('ban.createdNone',{d:fmtS(g.created)})):t('ban.shared',{x:tn('photos',ph),d:fmtS(g.sharedAt)});
+  const main=g.archived?`<button class="btn pri" data-a="restore">${ic.restore.replace(/20/g,'16')} ${t('restore')}</button>`:g.status==='draft'?`<button class="btn pri" data-a="share">${I.send} ${t('share')}</button>`:g.status==='delivered'?'':`<button class="btn pri" data-a="deliver">${I.send} ${t('deliver')}</button>`;
   return `<div class="banner${h?'':' empty nohero'}${g.archived?' arch':''}" data-r="ban">${h?`<img src="${U(h.img,1600)}" alt="">`:deco(g)}
     <div class="t"><span class="chip ${cc}"><i></i>${cl}</span><h1>${titleHTML(g.title)}</h1><div class="meta">${meta}</div></div>
-    <div class="acts"><button class="btn gh" data-a="preview">${I.eye} Preview</button>${main}</div>${g.archived?'':strip(g)}</div>`;
+    <div class="acts"><button class="btn gh" data-a="preview">${I.eye} ${t('preview')}</button>${main}</div>${g.archived?'':strip(g)}</div>`;
 }
 const linkUrl=g=>`photoproofing.app/g/${g.token}`;
 function cards(g){
-  const link=`<span class="lbl">Client link</span>${g.status==='draft'?'<div class="none">Not shared yet</div>':`<div class="url">${linkUrl(g)}</div><div class="la"><button class="btn pri sm" data-a="copy">Copy link</button><button class="btn gh sm" data-a="openc">Open</button></div>`}`;
-  const access=`<span class="lbl">Client access</span><label class="kv"><span>Open until</span><input type="date" data-ch="until" value="${isoDay(g.until)}" required${g.status==='expired'?' class="x"':''}></label><label class="kv"><span>Included photos</span><input type="number" data-ch="incl" min="0" max="999" step="1" value="${g.included}" required></label>`;
-  const lay=`<div class="lay">${[['mas','Staggered columns'],['rows','Even rows']].map(([v,t])=>`<button class="${g.layout===v?'on':''}" data-a="layout" data-v="${v}" title="${t}" aria-label="${t}">${I[v]}</button>`).join('')}</div>`;
-  const look=`<span class="lbl">Look</span><div class="kv"><span>Layout</span>${lay}</div><div class="kv"><span>Watermark proofs</span><button class="tg${g.wm.on?' on':''}" data-a="wmon" role="switch" aria-checked="${g.wm.on}" aria-label="Watermark proofs"></button></div>`;
-  const gal=`<span class="lbl">Gallery</span><div class="la">${g.archived?`<button class="btn gh sm" data-a="restore">${ic.restore} Restore</button>`:`<button class="btn gh sm" data-a="archive">${ic.box} Archive</button>`}<button class="btn gh sm dl" data-a="gdelete">${ic.trash} Delete</button></div>`;
+  const link=`<span class="lbl">${t('lbl.link')}</span>${g.status==='draft'?`<div class="none">${t('notShared')}</div>`:`<div class="url">${linkUrl(g)}</div><div class="la"><button class="btn pri sm" data-a="copy">${t('copyLink')}</button><button class="btn gh sm" data-a="openc">${t('open')}</button></div>`}`;
+  const access=`<span class="lbl">${t('lbl.access')}</span><label class="kv"><span>${t('openUntil')}</span><input type="date" data-ch="until" value="${isoDay(g.until)}" required${g.status==='expired'?' class="x"':''}></label><label class="kv"><span>${t('included')}</span><input type="number" data-ch="incl" min="0" max="999" step="1" value="${g.included}" required></label>`;
+  const lay=`<div class="lay">${[['mas','layout.mas'],['rows','layout.rows']].map(([v,k])=>`<button class="${g.layout===v?'on':''}" data-a="layout" data-v="${v}" title="${t(k)}" aria-label="${t(k)}">${I[v]}</button>`).join('')}</div>`;
+  const look=`<span class="lbl">${t('lbl.look')}</span><div class="kv"><span>${t('layout')}</span>${lay}</div><div class="kv"><span>${t('wmProofs')}</span><button class="tg${g.wm.on?' on':''}" data-a="wmon" role="switch" aria-checked="${g.wm.on}" aria-label="${t('wmProofs')}"></button></div>`;
+  const gal=`<span class="lbl">${t('lbl.gallery')}</span><div class="la">${g.archived?`<button class="btn gh sm" data-a="restore">${ic.restore} ${t('restore')}</button>`:`<button class="btn gh sm" data-a="archive">${ic.box} ${t('archive')}</button>`}<button class="btn gh sm dl" data-a="gdelete">${ic.trash} ${t('delete')}</button></div>`;
   return {link,access,look,gal};
 }
 function rail(g){const c=cards(g);return `<aside class="rail" data-r="rail">${['link','access','look','gal'].map(k=>`<section class="card">${c[k]}</section>`).join('')}</aside>`}
 function r3(g){
-  const c=cards(g),f=S.ui.fly,IC={link:ic.link,access:ic.cal,look:I.mas,gal:ic.box},TOP={link:12,access:56,look:100,gal:144};
-  return `<aside class="r3" data-r="r3">${Object.keys(IC).map(k=>`<button class="ib${f===k?' on':''}" data-a="fly" data-v="${k}" aria-label="${k}">${IC[k]}</button>`).join('')}
+  const c=cards(g),f=S.ui.fly,IC={link:ic.link,access:ic.cal,look:I.mas,gal:ic.box},TOP={link:12,access:56,look:100,gal:144},LB={link:'lbl.link',access:'lbl.access',look:'lbl.look',gal:'lbl.gallery'};
+  return `<aside class="r3" data-r="r3">${Object.keys(IC).map(k=>`<button class="ib${f===k?' on':''}" data-a="fly" data-v="${k}" aria-label="${t(LB[k])}">${IC[k]}</button>`).join('')}
     ${f?`<div class="fly card" style="top:${TOP[f]}px">${c[f]}</div>`:''}</aside>`;
 }
 function tile(p,{g,tab,sel}){
   const k=p.st;
-  if(k==='fail')return `<div class="tile fail" data-t="${p.id}"><img src="${U(p.img,200)}" alt=""><div class="ov">Upload failed<small>Connection lost</small><button class="rbtn" data-a="retry" data-id="${p.id}">${retry} Retry</button></div><button class="del" data-a="del" data-id="${p.id}" aria-label="Delete photo">${xS}</button></div>`;
-  if(k!=='ok')return `<div class="tile ${k}" data-t="${p.id}"><img src="${U(p.img,200)}" alt=""><span class="pct">${{wait:'Waiting',up:'Uploading',proc:'Processing'}[k]}</span><div class="bar2${k==='wait'?' idle':''}"><i></i></div></div>`;
+  if(k==='fail')return `<div class="tile fail" data-t="${p.id}"><img src="${U(p.img,200)}" alt=""><div class="ov">${t('tile.failed')}<small>${t('tile.lost')}</small><button class="rbtn" data-a="retry" data-id="${p.id}">${retry} ${t('retry')}</button></div><button class="del" data-a="del" data-id="${p.id}" aria-label="${t('tile.delete')}">${xS}</button></div>`;
+  if(k!=='ok')return `<div class="tile ${k}" data-t="${p.id}"><img src="${U(p.img,200)}" alt=""><span class="pct">${t('tile.'+k)}</span><div class="bar2${k==='wait'?' idle':''}"><i></i></div></div>`;
   const on=sel&&sel.has(p.id),isHero=tab==='photos'&&heroOf(g)===p;
-  const hero=tab!=='photos'?'':sel?(isHero?`<span class="hero">${I.star} Hero</span>`:'')
-    :`<button class="hero${isHero?' on':''}" data-a="thero" data-id="${p.id}" aria-pressed="${isHero}" aria-label="${isHero?'Remove hero':'Set as hero'}" title="${isHero?'Remove hero':'Set as hero'}">${I.star}${isHero?' Hero':''}</button>`;
-  const act=sel?'':tab==='favorites'?`<button class="dlh" data-a="fdl" data-id="${p.id}" aria-label="Download photo" title="Download">${dlS}</button>`:`<button class="del" data-a="del" data-id="${p.id}" aria-label="Delete photo">${xS}</button>`;
-  return `<div class="tile${on?' on':''}" data-t="${p.id}" data-a="${sel?'pick':'view'}" data-id="${p.id}" tabindex="0"><img src="${U(p.img)}" alt="" loading="lazy">${sel?`<span class="chk">${ck}</span>`:''}${hero}${tab==='final'&&g.status==='delivered'&&p.dl?`<span class="dlm" title="Downloaded">${dlS}</span>`:''}${act}</div>`;
+  const hero=tab!=='photos'?'':sel?(isHero?`<span class="hero">${I.star} ${t('hero')}</span>`:'')
+    :`<button class="hero${isHero?' on':''}" data-a="thero" data-id="${p.id}" aria-pressed="${isHero}" aria-label="${t(isHero?'removeHero':'setHero')}" title="${t(isHero?'removeHero':'setHero')}">${I.star}${isHero?' '+t('hero'):''}</button>`;
+  const act=sel?'':tab==='favorites'?`<button class="dlh" data-a="fdl" data-id="${p.id}" aria-label="${t('tile.dlAria')}" title="${t('download')}">${dlS}</button>`:`<button class="del" data-a="del" data-id="${p.id}" aria-label="${t('tile.delete')}">${xS}</button>`;
+  return `<div class="tile${on?' on':''}" data-t="${p.id}" data-a="${sel?'pick':'view'}" data-id="${p.id}" tabindex="0"><img src="${U(p.img)}" alt="" loading="lazy">${sel?`<span class="chk">${ck}</span>`:''}${hero}${tab==='final'&&g.status==='delivered'&&p.dl?`<span class="dlm" title="${t('downloaded')}">${dlS}</span>`:''}${act}</div>`;
 }
 function tabs(g,tab){
   const del=g.status==='delivered',n=g.photos.length,f=favCount(g),fi=g.finals.length;
   const b=(k,l,em,lk)=>`<button class="${tab===k?'on':''}" data-a="tab" data-v="${k}">${l}${lk?`<span class="lk" title="${lk}">${lock}</span>`:''}<em${k==='favorites'&&over(g)?' class="x"':''}>${em}</em></button>`;
-  return `<div class="tbar" data-r="tabs"><div class="tabs">${b('photos','Photos',n)}${b('favorites','Favorites',f,del&&'Locked after delivery')}${b('final','Final',fi)}</div></div>`;
+  return `<div class="tbar" data-r="tabs"><div class="tabs">${b('photos',t('tab.photos'),n)}${b('favorites',t('tab.favorites'),f,del&&t('tab.locked'))}${b('final',t('tab.final'),fi)}</div></div>`;
 }
 const tabList=(g,tab)=>tab==='final'?g.finals:tab==='favorites'?g.photos.filter(p=>p.fav&&p.st==='ok'):g.photos;
 function mainArea(g,tab){
   const sel=S.ui.sel&&S.ui.selTab===tab?S.ui.sel:null,ctx={g,tab,sel};
   const lc=g.layout==='rows'?' rows':'',fav=tab==='favorites';
   const list=tabList(g,tab);
-  if(!list.length)return fav?`<div data-r="tools"></div><div class="fempty" data-r="grid"><div class="hrt">${hrt}</div><h3>No favorites yet</h3></div>`
-    :`<div data-r="tools"></div><div class="drop" data-r="grid">${upl}<h3>${tab==='final'?'Drop the finished photos here':'Drop the shoot here'}</h3><button class="btn pri" data-a="upload">${upS} Upload</button></div>`;
-  const selBtn=`<button class="btn gh sm" data-a="select">${selI} Select</button>`;
-  const regen=tab==='photos'&&g.wm.on&&regenOn(g)?'<span class="regen" role="status"><span class="spin"></span>Updating watermarks…</span>':'';
+  if(!list.length)return fav?`<div data-r="tools"></div><div class="fempty" data-r="grid"><div class="hrt">${hrt}</div><h3>${t('noFav')}</h3></div>`
+    :`<div data-r="tools"></div><div class="drop" data-r="grid">${upl}<h3>${t(tab==='final'?'drop.final':'drop.photos')}</h3><button class="btn pri" data-a="upload">${upS} ${t('upload')}</button></div>`;
+  const selBtn=`<button class="btn gh sm" data-a="select">${selI} ${t('select')}</button>`;
+  const regen=tab==='photos'&&g.wm.on&&regenOn(g)?`<span class="regen" role="status"><span class="spin"></span>${t('regen')}</span>`:'';
   let tools;
-  if(sel)tools=`<div class="selbar"><button class="ic" data-a="selx" aria-label="Cancel selection">${xM}</button><strong>${sel.size} selected</strong><span class="sp"></span><button class="btn gh sm" data-a="selall">Select all</button>${fav
-      ?`<button class="btn lt sm${sel.size?'':' dis'}" data-a="seldl">${dl} Download</button>`
-      :`<button class="btn dz sm${sel.size?'':' dis'}" data-a="seldel">${trash} Delete</button>`}</div>`;
-  else if(fav){const busy=S.ui.busy[g.id];tools=`<span class="fcount"></span>${selBtn}${busy?`<button class="btn pri sm dlb" disabled>Downloading<span class="bar2"><i></i></span></button>`:`<button class="btn pri sm dlb" data-a="dlfavs">${dl} Download</button>`}`}
-  else tools=`<span class="fcount">${regen}</span>${selBtn}<button class="btn pri sm" data-a="upload">${upS} Upload</button>`;
+  if(sel)tools=`<div class="selbar"><button class="ic" data-a="selx" aria-label="${t('sel.cancel')}">${xM}</button><strong>${tn('selected',sel.size)}</strong><span class="sp"></span><button class="btn gh sm" data-a="selall">${t('selectAll')}</button>${fav
+      ?`<button class="btn lt sm${sel.size?'':' dis'}" data-a="seldl">${dl} ${t('download')}</button>`
+      :`<button class="btn dz sm${sel.size?'':' dis'}" data-a="seldel">${trash} ${t('delete')}</button>`}</div>`;
+  else if(fav){const busy=S.ui.busy[g.id];tools=`<span class="fcount"></span>${selBtn}${busy?`<button class="btn pri sm dlb" disabled>${t('sel.downloading')}<span class="bar2"><i></i></span></button>`:`<button class="btn pri sm dlb" data-a="dlfavs">${dl} ${t('download')}</button>`}`}
+  else tools=`<span class="fcount">${regen}</span>${selBtn}<button class="btn pri sm" data-a="upload">${upS} ${t('upload')}</button>`;
   return `<div class="ptools" data-r="tools">${tools}</div><div class="mas${lc}${sel?' sel':''}" data-r="grid">${list.map(p=>tile(p,ctx)).join('')}</div>`;
 }
 function gallery(g,tab){
@@ -1083,7 +1366,7 @@ function upload(g,tab){
   const failAt=n>=6?4:-1;
   fresh.forEach((p,i)=>{
     later(()=>{p.st='up';render()},400+i*450);
-    later(()=>{if(i===failAt){p.st='fail';render();toast('1 photo failed to upload.',false);return}p.st='proc';render()},1500+i*450);
+    later(()=>{if(i===failAt){p.st='fail';render();toast(t('upload.fail'),false);return}p.st='proc';render()},1500+i*450);
     later(()=>{if(p.st!=='proc')return;p.st='ok';touch(g);render()},2500+i*450);
   });
   render();
@@ -1108,22 +1391,22 @@ function closeModal(v){
 }
 const stackOf=ps=>`<div class="stack">${ps.slice(0,3).reverse().map(p=>`<img src="${U(p.img,200)}" alt="">`).join('')}</div>`;
 const EBOX=`<div class="ebox">${imgI}</div>`;
-function confirmDlg({vis='',title,text='',warn='',cancel='Not yet',ok,kind='go'}){
+function confirmDlg({vis='',title,text='',warn='',cancel=t('notYet'),ok,kind='go'}){
   return openModal(`<div class="dlg" role="dialog" aria-modal="true" aria-label="${esc(title)}">${vis}<div><h3>${title}</h3><p>${text}${warn?`<span class="warn">${warn}</span>`:''}</p></div>
     <div class="row"><button class="cancel" data-m="0">${cancel}</button><button class="${kind}" data-m="1">${ok}</button></div></div>`);
 }
-function formDlg(title,body,ok='Save'){
+function formDlg(title,body,ok=t('save')){
   return openModal(`<form class="dlg one" role="dialog" aria-modal="true" aria-label="${esc(title)}" data-form><div><h3>${title}</h3></div>${body}
-    <div class="row"><button type="button" class="cancel" data-m="0">Cancel</button><button class="go" type="submit">${ok}</button></div></form>`);
+    <div class="row"><button type="button" class="cancel" data-m="0">${t('cancel')}</button><button class="go" type="submit">${ok}</button></div></form>`);
 }
 function toast(msg,ok=true){
-  const t=document.createElement('div');t.className='toast'+(ok?' ok':'');t.setAttribute('role',ok?'status':'alert');
-  t.innerHTML=`<span class="ti">${ok?ck:'!'}</span>${esc(msg)}${ok?'':'<button aria-label="Dismiss" data-a="toastx">✕</button>'}`;
-  $('#toasts').appendChild(t);
-  setTimeout(()=>{t.classList.add('bye');setTimeout(()=>t.remove(),300)},ok?2200:4200);
+  const el=document.createElement('div');el.className='toast'+(ok?' ok':'');el.setAttribute('role',ok?'status':'alert');
+  el.innerHTML=`<span class="ti">${ok?ck:'!'}</span>${esc(msg)}${ok?'':`<button aria-label="${t('dismiss')}" data-a="toastx">✕</button>`}`;
+  $('#toasts').appendChild(el);
+  setTimeout(()=>{el.classList.add('bye');setTimeout(()=>el.remove(),300)},ok?2200:4200);
 }
 const pending=list=>{const up=list.filter(p=>['wait','up','proc'].includes(p.st)).length,f=list.filter(p=>p.st==='fail').length;
-  if(!up&&!f)return '';return [up&&`${up} ${up>1?'are':'is'} still uploading`,f&&`${f} failed`].filter(Boolean).join(' and ')+'.'};
+  if(!up&&!f)return '';return [up&&tn('pendUp',up),f&&t('pendFail',{n:f})].filter(Boolean).join(t('and'))+'.'};
 
 /* ---------- share & deliver (warn, never block) ---------- */
 async function shareFlow(g){
@@ -1131,12 +1414,12 @@ async function shareFlow(g){
   const empty=!ok.length;
   const html=`<div class="dlg sh" role="dialog" aria-modal="true" aria-live="polite">
     <div class="vis">${empty?EBOX:stackOf(ok)}<div class="okc"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div></div>
-    <div class="t a">${empty?`<h3>Share with no photos?</h3><p>This creates a private link.<span class="warn">Clients see an empty gallery until you upload.</span></p>`
-      :`<h3>Share ${ok.length} photos?</h3><p>This creates a private link. Anyone with it can see the proofs and pick favorites until ${until}.${warn?`<span class="warn">${warn}</span>`:''}</p>`}</div>
-    <div class="t b"><h3>Your gallery is shared</h3><p>Open until ${until}.</p></div>
-    <div class="r a"><button class="cancel" data-m="0">Not yet</button><button class="go" data-a="doshare">${empty?'Share anyway':'Share'}</button></div>
-    <div class="r b"><button class="btn pri sm" data-a="copy">${linkI} Copy link</button><button class="btn gh sm" data-a="email">${mailI} Email</button><button class="btn gh sm" data-a="sms">${smsI} SMS</button></div>
-    <button class="x t b" data-m="1" aria-label="Close" style="grid-row:auto">✕</button></div>`;
+    <div class="t a">${empty?`<h3>${t('share.empty')}</h3><p>${t('share.private')}<span class="warn">${t('share.emptyWarn')}</span></p>`
+      :`<h3>${t('share.title',{n:ok.length})}</h3><p>${t('share.text',{until})}${warn?`<span class="warn">${warn}</span>`:''}</p>`}</div>
+    <div class="t b"><h3>${t('share.done')}</h3><p>${t('share.open',{until})}</p></div>
+    <div class="r a"><button class="cancel" data-m="0">${t('notYet')}</button><button class="go" data-a="doshare">${t(empty?'share.anyway':'share')}</button></div>
+    <div class="r b"><button class="btn pri sm" data-a="copy">${linkI} ${t('copyLink')}</button><button class="btn gh sm" data-a="email">${mailI} ${t('email')}</button><button class="btn gh sm" data-a="sms">${smsI} ${t('sms')}</button></div>
+    <button class="x t b" data-m="1" aria-label="${t('close')}" style="grid-row:auto">✕</button></div>`;
   await openModal(html);
 }
 function doShare(g){
@@ -1145,11 +1428,11 @@ function doShare(g){
 }
 async function deliverFlow(g){
   const ok=ready(g.finals),warn=pending(g.finals);
-  const yes=await confirmDlg(ok.length?{vis:stackOf(ok),title:`Deliver ${ok.length} photos?`,text:`${esc(g.title)} ${g.title.includes('&')?'see':'sees'} them at the same link and can download them. Favorites are locked from now on.`,warn,ok:'Deliver'}
-    :{vis:EBOX,title:'Deliver with no photos?',text:'Clients see an empty gallery until you upload the finished photos. Favorites are locked from now on.',warn,ok:'Deliver anyway'});
+  const yes=await confirmDlg(ok.length?{vis:stackOf(ok),title:t('dlv.title',{n:ok.length}),text:t(g.title.includes('&')?'dlv.textMany':'dlv.text',{title:esc(g.title)}),warn,ok:t('deliver')}
+    :{vis:EBOX,title:t('dlv.emptyTitle'),text:t('dlv.emptyText'),warn,ok:t('dlv.anyway')});
   if(!yes)return;
   g.status='delivered';g.deliveredAt=Date.now();touch(g);
-  toast('Delivered');go(`#/g/${g.id}/final`);
+  toast(t('delivered'));go(`#/g/${g.id}/final`);
 }
 
 /* ---------- preview overlay (real client view; hearts stay local) ---------- */
@@ -1159,7 +1442,7 @@ function renderPreview(){
   if(!pv){o.classList.remove('open');o.innerHTML='';o.dataset.k='';if(!$('#viewer.open'))document.body.classList.remove('lock');return}
   const g=G(pv.gid);
   const body=clientView(g,{preview:true,narrow:pv.ph});
-  const bar=`<div class="pvbar"><span class="pvl">${I.eye} <span>Preview</span></span><div class="seg"><button class="${pv.ph?'':'on'}" data-a="pvmode" data-v="0">${deskI} <span>Desktop</span></button><button class="${pv.ph?'on':''}" data-a="pvmode" data-v="1">${phI} <span>Phone</span></button></div><button class="pvx" data-a="pvclose">✕ Close</button></div>`;
+  const bar=`<div class="pvbar"><span class="pvl">${I.eye} <span>${t('preview')}</span></span><div class="seg"><button class="${pv.ph?'':'on'}" data-a="pvmode" data-v="0">${deskI} <span>${t('pv.desktop')}</span></button><button class="${pv.ph?'on':''}" data-a="pvmode" data-v="1">${phI} <span>${t('pv.phone')}</span></button></div><button class="pvx" data-a="pvclose">${t('pv.close')}</button></div>`;
   const stage=o.querySelector('.stage'),y=stage?(stage.querySelector('.scr')||stage).scrollTop:0,same=o.dataset.k===`${g.id}${pv.ph}`;
   const html=`<div class="pv">${bar}<div class="stage${pv.ph?' ph':''}">${pv.ph?`<div class="phone2"><div class="scr">${body}</div></div>`:body}</div></div>`;
   if(same)patch(o,html);else{o.innerHTML=html;stamp(o)}
@@ -1179,15 +1462,15 @@ function renderViewer(){
   const on=client?(v.preview?S.ui.pv.fav.has(p.id):p.fav):p.fav;
   const cnt=client&&!fin?(v.preview?S.ui.pv.fav.size:favCount(g)):0;
   const top=client
-    ?`<div class="vt"><span class="ti">${titleHTML(g.title)}</span><span class="of">${v.i+1} of ${n}</span><span class="sp"></span>${fin?'':`<span class="cnt">${hF}<span class="n">${cnt}</span></span><button class="gb hv${on?' on':''}${v.preview?' dis':''}" data-a="vheart"${v.preview?' aria-disabled="true" title="Not available in preview"':''} aria-pressed="${on}" aria-label="${on?'Remove from favorites':'Add to favorites'}">${on?hF:hO} <span class="lbx">${on?'Favorite':'Add to favorites'}</span></button>`}<button class="gb x" data-a="vx" aria-label="Close">${xI}</button></div>`
-    :`<div class="vt"><span class="fn">${esc(p.name)}</span><span class="of">${v.i+1} of ${n}</span><span class="sp"></span>${p.st==='ok'&&v.list==='photos'?`<button class="gb${heroOf(g)===p?' on':''}" data-a="vhero" aria-pressed="${heroOf(g)===p}" aria-label="${heroOf(g)===p?'Remove hero':'Set as hero'}"><span class="st2">${I.star}</span> <span class="lbx">${heroOf(g)===p?'Remove hero':'Set as hero'}</span></button>`:''}${v.list!=='favorites'?`<button class="gb dz" data-a="vdel">${trI} <span class="lbx">Delete</span></button>`:''}<button class="gb x" data-a="vx" aria-label="Close">${xI}</button></div>`;
+    ?`<div class="vt"><span class="ti">${titleHTML(g.title)}</span><span class="of">${t('vw.of',{i:v.i+1,n})}</span><span class="sp"></span>${fin?'':`<span class="cnt">${hF}<span class="n">${cnt}</span></span><button class="gb hv${on?' on':''}${v.preview?' dis':''}" data-a="vheart"${v.preview?` aria-disabled="true" title="${t('notInPreview')}"`:''} aria-pressed="${on}" aria-label="${t(on?'removeFav':'addFav')}">${on?hF:hO} <span class="lbx">${t(on?'favorite':'addFav')}</span></button>`}<button class="gb x" data-a="vx" aria-label="${t('close')}">${xI}</button></div>`
+    :`<div class="vt"><span class="fn">${esc(p.name)}</span><span class="of">${t('vw.of',{i:v.i+1,n})}</span><span class="sp"></span>${p.st==='ok'&&v.list==='photos'?`<button class="gb${heroOf(g)===p?' on':''}" data-a="vhero" aria-pressed="${heroOf(g)===p}" aria-label="${t(heroOf(g)===p?'removeHero':'setHero')}"><span class="st2">${I.star}</span> <span class="lbx">${t(heroOf(g)===p?'removeHero':'setHero')}</span></button>`:''}${v.list!=='favorites'?`<button class="gb dz" data-a="vdel">${trI} <span class="lbx">${t('delete')}</span></button>`:''}<button class="gb x" data-a="vx" aria-label="${t('close')}">${xI}</button></div>`;
   const wmk=client&&!fin&&g.wm.on?wmark(S.ws):'';
-  const pic=p.st==='fail'?`<div class="fail"><div><strong>This photo could not be processed</strong><button class="gb" data-a="vretry">${rtI} Try again</button></div></div>`
+  const pic=p.st==='fail'?`<div class="fail"><div><strong>${t('vw.failed')}</strong><button class="gb" data-a="vretry">${rtI} ${t('tryAgain')}</button></div></div>`
     :p.st!=='ok'?`<div class="wait"><span class="spin"></span></div>`
-    :`<span class="pic"${wmk?' data-cq':''}><img src="${U(p.img,1600)}" alt="">${wmk}${client?(fin?`<button class="vh w" data-a="vdl" aria-label="Download this photo">${big(dA)}</button>`:''):on&&v.list==='favorites'?`<span class="vh on ro" role="img" aria-label="Client favorite">${big(hF)}</span>`:''}</span>`;
-  const stage=`<div class="st">${pic}<button class="ar l" data-a="vprev" aria-label="Previous"${v.i?'':' disabled'}>${lI}</button><button class="ar r" data-a="vnext" aria-label="Next"${v.i<n-1?'':' disabled'}>${rI}</button></div>`;
-  const bot=client?(fin?`<div class="vb"><button class="dlv" data-a="vdl">${big(dA)} Download</button></div>`:`<div class="vb"><button class="hbig${on?' on':''}${v.preview?' dis':''}" data-a="vheart"${v.preview?' aria-disabled="true"':''}>${big(on?hF:hO)} <span>${on?'Favorite':'Add to favorites'}</span></button></div>`):'<div class="vb"></div>';
-  const html=`<div class="vw${client?'':' nb'}" role="dialog" aria-modal="true" aria-label="Photo viewer">${top}${stage}${bot}</div>`;
+    :`<span class="pic"${wmk?' data-cq':''}><img src="${U(p.img,1600)}" alt="">${wmk}${client?(fin?`<button class="vh w" data-a="vdl" aria-label="${t('vw.dlThis')}">${big(dA)}</button>`:''):on&&v.list==='favorites'?`<span class="vh on ro" role="img" aria-label="${t('vw.clientFav')}">${big(hF)}</span>`:''}</span>`;
+  const stage=`<div class="st">${pic}<button class="ar l" data-a="vprev" aria-label="${t('vw.prev')}"${v.i?'':' disabled'}>${lI}</button><button class="ar r" data-a="vnext" aria-label="${t('vw.next')}"${v.i<n-1?'':' disabled'}>${rI}</button></div>`;
+  const bot=client?(fin?`<div class="vb"><button class="dlv" data-a="vdl">${big(dA)} ${t('download')}</button></div>`:`<div class="vb"><button class="hbig${on?' on':''}${v.preview?' dis':''}" data-a="vheart"${v.preview?' aria-disabled="true"':''}>${big(on?hF:hO)} <span>${t(on?'favorite':'addFav')}</span></button></div>`):'<div class="vb"></div>';
+  const html=`<div class="vw${client?'':' nb'}" role="dialog" aria-modal="true" aria-label="${t('vw.aria')}">${top}${stage}${bot}</div>`;
   if(box._s!==html){box.innerHTML=html;box._s=html}
   box.classList.add('open');document.body.classList.add('lock');fitCq();
 }
@@ -1206,18 +1489,18 @@ const wsDirty=()=>Object.keys(DEF_WS).some(k=>S.wsd[k]!==S.ws[k]);
 function settings(){
   const s=S.wsd,d=wsDirty(),pr=(k,v,cur)=>`data-a="ws" data-k="${k}" data-v="${v}" aria-pressed="${cur}"`;
   const rows=[PH.slice(0,3),PH.slice(3,6)];
-  const cov=(sg)=>{const h=thumbOf(G('camille')||S.galleries[0]);return `<div class="cov" data-cq><img src="${U(h?h.img:P[0],600)}" alt="">${sigH(s,sg)}<div class="ttl"><b>Camille &amp; Hugo</b><i>14 JUNE 2025 · PROVENCE</i></div></div>`};
-  return `<div class="stg">${topbar('Settings')}<div class="pg">
-    <div class="hd" data-r="shd"><h1>Settings</h1><button class="sv g cn" data-a="wscancel"${d?'':' disabled'}><span class="t">Cancel</span><span class="k">${UNDO}Reverted</span></button><button class="sv p" data-a="wssave"${d?'':' disabled'}><span class="t">Save changes</span><span class="k">${TICK}Saved</span></button></div>
-    <div class="wsp" data-r="swsp">${s.logo?`<div class="ltile">${LOGO}<button class="x" data-a="ws" data-k="logo" data-v="0" aria-label="Remove logo">✕</button></div>`:`<button class="ltile up" data-a="ws" data-k="logo" data-v="1">${UPI}Logo</button>`}<input class="nmi" value="${esc(s.name)}" data-in="wsname" aria-label="Studio name"></div>
-    <h3>Watermark on proofs</h3>
-    <div class="tb" data-r="stb"><div class="gp">${[['name','<span class="gl">Aa</span>','Name'],['logo',`<span class="gl">${LOGO}</span>`,'Logo'],['both',`<span class="gl">${LOGO}Aa</span>`,'Name and logo']].map(([v,g,t])=>`<button class="tbi${!s.logo&&v!=='name'?' dis':''}" ${pr('wm',v,s.wm===v)} title="${t}" aria-label="${t}">${g}</button>`).join('')}</div>
-      <div class="gp">${[[1,REP,'Repeat'],[0,ONE,'Once']].map(([v,g,t])=>`<button class="tbi" ${pr('rep',v,+s.rep===v)} title="${t}" aria-label="${t}">${g}</button>`).join('')}</div>
-      <div class="gp" title="Position"><div class="pos${s.rep?' dis':''}" aria-disabled="${s.rep}">${Array.from({length:9},(_,i)=>`<button ${pr('pl',i,!s.rep&&s.pl===i)} aria-label="Position ${i+1}"></button>`).join('')}</div></div>
-      <div class="gp gs"><div class="sz"><span style="font-size:13px">A</span><input type="range" min="0" max="4" step="1" value="${s.k}" data-in="wsk" aria-label="Watermark size"><span style="font-size:24px">A</span></div></div></div>
+  const cov=(sg)=>{const gc=G('camille')||S.galleries[0],h=thumbOf(gc);return `<div class="cov" data-cq><img src="${U(h?h.img:P[0],600)}" alt="">${sigH(s,sg)}<div class="ttl"><b>Camille &amp; Hugo</b><i>${esc(fmtLong(gc.date||gc.created).toUpperCase())} · PROVENCE</i></div></div>`};
+  return `<div class="stg">${topbar(t('settings'))}<div class="pg">
+    <div class="hd" data-r="shd"><h1>${t('settings')}</h1><button class="sv g cn" data-a="wscancel"${d?'':' disabled'}><span class="t">${t('cancel')}</span><span class="k">${UNDO}${t('stg.reverted')}</span></button><button class="sv p" data-a="wssave"${d?'':' disabled'}><span class="t">${t('stg.save')}</span><span class="k">${TICK}${t('saved')}</span></button></div>
+    <div class="wsp" data-r="swsp">${s.logo?`<div class="ltile">${LOGO}<button class="x" data-a="ws" data-k="logo" data-v="0" aria-label="${t('stg.removeLogo')}">✕</button></div>`:`<button class="ltile up" data-a="ws" data-k="logo" data-v="1">${UPI}${t('stg.logo')}</button>`}<input class="nmi" value="${esc(s.name)}" data-in="wsname" aria-label="${t('stg.studio')}"></div>
+    <h3>${t('stg.wmTitle')}</h3>
+    <div class="tb" data-r="stb"><div class="gp">${[['name','<span class="gl">Aa</span>',t('stg.name')],['logo',`<span class="gl">${LOGO}</span>`,t('stg.logo')],['both',`<span class="gl">${LOGO}Aa</span>`,t('stg.nameLogo')]].map(([v,g,lb])=>`<button class="tbi${!s.logo&&v!=='name'?' dis':''}" ${pr('wm',v,s.wm===v)} title="${lb}" aria-label="${lb}">${g}</button>`).join('')}</div>
+      <div class="gp">${[[1,REP,t('stg.repeat')],[0,ONE,t('stg.once')]].map(([v,g,lb])=>`<button class="tbi" ${pr('rep',v,+s.rep===v)} title="${lb}" aria-label="${lb}">${g}</button>`).join('')}</div>
+      <div class="gp" title="${t('stg.position')}"><div class="pos${s.rep?' dis':''}" aria-disabled="${s.rep}">${Array.from({length:9},(_,i)=>`<button ${pr('pl',i,!s.rep&&s.pl===i)} aria-label="${t('stg.positionN',{n:i+1})}"></button>`).join('')}</div></div>
+      <div class="gp gs"><div class="sz"><span style="font-size:13px">A</span><input type="range" min="0" max="4" step="1" value="${s.k}" data-in="wsk" aria-label="${t('stg.size')}"><span style="font-size:24px">A</span></div></div></div>
     <div class="sheet" data-r="ssheet">${rows.map(r=>`<div class="r">${r.map(([id,ar])=>`<div class="prf" data-cq style="flex:${ar}"><img src="${U(id,700)}" alt="">${wmark(s)}</div>`).join('')}</div>`).join('')}</div>
-    <h3>Cover signature</h3>
-    <div class="sigs" data-r="ssig">${[['name','Name'],['logo','Logo'],['both','Both'],['none','None']].map(([v,t])=>`<button ${pr('sg',v,s.sg===v)} class="${!s.logo&&(v==='logo'||v==='both')?'dis':''}">${cov(v)}<b>${t}</b></button>`).join('')}</div>
+    <h3>${t('stg.sigTitle')}</h3>
+    <div class="sigs" data-r="ssig">${[['name',t('stg.name')],['logo',t('stg.logo')],['both',t('stg.both')],['none',t('stg.noneSig')]].map(([v,lb])=>`<button ${pr('sg',v,s.sg===v)} class="${!s.logo&&(v==='logo'||v==='both')?'dis':''}">${cov(v)}<b>${lb}</b></button>`).join('')}</div>
   </div></div>`;
 }
 
@@ -1227,12 +1510,12 @@ const HUES=[['#f2b27a','#c86b4a'],['#e9c9a0','#8a9a7a'],['#f0a48c','#d9c2a0'],['
 const film=n=>{const one=Array.from({length:n},(_,i)=>{const [c,c2]=HUES[i%HUES.length];
   return `<div class="cell"><div class="fr"><i style="--c:${c};--c2:${c2};--x:${30+(i*23)%45}%;--y:${40+(i*17)%35}%;--d:${(i*1.3)%9}s"></i></div><span>▸ ${i+1}&nbsp;&nbsp;&nbsp;${i+1}A${i%2?'':'&nbsp;&nbsp;&nbsp;PHOTOPROOFING 400'}</span></div>`}).join('');
   return `<div class="film" aria-hidden="true"><div class="reel">${one}${one}</div></div>`};
-const metaLine=g=>[g.date,g.place].filter(Boolean).join(' · ');
-const unavailable=(nar='')=>`<div class="cstate nf${nar}"><div class="vf2" role="img" aria-label="A camera viewfinder failing to focus">
+const metaLine=g=>[g.date&&fmtLong(g.date),g.place].filter(Boolean).join(' · ');
+const unavailable=(nar='')=>`<div class="cstate nf${nar}"><div class="vf2" role="img" aria-label="${t('nf.aria')}">
   <div class="bk">${BOKEH.map(([x,y,s,c])=>`<b style="--x:${x};--y:${y};--s:${s};--c:${c}"></b>`).join('')}</div>
   <span class="c tl"></span><span class="c tr"></span><span class="c bl"></span><span class="c br"></span><div class="af"></div>
   <div class="hud"><span>1/125</span><span>F2</span><span class="scale">0.5&nbsp;&nbsp;1&nbsp;&nbsp;3&nbsp;&nbsp;10&nbsp;&nbsp;∞<i></i></span><span class="bad">AF</span></div></div>
-  <div class="msg"><h4>Focus not locked</h4><p>This link no longer works. Ask your photographer for a new one.</p></div>
+  <div class="msg"><h4>${t('nf.title')}</h4><p>${t('nf.text')}</p></div>
   <div class="foot">PhotoProofing</div></div>`;
 function clientView(g,{preview=false,narrow=false}={}){
   const nar=narrow?' narrow':'',ws=S.ws;
@@ -1242,21 +1525,21 @@ function clientView(g,{preview=false,narrow=false}={}){
   const h=heroOf(g),title=titleHTML(g.title);
   if(st==='em')return `<div class="cstate em${nar}"><div class="sg">${ws.logo?LOGO:''}<small>${esc(ws.name)}</small></div>
     <div class="ttl"><h3>${title}</h3><div class="meta">${metaLine(g)}</div></div>${film(8)}
-    <div class="msg"><h4>Your photos are on their way.</h4><p>Check back soon.</p></div><div class="foot">Shared with PhotoProofing</div></div>`;
+    <div class="msg"><h4>${t('cl.onWay')}</h4><p>${t('cl.back')}</p></div><div class="foot">${t('cl.sharedWith')}</div></div>`;
   if(st==='cl')return `<div class="cstate cl${nar}"><div class="ccv${h?'':' nohero'}"${h?` style="background-image:url(${U(h.img,1400)})"`:''}>${h?'':deco(g)}${sigH(ws)}<h3>${title}</h3><div class="meta">${metaLine(g)}</div></div>
-    <div class="bd">${film(6)}<div><h4>Your finished photos are on their way.</h4><p>Check back soon.</p></div></div></div>`;
+    <div class="bd">${film(6)}<div><h4>${t('cl.finalsOnWay')}</h4><p>${t('cl.back')}</p></div></div></div>`;
   const fin=st==='fin',list=ready(fin?g.finals:g.photos);
   const isFav=p=>preview?S.ui.pv.fav.has(p.id):p.fav;
   const nFav=list.filter(isFav).length,showFav=!fin&&S.ui.cf==='fav';
   const shown=showFav?list.filter(isFav):list;
   const wm=!fin&&g.wm.on?wmark(S.ws):'';
-  const ct=p=>{const on=isFav(p);return `<div class="ct" data-t="${p.id}" data-a="cview" data-id="${p.id}"${wm?' data-cq':''}><img src="${U(p.img)}" alt="" loading="lazy">${wm}${fin?`<button class="hb w" data-a="cdl" data-id="${p.id}" aria-label="Download">${dA}</button>`:`<button class="hb${on?' on':''}${preview?' dis':''}" data-a="heart" data-id="${p.id}"${preview?' aria-disabled="true" title="Not available in preview"':''} aria-label="${on?'Remove from favorites':'Add to favorites'}" aria-pressed="${on}">${on?hF:hO}</button>`}</div>`};
-  const dlAll=`<button class="btn pri" data-a="cdlall">${dA} Download all</button>`;
+  const ct=p=>{const on=isFav(p);return `<div class="ct" data-t="${p.id}" data-a="cview" data-id="${p.id}"${wm?' data-cq':''}><img src="${U(p.img)}" alt="" loading="lazy">${wm}${fin?`<button class="hb w" data-a="cdl" data-id="${p.id}" aria-label="${t('download')}">${dA}</button>`:`<button class="hb${on?' on':''}${preview?' dis':''}" data-a="heart" data-id="${p.id}"${preview?` aria-disabled="true" title="${t('notInPreview')}"`:''} aria-label="${t(on?'removeFav':'addFav')}" aria-pressed="${on}">${on?hF:hO}</button>`}</div>`};
+  const dlAll=`<button class="btn pri" data-a="cdlall">${dA} ${t('cl.downloadAll')}</button>`;
   return `<div class="cp${nar}">
-    <div class="ccov${h?'':' nohero'}" data-r="ccov"${h?` style="background-image:url(${U(h.img,1600)})"`:''}>${h?'':deco(g)}${sigH(ws)}<div class="bt">${fin?'<div class="ready">Your photos are ready</div>':''}<h2>${title}</h2><div class="m">${list.length} photos</div>
-      <div class="ctas">${fin?`<button class="cta f" data-a="cdlall">${dA} Download all</button>`:''}<button class="cta" data-a="cgo">View the gallery</button></div></div></div>
-    <div class="cbar" data-r="cbar"><b>${title}</b><span class="sp"></span>${fin?dlAll:`<div class="cf"><button class="${showFav?'':'on'}" data-a="cf" data-v="all">All</button><button class="${showFav?'on':''}" data-a="cf" data-v="fav" aria-label="Favorites">${hF}<span class="n">${nFav}</span></button></div>`}</div>
-    <div class="cg${g.layout==='rows'?' rows':''}" data-r="cgrid">${shown.length?shown.map(ct).join(''):'<div class="none">No favorites yet</div>'}</div>
+    <div class="ccov${h?'':' nohero'}" data-r="ccov"${h?` style="background-image:url(${U(h.img,1600)})"`:''}>${h?'':deco(g)}${sigH(ws)}<div class="bt">${fin?`<div class="ready">${t('cl.ready')}</div>`:''}<h2>${title}</h2><div class="m">${tn('photos',list.length)}</div>
+      <div class="ctas">${fin?`<button class="cta f" data-a="cdlall">${dA} ${t('cl.downloadAll')}</button>`:''}<button class="cta" data-a="cgo">${t('cl.view')}</button></div></div></div>
+    <div class="cbar" data-r="cbar"><b>${title}</b><span class="sp"></span>${fin?dlAll:`<div class="cf"><button class="${showFav?'':'on'}" data-a="cf" data-v="all">${t('cl.all')}</button><button class="${showFav?'on':''}" data-a="cf" data-v="fav" aria-label="${t('favorites')}">${hF}<span class="n">${nFav}</span></button></div>`}</div>
+    <div class="cg${g.layout==='rows'?' rows':''}" data-r="cgrid">${shown.length?shown.map(ct).join(''):`<div class="none">${t('noFav')}</div>`}</div>
     <div class="cfoot">${esc(ws.name).toUpperCase()} · PHOTOPROOFING</div></div>`;
 }
 
@@ -1289,12 +1572,13 @@ function patch(root,html){
 }
 function render(){
   const r=route(),app=$('#app');
+  document.documentElement.lang=S.lang;
   let html,key;
   if(r.page==='g'){const g=G(r.gid);S.ui.lastG=g.id;html=gallery(g,r.tab);key='g:'+g.id;document.title=`${g.title} · PhotoProofing`}
-  else if(r.page==='settings'){html=settings();key='settings';document.title='Settings · PhotoProofing'}
-  else if(r.page==='c'){const g=byToken(r.token);html=clientView(g);key='c:'+r.token+clientState(g);document.title=g&&clientState(g)!=='nf'?`${g.title}`:'PhotoProofing'}
+  else if(r.page==='settings'){html=settings();key='settings';document.title=`${t('settings')} · PhotoProofing`}
+  else if(r.page==='c'){const g=byToken(r.token);html=clientView(g);key='c:'+r.token+clientState(g)+S.lang;document.title=g&&clientState(g)!=='nf'?`${g.title}`:'PhotoProofing'}
   else{html=dashboard();key='dash'+(S.ui.emptyWs||!S.galleries.some(g=>!g.deleted));document.title='PhotoProofing'}
-  if(app.dataset.k!==key){app.innerHTML=html;app.dataset.k=key;stamp(app);scrollTo(0,0)}else patch(app,html);
+  const moved=app.dataset.k!==key;if(moved||app.dataset.l!==S.lang){const y=scrollY;app.innerHTML=html;app.dataset.k=key;app.dataset.l=S.lang;stamp(app);scrollTo(0,moved?0:y)}else patch(app,html);
   if(S.ui.pv)renderPreview();
   if(S.ui.vw)renderViewer();
   renderDemo();fitCq();runFx();
@@ -1302,15 +1586,15 @@ function render(){
 function fitCq(){$$('[data-cq]').forEach(el=>{const w=el.clientWidth;if(w)el.style.setProperty('--cw',w/100+'px')})}
 
 /* ---------- demo control ---------- */
-const CSTATE={proof:'Proofs',em:'Shared, empty',fin:'Delivered',cl:'Delivered, empty',nf:'Unavailable'};
+const CSTATE=k=>t('cs.'+{proof:'proof',em:'em',fin:'fin',cl:'cl',nf:'nf'}[k]);
 function renderDemo(){
   const d=$('#demo'),client=route().page==='c',open=d.classList.contains('open');
-  const links=S.galleries.map(g=>`<a data-a="clink" data-v="${g.token}">${esc(g.title)}<span>${CSTATE[clientState(g)]}</span></a>`).join('');
-  const html=`<div class="box" role="dialog" aria-label="Demo controls"><div class="seg2"><button class="${client?'':'on'}" data-a="role" data-v="p">Photographer</button><button class="${client?'on':''}" data-a="role" data-v="c">Client</button></div>
-    <button class="act" data-a="emptyws">Empty dashboard<span class="tg${S.ui.emptyWs?' on':''}"></span></button>
-    <button class="act" data-a="reset">Reset demo data${rtI.replace(/20/g,'16')}</button>
+  const links=S.galleries.map(g=>`<a data-a="clink" data-v="${g.token}">${esc(g.title)}<span>${CSTATE(clientState(g))}</span></a>`).join('');
+  const html=`<div class="box" role="dialog" aria-label="${t('demo.aria')}"><div class="seg2"><button class="${client?'':'on'}" data-a="role" data-v="p">${t('demo.photographer')}</button><button class="${client?'on':''}" data-a="role" data-v="c">${t('demo.client')}</button></div>
+    <button class="act" data-a="emptyws">${t('demo.emptyDash')}<span class="tg${S.ui.emptyWs?' on':''}"></span></button>
+    <button class="act" data-a="reset">${t('demo.reset')}${rtI.replace(/20/g,'16')}</button>
     <div class="links">${links}</div></div>
-    <button class="pill" data-a="demo" aria-expanded="${open}"><b>Demo</b>${client?'Client view':'Photographer view'}</button>`;
+    <button class="pill" data-a="demo" aria-expanded="${open}"><b>${t('demo.pill')}</b>${t(client?'demo.clientView':'demo.photographerView')}</button>`;
   if(d._s!==html){d.innerHTML=html;d._s=html}
 }
 
@@ -1326,19 +1610,23 @@ async function removePhotos(g,ids,{anim=true}={}){
   if(ids.includes(g.hero))g.hero=null;touch(g);
 }
 const delConfirm=(ps)=>ps.length===1
-  ?confirmDlg({vis:`<img src="${U(ps[0].img,200)}" alt="">`,title:'Delete this photo?',text:`It leaves the gallery for good${ps[0].fav?', along with the client’s favorite on it':''}.`,cancel:'Keep it',ok:'Delete',kind:'danger'})
-  :confirmDlg({vis:stackOf(ps),title:`Delete ${ps.length} photos?`,text:`They leave the gallery for good${ps.some(p=>p.fav)?', along with any client favorites on them':''}.`,cancel:'Keep them',ok:`Delete ${ps.length} photos`,kind:'danger'});
+  ?confirmDlg({vis:`<img src="${U(ps[0].img,200)}" alt="">`,title:t('del1.title'),text:t(ps[0].fav?'del1.textFav':'del1.text'),cancel:t('keepIt'),ok:t('delete'),kind:'danger'})
+  :confirmDlg({vis:stackOf(ps),title:t('delN.title',{n:ps.length}),text:t(ps.some(p=>p.fav)?'delN.textFav':'delN.text'),cancel:t('keepThem'),ok:t('delN.ok',{n:ps.length}),kind:'danger'});
 
+// The top bar is re-rendered with every state change, so give focus back to the language button.
+const refocusLang=()=>queueMicrotask(()=>{const b=$('[data-a=lang]');if(b)b.focus()});
 const A={
+  lang(){S.ui.menu=S.ui.menu==='lang'?null:'lang';refocusLang()},
+  setlang(el){S.lang=el.dataset.v;S.ui.menu=null;$('#overlay').dataset.k='';refocusLang();queueMicrotask(()=>toast(t('saved')))},
   bell(){S.ui.menu=S.ui.menu==='bell'?null:'bell'},
   avatar(){S.ui.menu=S.ui.menu==='avatar'?null:'avatar'},
-  signout(){S.ui.menu=null;toast('Signed out of the demo. Welcome back.')},
+  signout(){S.ui.menu=null;toast(t('signedOut'))},
   markall(){S.notes.forEach(n=>n.unread=false);S.ui.menu=null},
   note(el){const n=S.notes.find(x=>x.gid===el.dataset.g);n.unread=false;S.ui.menu=null;go(`#/g/${n.gid}/${n.kind==='sel'?'favorites':'final'}`)},
   open(el){const n=S.notes.find(x=>x.gid===el.dataset.g&&x.unread);if(n){n.unread=false;go(`#/g/${n.gid}/${n.kind==='sel'?'favorites':'final'}`)}else go(`#/g/${el.dataset.g}/photos`)},
-  async new(){const v=await formDlg('New gallery','<label class="fld">Title<input name="t" required autocomplete="off" placeholder="Camille & Hugo"></label>','Create');
+  async new(){const v=await formDlg(t('new.title'),`<label class="fld">${t('new.label')}<input name="t" required autocomplete="off" placeholder="Camille & Hugo"></label>`,t('new.create'));
     if(!v||!v.t.trim())return;
-    const g={id:'n'+(++uid),token:tok(),title:v.t.trim(),date:fmtLong(Date.now()),place:'',status:'draft',archived:false,deleted:false,photos:[],finals:[],hero:null,layout:'mas',wm:{on:true},included:10,until:Date.now()+90*DAY,created:Date.now(),updated:Date.now(),sharedAt:null,deliveredAt:null};
+    const g={id:'n'+(++uid),token:tok(),title:v.t.trim(),date:Date.now(),place:'',status:'draft',archived:false,deleted:false,photos:[],finals:[],hero:null,layout:'mas',wm:{on:true},included:10,until:Date.now()+90*DAY,created:Date.now(),updated:Date.now(),sharedAt:null,deliveredAt:null};
     S.galleries.unshift(g);S.ui.emptyWs=false;go(`#/g/${g.id}/photos`)},
   dd(el){S.ui.menu=S.ui.menu===el.dataset.k?null:el.dataset.k},
   st(el){const k=el.dataset.k,on=S.ui.on;on.has(k)?on.delete(k):on.add(k)},
@@ -1351,8 +1639,8 @@ const A={
   select(){S.ui.sel=new Set();S.ui.selTab=route().tab},
   selx(){S.ui.sel=null},
   selall(){const g=cur();S.ui.sel=new Set(ready(tabList(g,S.ui.selTab)).map(p=>p.id))},
-  seldl(){const n=S.ui.sel.size;if(!n)return;S.ui.sel=null;toast(n===1?'Downloading 1 photo':`Downloading ${n} photos`)},
-  fdl(){toast('Downloaded')},
+  seldl(){const n=S.ui.sel.size;if(!n)return;S.ui.sel=null;toast(tn('dling',n))},
+  fdl(){toast(t('downloaded'))},
   thero(el){setHero(cur(),findP(cur(),el.dataset.id))},
   pick(el){const s=S.ui.sel,id=el.dataset.id;s.has(id)?s.delete(id):s.add(id)},
   async seldel(){const g=cur(),ids=[...S.ui.sel],ps=ids.map(id=>findP(g,id));if(!ids.length)return;
@@ -1364,20 +1652,20 @@ const A={
   preview(){openPreview(cur())},
   share(){shareFlow(cur())},
   doshare(){doShare(cur())},
-  copy(){const g=cur()||G(S.ui.lastG);try{navigator.clipboard.writeText(`https://${linkUrl(g)}`).catch(()=>{})}catch(e){}toast('Link copied')},
-  email(){toast('Email draft opened')},
-  sms(){toast('Message draft opened')},
+  copy(){const g=cur()||G(S.ui.lastG);try{navigator.clipboard.writeText(`https://${linkUrl(g)}`).catch(()=>{})}catch(e){}toast(t('linkCopied'))},
+  email(){toast(t('emailOpened'))},
+  sms(){toast(t('smsOpened'))},
   openc(){go(`#/c/${cur().token}`)},
   deliver(){deliverFlow(cur())},
-  restore(){const g=cur();g.archived=false;touch(g);toast('Restored')},
-  async archive(){const g=cur();if(!await confirmDlg({vis:EBOX.replace(imgI,ic.box),title:'Archive this gallery?',text:'The client link stops working. You can restore it any time.',ok:'Archive'}))return;g.archived=true;touch(g);toast('Archived')},
+  restore(){const g=cur();g.archived=false;touch(g);toast(t('restored'))},
+  async archive(){const g=cur();if(!await confirmDlg({vis:EBOX.replace(imgI,ic.box),title:t('arch.title'),text:t('arch.text'),ok:t('archive')}))return;g.archived=true;touch(g);toast(t('archived'))},
   async gdelete(){const g=cur(),ps=ready(g.photos.concat(g.finals));
-    if(!await confirmDlg({vis:ps.length?stackOf(ps):EBOX,title:'Delete this gallery?',text:'Its photos, favorites and client link go for good.',cancel:'Keep it',ok:'Delete',kind:'danger'}))return;
-    g.deleted=true;go('#/dashboard');toast('Gallery deleted')},
+    if(!await confirmDlg({vis:ps.length?stackOf(ps):EBOX,title:t('gdel.title'),text:t('gdel.text'),cancel:t('keepIt'),ok:t('delete'),kind:'danger'}))return;
+    g.deleted=true;go('#/dashboard');toast(t('gdel.done'))},
   layout(el){const g=cur();g.layout=el.dataset.v},
   wmon(){const g=cur();g.wm.on=!g.wm.on;touch(g);if(g.wm.on)regenerate([g])},
   fly(el){S.ui.fly=S.ui.fly===el.dataset.v?null:el.dataset.v},
-  dlfavs(){const g=cur();S.ui.busy[g.id]=1;later(()=>{delete S.ui.busy[g.id];toast('Downloaded');render()},1600)},
+  dlfavs(){const g=cur();S.ui.busy[g.id]=1;later(()=>{delete S.ui.busy[g.id];toast(t('downloaded'));render()},1600)},
   toastx(el){el.closest('.toast').remove()},
   pvmode(el){S.ui.pv.ph=el.dataset.v==='1'},
   pvclose(){S.ui.pv=null;renderPreview()},
@@ -1386,14 +1674,14 @@ const A={
     fx.push([`[data-a=heart][data-id="${id}"]`,on?'pop':'unpop',600],['.cf .n','bump',400])},
   cf(el){S.ui.cf=el.dataset.v},
   cview(el,pv){const g=pv?G(S.ui.pv.gid):byToken(route().token),ids=clientList(g,pv).map(p=>p.id);openViewer({gid:g.id,who:'client',preview:pv,ids,i:ids.indexOf(el.dataset.id)})},
-  cdl(el,pv){const g=pv?G(S.ui.pv.gid):byToken(route().token),p=findP(g,el.dataset.id);if(!pv){p.dl=true;notify(g.id,'dl',1)}toast('Downloaded')},
-  cdlall(el,pv){const g=pv?G(S.ui.pv.gid):byToken(route().token),l=ready(g.finals);if(!pv){const n=l.filter(p=>!p.dl).length||l.length;l.forEach(p=>p.dl=true);notify(g.id,'dl',n)}toast(`Downloading ${l.length} photos`)},
+  cdl(el,pv){const g=pv?G(S.ui.pv.gid):byToken(route().token),p=findP(g,el.dataset.id);if(!pv){p.dl=true;notify(g.id,'dl',1)}toast(t('downloaded'))},
+  cdlall(el,pv){const g=pv?G(S.ui.pv.gid):byToken(route().token),l=ready(g.finals);if(!pv){const n=l.filter(p=>!p.dl).length||l.length;l.forEach(p=>p.dl=true);notify(g.id,'dl',n)}toast(tn('dling',l.length))},
   cgo(el){const b=el.closest('.cp').querySelector('.cbar');b.scrollIntoView({behavior:RM.matches?'auto':'smooth'})},
   vx(){closeViewer()},vprev(){vwStep(-1)},vnext(){vwStep(1)},
   vheart(){const v=S.ui.vw;if(v.preview)return;const {g,p}=vwPhoto();let on;
     if(v.preview){const f=S.ui.pv.fav;on=!f.has(p.id);on?f.add(p.id):f.delete(p.id)}else{p.fav=on=!p.fav;notify(g.id,'sel')}
     fx.push(['#viewer .hv,#viewer .hbig',on?'pop':'unpop',600])},
-  vdl(){const v=S.ui.vw,{g,p}=vwPhoto();if(!v.preview){p.dl=true;notify(g.id,'dl',1)}toast('Downloaded')},
+  vdl(){const v=S.ui.vw,{g,p}=vwPhoto();if(!v.preview){p.dl=true;notify(g.id,'dl',1)}toast(t('downloaded'))},
   vhero(){const {g,p}=vwPhoto();setHero(g,p)},
   async vdel(){const v=S.ui.vw,{g,p}=vwPhoto();if(!await delConfirm([p]))return;
     await removePhotos(g,[p.id],{anim:false});v.ids=v.ids.filter(x=>x!==p.id);v.i=Math.min(v.i,v.ids.length-1);if(!v.ids.length)S.ui.vw=null},
@@ -1401,17 +1689,17 @@ const A={
   ws(el){const k=el.dataset.k,v=el.dataset.v,s=S.wsd;
     if(k==='rep')s.rep=v==='1';else if(k==='pl')s.pl=+v;else if(k==='logo')s.logo=v==='1';else s[k]=v},
   wssave(){const wmChanged=WM_KEYS.some(k=>S.wsd[k]!==S.ws[k]);S.ws={...S.wsd};render();fx.push(['.stg .sv.p','done',1600]);
-    if(wmChanged){regenerate(S.galleries.filter(g=>!g.deleted&&g.wm.on&&ready(g.photos).length));toast('Watermarked proofs are being regenerated')}},
+    if(wmChanged){regenerate(S.galleries.filter(g=>!g.deleted&&g.wm.on&&ready(g.photos).length));toast(t('stg.regen'))}},
   wscancel(){S.wsd={...S.ws};render();fx.push(['.stg .sv.cn','done',1400])},
   demo(){$('#demo').classList.toggle('open');return 'skip'},
   role(el){$('#demo').classList.remove('open');if(el.dataset.v==='c'){const g=G(S.ui.lastG)||G('camille');go(`#/c/${g?g.token:'x'}`)}else go(S.ui.lastG&&G(S.ui.lastG)?`#/g/${S.ui.lastG}/photos`:'#/dashboard')},
   clink(el){$('#demo').classList.remove('open');go(`#/c/${el.dataset.v}`)},
   emptyws(){S.ui.emptyWs=!S.ui.emptyWs;go('#/dashboard')},
   reset(){timers.forEach(clearTimeout);timers=[];const q=seed();S.ws=q.ws;S.wsd=q.wsd;S.galleries=q.galleries;S.notes=q.notes;
-    Object.assign(S.ui,{q:'',on:new Set(['dra','pro','del','exp']),sort:'Recently updated',menu:null,sel:null,fly:null,cf:'all',emptyWs:false,lastG:'camille',busy:{},regen:{},pv:null,vw:null,selTab:null});
-    $('#demo').classList.remove('open');if(modalDone)closeModal(false);renderPreview();renderViewer();go('#/dashboard');toast('Demo reset')},
+    Object.assign(S.ui,{q:'',on:new Set(['dra','pro','del','exp']),sort:'upd',menu:null,sel:null,fly:null,cf:'all',emptyWs:false,lastG:'camille',busy:{},regen:{},pv:null,vw:null,selTab:null});
+    $('#demo').classList.remove('open');if(modalDone)closeModal(false);renderPreview();renderViewer();go('#/dashboard');toast(t('demo.resetDone'))},
 };
-function setHero(g,p){const was=heroOf(g)===p;g.hero=was?null:p.id;touch(g);fx.push(['.banner','flash',900]);toast(was?'Hero removed':'Hero updated')}
+function setHero(g,p){const was=heroOf(g)===p;g.hero=was?null:p.id;touch(g);fx.push(['.banner','flash',900]);toast(t(was?'heroRemoved':'heroUpdated'))}
 const WM_KEYS=['name','logo','wm','rep','pl','k'];
 // Regeneration is simulated: each gallery shows a quiet indicator until its deadline passes.
 function regenerate(gs){const until=Date.now()+5200;gs.forEach(g=>{S.ui.regen[g.id]=until});later(render,5300)}
@@ -1423,9 +1711,9 @@ const CH={
 };
 let savedT;
 function commitField(i){const g=cur(),f=CH[i.dataset.ch];if(!g||!f)return;
-  if(!f(g,i)){toast(i.dataset.ch==='incl'?'Enter a whole number from 0 to 999':'Enter a valid date',false);i.value=i.dataset.ch==='incl'?g.included:isoDay(g.until);return}
+  if(!f(g,i)){toast(t(i.dataset.ch==='incl'?'stg.badNumber':'stg.badDate'),false);i.value=i.dataset.ch==='incl'?g.included:isoDay(g.until);return}
   touch(g);i.classList.remove('saved');void i.offsetWidth;i.classList.add('saved');
-  clearTimeout(savedT);savedT=setTimeout(()=>{toast('Saved');$$('.kv input.saved').forEach(x=>x.classList.remove('saved'))},500);
+  clearTimeout(savedT);savedT=setTimeout(()=>{toast(t('saved'));$$('.kv input.saved').forEach(x=>x.classList.remove('saved'))},500);
   keepEl=i;render();keepEl=null}
 
 /* ---------- events ---------- */
@@ -1435,7 +1723,7 @@ document.addEventListener('click',async e=>{
   if(e.target.id==='modal'){closeModal(false);return}
   const el=e.target.closest('[data-a]');
   let dirty=false;
-  if(S.ui.menu&&!e.target.closest('.panel,.menu,.dd')&&!(el&&['bell','avatar','dd'].includes(el.dataset.a))){S.ui.menu=null;dirty=true}
+  if(S.ui.menu&&!e.target.closest('.panel,.menu,.dd')&&!(el&&['bell','avatar','dd','lang'].includes(el.dataset.a))){S.ui.menu=null;dirty=true}
   if(S.ui.fly&&!e.target.closest('.r3')){S.ui.fly=null;dirty=true}
   if(!e.target.closest('#demo'))$('#demo').classList.remove('open');
   if(!el||el.closest('.dis,[aria-disabled=true]')||el.disabled){if(dirty)render();return}
@@ -1455,7 +1743,7 @@ document.addEventListener('change',e=>{if(e.target.dataset.ch)commitField(e.targ
 document.addEventListener('focusout',e=>{if(e.target.dataset&&e.target.dataset.ch)setTimeout(render,0)});
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){if(modalDone)return closeModal(false);if(S.ui.vw)return closeViewer();if(S.ui.pv){S.ui.pv=null;return renderPreview()}
-    if(S.ui.menu||S.ui.fly||S.ui.sel){S.ui.menu=S.ui.fly=null;S.ui.sel=null;render()}$('#demo').classList.remove('open');return}
+    if(S.ui.menu||S.ui.fly||S.ui.sel){const wasLang=S.ui.menu==='lang';S.ui.menu=S.ui.fly=null;S.ui.sel=null;render();if(wasLang)refocusLang()}$('#demo').classList.remove('open');return}
   if(modalDone)return;
   if(S.ui.vw){if(e.key==='ArrowLeft')vwStep(-1);else if(e.key==='ArrowRight')vwStep(1);
     else if((e.key==='f'||e.key==='F')&&S.ui.vw.who==='client'&&$('#viewer [data-a=vheart]')){A.vheart();render()}return}

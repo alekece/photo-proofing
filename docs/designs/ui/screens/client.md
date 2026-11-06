@@ -12,6 +12,8 @@ studio's signature.
 | Viewer | ![](client/viewer.desktop.png) | ![](client/viewer.phone.png) |
 | Delivered | ![](client/delivered.desktop.png) | ![](client/delivered.phone.png) |
 | Delivered viewer | ![](client/delivered-viewer.desktop.png) | ![](client/delivered-viewer.phone.png) |
+| Cover in French | ![](client/cover-fr.desktop.png) | ![](client/cover-fr.phone.png) |
+| Grid in French | ![](client/grid-fr.desktop.png) | ![](client/grid-fr.phone.png) |
 
 ## Cover
 
