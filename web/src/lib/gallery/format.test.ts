@@ -39,30 +39,49 @@ describe('highlightParts', () => {
 
 describe('gallerySummary', () => {
 	const now = new Date('2026-11-10T12:00:00Z');
-	const base = { states: ['draft'] as never, included_photos: null, expires_at: null };
+	const base = {
+		states: ['shared'] as never,
+		included_photos: 10,
+		expires_at: null,
+		photo_count: 32,
+		favorite_count: 12
+	};
+	const line = (gallery: Parameters<typeof gallerySummary>[0]) =>
+		gallerySummary(gallery, now)
+			.map(({ text }) => text)
+			.join('');
 
 	it('says where each status stands', () => {
-		expect(gallerySummary(base, now)).toBe('Not shared yet');
-		expect(gallerySummary({ ...base, states: ['shared'] }, now)).toBe('Shared with your client');
-		expect(gallerySummary({ ...base, states: ['shared'], included_photos: 30 }, now)).toBe(
-			'Shared · 30 photos included'
+		expect(line({ ...base, states: ['draft'] as never })).toBe('32 photos');
+		expect(line({ ...base, states: ['draft'] as never, photo_count: 1 })).toBe('1 photo');
+		expect(line({ ...base, states: ['draft'] as never, photo_count: 0 })).toBe('No photos yet');
+		expect(line(base)).toBe('32 photos · 12 selected');
+		expect(line({ ...base, states: ['delivered'] as never })).toBe('Final photos delivered');
+		expect(line({ ...base, states: ['delivered', 'archived'] as never })).toBe(
+			'32 photos · archived'
 		);
-		expect(gallerySummary({ ...base, states: ['delivered'] }, now)).toBe('Final photos delivered');
-		expect(gallerySummary({ ...base, states: ['delivered', 'archived'] }, now)).toBe('Archived');
+	});
+
+	it('flags the selected count only when it exceeds the included photos', () => {
+		const over = (gallery: Parameters<typeof gallerySummary>[0]) =>
+			gallerySummary(gallery, now)
+				.filter((part) => part.over)
+				.map(({ text }) => text);
+
+		expect(over(base)).toEqual(['12']);
+		expect(over({ ...base, included_photos: 12 })).toEqual([]);
+		expect(over({ ...base, included_photos: null })).toEqual([]);
+		expect(over({ ...base, favorite_count: 0, included_photos: 10 })).toEqual([]);
 	});
 
 	it('says how long ago an expired gallery ended', () => {
 		const expired = { ...base, states: ['shared', 'expired'] as never };
 
-		expect(gallerySummary({ ...expired, expires_at: '2026-11-07T12:00:00Z' }, now)).toBe(
-			'Expired 3 days ago'
+		expect(line({ ...expired, expires_at: '2026-11-07T12:00:00Z' })).toBe(
+			'32 photos · 12 selected · expired 3 days ago'
 		);
-		expect(gallerySummary({ ...expired, expires_at: '2026-11-09T12:00:00Z' }, now)).toBe(
-			'Expired yesterday'
-		);
-		expect(gallerySummary({ ...expired, expires_at: '2026-11-10T08:00:00Z' }, now)).toBe(
-			'Expired today'
-		);
-		expect(gallerySummary(expired, now)).toBe('Expired');
+		expect(line({ ...expired, expires_at: '2026-11-09T12:00:00Z' })).toContain('expired yesterday');
+		expect(line({ ...expired, expires_at: '2026-11-10T08:00:00Z' })).toContain('expired today');
+		expect(line(expired)).toMatch(/ · expired$/);
 	});
 });

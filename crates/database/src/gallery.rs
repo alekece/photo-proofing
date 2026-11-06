@@ -188,6 +188,33 @@ impl FromRow<'_, PgRow> for Gallery {
     }
 }
 
+/// A gallery as listed on the dashboard, with totals computed from its photos at query time.
+///
+/// Only ready photos count, as they are the ones a client can see and select.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GalleryOverview {
+    #[serde(flatten)]
+    pub gallery: Gallery,
+    pub photo_count: usize,
+    /// How many of the ready photos are favorites.
+    pub favorite_count: usize,
+}
+
+impl FromRow<'_, PgRow> for GalleryOverview {
+    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+        let count = |column: &str| {
+            usize::try_from(row.try_get::<i64, _>(column)?)
+                .map_err(|error| sqlx::Error::Decode(error.into()))
+        };
+
+        Ok(Self {
+            gallery: Gallery::from_row(row)?,
+            photo_count: count("photo_count")?,
+            favorite_count: count("favorite_count")?,
+        })
+    }
+}
+
 /// The settings to change; see the module docs for the keep and clear semantics.
 ///
 /// For the optional settings the outer `Option` says whether the field was supplied and the
@@ -266,6 +293,8 @@ pub enum GallerySort {
     Updated,
     /// Most recently created first.
     Created,
+    /// Least recently created first.
+    Oldest,
     /// Alphabetical, ignoring case.
     Title,
 }
@@ -275,6 +304,7 @@ impl GallerySort {
         match self {
             Self::Updated => "updated_at DESC, id",
             Self::Created => "created_at DESC, id",
+            Self::Oldest => "created_at, id",
             Self::Title => "lower(title) NULLS LAST, id",
         }
     }
@@ -324,12 +354,13 @@ impl GalleryRepository<'_> {
     }
 
     /// Lists the workspace's galleries that are in any of `states`; an empty slice lists all.
+    /// The photo totals come from the same query, so they are never stale.
     pub async fn list(
         &self,
         workspace_id: WorkspaceId,
         sort: GallerySort,
         states: &[GalleryState],
-    ) -> Result<Vec<Gallery>, DatabaseError> {
+    ) -> Result<Vec<GalleryOverview>, DatabaseError> {
         let filter = if states.is_empty() {
             String::new()
         } else {
@@ -339,7 +370,14 @@ impl GalleryRepository<'_> {
         };
 
         Ok(sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {} FROM galleries WHERE workspace_id=$1{filter} ORDER BY {}",
+            "SELECT {}, totals.photo_count, totals.favorite_count
+             FROM galleries
+             CROSS JOIN LATERAL (
+                 SELECT count(*) AS photo_count, count(*) FILTER (WHERE favorite) AS favorite_count
+                 FROM photos
+                 WHERE photos.gallery_id = galleries.id AND photos.status = 'ready'
+             ) AS totals
+             WHERE workspace_id=$1{filter} ORDER BY {}",
             Self::COLUMNS,
             sort.order_by()
         )))
@@ -521,6 +559,8 @@ impl GalleryRepository<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use serde_json::json;
 
     use super::*;
@@ -1118,7 +1158,7 @@ mod tests {
                 .await
                 .unwrap()
                 .into_iter()
-                .map(|gallery| gallery.title.unwrap_or_default())
+                .map(|overview| overview.gallery.title.unwrap_or_default())
                 .collect::<Vec<_>>()
         };
 
@@ -1131,6 +1171,10 @@ mod tests {
             ["cherry", "Apple", "banana"]
         );
         assert_eq!(
+            titles(GallerySort::Oldest).await,
+            ["banana", "Apple", "cherry"]
+        );
+        assert_eq!(
             titles(GallerySort::Title).await,
             ["Apple", "banana", "cherry"]
         );
@@ -1141,6 +1185,55 @@ mod tests {
             titles(GallerySort::Title).await,
             ["Apple", "banana", "cherry", ""]
         );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn list_counts_ready_photos_and_favorites_per_gallery(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let (empty, busy, other) = (
+            store.create(workspace).await.unwrap(),
+            store.create(workspace).await.unwrap(),
+            store.create(workspace).await.unwrap(),
+        );
+        let ready = [
+            photo_in(&pool, workspace, busy.id, PhotoStatus::Ready).await,
+            photo_in(&pool, workspace, busy.id, PhotoStatus::Ready).await,
+            photo_in(&pool, workspace, busy.id, PhotoStatus::Ready).await,
+        ];
+        photo_in(&pool, workspace, busy.id, PhotoStatus::Processing).await;
+        photo_in(&pool, workspace, other.id, PhotoStatus::Ready).await;
+
+        let location = PhotoLocation {
+            workspace_id: workspace,
+            gallery_id: busy.id,
+        };
+
+        for id in &ready[..2] {
+            database
+                .repository::<PhotoRepository>()
+                .set_favorite(location, *id, true)
+                .await
+                .unwrap();
+        }
+
+        let counts = store
+            .list(workspace, GallerySort::Title, &[])
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|overview| {
+                (
+                    overview.gallery.id,
+                    (overview.photo_count, overview.favorite_count),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        assert_eq!(counts[&empty.id], (0, 0));
+        assert_eq!(counts[&busy.id], (3, 2));
+        assert_eq!(counts[&other.id], (1, 0));
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -1172,7 +1265,7 @@ mod tests {
                 .await
                 .unwrap()
                 .into_iter()
-                .map(|gallery| gallery.title.unwrap_or_default())
+                .map(|overview| overview.gallery.title.unwrap_or_default())
                 .collect::<Vec<_>>()
         };
 

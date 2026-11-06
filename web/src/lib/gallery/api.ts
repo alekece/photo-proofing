@@ -1,6 +1,6 @@
 import { gallerySchema, parseOrNull, type Gallery, type GalleryLayout } from './schemas';
 
-export type { Gallery, GalleryLayout, GallerySort } from './schemas';
+export type { Gallery, GalleryLayout, GalleryOverview, GallerySort } from './schemas';
 
 /** Subset of settings sent by a PATCH: a missing key is kept, `null` clears the optional ones. */
 export interface GalleryChanges {

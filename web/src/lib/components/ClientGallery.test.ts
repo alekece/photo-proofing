@@ -129,15 +129,27 @@ describe('ClientGallery', () => {
 	it('shows the package allowance and warns about extras in words', () => {
 		show({ gallery: { ...gallery, included_photos: 1 }, favorites: ['p1', 'p2', 'p3'] });
 
-		expect(count()).toBe('3');
+		expect(count()).toBe('3 of 1');
 		expect(screen.getByText('2 extra').classList.contains('font-bold')).toBe(true);
 	});
 
 	it('shows no extras within the allowance', () => {
 		show({ gallery: { ...gallery, included_photos: 5 }, favorites: ['p1'] });
 
-		expect(count()).toBe('1');
+		expect(count()).toBe('1 of 5');
 		expect(screen.queryByText(/extra/)).toBeNull();
+	});
+
+	it('shows no allowance when selection is unlimited', () => {
+		show({ favorites: ['p1'] });
+
+		expect(count()).toBe('1');
+	});
+
+	it('names the deadline on the cover', () => {
+		show({ gallery: { ...gallery, expires_at: '2999-01-01T00:00:00Z' } });
+
+		expect(screen.getAllByText(/Open until/).length).toBeGreaterThan(0);
 	});
 
 	it('offers downloads instead of hearts once delivered', () => {

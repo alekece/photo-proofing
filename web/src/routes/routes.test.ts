@@ -93,10 +93,10 @@ describe('client gallery route', () => {
 
 	it('shows the expiry badge only when an expiry is set', () => {
 		const { container, unmount } = open(shared());
-		expect(container.textContent).not.toMatch(/Access until/);
+		expect(container.textContent).not.toMatch(/Open until/);
 		unmount();
 		const second = open(shared({ expires_at: '2099-01-01T00:00:00Z' }));
-		expect(second.container.textContent).toMatch(/Access until/);
+		expect(second.container.textContent).toMatch(/Open until/);
 	});
 
 	it('names an untitled gallery', () => {

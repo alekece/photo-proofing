@@ -2,10 +2,10 @@ import { render, screen, within } from '@testing-library/svelte';
 import { axe } from 'vitest-axe';
 import { describe, expect, it } from 'vitest';
 
-import type { Gallery } from '#lib/gallery/api.js';
+import type { GalleryOverview } from '#lib/gallery/api.js';
 import GalleryCard from './GalleryCard.svelte';
 
-const gallery = (over: Partial<Gallery> = {}): Gallery => ({
+const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 	id: 'g1',
 	title: 'Martin Wedding',
 	layout: 'grid',
@@ -17,6 +17,8 @@ const gallery = (over: Partial<Gallery> = {}): Gallery => ({
 	states: ['shared'],
 	created_at: '2026-01-01T10:00:00Z',
 	updated_at: '2026-01-02T10:00:00Z',
+	photo_count: 32,
+	favorite_count: 12,
 	...over
 });
 
@@ -27,11 +29,24 @@ describe('GalleryCard', () => {
 
 		expect(link.getAttribute('href')).toBe('/dashboard/g1');
 		expect(within(link).getByText('Shared')).toBeTruthy();
-		expect(within(link).getByText('Shared · 30 photos included')).toBeTruthy();
+		expect(within(link).getByText('32 photos · 12 selected')).toBeTruthy();
 		// The grid supplies the list; the page test checks the whole.
 		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
 			[]
 		);
+	});
+
+	it('highlights the selection only when it goes over the included photos', () => {
+		const { container, rerender } = render(GalleryCard, {
+			gallery: gallery({ included_photos: 10 }),
+			query: ''
+		});
+
+		expect(container.querySelector('b')?.textContent).toBe('12');
+		rerender({ gallery: gallery({ included_photos: 12 }), query: '' });
+		expect(container.querySelector('b')).toBeNull();
+		rerender({ gallery: gallery({ included_photos: null }), query: '' });
+		expect(container.querySelector('b')).toBeNull();
 	});
 
 	it('shows only the winning status when the gallery is also expired', () => {

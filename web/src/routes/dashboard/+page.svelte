@@ -39,6 +39,15 @@
 			])
 		) as Record<GalleryState, number>
 	);
+	// Archived galleries stay out of the footer totals, as in the prototype.
+	let totals = $derived.by(() => {
+		const live = all.filter((gallery) => galleryStatus(gallery.states) !== 'archived');
+
+		return {
+			galleries: live.length,
+			photos: live.reduce((sum, gallery) => sum + gallery.photo_count, 0)
+		};
+	});
 	// Plain substring match on the displayed title; never a regular expression.
 	let matching = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
@@ -205,7 +214,10 @@
 				>
 			</div>
 			<p class="text-[0.8125rem] text-muted-foreground sm:text-right">
-				{all.length === 1 ? '1 gallery' : `${all.length} galleries`}
+				{totals.galleries === 1 ? '1 gallery' : `${totals.galleries} galleries`} · {totals.photos ===
+				1
+					? '1 photo'
+					: `${totals.photos} photos`}
 			</p>
 		</footer>
 	{/if}

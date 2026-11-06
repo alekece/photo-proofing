@@ -1382,7 +1382,13 @@ pub(super) mod tests {
                 )
                 .await;
 
-                assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+                // actix-web 4.18.2 answers 405 (not 404) for a known path with the wrong method.
+                let status = response.status();
+
+                assert!(
+                    status == StatusCode::NOT_FOUND || status == StatusCode::METHOD_NOT_ALLOWED,
+                    "{path}: {status}"
+                );
             }
         }
     }

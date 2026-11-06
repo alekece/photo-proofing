@@ -70,41 +70,58 @@ export function highlightParts(text: string, needle: string) {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** A run of the card line; `over` marks a selection above the included photos. */
+export interface SummaryPart {
+	text: string;
+	over: boolean;
+}
+
 function expiredAgo(iso: string | null, now: Date): string {
-	if (iso === null) return 'Expired';
+	if (iso === null) return 'expired';
 
 	const days = Math.floor((now.getTime() - new Date(iso).getTime()) / DAY_MS);
 
-	if (days < 1) return 'Expired today';
-	if (days === 1) return 'Expired yesterday';
+	if (days < 1) return 'expired today';
+	if (days === 1) return 'expired yesterday';
 
-	return `Expired ${days} days ago`;
+	return `expired ${days} days ago`;
 }
 
+const photosText = (count: number) => (count === 1 ? '1 photo' : `${count} photos`);
+
+const plain = (text: string): SummaryPart[] => [{ text, over: false }];
+
 /**
- * The one line on a gallery card. Photo, selection and download counts arrive with the
- * activity data of #72; until then the line only uses what the gallery itself carries.
+ * The one line on a gallery card, as runs so the selection can be highlighted. Delivered
+ * galleries stay generic until final photos and downloads are tracked (#72).
  */
 export function gallerySummary(
 	gallery: {
 		states: Parameters<typeof galleryStatus>[0];
 		included_photos: number | null;
 		expires_at: string | null;
+		photo_count: number;
+		favorite_count: number;
 	},
 	now: Date = new Date()
-): string {
-	switch (galleryStatus(gallery.states)) {
-		case 'draft':
-			return 'Not shared yet';
-		case 'shared':
-			return gallery.included_photos === null
-				? 'Shared with your client'
-				: `Shared · ${gallery.included_photos} photos included`;
-		case 'expired':
-			return expiredAgo(gallery.expires_at, now);
-		case 'delivered':
-			return 'Final photos delivered';
-		case 'archived':
-			return 'Archived';
+): SummaryPart[] {
+	const status = galleryStatus(gallery.states);
+	const photos = photosText(gallery.photo_count);
+
+	if (status === 'archived') return plain(`${photos} · archived`);
+	if (status === 'delivered') return plain('Final photos delivered');
+	if (status === 'draft') return plain(gallery.photo_count === 0 ? 'No photos yet' : photos);
+
+	const over = gallery.included_photos !== null && gallery.favorite_count > gallery.included_photos;
+	const selected: SummaryPart[] = [
+		{ text: `${photos} · `, over: false },
+		{ text: String(gallery.favorite_count), over },
+		{ text: ' selected', over: false }
+	];
+
+	if (status === 'expired') {
+		return [...selected, { text: ` · ${expiredAgo(gallery.expires_at, now)}`, over: false }];
 	}
+
+	return selected;
 }
