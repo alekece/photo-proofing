@@ -68,7 +68,7 @@ describe('client gallery route', () => {
 	it('shows a neutral unavailable page without gallery data', () => {
 		const { container } = open(null);
 		expect(screen.getByRole('heading', { level: 1, name: 'Focus not locked' })).toBeTruthy();
-		expect(container.textContent).toMatch(/contact your photographer/i);
+		expect(container.textContent).toMatch(/ask your photographer for a new one/i);
 		expect(container.textContent).not.toMatch(/expired|Sample session/i);
 		expect(screen.queryAllByRole('img')).toHaveLength(0);
 	});
@@ -85,9 +85,8 @@ describe('client gallery route', () => {
 	it('shows the title and the empty state', () => {
 		open(shared());
 		expect(screen.getByRole('heading', { name: 'Sample session' })).toBeTruthy();
-		expect(
-			screen.getByText("The photographer hasn't added photos yet. Check back soon.")
-		).toBeTruthy();
+		expect(screen.getByText('Your photos are on their way.')).toBeTruthy();
+		expect(screen.getByText('Check back soon.')).toBeTruthy();
 	});
 
 	it('shows the expiry badge only when an expiry is set', () => {
@@ -105,6 +104,23 @@ describe('client gallery route', () => {
 });
 
 describe('ClientGallery', () => {
+	it('tells a delivered gallery without finals that they are on their way', async () => {
+		const { container } = render(ClientGallery, {
+			token: 'tok',
+			gallery: shared({ delivered: true })
+		});
+		expect(screen.getByText('Your finished photos are on their way.')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: /download all/i })).toBeNull();
+		expect(container.querySelector('[data-slot="film-strip"]')).toBeTruthy();
+		expect((await axe(container)).violations).toEqual([]);
+	});
+
+	it('has no axe violations while photos are on their way', async () => {
+		const { container } = render(ClientGallery, { token: 'tok', gallery: shared() });
+		expect(container.querySelector('[data-slot="film-strip"]')).toBeTruthy();
+		expect((await axe(container)).violations).toEqual([]);
+	});
+
 	it('opens the viewer by keyboard and returns focus to the thumbnail', async () => {
 		const user = userEvent.setup();
 		render(ClientGallery, { token: 'tok', gallery: shared(), proofs });
@@ -131,7 +147,10 @@ describe('AccessUnavailable', () => {
 	it('shows the viewfinder page with a heading and the next step', () => {
 		render(AccessUnavailable);
 		expect(screen.getByRole('heading', { level: 1 })).toBeTruthy();
-		expect(screen.getByText(/Please contact your photographer\./)).toBeTruthy();
+		expect(screen.getByText('Focus not locked')).toBeTruthy();
+		expect(
+			screen.getByText('This link no longer works. Ask your photographer for a new one.')
+		).toBeTruthy();
 	});
 
 	it('does not reveal why the link failed', () => {
