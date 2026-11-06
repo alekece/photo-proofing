@@ -9,6 +9,7 @@ vi.mock('#lib/gallery/photos.js', async (importOriginal) => ({
 	...(await importOriginal<typeof import('#lib/gallery/photos.js')>()),
 	BULK_DELETE_LIMIT: 2
 }));
+import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
 import { goto } from '$app/navigation';
 import type { LiveEvents, PhotoEvent } from '#lib/events.js';
 import type { Photo, PhotoStatus, UploadOutcome } from '#lib/gallery/photos.js';
@@ -129,7 +130,11 @@ const gallery = {
 	updated_at: '2026-11-04T10:00:00Z'
 };
 
-function setup(upload?: (file: File) => Promise<UploadOutcome>, heroId: string | null = null) {
+function setup(
+	upload?: (file: File) => Promise<UploadOutcome>,
+	heroId: string | null = null,
+	watermarked = false
+) {
 	const pending: ((outcome: UploadOutcome) => void)[] = [];
 	const queue = new UploadQueue({
 		upload: (_, file) =>
@@ -139,7 +144,7 @@ function setup(upload?: (file: File) => Promise<UploadOutcome>, heroId: string |
 	});
 	const live = fakeEvents();
 	const view = render(PhotosPanelHarness, {
-		props: { galleryId: 'g1', queue, events: live.events, heroId }
+		props: { galleryId: 'g1', queue, events: live.events, heroId, watermarked }
 	});
 
 	return { ...live, queue, pending, view };
@@ -157,11 +162,56 @@ afterEach(() => {
 });
 
 describe('PhotosPanel', () => {
+	it('toasts once per batch of uploads that fail', async () => {
+		stubApi([photo('p1')]);
+		toasts.items = [];
+		const { queue } = setup(async () => ({ kind: 'failed' }));
+
+		await screen.findByRole('button', { name: 'Open p1.jpg' });
+		queue.add('g1', [jpeg('a.jpg')]);
+
+		await waitFor(() =>
+			expect(toasts.items.map(({ message }) => message)).toEqual(['1 photo failed to upload.'])
+		);
+		expect(within(tile('a.jpg')).getByText('Upload failed')).toBeTruthy();
+		expect(within(tile('a.jpg')).getByRole('button', { name: 'Retry a.jpg' })).toBeTruthy();
+
+		toasts.items = [];
+	});
+
+	it('says Updating watermarks… while a ready photo is regenerated, only with watermarking on', async () => {
+		stubApi([photo('p1')]);
+		const { emit } = setup(undefined, null, true);
+
+		await screen.findByRole('button', { name: 'Open p1.jpg' });
+
+		expect(screen.queryByText('Updating watermarks…')).toBeNull();
+
+		emit({ photo_id: 'p1', status: 'processing' });
+
+		expect(await screen.findByText('Updating watermarks…')).toBeTruthy();
+
+		emit({ photo_id: 'p1', status: 'ready' });
+
+		await waitFor(() => expect(screen.queryByText('Updating watermarks…')).toBeNull());
+	});
+
+	it('does not say it for a photo that was never ready, or without watermarking', async () => {
+		stubApi([photo('p1'), photo('p2', 'processing')]);
+		const { emit } = setup();
+
+		await screen.findByRole('button', { name: 'Open p1.jpg' });
+		emit({ photo_id: 'p1', status: 'processing' });
+
+		await waitFor(() => expect(within(tile('p1.jpg')).getByText('Processing')).toBeTruthy());
+		expect(screen.queryByText('Updating watermarks…')).toBeNull();
+	});
+
 	it('invites a first drop when the gallery is empty', async () => {
 		stubApi([]);
 		setup();
 
-		expect(await screen.findByText('No photos yet. Drop JPEGs here to start.')).toBeTruthy();
+		expect(await screen.findByText('Drop the shoot here')).toBeTruthy();
 	});
 
 	it('shows a tile for each dropped or picked file at once', async () => {
@@ -169,7 +219,7 @@ describe('PhotosPanel', () => {
 		const { queue } = setup();
 		const user = userEvent.setup();
 
-		await screen.findByText(/No photos yet/);
+		await screen.findByText(/Drop the shoot here/);
 		await fireEvent.drop(screen.getByRole('region', { name: 'Photos' }), {
 			dataTransfer: { files: [jpeg('a.jpg'), jpeg('b.jpg')] }
 		});
@@ -177,7 +227,7 @@ describe('PhotosPanel', () => {
 
 		expect(queue.items.map((item) => item.file.name)).toEqual(['a.jpg', 'b.jpg', 'c.jpg']);
 		expect(screen.getAllByRole('listitem')).toHaveLength(3);
-		expect(screen.queryByText(/No photos yet/)).toBeNull();
+		expect(screen.queryByText(/Drop the shoot here/)).toBeNull();
 	});
 
 	it('shows each state with its label and actions', async () => {
@@ -198,12 +248,12 @@ describe('PhotosPanel', () => {
 		await waitFor(() => expect(within(tile('sending.jpg')).getByText('Uploading')).toBeTruthy());
 
 		for (const [name, label, retry] of [
-			['waiting.jpg', 'Waiting to process', false],
+			['waiting.jpg', 'Waiting', false],
 			['processing.jpg', 'Processing', false],
 			['broken.jpg', 'Processing failed', true],
 			['lost.jpg', 'Upload failed', true],
 			['sending.jpg', 'Uploading', false],
-			['next.jpg', 'Waiting to upload', false],
+			['next.jpg', 'Waiting', false],
 			['notes.txt', 'Not a JPEG', false]
 		] as const) {
 			const item = within(tile(name));
@@ -247,7 +297,7 @@ describe('PhotosPanel', () => {
 		const api = stubApi([]);
 		const { emit, pending } = setup();
 
-		await screen.findByText(/No photos yet/);
+		await screen.findByText(/Drop the shoot here/);
 		await fireEvent.drop(screen.getByRole('region', { name: 'Photos' }), {
 			dataTransfer: { files: [jpeg('new.jpg'), jpeg('later.jpg')] }
 		});
@@ -335,7 +385,7 @@ describe('PhotosPanel', () => {
 		const { queue } = setup();
 		const user = userEvent.setup();
 
-		await screen.findByText(/No photos yet/);
+		await screen.findByText(/Drop the shoot here/);
 		queue.add('g1', [jpeg('a.jpg'), jpeg('b.jpg')]);
 		await user.click(await screen.findByRole('button', { name: 'Remove b.jpg' }));
 
@@ -348,7 +398,7 @@ describe('PhotosPanel', () => {
 		const { queue } = setup();
 		const user = userEvent.setup();
 
-		await screen.findByText(/No photos yet/);
+		await screen.findByText(/Drop the shoot here/);
 		queue.add('g1', [jpeg('a.jpg'), jpeg('b.jpg'), jpeg('c.jpg')]);
 		await user.click(await screen.findByRole('button', { name: 'Remove b.jpg' }));
 
@@ -365,7 +415,7 @@ describe('PhotosPanel', () => {
 		await user.click(screen.getByRole('button', { name: 'Remove a.jpg' }));
 
 		await waitFor(() =>
-			expect(document.activeElement).toBe(screen.getByRole('button', { name: '+ Upload' }))
+			expect(document.activeElement).toBe(screen.getAllByRole('button', { name: 'Upload' })[0])
 		);
 	});
 
@@ -584,7 +634,7 @@ describe('PhotosPanel', () => {
 		await vi.advanceTimersByTimeAsync(0);
 
 		expect(screen.getByRole('alert').textContent).toMatch(/Couldn’t delete new\.jpg/);
-		expect(tile('new.jpg').textContent).toContain('Waiting to process');
+		expect(tile('new.jpg').textContent).toContain('Waiting');
 		expect(api.lists()).toBe(2);
 	});
 
@@ -609,7 +659,7 @@ describe('PhotosPanel', () => {
 		await user.click(await screen.findByRole('button', { name: 'Retry p1.jpg' }));
 
 		expect(api.calls('POST')).toEqual(['/api/v1/galleries/g1/photos/p1/retry']);
-		expect(within(tile('p1.jpg')).getByText('Waiting to process')).toBeTruthy();
+		expect(within(tile('p1.jpg')).getByText('Waiting')).toBeTruthy();
 	});
 
 	it('opens a ready photo in the viewer', async () => {
@@ -628,7 +678,7 @@ describe('PhotosPanel', () => {
 	});
 
 	describe('hero photo', () => {
-		const star = (name: string, label = 'Set as hero photo') =>
+		const star = (name: string, label = 'Set as hero') =>
 			within(tile(name)).getByRole('button', { name: label });
 
 		it('moves the hero with one click and clears it by clicking the hero again', async () => {
@@ -638,17 +688,17 @@ describe('PhotosPanel', () => {
 			setup(undefined, 'p1');
 			await screen.findByRole('button', { name: 'Open p2.jpg' });
 
-			expect(star('p1.jpg', 'Remove hero photo').getAttribute('aria-pressed')).toBe('true');
+			expect(star('p1.jpg', 'Remove hero').getAttribute('aria-pressed')).toBe('true');
 			expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false');
 
 			await user.click(star('p2.jpg'));
 
 			await waitFor(() =>
-				expect(star('p2.jpg', 'Remove hero photo').getAttribute('aria-pressed')).toBe('true')
+				expect(star('p2.jpg', 'Remove hero').getAttribute('aria-pressed')).toBe('true')
 			);
 			expect(star('p1.jpg').getAttribute('aria-pressed')).toBe('false');
 
-			await user.click(star('p2.jpg', 'Remove hero photo'));
+			await user.click(star('p2.jpg', 'Remove hero'));
 
 			await waitFor(() => expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false'));
 			expect(api.heroes()).toEqual(['p2', null]);
@@ -664,7 +714,7 @@ describe('PhotosPanel', () => {
 			await user.click(await waitFor(() => star('p2.jpg')));
 
 			expect((await screen.findByRole('alert')).textContent).toContain('hero photo');
-			expect(star('p1.jpg', 'Remove hero photo').getAttribute('aria-pressed')).toBe('true');
+			expect(star('p1.jpg', 'Remove hero').getAttribute('aria-pressed')).toBe('true');
 			expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false');
 		});
 
@@ -687,11 +737,11 @@ describe('PhotosPanel', () => {
 			setup();
 			await screen.findByText('p2.jpg');
 
-			expect(within(tile('p2.jpg')).queryByRole('button', { name: /hero photo/ })).toBeNull();
+			expect(within(tile('p2.jpg')).queryByRole('button', { name: /hero/ })).toBeNull();
 
 			await user.click(screen.getByRole('button', { name: 'Select' }));
 
-			expect(screen.queryAllByRole('button', { name: /hero photo/ })).toEqual([]);
+			expect(screen.queryAllByRole('button', { name: /hero/ })).toEqual([]);
 		});
 
 		it('forgets the hero once its photo is gone', async () => {
@@ -712,7 +762,7 @@ describe('PhotosPanel', () => {
 
 		await screen.findByText('p2.jpg');
 		queue.add('g1', [jpeg('a.jpg'), jpeg('b.jpg')]);
-		await screen.findByText('Waiting to upload');
+		await screen.findByText('Waiting');
 
 		expect((await axe(view.container)).violations).toEqual([]);
 	});
@@ -757,7 +807,7 @@ describe('PhotosPanel', () => {
 
 			expect(announced()).toContain('1 selected');
 
-			await user.click(screen.getByRole('button', { name: 'Cancel' }));
+			await user.click(screen.getByRole('button', { name: 'Cancel selection' }));
 
 			expect(checkbox('p1.jpg')).toBeNull();
 			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
@@ -940,7 +990,7 @@ describe('PhotosPanel', () => {
 			await vi.advanceTimersByTimeAsync(0);
 
 			expect(lists).toBe(3);
-			expect(tile('new.jpg').textContent).toContain('Waiting to process');
+			expect(tile('new.jpg').textContent).toContain('Waiting');
 		});
 
 		it('restores the photos left after switching away and back during a deletion', async () => {
@@ -1032,7 +1082,7 @@ describe('PhotosPanel', () => {
 				'Select p3.jpg',
 				'Select p4.jpg'
 			]);
-			expect(screen.queryByText(/No photos yet/)).toBeNull();
+			expect(screen.queryByText(/Drop the shoot here/)).toBeNull();
 			expect(checkbox('p1.jpg')!.checked).toBe(true);
 		});
 

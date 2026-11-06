@@ -10,17 +10,18 @@
 		| 'ready';
 
 	const LABELS: Record<Exclude<TileState, 'ready'>, string> = {
-		'waiting-upload': 'Waiting to upload',
+		'waiting-upload': 'Waiting',
 		uploading: 'Uploading',
 		'upload-failed': 'Upload failed',
 		rejected: 'Rejected',
-		'waiting-process': 'Waiting to process',
+		'waiting-process': 'Waiting',
 		processing: 'Processing',
 		'process-failed': 'Processing failed'
 	};
 </script>
 
 <script lang="ts">
+	import { Download, RotateCw, Star, X } from '@lucide/svelte';
 	import Checkbox from '#lib/components/ui/checkbox/checkbox.svelte';
 
 	let {
@@ -30,6 +31,8 @@
 		thumbnailUrl,
 		selected = false,
 		onremove,
+		ondownload,
+		downloaded = false,
 		onretry,
 		onopen,
 		onselect,
@@ -42,7 +45,12 @@
 		error?: string;
 		thumbnailUrl?: string;
 		selected?: boolean;
-		onremove: () => void;
+		/** Deletes the photo; a read-only tile, like a favorite, has none. */
+		onremove?: () => void;
+		/** Downloads this photo; shown on hover and always on touch screens. */
+		ondownload?: () => void;
+		/** Marks a delivered photo the client has downloaded. */
+		downloaded?: boolean;
 		onretry?: () => void;
 		onopen?: () => void;
 		/** Puts the tile in select mode: clicking it toggles `selected`; no remove, retry or open. */
@@ -56,8 +64,9 @@
 	const failed = $derived(
 		state === 'upload-failed' || state === 'rejected' || state === 'process-failed'
 	);
-	const looping = $derived(state === 'uploading' || state === 'processing');
-	const still = $derived(state === 'waiting-upload' || state === 'waiting-process');
+	const reveal =
+		'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100';
+	const busy = $derived(!failed && state !== 'ready');
 </script>
 
 <svelte:element
@@ -87,11 +96,12 @@
 			]}
 		>
 			<span class="max-w-full truncate" title={name}>{name}</span>
-			<span>{failed ? (error ?? LABELS[state]) : LABELS[state]}</span>
+			<span>{LABELS[state]}</span>
+			{#if failed && error && error !== LABELS[state]}<span>{error}</span>{/if}
 		</div>
-		{#if looping || still}
+		{#if busy}
 			<div class="absolute inset-x-1.5 bottom-1.5 h-[3px] overflow-hidden rounded-full bg-white/60">
-				{#if looping}<span class="bar block h-full w-2/5 rounded-full bg-foreground/60"></span>{/if}
+				<span class="bar block h-full w-2/5 rounded-full bg-foreground/60"></span>
 			</div>
 		{/if}
 	{/if}
@@ -108,26 +118,50 @@
 			<button
 				type="button"
 				class={[
-					'absolute top-1.5 right-9 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-sm text-foreground focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
-					hero ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100'
+					'absolute top-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90',
+					onremove ? 'right-9' : 'right-1.5',
+					hero ? 'text-hero opacity-100' : `text-foreground ${reveal}`
 				]}
-				aria-label={hero ? 'Remove hero photo' : 'Set as hero photo'}
+				aria-label={hero ? 'Remove hero' : 'Set as hero'}
+				title={hero ? 'Remove hero' : 'Set as hero'}
 				aria-pressed={hero}
-				onclick={onhero}>{hero ? '★' : '☆'}</button
+				onclick={onhero}
+				><Star size={14} fill={hero ? 'currentColor' : 'none'} aria-hidden="true" /></button
 			>
 		{/if}
-		<button
-			type="button"
-			class="absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-xs text-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-			aria-label="Remove {name}"
-			onclick={onremove}>✕</button
-		>
+		{#if onremove}
+			<button
+				type="button"
+				class={[
+					'absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground',
+					failed ? 'opacity-100' : reveal
+				]}
+				aria-label="Remove {name}"
+				onclick={onremove}><X size={14} aria-hidden="true" /></button
+			>
+		{/if}
+		{#if state === 'ready' && ondownload}
+			<button
+				type="button"
+				class="absolute right-1.5 bottom-1.5 grid size-8 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground {reveal}"
+				aria-label="Download {name}"
+				onclick={ondownload}><Download size={16} aria-hidden="true" /></button
+			>
+		{/if}
+		{#if downloaded}
+			<span
+				class="absolute bottom-1.5 left-1.5 grid size-6 place-items-center rounded-full bg-panel/90 text-foreground"
+				role="img"
+				aria-label="Downloaded by the client"
+				title="Downloaded by the client"><Download size={14} aria-hidden="true" /></span
+			>
+		{/if}
 		{#if onretry && (state === 'upload-failed' || state === 'process-failed')}
 			<button
 				type="button"
-				class="absolute right-1.5 bottom-1.5 grid size-8 cursor-pointer place-items-center rounded-full bg-panel text-sm text-foreground shadow"
+				class="absolute inset-x-1.5 bottom-3 mx-auto flex min-h-8 w-fit cursor-pointer items-center gap-1 rounded-full bg-panel px-3 text-xs text-foreground shadow"
 				aria-label="Retry {name}"
-				onclick={onretry}>↻</button
+				onclick={onretry}><RotateCw size={14} aria-hidden="true" />Retry</button
 			>
 		{/if}
 	{/if}

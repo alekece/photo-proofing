@@ -1,7 +1,17 @@
 <script lang="ts">
+	import { Lock } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
 
-	type Item = { id: string; label: string };
+	type Item = {
+		id: string;
+		label: string;
+		/** Shown after the label once known. */
+		count?: number | null;
+		/** Makes the count bold and accent-coloured, e.g. over an allowance. */
+		accent?: boolean;
+		/** Shows a padlock: the tab's content can no longer change. */
+		locked?: boolean;
+	};
 
 	let {
 		value = $bindable(),
@@ -30,7 +40,7 @@
 </script>
 
 <div role="tablist" aria-label={label} class="mb-4 flex gap-6 border-b border-border-strong">
-	{#each items as { id, label } (id)}
+	{#each items as { id, label, count, accent, locked } (id)}
 		<button
 			type="button"
 			role="tab"
@@ -45,6 +55,12 @@
 			onkeydown={moveTab}
 		>
 			{label}
+			{#if count != null}
+				<span class={accent ? 'font-bold text-danger' : 'text-muted-foreground'}>{count}</span>
+			{/if}
+			{#if locked}
+				<Lock size={12} class="inline align-baseline" aria-label="Locked" />
+			{/if}
 		</button>
 	{/each}
 </div>

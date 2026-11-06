@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ImagePlus, LoaderCircle, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -7,6 +8,8 @@
 	import Button from '#lib/components/ui/button/button.svelte';
 	import ConfirmDialog from '#lib/components/ui/confirm-dialog/confirm-dialog.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
+	import SelectPill from '#lib/components/ui/select-pill/select-pill.svelte';
+	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
 	import PhotoStack from '#lib/components/ui/photo-stack/photo-stack.svelte';
 	import { getLiveEvents, type PhotoChange, type PhotoEvent } from '#lib/events.js';
 	import { GalleryApiError, updateGallery } from '#lib/gallery/api.js';
@@ -24,8 +27,19 @@
 	import type { Proof } from '#lib/gallery/types.js';
 	import { getUploadQueue, type QueueState } from '#lib/gallery/uploads.svelte.js';
 
-	let { galleryId, heroId = $bindable(null) }: { galleryId: string; heroId?: string | null } =
-		$props();
+	let {
+		galleryId,
+		heroId = $bindable(null),
+		oncount,
+		watermarked = false
+	}: {
+		galleryId: string;
+		heroId?: string | null;
+		/** How many photos the gallery has, for the tab. */
+		oncount?: (count: number | null) => void;
+		/** Whether the gallery has watermarking on. */
+		watermarked?: boolean;
+	} = $props();
 
 	/** Event storms and resyncs refetch the list at most this often. */
 	const REFRESH_INTERVAL_MS = 1000;
@@ -128,6 +142,37 @@
 			.filter(([n]) => n > 0)
 			.map(([n, label]) => `${n} ${label}`)
 			.join(', ');
+	});
+
+	// Photos that were ready: one that is not any more is being regenerated, not freshly uploaded.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const everReady = new Set<string>();
+	const updatingWatermarks = $derived(
+		watermarked && photos.some(({ id, status }) => status !== 'ready' && everReady.has(id))
+	);
+	const failedUploads = $derived(
+		queued.filter(({ state }) => state === 'failed' || state === 'rejected').length
+	);
+	let reportedFailures = 0;
+
+	$effect(() => {
+		for (const { id } of ready) everReady.add(id);
+	});
+
+	$effect(() => {
+		oncount?.(loaded ? photos.length : null);
+	});
+
+	$effect(() => {
+		const failures = failedUploads;
+
+		if (failures > reportedFailures) {
+			const fresh = failures - reportedFailures;
+
+			toasts.error(`${fresh} ${fresh === 1 ? 'photo' : 'photos'} failed to upload.`);
+		}
+
+		reportedFailures = failures;
 	});
 
 	let savingHero = false;
@@ -550,16 +595,23 @@
 	{ondrop}
 >
 	<div class="flex flex-wrap items-center justify-end gap-2">
+		{#if updatingWatermarks}
+			<p class="mr-auto flex items-center gap-2 text-sm text-muted-foreground">
+				<LoaderCircle size={16} class="animate-spin-slow" aria-hidden="true" />
+				Updating watermarks…
+			</p>
+		{/if}
 		{#if selecting}
-			<p class="mr-auto text-sm">{selection.length} selected</p>
-			<Button variant="ghost" size="sm" onclick={selectAll}>Select all</Button>
-			<Button
-				variant="outline"
-				size="sm"
-				disabled={selection.length === 0}
-				onclick={() => (confirmingSelection = true)}>Delete</Button
+			<SelectPill
+				count={selection.length}
+				actionLabel="Delete"
+				actionDisabled={selection.length === 0}
+				onaction={() => (confirmingSelection = true)}
+				onselectall={selectAll}
+				onclose={finishSelecting}
 			>
-			<Button variant="ghost" size="sm" onclick={finishSelecting}>Cancel</Button>
+				{#snippet icon()}<Trash2 size={16} aria-hidden="true" />{/snippet}
+			</SelectPill>
 		{:else}
 			<Button
 				bind:ref={selectButton}
@@ -570,7 +622,7 @@
 			>
 		{/if}
 		<Button bind:ref={uploadButton} variant="outline" size="sm" onclick={() => picker?.click()}
-			>+ Upload</Button
+			><Upload size={16} aria-hidden="true" class="mr-1.5" />Upload</Button
 		>
 		<input
 			bind:this={picker}
@@ -629,7 +681,11 @@
 			{/each}
 		</ul>
 	{:else if loaded}
-		<EmptyState class="text-muted-foreground">No photos yet. Drop JPEGs here to start.</EmptyState>
+		<EmptyState class="text-muted-foreground">
+			<ImagePlus size={32} aria-hidden="true" />
+			<p class="text-lg text-foreground">Drop the shoot here</p>
+			<Button variant="outline" size="sm" onclick={() => picker?.click()}>Upload</Button>
+		</EmptyState>
 	{/if}
 </section>
 

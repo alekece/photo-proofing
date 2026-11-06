@@ -442,7 +442,7 @@ describe('gallery page', () => {
 		it('offers Photos, Favorites and Finals with Photos selected', () => {
 			open();
 			const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent?.trim());
-			expect(tabs).toEqual(['Photos', 'Favorites', 'Finals']);
+			expect(tabs).toEqual(['Photos', 'Favorites', 'Final 0']);
 			expect(screen.getByRole('tab', { name: 'Photos' }).getAttribute('aria-selected')).toBe(
 				'true'
 			);
@@ -452,11 +452,11 @@ describe('gallery page', () => {
 		it('switches panels', async () => {
 			const user = userEvent.setup();
 			open();
-			await user.click(screen.getByRole('tab', { name: 'Finals' }));
-			expect(screen.getByRole('tab', { name: 'Finals' }).getAttribute('aria-selected')).toBe(
+			await user.click(screen.getByRole('tab', { name: /^Final/ }));
+			expect(screen.getByRole('tab', { name: /^Final/ }).getAttribute('aria-selected')).toBe(
 				'true'
 			);
-			expect(screen.getByRole('tabpanel').textContent).toMatch(/No finished photos yet/);
+			expect(screen.getByRole('tabpanel').textContent).toMatch(/Drop the finished photos here/);
 			await user.click(screen.getByRole('tab', { name: 'Favorites' }));
 			expect(screen.getByRole('tabpanel').textContent).toMatch(/No favorites yet/);
 		});
