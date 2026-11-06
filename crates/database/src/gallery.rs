@@ -363,6 +363,54 @@ impl GalleryRepository<'_> {
         .await?)
     }
 
+    /// Ends client access without deleting anything. Archiving again keeps the first time; it is
+    /// not an edit, so `updated_at` is untouched. `None` if the workspace has no such gallery.
+    pub async fn archive(
+        &self,
+        workspace_id: WorkspaceId,
+        id: GalleryId,
+    ) -> Result<Option<Gallery>, DatabaseError> {
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
+            "UPDATE galleries SET archived_at = COALESCE(archived_at, now())
+             WHERE id=$1 AND workspace_id=$2
+             RETURNING {}",
+            Self::COLUMNS
+        )))
+        .bind(id)
+        .bind(workspace_id)
+        .fetch_optional(self.pool)
+        .await?)
+    }
+
+    /// Undoes [`archive`](Self::archive) at the same link. Delivery, sharing and expiry are
+    /// untouched, so a gallery that has expired stays expired.
+    pub async fn restore(
+        &self,
+        workspace_id: WorkspaceId,
+        id: GalleryId,
+    ) -> Result<Option<Gallery>, DatabaseError> {
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
+            "UPDATE galleries SET archived_at = NULL
+             WHERE id=$1 AND workspace_id=$2
+             RETURNING {}",
+            Self::COLUMNS
+        )))
+        .bind(id)
+        .bind(workspace_id)
+        .fetch_optional(self.pool)
+        .await?)
+    }
+
+    /// Whether a gallery with this id exists in any workspace.
+    pub async fn exists(&self, id: GalleryId) -> Result<bool, DatabaseError> {
+        Ok(
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM galleries WHERE id=$1)")
+                .bind(id)
+                .fetch_one(self.pool)
+                .await?,
+        )
+    }
+
     /// Returns the gallery with its private link, creating the link if it has none. A shared
     /// gallery keeps its token for good. Sharing is not an edit, so `updated_at` is untouched.
     pub async fn share(
@@ -478,7 +526,10 @@ mod tests {
     use super::*;
     use crate::{
         Database,
+        deletion::WorkspaceDeletion,
+        jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
         photo::{PhotoLocation, PhotoRepository, PhotoStatus},
+        tests::TestRepository,
     };
 
     async fn workspace(pool: &PgPool) -> WorkspaceId {
@@ -979,8 +1030,8 @@ mod tests {
             .await
             .unwrap();
         database
-            .repository::<PhotoRepository>()
-            .delete(workspace, gallery.id, &[hero_photo])
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(workspace, gallery.id, &[hero_photo])
             .await
             .unwrap();
 
@@ -1364,6 +1415,140 @@ mod tests {
         set_column(&pool, id, "archived_at", "now()").await;
 
         assert_eq!(store.find_shared(&token).await.unwrap(), None);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn archive_and_restore_round_trip_and_are_idempotent(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let created = store.create(workspace).await.unwrap();
+        let token = store
+            .share(workspace, created.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .share_token
+            .unwrap();
+
+        let archived = store.archive(workspace, created.id).await.unwrap().unwrap();
+        let again = store.archive(workspace, created.id).await.unwrap().unwrap();
+
+        assert_eq!(
+            archived.states,
+            [GalleryState::Shared, GalleryState::Archived]
+        );
+        assert_eq!(archived, again);
+        assert_eq!(archived.updated_at, created.updated_at);
+        assert_eq!(store.find_shared(&token).await.unwrap(), None);
+
+        let restored = store.restore(workspace, created.id).await.unwrap().unwrap();
+        let restored_again = store.restore(workspace, created.id).await.unwrap().unwrap();
+
+        assert_eq!(restored.states, [GalleryState::Shared]);
+        assert_eq!(restored, restored_again);
+        assert!(store.find_shared(&token).await.unwrap().is_some());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn restore_keeps_delivery_and_expiry(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let id = store.create(workspace).await.unwrap().id;
+
+        store.share(workspace, id).await.unwrap();
+        set_column(&pool, id, "delivered_at", "now()").await;
+        set_column(&pool, id, "expires_at", "now() - interval '1 day'").await;
+        store.archive(workspace, id).await.unwrap();
+
+        let restored = store.restore(workspace, id).await.unwrap().unwrap();
+
+        assert_eq!(
+            restored.states,
+            [GalleryState::Delivered, GalleryState::Expired]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn archive_restore_and_delete_ignore_other_workspaces(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let owner = workspace(&pool).await;
+        let other = workspace(&pool).await;
+        let id = store.create(owner).await.unwrap().id;
+
+        assert_eq!(store.archive(other, id).await.unwrap(), None);
+        assert_eq!(store.restore(other, id).await.unwrap(), None);
+        assert!(
+            !database
+                .repository::<WorkspaceDeletion>()
+                .delete_gallery(other, id)
+                .await
+                .unwrap()
+        );
+        assert!(store.exists(id).await.unwrap());
+        assert!(
+            database
+                .repository::<TestRepository>()
+                .jobs_of_kind("cleanup_gallery")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn delete_removes_the_gallery_and_queues_one_cleanup_with_it(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let id = store.create(workspace).await.unwrap().id;
+        let photo = photo_in(&pool, workspace, id, PhotoStatus::Waiting).await;
+
+        database
+            .repository::<JobRepository>()
+            .enqueue(
+                JobPayload::ProcessPhoto(ProcessPhoto { photo_id: photo }),
+                JobOptions::default().max_attempts,
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            database
+                .repository::<WorkspaceDeletion>()
+                .delete_gallery(workspace, id)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !database
+                .repository::<WorkspaceDeletion>()
+                .delete_gallery(workspace, id)
+                .await
+                .unwrap()
+        );
+        assert_eq!(store.get(workspace, id).await.unwrap(), None);
+        assert!(!store.exists(id).await.unwrap());
+
+        let tests = database.repository::<TestRepository>();
+        let cleanups = tests.jobs_of_kind("cleanup_gallery").await.unwrap();
+
+        assert_eq!(cleanups.len(), 1);
+        assert_eq!(
+            cleanups[0].payload["payload"],
+            json!({"workspace_id": workspace.0, "gallery_id": id.0})
+        );
+        assert!(tests.photo_jobs(photo).await.unwrap().is_empty());
+        assert_eq!(
+            database
+                .repository::<PhotoRepository>()
+                .locate(photo)
+                .await
+                .unwrap(),
+            None
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]

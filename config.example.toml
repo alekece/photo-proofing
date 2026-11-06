@@ -32,12 +32,20 @@ max_peers = 1024
 # enqueues; the other keys are read by pp-image-worker.
 [queue]
 max_attempts = 5
+# Most photos one cleanup job names when photos are deleted; read by the API.
+cleanup_batch = 500
 poll_interval = "5s"
 lease = "60s"
 concurrency = 2
 backoff_base = "10s"
 backoff_cap = "5m"
 shutdown_grace = "30s"
+
+# Worker only. Files younger than this are never swept as orphans.
+[cleanup]
+orphan_grace = "24h"
+# Sweeps requested sooner than this after the last successful one are skipped.
+sweep_interval = "1h"
 
 [photo]
 # Private photo files; the API and the worker must share this directory.
