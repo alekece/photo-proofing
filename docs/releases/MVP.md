@@ -74,6 +74,7 @@ Run with synthetic/replaceable photos whose originals are retained elsewhere. Th
 ### Lifecycle and recovery
 
 - [ ] Expire a proofing or delivered gallery: deny client page/media/download/event access but retain photographer access and all data. Extend expiry and restore permitted access without regeneration. No-expiry galleries remain available until access is otherwise blocked ([FR-13](../SPECIFICATIONS.md#fr-13), [NF-01](../SPECIFICATIONS.md#nf-01)).
+- [ ] Switch the language between English and French beside the notifications bell: the photographer app, the client page, the delivered page, the client empty states and the unavailable page all follow it, with dates, and none shows a mix of languages ([FR-02a](../SPECIFICATIONS.md#fr-02a)).
 - [ ] Every unusable link (never shared, expired, archived, deleted, unknown) shows the same unbranded unavailable page ([FR-13](../SPECIFICATIONS.md#fr-13)).
 - [ ] Archive and restore a gallery: preserve assets, selection, activity, delivery state, and private link. Restoring an expired gallery does not bypass expiry ([FR-13](../SPECIFICATIONS.md#fr-13)).
 - [ ] Confirm deletion while work is queued/in progress: deny subsequent access and eventually remove stored assets/temporary outputs; late workers cannot recreate accessible deleted content ([FR-13](../SPECIFICATIONS.md#fr-13), [NF-02](../SPECIFICATIONS.md#nf-02)).

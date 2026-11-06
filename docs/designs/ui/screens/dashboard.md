@@ -12,8 +12,9 @@ The photographer's home: what's new, and every gallery as a cover. Route `/dashb
 
 ## Layout
 
-1. **Top bar:** brand on the left; on the right the notifications bell (dot when unread) and the
-   avatar.
+1. **Top bar:** brand on the left; on the right the **language button** ("EN" or "FR", opening a small menu with English and
+   Français; saves at once with the usual toast), the notifications bell (dot when unread) and the
+   avatar. See the [languages design](../../2026-11-06-ui-languages-design.md).
 2. **Greeting:** a Georgia title that says what needs attention, for example "Good morning, Léa.
    *Two galleries* have news." or "Good morning, Léa. *All quiet* for now." Below it, up to three
    news chips (gallery thumbnail, title, "13 selected" or "4 new downloads"). The **+ New

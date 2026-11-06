@@ -57,6 +57,9 @@ around them.
 - **Disable, don't hide.** A control that can't be used right now stays visible and disabled,
   such as search on an empty dashboard or hearts in Preview. Exception: an empty tab drops its
   Select and Download buttons.
+- **Two languages.** Every word on screen exists in English and French, dates included. Layouts must
+  hold the longer French text without clipping. The workspace language applies to every screen,
+  client pages too.
 - **No hint text.** Plain labels, short copy, no counts repeated in two places.
 - **Confirm, never block.** Delete always asks in a dialog. Share and Deliver ask in a dialog and
   warn when something is missing (no photos, no finals), but never refuse.
