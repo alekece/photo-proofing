@@ -26,6 +26,14 @@ describe('AppHeader', () => {
 		);
 	});
 
+	it('links to Settings from the account menu', async () => {
+		render(AppHeader);
+
+		await userEvent.setup().click(screen.getByRole('button', { name: 'Account menu' }));
+
+		expect(screen.getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings');
+	});
+
 	it('calls onsignout when Sign out is pressed', async () => {
 		const onsignout = vi.fn();
 		render(AppHeader, { onsignout });
