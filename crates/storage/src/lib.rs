@@ -232,9 +232,6 @@ impl PhotoStorage {
                 removed += self
                     .sweep_gallery(&gallery_entry.path(), location, grace, &is_stored)
                     .await?;
-
-                // Only succeeds on an empty directory, so a racing upload is never lost.
-                let _ = fs::remove_dir(gallery_entry.path()).await;
             }
         }
 
@@ -858,12 +855,6 @@ mod tests {
             storage.read(&emptied).await,
             Err(StorageError::NotFound)
         ));
-        assert!(
-            !dir.path()
-                .join(emptied.workspace.0.to_string())
-                .join(emptied.gallery.0.to_string())
-                .exists()
-        );
         assert!(dir.path().join(STAGING_DIR).exists());
         assert!(dir.path().join("stray").exists());
     }
