@@ -110,9 +110,9 @@ Select all only picks the current tab.
 
 ## Dialogs
 
-Share, Deliver and Delete always confirm. Share and Deliver never refuse: when something is
-nothing is ready they warn and the button says "anyway". The "until 12 Sep" in the Share text
-  only appears when an Open until date is set.
+Share, Deliver and Delete always confirm. Share and Deliver never refuse: when nothing is ready
+they warn and the button says "anyway". The "until 12 Sep" in the Share text only appears when
+an Open until date is set.
 
 | Dialog | Normal | Something missing |
 |---|---|---|
