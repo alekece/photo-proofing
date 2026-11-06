@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM rust:1-bookworm AS build
+FROM rust:1-trixie AS build
 WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends libvips-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
@@ -9,8 +9,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,id=pp-api-target \
     cargo build --release -p pp-api && cp target/release/pp-api /pp-api
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends curl libvips42 \
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends curl libvips42t64 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --no-create-home pp \
     && install -d -o pp -g pp /var/lib/pp/photos
