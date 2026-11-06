@@ -99,7 +99,7 @@
 			{#if gallery.expires_at}
 				<ExpiryBadge expiresAt={gallery.expires_at} />
 			{/if}
-			<FilmStrip class="w-screen max-w-none -rotate-2" />
+			<FilmStrip class="w-[120%] max-w-none -rotate-2" />
 			<div class="grid gap-1">
 				<p class="font-serif text-2xl italic">Your photos are on their way.</p>
 				<p class="text-inverse/70">Check back soon.</p>
