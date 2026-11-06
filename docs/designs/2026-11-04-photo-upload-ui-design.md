@@ -3,8 +3,8 @@
 Issue: #102. Requirements: FR-05, FR-06, NF-02, NF-03, NF-04, TC-03, TC-04; builds on the [photo
 upload](2026-10-31-photo-upload-design.md) (#98), [proof
 derivatives](2026-11-04-proof-derivatives-design.md) (#99) and [live photo
-events](2026-11-04-live-photo-events-design.md) (#80) designs, and on the [gallery page
-mockup](assets/pages/gallery.html). Second layer of a stack with #80 below and #146 (select mode,
+events](2026-11-04-live-photo-events-design.md) (#80) designs, and on the gallery page
+mockup (now superseded by [`ui/screens/gallery.md`](ui/screens/gallery.md)). Second layer of a stack with #80 below and #146 (select mode,
 bulk delete) above.
 
 ## Intent

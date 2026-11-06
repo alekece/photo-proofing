@@ -16,8 +16,8 @@ A photographer can prepare and share JPEG proofs, receive a shared client select
 - Title, hero, two layouts, optional expiry, editable optional included photo allowance, and watermark enablement ([FR-03](../SPECIFICATIONS.md#fr-03)).
 - Empty/progressively populated proofing shares through one private link and one client selection ([FR-04](../SPECIFICATIONS.md#fr-04)).
 - In-app, read-only owner preview of the client page in desktop and mobile views, without a share link ([FR-04](../SPECIFICATIONS.md#fr-04)).
-- JPEG uploads, separate transfer/processing progress, failed-file retry, reduced previews, and optional workspace text/logo watermark ([FR-05–FR-07](../SPECIFICATIONS.md#fr-05)).
-- Editable favorites with informational overflow, and one-click selection ZIP preparation/download ([FR-08–FR-09](../SPECIFICATIONS.md#fr-08)).
+- JPEG uploads, separate transfer/processing progress, failed-file retry, reduced previews, and optional workspace name/logo watermark with repeat or position, size and cover signature ([FR-05–FR-07](../SPECIFICATIONS.md#fr-05)).
+- Editable favorites with informational overflow, one-click selection ZIP preparation/download, and single or multi-select favorite downloads ([FR-08–FR-09](../SPECIFICATIONS.md#fr-08)).
 - Private preparation and explicit delivery of independent finished-photo sets, later updates, individual/ZIP client downloads ([FR-10](../SPECIFICATIONS.md#fr-10)).
 - Gallery-card activity and top-bar grouped selection/download notifications with explicit reads ([FR-11–FR-12](../SPECIFICATIONS.md#fr-11)).
 - Expiry, archive/restore, confirmed deletion, persistent local storage, durable processing, and SSE updates ([FR-13](../SPECIFICATIONS.md#fr-13), [NF-01–NF-04](../SPECIFICATIONS.md#nf-01), [TC-01–TC-05](../SPECIFICATIONS.md#tc-01)).
@@ -27,7 +27,7 @@ A photographer can prepare and share JPEG proofs, receive a shared client select
 
 No Google sign-in, password recovery, collaboration/account management, roles, workspace switching, email/SMS sending, access codes, native apps, RAW/other photo inputs, custom preview-quality controls, configurable metadata policy, resumable uploads, S3-compatible storage, backup/restore tooling, public-internet deployment, or SaaS provisioning.
 
-No client submission button or retouching phase. No individual-original export interface, separate download-management screen, or return from finished delivery to proofing. No proof-to-final matching algorithm. Billing is outside the product entirely, not merely deferred from this release.
+No client submission button or retouching phase. No separate download-management screen, or return from finished delivery to proofing. No proof-to-final matching algorithm. Billing is outside the product entirely, not merely deferred from this release.
 
 Logo input formats, resource limits, session lifetimes, and processing/export mechanisms must be settled by the corresponding implementation designs. JPEG-only photo support does not prohibit a separately validated logo format. These design choices must preserve the PRD guarantees rather than silently expanding scope.
 
@@ -43,25 +43,25 @@ Run with synthetic/replaceable photos whose originals are retained elsewhere. Th
 
 ### Prepare, process, and share
 
-- [ ] Create a gallery from the title-only New gallery dialog, then set hero, switch between default uniform grid and masonry, and set/clear expiry and included photo count ([FR-03](../SPECIFICATIONS.md#fr-03)).
+- [ ] Create a gallery from the title-only New gallery dialog, then set and remove the hero (no hero shows the default cover on the gallery and client page), switch between default even rows and staggered columns, and set/clear expiry and included photo count ([FR-03](../SPECIFICATIONS.md#fr-03)).
 - [ ] Share an empty gallery after a warning; the link opens a useful empty state, with no client account or code required ([FR-04](../SPECIFICATIONS.md#fr-04)).
 - [ ] Open Preview on an unshared gallery, switch between desktop and mobile views, and close it: the client page shows only ready reduced previews, selection and download controls are disabled, and no share link or client activity is created ([FR-04](../SPECIFICATIONS.md#fr-04))
 - [ ] Upload a representative 50–100-JPEG gallery; observe transfer progress separately from processing. Navigate away and return to the current processing state. Ready previews appear progressively at the shared link; pending/failed photos never appear as ready ([FR-04–FR-05](../SPECIFICATIONS.md#fr-04), [NF-04](../SPECIFICATIONS.md#nf-04)).
 - [ ] Reject non-JPEG, malformed, and over-limit photo inputs. Simulate interrupted upload and processing failure: retain successful files, clean incomplete files, and allow retry without duplicates ([FR-05](../SPECIFICATIONS.md#fr-05), [NF-01–NF-02](../SPECIFICATIONS.md#nf-01)).
-- [ ] Save watermark text, logo, and both; verify gallery enable/disable behavior. Check previews preserve orientation/color, reduce usable resolution/quality, and omit source identifying/GPS metadata. Original bytes remain unchanged ([FR-06–FR-07](../SPECIFICATIONS.md#fr-06)).
+- [ ] Save a watermark with the studio name, logo, and both, repeated and once at a chosen position and size; saving shows that proofs are regenerating. Verify gallery enable/disable behavior and the client cover signature. Check previews preserve orientation/color, reduce usable resolution/quality, and omit source identifying/GPS metadata. Original bytes remain unchanged ([FR-06–FR-07](../SPECIFICATIONS.md#fr-06)).
 - [ ] Test direct media/download requests as well as the UI: client proofing access cannot fetch uploaded originals or another inaccessible gallery's assets ([AC-01](../SPECIFICATIONS.md#acceptance-criteria)).
 
 ### Select and export
 
 - [ ] Use the same link from multiple browsers: favorites form one shared persistent selection across visits ([FR-08](../SPECIFICATIONS.md#fr-08)).
-- [ ] Configure 10 included photos and select 13: show 13 selected/3 extra and permit more. Change or remove the allowance without erasing choices or blocking selection. With no allowance, show the selected count without implying completion ([FR-03](../SPECIFICATIONS.md#fr-03), [FR-08](../SPECIFICATIONS.md#fr-08)).
+- [ ] Configure 10 included photos and select 13: show 13 selected emphasised as over and permit more. Change or remove the allowance without erasing choices or blocking selection. With no allowance, show the selected count without implying completion ([FR-03](../SPECIFICATIONS.md#fr-03), [FR-08](../SPECIFICATIONS.md#fr-08)).
 - [ ] Remove a selected proofing photo as photographer: require confirmation and remove its favorite. Other photos and favorites remain intact ([FR-04](../SPECIFICATIONS.md#fr-04)).
-- [ ] Request Download selection, see preparation status, and receive a ZIP containing byte-identical selected originals. Change favorites during preparation: the requested ZIP remains consistent with the request-time selection, and live selection stays editable ([FR-09](../SPECIFICATIONS.md#fr-09), [AC-02–AC-03](../SPECIFICATIONS.md#acceptance-criteria)).
+- [ ] Request Download selection, see preparation status, and receive a ZIP containing byte-identical selected originals. Download one favorite original, and several chosen in select mode. Change favorites during preparation: the requested ZIP remains consistent with the request-time selection, and live selection stays editable ([FR-09](../SPECIFICATIONS.md#fr-09), [AC-02–AC-03](../SPECIFICATIONS.md#acceptance-criteria)).
 
 ### Deliver and update
 
 - [ ] Upload finished JPEGs individually and in batches, using a smaller, equal, or larger set than the selection without mapping requirements. Undelivered files remain inaccessible to clients ([FR-10](../SPECIFICATIONS.md#fr-10), [NF-01](../SPECIFICATIONS.md#nf-01)).
-- [ ] Prevent Deliver for an empty set or a set containing unfinished/failed photos. After retrying/removing those files, deliver the complete intended set ([FR-10](../SPECIFICATIONS.md#fr-10)).
+- [ ] Deliver an empty set, or one containing unfinished/failed photos: a warning dialog appears first, clients see only ready finished photos, and an empty set shows "Your finished photos are on their way." ([FR-10](../SPECIFICATIONS.md#fr-10)).
 - [ ] At the same private link, show only the delivered finished photos; reject client favorite changes. Individual downloads and the all-photo ZIP preserve the uploaded finished-file bytes, including metadata ([FR-06](../SPECIFICATIONS.md#fr-06), [FR-10](../SPECIFICATIONS.md#fr-10)).
 - [ ] Add/remove finished photos after delivery: clients see the changes without a publish step, with no intermediate set or incomplete file exposed. Removing every finished photo leaves clients an empty delivered gallery ([FR-10](../SPECIFICATIONS.md#fr-10), [NF-02](../SPECIFICATIONS.md#nf-02)).
 
@@ -74,6 +74,7 @@ Run with synthetic/replaceable photos whose originals are retained elsewhere. Th
 ### Lifecycle and recovery
 
 - [ ] Expire a proofing or delivered gallery: deny client page/media/download/event access but retain photographer access and all data. Extend expiry and restore permitted access without regeneration. No-expiry galleries remain available until access is otherwise blocked ([FR-13](../SPECIFICATIONS.md#fr-13), [NF-01](../SPECIFICATIONS.md#nf-01)).
+- [ ] Every unusable link (never shared, expired, archived, deleted, unknown) shows the same unbranded unavailable page ([FR-13](../SPECIFICATIONS.md#fr-13)).
 - [ ] Archive and restore a gallery: preserve assets, selection, activity, delivery state, and private link. Restoring an expired gallery does not bypass expiry ([FR-13](../SPECIFICATIONS.md#fr-13)).
 - [ ] Confirm deletion while work is queued/in progress: deny subsequent access and eventually remove stored assets/temporary outputs; late workers cannot recreate accessible deleted content ([FR-13](../SPECIFICATIONS.md#fr-13), [NF-02](../SPECIFICATIONS.md#nf-02)).
 - [ ] Restart API/worker and recreate containers with persistent storage: accepted data and jobs survive. Interrupted work resumes eligibility, retries do not duplicate/corrupt results, and repeated failures become visible and manually retryable ([NF-02](../SPECIFICATIONS.md#nf-02), [TC-03–TC-04](../SPECIFICATIONS.md#tc-03)).

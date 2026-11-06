@@ -8,7 +8,7 @@
 
 **Tech Stack:** SvelteKit 3, Svelte 5 runes, Tailwind 4, Vitest + Testing Library + vitest-axe, Playwright (`web/e2e`).
 
-**Spec:** `docs/designs/2026-10-30-page-designs-design.md`. Mockups (HTML is the source of truth): `docs/designs/assets/pages/` (read its `README.md` first). Issue: #84.
+**Spec:** `docs/designs/2026-10-30-page-designs-design.md`. Mockups: now `docs/designs/ui/DESIGN.md` (the original `assets/pages/` mockups were replaced by #172). Issue: #84.
 
 ## Global Constraints
 
