@@ -9,13 +9,19 @@
 //! - `POST /{id}/share` creates the gallery's private link if it has none and returns the
 //!   gallery; sharing again returns the same link.
 //!
+//! - `POST /{id}/archive` hides the gallery from its client and returns it; archiving again
+//!   changes nothing.
+//! - `POST /{id}/restore` makes an archived gallery reachable again and returns it.
+//! - `DELETE /{id}` deletes the gallery and its photos at once (204); the worker removes the
+//!   files afterwards.
+//!
 //! The public `/shared/{token}` routes for clients live in [`shared`].
 //!
 //! A gallery of another workspace is a 404, never a 403, so ids reveal nothing. Like every state-changing
 //! route, they must carry the configured `Origin`, which the API-wide middleware checks.
 
 use actix_web::{
-    HttpRequest, HttpResponse, get, patch, post,
+    HttpRequest, HttpResponse, delete, get, patch, post,
     web::{self, Data, Json, Path, ServiceConfig},
 };
 use actix_web_lab::extract::Query as LabQuery;
@@ -72,6 +78,9 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(show_gallery)
             .service(update_gallery)
             .service(share_gallery)
+            .service(archive_gallery)
+            .service(restore_gallery)
+            .service(delete_gallery)
             .configure(photos::configure),
     );
 }
@@ -140,6 +149,57 @@ async fn update_gallery(
         .ok_or_else(ErrorResponse::not_found)?;
 
     Ok(HttpResponse::Ok().no_store().json(gallery))
+}
+
+#[post("/{id}/archive")]
+async fn archive_gallery(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    id: Path<GalleryId>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let gallery = state
+        .database()
+        .repository::<GalleryRepository>()
+        .archive(identity.workspace_id, id.into_inner())
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
+
+    Ok(HttpResponse::Ok().no_store().json(gallery))
+}
+
+#[post("/{id}/restore")]
+async fn restore_gallery(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    id: Path<GalleryId>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let gallery = state
+        .database()
+        .repository::<GalleryRepository>()
+        .restore(identity.workspace_id, id.into_inner())
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
+
+    Ok(HttpResponse::Ok().no_store().json(gallery))
+}
+
+#[delete("/{id}")]
+async fn delete_gallery(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    id: Path<GalleryId>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let deleted = state
+        .database()
+        .repository::<GalleryRepository>()
+        .delete(identity.workspace_id, id.into_inner(), state.job_options())
+        .await?;
+
+    if !deleted {
+        return Err(ErrorResponse::not_found());
+    }
+
+    Ok(HttpResponse::NoContent().no_store().finish())
 }
 
 #[post("/{id}/share")]

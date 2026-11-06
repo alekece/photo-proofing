@@ -12,7 +12,12 @@ use actix_web::{
 };
 use derive_more::From;
 use pp_core::url::Origin;
-use pp_database::{Database, auth::AuthRepository, error::DatabaseError, jobs::JobOptions};
+use pp_database::{
+    Database,
+    auth::AuthRepository,
+    error::DatabaseError,
+    jobs::{JobOptions, JobRepository},
+};
 use pp_storage::{PhotoStorage, StorageError};
 use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -241,6 +246,16 @@ impl Api {
             config.photo_upload,
             config.queue,
         )?;
+
+        // A failed sweep only delays the removal of leftover files, so it must not stop startup.
+        if let Err(error) = state
+            .database()
+            .repository::<JobRepository>()
+            .enqueue_sweep(state.job_options().max_attempts)
+            .await
+        {
+            tracing::warn!(%error, "could not queue the orphaned file sweep");
+        }
 
         Ok(Self {
             http: config.http,

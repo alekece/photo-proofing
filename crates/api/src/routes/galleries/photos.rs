@@ -157,8 +157,7 @@ async fn retry_photo(
         .json(RequeuedPhotos { requeued }))
 }
 
-/// Deletes a photo whatever its status, then its files. The deletion stands once committed:
-/// a file that cannot be removed is only logged.
+/// Deletes a photo whatever its status. Its files are removed afterwards by the worker.
 #[delete("/{id}/photos/{photo_id}")]
 async fn delete_photo(
     state: Data<ApiState>,
@@ -170,28 +169,23 @@ async fn delete_photo(
     if state
         .database()
         .repository::<PhotoRepository>()
-        .delete(identity.workspace_id, gallery_id, &[photo_id])
+        .delete(
+            identity.workspace_id,
+            gallery_id,
+            &[photo_id],
+            state.job_options(),
+        )
         .await?
         .is_empty()
     {
         return Err(ErrorResponse::not_found());
     }
 
-    let location = PhotoLocation {
-        workspace_id: identity.workspace_id,
-        gallery_id,
-    };
-
-    for (key, error) in state.storage().remove_many(location, &[photo_id]).await {
-        tracing::error!(%error, ?key, "failed to remove a deleted photo's file");
-    }
-
     Ok(HttpResponse::NoContent().no_store().finish())
 }
 
-/// Deletes several photos of a gallery whatever their status, then their files. Ids outside the
-/// gallery or already gone are ignored and not counted; a file that cannot be removed is only
-/// logged.
+/// Deletes several photos of a gallery whatever their status. Ids outside the gallery or already
+/// gone are ignored and not counted. Their files are removed afterwards by the worker.
 #[post("/{id}/photos/delete")]
 async fn delete_photos(
     state: Data<ApiState>,
@@ -214,16 +208,13 @@ async fn delete_photos(
     let deleted_ids = state
         .database()
         .repository::<PhotoRepository>()
-        .delete(identity.workspace_id, gallery_id, &selection.photo_ids)
+        .delete(
+            identity.workspace_id,
+            gallery_id,
+            &selection.photo_ids,
+            state.job_options(),
+        )
         .await?;
-    let location = PhotoLocation {
-        workspace_id: identity.workspace_id,
-        gallery_id,
-    };
-
-    for (key, error) in state.storage().remove_many(location, &deleted_ids).await {
-        tracing::error!(%error, ?key, "failed to remove a deleted photo's file");
-    }
 
     Ok(HttpResponse::Ok().no_store().json(DeletedPhotos {
         deleted: deleted_ids.len(),
@@ -1443,7 +1434,9 @@ pub(super) mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn delete_removes_the_photo_its_jobs_and_its_files_whatever_its_status(pool: PgPool) {
+    async fn delete_removes_the_photo_and_its_jobs_and_queues_file_cleanup_whatever_its_status(
+        pool: PgPool,
+    ) {
         let directory = tempfile::tempdir().unwrap();
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let cookie = sign_up(&app).await;
@@ -1456,7 +1449,7 @@ pub(super) mod tests {
 
         photos.push(waiting_photo(&app, &cookie, &gallery_id).await);
 
-        for photo in &photos {
+        for (index, photo) in photos.iter().enumerate() {
             for variant in ["thumbnail", "preview"] {
                 store_derivative(&pool, directory.path(), photo, variant).await;
             }
@@ -1471,14 +1464,16 @@ pub(super) mod tests {
 
             assert_eq!(response.status(), StatusCode::NO_CONTENT);
             assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
-            assert!(photo_files(directory.path(), photo).is_empty());
-            assert!(
-                Database::new(pool.clone())
-                    .repository::<TestRepository>()
-                    .photo_jobs(photo_id(photo))
-                    .await
-                    .unwrap()
-                    .is_empty()
+
+            let database = Database::new(pool.clone());
+            let tests = database.repository::<TestRepository>();
+            let cleanups = tests.jobs_of_kind("cleanup_photos").await.unwrap();
+
+            assert!(tests.photo_jobs(photo_id(photo)).await.unwrap().is_empty());
+            assert_eq!(cleanups.len(), index + 1);
+            assert_eq!(
+                cleanups[index].payload["payload"]["photo_ids"],
+                json!([photo])
             );
         }
 
@@ -1573,7 +1568,7 @@ pub(super) mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn bulk_delete_removes_photos_jobs_and_files(pool: PgPool) {
+    async fn bulk_delete_removes_photos_and_jobs_and_queues_one_file_cleanup(pool: PgPool) {
         let directory = tempfile::tempdir().unwrap();
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let cookie = sign_up(&app).await;
@@ -1610,10 +1605,21 @@ pub(super) mod tests {
         let tests = tests.repository::<TestRepository>();
 
         for photo in &photos {
-            assert!(photo_files(directory.path(), photo).is_empty());
             assert!(tests.photo_jobs(photo_id(photo)).await.unwrap().is_empty());
         }
 
+        let cleanups = tests.jobs_of_kind("cleanup_photos").await.unwrap();
+        let mut named = cleanups[0].payload["payload"]["photo_ids"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let mut expected: Vec<_> = photos.iter().map(|photo| json!(photo)).collect();
+
+        named.sort_by_key(ToString::to_string);
+        expected.sort_by_key(ToString::to_string);
+
+        assert_eq!(cleanups.len(), 1);
+        assert_eq!(named, expected);
         assert_eq!(photo_files(directory.path(), &kept).len(), 3);
         assert_eq!(photo_status(&pool, &kept).await, PhotoStatus::Waiting);
     }
