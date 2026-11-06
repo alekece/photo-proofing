@@ -65,6 +65,7 @@
 }
 body {
 	margin: 0;
+	font-size: 0.9375rem;
 	line-height: 1.5;
 	font-family: var(--font-sans);
 	background: var(--background);
@@ -76,42 +77,42 @@ h2,
 	font-family: var(--font-serif);
 	font-weight: 400;
 }
-.cn-button {
-	border-radius: 999px;
-	font-weight: 500;
-	letter-spacing: 0.02em;
-}
-.cn-button-variant-default {
-	background: var(--foreground);
-	color: var(--background);
-}
-.cn-button-variant-outline {
-	background: transparent;
-	color: var(--foreground);
-	border: 1px solid var(--border-strong);
-}
-.cn-button-variant-secondary {
-	background: var(--border);
-	color: var(--foreground);
-}
-.cn-button-variant-ghost {
-	background: transparent;
-	color: var(--foreground);
-}
-.cn-button-variant-destructive {
-	background: var(--danger);
-	color: var(--color-inverse);
-}
-.cn-button-variant-link {
-	background: transparent;
-	color: var(--foreground);
-	text-decoration: underline;
-}
-.cn-button:hover:not(:disabled):not([aria-disabled='true']) {
-	filter: brightness(0.93);
-}
 /* In the components layer so utilities passed via `class` override these defaults. */
 @layer components {
+	.cn-button {
+		border-radius: 999px;
+		font-weight: 500;
+		letter-spacing: 0.02em;
+	}
+	.cn-button-variant-default {
+		background: var(--foreground);
+		color: var(--background);
+	}
+	.cn-button-variant-outline {
+		background: transparent;
+		color: var(--foreground);
+		border: 1px solid var(--border-strong);
+	}
+	.cn-button-variant-secondary {
+		background: var(--border);
+		color: var(--foreground);
+	}
+	.cn-button-variant-ghost {
+		background: transparent;
+		color: var(--foreground);
+	}
+	.cn-button-variant-destructive {
+		background: var(--danger);
+		color: var(--color-inverse);
+	}
+	.cn-button-variant-link {
+		background: transparent;
+		color: var(--foreground);
+		text-decoration: underline;
+	}
+	.cn-button:hover:not(:disabled):not([aria-disabled='true']) {
+		filter: brightness(0.93);
+	}
 	.cn-input {
 		min-height: 2.75rem;
 		border: 1px solid var(--border-strong);

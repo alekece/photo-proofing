@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { CaseSensitive, Grid2x2, Image, Square, Type } from '@lucide/svelte';
-	import IconButtonGroup from '#lib/components/ui/icon-button-group/icon-button-group.svelte';
 	import {
 		SIZE_STEPS,
 		type Mark,
@@ -8,131 +6,211 @@
 		type WorkspaceSettings
 	} from '#lib/settings/settings.js';
 
-	let { settings = $bindable() }: { settings: WorkspaceSettings } = $props();
+	let {
+		settings = $bindable(),
+		samples = []
+	}: {
+		settings: WorkspaceSettings;
+		/** Proof preview URLs shown under the toolbar; empty falls back to plain tiles. */
+		samples?: string[];
+	} = $props();
 
-	const SAMPLES = 6;
-	const noLogo = $derived(settings.logo === null);
-	const marks = $derived([
-		{ id: 'name', label: 'Name', icon: Type },
-		{ id: 'logo', label: 'Logo', icon: Image, disabled: noLogo },
-		{ id: 'both', label: 'Name and logo', icon: CaseSensitive, disabled: noLogo }
-	]);
-	const patterns = [
-		{ id: 'repeat', label: 'Repeat', icon: Grid2x2 },
-		{ id: 'once', label: 'Once', icon: Square }
+	// Relative width of each sample tile, two rows of three like a contact sheet.
+	const SHEET = [
+		[1.5, 0.67, 1.5],
+		[0.67, 1.5, 0.75]
 	];
-	const showName = $derived(settings.mark !== 'logo' || noLogo);
+	// Watermark text size, as a share of the tile width, per size step.
+	const SCALES = [1.4, 1.9, 2.5, 3.2, 4];
+	const ALIGN = ['start', 'center', 'end'];
+	const noLogo = $derived(settings.logo === null);
+	const marks: { id: Mark; label: string }[] = [
+		{ id: 'name', label: 'Name' },
+		{ id: 'logo', label: 'Logo' },
+		{ id: 'both', label: 'Name and logo' }
+	];
+	const patterns: { id: Pattern; label: string }[] = [
+		{ id: 'repeat', label: 'Repeat' },
+		{ id: 'once', label: 'Once' }
+	];
+	// A logo-only mark falls back to the name until a logo exists.
 	const showLogo = $derived(settings.mark !== 'name' && !noLogo);
+	const showName = $derived(settings.mark !== 'logo' || noLogo);
 	const name = $derived(settings.studioName.trim() || 'Your studio');
-	// Rendered text grows with the size step; the logo scales with it.
-	const scale = $derived(0.6 + settings.size * 0.3);
 	const repeat = $derived(settings.pattern === 'repeat');
-
-	function placement(cell: number) {
-		const [row, column] = [Math.floor(cell / 3), cell % 3];
-
-		return `top:${[8, 50, 92][row]}%;left:${[12, 50, 88][column]}%;transform:translate(-${[12, 50, 88][column]}%,-${[8, 50, 92][row]}%) scale(${scale})`;
-	}
+	const scale = $derived(SCALES[Math.min(settings.size, SIZE_STEPS - 1)]);
+	const item =
+		'grid h-12 min-w-[3.25rem] cursor-pointer place-items-center rounded-xl px-2.5 transition-colors hover:bg-[#f3ede5] aria-pressed:bg-foreground aria-pressed:text-inverse disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent';
+	const glyph = 'inline-flex items-center gap-1 font-serif text-xl italic';
 </script>
 
+{#snippet logo(size: string)}
+	{#if settings.logo}
+		<img src={settings.logo} alt="" class="{size} object-contain" />
+	{:else}
+		<svg viewBox="0 0 48 48" aria-hidden="true" class={size}>
+			<circle cx="24" cy="24" r="22" fill="none" stroke="currentColor" stroke-width="1.6" />
+			<path
+				d="M15 31c3-9 6-14 9-14s4 5 5 9 2 5 4 5"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="1.6"
+				stroke-linecap="round"
+			/>
+			<circle cx="31" cy="15" r="1.8" fill="currentColor" />
+		</svg>
+	{/if}
+{/snippet}
+
 {#snippet stamp()}
-	<span class="inline-flex items-center gap-1 text-inverse/80">
-		{#if showLogo}<img src={settings.logo} alt="" class="h-4 w-auto" />{/if}
-		{#if showName}<span class="font-mono text-[10px] tracking-widest uppercase">{name}</span>{/if}
+	<span
+		class="inline-flex items-center gap-[0.45em] font-serif whitespace-nowrap text-white italic [text-shadow:0_1px_4px_rgb(0_0_0/0.35)]"
+	>
+		{#if showLogo}<img src={settings.logo} alt="" class="size-[1.6em] object-contain" />{/if}
+		{#if showName}{name}{/if}
 	</span>
 {/snippet}
 
-<div class="grid gap-3">
-	<div
-		class="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-card border border-border bg-panel p-3"
-		role="toolbar"
-		aria-label="Watermark"
-	>
-		<div class="grid gap-1">
-			<span class="text-xs text-muted-foreground">Mark</span>
-			<IconButtonGroup
-				label="Mark"
-				items={marks}
-				value={settings.mark}
-				onchange={(value) => (settings.mark = value as Mark)}
-			/>
-			{#if noLogo}<span class="text-xs text-muted-foreground">Upload a logo for more marks.</span
-				>{/if}
-		</div>
-		<div class="grid gap-1">
-			<span class="text-xs text-muted-foreground">Pattern</span>
-			<IconButtonGroup
-				label="Pattern"
-				items={patterns}
-				value={settings.pattern}
-				onchange={(value) => (settings.pattern = value as Pattern)}
-			/>
-		</div>
-		<fieldset class="grid gap-1" disabled={repeat}>
-			<legend class="text-xs text-muted-foreground">Position</legend>
-			<div class="grid grid-cols-3 gap-1" class:opacity-50={repeat}>
-				{#each Array.from({ length: 9 }, (_, cell) => cell) as cell (cell)}
-					<button
-						type="button"
-						aria-label="Position {cell + 1}"
-						aria-pressed={settings.position === cell}
-						class="grid size-8 place-items-center rounded-control disabled:cursor-not-allowed"
-						onclick={() => (settings.position = cell)}
-					>
-						<span
-							class="size-2.5 rounded-full {settings.position === cell
-								? 'bg-foreground'
-								: 'bg-border-strong'}"
-						></span>
-					</button>
-				{/each}
-			</div>
-		</fieldset>
-		<div class="grid gap-1">
-			<label for="watermark-size" class="text-xs text-muted-foreground">Size</label>
-			<div class="flex items-center gap-2">
-				<span aria-hidden="true" class="text-xs">A</span>
-				<input
-					id="watermark-size"
-					type="range"
-					min="0"
-					max={SIZE_STEPS - 1}
-					step="1"
-					bind:value={settings.size}
-					class="w-32 accent-foreground"
-				/>
-				<span aria-hidden="true" class="text-xl">A</span>
-			</div>
-		</div>
-	</div>
-	<div
-		class="grid grid-cols-2 gap-2 sm:grid-cols-3"
-		role="img"
-		aria-label="Preview of six proofs with the watermark"
-	>
-		{#each Array.from({ length: SAMPLES }, (_, i) => i) as sample (sample)}
-			<div
-				class="relative aspect-[3/2] overflow-hidden rounded-control bg-placeholder-tile {sample %
-					2 ===
-				0
-					? 'bg-placeholder-tile-strong'
-					: ''}"
+<div
+	class="mb-[1.125rem] flex flex-wrap items-center gap-x-1.5 gap-y-2 rounded-[1.25rem] border border-border bg-input p-2 shadow-[0_14px_30px_-18px_rgb(60_40_20/0.5)]"
+	role="toolbar"
+	aria-label="Watermark"
+>
+	<div role="group" aria-label="Mark" class="flex items-center gap-1 px-2">
+		{#each marks as { id, label } (id)}
+			<button
+				type="button"
+				title={label}
+				aria-label={label}
+				aria-pressed={settings.mark === id}
+				disabled={noLogo && id !== 'name'}
+				class={item}
+				onclick={() => (settings.mark = id)}
 			>
-				{#if repeat}
-					<div
-						class="absolute -inset-1/2 flex -rotate-[20deg] flex-wrap content-around items-center justify-around gap-y-4"
-						style="font-size:{scale}em"
-					>
-						{#each Array.from({ length: 12 }, (_, i) => i) as tile (tile)}
-							<div class="bg-foreground/40 px-1 py-0.5">{@render stamp()}</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="absolute bg-foreground/40 px-1 py-0.5" style={placement(settings.position)}>
-						{@render stamp()}
-					</div>
-				{/if}
-			</div>
+				<span class={glyph}>
+					{#if id !== 'name'}{@render logo('size-6')}{/if}
+					{#if id !== 'logo'}Aa{/if}
+				</span>
+			</button>
 		{/each}
 	</div>
+	<div
+		role="group"
+		aria-label="Pattern"
+		class="flex items-center gap-1 border-l border-border px-2"
+	>
+		{#each patterns as { id, label } (id)}
+			<button
+				type="button"
+				title={label}
+				aria-label={label}
+				aria-pressed={settings.pattern === id}
+				class={item}
+				onclick={() => (settings.pattern = id)}
+			>
+				<svg viewBox="0 0 30 22" aria-hidden="true" class="h-[1.375rem] w-[1.875rem]">
+					<rect
+						x="1"
+						y="1"
+						width="28"
+						height="20"
+						rx="3"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.6"
+					/>
+					{#if id === 'repeat'}
+						{#each [[5, 5], [13, 5], [21, 5], [9, 10], [17, 10], [5, 15], [13, 15], [21, 15]] as [x, y] (`${x}-${y}`)}
+							<rect {x} {y} width="4" height="2.4" rx="1" fill="currentColor" />
+						{/each}
+					{:else}
+						<rect x="11" y="8" width="8" height="6" rx="1.5" fill="currentColor" />
+					{/if}
+				</svg>
+			</button>
+		{/each}
+	</div>
+	<div class="flex items-center border-l border-border px-2 max-sm:border-l-0" title="Position">
+		<fieldset
+			disabled={repeat}
+			aria-label="Position"
+			class="m-0 grid min-w-0 grid-cols-[repeat(3,1rem)] gap-[3px] border-0 p-1 transition-opacity {repeat
+				? 'opacity-40'
+				: ''}"
+		>
+			{#each Array.from({ length: 9 }, (_, cell) => cell) as cell (cell)}
+				<button
+					type="button"
+					aria-label="Position {cell + 1}"
+					aria-pressed={!repeat && settings.position === cell}
+					class="grid h-3 w-4 cursor-pointer place-items-center rounded-[3px] bg-[#efe7dc] hover:bg-[#e2d6c6] disabled:cursor-default aria-pressed:bg-foreground aria-pressed:after:size-[5px] aria-pressed:after:rounded-[1px] aria-pressed:after:bg-inverse aria-pressed:after:content-['']"
+					onclick={() => (settings.position = cell)}
+				></button>
+			{/each}
+		</fieldset>
+	</div>
+	<div
+		class="flex min-w-[12.5rem] flex-1 items-center border-l border-border px-2 max-sm:basis-full max-sm:border-l-0"
+	>
+		<div class="flex w-full items-center gap-3 px-2">
+			<span
+				aria-hidden="true"
+				class="font-serif text-[0.8125rem] leading-none text-muted-foreground">A</span
+			>
+			<input
+				type="range"
+				min="0"
+				max={SIZE_STEPS - 1}
+				step="1"
+				aria-label="Watermark size"
+				bind:value={settings.size}
+				class="h-7 flex-1 accent-foreground"
+			/>
+			<span aria-hidden="true" class="font-serif text-2xl leading-none text-muted-foreground"
+				>A</span
+			>
+		</div>
+	</div>
+</div>
+<div
+	class="mb-14 flex flex-col gap-2"
+	role="img"
+	aria-label="Preview of six proofs with the watermark"
+>
+	{#each SHEET as row, r (r)}
+		<div class="flex h-[clamp(6.875rem,22vw,15.625rem)] gap-2">
+			{#each row as ratio, c (c)}
+				{@const sample = samples.length ? samples[(r * 3 + c) % samples.length] : null}
+				<div
+					class="[container-type:inline-size] relative h-full overflow-hidden rounded bg-[#222] {sample
+						? ''
+						: 'bg-placeholder-tile'}"
+					style="flex:{ratio}"
+				>
+					{#if sample}<img src={sample} alt="" class="block size-full object-cover" />{/if}
+					{#if repeat}
+						<div
+							class="absolute -inset-[40%] grid -rotate-[24deg] grid-cols-[repeat(4,max-content)] content-center justify-center gap-x-[4em] gap-y-[3.2em] opacity-[0.42]"
+							style="font-size:{scale}cqw"
+						>
+							{#each Array.from({ length: 40 }, (_, i) => i) as tile (tile)}
+								<span class={tile % 8 >= 4 ? '-translate-x-1/2' : ''}>{@render stamp()}</span>
+							{/each}
+						</div>
+					{:else}
+						<div class="absolute inset-0 grid p-[5cqw]" style="font-size:{scale}cqw">
+							<div
+								class="opacity-80"
+								style="align-self:{ALIGN[Math.floor(settings.position / 3)]};justify-self:{ALIGN[
+									settings.position % 3
+								]}"
+							>
+								{@render stamp()}
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{/each}
 </div>

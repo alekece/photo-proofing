@@ -628,6 +628,7 @@
 			<SelectPill
 				count={selection.length}
 				actionLabel="Delete"
+				destructive
 				actionDisabled={selection.length === 0}
 				onaction={() => (confirmingSelection = true)}
 				onselectall={selectAll}
@@ -646,12 +647,14 @@
 				><CircleCheck size={16} aria-hidden="true" />Select</Button
 			>
 		{/if}
-		<Button
-			bind:ref={uploadButton}
-			size="sm"
-			class="min-h-9! gap-1.5"
-			onclick={() => picker?.click()}><Upload size={16} aria-hidden="true" />Upload</Button
-		>
+		{#if !selecting}
+			<Button
+				bind:ref={uploadButton}
+				size="sm"
+				class="min-h-9! gap-1.5"
+				onclick={() => picker?.click()}><Upload size={16} aria-hidden="true" />Upload</Button
+			>
+		{/if}
 		<input
 			bind:this={picker}
 			type="file"

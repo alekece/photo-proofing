@@ -33,7 +33,7 @@
 				></li>
 			{/if}
 			<li
-				class="relative flex items-center gap-2 py-3 text-[0.78rem] leading-tight whitespace-nowrap {index ===
+				class="relative flex items-center gap-2 py-3 text-[0.78125rem] leading-[1.3] whitespace-nowrap {index ===
 				current
 					? 'shadow-[inset_0_-2px_0_var(--color-warning-on-dark)]'
 					: done
@@ -51,7 +51,7 @@
 					{#if done}<Check size={12} strokeWidth={3} aria-hidden="true" />{:else}{index + 1}{/if}
 				</span>
 				<span class="flex flex-col">
-					<strong class="text-[0.84rem] font-semibold text-panel">{label}</strong>
+					<strong class="text-[0.84375rem] font-semibold text-panel">{label}</strong>
 					<span class={accent ? 'font-extrabold text-warning-on-dark' : ''} data-slot="step-fact"
 						>{fact}</span
 					>

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
-	import { Check, ImagePlus, Undo2, X } from '@lucide/svelte';
+	import { Check, Undo2, Upload, X } from '@lucide/svelte';
 	import { authRequest } from '#lib/auth.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
@@ -9,7 +9,6 @@
 	import WatermarkEditor from '#lib/components/WatermarkEditor.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
-	import Label from '#lib/components/ui/label/label.svelte';
 	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
 	import {
@@ -112,87 +111,104 @@
 			signingOut = false;
 		}
 	}
+
+	const action =
+		'relative inline-grid h-11 min-h-0 px-[1.375rem] max-sm:flex-1 font-semibold! tracking-normal! transition-[background-color,opacity] duration-300 disabled:opacity-35';
+	const face =
+		'col-start-1 row-start-1 inline-flex items-center justify-center gap-2 transition-[opacity,transform] duration-300';
 </script>
 
 <svelte:head><title>Settings — PhotoProofing</title></svelte:head>
-<AppHeader back={{ href: '/dashboard', label: 'All galleries' }} onsignout={logout} />
-<PageShell>
-	{#if message}<p role="alert" class="text-danger">{message}</p>{/if}
-	<div class="flex flex-wrap items-center justify-between gap-3">
-		<h1 class="text-3xl sm:text-4xl">Settings</h1>
-		<div class="flex items-center gap-2">
-			<Button variant="outline" disabled={!dirty} onclick={cancel}>
-				<span
-					class="mr-2 inline-flex {feedback === 'reverted' ? 'animate-revert-spin' : ''}"
-					aria-hidden="true"><Undo2 size={16} /></span
-				>
-				{feedback === 'reverted' ? 'Reverted' : 'Cancel'}
-			</Button>
-			<Button
-				disabled={(!dirty && feedback !== 'saved') || saving}
-				onclick={save}
-				class={feedback === 'saved' ? 'animate-save-pop !bg-ok !text-inverse' : ''}
+<AppHeader crumb="Settings" onsignout={logout} />
+<PageShell
+	class="max-w-[75rem] gap-0 px-3.5 pt-5 pb-[3.75rem] sm:px-[clamp(1.25rem,5vw,3.5rem)] sm:pt-9"
+>
+	{#if message}<p role="alert" class="mb-4 text-danger">{message}</p>{/if}
+	<div class="mb-7 flex flex-wrap items-center gap-3">
+		<h1 class="m-0 flex-1 text-[2rem] leading-[1.1] max-sm:basis-full sm:text-[3.25rem]">
+			Settings
+		</h1>
+		<Button
+			variant="outline"
+			disabled={!dirty}
+			onclick={cancel}
+			class="{action} border-[1.5px]! border-border! bg-input! {feedback === 'reverted'
+				? 'border-[#d8cab7]! bg-[#efe7dc]! opacity-100!'
+				: ''}"
+		>
+			<span
+				class="{face} {feedback === 'reverted' ? '-translate-y-2 opacity-0' : ''}"
+				aria-hidden={feedback === 'reverted'}>Cancel</span
 			>
-				{#if feedback === 'saved'}<Check
-						size={16}
-						class="mr-1"
-						aria-hidden="true"
-					/>Saved{:else}Save changes{/if}
-			</Button>
-		</div>
+			<span
+				class="{face} {feedback === 'reverted' ? '' : 'translate-y-2 opacity-0'}"
+				aria-hidden={feedback !== 'reverted'}
+			>
+				<span class="inline-flex {feedback === 'reverted' ? 'animate-revert-spin' : ''}"
+					><Undo2 size={16} strokeWidth={2.4} aria-hidden="true" /></span
+				>Reverted
+			</span>
+		</Button>
+		<Button
+			disabled={(!dirty && feedback !== 'saved') || saving}
+			onclick={save}
+			class="{action} {feedback === 'saved' ? 'animate-save-pop bg-ok! opacity-100!' : ''}"
+		>
+			<span
+				class="{face} {feedback === 'saved' ? '-translate-y-2 opacity-0' : ''}"
+				aria-hidden={feedback === 'saved'}>Save changes</span
+			>
+			<span
+				class="{face} {feedback === 'saved' ? '' : 'translate-y-2 opacity-0'}"
+				aria-hidden={feedback !== 'saved'}
+			>
+				<Check size={16} strokeWidth={2.6} aria-hidden="true" />Saved
+			</span>
+		</Button>
 	</div>
 	<span role="status" class="sr-only">
 		{feedback === 'saved' ? 'Saved' : feedback === 'reverted' ? 'Reverted' : ''}
 	</span>
 
-	<section class="grid gap-3" aria-labelledby="studio-heading">
-		<h2 id="studio-heading" class="text-xl">Studio</h2>
-		<div class="flex flex-wrap items-end gap-4">
-			<div class="grid gap-1">
-				<span class="font-medium">Logo</span>
-				{#if draft.logo}
-					<div
-						class="relative grid size-20 place-items-center rounded-card border border-border-strong bg-input"
-					>
-						<img src={draft.logo} alt="Studio logo" class="max-h-16 max-w-16" />
-						<button
-							type="button"
-							aria-label="Remove logo"
-							class="absolute -top-2 -right-2 grid size-6 cursor-pointer place-items-center rounded-full bg-foreground text-inverse"
-							onclick={removeLogo}><X size={14} aria-hidden="true" /></button
-						>
-					</div>
-				{:else}
-					<label
-						class="grid size-20 cursor-pointer place-items-center rounded-card border border-dashed border-border-strong text-muted-foreground focus-within:outline-3 focus-within:outline-offset-3"
-					>
-						<ImagePlus size={22} aria-hidden="true" />
-						<span class="sr-only">Upload logo</span>
-						<input type="file" accept="image/*" class="sr-only" onchange={pickLogo} />
-					</label>
-				{/if}
+	<div class="mb-10 flex items-center gap-5">
+		{#if draft.logo}
+			<div
+				class="group/logo relative grid size-16 flex-none place-items-center rounded-[0.875rem] border-[1.5px] border-border bg-input"
+			>
+				<img src={draft.logo} alt="Studio logo" class="max-h-[2.375rem] max-w-[2.375rem]" />
+				<button
+					type="button"
+					aria-label="Remove logo"
+					class="absolute -top-2 -right-2 grid size-[1.625rem] cursor-pointer place-items-center rounded-full bg-foreground text-inverse opacity-0 transition-opacity group-hover/logo:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+					onclick={removeLogo}><X size={13} aria-hidden="true" /></button
+				>
 			</div>
-			<div class="grid min-w-48 flex-1 gap-1">
-				<Label for="studio-name">Studio name</Label>
-				<Input id="studio-name" bind:value={draft.studioName} autocomplete="organization" />
-			</div>
-		</div>
-	</section>
-
-	<section class="grid gap-3" aria-labelledby="watermark-heading">
-		<h2 id="watermark-heading" class="text-xl">Watermark on proofs</h2>
-		<p class="text-sm text-muted-foreground">
-			The same watermark is used by every gallery that has watermarking on.
-		</p>
-		<WatermarkEditor bind:settings={draft} />
-	</section>
-
-	<section class="grid gap-3" aria-labelledby="signature-heading">
-		<h2 id="signature-heading" class="text-xl">Cover signature</h2>
-		<CoverSignaturePicker
-			bind:value={draft.signature}
-			studioName={draft.studioName}
-			logo={draft.logo}
+		{:else}
+			<label
+				class="grid size-16 flex-none cursor-pointer place-content-center justify-items-center gap-0.5 rounded-[0.875rem] border-[1.5px] border-dashed border-border text-xs font-semibold text-muted-foreground focus-within:outline-3 focus-within:outline-offset-3"
+			>
+				<Upload size={20} strokeWidth={1.8} aria-hidden="true" />
+				Logo
+				<input type="file" accept="image/*" class="sr-only" onchange={pickLogo} />
+			</label>
+		{/if}
+		<Input
+			bind:value={draft.studioName}
+			aria-label="Studio name"
+			placeholder="Studio name"
+			autocomplete="organization"
+			class="min-h-0 max-w-[32.5rem] min-w-0 flex-1 rounded-none border-0 border-b-[1.5px] border-border bg-transparent px-0 py-1.5 font-serif text-[1.625rem] leading-[normal] shadow-none focus:border-foreground"
 		/>
-	</section>
+	</div>
+
+	<h2 class="mb-4 text-[1.875rem] leading-[1.15]">Watermark on proofs</h2>
+	<WatermarkEditor bind:settings={draft} samples={data.samples} />
+
+	<h2 class="mb-4 text-[1.875rem] leading-[1.15]">Cover signature</h2>
+	<CoverSignaturePicker
+		bind:value={draft.signature}
+		studioName={draft.studioName}
+		logo={draft.logo}
+		cover={data.cover}
+	/>
 </PageShell>
