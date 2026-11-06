@@ -20,12 +20,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 pub use self::share::{ShareToken, SharedAccess, SharedGallery};
-use crate::{
-    Repository,
-    auth::WorkspaceId,
-    error::DatabaseError,
-    jobs::{CleanupGallery, JobOptions, JobPayload, JobRepository},
-};
+use crate::{Repository, auth::WorkspaceId, error::DatabaseError};
 
 mod share;
 
@@ -406,61 +401,6 @@ impl GalleryRepository<'_> {
         .await?)
     }
 
-    /// Deletes the gallery with its photos and favorites, and queues the removal of its files in
-    /// the same transaction, so neither can happen without the other. `false` if the workspace
-    /// has no such gallery.
-    ///
-    /// A worker still rendering one of its photos finds its claim gone and removes what it
-    /// writes late.
-    pub async fn delete(
-        &self,
-        workspace_id: WorkspaceId,
-        id: GalleryId,
-        jobs: JobOptions,
-    ) -> Result<bool, DatabaseError> {
-        let mut transaction = self.pool.begin().await?;
-
-        // Jobs before the gallery, in id order, like a photo delete (see `PhotoRepository::delete`).
-        sqlx::query(
-            "DELETE FROM jobs WHERE id IN (
-                 SELECT id FROM jobs
-                 WHERE payload->>'kind' = 'process_photo'
-                   AND payload->'payload'->>'photo_id' IN (
-                       SELECT p.id::text FROM photos p
-                       JOIN galleries g ON g.id = p.gallery_id
-                       WHERE g.id = $1 AND g.workspace_id = $2)
-                 ORDER BY id FOR UPDATE
-             )",
-        )
-        .bind(id)
-        .bind(workspace_id)
-        .execute(&mut *transaction)
-        .await?;
-
-        let deleted = sqlx::query("DELETE FROM galleries WHERE id=$1 AND workspace_id=$2")
-            .bind(id)
-            .bind(workspace_id)
-            .execute(&mut *transaction)
-            .await?;
-
-        if deleted.rows_affected() == 0 {
-            return Ok(false);
-        }
-
-        JobRepository::enqueue_in(
-            &mut transaction,
-            JobPayload::CleanupGallery(CleanupGallery {
-                workspace_id,
-                gallery_id: id,
-            }),
-            jobs.max_attempts,
-        )
-        .await?;
-        transaction.commit().await?;
-
-        Ok(true)
-    }
-
     /// Whether a gallery with this id exists in any workspace.
     pub async fn exists(&self, id: GalleryId) -> Result<bool, DatabaseError> {
         Ok(
@@ -586,7 +526,8 @@ mod tests {
     use super::*;
     use crate::{
         Database,
-        jobs::ProcessPhoto,
+        deletion::Deletion,
+        jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
         photo::{PhotoLocation, PhotoRepository, PhotoStatus},
         tests::TestRepository,
     };
@@ -1089,8 +1030,8 @@ mod tests {
             .await
             .unwrap();
         database
-            .repository::<PhotoRepository>()
-            .delete(workspace, gallery.id, &[hero_photo], JobOptions::default())
+            .repository::<Deletion>()
+            .photos(workspace, gallery.id, &[hero_photo])
             .await
             .unwrap();
 
@@ -1540,8 +1481,9 @@ mod tests {
         assert_eq!(store.archive(other, id).await.unwrap(), None);
         assert_eq!(store.restore(other, id).await.unwrap(), None);
         assert!(
-            !store
-                .delete(other, id, JobOptions::default())
+            !database
+                .repository::<Deletion>()
+                .gallery(other, id)
                 .await
                 .unwrap()
         );
@@ -1574,14 +1516,16 @@ mod tests {
             .unwrap();
 
         assert!(
-            store
-                .delete(workspace, id, JobOptions::default())
+            database
+                .repository::<Deletion>()
+                .gallery(workspace, id)
                 .await
                 .unwrap()
         );
         assert!(
-            !store
-                .delete(workspace, id, JobOptions::default())
+            !database
+                .repository::<Deletion>()
+                .gallery(workspace, id)
                 .await
                 .unwrap()
         );

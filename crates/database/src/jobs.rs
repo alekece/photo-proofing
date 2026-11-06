@@ -25,7 +25,7 @@
 //! Handlers must be idempotent: a job may run again after a crash or a lost lease, and nothing
 //! here ties a job to its subject, so deletion safety is the handler's job.
 
-use std::{num::NonZeroU16, str::FromStr, time::Duration};
+use std::{num::NonZeroU16, time::Duration};
 
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -33,6 +33,7 @@ use serde_json::{Error as JsonError, Value};
 use sqlx::{
     AssertSqlSafe, FromRow, PgExecutor, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow,
 };
+use strum::{EnumString, IntoStaticStr};
 use uuid::Uuid;
 
 use crate::{
@@ -76,8 +77,11 @@ impl Generate for JobId {
 }
 
 /// What a job does, which selects its handler.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, EnumString, IntoStaticStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum JobKind {
     ProcessPhoto,
     CleanupGallery,
@@ -85,32 +89,10 @@ pub enum JobKind {
     SweepOrphans,
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("unknown job kind")]
-pub struct ParseJobKindError;
-
 impl JobKind {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::ProcessPhoto => "process_photo",
-            Self::CleanupGallery => "cleanup_gallery",
-            Self::CleanupPhotos => "cleanup_photos",
-            Self::SweepOrphans => "sweep_orphans",
-        }
-    }
-}
-
-impl FromStr for JobKind {
-    type Err = ParseJobKindError;
-
-    fn from_str(tag: &str) -> Result<Self, Self::Err> {
-        match tag {
-            "process_photo" => Ok(Self::ProcessPhoto),
-            "cleanup_gallery" => Ok(Self::CleanupGallery),
-            "cleanup_photos" => Ok(Self::CleanupPhotos),
-            "sweep_orphans" => Ok(Self::SweepOrphans),
-            _ => Err(ParseJobKindError),
-        }
+    /// The tag this kind has in a stored payload.
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
@@ -145,6 +127,24 @@ pub enum JobPayload {
     CleanupPhotos(CleanupPhotos),
     /// Removes photo files that no photo row owns.
     SweepOrphans,
+}
+
+impl From<ProcessPhoto> for JobPayload {
+    fn from(payload: ProcessPhoto) -> Self {
+        Self::ProcessPhoto(payload)
+    }
+}
+
+impl From<CleanupGallery> for JobPayload {
+    fn from(payload: CleanupGallery) -> Self {
+        Self::CleanupGallery(payload)
+    }
+}
+
+impl From<CleanupPhotos> for JobPayload {
+    fn from(payload: CleanupPhotos) -> Self {
+        Self::CleanupPhotos(payload)
+    }
 }
 
 impl JobPayload {
@@ -321,7 +321,7 @@ impl JobRepository<'_> {
     /// Stores a job, due immediately.
     pub async fn enqueue(
         &self,
-        payload: JobPayload,
+        payload: impl Into<JobPayload>,
         max_attempts: NonZeroU16,
     ) -> Result<JobId, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
@@ -335,11 +335,12 @@ impl JobRepository<'_> {
     /// Stores a job in the caller's transaction, due immediately.
     pub async fn enqueue_in(
         transaction: &mut Transaction<'_, Postgres>,
-        payload: JobPayload,
+        payload: impl Into<JobPayload>,
         max_attempts: NonZeroU16,
     ) -> Result<JobId, DatabaseError> {
         let id = JobId::generate();
-        let payload = serde_json::to_value(payload).map_err(|e| sqlx::Error::Encode(e.into()))?;
+        let payload =
+            serde_json::to_value(payload.into()).map_err(|e| sqlx::Error::Encode(e.into()))?;
 
         sqlx::query("INSERT INTO jobs(id, payload, max_attempts) VALUES ($1, $2, $3)")
             .bind(id)

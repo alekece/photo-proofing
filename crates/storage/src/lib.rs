@@ -10,6 +10,7 @@
 //! Cancellation after publication can leave an orphan; it cannot roll back asynchronously.
 
 use std::{
+    ffi::OsStr,
     future::Future,
     io::{self, ErrorKind},
     path::{Path, PathBuf},
@@ -18,7 +19,7 @@ use std::{
 
 use pp_core::{config::PhotoDir, notifications::PhotoId};
 use pp_database::{auth::WorkspaceId, gallery::GalleryId, photo::PhotoLocation};
-use strum::Display;
+use strum::{Display, EnumString};
 use thiserror::Error;
 use tokio::{
     fs::{self, File},
@@ -61,7 +62,7 @@ impl From<io::Error> for StorageError {
 }
 
 /// Which file of a photo is addressed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, EnumString)]
 #[strum(serialize_all = "lowercase")]
 pub enum Variant {
     /// The accepted upload, written once. A finished photo is also stored as an `Original`
@@ -215,13 +216,13 @@ impl PhotoStorage {
         let mut workspaces = fs::read_dir(&self.root).await?;
 
         while let Some(workspace_entry) = workspaces.next_entry().await? {
-            let Some(workspace) = Self::uuid_name(&workspace_entry) else {
+            let Some(workspace) = Self::uuid_name(&workspace_entry.file_name()) else {
                 continue;
             };
             let mut galleries = fs::read_dir(workspace_entry.path()).await?;
 
             while let Some(gallery_entry) = galleries.next_entry().await? {
-                let Some(gallery) = Self::uuid_name(&gallery_entry) else {
+                let Some(gallery) = Self::uuid_name(&gallery_entry.file_name()) else {
                     continue;
                 };
                 let location = PhotoLocation {
@@ -252,7 +253,7 @@ impl PhotoStorage {
         let mut files = fs::read_dir(dir).await?;
 
         while let Some(file) = files.next_entry().await? {
-            let Some(photo) = Self::photo_name(&file) else {
+            let Some(photo) = Self::photo_name(&file.file_name()) else {
                 continue;
             };
             let age = file
@@ -276,19 +277,16 @@ impl PhotoStorage {
         Ok(removed)
     }
 
-    fn uuid_name(entry: &fs::DirEntry) -> Option<Uuid> {
-        entry.file_name().to_str()?.parse().ok()
+    fn uuid_name(name: &OsStr) -> Option<Uuid> {
+        name.to_str()?.parse().ok()
     }
 
-    fn photo_name(entry: &fs::DirEntry) -> Option<PhotoId> {
-        let name = entry.file_name();
+    fn photo_name(name: &OsStr) -> Option<PhotoId> {
         let (photo, variant) = name.to_str()?.rsplit_once('-')?;
 
-        if !["original", "thumbnail", "preview"].contains(&variant) {
-            return None;
-        }
+        variant.parse::<Variant>().ok()?;
 
-        photo.parse::<Uuid>().ok().map(PhotoId::from)
+        Self::uuid_name(photo.as_ref()).map(PhotoId::from)
     }
 }
 

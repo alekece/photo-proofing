@@ -13,9 +13,6 @@ use tracing::{info, warn};
 
 use crate::handlers::HandlerError;
 
-/// A file younger than this is never swept, so an upload still being finished is safe.
-const ORPHAN_GRACE: Duration = Duration::from_secs(24 * 60 * 60);
-
 #[derive(Debug, Error)]
 #[error("{count} photo files could not be removed")]
 struct RemovalFailed {
@@ -27,11 +24,17 @@ struct RemovalFailed {
 pub struct CleanupHandler {
     database: Database,
     storage: PhotoStorage,
+    /// A file younger than this is never swept, so an upload still being finished is safe.
+    orphan_grace: Duration,
 }
 
 impl CleanupHandler {
-    pub const fn new(database: Database, storage: PhotoStorage) -> Self {
-        Self { database, storage }
+    pub const fn new(database: Database, storage: PhotoStorage, orphan_grace: Duration) -> Self {
+        Self {
+            database,
+            storage,
+            orphan_grace,
+        }
     }
 
     /// Removes a deleted gallery's whole directory.
@@ -85,11 +88,11 @@ impl CleanupHandler {
             photos
                 .locate(photo)
                 .await
-                .map_or(true, |found| found.is_some())
+                .map_or(true, |location| location.is_some())
         };
         let removed = self
             .storage
-            .sweep_orphans(ORPHAN_GRACE, is_stored)
+            .sweep_orphans(self.orphan_grace, is_stored)
             .await
             .map_err(HandlerError::failed)?;
 
@@ -150,7 +153,11 @@ mod tests {
 
             Self {
                 _dir: dir,
-                handler: Arc::new(CleanupHandler::new(database, storage)),
+                handler: Arc::new(CleanupHandler::new(
+                    database,
+                    storage,
+                    Duration::from_secs(24 * 60 * 60),
+                )),
                 location: PhotoLocation {
                     workspace_id,
                     gallery_id,

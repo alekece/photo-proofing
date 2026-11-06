@@ -13,6 +13,7 @@ use pp_core::{
     time::BoundedDuration,
     url::Origin,
 };
+use pp_database::deletion::DEFAULT_CLEANUP_BATCH;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -318,6 +319,13 @@ pub struct QueueConfig {
         default_value = "5"
     )]
     pub max_attempts: NonZeroU16,
+    /// Most photos one cleanup job names when photos are deleted in bulk.
+    #[arg(
+        long = "queue-cleanup-batch",
+        env = "PP_QUEUE_CLEANUP_BATCH",
+        default_value_t = DEFAULT_CLEANUP_BATCH
+    )]
+    pub cleanup_batch: NonZeroUsize,
 }
 
 /// Live event streams: how idle streams are kept open and how many may be open at once.

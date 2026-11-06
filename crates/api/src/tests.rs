@@ -15,7 +15,9 @@ use actix_web::{
     web::Data,
 };
 use pp_core::config::PhotoDir;
-use pp_database::{Database, auth::WorkspaceId, tests::TestRepository};
+use pp_database::{
+    Database, auth::WorkspaceId, deletion::DEFAULT_CLEANUP_BATCH, tests::TestRepository,
+};
 use pp_storage::PhotoStorage;
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -45,6 +47,7 @@ pub(crate) fn events_config(max_streams: usize, per_workspace: usize) -> EventsC
 pub(crate) fn queue_config(max_attempts: u16) -> QueueConfig {
     QueueConfig {
         max_attempts: NonZeroU16::new(max_attempts).unwrap(),
+        cleanup_batch: DEFAULT_CLEANUP_BATCH,
     }
 }
 

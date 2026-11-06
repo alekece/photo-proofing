@@ -66,28 +66,32 @@ async fn main() -> Result<()> {
         }
     });
 
+    let orphan_grace = cli.worker.cleanup.orphan_grace.get();
     let worker = Worker::connect(cli.worker, |database| {
-        let handler = Arc::new(ProcessPhotoHandler::new(
+        let process_handler = Arc::new(ProcessPhotoHandler::new(
             database.clone(),
             storage.clone(),
             renderer,
         ));
-        let cleanup = Arc::new(CleanupHandler::new(database.clone(), storage));
-        let gallery = Arc::clone(&cleanup);
-        let photos = Arc::clone(&cleanup);
+        let cleanup_handler =
+            Arc::new(CleanupHandler::new(database.clone(), storage, orphan_grace));
 
         HandlerRegistry::default()
             .register(JobKind::ProcessPhoto, move |payload, job| {
-                Arc::clone(&handler).run(payload, job)
+                Arc::clone(&process_handler).run(payload, job)
             })
-            .register(JobKind::CleanupGallery, move |payload, job| {
-                Arc::clone(&gallery).gallery(payload, job)
+            .register(JobKind::CleanupGallery, {
+                let cleanup_handler = Arc::clone(&cleanup_handler);
+
+                move |payload, job| Arc::clone(&cleanup_handler).gallery(payload, job)
             })
-            .register(JobKind::CleanupPhotos, move |payload, job| {
-                Arc::clone(&photos).photos(payload, job)
+            .register(JobKind::CleanupPhotos, {
+                let cleanup_handler = Arc::clone(&cleanup_handler);
+
+                move |payload, job| Arc::clone(&cleanup_handler).photos(payload, job)
             })
             .register(JobKind::SweepOrphans, move |payload, job| {
-                Arc::clone(&cleanup).sweep(payload, job)
+                Arc::clone(&cleanup_handler).sweep(payload, job)
             })
     })
     .await?;

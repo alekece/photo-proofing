@@ -15,6 +15,7 @@ use pp_core::url::Origin;
 use pp_database::{
     Database,
     auth::AuthRepository,
+    deletion::DeletionOptions,
     error::DatabaseError,
     jobs::{JobOptions, JobRepository},
 };
@@ -82,6 +83,7 @@ pub(crate) struct ApiState {
     cookie_max_age: CookieMaxAge,
     hash_slots: Arc<Semaphore>,
     job_options: JobOptions,
+    deletion_options: DeletionOptions,
     failed_attempts: AttemptLimiter,
     dummy_hash: PasswordHash,
 }
@@ -96,6 +98,10 @@ impl ApiState {
         upload_config: UploadConfig,
         queue: QueueConfig,
     ) -> Result<Self, ApiError> {
+        let job_options = JobOptions {
+            max_attempts: queue.max_attempts,
+        };
+
         Ok(Self {
             database,
             storage,
@@ -108,8 +114,10 @@ impl ApiState {
             // so adding it to the current time cannot overflow for centuries.
             cookie_max_age: CookieMaxAge::try_from(session.idle_timeout.get())?,
             hash_slots: Arc::new(Semaphore::new(auth.hash_concurrency.get())),
-            job_options: JobOptions {
-                max_attempts: queue.max_attempts,
+            job_options,
+            deletion_options: DeletionOptions {
+                jobs: job_options,
+                cleanup_batch: queue.cleanup_batch,
             },
             failed_attempts: AttemptLimiter::new(limiter),
             dummy_hash: PasswordHash::generate()?,
@@ -118,6 +126,11 @@ impl ApiState {
 
     pub fn database(&self) -> &Database {
         &self.database
+    }
+
+    /// How the jobs queued by deletions are configured.
+    pub fn deletion_options(&self) -> DeletionOptions {
+        self.deletion_options
     }
 
     /// How jobs enqueued for photos are configured.
