@@ -264,7 +264,7 @@ impl Api {
         if let Err(error) = state
             .database()
             .repository::<JobRepository>()
-            .enqueue_unique(JobPayload::SweepOrphans, state.job_options().max_attempts)
+            .enqueue(JobPayload::SweepOrphans, state.job_options().max_attempts)
             .await
         {
             tracing::warn!(%error, "could not queue the orphaned file sweep");

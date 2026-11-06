@@ -352,33 +352,6 @@ impl JobRepository<'_> {
         Ok(id)
     }
 
-    /// Stores a job unless one of the same kind is already queued or running, so repeated
-    /// requests, such as restarts, do not pile them up. Returns whether the job was stored.
-    pub async fn enqueue_unique(
-        &self,
-        payload: impl Into<JobPayload>,
-        max_attempts: NonZeroU16,
-    ) -> Result<bool, DatabaseError> {
-        let payload = payload.into();
-        let kind = payload.kind();
-        let payload = serde_json::to_value(payload).map_err(|e| sqlx::Error::Encode(e.into()))?;
-        let stored = sqlx::query(
-            "INSERT INTO jobs(id, payload, max_attempts)
-             SELECT $1, $2, $3
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM jobs
-                 WHERE payload->>'kind' = $4 AND state IN ('queued', 'running'))",
-        )
-        .bind(JobId::generate())
-        .bind(payload)
-        .bind(i32::from(max_attempts.get()))
-        .bind(kind.as_str())
-        .execute(self.pool)
-        .await?;
-
-        Ok(stored.rows_affected() == 1)
-    }
-
     /// Claims the oldest due job among `kinds`, leasing it for `lease`.
     ///
     /// Jobs of other kinds stay queued, so a worker without a handler for a kind never touches
@@ -452,6 +425,41 @@ impl JobRepository<'_> {
     /// Deletes a finished job. The completion tells whether the claim was still current.
     pub async fn complete(&self, job: &Job) -> Result<JobCompletion, DatabaseError> {
         Self::complete_in(self.pool, job).await
+    }
+
+    /// Finishes `job` like [`complete`](Self::complete) and records the success, so
+    /// [`ran_within`](Self::ran_within) can tell a later run that it came too soon. Nothing is
+    /// recorded when the claim is no longer current.
+    pub async fn complete_recorded(&self, job: &Job) -> Result<JobCompletion, DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
+        let completion = Self::complete_in(&mut *transaction, job).await?;
+
+        if completion.is_current() {
+            sqlx::query(
+                "INSERT INTO job_runs(kind, finished_at) VALUES ($1, now())
+                 ON CONFLICT (kind) DO UPDATE SET finished_at = now()",
+            )
+            .bind(job.kind().as_str())
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        transaction.commit().await?;
+
+        Ok(completion)
+    }
+
+    /// Whether a job of `kind` was recorded as completed less than `window` ago.
+    pub async fn ran_within(&self, kind: JobKind, window: Duration) -> Result<bool, DatabaseError> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS(
+                 SELECT 1 FROM job_runs
+                 WHERE kind = $1 AND finished_at > now() - $2 * interval '1 second')",
+        )
+        .bind(kind.as_str())
+        .bind(window.as_secs_f64())
+        .fetch_one(self.pool)
+        .await?)
     }
 
     /// Records a photo job's result and finishes the job in one transaction, so a crash can
@@ -828,22 +836,21 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn a_sweep_is_enqueued_once_until_it_completes(pool: PgPool) {
+    async fn a_recorded_completion_counts_as_a_recent_run(pool: PgPool) {
         let database = Database::new(pool);
         let jobs = database.repository::<JobRepository>();
-        let attempts = NonZeroU16::new(3).unwrap();
+        let window = Duration::from_secs(3600);
 
         assert!(
-            jobs.enqueue_unique(JobPayload::SweepOrphans, attempts)
-                .await
-                .unwrap()
-        );
-        assert!(
             !jobs
-                .enqueue_unique(JobPayload::SweepOrphans, attempts)
+                .ran_within(JobKind::SweepOrphans, window)
                 .await
                 .unwrap()
         );
+
+        jobs.enqueue(JobPayload::SweepOrphans, NonZeroU16::new(3).unwrap())
+            .await
+            .unwrap();
 
         let sweep = jobs
             .claim(&[JobKind::SweepOrphans], Duration::from_secs(60))
@@ -851,15 +858,21 @@ mod tests {
             .unwrap()
             .unwrap();
 
+        assert!(jobs.complete_recorded(&sweep).await.unwrap().is_current());
         assert!(
-            !jobs
-                .enqueue_unique(JobPayload::SweepOrphans, attempts)
+            jobs.ran_within(JobKind::SweepOrphans, window)
                 .await
                 .unwrap()
         );
-        assert!(jobs.complete(&sweep).await.unwrap().is_current());
         assert!(
-            jobs.enqueue_unique(JobPayload::SweepOrphans, attempts)
+            !jobs
+                .ran_within(JobKind::SweepOrphans, Duration::ZERO)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !jobs
+                .ran_within(JobKind::CleanupGallery, window)
                 .await
                 .unwrap()
         );

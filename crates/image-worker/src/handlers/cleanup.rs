@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 use pp_database::{
     Database,
-    jobs::{CleanupGallery, CleanupPhotos, Job, JobCompletion, JobRepository},
+    jobs::{CleanupGallery, CleanupPhotos, Job, JobCompletion, JobKind, JobRepository},
     photo::{PhotoLocation, PhotoRepository},
 };
 use pp_storage::PhotoStorage;
@@ -26,14 +26,22 @@ pub struct CleanupHandler {
     storage: PhotoStorage,
     /// A file younger than this is never swept, so an upload still being finished is safe.
     orphan_grace: Duration,
+    /// A sweep that follows another one by less than this is skipped.
+    sweep_interval: Duration,
 }
 
 impl CleanupHandler {
-    pub const fn new(database: Database, storage: PhotoStorage, orphan_grace: Duration) -> Self {
+    pub const fn new(
+        database: Database,
+        storage: PhotoStorage,
+        orphan_grace: Duration,
+        sweep_interval: Duration,
+    ) -> Self {
         Self {
             database,
             storage,
             orphan_grace,
+            sweep_interval,
         }
     }
 
@@ -76,12 +84,27 @@ impl CleanupHandler {
         self.finish(&job).await
     }
 
-    /// Removes old files that no photo owns, whatever left them behind.
+    /// Removes old files that no photo owns, whatever left them behind. A sweep that comes too
+    /// soon after the last successful one finishes without doing anything.
+    ///
+    /// When the database cannot say, the sweep runs: it is harmless, only wasteful.
     pub async fn sweep(
         self: Arc<Self>,
         _payload: (),
         job: Job,
     ) -> Result<JobCompletion, HandlerError> {
+        let jobs = self.database.repository::<JobRepository>();
+
+        if jobs
+            .ran_within(JobKind::SweepOrphans, self.sweep_interval)
+            .await
+            .unwrap_or(false)
+        {
+            info!("orphaned photo file sweep skipped, the last one is recent");
+
+            return self.finish(&job).await;
+        }
+
         let photos = self.database.repository::<PhotoRepository>();
         // When the database cannot say, the file is kept.
         let is_stored = async |_: PhotoLocation, photo| {
@@ -98,7 +121,9 @@ impl CleanupHandler {
 
         info!(removed, "orphaned photo files swept");
 
-        self.finish(&job).await
+        jobs.complete_recorded(&job)
+            .await
+            .map_err(HandlerError::failed)
     }
 
     async fn finish(&self, job: &Job) -> Result<JobCompletion, HandlerError> {
@@ -116,10 +141,7 @@ mod tests {
 
     use pp_core::{config::PhotoDir, notifications::PhotoId, types::generate::Generate};
     use pp_database::{
-        PgPool,
-        gallery::GalleryRepository,
-        jobs::{JobKind, JobPayload},
-        tests::TestRepository,
+        PgPool, gallery::GalleryRepository, jobs::JobPayload, tests::TestRepository,
     };
     use pp_storage::{PhotoKey, StorageError, Variant};
     use tempfile::TempDir;
@@ -134,6 +156,16 @@ mod tests {
 
     impl Fixture {
         async fn new(pool: &PgPool) -> Self {
+            let day = Duration::from_secs(24 * 60 * 60);
+
+            Self::with_sweep(pool, day, day).await
+        }
+
+        async fn with_sweep(
+            pool: &PgPool,
+            orphan_grace: Duration,
+            sweep_interval: Duration,
+        ) -> Self {
             let dir = tempfile::tempdir().unwrap();
             let storage = PhotoStorage::open(&PhotoDir::try_from(dir.path().to_owned()).unwrap())
                 .await
@@ -156,7 +188,8 @@ mod tests {
                 handler: Arc::new(CleanupHandler::new(
                     database,
                     storage,
-                    Duration::from_secs(24 * 60 * 60),
+                    orphan_grace,
+                    sweep_interval,
                 )),
                 location: PhotoLocation {
                     workspace_id,
@@ -253,6 +286,57 @@ mod tests {
             .claim(JobPayload::SweepOrphans, JobKind::SweepOrphans)
             .await;
         let completion = Arc::clone(&fixture.handler).sweep((), job).await.unwrap();
+
+        assert!(completion.is_current());
+        assert!(fixture.is_stored(&key).await);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_sweep_removes_old_orphans_and_records_its_run(pool: PgPool) {
+        let fixture = Fixture::with_sweep(&pool, Duration::ZERO, Duration::from_secs(3600)).await;
+        let key = fixture.store(PhotoId::generate(), Variant::Original).await;
+        let job = fixture
+            .claim(JobPayload::SweepOrphans, JobKind::SweepOrphans)
+            .await;
+
+        let completion = Arc::clone(&fixture.handler).sweep((), job).await.unwrap();
+
+        assert!(completion.is_current());
+        assert!(!fixture.is_stored(&key).await);
+        assert!(
+            fixture
+                .handler
+                .database
+                .repository::<JobRepository>()
+                .ran_within(JobKind::SweepOrphans, Duration::from_secs(3600))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_sweep_right_after_another_is_skipped_but_still_finishes(pool: PgPool) {
+        let fixture = Fixture::with_sweep(&pool, Duration::ZERO, Duration::from_secs(3600)).await;
+        let first = fixture
+            .claim(JobPayload::SweepOrphans, JobKind::SweepOrphans)
+            .await;
+
+        assert!(
+            Arc::clone(&fixture.handler)
+                .sweep((), first)
+                .await
+                .unwrap()
+                .is_current()
+        );
+
+        let key = fixture.store(PhotoId::generate(), Variant::Original).await;
+        let second = fixture
+            .claim(JobPayload::SweepOrphans, JobKind::SweepOrphans)
+            .await;
+        let completion = Arc::clone(&fixture.handler)
+            .sweep((), second)
+            .await
+            .unwrap();
 
         assert!(completion.is_current());
         assert!(fixture.is_stored(&key).await);

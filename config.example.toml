@@ -44,6 +44,8 @@ shutdown_grace = "30s"
 # Worker only. Files younger than this are never swept as orphans.
 [cleanup]
 orphan_grace = "24h"
+# Sweeps requested sooner than this after the last successful one are skipped.
+sweep_interval = "1h"
 
 [photo]
 # Private photo files; the API and the worker must share this directory.

@@ -56,9 +56,9 @@ File cleanup:
 
 ## Startup sweep
 
-- When the API starts it enqueues one sweep job, unless one is already queued.
-- The sweep removes files that have no photo row and are older than a fixed grace period (24 hours, a constant in code, not a setting). The grace period protects uploads whose file exists before its row is committed. It never deletes by a list read earlier; each file is checked against the database when considered.
-- No timer and no sweep settings. Strays from crashes are cleaned at the next restart.
+- When the API starts it enqueues one sweep job. The worker skips a sweep requested less than the configured interval (default 1 hour) after the last successful one, remembered in the database so restarts do not reset it.
+- The sweep removes files that have no photo row and are older than a grace period (24 hours by default, configurable). The grace period protects uploads whose file exists before its row is committed. It never deletes by a list read earlier; each file is checked against the database when considered.
+- No timer. Strays from crashes are cleaned at the next restart; the grace period and the minimum interval between sweeps are worker settings.
 
 ## Jobs
 
@@ -87,4 +87,4 @@ Tests for: archive/restore round trip and idempotence; restore keeps delivered a
 
 ## Left to the builder
 
-Job names and payload fields, batch size, the sweep queue-dedup mechanism, error codes, and web component structure.
+Job names and payload fields, batch size, how the last sweep is remembered, error codes, and web component structure.

@@ -67,14 +67,19 @@ async fn main() -> Result<()> {
     });
 
     let orphan_grace = cli.worker.cleanup.orphan_grace.get();
+    let sweep_interval = cli.worker.cleanup.sweep_interval.get();
     let worker = Worker::connect(cli.worker, |database| {
         let process_handler = Arc::new(ProcessPhotoHandler::new(
             database.clone(),
             storage.clone(),
             renderer,
         ));
-        let cleanup_handler =
-            Arc::new(CleanupHandler::new(database.clone(), storage, orphan_grace));
+        let cleanup_handler = Arc::new(CleanupHandler::new(
+            database.clone(),
+            storage,
+            orphan_grace,
+            sweep_interval,
+        ));
 
         HandlerRegistry::default()
             .register(JobKind::ProcessPhoto, move |payload, job| {
