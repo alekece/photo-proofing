@@ -64,12 +64,12 @@ describe('ClientPreview', () => {
 		expect((await screen.findByRole('alert')).textContent).toMatch(/couldn.t load/i);
 	});
 
-	it('switches between Desktop and Mobile views', async () => {
+	it('switches between Desktop and Phone views', async () => {
 		stub([]);
 		const user = userEvent.setup();
 		render(ClientPreview, { gallery, onclose: () => {} });
-		const desktop = screen.getByRole('button', { name: 'Desktop view' });
-		const mobile = screen.getByRole('button', { name: 'Mobile view' });
+		const desktop = screen.getByRole('button', { name: 'Desktop' });
+		const mobile = screen.getByRole('button', { name: 'Phone' });
 
 		expect(desktop.getAttribute('aria-pressed')).toBe('true');
 		expect(mobile.getAttribute('aria-pressed')).toBe('false');
@@ -80,7 +80,7 @@ describe('ClientPreview', () => {
 
 		expect(mobile.getAttribute('aria-pressed')).toBe('true');
 		expect(desktop.getAttribute('aria-pressed')).toBe('false');
-		expect(document.querySelector('[data-frame="mobile"]')).not.toBeNull();
+		expect(document.querySelector('[data-frame="phone"]')).not.toBeNull();
 	});
 
 	it('closes with the Close button and with Escape', async () => {
@@ -101,7 +101,7 @@ describe('ClientPreview', () => {
 		const user = userEvent.setup();
 		render(ClientPreview, { gallery, onclose: () => {} });
 		const close = screen.getByRole('button', { name: 'Close preview' });
-		const desktop = screen.getByRole('button', { name: 'Desktop view' });
+		const desktop = screen.getByRole('button', { name: 'Desktop' });
 
 		close.focus();
 		await user.tab();
@@ -138,9 +138,9 @@ describe('ClientPreview', () => {
 		expect(viewer().classList.contains('absolute')).toBe(false);
 		await user.keyboard('{Escape}');
 
-		await user.click(screen.getByRole('button', { name: 'Mobile view' }));
+		await user.click(screen.getByRole('button', { name: 'Phone' }));
 		await user.click(await screen.findByRole('button', { name: /open proof 1 of 1/i }));
-		const frame = document.querySelector('[data-frame="mobile"]') as HTMLElement;
+		const frame = document.querySelector('[data-frame="phone"]') as HTMLElement;
 		expect(frame.contains(viewer())).toBe(true);
 		expect(viewer().classList.contains('absolute')).toBe(true);
 	});

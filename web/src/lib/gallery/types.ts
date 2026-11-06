@@ -7,6 +7,8 @@ export interface Proof {
 	/** Displayed size in pixels, so the page reserves the photo's real shape. */
 	width: number;
 	height: number;
+	/** Defaults to ready; the owner's viewer also shows photos still processing or failed. */
+	status?: 'ready' | 'processing' | 'failed';
 }
 
 export type { SharedGallery, SharedPhoto } from './schemas';

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ImagePlus, LoaderCircle, Trash2, Upload } from '@lucide/svelte';
+	import { ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -86,6 +86,10 @@
 		processing: 'processing',
 		ready: 'ready'
 	};
+	const PROOF_STATES: Partial<Record<TileState, Proof['status']>> = {
+		ready: 'ready',
+		'process-failed': 'failed'
+	};
 	const QUEUE_STATES: Record<QueueState, TileState> = {
 		waiting: 'waiting-upload',
 		uploading: 'uploading',
@@ -115,14 +119,16 @@
 	// Photos deleted meanwhile drop out, so the confirmed count is what is sent.
 	const selection = $derived(photos.filter(({ id }) => selected.has(id)));
 	const ready = $derived(photos.filter(({ status }) => status === 'ready'));
+	// Every photo, so one still processing or failed shows its state in the viewer.
 	const proofs = $derived<Proof[]>(
-		ready.map(({ id, original_name, width, height }) => ({
+		photos.map(({ id, original_name, width, height, status }) => ({
 			id,
 			alt: original_name,
 			thumbnailUrl: thumbnailUrl(galleryId, id),
 			previewUrl: previewUrl(galleryId, id),
 			width,
-			height
+			height,
+			status: PROOF_STATES[tileState(status)] ?? 'processing'
 		}))
 	);
 	const summary = $derived.by(() => {
@@ -173,6 +179,14 @@
 		}
 
 		reportedFailures = failures;
+	});
+
+	// Deleting from the viewer moves it on to the neighbouring photo, or closes it after the last.
+	$effect.pre(() => {
+		if (!viewing || viewIndex < proofs.length) return;
+
+		if (proofs.length === 0) viewing = false;
+		else viewIndex = proofs.length - 1;
 	});
 
 	let savingHero = false;
@@ -580,7 +594,7 @@
 	}
 
 	function open(photo: Photo) {
-		viewIndex = ready.indexOf(photo);
+		viewIndex = photos.findIndex(({ id }) => id === photo.id);
 		viewing = true;
 	}
 </script>
@@ -743,5 +757,46 @@
 {/if}
 
 {#if viewing && proofs[viewIndex]}
-	<ProofViewer {proofs} bind:index={viewIndex} onclose={() => (viewing = false)} />
+	{@const current = (id: string) => photos.find((photo) => photo.id === id)}
+	<ProofViewer
+		{proofs}
+		bind:index={viewIndex}
+		onclose={() => (viewing = false)}
+		onretry={(id) => {
+			const photo = current(id);
+
+			if (photo) void retry(photo);
+		}}
+	>
+		{#snippet actions(proof)}
+			{@const photo = current(proof.id)}
+			{#if photo && photo.status === 'ready'}
+				<Button
+					variant="outline"
+					size="sm"
+					class="border-viewer-foreground/50 text-viewer-foreground"
+					aria-pressed={photo.id === heroId}
+					onclick={() => void toggleHero(photo)}
+				>
+					<Star
+						size={16}
+						fill={photo.id === heroId ? 'currentColor' : 'none'}
+						aria-hidden="true"
+						class="mr-1.5"
+					/>
+					{photo.id === heroId ? 'Remove hero' : 'Set as hero'}
+				</Button>
+			{/if}
+			{#if photo}
+				<Button
+					variant="outline"
+					size="sm"
+					class="border-viewer-foreground/50 text-viewer-foreground"
+					onclick={() => (confirming = photo)}
+				>
+					<Trash2 size={16} aria-hidden="true" class="mr-1.5" />Delete
+				</Button>
+			{/if}
+		{/snippet}
+	</ProofViewer>
 {/if}

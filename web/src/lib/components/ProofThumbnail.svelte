@@ -9,6 +9,7 @@
 		total,
 		selected = false,
 		onopen,
+		readonly = false,
 		onselect
 	}: {
 		proof: Proof;
@@ -16,6 +17,8 @@
 		position: number;
 		total: number;
 		selected?: boolean;
+		/** Shows the heart without letting it change, as in the owner's preview. */
+		readonly?: boolean;
 		onopen: () => void;
 		/** Without it the proof cannot be selected, as once the gallery is delivered. */
 		onselect?: () => void;
@@ -41,14 +44,17 @@
 				: 'block h-auto w-full'}
 		/>
 	</button>
-	{#if onselect}
+	{#if onselect || readonly}
 		<FavoriteButton
 			{selected}
 			label="Favorite proof {position}"
+			disabled={!onselect}
 			onclick={onselect}
-			class="absolute top-2 right-2 grid min-h-11 min-w-11 cursor-pointer place-items-center rounded-full bg-viewer-control text-viewer-foreground group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus pointer-coarse:opacity-100 {selected
-				? 'opacity-100'
-				: 'opacity-0'}"
+			class="absolute top-2 right-2 grid min-h-11 min-w-11 cursor-pointer place-items-center rounded-full bg-viewer-control text-viewer-foreground group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-default pointer-coarse:opacity-100 {!onselect
+				? 'opacity-60'
+				: selected
+					? 'opacity-100'
+					: 'opacity-0'}"
 		/>
 	{/if}
 </div>

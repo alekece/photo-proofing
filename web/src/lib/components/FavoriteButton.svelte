@@ -3,11 +3,26 @@
 		selected,
 		label,
 		onclick,
+		disabled = false,
 		class: className = ''
-	}: { selected: boolean; label: string; onclick: () => void; class?: string } = $props();
+	}: {
+		selected: boolean;
+		label: string;
+		onclick?: () => void;
+		/** Shows the state without letting it change, as in the owner's preview. */
+		disabled?: boolean;
+		class?: string;
+	} = $props();
 </script>
 
-<button type="button" class={className} aria-pressed={selected} aria-label={label} {onclick}>
+<button
+	type="button"
+	class={className}
+	aria-pressed={selected}
+	aria-label={label}
+	{disabled}
+	{onclick}
+>
 	<svg
 		aria-hidden="true"
 		viewBox="0 0 24 24"

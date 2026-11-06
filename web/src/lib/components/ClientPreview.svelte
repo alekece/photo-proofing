@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Monitor, Smartphone, X } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
 	import type { Gallery } from '#lib/gallery/api.js';
@@ -7,17 +8,17 @@
 	import type { Proof } from '#lib/gallery/types.js';
 	import { cn } from '#lib/utils.js';
 	import ClientGallery from './ClientGallery.svelte';
-	import Button from './ui/button/button.svelte';
+	import IconButtonGroup from './ui/icon-button-group/icon-button-group.svelte';
 
 	/** Read-only, full-screen view of the client page for the signed-in owner; no link is needed. */
 	let { gallery, onclose }: { gallery: Gallery; onclose: () => void } = $props();
 
 	const VIEWS = [
-		{ id: 'desktop', label: 'Desktop view', icon: '🖥' },
-		{ id: 'mobile', label: 'Mobile view', icon: '📱' }
+		{ id: 'desktop', label: 'Desktop', icon: Monitor },
+		{ id: 'phone', label: 'Phone', icon: Smartphone }
 	] as const;
 
-	let view = $state<'desktop' | 'mobile'>('desktop');
+	let view = $state<string>('desktop');
 	let proofs = $state<Proof[]>([]);
 	let favorites = $state<string[]>([]);
 	let loaded = $state(false);
@@ -72,38 +73,30 @@
 	class="m-0 h-dvh max-h-dvh w-screen max-w-screen border-0 bg-background p-0 text-foreground open:flex open:flex-col"
 >
 	{#snippet children(close)}
-		<header class="flex flex-wrap items-center justify-between gap-2 border-b border-border p-3">
-			<span class="font-medium">Client preview</span>
-			<div class="flex gap-2">
-				{#each VIEWS as item (item.id)}
-					<Button
-						variant={view === item.id ? 'default' : 'outline'}
-						size="sm"
-						aria-label={item.label}
-						aria-pressed={view === item.id}
-						onclick={() => (view = item.id)}
-					>
-						<span aria-hidden="true">{item.icon}</span>
-					</Button>
-				{/each}
-			</div>
-			<Button
-				variant="outline"
-				size="sm"
-				bind:ref={closeButton}
+		<header
+			class="flex items-center justify-between gap-2 border-b border-border-strong bg-background p-3"
+		>
+			<span class="rounded-full border border-border-strong px-3 py-0.5 text-sm">Preview</span>
+			<IconButtonGroup bind:value={view} items={VIEWS} label="Preview size" />
+			<button
+				type="button"
+				bind:this={closeButton}
 				aria-label="Close preview"
-				onclick={close}>Close</Button
+				onclick={close}
+				class="grid size-11 cursor-pointer place-items-center rounded-full border border-border-strong"
 			>
+				<X size={20} aria-hidden="true" />
+			</button>
 		</header>
-		<div class="bg-muted min-h-0 flex-1 overflow-auto">
+		<div class="min-h-0 flex-1 overflow-auto bg-dark">
 			<div
 				data-frame={view}
 				class={cn(
 					'relative bg-background',
-					view === 'mobile' && 'mx-auto my-4 h-[min(100%,52rem)] w-[390px] max-w-full border'
+					view === 'phone' && 'mx-auto my-4 h-[min(100%,52rem)] w-[390px] max-w-full border'
 				)}
 			>
-				<div class={cn(view === 'mobile' && 'h-full overflow-y-auto')}>
+				<div class={cn(view === 'phone' && 'h-full overflow-y-auto')}>
 					{#if failed}
 						<p role="alert" class="p-4 text-danger">
 							Couldn’t load the photos. Close and try again.
@@ -114,7 +107,7 @@
 							{proofs}
 							{favorites}
 							preview
-							contained={view === 'mobile'}
+							contained={view === 'phone'}
 						/>
 					{/if}
 				</div>

@@ -23,9 +23,47 @@ describe('ProofViewer', () => {
 		expect(dialog.getAttribute('aria-modal')).toBe('true');
 		expect(document.activeElement).toBe(screen.getByRole('button', { name: /close/i }));
 		expect(screen.getByText('1 of 3')).toBeTruthy();
+		expect(screen.getByText('Proof 1', { selector: 'span' })).toBeTruthy();
 	});
 
-	it('navigates with arrows, Home and End, wrapping around', async () => {
+	it('shows a read-only heart for the photographer', () => {
+		render(ProofViewer, {
+			proofs,
+			index: 0,
+			readonly: true,
+			isSelected: () => true,
+			onclose: () => {}
+		});
+		const heart = screen.getByRole('button', { name: /favorite proof 1/i }) as HTMLButtonElement;
+		expect(heart.disabled).toBe(true);
+		expect(heart.getAttribute('aria-pressed')).toBe('true');
+	});
+
+	it('shows a spinner while a photo is processing', () => {
+		render(ProofViewer, {
+			proofs: [{ ...proofs[0], status: 'processing' }],
+			index: 0,
+			onclose: () => {}
+		});
+		expect(screen.queryByRole('img')).toBeNull();
+		expect(screen.getByRole('status').textContent).toMatch(/processing/i);
+	});
+
+	it('offers Try again when processing failed', async () => {
+		const onretry = vi.fn();
+		const user = userEvent.setup();
+		render(ProofViewer, {
+			proofs: [{ ...proofs[0], status: 'failed' }],
+			index: 0,
+			onretry,
+			onclose: () => {}
+		});
+		expect(screen.getByRole('alert').textContent).toBe('This photo could not be processed');
+		await user.click(screen.getByRole('button', { name: 'Try again' }));
+		expect(onretry).toHaveBeenCalledWith('p1');
+	});
+
+	it('navigates with arrows, Home and End, stopping at the ends', async () => {
 		const user = userEvent.setup();
 		render(ProofViewer, { proofs, index: 0, onclose: () => {} });
 		await user.keyboard('{ArrowRight}');
@@ -33,11 +71,16 @@ describe('ProofViewer', () => {
 		await user.keyboard('{End}');
 		expect(shown()).toBe('Proof 3');
 		await user.keyboard('{ArrowRight}');
-		expect(shown()).toBe('Proof 1');
-		await user.keyboard('{ArrowLeft}');
 		expect(shown()).toBe('Proof 3');
+		expect(screen.getByRole('button', { name: /next/i }).getAttribute('aria-disabled')).toBe(
+			'true'
+		);
 		await user.keyboard('{Home}');
+		await user.keyboard('{ArrowLeft}');
 		expect(shown()).toBe('Proof 1');
+		expect(screen.getByRole('button', { name: /previous/i }).getAttribute('aria-disabled')).toBe(
+			'true'
+		);
 	});
 
 	it('operates through keyboard-activated buttons', async () => {
