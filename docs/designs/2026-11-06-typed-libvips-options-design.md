@@ -4,7 +4,7 @@ Issue: #142. Builds on `docs/designs/2026-11-04-proof-derivatives-design.md`.
 
 ## Goal
 
-Require libvips 8.15 or newer everywhere and replace the option strings in `crates/image-worker/src/render.rs` with the typed `*_with_opts` calls of the `libvips` crate, so option names and values are checked at compile time. Output does not change: auto-rotated, sRGB, no metadata, never upscaled, with the same bounded decoding.
+Require libvips 8.15 or newer everywhere and replace the option strings in `crates/image-worker/src/render.rs` with the typed `*_with_opts` calls of the `libvips` crate where they work, so option names and values are checked at compile time. Output does not change: auto-rotated, sRGB, no metadata, never upscaled, with the same bounded decoding.
 
 ## Approaches
 
@@ -14,7 +14,7 @@ Require libvips 8.15 or newer everywhere and replace the option strings in `crat
 
 ## Behaviour
 
-- `render.rs` uses typed options for decoding and encoding. The module comment that explains why strings are used is removed.
+- `render.rs` uses typed options for encoding. Decoding keeps its option string: the crate's typed `jpegload_buffer_with_opts` passes the output-only `flags` argument as an input and crashes libvips 8.15 (found in CI on Ubuntu 24.04). The module comment explains the libvips 8.15 requirement.
 - Option values keep their meaning: `shrink` from the existing scale table, truncated files still fail, quality 75, metadata stripped.
 - Thumbnail and preview bytes need not be identical to before, but the existing derivative and colour-profile tests pass unchanged.
 - If a typed option cannot express a string option exactly (for example the ICC profile field name, or `strip` with `keep`), the closest typed equivalent is used and the difference is noted in the PR.

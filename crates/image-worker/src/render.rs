@@ -1,7 +1,7 @@
 //! Proof derivatives rendered from an original JPEG with libvips.
 //!
 //! Rendering is blocking; callers run it through `spawn_blocking`. It needs libvips 8.15 or newer,
-//! the first release with the `keep` option that the typed `*_with_opts` calls always send.
+//! the first release with the `keep` option that the typed save always sends.
 
 use std::{
     num::NonZeroU64,
@@ -10,9 +10,7 @@ use std::{
 
 use libvips::{
     VipsApp, VipsImage,
-    ops::{
-        self, FailOn, ForeignKeep, Interpretation, JpegloadBufferOptions, JpegsaveBufferOptions,
-    },
+    ops::{self, ForeignKeep, Interpretation, JpegsaveBufferOptions},
 };
 use thiserror::Error;
 
@@ -105,15 +103,11 @@ impl ImageRenderer {
             .into_iter()
             .find(|shrink| long_edge / shrink >= PREVIEW_EDGE)
             .unwrap_or(1);
-        let image = ops::jpegload_buffer_with_opts(
-            original,
-            &JpegloadBufferOptions {
-                shrink: i32::try_from(shrink).unwrap_or(1),
-                fail_on: FailOn::Truncated,
-                ..JpegloadBufferOptions::default()
-            },
-        )
-        .map_err(|_| RenderError::Unreadable)?;
+        // The typed `jpegload_buffer_with_opts` passes the output-only `flags` argument as an input,
+        // which crashes libvips 8.15, so the loader takes an option string.
+        let image =
+            VipsImage::new_from_buffer(original, &format!("shrink={shrink},fail-on=truncated"))
+                .map_err(|_| RenderError::Unreadable)?;
         // `thumbnail_image` ignores embedded RGB profiles, so wide-gamut sources (Display P3,
         // Adobe RGB) are converted here. A profile libvips rejects leaves the pixels as stored.
         let image = if image.get_as_string(ICC_PROFILE).is_ok() {
