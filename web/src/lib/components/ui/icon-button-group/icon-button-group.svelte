@@ -6,8 +6,14 @@
 	let {
 		value = $bindable(),
 		items,
-		label
-	}: { value: string; items: readonly Item[]; label: string } = $props();
+		label,
+		onchange
+	}: {
+		value: string;
+		items: readonly Item[];
+		label: string;
+		onchange?: (value: string) => void;
+	} = $props();
 </script>
 
 <div role="group" aria-label={label} class="inline-flex gap-1">
@@ -20,7 +26,10 @@
 			class="grid size-10 place-items-center rounded-control border {value === id
 				? 'border-foreground bg-foreground text-inverse'
 				: 'border-border-strong bg-transparent text-foreground'}"
-			onclick={() => (value = id)}
+			onclick={() => {
+				value = id;
+				onchange?.(id);
+			}}
 		>
 			<Icon size={18} />
 		</button>

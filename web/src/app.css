@@ -22,6 +22,7 @@
 	--animate-toast-in: toast-in 250ms var(--ease-pop);
 	--animate-photo-in: photo-in 250ms ease-out;
 	--animate-sweep: sweep 1.4s ease-in-out infinite;
+	--animate-leak: leak 14s ease-in-out infinite alternate;
 	--animate-spin-slow: spin 900ms linear infinite;
 	--color-input: #fff;
 	--color-inverse: #fff;
@@ -136,6 +137,16 @@ h2,
 @keyframes photo-in {
 	from {
 		opacity: 0;
+	}
+}
+@keyframes leak {
+	from {
+		transform: translateX(-30%);
+		opacity: 0.35;
+	}
+	to {
+		transform: translateX(30%);
+		opacity: 0.7;
 	}
 }
 @keyframes sweep {

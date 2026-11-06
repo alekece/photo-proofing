@@ -1,0 +1,106 @@
+import { createRawSnippet } from 'svelte';
+import { render, screen } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import { axe } from 'vitest-axe';
+
+import type { Gallery } from '#lib/gallery/api.js';
+
+import GalleryHeader from './GalleryHeader.svelte';
+
+const base: Gallery = {
+	id: 'g1',
+	title: 'Camille & Hugo',
+	layout: 'grid',
+	expires_at: null,
+	included_photos: null,
+	watermark_enabled: false,
+	hero_id: null,
+	share_token: null,
+	states: ['draft'],
+	created_at: '2026-06-12T10:00:00Z',
+	updated_at: '2026-06-12T10:00:00Z'
+};
+const heading = createRawSnippet(() => ({ render: () => '<h1>Camille &amp; Hugo</h1>' }));
+
+function setup(over: Partial<Gallery> = {}, counts: { photos?: number; favorites?: number } = {}) {
+	const handlers = {
+		onpreview: vi.fn(),
+		onshare: vi.fn(),
+		ondeliver: vi.fn(),
+		onrestore: vi.fn()
+	};
+	const view = render(GalleryHeader, {
+		gallery: { ...base, ...over },
+		photoCount: counts.photos ?? null,
+		favoriteCount: counts.favorites ?? null,
+		heading,
+		...handlers
+	});
+
+	return { ...view, ...handlers, user: userEvent.setup() };
+}
+
+describe('GalleryHeader', () => {
+	it('offers Share on a draft and lists the journey with Upload done', async () => {
+		const { onshare, user } = setup({}, { photos: 48 });
+
+		expect(screen.getByText('Draft')).toBeTruthy();
+		expect(screen.getByText('48 photos · not shared yet')).toBeTruthy();
+		expect(screen.getByText('48 photos', { selector: 'span.block' })).toBeTruthy();
+
+		await user.click(screen.getByRole('button', { name: 'Share' }));
+
+		expect(onshare).toHaveBeenCalledOnce();
+	});
+
+	it('offers Deliver once shared and counts the selection', async () => {
+		const { ondeliver, user } = setup(
+			{ share_token: 'T'.repeat(22), states: ['shared'] },
+			{ photos: 3, favorites: 13 }
+		);
+
+		expect(screen.getByText('13 selected', { selector: 'span.block' })).toBeTruthy();
+
+		await user.click(screen.getByRole('button', { name: 'Deliver' }));
+
+		expect(ondeliver).toHaveBeenCalledOnce();
+	});
+
+	it('has no main action once delivered', () => {
+		setup({ share_token: 'T'.repeat(22), states: ['delivered'] }, { photos: 3 });
+
+		expect(screen.getByRole('button', { name: 'Preview' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Deliver' })).toBeNull();
+	});
+
+	it('offers Restore and hides the journey when archived', async () => {
+		const { onrestore, user } = setup({ states: ['draft', 'archived'] });
+
+		expect(screen.queryByRole('navigation', { name: 'Gallery progress' })).toBeNull();
+
+		await user.click(screen.getByRole('button', { name: 'Restore' }));
+
+		expect(onrestore).toHaveBeenCalledOnce();
+	});
+
+	it('uses the hero photo when there is one and initials when there is not', () => {
+		const { container, unmount } = setup({ hero_id: 'p1' });
+
+		expect(container.querySelector('img')?.getAttribute('src')).toContain('/p1/preview');
+		expect(screen.queryByTestId('no-hero')).toBeNull();
+
+		unmount();
+		setup();
+
+		expect(screen.getByTestId('no-hero')).toBeTruthy();
+		expect(screen.getByText('CH')).toBeTruthy();
+	});
+
+	it('has no axe violations', async () => {
+		const { container } = setup({}, { photos: 2 });
+
+		expect((await axe(container)).violations).toEqual([]);
+	});
+});

@@ -9,7 +9,9 @@
 		included,
 		heroId = $bindable(null),
 		watermarked = false,
-		delivered = false
+		delivered = false,
+		photoCount = $bindable(null),
+		favoriteCount = $bindable(null)
 	}: {
 		galleryId: string;
 		included: number | null;
@@ -17,11 +19,12 @@
 		watermarked?: boolean;
 		/** After delivery the client's selection is locked. */
 		delivered?: boolean;
+		/** Reported upwards so the gallery header can show them. */
+		photoCount?: number | null;
+		favoriteCount?: number | null;
 	} = $props();
 
 	let tab = $state('photos');
-	let photoCount = $state<number | null>(null);
-	let favoriteCount = $state<number | null>(null);
 	let finalCount = $state<number | null>(null);
 
 	const items = $derived([
