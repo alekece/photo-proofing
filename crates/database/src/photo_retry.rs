@@ -272,6 +272,7 @@ mod tests {
         let id = failed_photo(&database, &pool, &gallery).await;
         let options = JobOptions {
             max_attempts: std::num::NonZeroU16::new(9).unwrap(),
+            ..JobOptions::default()
         };
 
         database
