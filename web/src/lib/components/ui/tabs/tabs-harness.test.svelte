@@ -1,11 +1,16 @@
 <script lang="ts">
 	import Tabs from './tabs.svelte';
 
-	const items = [
+	const defaults = [
 		{ id: 'a', label: 'Alpha' },
 		{ id: 'b', label: 'Beta' },
 		{ id: 'c', label: 'Gamma' }
 	];
+	let {
+		items = defaults
+	}: {
+		items?: { id: string; label: string; count?: number; accent?: boolean; locked?: boolean }[];
+	} = $props();
 	let value = $state('a');
 </script>
 

@@ -1,54 +1,55 @@
 <script lang="ts">
 	import FavoritesPanel from '#lib/components/FavoritesPanel.svelte';
+	import FinalPanel from '#lib/components/FinalPanel.svelte';
 	import PhotosPanel from '#lib/components/PhotosPanel.svelte';
-	import Button from '#lib/components/ui/button/button.svelte';
-	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
 	import Tabs from '#lib/components/ui/tabs/tabs.svelte';
 
 	let {
 		galleryId,
 		included,
-		heroId = $bindable(null)
-	}: { galleryId: string; included: number | null; heroId?: string | null } = $props();
-
-	const TABS = [
-		{ id: 'photos', label: 'Photos' },
-		{
-			id: 'favorites',
-			label: 'Favorites'
-		},
-		{
-			id: 'finals',
-			label: 'Finals',
-			action: {
-				label: '+ Add finished photos',
-				title: 'Uploading finished photos arrives with a later release'
-			},
-			empty: 'No finished photos yet. Drop the edited JPEGs here.'
-		}
-	] as const;
+		heroId = $bindable(null),
+		watermarked = false,
+		delivered = false
+	}: {
+		galleryId: string;
+		included: number | null;
+		heroId?: string | null;
+		watermarked?: boolean;
+		/** After delivery the client's selection is locked. */
+		delivered?: boolean;
+	} = $props();
 
 	let tab = $state('photos');
+	let photoCount = $state<number | null>(null);
+	let favoriteCount = $state<number | null>(null);
+	let finalCount = $state<number | null>(null);
+
+	const items = $derived([
+		{ id: 'photos', label: 'Photos', count: photoCount },
+		{
+			id: 'favorites',
+			label: 'Favorites',
+			count: favoriteCount,
+			accent: included !== null && favoriteCount !== null && favoriteCount > included,
+			locked: delivered
+		},
+		{ id: 'final', label: 'Final', count: finalCount }
+	]);
 </script>
 
 <section class="min-w-0">
-	<Tabs bind:value={tab} items={TABS} label="Gallery content">
+	<Tabs bind:value={tab} {items} label="Gallery content">
 		{#snippet panel(active)}
-			{#each TABS as item (item.id)}
-				{#if active === item.id && item.id === 'photos'}
-					<PhotosPanel {galleryId} bind:heroId />
-				{:else if active === item.id && item.id === 'favorites'}
-					<FavoritesPanel {galleryId} {included} />
-				{:else if active === item.id && 'action' in item}
-					{@const { action, empty } = item}
-					<div class="flex justify-end">
-						<Button variant="outline" size="sm" disabled title={action.title}>
-							{action.label}
-						</Button>
-					</div>
-					<EmptyState class="text-muted-foreground">{empty}</EmptyState>
-				{/if}
-			{/each}
+			<!-- All panels stay mounted so every tab can show its count; only the active one is visible. -->
+			<div hidden={active !== 'photos'}>
+				<PhotosPanel {galleryId} bind:heroId oncount={(n) => (photoCount = n)} {watermarked} />
+			</div>
+			<div hidden={active !== 'favorites'} class="grid gap-4">
+				<FavoritesPanel {galleryId} {included} oncount={(n) => (favoriteCount = n)} />
+			</div>
+			<div hidden={active !== 'final'}>
+				<FinalPanel oncount={(n) => (finalCount = n)} />
+			</div>
 		{/snippet}
 	</Tabs>
 </section>

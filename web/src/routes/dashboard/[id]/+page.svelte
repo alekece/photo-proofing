@@ -242,6 +242,8 @@
 			galleryId={saved.id}
 			included={saved.included_photos}
 			bind:heroId={saved.hero_id}
+			watermarked={saved.watermark_enabled}
+			delivered={saved.states.includes('delivered')}
 		/>
 	</div>
 </PageShell>

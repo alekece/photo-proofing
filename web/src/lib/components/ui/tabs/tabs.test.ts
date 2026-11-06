@@ -70,4 +70,20 @@ describe('Tabs', () => {
 		expect(selected()).toBe('a');
 		expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Alpha' }));
 	});
+
+	it('shows counts, an accent on one and a padlock', () => {
+		render(TabsHarness, {
+			items: [
+				{ id: 'a', label: 'Alpha', count: 3 },
+				{ id: 'b', label: 'Beta', count: 9, accent: true, locked: true }
+			]
+		});
+
+		expect(screen.getByRole('tab', { name: /Alpha 3/ })).toBeTruthy();
+
+		const beta = screen.getByRole('tab', { name: /Beta 9/ });
+
+		expect(beta.querySelector('.font-bold')?.textContent).toBe('9');
+		expect(beta.querySelector('[aria-label="Locked"]')).toBeTruthy();
+	});
 });
