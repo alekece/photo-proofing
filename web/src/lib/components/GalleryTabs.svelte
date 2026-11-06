@@ -2,11 +2,13 @@
 	import FavoritesPanel from '#lib/components/FavoritesPanel.svelte';
 	import FinalPanel from '#lib/components/FinalPanel.svelte';
 	import PhotosPanel from '#lib/components/PhotosPanel.svelte';
+	import type { GalleryLayout } from '#lib/gallery/api.js';
 	import Tabs from '#lib/components/ui/tabs/tabs.svelte';
 
 	let {
 		galleryId,
 		included,
+		layout = 'masonry',
 		heroId = $bindable(null),
 		watermarked = false,
 		delivered = false,
@@ -15,6 +17,7 @@
 	}: {
 		galleryId: string;
 		included: number | null;
+		layout?: GalleryLayout;
 		heroId?: string | null;
 		watermarked?: boolean;
 		/** After delivery the client's selection is locked. */
@@ -40,15 +43,21 @@
 	]);
 </script>
 
-<section class="min-w-0">
+<section class="min-w-0 px-3 pt-3 pb-8 sm:px-7 sm:pt-[1.125rem] sm:pb-10">
 	<Tabs bind:value={tab} {items} label="Gallery content">
 		{#snippet panel(active)}
 			<!-- All panels stay mounted so every tab can show its count; only the active one is visible. -->
 			<div hidden={active !== 'photos'}>
-				<PhotosPanel {galleryId} bind:heroId oncount={(n) => (photoCount = n)} {watermarked} />
+				<PhotosPanel
+					{galleryId}
+					bind:heroId
+					{layout}
+					oncount={(n) => (photoCount = n)}
+					{watermarked}
+				/>
 			</div>
 			<div hidden={active !== 'favorites'} class="grid gap-4">
-				<FavoritesPanel {galleryId} {included} oncount={(n) => (favoriteCount = n)} />
+				<FavoritesPanel {galleryId} {layout} oncount={(n) => (favoriteCount = n)} />
 			</div>
 			<div hidden={active !== 'final'}>
 				<FinalPanel oncount={(n) => (finalCount = n)} />

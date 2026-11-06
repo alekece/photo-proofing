@@ -39,7 +39,7 @@
 	}
 </script>
 
-<div role="tablist" aria-label={label} class="mb-4 flex gap-6 border-b border-border-strong">
+<div role="tablist" aria-label={label} class="mb-4 flex gap-4 border-b border-border sm:gap-6">
 	{#each items as { id, label, count, accent, locked } (id)}
 		<button
 			type="button"
@@ -48,7 +48,8 @@
 			aria-selected={value === id}
 			aria-controls={`panel-${id}`}
 			tabindex={value === id ? 0 : -1}
-			class="border-b-2 px-0 pb-2 text-xs tracking-[0.2em] uppercase {value === id
+			class="-mb-px flex items-center gap-2 border-b-2 pt-1.5 pb-2.5 text-[0.9rem] font-medium sm:text-[0.9375rem] {value ===
+			id
 				? 'border-foreground text-foreground'
 				: 'border-transparent text-muted-foreground'}"
 			onclick={() => (value = id)}
@@ -56,10 +57,17 @@
 		>
 			{label}
 			{#if count != null}
-				<span class={accent ? 'font-bold text-danger' : 'text-muted-foreground'}>{count}</span>
+				<em
+					class="rounded-full border px-1.5 py-px text-[0.65625rem] font-bold not-italic {value ===
+					id
+						? 'bg-white'
+						: 'bg-panel'} {accent
+						? 'border-danger/40 text-danger'
+						: 'border-border-strong text-muted-foreground'}">{count}</em
+				>
 			{/if}
 			{#if locked}
-				<Lock size={12} class="inline align-baseline" aria-label="Locked" />
+				<Lock size={12} aria-label="Locked" />
 			{/if}
 		</button>
 	{/each}

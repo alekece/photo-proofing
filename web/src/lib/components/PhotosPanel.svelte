@@ -1,9 +1,14 @@
 <script lang="ts">
-	import { ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
+	import { CircleCheck, ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
-	import PhotoTile, { type TileState } from '#lib/components/PhotoTile.svelte';
+	import type { GalleryLayout } from '#lib/gallery/api.js';
+	import PhotoTile, {
+		GRID_CLASSES,
+		ITEM_CLASSES,
+		type TileState
+	} from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import ConfirmDialog from '#lib/components/ui/confirm-dialog/confirm-dialog.svelte';
@@ -30,11 +35,14 @@
 	let {
 		galleryId,
 		heroId = $bindable(null),
+		layout = 'masonry',
 		oncount,
 		watermarked = false
 	}: {
 		galleryId: string;
 		heroId?: string | null;
+		/** How the tiles are laid out: the gallery's setting. */
+		layout?: GalleryLayout;
 		/** How many photos the gallery has, for the tab. */
 		oncount?: (count: number | null) => void;
 		/** Whether the gallery has watermarking on. */
@@ -629,14 +637,19 @@
 		{:else}
 			<Button
 				bind:ref={selectButton}
-				variant="ghost"
+				variant="outline"
 				size="sm"
+				class="min-h-9! gap-1.5"
 				disabled={photos.length === 0}
-				onclick={() => (selecting = true)}>Select</Button
+				onclick={() => (selecting = true)}
+				><CircleCheck size={16} aria-hidden="true" />Select</Button
 			>
 		{/if}
-		<Button bind:ref={uploadButton} variant="outline" size="sm" onclick={() => picker?.click()}
-			><Upload size={16} aria-hidden="true" class="mr-1.5" />Upload</Button
+		<Button
+			bind:ref={uploadButton}
+			size="sm"
+			class="min-h-9! gap-1.5"
+			onclick={() => picker?.click()}><Upload size={16} aria-hidden="true" />Upload</Button
 		>
 		<input
 			bind:this={picker}
@@ -657,17 +670,14 @@
 	</p>
 
 	{#if photos.length > 0 || queued.length > 0}
-		<ul
-			bind:this={grid}
-			aria-label="Photos"
-			class="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-2"
-		>
+		<ul bind:this={grid} aria-label="Photos" class={GRID_CLASSES[layout]}>
 			{#each photos as photo (photo.id)}
 				{@const state = tileState(photo.status)}
-				<li>
+				<li class={ITEM_CLASSES[layout]}>
 					<PhotoTile
 						name={photo.original_name}
 						{state}
+						ratio={layout === 'masonry' ? photo.width / photo.height : 3 / 2}
 						thumbnailUrl={state === 'ready' ? thumbnailUrl(galleryId, photo.id) : undefined}
 						selected={selected.has(photo.id)}
 						onremove={() => (confirming = photo)}
@@ -680,9 +690,10 @@
 				</li>
 			{/each}
 			{#each queued as item, position (item.key)}
-				<li>
+				<li class={ITEM_CLASSES[layout]}>
 					<PhotoTile
 						name={item.file.name}
+						ratio={3 / 2}
 						state={QUEUE_STATES[item.state]}
 						error={item.error}
 						onremove={() => {
@@ -695,10 +706,10 @@
 			{/each}
 		</ul>
 	{:else if loaded}
-		<EmptyState class="text-muted-foreground">
+		<EmptyState>
 			<ImagePlus size={32} aria-hidden="true" />
-			<p class="text-lg text-foreground">Drop the shoot here</p>
-			<Button variant="outline" size="sm" onclick={() => picker?.click()}>Upload</Button>
+			<h3>Drop the shoot here</h3>
+			<Button size="sm" onclick={() => picker?.click()}>Upload</Button>
 		</EmptyState>
 	{/if}
 </section>

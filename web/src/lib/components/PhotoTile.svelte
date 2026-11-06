@@ -9,6 +9,16 @@
 		| 'process-failed'
 		| 'ready';
 
+	/** The tile grid of a gallery tab: staggered columns or even rows, as the gallery's layout says. */
+	export const GRID_CLASSES = {
+		masonry: 'block columns-2 gap-2 sm:columns-[11.25rem_4] sm:gap-2.5',
+		grid: 'grid grid-cols-2 gap-2 sm:grid-cols-[repeat(auto-fill,minmax(11.25rem,1fr))] sm:gap-2.5'
+	} as const;
+	export const ITEM_CLASSES = {
+		masonry: 'mb-2 break-inside-avoid sm:mb-2.5',
+		grid: ''
+	} as const;
+
 	const LABELS: Record<Exclude<TileState, 'ready'>, string> = {
 		'waiting-upload': 'Waiting',
 		uploading: 'Uploading',
@@ -27,6 +37,7 @@
 	let {
 		name,
 		state,
+		ratio,
 		error,
 		thumbnailUrl,
 		selected = false,
@@ -41,6 +52,8 @@
 	}: {
 		name: string;
 		state: TileState;
+		/** Width over height of the photo; the tile is square without it. */
+		ratio?: number;
 		/** Replaces the label of a failed or rejected file, e.g. "Storage full". */
 		error?: string;
 		thumbnailUrl?: string;
@@ -72,10 +85,12 @@
 <svelte:element
 	this={onselect ? 'label' : 'div'}
 	class={[
-		'group relative block aspect-square overflow-hidden rounded-xs bg-placeholder-tile',
+		'group relative block overflow-hidden rounded-md bg-placeholder-tile',
+		ratio === undefined && 'aspect-square',
 		onselect && 'cursor-pointer',
 		selected && 'outline-2 outline-offset-2 outline-foreground'
 	]}
+	style:aspect-ratio={ratio}
 >
 	{#if state === 'ready' && onselect}
 		<img src={thumbnailUrl} alt={name} loading="lazy" class="size-full object-cover" />

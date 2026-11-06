@@ -72,7 +72,10 @@
 		{ id: 'grid', label: 'Even rows', icon: LayoutGrid }
 	];
 	// Phones show only the popped card; wide screens show all of them.
-	const show = (id: string) => (popped === id ? 'grid' : 'hidden md:grid');
+	const show = (id: string) =>
+		popped === id
+			? 'absolute left-[3.875rem] z-20 grid w-[min(18.75rem,calc(100vw-5rem))] shadow-lg md:static md:w-auto md:shadow-none'
+			: 'hidden md:grid';
 
 	async function commit(field: string, changes: GalleryChanges, revert: () => void) {
 		if (await onsave(changes)) {
@@ -124,17 +127,20 @@
 		if (event.key === 'Escape') popped = null;
 	}}
 />
-<aside aria-label="Gallery settings" class="grid content-start gap-4">
-	<div class="flex gap-2 md:hidden" role="group" aria-label="Gallery settings sections">
+<aside
+	aria-label="Gallery settings"
+	class="relative grid content-start gap-3.5 border-r border-border bg-panel py-3 max-md:place-items-center md:px-5 md:pt-[1.375rem] md:pb-7"
+>
+	<div class="grid gap-2 md:hidden" role="group" aria-label="Gallery settings sections">
 		{#each cards as { id, label, icon: Icon } (id)}
 			<button
 				type="button"
 				aria-label="Show {label}"
 				aria-expanded={popped === id}
 				title={label}
-				class="grid size-11 place-items-center rounded-control border {popped === id
+				class="grid size-10 place-items-center rounded-xl border {popped === id
 					? 'border-foreground bg-foreground text-inverse'
-					: 'border-border-strong'}"
+					: 'border-transparent text-muted-foreground'}"
 				onclick={() => (popped = popped === id ? null : id)}
 			>
 				<Icon size={18} />
@@ -142,8 +148,12 @@
 		{/each}
 	</div>
 
-	<Card as="section" class="{show('link')} content-start gap-2 p-4">
-		<h2 class="text-sm font-medium">Client link</h2>
+	<Card as="section" class="{show('link')} content-start gap-2.5 p-4 max-md:top-3">
+		<h2
+			class="font-sans! text-[0.6875rem] font-semibold! tracking-[0.08em] text-muted-foreground uppercase"
+		>
+			Client link
+		</h2>
 		{#if shareToken}
 			<ShareLink token={shareToken} {origin} />
 		{:else}
@@ -151,31 +161,34 @@
 		{/if}
 	</Card>
 
-	<Card as="section" class="{show('access')} content-start gap-4 p-4">
-		<h2 class="text-sm font-medium">Client access</h2>
-		<div class="grid gap-1.5">
-			<Label for="expiry" class="text-sm">Open until</Label>
+	<Card as="section" class="{show('access')} content-start gap-3.5 p-4 max-md:top-14">
+		<h2
+			class="font-sans! text-[0.6875rem] font-semibold! tracking-[0.08em] text-muted-foreground uppercase"
+		>
+			Client access
+		</h2>
+		<div class="flex items-center justify-between gap-2.5">
+			<Label for="expiry" class="text-sm text-muted-foreground">Open until</Label>
 			<Input
 				id="expiry"
 				type="date"
-				class="min-h-0 px-2 py-1 text-sm {ring('expiry')}"
+				class="min-h-0 w-[8.75rem] rounded-lg px-2 py-1 text-sm {ring('expiry')}"
 				value={expiryDay}
 				onchange={(event) => {
 					expiryDay = event.currentTarget.value;
 					setExpiry();
 				}}
 			/>
-			<p class="text-xs text-muted-foreground">Leave empty for no expiry.</p>
 		</div>
-		<div class="grid gap-1.5">
-			<Label for="included" class="text-sm">Included photos</Label>
+		<div class="flex items-center justify-between gap-2.5">
+			<Label for="included" class="text-sm text-muted-foreground">Included photos</Label>
 			<Input
 				id="included"
 				type="number"
 				min="1"
 				step="1"
-				placeholder="Unlimited"
-				class="min-h-0 w-auto px-2 py-1 text-sm {ring('included')}"
+				placeholder="∞"
+				class="min-h-0 w-[4.5rem] rounded-lg px-2 py-1 text-right text-sm {ring('included')}"
 				bind:value={included}
 				oninput={() => schedule('included_photos', () => saveIncluded(false))}
 				onblur={() => {
@@ -183,18 +196,25 @@
 					saveIncluded(true);
 				}}
 			/>
-			<p class="text-xs text-muted-foreground">Leave empty for no limit.</p>
 		</div>
 	</Card>
 
-	<Card as="section" class="{show('look')} content-start gap-4 p-4">
-		<h2 class="text-sm font-medium">Look</h2>
-		<div class="grid gap-1.5 {ring('layout') ? 'rounded-control ring-2 ring-ok' : ''}">
-			<span class="text-sm">Layout</span>
+	<Card as="section" class="{show('look')} content-start gap-3.5 p-4 max-md:top-24">
+		<h2
+			class="font-sans! text-[0.6875rem] font-semibold! tracking-[0.08em] text-muted-foreground uppercase"
+		>
+			Look
+		</h2>
+		<div
+			class="flex items-center justify-between gap-2 {ring('layout')
+				? 'rounded-control ring-2 ring-ok'
+				: ''}"
+		>
+			<span class="text-sm text-muted-foreground">Layout</span>
 			<IconButtonGroup value={layout} items={layouts} label="Layout" onchange={setLayout} />
 		</div>
 		<div class="flex items-center justify-between gap-2">
-			<Label for="watermark" class="text-sm">Watermark proofs</Label>
+			<Label for="watermark" class="text-sm text-muted-foreground">Watermark proofs</Label>
 			<Switch
 				id="watermark"
 				bind:checked={watermark}
@@ -204,9 +224,13 @@
 		</div>
 	</Card>
 
-	<Card as="section" class="{show('gallery')} content-start gap-2 p-4">
-		<h2 class="text-sm font-medium">Gallery</h2>
-		<div class="flex flex-wrap gap-2">
+	<Card as="section" class="{show('gallery')} content-start gap-2.5 p-4 max-md:top-36">
+		<h2
+			class="font-sans! text-[0.6875rem] font-semibold! tracking-[0.08em] text-muted-foreground uppercase"
+		>
+			Gallery
+		</h2>
+		<div class="flex gap-2 [&>*]:min-h-9! [&>*]:flex-1">
 			{#if archived}
 				<Button variant="outline" size="sm" onclick={onrestore}>
 					<ArchiveRestore size={16} aria-hidden="true" class="mr-1.5" />Restore
@@ -216,7 +240,7 @@
 					<Archive size={16} aria-hidden="true" class="mr-1.5" />Archive
 				</Button>
 			{/if}
-			<Button variant="destructive" size="sm" onclick={ondelete}>
+			<Button variant="outline" size="sm" class="border-danger/35! text-danger!" onclick={ondelete}>
 				<Trash2 size={16} aria-hidden="true" class="mr-1.5" />Delete
 			</Button>
 		</div>

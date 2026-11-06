@@ -46,8 +46,8 @@ describe('GalleryHeader', () => {
 		const { onshare, user } = setup({}, { photos: 48 });
 
 		expect(screen.getByText('Draft')).toBeTruthy();
-		expect(screen.getByText('48 photos · not shared yet')).toBeTruthy();
-		expect(screen.getByText('48 photos', { selector: 'span.block' })).toBeTruthy();
+		expect(screen.getByText(/^48 photos · created /)).toBeTruthy();
+		expect(screen.getByText('48 photos', { selector: '[data-slot="step-fact"]' })).toBeTruthy();
 
 		await user.click(screen.getByRole('button', { name: 'Share' }));
 
@@ -60,7 +60,7 @@ describe('GalleryHeader', () => {
 			{ photos: 3, favorites: 13 }
 		);
 
-		expect(screen.getByText('13 selected', { selector: 'span.block' })).toBeTruthy();
+		expect(screen.getByText('13 selected', { selector: '[data-slot="step-fact"]' })).toBeTruthy();
 
 		await user.click(screen.getByRole('button', { name: 'Deliver' }));
 

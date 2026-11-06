@@ -10,8 +10,8 @@
 </script>
 
 <script lang="ts">
-	import { ImagePlus, Trash2, Upload } from '@lucide/svelte';
-	import PhotoTile from '#lib/components/PhotoTile.svelte';
+	import { CircleCheck, ImagePlus, Trash2, Upload } from '@lucide/svelte';
+	import PhotoTile, { GRID_CLASSES } from '#lib/components/PhotoTile.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
 	import SelectPill from '#lib/components/ui/select-pill/select-pill.svelte';
@@ -85,17 +85,20 @@
 				{#snippet icon()}<Trash2 size={16} aria-hidden="true" />{/snippet}
 			</SelectPill>
 		{:else}
-			<Button variant="ghost" size="sm" disabled={photos.length === 0} onclick={() => mode.enter()}
-				>Select</Button
+			<Button
+				variant="outline"
+				size="sm"
+				class="min-h-9! gap-1.5"
+				disabled={photos.length === 0}
+				onclick={() => mode.enter()}><CircleCheck size={16} aria-hidden="true" />Select</Button
 			>
 		{/if}
 		<Button
-			variant="outline"
 			size="sm"
+			class="min-h-9! gap-1.5"
 			disabled={!onupload}
 			title={onupload ? undefined : UNAVAILABLE}
-			onclick={() => picker?.click()}
-			><Upload size={16} aria-hidden="true" class="mr-1.5" />Upload</Button
+			onclick={() => picker?.click()}><Upload size={16} aria-hidden="true" />Upload</Button
 		>
 		<input
 			bind:this={picker}
@@ -112,11 +115,10 @@
 	</div>
 
 	{#if photos.length === 0}
-		<EmptyState class="text-muted-foreground">
+		<EmptyState>
 			<ImagePlus size={32} aria-hidden="true" />
-			<p class="text-lg text-foreground">Drop the finished photos here</p>
+			<h3>Drop the finished photos here</h3>
 			<Button
-				variant="outline"
 				size="sm"
 				disabled={!onupload}
 				title={onupload ? undefined : UNAVAILABLE}
@@ -124,7 +126,7 @@
 			>
 		</EmptyState>
 	{:else}
-		<ul aria-label="Final photos" class="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-2">
+		<ul aria-label="Final photos" class={GRID_CLASSES.grid}>
 			{#each photos as photo (photo.id)}
 				<li>
 					<PhotoTile

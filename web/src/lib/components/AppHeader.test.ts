@@ -15,7 +15,10 @@ describe('AppHeader', () => {
 		render(AppHeader);
 
 		expect(screen.getByText('PhotoProofing')).toBeTruthy();
-		expect(screen.queryByRole('link')).toBeNull();
+		expect(screen.getByRole('link', { name: 'PhotoProofing' }).getAttribute('href')).toBe(
+			'/dashboard'
+		);
+		expect(screen.queryByRole('link', { name: 'Back' })).toBeNull();
 	});
 
 	it('shows the back link when given', () => {
