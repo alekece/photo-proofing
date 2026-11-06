@@ -31,6 +31,29 @@ pub struct WorkerConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub process: ProcessConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub cleanup: CleanupConfig,
+}
+
+/// How the worker removes files that no photo owns.
+#[derive(Args, ConfigArgs, Debug, Clone)]
+pub struct CleanupConfig {
+    /// A file younger than this is never swept, so an upload still being finished is safe.
+    #[arg(
+        long = "cleanup-orphan-grace",
+        env = "PP_CLEANUP_ORPHAN_GRACE",
+        default_value = "24h"
+    )]
+    pub orphan_grace: QueueDuration,
+    /// A sweep requested less than this after the last successful one is skipped, so frequent
+    /// restarts do not rescan the volume each time.
+    #[arg(
+        long = "cleanup-sweep-interval",
+        env = "PP_CLEANUP_SWEEP_INTERVAL",
+        default_value = "1h"
+    )]
+    pub sweep_interval: QueueDuration,
 }
 
 /// Limits on the originals the worker renders into proof derivatives.
