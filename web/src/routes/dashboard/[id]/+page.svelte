@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { getUploadQueue } from '#lib/gallery/uploads.svelte.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import { authRequest } from '#lib/auth.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
@@ -9,7 +10,7 @@
 	import GalleryActions from '#lib/components/GalleryActions.svelte';
 	import GallerySettings from '#lib/components/GallerySettings.svelte';
 	import GalleryTabs from '#lib/components/GalleryTabs.svelte';
-	import PressAgainButton from '#lib/components/PressAgainButton.svelte';
+	import PublishDialog from '#lib/components/PublishDialog.svelte';
 	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
@@ -28,15 +29,15 @@
 	const DEBOUNCE = 600;
 
 	let { data }: { data: PageData } = $props();
+	const queue = getUploadQueue();
 	// svelte-ignore state_referenced_locally
 	let saved = $state(data.gallery);
 	// svelte-ignore state_referenced_locally
 	let title = $state(data.gallery.title ?? '');
 	// svelte-ignore state_referenced_locally
 	let shareToken = $state(data.gallery.share_token);
-	let sharing = $state(false);
+	let publishing = $state<'share' | 'deliver' | null>(null);
 	let previewing = $state(false);
-	let shareFailed = $state(false);
 	let signOutError = $state('');
 	let inflight = $state(0);
 	let justSaved = $state(false);
@@ -130,22 +131,23 @@
 			title = saved.title ?? '';
 		} else saveTitle();
 	}
-	async function startSharing() {
-		sharing = true;
-		shareFailed = false;
+	/** Creates the client link and returns it for the dialog to offer. */
+	async function share() {
 		try {
 			shareToken = (await shareGallery(saved.id)).share_token;
 		} catch (error) {
 			if (error instanceof GalleryApiError && error.status === 401) {
 				await goto('/login?expired=1', { refreshAll: true });
-
-				return;
 			}
 
-			shareFailed = true;
-		} finally {
-			sharing = false;
+			throw new Error('Couldn’t share the gallery. Please try again.', { cause: error });
 		}
+
+		return `${page.url.origin}/g/${shareToken}`;
+	}
+	/** The dialog is ready; the endpoint arrives with #71, so confirming says so for now. */
+	async function deliver(): Promise<void> {
+		throw new Error('Delivering finished photos arrives with a later release.');
 	}
 	async function logout() {
 		signOutError = '';
@@ -211,22 +213,12 @@
 		<div class="flex flex-wrap items-center gap-2">
 			<Button variant="outline" onclick={() => (previewing = true)}>Preview</Button>
 			{#if shareToken}
-				<Button disabled title="Delivering finished photos arrives with a later release">
-					Deliver to client
-				</Button>
+				<Button onclick={() => (publishing = 'deliver')}>Deliver to client</Button>
 			{:else}
-				<PressAgainButton
-					label="Share gallery"
-					confirmLabel="Press again to share"
-					onconfirm={startSharing}
-					disabled={sharing}
-				/>
+				<Button onclick={() => (publishing = 'share')}>Share gallery</Button>
 			{/if}
 		</div>
 	</div>
-	{#if shareFailed}
-		<p class="text-sm text-danger" role="alert">Couldn’t share the gallery. Please try again.</p>
-	{/if}
 	{#if shareToken}
 		<div class="grid gap-1">
 			<h2 class="text-sm font-medium">Client link</h2>
@@ -255,4 +247,14 @@
 </PageShell>
 {#if previewing}
 	<ClientPreview gallery={saved} onclose={() => (previewing = false)} />
+{/if}
+{#if publishing}
+	<PublishDialog
+		kind={publishing}
+		galleryId={saved.id}
+		expiresAt={saved.expires_at}
+		uploading={queue?.inFlight(saved.id) ?? 0}
+		onconfirm={publishing === 'share' ? share : deliver}
+		onclose={() => (publishing = null)}
+	/>
 {/if}
