@@ -22,7 +22,7 @@ The repository supports one-time photographer account setup, email/password logi
 For local development:
 
 - A current stable Rust toolchain supporting edition 2024.
-- The libvips development library and pkg-config for API and worker builds: `sudo apt-get install libvips-dev pkg-config`.
+- The libvips development library, version 8.15 or newer, and pkg-config for API and worker builds. Distributions that ship it: Debian 13 (trixie), Ubuntu 24.04 and newer, Fedora, Arch and Homebrew. On Debian or Ubuntu: `sudo apt-get install libvips-dev pkg-config`; with Homebrew: `brew install vips pkg-config`. Older releases, such as Ubuntu 22.04 (libvips 8.12), are not supported.
 - Nightly rustfmt for the repository's import-grouping configuration: `rustup toolchain install nightly --component rustfmt`.
 - Node.js 24.15 or newer in the Node 24 line (required by the frontend lockfile) and pnpm 10.13.1, matching the frontend CI setup. With Corepack available: `corepack enable` and `corepack prepare pnpm@10.13.1 --activate`.
 - PostgreSQL 17 for application account/session storage and database tests. Compose supplies a development service.
