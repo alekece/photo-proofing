@@ -108,8 +108,8 @@ describe('ClientGallery', () => {
 	it('opens the viewer by keyboard and returns focus to the thumbnail', async () => {
 		const user = userEvent.setup();
 		render(ClientGallery, { token: 'tok', gallery: shared(), proofs });
-		await user.tab();
-		const thumb = document.activeElement as HTMLElement;
+		const thumb = screen.getAllByRole('button', { name: /^Open proof/ })[0];
+		thumb.focus();
 		await user.keyboard('{Enter}');
 		expect(screen.getByRole('dialog', { name: /proof viewer/i })).toBeTruthy();
 		await user.keyboard('{Escape}');
@@ -121,7 +121,7 @@ describe('ClientGallery', () => {
 		const user = userEvent.setup();
 		const { container } = render(ClientGallery, { token: 'tok', gallery: shared(), proofs });
 		expect((await axe(container)).violations).toEqual([]);
-		await user.tab();
+		screen.getAllByRole('button', { name: /^Open proof/ })[0].focus();
 		await user.keyboard('{Enter}');
 		expect((await axe(document.body)).violations).toEqual([]);
 	});

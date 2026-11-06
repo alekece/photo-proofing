@@ -8,6 +8,8 @@ export interface Proof {
 	width: number;
 	height: number;
 	/** Defaults to ready; the owner's viewer also shows photos still processing or failed. */
+	/** Set once the gallery is delivered: the finished, unwatermarked photo to download. */
+	downloadUrl?: string;
 	status?: 'ready' | 'processing' | 'failed';
 }
 

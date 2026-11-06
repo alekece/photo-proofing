@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Download } from '@lucide/svelte';
 	import type { Proof } from '../gallery/types';
 	import FavoriteButton from './FavoriteButton.svelte';
 
@@ -44,13 +45,22 @@
 				: 'block h-auto w-full'}
 		/>
 	</button>
-	{#if onselect || readonly}
+	{#if proof.downloadUrl}
+		<a
+			href={proof.downloadUrl}
+			download
+			aria-label="Download photo {position}"
+			class="absolute right-2 bottom-2 grid min-h-11 min-w-11 place-items-center rounded-full bg-viewer-control text-viewer-foreground focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus"
+		>
+			<Download size={20} aria-hidden="true" />
+		</a>
+	{:else if onselect || readonly}
 		<FavoriteButton
 			{selected}
 			label="Favorite proof {position}"
 			disabled={!onselect}
 			onclick={onselect}
-			class="absolute top-2 right-2 grid min-h-11 min-w-11 cursor-pointer place-items-center rounded-full bg-viewer-control text-viewer-foreground group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-default pointer-coarse:opacity-100 {!onselect
+			class="absolute right-2 bottom-2 grid min-h-11 min-w-11 cursor-pointer place-items-center rounded-full bg-viewer-control text-viewer-foreground transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-default pointer-coarse:opacity-100 {!onselect
 				? 'opacity-60'
 				: selected
 					? 'opacity-100'

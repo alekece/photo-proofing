@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { ChevronLeft, ChevronRight, LoaderCircle, X } from '@lucide/svelte';
+	import { ChevronLeft, ChevronRight, Download, Heart, LoaderCircle, X } from '@lucide/svelte';
 	import { onMount, type Snippet } from 'svelte';
+	import { MediaQuery } from 'svelte/reactivity';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
 	import { cn } from '#lib/utils.js';
@@ -13,6 +14,7 @@
 		isSelected = () => false,
 		class: className,
 		contained = false,
+		favoriteCount,
 		readonly = false,
 		actions,
 		onclose,
@@ -25,6 +27,8 @@
 		class?: string;
 		/** Opens inside the nearest positioned ancestor instead of over the whole page. */
 		contained?: boolean;
+		/** Shown in the top bar beside the photo's position. */
+		favoriteCount?: number;
 		/** Shows the heart without letting it change, as in the owner's views. */
 		readonly?: boolean;
 		/** The photo's actions in the top bar, which depend on where the viewer was opened from. */
@@ -38,6 +42,11 @@
 
 	const controlClass =
 		'grid min-h-11 min-w-11 cursor-pointer place-items-center rounded-full border border-viewer-foreground/30 bg-viewer-control text-viewer-foreground focus-visible:outline-3 focus-visible:outline-offset-2! focus-visible:outline-viewer-focus! disabled:cursor-default disabled:opacity-40 aria-disabled:cursor-default aria-disabled:opacity-40';
+
+	// The heart sits in the top bar on wide screens and under the photo, in thumb reach, on phones.
+	const wide =
+		typeof matchMedia === 'function' ? new MediaQuery('min-width: 640px') : { current: true };
+	const heartClass = $derived(cn(controlClass, 'gap-2 px-4', !onselect && 'disabled:opacity-100'));
 
 	let closeButton: HTMLButtonElement;
 	const proof = $derived(proofs[index]);
@@ -65,7 +74,7 @@
 				go(proofs.length - 1);
 				break;
 			case 'Tab': {
-				const items = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled)')];
+				const items = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]')];
 				const first = items[0];
 				const last = items[items.length - 1];
 				const active = document.activeElement;
@@ -88,6 +97,27 @@
 	}
 </script>
 
+{#snippet action()}
+	{#if status === 'ready'}
+		{#if proof.downloadUrl}
+			<a href={proof.downloadUrl} download class={cn(controlClass, 'gap-2 px-4')}>
+				<span class="flex items-center gap-2"
+					><Download size={20} aria-hidden="true" />Download</span
+				>
+			</a>
+		{:else if hearted}
+			<FavoriteButton
+				selected={isSelected(proof.id)}
+				disabled={!onselect}
+				onclick={() => onselect?.(proof.id)}
+				class={cn(heartClass, 'inline-flex items-center')}
+			>
+				{isSelected(proof.id) ? 'Favorite' : 'Add to favorites'}
+			</FavoriteButton>
+		{/if}
+	{/if}
+{/snippet}
+
 <!-- Key handling lives on the dialog so it applies wherever focus is inside it. -->
 <Dialog
 	{onclose}
@@ -107,7 +137,14 @@
 			<span aria-live="polite" class="text-sm text-viewer-foreground/70"
 				>{index + 1} of {proofs.length}</span
 			>
+			{#if favoriteCount !== undefined}
+				<span class="flex items-center gap-1 text-sm text-viewer-foreground/70">
+					<Heart size={16} aria-hidden="true" />
+					<span class="sr-only">Favorites:</span>{favoriteCount}
+				</span>
+			{/if}
 			{@render actions?.(proof)}
+			{#if wide.current}{@render action()}{/if}
 			<button
 				type="button"
 				class={controlClass}
@@ -135,19 +172,6 @@
 							class="max-h-full max-w-full animate-photo-in object-contain"
 						/>
 					{/key}
-					{#if hearted}
-						<FavoriteButton
-							selected={isSelected(proof.id)}
-							label="Favorite proof {index + 1}"
-							disabled={!onselect}
-							onclick={() => onselect?.(proof.id)}
-							class={cn(
-								controlClass,
-								'absolute top-2 right-2',
-								!onselect && 'disabled:opacity-100'
-							)}
-						/>
-					{/if}
 				{:else if status === 'processing'}
 					<p role="status" class="flex items-center gap-2 text-viewer-foreground/80">
 						<LoaderCircle size={20} class="animate-spin-slow" aria-hidden="true" />
@@ -175,5 +199,6 @@
 				aria-label="Next proof"><ChevronRight size={22} aria-hidden="true" /></button
 			>
 		</div>
+		{#if !wide.current}<div class="flex justify-center">{@render action()}</div>{/if}
 	{/snippet}
 </Dialog>
