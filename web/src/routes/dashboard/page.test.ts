@@ -56,12 +56,15 @@ describe('dashboard', () => {
 		expect(screen.getByRole('link', { name: /Portraits/ }).getAttribute('href')).toBe(
 			'/dashboard/g2'
 		);
-		expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
-			'Last updated',
+		const user = userEvent.setup();
+
+		await user.click(screen.getByRole('button', { name: 'Recently updated' }));
+		expect(screen.getAllByRole('radio').map((o) => o.textContent?.trim())).toEqual([
+			'Recently updated',
 			'Newest created',
 			'Title A–Z'
 		]);
-		await userEvent.setup().selectOptions(screen.getByLabelText('Sort by'), 'title');
+		await user.click(screen.getByRole('radio', { name: 'Title A–Z' }));
 		expect(goto).toHaveBeenCalledWith('?sort=title', expect.anything());
 		expect((await axe(container)).violations).toEqual([]);
 	});
@@ -80,7 +83,7 @@ describe('dashboard', () => {
 		const { container } = render(Dashboard, { props: props([gallery()]) });
 		expect(screen.getByRole('status').textContent).toBe('Loading galleries…');
 		expect(screen.queryByRole('heading', { name: 'Wedding' })).toBeNull();
-		expect(container.querySelectorAll('.pp-breathe')).toHaveLength(3);
+		expect(container.querySelectorAll('.pp-breathe')).toHaveLength(4);
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
@@ -91,7 +94,9 @@ describe('dashboard', () => {
 		expect(
 			(screen.getByRole('searchbox', { name: 'Search galleries' }) as HTMLInputElement).disabled
 		).toBe(true);
-		expect((screen.getByLabelText('Sort by') as HTMLSelectElement).disabled).toBe(true);
+		expect(
+			(screen.getByRole('button', { name: 'Recently updated' }) as HTMLButtonElement).disabled
+		).toBe(true);
 		expect((screen.getByRole('button', { name: 'Status' }) as HTMLButtonElement).disabled).toBe(
 			true
 		);
@@ -106,7 +111,7 @@ describe('dashboard', () => {
 		vi.stubGlobal('fetch', fetcher);
 		render(Dashboard, { props: props([]) });
 		expect(screen.queryByRole('dialog')).toBeNull();
-		await userEvent.setup().click(screen.getByRole('button', { name: 'New gallery' }));
+		await userEvent.setup().click(screen.getByRole('button', { name: '+ New gallery' }));
 		expect(screen.getByRole('dialog', { name: 'New gallery' })).toBeTruthy();
 		expect(fetcher.mock.calls.filter(([url]) => url === '/api/v1/galleries')).toHaveLength(0);
 		await userEvent.setup().click(screen.getByRole('button', { name: 'Cancel' }));
@@ -119,9 +124,9 @@ describe('dashboard', () => {
 		vi.stubGlobal('fetch', fetcher);
 		const user = userEvent.setup();
 		render(Dashboard, { props: props([]) });
-		await user.click(screen.getByRole('button', { name: 'New gallery' }));
+		await user.click(screen.getByRole('button', { name: '+ New gallery' }));
 		await user.type(screen.getByLabelText('Title'), 'Martin wedding');
-		await user.click(screen.getByRole('button', { name: 'Create gallery' }));
+		await user.click(screen.getByRole('button', { name: 'Create' }));
 		const busy = screen.getByRole('button', { name: 'Creating…' }) as HTMLButtonElement;
 		expect(busy.disabled).toBe(true);
 		fetcher.mockResolvedValue(
@@ -140,9 +145,9 @@ describe('dashboard', () => {
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 500 })));
 		const user = userEvent.setup();
 		render(Dashboard, { props: props([]) });
-		await user.click(screen.getByRole('button', { name: 'New gallery' }));
+		await user.click(screen.getByRole('button', { name: '+ New gallery' }));
 		await user.type(screen.getByLabelText('Title'), 'Martin wedding');
-		await user.click(screen.getByRole('button', { name: 'Create gallery' }));
+		await user.click(screen.getByRole('button', { name: 'Create' }));
 		expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t create/);
 		expect(goto).not.toHaveBeenCalled();
 	});
@@ -221,7 +226,7 @@ describe('dashboard', () => {
 			});
 
 			expect(screen.queryByRole('link', { name: /Old/ })).toBeNull();
-			expect(screen.getByText('1 gallery')).toBeTruthy();
+			expect(screen.getByText('2 galleries')).toBeTruthy();
 			await choose(user, /Archived/);
 			expect(screen.getByRole('link', { name: /Old/ })).toBeTruthy();
 		});

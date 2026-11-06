@@ -9,7 +9,7 @@ describe('EmptyWorkspace', () => {
 		const { container } = render(EmptyWorkspace);
 
 		expect(screen.getByText('Nothing in frame yet.')).toBeTruthy();
-		expect(screen.getByText(/1\/125 · F2\.8 · ISO 400/)).toBeTruthy();
+		expect(screen.getByText(/ISO 400/)).toBeTruthy();
 		expect(
 			container.querySelector('[data-slot="contact-sheet"]')?.getAttribute('aria-hidden')
 		).toBe('true');

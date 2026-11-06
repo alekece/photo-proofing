@@ -9,6 +9,7 @@
 		label,
 		align = 'start',
 		class: className,
+		rootClass,
 		panelClass,
 		trigger,
 		children
@@ -19,6 +20,7 @@
 		label?: string;
 		align?: 'start' | 'end';
 		class?: string;
+		rootClass?: string;
 		panelClass?: string;
 		trigger: Snippet;
 		children: Snippet;
@@ -47,7 +49,12 @@
 
 <svelte:window onpointerdown={dismiss} onkeydown={escape} />
 
-<div bind:this={root} data-slot="popover" class="relative inline-block" onfocusout={leave}>
+<div
+	bind:this={root}
+	data-slot="popover"
+	class={cn('relative inline-block', rootClass)}
+	onfocusout={leave}
+>
 	<button
 		bind:this={button}
 		type="button"

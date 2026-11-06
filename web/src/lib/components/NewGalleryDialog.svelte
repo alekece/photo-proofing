@@ -72,12 +72,7 @@
 >
 	{#snippet children(close)}
 		<form onsubmit={submit} class="grid gap-4" aria-busy={creating}>
-			<div class="grid gap-1">
-				<h2 id="new-gallery-title" class="text-xl">New gallery</h2>
-				<p class="text-sm text-muted-foreground">
-					Give it a title. You can change it any time, and nothing is shared until you say so.
-				</p>
-			</div>
+			<h2 id="new-gallery-title" class="text-xl">New gallery</h2>
 			<div class="grid gap-2">
 				<Label for="new-gallery-field" class="font-normal">Title</Label>
 				<Input
@@ -94,10 +89,8 @@
 				{/if}
 			</div>
 			<div class="flex justify-end gap-2">
-				<Button variant="ghost" onclick={close} disabled={creating}>Cancel</Button>
-				<Button type="submit" disabled={creating}
-					>{creating ? 'Creating…' : 'Create gallery'}</Button
-				>
+				<Button variant="outline" onclick={close} disabled={creating}>Cancel</Button>
+				<Button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create'}</Button>
 			</div>
 		</form>
 	{/snippet}

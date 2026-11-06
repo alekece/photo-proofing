@@ -24,4 +24,11 @@ describe('StatusChip', () => {
 		rerender({ status: 'shared', dot: true });
 		expect(container.querySelector('[data-slot="status-chip-dot"]')).toBeTruthy();
 	});
+
+	it('stays legible over a photo in its cover form', async () => {
+		const { container } = render(StatusChip, { status: 'delivered', dot: true, cover: true });
+
+		expect(screen.getByText('Delivered').className).toMatch(/bg-panel\/90/);
+		expect((await axe(container)).violations).toEqual([]);
+	});
 });

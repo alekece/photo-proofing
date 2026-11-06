@@ -28,7 +28,6 @@ describe('GalleryCard', () => {
 		expect(link.getAttribute('href')).toBe('/dashboard/g1');
 		expect(within(link).getByText('Shared')).toBeTruthy();
 		expect(within(link).getByText('Shared · 30 photos included')).toBeTruthy();
-		expect(container.querySelector('[data-slot="journey-progress"]')).toBeTruthy();
 		// The grid supplies the list; the page test checks the whole.
 		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
 			[]
@@ -45,7 +44,7 @@ describe('GalleryCard', () => {
 		expect(screen.queryByText('Shared')).toBeNull();
 	});
 
-	it('uses the hero photo, else a placeholder', () => {
+	it('uses the hero photo, else the striped cover', () => {
 		const { container, rerender } = render(GalleryCard, {
 			gallery: gallery({ hero_id: 'p1' }),
 			query: ''
@@ -56,7 +55,6 @@ describe('GalleryCard', () => {
 		);
 		rerender({ gallery: gallery(), query: '' });
 		expect(container.querySelector('img')).toBeNull();
-		expect(screen.getByText('Your hero photo will appear here')).toBeTruthy();
 	});
 
 	it('highlights the searched text in the title', () => {
@@ -70,7 +68,7 @@ describe('GalleryCard', () => {
 		render(GalleryCard, { gallery: gallery({ title: null }), query: '', news: 'New selection' });
 
 		expect(screen.getByRole('heading', { name: 'Untitled gallery' }).className).toMatch(
-			/text-inverse\/70/
+			/opacity-70/
 		);
 		expect(screen.getByText('New selection')).toBeTruthy();
 	});

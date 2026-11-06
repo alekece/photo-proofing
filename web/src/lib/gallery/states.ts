@@ -4,8 +4,8 @@ export const STATE_LABELS: Record<GalleryState, string> = {
 	draft: 'Draft',
 	shared: 'Shared',
 	delivered: 'Delivered',
-	archived: 'Archived',
-	expired: 'Expired'
+	expired: 'Expired',
+	archived: 'Archived'
 };
 
 /** Every state, in the order the filter lists them. */

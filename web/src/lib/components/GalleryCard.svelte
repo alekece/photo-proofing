@@ -1,12 +1,10 @@
 <script lang="ts">
-	import Placeholder from '#lib/components/Placeholder.svelte';
 	import StatusChip from '#lib/components/ui/status-chip/status-chip.svelte';
 	import type { Gallery } from '#lib/gallery/api.js';
 	import {
 		galleryStatus,
 		gallerySummary,
 		highlightParts,
-		journeyProgress,
 		UNTITLED_GALLERY
 	} from '#lib/gallery/format.js';
 	import { previewUrl } from '#lib/gallery/photos.js';
@@ -25,53 +23,51 @@
 
 	let status = $derived(galleryStatus(gallery.states));
 	let title = $derived(gallery.title ?? UNTITLED_GALLERY);
+	let faded = $derived(status === 'expired' || status === 'archived');
 </script>
 
-<li class="group relative aspect-[4/5] overflow-hidden rounded-card border border-border bg-panel">
+<li
+	class="group relative aspect-[3/4] overflow-hidden rounded-card bg-[repeating-linear-gradient(45deg,#efe7dc_0_10px,#f6f0e8_10px_20px)] shadow-[0_14px_30px_-18px_rgb(43_36_32/0.6)] transition-transform duration-250 hover:-translate-y-[3px] sm:aspect-[4/5]"
+>
 	<a
 		href={`/dashboard/${gallery.id}`}
-		class="absolute inset-0 block text-inverse no-underline outline-none focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-focus"
+		class="absolute inset-0 block text-panel no-underline outline-none focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-focus"
 	>
-		<div class="absolute inset-0">
-			{#if gallery.hero_id}
-				<img
-					src={previewUrl(gallery.id, gallery.hero_id)}
-					alt=""
-					loading="lazy"
-					class="size-full object-cover transition-transform duration-500 ease-pop group-hover:scale-105"
-				/>
-			{:else}
-				<Placeholder background="sheet" icon label="Your hero photo will appear here" />
-			{/if}
-		</div>
-		<div class="absolute inset-0 bg-gradient-to-t from-dark/85 via-dark/20 to-transparent"></div>
-		<div class="absolute inset-x-3 top-3 flex flex-wrap items-start justify-between gap-2">
-			<StatusChip {status} dot class="bg-panel" />
+		{#if gallery.hero_id}
+			<img
+				src={previewUrl(gallery.id, gallery.hero_id)}
+				alt=""
+				loading="lazy"
+				class="size-full object-cover {faded ? 'brightness-90 grayscale-[0.6]' : ''}"
+			/>
+		{/if}
+		<div
+			class="absolute inset-0 bg-[linear-gradient(180deg,rgb(43_36_32/0)_40%,rgb(43_36_32/0.82)_100%)]"
+		></div>
+		<StatusChip
+			{status}
+			dot
+			cover
+			class="absolute top-2 right-2 px-2 py-[3px] text-[0.65625rem] sm:top-3 sm:right-3 sm:px-2.5 sm:py-1 sm:text-xs"
+		/>
+		<div class="absolute inset-x-0 bottom-0 px-3 py-2.5 sm:px-[1.125rem] sm:py-4">
 			{#if news}
-				<span class="rounded-full bg-hero px-2.5 py-0.5 text-xs font-semibold text-dark"
+				<span
+					class="mb-2 inline-block rounded-full bg-danger px-[9px] py-[3px] text-[0.6875rem] font-bold tracking-[0.02em] text-inverse"
 					>{news}</span
 				>
 			{/if}
-		</div>
-		<div class="absolute inset-x-0 bottom-0 grid gap-1.5 p-4">
 			<h2
-				class="brand truncate text-xl {gallery.title === null ? 'text-inverse/70' : 'text-inverse'}"
+				class="mb-1.5 font-serif text-[1.0625rem] leading-[1.1] sm:text-[1.4375rem] {gallery.title ===
+				null
+					? 'opacity-70'
+					: ''}"
 			>
 				{#each highlightParts(title, query) as part, index (index)}{#if part.match}<mark
-							class="rounded-sm bg-hero/80 text-dark">{part.text}</mark
+							class="rounded-[2px] bg-hero/55 px-px text-inherit">{part.text}</mark
 						>{:else}{part.text}{/if}{/each}
 			</h2>
-			<p class="text-sm text-inverse/85">{gallerySummary(gallery)}</p>
-			<div
-				data-slot="journey-progress"
-				aria-hidden="true"
-				class="mt-1 h-1 overflow-hidden rounded-full bg-inverse/25"
-			>
-				<div
-					class="h-full rounded-full {status === 'expired' ? 'bg-danger' : 'bg-inverse'}"
-					style:width="{journeyProgress(status) * 100}%"
-				></div>
-			</div>
+			<p class="text-[0.71875rem] opacity-90 sm:text-[0.8125rem]">{gallerySummary(gallery)}</p>
 		</div>
 	</a>
 </li>
