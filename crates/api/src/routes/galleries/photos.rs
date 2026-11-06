@@ -16,7 +16,7 @@ use actix_web::{
 use futures_util::future::LocalBoxFuture;
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
-    deletion::Deletion,
+    deletion::WorkspaceDeletion,
     gallery::{GalleryId, GalleryRepository},
     photo::{NewPhoto, PhotoLocation, PhotoRepository, PhotoStatus},
     photo_intake::{PhotoIntake, PhotoIntakeError},
@@ -169,8 +169,8 @@ async fn delete_photo(
 
     if state
         .database()
-        .repository_with::<Deletion>(state.deletion_options())
-        .photos(identity.workspace_id, gallery_id, &[photo_id])
+        .repository_with::<WorkspaceDeletion>(state.job_options())
+        .delete_photos(identity.workspace_id, gallery_id, &[photo_id])
         .await?
         .is_empty()
     {
@@ -203,8 +203,8 @@ async fn delete_photos(
 
     let removed_ids = state
         .database()
-        .repository_with::<Deletion>(state.deletion_options())
-        .photos(identity.workspace_id, gallery_id, &selection.photo_ids)
+        .repository_with::<WorkspaceDeletion>(state.job_options())
+        .delete_photos(identity.workspace_id, gallery_id, &selection.photo_ids)
         .await?;
 
     Ok(HttpResponse::Ok().no_store().json(DeletedPhotos {

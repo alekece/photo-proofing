@@ -13,7 +13,7 @@ use pp_core::{
     time::BoundedDuration,
     url::Origin,
 };
-use pp_database::deletion::DEFAULT_CLEANUP_BATCH;
+use pp_database::jobs::DEFAULT_CLEANUP_BATCH;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

@@ -25,7 +25,7 @@ use actix_web::{
     web::{self, Data, Json, Path, ServiceConfig},
 };
 use actix_web_lab::extract::Query as LabQuery;
-use pp_database::deletion::Deletion;
+use pp_database::deletion::WorkspaceDeletion;
 use pp_database::gallery::{
     GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
 };
@@ -192,8 +192,8 @@ async fn delete_gallery(
 ) -> Result<HttpResponse, ErrorResponse> {
     let found = state
         .database()
-        .repository_with::<Deletion>(state.deletion_options())
-        .gallery(identity.workspace_id, id.into_inner())
+        .repository_with::<WorkspaceDeletion>(state.job_options())
+        .delete_gallery(identity.workspace_id, id.into_inner())
         .await?;
 
     if !found {

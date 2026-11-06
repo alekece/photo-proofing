@@ -450,8 +450,9 @@ mod tests {
     use crate::{
         Database,
         auth::WorkspaceId,
-        deletion::{DEFAULT_CLEANUP_BATCH, Deletion, DeletionOptions},
+        deletion::WorkspaceDeletion,
         gallery::{GalleryId, GalleryRepository},
+        jobs::{DEFAULT_CLEANUP_BATCH, JobOptions},
         listener::Notification,
         photo_events::{PhotoChange, PhotoEvent},
         photo_intake::PhotoIntake,
@@ -826,8 +827,8 @@ mod tests {
         }
 
         database
-            .repository::<Deletion>()
-            .photos(location.workspace_id, location.gallery_id, &[doomed])
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(location.workspace_id, location.gallery_id, &[doomed])
             .await
             .unwrap();
 
@@ -1108,8 +1109,8 @@ mod tests {
 
             assert_eq!(
                 database
-                    .repository::<Deletion>()
-                    .photos(location.workspace_id, location.gallery_id, &[id])
+                    .repository::<WorkspaceDeletion>()
+                    .delete_photos(location.workspace_id, location.gallery_id, &[id])
                     .await
                     .unwrap(),
                 vec![id]
@@ -1139,8 +1140,8 @@ mod tests {
         let foreign = photo_in(&database, other, (20, 10), PhotoStatus::Ready, 3).await;
 
         database
-            .repository::<Deletion>()
-            .photos(
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(
                 location.workspace_id,
                 location.gallery_id,
                 &[first, foreign],
@@ -1148,13 +1149,13 @@ mod tests {
             .await
             .unwrap();
         database
-            .repository::<Deletion>()
-            .photos(location.workspace_id, location.gallery_id, &[first])
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(location.workspace_id, location.gallery_id, &[first])
             .await
             .unwrap();
         database
-            .repository::<Deletion>()
-            .photos(location.workspace_id, location.gallery_id, &[kept])
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(location.workspace_id, location.gallery_id, &[kept])
             .await
             .unwrap();
 
@@ -1180,9 +1181,9 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn delete_honors_the_configured_cleanup_batch(pool: PgPool) {
         let database = Database::new(pool.clone());
-        let deletion = database.repository_with::<Deletion>(DeletionOptions {
+        let deletion = database.repository_with::<WorkspaceDeletion>(JobOptions {
             cleanup_batch: NonZeroUsize::new(2).unwrap(),
-            ..DeletionOptions::default()
+            ..JobOptions::default()
         });
         let location = gallery_location(&database, &pool).await;
         let mut ids = Vec::new();
@@ -1192,7 +1193,7 @@ mod tests {
         }
 
         deletion
-            .photos(location.workspace_id, location.gallery_id, &ids)
+            .delete_photos(location.workspace_id, location.gallery_id, &ids)
             .await
             .unwrap();
 
@@ -1230,8 +1231,8 @@ mod tests {
         .unwrap();
 
         let deleted = database
-            .repository::<Deletion>()
-            .photos(location.workspace_id, location.gallery_id, &ids)
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(location.workspace_id, location.gallery_id, &ids)
             .await
             .unwrap();
 
@@ -1241,8 +1242,8 @@ mod tests {
         let more = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
 
         database
-            .repository::<Deletion>()
-            .photos(location.workspace_id, location.gallery_id, &[more])
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(location.workspace_id, location.gallery_id, &[more])
             .await
             .unwrap();
 
@@ -1268,8 +1269,8 @@ mod tests {
 
             async move {
                 database
-                    .repository::<Deletion>()
-                    .photos(location.workspace_id, location.gallery_id, &[id])
+                    .repository::<WorkspaceDeletion>()
+                    .delete_photos(location.workspace_id, location.gallery_id, &[id])
                     .await
             }
         });
@@ -1317,8 +1318,8 @@ mod tests {
         ] {
             assert!(
                 database
-                    .repository::<Deletion>()
-                    .photos(workspace_id, gallery_id, &[photo_id])
+                    .repository::<WorkspaceDeletion>()
+                    .delete_photos(workspace_id, gallery_id, &[photo_id])
                     .await
                     .unwrap()
                     .is_empty()
@@ -1361,8 +1362,8 @@ mod tests {
         jobs_in_every_state(&pool, first).await;
 
         let mut deleted = database
-            .repository::<Deletion>()
-            .photos(
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(
                 location.workspace_id,
                 location.gallery_id,
                 &[first, second, foreign, PhotoId::from(Uuid::new_v4()), first],
@@ -1395,8 +1396,8 @@ mod tests {
         let mut listener = database.listen::<PhotoEvent>().await.unwrap();
 
         database
-            .repository::<Deletion>()
-            .photos(location.workspace_id, location.gallery_id, &[id])
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(location.workspace_id, location.gallery_id, &[id])
             .await
             .unwrap();
 

@@ -46,7 +46,7 @@ impl CleanupHandler {
     }
 
     /// Removes a deleted gallery's whole directory.
-    pub async fn gallery(
+    pub async fn remove_gallery(
         self: Arc<Self>,
         payload: CleanupGallery,
         job: Job,
@@ -60,7 +60,7 @@ impl CleanupHandler {
     }
 
     /// Removes the files of deleted photos. Failures are retried with the rest of the job.
-    pub async fn photos(
+    pub async fn remove_photos(
         self: Arc<Self>,
         payload: CleanupPhotos,
         job: Job,
@@ -88,7 +88,7 @@ impl CleanupHandler {
     /// soon after the last successful one finishes without doing anything.
     ///
     /// When the database cannot say, the sweep runs: it is harmless, only wasteful.
-    pub async fn sweep(
+    pub async fn sweep_orphans(
         self: Arc<Self>,
         _payload: (),
         job: Job,
@@ -241,7 +241,7 @@ mod tests {
             .claim(JobPayload::CleanupGallery(payload), JobKind::CleanupGallery)
             .await;
         let completion = Arc::clone(&fixture.handler)
-            .gallery(payload, job)
+            .remove_gallery(payload, job)
             .await
             .unwrap();
 
@@ -268,7 +268,7 @@ mod tests {
             .await;
 
         let completion = Arc::clone(&fixture.handler)
-            .photos(payload, job)
+            .remove_photos(payload, job)
             .await
             .unwrap();
 
@@ -285,7 +285,10 @@ mod tests {
         let job = fixture
             .claim(JobPayload::SweepOrphans, JobKind::SweepOrphans)
             .await;
-        let completion = Arc::clone(&fixture.handler).sweep((), job).await.unwrap();
+        let completion = Arc::clone(&fixture.handler)
+            .sweep_orphans((), job)
+            .await
+            .unwrap();
 
         assert!(completion.is_current());
         assert!(fixture.is_stored(&key).await);
@@ -299,7 +302,10 @@ mod tests {
             .claim(JobPayload::SweepOrphans, JobKind::SweepOrphans)
             .await;
 
-        let completion = Arc::clone(&fixture.handler).sweep((), job).await.unwrap();
+        let completion = Arc::clone(&fixture.handler)
+            .sweep_orphans((), job)
+            .await
+            .unwrap();
 
         assert!(completion.is_current());
         assert!(!fixture.is_stored(&key).await);
@@ -323,7 +329,7 @@ mod tests {
 
         assert!(
             Arc::clone(&fixture.handler)
-                .sweep((), first)
+                .sweep_orphans((), first)
                 .await
                 .unwrap()
                 .is_current()
@@ -334,7 +340,7 @@ mod tests {
             .claim(JobPayload::SweepOrphans, JobKind::SweepOrphans)
             .await;
         let completion = Arc::clone(&fixture.handler)
-            .sweep((), second)
+            .sweep_orphans((), second)
             .await
             .unwrap();
 

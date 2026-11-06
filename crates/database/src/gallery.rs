@@ -526,7 +526,7 @@ mod tests {
     use super::*;
     use crate::{
         Database,
-        deletion::Deletion,
+        deletion::WorkspaceDeletion,
         jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
         photo::{PhotoLocation, PhotoRepository, PhotoStatus},
         tests::TestRepository,
@@ -1030,8 +1030,8 @@ mod tests {
             .await
             .unwrap();
         database
-            .repository::<Deletion>()
-            .photos(workspace, gallery.id, &[hero_photo])
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(workspace, gallery.id, &[hero_photo])
             .await
             .unwrap();
 
@@ -1482,8 +1482,8 @@ mod tests {
         assert_eq!(store.restore(other, id).await.unwrap(), None);
         assert!(
             !database
-                .repository::<Deletion>()
-                .gallery(other, id)
+                .repository::<WorkspaceDeletion>()
+                .delete_gallery(other, id)
                 .await
                 .unwrap()
         );
@@ -1517,15 +1517,15 @@ mod tests {
 
         assert!(
             database
-                .repository::<Deletion>()
-                .gallery(workspace, id)
+                .repository::<WorkspaceDeletion>()
+                .delete_gallery(workspace, id)
                 .await
                 .unwrap()
         );
         assert!(
             !database
-                .repository::<Deletion>()
-                .gallery(workspace, id)
+                .repository::<WorkspaceDeletion>()
+                .delete_gallery(workspace, id)
                 .await
                 .unwrap()
         );

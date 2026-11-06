@@ -25,7 +25,10 @@
 //! Handlers must be idempotent: a job may run again after a crash or a lost lease, and nothing
 //! here ties a job to its subject, so deletion safety is the handler's job.
 
-use std::{num::NonZeroU16, time::Duration};
+use std::{
+    num::{NonZeroU16, NonZeroUsize},
+    time::Duration,
+};
 
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -50,17 +53,23 @@ const MAX_ERROR_CHARS: usize = 2000;
 /// Attempts a job gets when the caller has no reason to choose another number.
 pub const DEFAULT_MAX_ATTEMPTS: NonZeroU16 = NonZeroU16::new(5).unwrap();
 
+/// Photos one cleanup job names unless configured otherwise.
+pub const DEFAULT_CLEANUP_BATCH: NonZeroUsize = NonZeroUsize::new(500).unwrap();
+
 /// How the jobs a repository enqueues are configured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct JobOptions {
     /// Attempts each job gets before it fails for good.
     pub max_attempts: NonZeroU16,
+    /// Most photos one cleanup job names, so a bulk delete never produces an oversized job.
+    pub cleanup_batch: NonZeroUsize,
 }
 
 impl Default for JobOptions {
     fn default() -> Self {
         Self {
             max_attempts: DEFAULT_MAX_ATTEMPTS,
+            cleanup_batch: DEFAULT_CLEANUP_BATCH,
         }
     }
 }

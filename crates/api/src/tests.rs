@@ -16,7 +16,7 @@ use actix_web::{
 };
 use pp_core::config::PhotoDir;
 use pp_database::{
-    Database, auth::WorkspaceId, deletion::DEFAULT_CLEANUP_BATCH, tests::TestRepository,
+    Database, auth::WorkspaceId, jobs::DEFAULT_CLEANUP_BATCH, tests::TestRepository,
 };
 use pp_storage::PhotoStorage;
 use serde_json::{Value, json};

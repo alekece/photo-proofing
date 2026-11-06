@@ -88,15 +88,15 @@ async fn main() -> Result<()> {
             .register(JobKind::CleanupGallery, {
                 let cleanup_handler = Arc::clone(&cleanup_handler);
 
-                move |payload, job| Arc::clone(&cleanup_handler).gallery(payload, job)
+                move |payload, job| Arc::clone(&cleanup_handler).remove_gallery(payload, job)
             })
             .register(JobKind::CleanupPhotos, {
                 let cleanup_handler = Arc::clone(&cleanup_handler);
 
-                move |payload, job| Arc::clone(&cleanup_handler).photos(payload, job)
+                move |payload, job| Arc::clone(&cleanup_handler).remove_photos(payload, job)
             })
             .register(JobKind::SweepOrphans, move |payload, job| {
-                Arc::clone(&cleanup_handler).sweep(payload, job)
+                Arc::clone(&cleanup_handler).sweep_orphans(payload, job)
             })
     })
     .await?;

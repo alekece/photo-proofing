@@ -1,7 +1,5 @@
 //! Deletes galleries and photos together with the jobs that remove their files.
 
-use std::num::NonZeroUsize;
-
 use pp_core::notifications::PhotoId;
 use sqlx::PgPool;
 
@@ -13,55 +11,35 @@ use crate::{
     jobs::{CleanupGallery, CleanupPhotos, JobOptions, JobRepository},
 };
 
-/// Photos one cleanup job names unless configured otherwise.
-pub const DEFAULT_CLEANUP_BATCH: NonZeroUsize = NonZeroUsize::new(500).unwrap();
-
-/// How deletions queue the removal of files.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DeletionOptions {
-    pub jobs: JobOptions,
-    /// Most photos one cleanup job names, so a bulk delete never produces an oversized job.
-    pub cleanup_batch: NonZeroUsize,
-}
-
-impl Default for DeletionOptions {
-    fn default() -> Self {
-        Self {
-            jobs: JobOptions::default(),
-            cleanup_batch: DEFAULT_CLEANUP_BATCH,
-        }
-    }
-}
-
 /// Removes rows and queues the cleanup of their files in one transaction, so neither can happen
 /// without the other.
-pub struct Deletion<'db> {
+pub struct WorkspaceDeletion<'db> {
     pool: &'db PgPool,
-    options: DeletionOptions,
+    options: JobOptions,
 }
 
-impl<'db> Repository<'db> for Deletion<'db> {
-    type Options = DeletionOptions;
+impl<'db> Repository<'db> for WorkspaceDeletion<'db> {
+    type Options = JobOptions;
 
     fn open(pool: &'db PgPool, options: Self::Options) -> Self {
         Self { pool, options }
     }
 }
 
-impl Deletion<'_> {
+impl WorkspaceDeletion<'_> {
     /// Deletes the gallery with its photos and favorites, and queues the removal of its files.
     /// `false` if the workspace has no such gallery.
     ///
     /// A worker still rendering one of its photos finds its claim gone and removes what it
     /// writes late.
-    pub async fn gallery(
+    pub async fn delete_gallery(
         &self,
         workspace_id: WorkspaceId,
         id: GalleryId,
     ) -> Result<bool, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
 
-        // Jobs before the gallery, in id order, like a photo delete (see `Self::photos`).
+        // Jobs before the gallery, in id order, like a photo delete (see `Self::delete_photos`).
         sqlx::query(
             "DELETE FROM jobs WHERE id IN (
                  SELECT id FROM jobs
@@ -78,13 +56,14 @@ impl Deletion<'_> {
         .execute(&mut *transaction)
         .await?;
 
-        let removal = sqlx::query("DELETE FROM galleries WHERE id=$1 AND workspace_id=$2")
-            .bind(id)
-            .bind(workspace_id)
-            .execute(&mut *transaction)
-            .await?;
+        let removed_galleries =
+            sqlx::query("DELETE FROM galleries WHERE id=$1 AND workspace_id=$2")
+                .bind(id)
+                .bind(workspace_id)
+                .execute(&mut *transaction)
+                .await?;
 
-        if removal.rows_affected() == 0 {
+        if removed_galleries.rows_affected() == 0 {
             return Ok(false);
         }
 
@@ -94,7 +73,7 @@ impl Deletion<'_> {
                 workspace_id,
                 gallery_id: id,
             },
-            self.options.jobs.max_attempts,
+            self.options.max_attempts,
         )
         .await?;
         transaction.commit().await?;
@@ -108,7 +87,7 @@ impl Deletion<'_> {
     /// Returns the ids removed, each once; ids outside this workspace and gallery, or already
     /// gone, are ignored and never named by a cleanup job. A worker still rendering one finds
     /// its claim gone and removes whatever it writes late.
-    pub async fn photos(
+    pub async fn delete_photos(
         &self,
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
@@ -165,7 +144,7 @@ impl Deletion<'_> {
                     gallery_id,
                     photo_ids: batch.to_vec(),
                 },
-                self.options.jobs.max_attempts,
+                self.options.max_attempts,
             )
             .await?;
         }
