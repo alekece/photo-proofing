@@ -1,8 +1,7 @@
 //! Proof derivatives rendered from an original JPEG with libvips.
 //!
-//! Rendering is blocking; callers run it through `spawn_blocking`. Options are passed as libvips
-//! option strings rather than the generated `*_with_opts` functions, which always send every
-//! option and so fail on libvips releases older than the bindings.
+//! Rendering is blocking; callers run it through `spawn_blocking`. It needs libvips 8.15 or newer,
+//! the first release with the `keep` option that the typed `*_with_opts` calls always send.
 
 use std::{
     num::NonZeroU64,
@@ -11,7 +10,9 @@ use std::{
 
 use libvips::{
     VipsApp, VipsImage,
-    ops::{self, Interpretation},
+    ops::{
+        self, FailOn, ForeignKeep, Interpretation, JpegloadBufferOptions, JpegsaveBufferOptions,
+    },
 };
 use thiserror::Error;
 
@@ -19,8 +20,8 @@ use thiserror::Error;
 const THUMBNAIL_EDGE: u32 = 400;
 /// Long edge of the full-screen preview: sharp on laptops and phones, too small to print.
 const PREVIEW_EDGE: u32 = 1600;
-/// JPEG at quality 75 without any metadata: EXIF, XMP, IPTC and ICC profile are all dropped.
-const JPEG_OUTPUT: &str = ".jpg[Q=75,strip]";
+/// JPEG output quality.
+const JPEG_QUALITY: i32 = 75;
 /// JPEG decoder downscale factors, largest first.
 const JPEG_SHRINKS: [u32; 3] = [8, 4, 2];
 /// Metadata field holding an embedded ICC profile.
@@ -104,9 +105,15 @@ impl ImageRenderer {
             .into_iter()
             .find(|shrink| long_edge / shrink >= PREVIEW_EDGE)
             .unwrap_or(1);
-        let image =
-            VipsImage::new_from_buffer(original, &format!("shrink={shrink},fail-on=truncated"))
-                .map_err(|_| RenderError::Unreadable)?;
+        let image = ops::jpegload_buffer_with_opts(
+            original,
+            &JpegloadBufferOptions {
+                shrink: i32::try_from(shrink).unwrap_or(1),
+                fail_on: FailOn::Truncated,
+                ..JpegloadBufferOptions::default()
+            },
+        )
+        .map_err(|_| RenderError::Unreadable)?;
         // `thumbnail_image` ignores embedded RGB profiles, so wide-gamut sources (Display P3,
         // Adobe RGB) are converted here. A profile libvips rejects leaves the pixels as stored.
         let image = if image.get_as_string(ICC_PROFILE).is_ok() {
@@ -137,9 +144,18 @@ impl ImageRenderer {
                 .map_err(|_| RenderError::Unreadable)?;
         }
 
-        fitted
-            .image_write_to_buffer(JPEG_OUTPUT)
-            .map_err(|_| RenderError::Unreadable)
+        // No `keep` flag drops EXIF, XMP and IPTC; the binding always sends a null `profile`, which
+        // would write the image's ICC profile back, so `"none"` says to embed none.
+        ops::jpegsave_buffer_with_opts(
+            &fitted,
+            &JpegsaveBufferOptions {
+                q: JPEG_QUALITY,
+                keep: ForeignKeep::None,
+                profile: Some("none".to_owned()),
+                ..JpegsaveBufferOptions::default()
+            },
+        )
+        .map_err(|_| RenderError::Unreadable)
     }
 }
 
