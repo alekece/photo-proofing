@@ -1,6 +1,7 @@
 use std::{
     io::Error as IoError,
     net::IpAddr,
+    num::NonZeroU64,
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -11,7 +12,10 @@ use actix_web::{
     web::{self, Data, JsonConfig, PathConfig, QueryConfig, ServiceConfig},
 };
 use derive_more::From;
-use pp_core::url::Origin;
+use pp_core::{
+    config::{DEFAULT_EXPORT_MAX_SIZE, DEFAULT_EXPORT_RETENTION, ExportConfig},
+    url::Origin,
+};
 use pp_database::{
     Database,
     auth::AuthRepository,
@@ -82,6 +86,8 @@ pub(crate) struct ApiState {
     cookie_max_age: CookieMaxAge,
     hash_slots: Arc<Semaphore>,
     job_options: JobOptions,
+    export_max_size: NonZeroU64,
+    export_retention: Duration,
     failed_attempts: AttemptLimiter,
     dummy_hash: PasswordHash,
 }
@@ -114,6 +120,8 @@ impl ApiState {
             cookie_max_age: CookieMaxAge::try_from(session.idle_timeout.get())?,
             hash_slots: Arc::new(Semaphore::new(auth.hash_concurrency.get())),
             job_options,
+            export_max_size: DEFAULT_EXPORT_MAX_SIZE,
+            export_retention: DEFAULT_EXPORT_RETENTION,
             failed_attempts: AttemptLimiter::new(limiter),
             dummy_hash: PasswordHash::generate()?,
         })
@@ -121,6 +129,25 @@ impl ApiState {
 
     pub fn database(&self) -> &Database {
         &self.database
+    }
+
+    /// Applies the selection ZIP limits; without them the defaults of [`ExportConfig`] hold.
+    #[must_use]
+    pub fn with_export(mut self, config: &ExportConfig) -> Self {
+        self.export_max_size = config.max_size;
+        self.export_retention = config.retention.get();
+
+        self
+    }
+
+    /// Most bytes of originals one selection ZIP may hold.
+    pub const fn export_max_size(&self) -> NonZeroU64 {
+        self.export_max_size
+    }
+
+    /// How long a finished selection ZIP stays available.
+    pub const fn export_retention(&self) -> Duration {
+        self.export_retention
     }
 
     /// How the jobs the API enqueues are configured.
@@ -248,7 +275,8 @@ impl Api {
             storage,
             config.photo_upload,
             config.queue,
-        )?;
+        )?
+        .with_export(&config.export);
 
         // A failed sweep only delays the removal of leftover files, so it must not stop startup.
         if let Err(error) = state

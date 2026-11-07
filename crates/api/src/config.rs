@@ -9,7 +9,7 @@ use clap::Args;
 use clap_config_fallback::ConfigArgs;
 use derive_more::{Display, From};
 use pp_core::{
-    config::{DEFAULT_MAX_PIXELS, DatabaseConfig, PhotoConfig},
+    config::{DEFAULT_MAX_PIXELS, DatabaseConfig, ExportConfig, PhotoConfig},
     time::BoundedDuration,
     url::Origin,
 };
@@ -92,6 +92,9 @@ pub struct ApiConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub queue: QueueConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub export: ExportConfig,
 }
 
 /// Where the HTTP server listens.

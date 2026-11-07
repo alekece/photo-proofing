@@ -2,6 +2,7 @@ use std::{
     num::NonZeroU64,
     path::{Path, PathBuf},
     str::FromStr,
+    time::Duration,
 };
 
 use clap::{Args, ValueEnum};
@@ -20,6 +21,9 @@ pub const DEFAULT_MAX_PIXELS: NonZeroU64 = NonZeroU64::new(100_000_000).unwrap()
 
 /// Default cap on the originals of one selection ZIP: 2 GiB.
 pub const DEFAULT_EXPORT_MAX_SIZE: NonZeroU64 = NonZeroU64::new(2 << 30).unwrap();
+
+/// Default time a finished selection ZIP stays available.
+pub const DEFAULT_EXPORT_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Longest configurable ZIP retention: 30 days.
 const MAX_EXPORT_RETENTION_MILLIS: u64 = 30 * 24 * 60 * 60 * 1000;

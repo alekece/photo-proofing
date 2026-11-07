@@ -2,7 +2,8 @@
 //!
 //! A stream starts with a `resync` event, then sends `photo` events
 //! (`{workspace_id, gallery_id, photo_id, kind, status}`) and `favorites` events (`{workspace_id,
-//! gallery_id}`, a client changed a selection) for its own workspace only, and `resync` again
+//! gallery_id}`, a client changed a selection) and `export` events (same shape: a selection ZIP
+//! changed status) for its own workspace only, and `resync` again
 //! whenever events may have been lost. It holds the session read-only: on every keep-alive tick it
 //! checks the session is still valid, never extending it, and ends once it is not. Clients have no
 //! stream.
@@ -43,6 +44,7 @@ impl Scope {
             Broadcast::Resync => true,
             Broadcast::Photo(event) => event.workspace_id == self.workspace_id,
             Broadcast::Favorites(event) => event.workspace_id == self.workspace_id,
+            Broadcast::Export(event) => event.workspace_id == self.workspace_id,
         }
     }
 
@@ -153,6 +155,8 @@ impl From<Broadcast> for sse::Event {
                 .map_or_else(|_| resync(), |data| data.event("photo").into()),
             Broadcast::Favorites(event) => sse::Data::new_json(event)
                 .map_or_else(|_| resync(), |data| data.event("favorites").into()),
+            Broadcast::Export(event) => sse::Data::new_json(event)
+                .map_or_else(|_| resync(), |data| data.event("export").into()),
             Broadcast::Resync => resync(),
         }
     }
