@@ -39,7 +39,7 @@
 
 		Promise.all([
 			listPhotos(id),
-			listClientPreviewPhotos(id),
+			listClientPreviewPhotos(id, watermarked),
 			fetch('/api/v1/settings').then(async (response) => {
 				if (!response.ok) throw new Error('Couldn’t load studio settings.');
 				const parsed = parseSettings(await response.json());

@@ -20,7 +20,7 @@ use actix_web::{
 use pp_core::notifications::PhotoId;
 use pp_database::{
     gallery::GalleryRepository,
-    photo::{PhotoRepository, ProofAccess},
+    photo::{PhotoRepository, ProofVariant},
 };
 use pp_database::{
     gallery::SharedGallery,
@@ -137,10 +137,10 @@ async fn list_shared_photos(
     let photos = state
         .database()
         .repository::<PhotoRepository>()
-        .list_visible(
+        .list_ready(
             access.0.location,
             access.photo_set().kind(),
-            ProofAccess::Client,
+            access.proof_variant(),
         )
         .await?;
 
@@ -175,6 +175,7 @@ async fn add_favorite(
             path.into_inner().1,
             true,
             access.photo_set().kind(),
+            access.proof_variant(),
         )
         .await?;
 
@@ -197,6 +198,7 @@ async fn remove_favorite(
             path.into_inner().1,
             false,
             access.photo_set().kind(),
+            access.proof_variant(),
         )
         .await?;
 
@@ -213,21 +215,20 @@ async fn serve_shared_photo(
 ) -> Result<ImageFile, ErrorResponse> {
     let (_, photo_id, derivative) = path.into_inner();
     let location = access.0.location;
-    let pair = state
+    let variant = access.proof_variant();
+
+    if !state
         .database()
         .repository::<PhotoRepository>()
-        .visible_derivative(
-            location,
-            photo_id,
-            access.photo_set().kind(),
-            ProofAccess::Client,
-        )
+        .is_ready(location, photo_id, access.photo_set().kind(), variant)
         .await?
-        .ok_or_else(ErrorResponse::not_found)?;
+    {
+        return Err(ErrorResponse::not_found());
+    }
 
     ImageFile::read(
         state.storage(),
-        &PhotoKey::with_location(location, photo_id, derivative.variant(pair)),
+        &PhotoKey::with_location(location, photo_id, derivative.variant(variant)),
     )
     .await
     .map(ImageFile::proof)
@@ -247,11 +248,11 @@ async fn serve_shared_cover(
     if !state
         .database()
         .repository::<PhotoRepository>()
-        .is_visible(
+        .is_ready(
             access.0.location,
             id,
             access.photo_set().kind(),
-            ProofAccess::Clean,
+            ProofVariant::Clean,
         )
         .await?
     {
@@ -756,9 +757,18 @@ mod tests {
 
         let response = test::call_service(
             &app,
+            client_request(&token, &format!("/photos/{photo}/preview?variant=clean")),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(test::read_body(response).await.as_ref(), marked);
+
+        let response = test::call_service(
+            &app,
             test::TestRequest::get()
                 .uri(&format!(
-                    "/api/v1/galleries/{gallery_id}/client-preview/photos/{photo}/preview"
+                    "/api/v1/galleries/{gallery_id}/photos/{photo}/preview?variant=watermarked"
                 ))
                 .cookie(cookie.clone())
                 .to_request(),
@@ -794,7 +804,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri(&format!(
-                    "/api/v1/galleries/{gallery_id}/client-preview/photos"
+                    "/api/v1/galleries/{gallery_id}/photos?variant=watermarked"
                 ))
                 .cookie(cookie.clone())
                 .to_request(),
@@ -808,7 +818,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri(&format!(
-                    "/api/v1/galleries/{gallery_id}/client-preview/photos"
+                    "/api/v1/galleries/{gallery_id}/photos?variant=watermarked"
                 ))
                 .to_request(),
         )

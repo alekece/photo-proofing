@@ -488,7 +488,7 @@ impl GalleryRepository<'_> {
         token: &ShareToken,
     ) -> Result<Option<SharedAccess>, DatabaseError> {
         Ok(sqlx::query_as(
-            "SELECT g.id AS gallery_id,g.workspace_id,g.title,g.layout,g.expires_at,g.included_photos,
+            "SELECT g.id AS gallery_id,g.workspace_id,g.title,g.layout,g.expires_at,g.included_photos, g.watermark_enabled,
                     g.delivered_at IS NOT NULL AS delivered,
                     (SELECT p.id FROM photos p
                      WHERE p.id = g.hero_id AND p.clean_ready AND p.kind = 'proof'
@@ -609,7 +609,7 @@ mod tests {
     use crate::{
         Database,
         jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
-        photo::{PhotoKind, PhotoRepository, PhotoStatus},
+        photo::{PhotoKind, PhotoRepository, PhotoStatus, ProofVariant},
         tests::TestRepository,
         workspace_deletion::WorkspaceDeletion,
     };
@@ -1255,7 +1255,7 @@ mod tests {
         for id in &ready[..2] {
             database
                 .repository::<PhotoRepository>()
-                .set_favorite(location, *id, true, PhotoKind::Proof)
+                .set_favorite(location, *id, true, PhotoKind::Proof, ProofVariant::Clean)
                 .await
                 .unwrap();
         }

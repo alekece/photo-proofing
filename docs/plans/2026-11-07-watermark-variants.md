@@ -320,3 +320,16 @@ spacing/documentation corrections.
 The same fresh reviewer verified the correction diff, including tail-expression spacing, and
 reported no material remaining guidance violation. All inline maintainer questions received
 thread replies; representation/policy discussions remain open for the maintainer.
+
+## Caller-chosen variant (supersedes earlier access interfaces)
+
+Review feedback: the database should not enforce the saved policy; the caller decides what it
+wants. `ProofAccess`, `ProofDerivative`, `list_visible`, `is_visible`, `visible_derivative` and the
+authenticated `client-preview` routes are replaced by one `ProofVariant { Clean, Watermarked }`.
+`list_ready`, `is_ready` and `set_favorite` take it and only check file readiness (marked means the
+current workspace revision). Owner `photos` list/thumbnail/preview routes accept `?variant=`
+(default clean); the client preview requests the variant matching the gallery switch. Public shared
+routes derive the variant from the saved switch and never accept a selector.
+
+Verification: full workspace tests against PostgreSQL 17 and libvips 8.15, strict Clippy, and
+frontend verification passed.

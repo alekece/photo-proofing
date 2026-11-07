@@ -147,8 +147,9 @@ actions. After a save that regenerates, Settings shows the existing toast.
 copies when enabled. A missing or unreadable original fails processing with the existing
 reasons. Already-published clean copies remain usable during marked-only failures.
 
-**Serving and upgrade.** Ordinary authenticated media is always clean; separate authenticated
-client-preview routes match the client switch and readiness. Client cover access is scoped to
+**Serving and upgrade.** Authenticated owner media is clean unless the caller asks for
+`?variant=watermarked`, as the client preview does; public client routes pick the variant
+from the saved switch. Client cover access is scoped to
 the current permitted hero. Proof responses are private/no-store. Existing proof files might
 already be marked: migration defaults clean readiness to false and durably queues one-time
 preparation from originals for ready/processing proofs. Failed proofs retain manual retry.

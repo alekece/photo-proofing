@@ -129,15 +129,16 @@ The server, not an arbitrary browser parameter, chooses the image variant:
   Currently clients see proofs only, including for a gallery marked delivered. If a delivery
   change switches clients to finals, a proof hero outside that set is not served; the default
   title cover is shown. Choosing a different delivery hero policy is outside this change.
-- Owner cover surfaces always use the clean hero. All ordinary authenticated photographer
-  thumbnail/preview routes serve clean derivatives regardless of the gallery switch.
+- Owner cover surfaces always use the clean hero. The authenticated photographer
+  thumbnail/preview/list routes take an optional `?variant=clean|watermarked` and default to
+  clean; the caller chooses, and the database only checks that those files are ready.
   Photographer tabs and viewers stay usable during marked-only regeneration whenever their
   clean pair is valid; they still show truthful marked-copy processing/failure feedback.
 - The owner's "Preview client gallery" matches the client: its grid and viewer follow the
-  gallery switch and current marked-pair readiness, while its hero stays clean. Provide a
-  distinct authenticated client-preview serving path with workspace/gallery ownership checks
-  rather than changing ordinary photographer routes or exposing an unrestricted public
-  clean-variant selector. Its URLs change with the switch/revision even without photo events.
+  gallery switch and current marked-pair readiness, while its hero stays clean. It requests
+  the variant matching the gallery switch from the ordinary owner routes. Public shared routes
+  never accept a selector: they derive the variant from the saved switch. Its URLs change with
+  the variant/revision even without photo events.
 
 Clean hero access is an intentional exception, not copy prevention: clients may retain a
 clean preview they previously received even after the hero changes or watermarking changes.

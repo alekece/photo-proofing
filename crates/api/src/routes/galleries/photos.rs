@@ -21,7 +21,7 @@ use futures_util::future::LocalBoxFuture;
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
     gallery::{GalleryId, GalleryRepository},
-    photo::{NewPhoto, PhotoKind, PhotoLocation, PhotoRepository, ProofAccess},
+    photo::{NewPhoto, PhotoKind, PhotoLocation, PhotoRepository, ProofVariant},
     photo_intake::{PhotoIntake, PhotoIntakeError},
     photo_retry::PhotoRetry,
     workspace_deletion::WorkspaceDeletion,
@@ -50,8 +50,6 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(retry_photo)
         .service(delete_photo)
         .service(download_original)
-        .service(list_client_preview)
-        .service(serve_client_preview)
         .service(serve_derivative_photo);
 }
 
@@ -113,6 +111,9 @@ async fn download_original(
 struct PhotoSet {
     #[serde(default)]
     finals: bool,
+    /// The proof files the photographer wants: only photos ready for it are listed, and its
+    /// files are served. Clean when absent.
+    variant: Option<ProofVariant>,
 }
 
 impl From<PhotoSet> for PhotoKind {
@@ -191,7 +192,7 @@ async fn list_photos(
     let photos = state
         .database()
         .repository::<PhotoRepository>()
-        .list(identity.workspace_id, gallery_id, set.into())
+        .list(identity.workspace_id, gallery_id, set.into(), set.variant)
         .await?;
 
     Ok(HttpResponse::Ok().no_store().json(photos))
@@ -318,6 +319,7 @@ async fn serve_derivative_photo(
 ) -> Result<ImageFile, ErrorResponse> {
     let (gallery_id, photo_id, derivative) = path.into_inner();
     let set = set.into_inner();
+    let variant = set.variant.unwrap_or_default();
     let location = PhotoLocation {
         workspace_id: identity.workspace_id,
         gallery_id,
@@ -326,7 +328,7 @@ async fn serve_derivative_photo(
     if !state
         .database()
         .repository::<PhotoRepository>()
-        .is_visible(location, photo_id, set.into(), ProofAccess::Clean)
+        .is_ready(location, photo_id, set.into(), variant)
         .await?
     {
         return Err(ErrorResponse::not_found());
@@ -334,67 +336,11 @@ async fn serve_derivative_photo(
 
     let image = ImageFile::read(
         state.storage(),
-        &PhotoKey::with_location(location, photo_id, derivative.into()),
+        &PhotoKey::with_location(location, photo_id, derivative.variant(variant)),
     )
     .await?;
 
     Ok(if set.finals { image } else { image.proof() })
-}
-
-#[get("/{id}/client-preview/photos")]
-async fn list_client_preview(
-    state: Data<ApiState>,
-    Authenticated(identity): Authenticated,
-    path: WebPath<GalleryId>,
-) -> Result<HttpResponse, ErrorResponse> {
-    let gallery_id = path.into_inner();
-
-    state
-        .database()
-        .repository::<GalleryRepository>()
-        .get(identity.workspace_id, gallery_id)
-        .await?
-        .ok_or_else(ErrorResponse::not_found)?;
-    let photos = state
-        .database()
-        .repository::<PhotoRepository>()
-        .list_visible(
-            PhotoLocation {
-                workspace_id: identity.workspace_id,
-                gallery_id,
-            },
-            PhotoKind::Proof,
-            ProofAccess::Client,
-        )
-        .await?;
-
-    Ok(HttpResponse::Ok().no_store().json(photos))
-}
-
-#[get("/{id}/client-preview/photos/{photo_id}/{derivative:thumbnail|preview}")]
-async fn serve_client_preview(
-    state: Data<ApiState>,
-    Authenticated(identity): Authenticated,
-    path: WebPath<(GalleryId, PhotoId, DerivativePhoto)>,
-) -> Result<ImageFile, ErrorResponse> {
-    let (gallery_id, photo_id, derivative) = path.into_inner();
-    let location = PhotoLocation {
-        workspace_id: identity.workspace_id,
-        gallery_id,
-    };
-    let pair = state
-        .database()
-        .repository::<PhotoRepository>()
-        .visible_derivative(location, photo_id, PhotoKind::Proof, ProofAccess::Client)
-        .await?
-        .ok_or_else(ErrorResponse::not_found)?;
-
-    ImageFile::read(
-        state.storage(),
-        &PhotoKey::with_location(location, photo_id, derivative.variant(pair)),
-    )
-    .await
-    .map(ImageFile::proof)
 }
 
 #[post("/{id}/photos")]

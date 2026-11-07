@@ -40,7 +40,7 @@ const stub = (photos: unknown[]) => {
 								signature: 'name',
 								has_logo: false
 							}
-						: String(url).endsWith('/client-preview/photos')
+						: String(url).includes('?variant=')
 							? photos.filter(
 									(photo) =>
 										typeof photo === 'object' &&
@@ -66,16 +66,14 @@ describe('ClientPreview', () => {
 		const view = render(ClientPreview, { gallery, onclose });
 
 		await waitFor(() =>
-			expect(screen.getByRole('img').getAttribute('src')).toContain('watermark=off')
+			expect(screen.getByRole('img').getAttribute('src')).toContain('variant=clean')
 		);
 		await view.rerender({ gallery: { ...gallery, watermark_enabled: true }, onclose });
 
 		await waitFor(() =>
-			expect(screen.getByRole('img').getAttribute('src')).toContain('watermark=on')
+			expect(screen.getByRole('img').getAttribute('src')).toContain('variant=watermarked')
 		);
-		expect(
-			fetcher.mock.calls.filter(([url]) => String(url).endsWith('/client-preview/photos'))
-		).toHaveLength(2);
+		expect(fetcher.mock.calls.filter(([url]) => String(url).includes('?variant='))).toHaveLength(2);
 	});
 
 	it('keeps the clean hero when its marked copy is not ready', async () => {
@@ -132,11 +130,11 @@ describe('ClientPreview', () => {
 		const urls = fetcher.mock.calls.map(([url]) => String(url));
 		expect(urls).toEqual([
 			'/api/v1/galleries/g1/photos',
-			'/api/v1/galleries/g1/client-preview/photos',
+			'/api/v1/galleries/g1/photos?variant=clean',
 			'/api/v1/settings'
 		]);
 		expect(screen.getByRole('img').getAttribute('src')).toBe(
-			'/api/v1/galleries/g1/client-preview/photos/a/thumbnail?watermark=off'
+			'/api/v1/galleries/g1/photos/a/thumbnail?variant=clean'
 		);
 	});
 

@@ -530,7 +530,7 @@ mod tests {
         jobs::{Job, JobKind, JobRepository, PhotoUpdate, ProcessPhoto, Publication},
         photo::{
             FavoriteChange, NewPhoto, PhotoDimensions, PhotoKind, PhotoRepository, PhotoStatus,
-            ProofAccess,
+            ProofVariant,
         },
         photo_retry::PhotoRetry,
         tests::TestRepository,
@@ -945,19 +945,19 @@ mod tests {
 
         assert!(
             photos
-                .is_visible(location, photo, PhotoKind::Proof, ProofAccess::Clean)
+                .is_ready(location, photo, PhotoKind::Proof, ProofVariant::Clean)
                 .await
                 .unwrap()
         );
         assert!(
-            photos
-                .is_visible(location, photo, PhotoKind::Proof, ProofAccess::Client)
+            !photos
+                .is_ready(location, photo, PhotoKind::Proof, ProofVariant::Watermarked)
                 .await
                 .unwrap()
         );
         assert_eq!(
             photos
-                .set_favorite(location, photo, true, PhotoKind::Proof)
+                .set_favorite(location, photo, true, PhotoKind::Proof, ProofVariant::Clean)
                 .await
                 .unwrap(),
             FavoriteChange::Applied
@@ -978,15 +978,43 @@ mod tests {
 
         assert!(
             !photos
-                .is_visible(location, photo, PhotoKind::Proof, ProofAccess::Client)
+                .is_ready(location, photo, PhotoKind::Proof, ProofVariant::Watermarked)
                 .await
                 .unwrap()
         );
         assert!(
             photos
-                .is_visible(location, photo, PhotoKind::Proof, ProofAccess::Clean)
+                .is_ready(location, photo, PhotoKind::Proof, ProofVariant::Clean)
                 .await
                 .unwrap()
+        );
+        assert!(
+            photos
+                .list_ready(location, PhotoKind::Proof, ProofVariant::Watermarked)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            photos
+                .list_ready(location, PhotoKind::Proof, ProofVariant::Clean)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            photos
+                .set_favorite(
+                    location,
+                    photo,
+                    false,
+                    PhotoKind::Proof,
+                    ProofVariant::Watermarked
+                )
+                .await
+                .unwrap(),
+            FavoriteChange::NotFound
         );
         assert_eq!(
             photos.favorites(location, PhotoKind::Proof).await.unwrap(),
