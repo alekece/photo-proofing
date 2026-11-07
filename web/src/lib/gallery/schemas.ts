@@ -106,7 +106,20 @@ export const favoriteIdsSchema = v.array(v.string());
 /** A change to the selection of a gallery of the signed-in workspace; the favorites come from a refetch. */
 export const favoritesEventSchema = v.object({ gallery_id: v.string() });
 
+/** A change to a selection ZIP of a gallery of the signed-in workspace; its state comes from a refetch. */
+export const exportEventSchema = v.object({ gallery_id: v.string() });
+
+export const selectionExportSchema = v.object({
+	id: v.string(),
+	status: v.picklist(['preparing', 'ready', 'failed']),
+	failure_reason: v.nullable(v.string()),
+	photo_count: v.number(),
+	created_at: v.string()
+});
+
 export type Gallery = v.InferOutput<typeof gallerySchema>;
+export type SelectionExport = v.InferOutput<typeof selectionExportSchema>;
+export type ExportEvent = v.InferOutput<typeof exportEventSchema>;
 export type GalleryOverview = v.InferOutput<typeof galleryOverviewSchema>;
 export type GalleryLayout = v.InferOutput<typeof galleryLayoutSchema>;
 export type GallerySort = v.InferOutput<typeof gallerySortSchema>;

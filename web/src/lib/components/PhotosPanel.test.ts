@@ -39,6 +39,7 @@ function fakeEvents() {
 	const events: LiveEvents = {
 		onPhoto: (handler) => (photoHandlers.add(handler), () => photoHandlers.delete(handler)),
 		onFavorites: () => () => {},
+		onExport: () => () => {},
 		onResync: (handler) => (resyncHandlers.add(handler), () => resyncHandlers.delete(handler)),
 		start() {},
 		close() {}

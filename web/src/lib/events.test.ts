@@ -87,6 +87,21 @@ describe('live events', () => {
 		expect(resyncs).toHaveBeenCalledOnce();
 	});
 
+	it('dispatches export events, and refetches instead of trusting a malformed one', () => {
+		const { events, sources } = setup();
+		const exports = vi.fn();
+		const resyncs = vi.fn();
+		events.onExport(exports);
+		events.onResync(resyncs);
+		events.start();
+
+		sources[0].emit('export', JSON.stringify({ gallery_id: 'g' }));
+		sources[0].emit('export', 'null');
+
+		expect(exports).toHaveBeenCalledExactlyOnceWith({ gallery_id: 'g' });
+		expect(resyncs).toHaveBeenCalledOnce();
+	});
+
 	it.each([
 		['not json', 'not json'],
 		['a missing status', JSON.stringify({ gallery_id: 'g', photo_id: 'p' })],
