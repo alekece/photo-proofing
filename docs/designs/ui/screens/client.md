@@ -22,6 +22,10 @@ Full-screen hero photo. The studio signature (name, logo, both or none, from
 count and **View the gallery**, which scrolls to the grid. Once delivered, "Your photos are ready"
 above the title and **Download all** beside the button.
 
+When Both is selected, the centered logo sits above the centered name. Only the chosen public
+signature fields are exposed; fetching the normalized logo requires an available private link,
+just like the gallery and its photos.
+
 **No hero:** the same warm dark gradient as the photographer's no-hero header, with the title and
 details on it.
 

@@ -7,8 +7,22 @@ function exportPath(galleryId: string) {
 	return `/api/v1/galleries/${encodeURIComponent(galleryId)}/export`;
 }
 
-async function call(path: string, method: 'GET' | 'POST', fetcher: typeof fetch) {
-	const response = await fetcher(path, { method, credentials: 'same-origin' });
+async function call(
+	path: string,
+	method: 'GET' | 'POST',
+	fetcher: typeof fetch,
+	photoIds?: string[]
+) {
+	const response = await fetcher(path, {
+		method,
+		credentials: 'same-origin',
+		...(photoIds === undefined
+			? {}
+			: {
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ photo_ids: photoIds })
+				})
+	});
 
 	if (!response.ok) {
 		const data = await response.json().catch(() => ({}));
@@ -30,9 +44,13 @@ async function parse(response: Response) {
 	return parsed;
 }
 
-/** Stores the current favorites and queues their ZIP; a ZIP already being prepared is returned as is. */
-export async function requestExport(galleryId: string, fetcher: typeof fetch = fetch) {
-	return parse(await call(exportPath(galleryId), 'POST', fetcher));
+/** Stores favorite proofs and queues their ZIP; an active preparation rejects a competing request. */
+export async function requestExport(
+	galleryId: string,
+	fetcher: typeof fetch = fetch,
+	photoIds?: string[]
+) {
+	return parse(await call(exportPath(galleryId), 'POST', fetcher, photoIds));
 }
 
 /** The newest ZIP of the gallery, or `null` when there is none or it expired. */

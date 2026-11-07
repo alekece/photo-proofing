@@ -69,6 +69,7 @@ impl FromRow<'_, PgRow> for PhotoDimensions {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, FromRow)]
 pub struct ReadyPhoto {
     pub id: PhotoId,
+    pub revision: i64,
     #[serde(flatten)]
     #[sqlx(flatten)]
     pub dimensions: PhotoDimensions,
@@ -78,6 +79,8 @@ pub struct ReadyPhoto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Photo {
     pub id: PhotoId,
+    /// Changes only when a newly rendered asset is published as ready.
+    pub revision: i64,
     pub original_name: String,
     pub size: NonZeroU64,
     #[serde(flatten)]
@@ -111,6 +114,7 @@ impl FromRow<'_, PgRow> for Photo {
 
         Ok(Self {
             id: row.try_get("id")?,
+            revision: row.try_get("revision")?,
             original_name: row.try_get("original_name")?,
             size,
             dimensions,
@@ -191,7 +195,7 @@ impl<'db> Repository<'db> for PhotoRepository<'db> {
 }
 
 impl PhotoRepository<'_> {
-    const COLUMNS: &'static str = "id, original_name, size, width, height, status::text AS status, failure_reason, favorite, created_at";
+    const COLUMNS: &'static str = "id, revision, original_name, size, width, height, status::text AS status, failure_reason, favorite, created_at";
 
     /// Inserts only photo metadata in the caller's transaction.
     pub async fn insert_in(
@@ -212,7 +216,7 @@ impl PhotoRepository<'_> {
              FROM galleries AS g
              WHERE g.id = $3 AND g.workspace_id = $2
              ON CONFLICT (id) DO NOTHING
-             RETURNING id, original_name, size, width, height,
+             RETURNING id, revision, original_name, size, width, height,
                        status::text AS status, failure_reason, favorite, created_at",
         )
         .bind(photo.id)
@@ -231,7 +235,7 @@ impl PhotoRepository<'_> {
         }
 
         let existing = sqlx::query(
-            "SELECT id, workspace_id, gallery_id, original_name, size, width, height, kind,
+            "SELECT id, revision, workspace_id, gallery_id, original_name, size, width, height, kind,
                     status::text AS status, failure_reason, favorite, created_at
              FROM photos WHERE id = $1",
         )
@@ -307,7 +311,7 @@ impl PhotoRepository<'_> {
         kind: PhotoKind,
     ) -> Result<Vec<ReadyPhoto>, DatabaseError> {
         Ok(sqlx::query_as(
-            "SELECT id, width, height FROM photos
+            "SELECT id, revision, width, height FROM photos
              WHERE workspace_id = $1 AND gallery_id = $2 AND status = 'ready'
                AND kind = $3 AND removed_at IS NULL
              ORDER BY created_at, id",
@@ -462,7 +466,8 @@ impl PhotoRepository<'_> {
         failure_reason: Option<&str>,
     ) -> Result<bool, DatabaseError> {
         let result = sqlx::query(
-            "UPDATE photos SET status = $2::photo_status, failure_reason = $3
+            "UPDATE photos SET status = $2::photo_status, failure_reason = $3,
+                 revision = revision + CASE WHEN $2 = 'ready' THEN 1 ELSE 0 END
              WHERE id = $1 AND status IN ('waiting', 'processing')",
         )
         .bind(id)
@@ -530,6 +535,50 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
+    async fn regenerated_photo_gets_a_new_asset_revision(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let workspace_id = workspace(&pool).await;
+        let gallery = database
+            .repository::<GalleryRepository>()
+            .create(workspace_id)
+            .await
+            .unwrap();
+        let photo_id = PhotoId::from(Uuid::new_v4());
+        let photos = database.repository::<PhotoRepository>();
+        let mut transaction = pool.begin().await.unwrap();
+        photos
+            .insert_in(
+                &mut transaction,
+                &new_photo(workspace_id, gallery.id, photo_id, "a.jpg"),
+            )
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        photos.mark_ready(photo_id).await.unwrap();
+        let first = photos
+            .get(workspace_id, gallery.id, photo_id, PhotoKind::Proof)
+            .await
+            .unwrap()
+            .unwrap();
+        sqlx::query("UPDATE photos SET status = 'waiting' WHERE id = $1")
+            .bind(photo_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        photos.mark_ready(photo_id).await.unwrap();
+        let second = photos
+            .get(workspace_id, gallery.id, photo_id, PhotoKind::Proof)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_ne!(
+            serde_json::to_value(first).unwrap()["revision"],
+            serde_json::to_value(second).unwrap()["revision"]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
     async fn decoding_text_status_preserves_valid_states_and_rejects_inconsistent_rows(
         pool: PgPool,
     ) {
@@ -550,7 +599,7 @@ mod tests {
             ("unknown", Some("unexpected"), None),
         ] {
             let row = sqlx::query(
-                "SELECT $1::uuid AS id, 'proof.jpg'::text AS original_name,
+                "SELECT $1::uuid AS id, 0::bigint AS revision, 'proof.jpg'::text AS original_name,
                  1024::bigint AS size, 20::integer AS width, 10::integer AS height,
                  $2::text AS status, $3::text AS failure_reason, false AS favorite, now() AS created_at",
             )
@@ -732,10 +781,12 @@ mod tests {
             [
                 ReadyPhoto {
                     id: older,
+                    revision: 0,
                     dimensions: dimensions(20, 10)
                 },
                 ReadyPhoto {
                     id: newer,
+                    revision: 0,
                     dimensions: dimensions(30, 40)
                 },
             ]

@@ -81,11 +81,13 @@ describe('gallery page', () => {
 		);
 	});
 
-	it('sends only the changed field and shows Saved', async () => {
+	it('sends only the changed field without a success toast', async () => {
 		const patches = stubApi();
 		open();
 		await userEvent.setup().click(screen.getByRole('button', { name: 'Staggered columns' }));
-		await waitFor(() => expect(toasts.items.map(({ message }) => message)).toEqual(['Saved']));
+		await waitFor(() => expect(patches()).toHaveLength(1));
+		await waitFor(() => expect(screen.queryByText('Saving…')).toBeNull());
+		expect(toasts.items).toEqual([]);
 		expect(patches()).toHaveLength(1);
 		const [url, init] = patches()[0];
 		expect(url).toBe('/api/v1/galleries/g1');
@@ -149,7 +151,8 @@ describe('gallery page', () => {
 		expect(await screen.findByText('Couldn’t save')).toBeTruthy();
 		stubApi();
 		await user.click(screen.getByRole('button', { name: 'Retry' }));
-		expect(await screen.findByText('Saved')).toBeTruthy();
+		await waitFor(() => expect(screen.queryByText('Couldn’t save')).toBeNull());
+		expect(screen.queryByText('Saved')).toBeNull();
 	});
 
 	it('reverts a failed title when leaving the field, but Retry still works while focused', async () => {
@@ -172,7 +175,8 @@ describe('gallery page', () => {
 		const retried = stubApi();
 		await user.click(title);
 		await user.click(screen.getByRole('button', { name: 'Retry' }));
-		expect(await screen.findByText('Saved')).toBeTruthy();
+		await waitFor(() => expect(screen.queryByText('Couldn’t save')).toBeNull());
+		expect(screen.queryByText('Saved')).toBeNull();
 		expect(title.value).toBe('Wedding?');
 		expect(retried()).toHaveLength(1);
 	});
@@ -204,7 +208,7 @@ describe('gallery page', () => {
 		pending[1](200);
 		pending[0](500);
 		await waitFor(() => expect(toasts.items.length).toBeGreaterThan(0));
-		expect(toasts.items.filter(({ kind }) => kind === 'success')).toHaveLength(1);
+		expect(toasts.items.filter(({ kind }) => kind === 'success')).toHaveLength(0);
 	});
 
 	it('saves an edited title normally when leaving the field after a failure', async () => {
@@ -218,7 +222,8 @@ describe('gallery page', () => {
 		const ok = stubApi();
 		await user.type(title, '?');
 		await user.tab();
-		expect(await screen.findByText('Saved')).toBeTruthy();
+		await waitFor(() => expect(screen.queryByText('Couldn’t save')).toBeNull());
+		expect(screen.queryByText('Saved')).toBeNull();
 		expect(title.value).toBe('Wedding!?');
 		expect(JSON.parse(ok()[0][1]?.body as string)).toEqual({ title: 'Wedding!?' });
 		expect(patches()).toHaveLength(1);
@@ -238,7 +243,8 @@ describe('gallery page', () => {
 		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Retry' }));
 		expect(title.value).toBe('Wedding!');
 		await user.keyboard('{Enter}');
-		expect(await screen.findByText('Saved')).toBeTruthy();
+		await waitFor(() => expect(screen.queryByText('Couldn’t save')).toBeNull());
+		expect(screen.queryByText('Saved')).toBeNull();
 		expect(ok()).toHaveLength(1);
 	});
 
@@ -274,6 +280,7 @@ describe('gallery page', () => {
 				})
 			);
 		});
+
 		vi.stubGlobal('fetch', fetcher);
 		const user = userEvent.setup();
 		open();
@@ -286,6 +293,34 @@ describe('gallery page', () => {
 			.filter(([url]) => url.includes('/galleries/'))
 			.map(([, init]) => JSON.parse(init?.body as string));
 		expect(bodies[1]).toEqual({ expires_at: null });
+	});
+
+	it('keeps the current expiry status when an older title response arrives last', async () => {
+		let finishTitle!: () => void;
+		vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+			if (url.includes('/auth/')) return new Response(null, { status: 204 });
+			const patch = JSON.parse(init?.body as string);
+
+			if (patch.title) await new Promise<void>((resolve) => (finishTitle = resolve));
+
+			return Response.json({
+				...base,
+				...patch,
+				states: patch.expires_at ? ['draft', 'expired'] : ['draft']
+			});
+		});
+		open();
+		const user = userEvent.setup();
+		await user.type(screen.getByLabelText('Gallery title'), ' II');
+		await user.tab();
+		await waitFor(() => expect(finishTitle).toBeDefined());
+		await fireEvent.change(screen.getByLabelText('Open until'), {
+			target: { value: '2020-01-01' }
+		});
+		await screen.findByText('Expired');
+		finishTitle();
+		await waitFor(() => expect(document.title).toBe('Wedding II — PhotoProofing'));
+		expect(screen.getByText('Expired')).toBeTruthy();
 	});
 
 	it('shows the stored expiry as a local date', () => {
@@ -330,7 +365,8 @@ describe('gallery page', () => {
 				if (url.endsWith('/share')) {
 					return new Response(JSON.stringify({ ...base, share_token: 'C'.repeat(22) }));
 				}
-				if (url.endsWith('/photos')) return new Response(JSON.stringify(photos));
+				if (url.endsWith('/photos') || url.endsWith('/photos?finals=true'))
+					return new Response(JSON.stringify(photos));
 
 				return new Response(null, { status: 204 });
 			});
@@ -532,7 +568,7 @@ describe('gallery page', () => {
 			expect(url).toBe('/api/v1/galleries/g1');
 			expect(init?.method).toBe('PATCH');
 			expect(Object.keys(JSON.parse(init?.body as string))).toEqual(['expires_at']);
-			expect(toasts.items.map(({ message }) => message)).toEqual(['Restored', 'Saved']);
+			expect(toasts.items.map(({ message }) => message)).toEqual(['Restored']);
 			expect(screen.queryByText('Expired')).toBeNull();
 		});
 
@@ -582,10 +618,10 @@ describe('gallery page', () => {
 			expect(screen.getByRole('tabpanel').textContent).toMatch(/Photos of g1/);
 		});
 
-		it('switches panels', async () => {
+		it('switches panels after the gallery is shared', async () => {
 			vi.stubGlobal('fetch', async () => new Response('[]'));
 			const user = userEvent.setup();
-			open();
+			open({ share_token: 'B'.repeat(22), states: ['shared'] });
 			await user.click(screen.getByRole('tab', { name: /^Final/ }));
 			expect(screen.getByRole('tab', { name: /^Final/ }).getAttribute('aria-selected')).toBe(
 				'true'
@@ -593,6 +629,14 @@ describe('gallery page', () => {
 			expect(screen.getAllByRole('tabpanel').length).toBeGreaterThan(0);
 			await user.click(screen.getByRole('tab', { name: 'Favorites' }));
 			expect(screen.getByRole('tabpanel').textContent).toMatch(/No favorites yet/);
+		});
+
+		it('disables Favorites and Final for an unshared gallery', () => {
+			open();
+			expect((screen.getByRole('tab', { name: 'Favorites' }) as HTMLButtonElement).disabled).toBe(
+				true
+			);
+			expect((screen.getByRole('tab', { name: 'Final' }) as HTMLButtonElement).disabled).toBe(true);
 		});
 	});
 });

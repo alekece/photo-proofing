@@ -17,3 +17,5 @@ will see, whatever the gallery's state. Opened by **Preview** in the gallery hea
   photographer sees the client's current selection without being able to change it. The
   favorites filter and the viewer still work.
 - Nothing is recorded: no link is created, no client activity, no notification.
+- Saved studio signature settings and the normalized owner logo are shown exactly as on the
+  client cover. When both are selected, the centered logo sits above the centered name.

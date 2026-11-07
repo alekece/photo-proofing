@@ -5,12 +5,16 @@
 //! its photo/job pair. Listing checks gallery ownership before returning its ordered photo states.
 //! Retries requeue failed photos. Deleting photos, one or up to a thousand at once, is accepted
 //! whatever their status and removes their jobs, then their files. Only the thumbnail and preview
-//! of a ready photo are served; no route reads the original.
+//! of a ready photo are served. Originals are downloadable only through photographer authentication.
 
 use actix_web::{
-    FromRequest, HttpRequest, HttpResponse, delete,
+    FromRequest, HttpRequest, HttpResponse,
+    body::SizedStream,
+    delete,
     dev::Payload,
-    get, post,
+    get,
+    http::header::{self, ContentDisposition, DispositionParam, DispositionType},
+    post, route,
     web::{self, Data, JsonBody, Path as WebPath, Query, ServiceConfig},
 };
 use futures_util::future::LocalBoxFuture;
@@ -24,6 +28,7 @@ use pp_database::{
 };
 use pp_storage::{PhotoKey, StorageError, Variant};
 use serde::{Deserialize, Serialize};
+use tokio_util::io::ReaderStream;
 
 use super::DerivativePhoto;
 use crate::{
@@ -44,7 +49,60 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(retry_gallery)
         .service(retry_photo)
         .service(delete_photo)
+        .service(download_original)
         .service(serve_derivative_photo);
+}
+
+/// Streams an unchanged proof original to its owning photographer, never through client access.
+#[route("/{id}/photos/{photo_id}/download", method = "GET", method = "HEAD")]
+async fn download_original(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    path: WebPath<(GalleryId, PhotoId)>,
+    set: Query<PhotoSet>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let (gallery_id, photo_id) = path.into_inner();
+
+    if set.finals {
+        return Err(ErrorResponse::not_found());
+    }
+
+    let photo = state
+        .database()
+        .repository::<PhotoRepository>()
+        .get(
+            identity.workspace_id,
+            gallery_id,
+            photo_id,
+            PhotoKind::Proof,
+        )
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
+    let key = PhotoKey {
+        workspace: identity.workspace_id,
+        gallery: gallery_id,
+        photo: photo_id,
+        variant: Variant::Original,
+    };
+    let file = state.storage().read(&key).await?;
+    let length = file.metadata().await.map_err(StorageError::from)?.len();
+    let name = photo
+        .original_name
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or("photo.jpg")
+        .to_owned();
+
+    Ok(HttpResponse::Ok()
+        .no_store()
+        .insert_header((header::CONTENT_TYPE, "image/jpeg"))
+        .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
+        .insert_header(ContentDisposition {
+            disposition: DispositionType::Attachment,
+            parameters: vec![DispositionParam::Filename(name)],
+        })
+        .body(SizedStream::new(length, ReaderStream::new(file))))
 }
 
 /// The photo set a route addresses, chosen by the `finals` query parameter: the client proofs by
@@ -1404,21 +1462,14 @@ pub(super) mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn no_route_serves_the_original(pool: PgPool) {
+    async fn no_derivative_route_serves_the_original(pool: PgPool) {
         let directory = tempfile::tempdir().unwrap();
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
         let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
 
-        for path in [
-            "original",
-            "Original",
-            "download",
-            "",
-            "thumbnail/../original",
-            "retry",
-        ] {
+        for path in ["original", "Original", "", "thumbnail/../original", "retry"] {
             // Without a session too, so the path's existence is not revealed.
             for cookie in [Some(&cookie), None] {
                 let response = test::call_service(

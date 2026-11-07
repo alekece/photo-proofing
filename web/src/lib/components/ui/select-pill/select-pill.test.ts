@@ -12,6 +12,13 @@ function setup(props: Partial<Parameters<typeof render<typeof SelectPill>>[1]> =
 }
 
 describe('SelectPill', () => {
+	it('keeps selection controls in the warm toolbar instead of a dark replacement', () => {
+		const { container } = setup();
+		expect(container.querySelector('[data-slot="select-pill"]')?.className).not.toContain(
+			'bg-foreground'
+		);
+	});
+
 	it('shows the count and runs its three controls', async () => {
 		const { container, onaction, onselectall, onclose } = setup();
 

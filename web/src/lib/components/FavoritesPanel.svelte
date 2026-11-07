@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { CircleCheck, Download, Heart } from '@lucide/svelte';
+	import { CircleCheck, Download, Heart, LoaderCircle } from '@lucide/svelte';
 	import PhotoTile, { GRID_CLASSES, ITEM_CLASSES } from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
+	import ViewerButton from '#lib/components/ViewerButton.svelte';
 	import { GalleryApiError, type GalleryLayout } from '#lib/gallery/api.js';
 	import {
 		latestExport,
@@ -22,7 +23,18 @@
 		galleryId,
 		layout = 'masonry',
 		oncount,
-		ondownload
+		ondownload = async (photos: Photo[]) => {
+			const current = generation;
+			const url = `/api/v1/galleries/${encodeURIComponent(galleryId)}/photos/${encodeURIComponent(photos[0].id)}/download`;
+			const response = await fetch(url, { method: 'HEAD', credentials: 'same-origin' });
+			if (current !== generation) return;
+			if (!response.ok)
+				throw new GalleryApiError(
+					response.status,
+					'Couldn’t download the photo. Please try again.'
+				);
+			startDownload(url);
+		}
 	}: {
 		galleryId: string;
 		/** How the tiles are laid out: the gallery's setting. */
@@ -30,9 +42,7 @@
 		/** How many favorites the client has picked, for the tab. */
 		oncount?: (count: number | null) => void;
 		/**
-		 * Downloads these photos on their own (select mode, a single tile); the seam for the
-		 * individual originals download. Without it, those are shown but unavailable. The whole
-		 * selection downloads as a ZIP without it.
+		 * Downloads an individual original from a tile or viewer. Selected subsets use ZIP export.
 		 */
 		ondownload?: (photos: Photo[]) => void | Promise<void>;
 	} = $props();
@@ -45,12 +55,13 @@
 	let loads = 0;
 	let viewIndex = $state(0);
 	let viewing = $state(false);
-	let downloading = $state(false);
+	let downloading = $state<string | null>(null);
 	let currentExport = $state<Export | null>(null);
 	let zipRequested = $state(false);
-	let zipStarted = $state(false);
+	let zipRequesting = $state(false);
 	let zipError = $state<string | null>(null);
 	let zipLoads = 0;
+	let generation = 0;
 	// The ZIP this page asked for downloads by itself once ready; one found later is only offered.
 	let awaited: string | null = null;
 	const mode = new SelectMode();
@@ -84,32 +95,41 @@
 
 			if (latest?.status.kind === 'ready' && latest.id === awaited) {
 				awaited = null;
-				zipStarted = true;
 				startDownload(exportUrl(id, latest.id));
 			} else if (latest?.status.kind !== 'preparing') {
 				awaited = null;
 			}
 		} catch {
-			// The next event or reload reports the state again.
+			if (current === zipLoads) zipError = 'Couldn’t check the ZIP. Please try again.';
 		}
 	}
 
-	async function requestZip() {
+	async function requestZip(photoIds?: string[]) {
+		if (zipRequesting || zipPreparing) return;
+
+		zipRequesting = true;
 		zipRequested = true;
-		zipStarted = false;
 		zipError = null;
+		const current = generation;
+		const id = galleryId;
 
 		try {
-			const created = await requestExport(galleryId);
+			const created = await requestExport(id, fetch, photoIds);
+			if (current !== generation) return;
 
+			currentExport = created;
 			awaited = created.id;
 			// The build may already have finished: take the state from the server, not the response.
-			await loadZip(galleryId);
+			await loadZip(id);
 		} catch (error) {
-			zipError =
-				error instanceof GalleryApiError && error.status !== 502
-					? error.message
-					: 'Couldn’t prepare the ZIP. Please try again.';
+			if (current === generation) {
+				zipError =
+					error instanceof GalleryApiError && error.status !== 502
+						? error.message
+						: 'Couldn’t prepare the ZIP. Please try again.';
+			}
+		} finally {
+			if (current === generation) zipRequesting = false;
 		}
 	}
 
@@ -121,11 +141,14 @@
 	$effect(() => {
 		const id = galleryId;
 
+		generation++;
 		favorites = [];
 		loaded = false;
+		downloading = null;
+		viewing = false;
 		currentExport = null;
 		zipRequested = false;
-		zipStarted = false;
+		zipRequesting = false;
 		zipError = null;
 		awaited = null;
 		void load(id);
@@ -134,7 +157,10 @@
 		const unsubscribe = [
 			events.onFavorites((event) => event.gallery_id === id && void load(id)),
 			events.onPhoto(
-				(event) => event.gallery_id === id && event.status === 'deleted' && void load(id)
+				(event) =>
+					event.gallery_id === id &&
+					(event.status === 'deleted' || event.status === 'ready') &&
+					void load(id)
 			),
 			events.onExport((event) => event.gallery_id === id && void loadZip(id)),
 			events.onResync(() => {
@@ -144,6 +170,7 @@
 		];
 
 		return () => {
+			generation++;
 			loads++;
 			zipLoads++;
 
@@ -152,11 +179,11 @@
 	});
 
 	const proofs = $derived<Proof[]>(
-		favorites.map(({ id, original_name, width, height }) => ({
+		favorites.map(({ id, original_name, width, height, revision }) => ({
 			id,
 			alt: original_name,
-			thumbnailUrl: thumbnailUrl(galleryId, id),
-			previewUrl: previewUrl(galleryId, id),
+			thumbnailUrl: thumbnailUrl(galleryId, id, 'photos', revision),
+			previewUrl: previewUrl(galleryId, id, 'photos', revision),
 			width,
 			height
 		}))
@@ -174,14 +201,17 @@
 	});
 
 	async function download(photos: Photo[]) {
-		if (!ondownload || downloading) return;
+		if (downloading) return;
 
-		downloading = true;
+		const current = generation;
+		downloading = photos[0].id;
 
 		try {
 			await ondownload(photos);
+		} catch {
+			if (current === generation) zipError = 'Couldn’t download the photo. Please try again.';
 		} finally {
-			downloading = false;
+			if (current === generation) downloading = null;
 		}
 	}
 
@@ -197,9 +227,9 @@
 		<SelectPill
 			count={mode.count}
 			actionLabel="Download"
-			actionDisabled={!ondownload || mode.count === 0}
-			actionBusy={downloading}
-			onaction={() => download(favorites.filter(({ id }) => mode.has(id)))}
+			actionDisabled={mode.count === 0 || zipPreparing || zipRequesting}
+			actionBusy={zipPreparing || zipRequesting}
+			onaction={() => requestZip(favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id))}
 			onselectall={() => mode.selectAll(favorites.map(({ id }) => id))}
 			onclose={() => mode.leave()}
 		>
@@ -226,32 +256,26 @@
 		<Button
 			size="sm"
 			class="min-h-9! gap-1.5"
-			disabled={favorites.length === 0 || zipPreparing}
-			aria-busy={zipPreparing}
+			disabled={favorites.length === 0 || zipPreparing || zipRequesting}
+			aria-busy={zipPreparing || zipRequesting}
 			onclick={() => void requestZip()}
 		>
-			<Download size={16} aria-hidden="true" />Download selection
+			<Download size={16} aria-hidden="true" />
+			{zipPreparing || zipRequesting ? 'Downloading…' : 'Download'}
 		</Button>
 	{/if}
 </div>
 
-<p role="status" class="text-right text-sm text-muted-foreground">
-	{#if zipPreparing}
-		Preparing the ZIP…
-	{:else if zipStarted}
-		Download started.
-	{/if}
-</p>
 {#if zipError || exportFailure}
 	<p role="alert" class="text-right text-sm text-danger">
-		{zipError ?? exportFailure} Use Download selection to try again.
+		{zipError ?? exportFailure} Use Download to try again.
 	</p>
 {/if}
 
 {#if failed}
 	<p role="alert" class="text-sm text-danger">Couldn’t load the favorites. Please reload.</p>
 {:else if loaded && favorites.length === 0}
-	<EmptyState class="border-solid bg-panel">
+	<EmptyState>
 		<span class="grid size-14 place-items-center rounded-full bg-background"
 			><Heart size={26} aria-hidden="true" /></span
 		>
@@ -266,14 +290,15 @@
 					name={photo.original_name}
 					state="ready"
 					ratio={layout === 'masonry' ? photo.width / photo.height : 3 / 2}
-					thumbnailUrl={thumbnailUrl(galleryId, photo.id)}
+					thumbnailUrl={thumbnailUrl(galleryId, photo.id, 'photos', photo.revision)}
 					selected={mode.has(photo.id)}
 					onselect={mode.active ? () => mode.toggle(photo.id) : undefined}
 					onopen={() => {
 						viewIndex = index;
 						viewing = true;
 					}}
-					ondownload={ondownload && (() => void download([photo]))}
+					ondownload={() => void download([photo])}
+					downloadBusy={downloading === photo.id}
 				/>
 			</li>
 		{/each}
@@ -287,5 +312,27 @@
 		readonly
 		isSelected={() => true}
 		onclose={() => (viewing = false)}
-	/>
+	>
+		{#snippet actions(proof)}
+			<ViewerButton
+				aria-label="Download {proof.alt}"
+				disabled={downloading !== null}
+				aria-busy={downloading === proof.id}
+				onclick={() => {
+					const photo = favorites.find(({ id }) => id === proof.id);
+					if (photo) void download([photo]);
+				}}
+			>
+				{#if downloading === proof.id}
+					<LoaderCircle
+						size={18}
+						class="animate-spin motion-reduce:animate-none"
+						aria-hidden="true"
+					/>
+				{:else}
+					<Download size={18} aria-hidden="true" />
+				{/if}
+			</ViewerButton>
+		{/snippet}
+	</ProofViewer>
 {/if}

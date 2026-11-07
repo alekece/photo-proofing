@@ -164,6 +164,20 @@ afterEach(() => {
 });
 
 describe('PhotosPanel', () => {
+	it('keeps deletion confirmation busy until the real photo request finishes', async () => {
+		let finish!: (status: number) => void;
+		const pending = new Promise<number>((resolve) => (finish = resolve));
+		stubApi([photo('p1')], { delete: pending });
+		setup();
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole('button', { name: 'Remove p1.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+		expect(screen.getByRole('button', { name: 'Deleting…' })).toHaveProperty('disabled', true);
+		finish(204);
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+	});
+
 	it('toasts once per batch of uploads that fail', async () => {
 		stubApi([photo('p1')]);
 		toasts.items = [];
@@ -925,6 +939,23 @@ describe('PhotosPanel', () => {
 			expect(screen.getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
 			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
 			expect(announced()).toContain('2 photos deleted');
+		});
+
+		it('keeps the confirmed count visible during optimistic bulk deletion', async () => {
+			let finish!: (response: Response) => void;
+			stubApi([photo('p1'), photo('p2')], {
+				bulk: () => new Promise<Response>((resolve) => (finish = resolve))
+			});
+			setup();
+			const user = userEvent.setup();
+			await enter(user);
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await user.click(screen.getByRole('button', { name: 'Delete' }));
+			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+			expect(screen.getByRole('button', { name: 'Deleting…' })).toHaveProperty('disabled', true);
+			expect(screen.getByRole('dialog', { name: 'Delete 2 photos?' })).toBeTruthy();
+			finish(Response.json({ deleted: 2 }));
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 		});
 
 		it('announces a deletion once, not again with the next change', async () => {

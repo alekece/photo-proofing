@@ -46,12 +46,13 @@ Four cards on the left; on phones an icon rail whose buttons pop the same cards 
 
 | Card | Content |
 |---|---|
-| Client link | Draft: "Not shared yet". Shared: the link, **Copy link**, **Open** |
+| Client link | Draft: "Not shared yet". Shared: the link and **Copy link**; the owner uses read-only **Preview**, not the client credential |
 | Client access | **Open until** (date input) and **Included photos** (number input), edited in place; both optional, empty means no expiry or no limit |
 | Look | **Layout** as two icon buttons (staggered columns, even rows; even rows by default) and a **Watermark proofs** switch |
 | Gallery | **Archive** or **Restore**, **Delete** |
 
-- In-place inputs save on change: a brief green ring and a "Saved" toast. An invalid value shows
+- In-place inputs save on change without success rings or repeated "Saved" toasts. Pending saves
+  show **Saving…**; loaded photos and the viewer stay mounted. An invalid value shows
   a red toast and reverts. A past "Open until" makes the gallery Expired; a future or cleared one lifts it. The prototype
   seeds every gallery with a date, a count and staggered columns and refuses empty values; build
   to this doc and the PRD instead.
@@ -66,8 +67,10 @@ Four cards on the left; on phones an icon rail whose buttons pop the same cards 
 
 **Photos**, **Favorites** and **Final**, each with its count. The Favorites count turns bold
 accent when over the allowance. After delivery Favorites shows a padlock: the selection is locked.
-While the gallery is a draft, **Favorites** and **Final** are dimmed and disabled (tooltip "Available once the
-gallery is shared"); only Photos opens, even from a direct link.
+Before the first share, **Favorites** and **Final** are dimmed and disabled, with
+the tooltip "Available once the gallery is shared". Only Photos opens, even from
+a direct link; pointer and keyboard navigation skip the disabled tabs. Sharing
+enables both immediately without reloading or discarding existing photos.
 
 ### Photos
 
@@ -84,7 +87,8 @@ the [viewer](viewer.md).
 **Empty:** a drop zone, "Drop the shoot here", **Upload**.
 
 **Upload:** each new tile goes Waiting → Uploading → Processing → ready, each with a label and an
-indeterminate bar (no percentages, no overall counter). A failed tile turns red, "Upload failed"
+indeterminate bar (no percentages, no overall counter). The status stays centered inside its
+tile, above the bottom progress bar. A failed tile turns red, "Upload failed"
 with the reason, a **Retry** button and ×; a red toast says "1 photo failed to upload."
 
 ![Upload motion](gallery/upload-motion.gif)
@@ -92,14 +96,20 @@ with the reason, a **Retry** button and ×; a red toast says "1 photo failed to 
 
 **Updating watermarks:** after watermark settings change, galleries with watermarking on show a
 slim "Updating watermarks…" line with a small spinner in the toolbar until the proofs are
-regenerated.
+regenerated. Published render revisions refresh tiles, the open viewer and the hero without
+reloading the gallery; originals and finals stay unwatermarked.
 
 ### Favorites
 
 Only the client's selection, read-only. Toolbar: **Select** and **Download** (the whole selection
 as a ZIP, with a busy state while it's prepared). Hovering a photo shows a small download button
-for that photo (always visible on touch). Empty: the same dashed drop-area look as the other empty tabs, with a heart and "No favorites yet". Opening a photo
-shows the viewer with the favorite heart.
+for that photo (always visible on touch). Empty: the same striped drop-area look as the other
+empty tabs, with a heart and "No favorites yet". Opening a photo
+shows the viewer with the favorite heart and the same individual-original download action.
+The whole or selected subset uses one ZIP preparation slot: **Downloading…** is disabled from
+the initial request until download initiation, with errors left visible and no separate success
+message. Select-mode subsets always use a ZIP, even for one selected photo;
+tile and viewer downloads stream the individual original with a busy download control.
 
 ### Final
 
@@ -109,16 +119,23 @@ download mark shows which photos the client has downloaded.
 
 ### Select mode
 
-**Select** keeps the toolbar where it is, with no dark bar. On the left appear ✕ and "3 selected"; on the right
-**Select** becomes **Select all**, and the main button becomes the action: **Delete** on Photos and Final,
-**Download** on Favorites. Tiles show a check; clicking toggles.
+**Select** keeps the warm toolbar where it is, with no dark bar. On the left appear ✕ and
+"3 selected"; on the right **Select** becomes **Select all**, and the main button becomes
+**Delete** on Photos and Final or **Download** on Favorites. Tiles show a check; clicking toggles.
 Select all only picks the current tab.
+
+All three tabs use the same striped empty-state background. Confirming a photo deletion shows
+a disabled **Deleting…** button with a spinner and retains the confirmed count.
+Cancel and Escape cannot dismiss it while deletion runs; removed tiles shrink and fade unless
+reduced motion is requested. Desktop journey steps are centered within the banner.
 
 ## Dialogs
 
 Share, Deliver and Delete always confirm. Share and Deliver never refuse: when nothing is ready
 they warn and the button says "anyway". The "until 12 Sep" in the Share text only appears when
 an Open until date is set.
+
+Deliver counts and warns about finals only; proofs do not contribute to that dialog.
 
 | Dialog | Normal | Something missing |
 |---|---|---|

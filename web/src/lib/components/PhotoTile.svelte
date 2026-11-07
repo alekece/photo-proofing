@@ -31,7 +31,7 @@
 </script>
 
 <script lang="ts">
-	import { Download, RotateCw, Star, X } from '@lucide/svelte';
+	import { Download, LoaderCircle, RotateCw, Star, X } from '@lucide/svelte';
 	import Checkbox from '#lib/components/ui/checkbox/checkbox.svelte';
 
 	let {
@@ -43,6 +43,7 @@
 		selected = false,
 		onremove,
 		ondownload,
+		downloadBusy = false,
 		downloaded = false,
 		onretry,
 		onopen,
@@ -62,6 +63,8 @@
 		onremove?: () => void;
 		/** Downloads this photo; shown on hover and always on touch screens. */
 		ondownload?: () => void;
+		/** A download is being checked; show progress and prevent another click. */
+		downloadBusy?: boolean;
 		/** Marks a delivered photo the client has downloaded. */
 		downloaded?: boolean;
 		onretry?: () => void;
@@ -111,7 +114,7 @@
 	{:else}
 		<div
 			class={[
-				'flex size-full flex-col items-center justify-center gap-1 p-2 text-center text-xs',
+				'absolute inset-0 flex flex-col items-center justify-center gap-1 p-2 text-center text-xs',
 				failed ? 'bg-danger/10 text-danger' : 'text-placeholder-foreground'
 			]}
 		>
@@ -172,8 +175,20 @@
 				type="button"
 				class="absolute right-1.5 bottom-1.5 grid size-8 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground {reveal}"
 				aria-label="Download {name}"
-				onclick={ondownload}><Download size={16} aria-hidden="true" /></button
+				aria-busy={downloadBusy}
+				disabled={downloadBusy}
+				onclick={ondownload}
 			>
+				{#if downloadBusy}
+					<LoaderCircle
+						size={16}
+						class="animate-spin motion-reduce:animate-none"
+						aria-hidden="true"
+					/>
+				{:else}
+					<Download size={16} aria-hidden="true" />
+				{/if}
+			</button>
 		{/if}
 		{#if downloaded}
 			<span

@@ -13,6 +13,21 @@ const setup = (selected = DEFAULT_STATES, onchange = vi.fn(), disabled = false) 
 });
 
 describe('GalleryStateFilter', () => {
+	it('keeps a fixed trigger and anchors the menu on its right edge', async () => {
+		const user = userEvent.setup();
+		setup(['draft', 'shared', 'expired']);
+		const trigger = screen.getByRole('button', { name: 'Draft, Shared, Expired' });
+
+		expect(trigger.parentElement?.className).toContain('w-40');
+		await user.click(trigger);
+		expect(
+			screen
+				.getByRole('checkbox', { name: /Archived/ })
+				.closest('[data-slot="popover"]')
+				?.querySelector('div')?.className
+		).toContain('right-0');
+	});
+
 	it('reads Status by default and the chosen names otherwise', () => {
 		const { unmount } = setup();
 

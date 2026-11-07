@@ -31,13 +31,10 @@
 		'inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-full px-3.5 text-[0.84375rem] font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground disabled:cursor-default disabled:opacity-50';
 </script>
 
-<div
-	data-slot="select-pill"
-	class="flex flex-1 flex-wrap items-center gap-3 rounded-full bg-foreground py-1.5 pr-1.5 pl-2 text-inverse"
->
+<div data-slot="select-pill" class="flex flex-1 flex-wrap items-center gap-3 text-foreground">
 	<button
 		type="button"
-		class="{pill} grid size-9 place-items-center px-0 hover:bg-white/15"
+		class="{pill} grid size-9 place-items-center px-0 hover:bg-border/60"
 		aria-label="Cancel selection"
 		onclick={onclose}
 	>
@@ -47,17 +44,17 @@
 	<span class="flex-1"></span>
 	<button
 		type="button"
-		class="{pill} border border-inverse/30 hover:bg-white/15"
+		class="{pill} border border-border bg-panel hover:bg-border/60"
 		onclick={onselectall}>Select all</button
 	>
 	<button
 		type="button"
-		class="{pill} {destructive ? 'bg-danger text-inverse' : 'bg-inverse text-foreground'}"
+		class="{pill} {destructive ? 'bg-danger text-inverse' : 'bg-foreground text-inverse'}"
 		disabled={actionDisabled || actionBusy}
 		aria-busy={actionBusy}
 		onclick={onaction}
 	>
 		{@render icon?.()}
-		{actionLabel}
+		{actionBusy && actionLabel === 'Download' ? 'Downloading…' : actionLabel}
 	</button>
 </div>

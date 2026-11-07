@@ -22,7 +22,7 @@
 	aria-label="Gallery progress"
 	class="absolute inset-x-0 bottom-0 border-t border-panel/20 bg-scrim text-panel/85 backdrop-blur-[14px] backdrop-saturate-120"
 >
-	<ol class="hidden items-center gap-3.5 px-8 sm:flex">
+	<ol class="mx-auto hidden max-w-5xl items-center justify-center gap-3.5 px-8 sm:flex">
 		{#each steps as { id, label, done, fact, accent }, index (id)}
 			{#if index > 0}
 				<li

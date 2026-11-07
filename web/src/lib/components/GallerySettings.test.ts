@@ -61,7 +61,7 @@ describe('GallerySettings', () => {
 		setup({}, true, 'A'.repeat(22));
 
 		expect(screen.getByRole('button', { name: 'Copy link' })).toBeTruthy();
-		expect(screen.getByRole('link', { name: 'Open' })).toBeTruthy();
+		expect(screen.queryByRole('link', { name: 'Open' })).toBeNull();
 	});
 
 	it('saves the layout and watermark as patches', async () => {
@@ -83,13 +83,13 @@ describe('GallerySettings', () => {
 		await vi.waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('false'));
 	});
 
-	it('shows a green ring after a saved change', async () => {
+	it('does not flash a success ring after autosaving', async () => {
 		const { user } = setup();
 
 		await user.click(screen.getByRole('switch', { name: 'Watermark proofs' }));
 
 		await vi.waitFor(() =>
-			expect(screen.getByRole('switch', { name: 'Watermark proofs' }).className).toContain(
+			expect(screen.getByRole('switch', { name: 'Watermark proofs' }).className).not.toContain(
 				'ring-ok'
 			)
 		);

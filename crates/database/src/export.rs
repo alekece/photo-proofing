@@ -105,6 +105,7 @@ pub enum ExportRequest {
     /// The gallery already has an export being prepared; it is returned instead.
     InProgress(Export),
     EmptySelection,
+    InvalidSelection,
     /// The originals together exceed the allowed size.
     TooLarge,
     MissingGallery,
@@ -170,6 +171,19 @@ impl ExportRepository<'_> {
         gallery_id: GalleryId,
         max_size: NonZeroU64,
     ) -> Result<ExportRequest, DatabaseError> {
+        self.request_selected(workspace_id, gallery_id, max_size, None)
+            .await
+    }
+
+    /// Creates a ZIP snapshot of either every favorite or the explicitly selected favorite proofs.
+    /// Unknown, removed or nonfavorite photos invalidate the whole subset.
+    pub async fn request_selected(
+        &self,
+        workspace_id: WorkspaceId,
+        gallery_id: GalleryId,
+        max_size: NonZeroU64,
+        selected: Option<&[PhotoId]>,
+    ) -> Result<ExportRequest, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
         let gallery: Option<GalleryId> = sqlx::query_scalar(
             "SELECT id FROM galleries WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE",
@@ -198,12 +212,18 @@ impl ExportRepository<'_> {
         let favorites: Vec<(PhotoId, String, i64)> = sqlx::query_as(
             "SELECT id, original_name, size FROM photos
              WHERE workspace_id = $1 AND gallery_id = $2 AND favorite AND kind = 'proof'
+               AND removed_at IS NULL AND ($3::uuid[] IS NULL OR id = ANY($3))
              ORDER BY created_at, id",
         )
         .bind(workspace_id)
         .bind(gallery_id)
+        .bind(selected.map(|ids| ids.to_vec()))
         .fetch_all(&mut *transaction)
         .await?;
+
+        if selected.is_some_and(|ids| ids.is_empty() || ids.len() != favorites.len()) {
+            return Ok(ExportRequest::InvalidSelection);
+        }
 
         if favorites.is_empty() {
             return Ok(ExportRequest::EmptySelection);

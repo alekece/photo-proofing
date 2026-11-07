@@ -179,10 +179,26 @@ export async function uploadPhoto(
 	return reason === undefined ? { kind: 'failed' } : { kind: 'rejected', reason };
 }
 
-export function thumbnailUrl(galleryId: string, photoId: string, set: PhotoSet = 'photos') {
-	return photosPath(galleryId, { photoId, action: 'thumbnail', set });
+export function thumbnailUrl(
+	galleryId: string,
+	photoId: string,
+	set: PhotoSet = 'photos',
+	revision?: number
+) {
+	const path = photosPath(galleryId, { photoId, action: 'thumbnail', set });
+	return revision === undefined
+		? path
+		: `${path}${set === 'finals' ? '&' : '?'}revision=${revision}`;
 }
 
-export function previewUrl(galleryId: string, photoId: string, set: PhotoSet = 'photos') {
-	return photosPath(galleryId, { photoId, action: 'preview', set });
+export function previewUrl(
+	galleryId: string,
+	photoId: string,
+	set: PhotoSet = 'photos',
+	revision?: number
+) {
+	const path = photosPath(galleryId, { photoId, action: 'preview', set });
+	return revision === undefined
+		? path
+		: `${path}${set === 'finals' ? '&' : '?'}revision=${revision}`;
 }

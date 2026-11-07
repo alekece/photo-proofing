@@ -9,8 +9,10 @@
 		included,
 		layout = 'masonry',
 		heroId = $bindable(null),
+		heroRevision = $bindable(),
 		watermarked = false,
 		delivered = false,
+		shared,
 		photoCount = $bindable(null),
 		favoriteCount = $bindable(null)
 	}: {
@@ -18,9 +20,12 @@
 		included: number | null;
 		layout?: GalleryLayout;
 		heroId?: string | null;
+		heroRevision?: number;
 		watermarked?: boolean;
 		/** After delivery the client's selection is locked. */
 		delivered?: boolean;
+		/** Favorites and finals become available after the first share. */
+		shared: boolean;
 		/** Reported upwards so the gallery header can show them. */
 		photoCount?: number | null;
 		favoriteCount?: number | null;
@@ -28,6 +33,8 @@
 
 	let tab = $state('photos');
 	let finalCount = $state<number | null>(null);
+	// Saving replaces the parent gallery object; equal IDs must not reset loaded panels.
+	const id = $derived(galleryId);
 
 	const items = $derived([
 		{ id: 'photos', label: 'Photos', count: photoCount },
@@ -36,9 +43,17 @@
 			label: 'Favorites',
 			count: favoriteCount,
 			accent: included !== null && favoriteCount !== null && favoriteCount > included,
-			locked: delivered
+			locked: delivered,
+			disabled: !shared,
+			title: shared ? undefined : 'Available once the gallery is shared'
 		},
-		{ id: 'final', label: 'Final', count: finalCount }
+		{
+			id: 'final',
+			label: 'Final',
+			count: finalCount,
+			disabled: !shared,
+			title: shared ? undefined : 'Available once the gallery is shared'
+		}
 	]);
 </script>
 
@@ -48,18 +63,19 @@
 			<!-- All panels stay mounted so every tab can show its count; only the active one is visible. -->
 			<div hidden={active !== 'photos'}>
 				<PhotosPanel
-					{galleryId}
+					galleryId={id}
 					bind:heroId
+					bind:heroRevision
 					{layout}
 					oncount={(n) => (photoCount = n)}
 					{watermarked}
 				/>
 			</div>
 			<div hidden={active !== 'favorites'} class="grid gap-4">
-				<FavoritesPanel {galleryId} {layout} oncount={(n) => (favoriteCount = n)} />
+				<FavoritesPanel galleryId={id} {layout} oncount={(n) => (favoriteCount = n)} />
 			</div>
 			<div hidden={active !== 'final'}>
-				<PhotosPanel set="finals" {galleryId} {layout} oncount={(n) => (finalCount = n)} />
+				<PhotosPanel set="finals" galleryId={id} {layout} oncount={(n) => (finalCount = n)} />
 			</div>
 		{/snippet}
 	</Tabs>

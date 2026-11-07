@@ -119,7 +119,7 @@
 				: ''}"
 		>
 			<label
-				class="flex min-w-40 flex-1 items-center gap-2 rounded-md has-focus-visible:outline-3 has-focus-visible:outline-focus max-sm:basis-full"
+				class="flex min-w-40 flex-1 items-center gap-2 rounded-md has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-focus/40 max-sm:basis-full"
 			>
 				<Search size={16} aria-hidden="true" class="shrink-0" />
 				<input

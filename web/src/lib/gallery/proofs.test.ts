@@ -31,6 +31,24 @@ describe('toProofs', () => {
 });
 
 describe('toOwnerProofs', () => {
+	it('changes the first preview URL when its rendered asset changes', () => {
+		const original = {
+			id: 'a',
+			original_name: 'a.jpg',
+			size: 1,
+			width: 300,
+			height: 200,
+			status: 'ready' as const,
+			favorite: false,
+			created_at: '2026-01-01T10:00:00Z'
+		};
+		const first = toOwnerProofs('g1', [{ ...original, revision: 1 }]);
+		const next = toOwnerProofs('g1', [{ ...original, revision: 2 }]);
+
+		expect(first[0].previewUrl).not.toBe(next[0].previewUrl);
+		expect(next[0].previewUrl).toBe('/api/v1/galleries/g1/photos/a/preview?revision=2');
+	});
+
 	const photo = (id: string, status: Photo['status']): Photo => ({
 		id,
 		original_name: `${id}.jpg`,

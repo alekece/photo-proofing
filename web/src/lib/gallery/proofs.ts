@@ -5,11 +5,11 @@ import type { Proof, SharedPhoto } from './types';
 export function toProofs(token: string, photos: SharedPhoto[]): Proof[] {
 	const base = `/api/v1/galleries/shared/${encodeURIComponent(token)}/photos`;
 
-	return photos.map(({ id, width, height }, i) => ({
+	return photos.map(({ id, width, height, revision }, i) => ({
 		id,
 		alt: `Proof ${i + 1}`,
-		thumbnailUrl: `${base}/${encodeURIComponent(id)}/thumbnail`,
-		previewUrl: `${base}/${encodeURIComponent(id)}/preview`,
+		thumbnailUrl: `${base}/${encodeURIComponent(id)}/thumbnail${revision === undefined ? '' : `?revision=${revision}`}`,
+		previewUrl: `${base}/${encodeURIComponent(id)}/preview${revision === undefined ? '' : `?revision=${revision}`}`,
 		width,
 		height
 	}));
@@ -19,11 +19,11 @@ export function toProofs(token: string, photos: SharedPhoto[]): Proof[] {
 export function toOwnerProofs(galleryId: string, photos: Photo[]): Proof[] {
 	return photos
 		.filter(({ status }) => status === 'ready')
-		.map(({ id, width, height }, i) => ({
+		.map(({ id, width, height, revision }, i) => ({
 			id,
 			alt: `Proof ${i + 1}`,
-			thumbnailUrl: thumbnailUrl(galleryId, id),
-			previewUrl: previewUrl(galleryId, id),
+			thumbnailUrl: thumbnailUrl(galleryId, id, 'photos', revision),
+			previewUrl: previewUrl(galleryId, id, 'photos', revision),
 			width,
 			height
 		}));

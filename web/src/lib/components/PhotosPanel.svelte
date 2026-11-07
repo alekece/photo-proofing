@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
+	import { scale } from 'svelte/transition';
 	import type { GalleryLayout } from '#lib/gallery/api.js';
 	import PhotoTile, {
 		GRID_CLASSES,
@@ -37,6 +38,7 @@
 	let {
 		galleryId,
 		heroId = $bindable(null),
+		heroRevision = $bindable(),
 		layout = 'masonry',
 		oncount,
 		watermarked = false,
@@ -44,6 +46,7 @@
 	}: {
 		galleryId: string;
 		heroId?: string | null;
+		heroRevision?: number;
 		/** How the tiles are laid out: the gallery's setting. */
 		layout?: GalleryLayout;
 		/** How many photos the gallery has, for the tab. */
@@ -72,6 +75,7 @@
 	let picker = $state<HTMLInputElement | null>(null);
 	let selecting = $state(false);
 	let confirmingSelection = $state(false);
+	let deletingSelection = $state<Photo[] | null>(null);
 	/** A one-off message, and the summary it went out with: it is cleared when that changes. */
 	let announcement = $state<{ text: string; summary: string } | null>(null);
 	let selectButton = $state<HTMLButtonElement | null>(null);
@@ -136,11 +140,11 @@
 	const ready = $derived(photos.filter(({ status }) => status === 'ready'));
 	// Every photo, so one still processing or failed shows its state in the viewer.
 	const proofs = $derived<Proof[]>(
-		photos.map(({ id, original_name, width, height, status }) => ({
+		photos.map(({ id, original_name, width, height, status, revision }) => ({
 			id,
 			alt: original_name,
-			thumbnailUrl: thumbnailUrl(galleryId, id, set),
-			previewUrl: previewUrl(galleryId, id, set),
+			thumbnailUrl: thumbnailUrl(galleryId, id, set, revision),
+			previewUrl: previewUrl(galleryId, id, set, revision),
 			width,
 			height,
 			status: PROOF_STATES[tileState(status)] ?? 'processing'
@@ -239,6 +243,10 @@
 			heroId = null;
 		}
 	});
+	$effect(() => {
+		const revision = photos.find(({ id }) => id === heroId)?.revision;
+		if (heroRevision !== revision) heroRevision = revision;
+	});
 
 	async function signedOut() {
 		await goto('/login?expired=1', { refreshAll: true });
@@ -317,6 +325,7 @@
 			photos = photos.filter(({ id }) => id !== event.photo_id);
 		} else if (photo !== undefined) {
 			photo.status = statusOf(event.status);
+			if (event.status === 'ready') refresh();
 		} else if (queue.inFlight(galleryId, set) === 0 && !deleting.has(event.photo_id)) {
 			// While uploads are in flight, an unknown photo is usually one of them; its answer brings it in.
 			refresh();
@@ -526,6 +535,7 @@
 		const ids = removed.map(({ id }) => id);
 		let deletedCount = 0;
 
+		deletingSelection = removed;
 		for (const photo of removed) deleting.set(photo.id, photo);
 
 		photos = photos.filter(({ id }) => !deleting.has(id));
@@ -687,12 +697,26 @@
 		>
 			{#each photos as photo (photo.id)}
 				{@const state = tileState(photo.status)}
-				<li class={ITEM_CLASSES[layout]}>
+				<li
+					class={ITEM_CLASSES[layout]}
+					out:scale={{
+						start: 0.94,
+						duration:
+							typeof HTMLElement === 'undefined' ||
+							typeof HTMLElement.prototype.animate !== 'function' ||
+							(typeof matchMedia === 'function' &&
+								matchMedia('(prefers-reduced-motion: reduce)').matches)
+								? 0
+								: 160
+					}}
+				>
 					<PhotoTile
 						name={photo.original_name}
 						{state}
 						ratio={layout === 'masonry' ? photo.width / photo.height : 3 / 2}
-						thumbnailUrl={state === 'ready' ? thumbnailUrl(galleryId, photo.id, set) : undefined}
+						thumbnailUrl={state === 'ready'
+							? thumbnailUrl(galleryId, photo.id, set, photo.revision)
+							: undefined}
 						selected={selected.has(photo.id)}
 						onremove={() => (confirming = photo)}
 						onretry={() => retry(photo)}
@@ -736,7 +760,7 @@
 		cancelLabel="Cancel"
 		destructive
 		onclose={() => (confirming = null)}
-		onconfirm={() => void remove(photo)}
+		onconfirm={() => remove(photo)}
 	>
 		{#snippet visual()}
 			<PhotoStack {galleryId} {set} photoIds={[photo.id]} />
@@ -757,18 +781,22 @@
 {/if}
 
 {#if confirmingSelection}
-	{@const count = selection.length}
-	{@const favoriteCount = selection.filter(({ favorite }) => favorite).length}
+	{@const confirmed = deletingSelection ?? selection}
+	{@const count = confirmed.length}
+	{@const favoriteCount = confirmed.filter(({ favorite }) => favorite).length}
 	<ConfirmDialog
 		title="Delete {count} {count === 1 ? 'photo' : 'photos'}?"
 		confirmLabel="Delete"
 		cancelLabel="Cancel"
 		destructive
-		onclose={() => (confirmingSelection = false)}
-		onconfirm={() => void removeSelection()}
+		onclose={() => {
+			confirmingSelection = false;
+			deletingSelection = null;
+		}}
+		onconfirm={removeSelection}
 	>
 		{#snippet visual()}
-			<PhotoStack {galleryId} {set} photoIds={selection.map(({ id }) => id)} />
+			<PhotoStack {galleryId} {set} photoIds={confirmed.map(({ id }) => id)} />
 		{/snippet}
 		{#snippet description()}
 			<p class="text-sm text-muted-foreground">This can’t be undone.</p>

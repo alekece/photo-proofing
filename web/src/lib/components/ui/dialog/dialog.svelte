@@ -15,6 +15,8 @@
 		label?: string;
 		/** Non-modal dialogs stay in the page flow, so a parent can contain them. */
 		modal?: boolean;
+		/** Holds Escape and native cancellation back while a confirmed action runs. */
+		dismissible?: boolean;
 		children: Snippet<[() => void]>;
 	};
 
@@ -23,8 +25,10 @@
 		labelledby,
 		label,
 		modal = true,
+		dismissible = true,
 		class: className,
 		onkeydown,
+		oncancel,
 		children,
 		'data-slot': dataSlot = 'dialog',
 		...restProps
@@ -58,7 +62,7 @@
 			event.preventDefault();
 			// A dialog nested in another must not dismiss its parent too.
 			event.stopPropagation();
-			close();
+			if (dismissible) close();
 
 			return;
 		}
@@ -73,6 +77,10 @@
 	aria-labelledby={labelledby}
 	aria-label={label}
 	onkeydown={handleKeydown}
+	oncancel={(event) => {
+		if (!dismissible) event.preventDefault();
+		else oncancel?.(event);
+	}}
 	{onclose}
 	class={cn('backdrop:bg-overlay', className)}
 	{...restProps}

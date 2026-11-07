@@ -27,9 +27,14 @@ Workspace settings shared by every gallery. Route `/settings`, from the account 
 
 ## Save and Cancel
 
-- **Save changes** turns green with "✓ Saved" for about 1.6 s. When the watermark changed, a toast
+- **Save changes** shows a spinner and disabled **Saving…** while pending; Cancel is also
+  disabled until the request finishes. After success it turns green with "✓ Saved" for about
+  1.6 s. When the watermark changed, a toast
   adds "Watermarked proofs are being regenerated", and galleries with watermarking on show
   "Updating watermarks…" until done.
+- Edits made during a save remain unsaved rather than being replaced by the earlier response.
+  Save becomes available again for those edits; the Saved animation only appears when no
+  newer edits remain.
 - **Cancel** reverts every unsaved change; its undo icon spins back with "Reverted" for about
   1.4 s.
 

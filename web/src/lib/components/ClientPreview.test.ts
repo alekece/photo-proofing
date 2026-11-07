@@ -25,7 +25,24 @@ const photo = (id: string, status = 'ready') => ({
 });
 
 const stub = (photos: unknown[]) => {
-	const fetcher = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(photos)));
+	const fetcher = vi.fn<typeof fetch>(
+		async (url) =>
+			new Response(
+				JSON.stringify(
+					String(url) === '/api/v1/settings'
+						? {
+								studio_name: '',
+								mark: 'name',
+								pattern: 'repeat',
+								position: 8,
+								size: 2,
+								signature: 'name',
+								has_logo: false
+							}
+						: photos
+				)
+			)
+	);
 	vi.stubGlobal('fetch', fetcher);
 
 	return fetcher;
@@ -34,6 +51,35 @@ const stub = (photos: unknown[]) => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ClientPreview', () => {
+	it('uses saved studio signature and owner logo without a client credential', async () => {
+		vi.stubGlobal(
+			'fetch',
+			async (url: RequestInfo | URL) =>
+				new Response(
+					JSON.stringify(
+						String(url) === '/api/v1/settings'
+							? {
+									studio_name: 'Studio',
+									mark: 'name',
+									pattern: 'repeat',
+									position: 8,
+									size: 2,
+									signature: 'both',
+									has_logo: true
+								}
+							: []
+					)
+				)
+		);
+		render(ClientPreview, { gallery, onclose: () => {} });
+
+		await screen.findByText('Your photos are on their way.');
+		expect(screen.getAllByText('Studio').length).toBeGreaterThan(0);
+		expect(
+			document.querySelector('[data-testid="studio-signature"] img')?.getAttribute('src')
+		).toBe('/api/v1/settings/logo');
+	});
+
 	it('shows an unshared, expired gallery with its ready photos, from owner routes only', async () => {
 		const fetcher = stub([photo('a'), photo('b', 'processing')]);
 		render(ClientPreview, { gallery, onclose: () => {} });
@@ -44,7 +90,7 @@ describe('ClientPreview', () => {
 		expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Wedding');
 
 		const urls = fetcher.mock.calls.map(([url]) => String(url));
-		expect(urls).toEqual(['/api/v1/galleries/g1/photos']);
+		expect(urls).toEqual(['/api/v1/galleries/g1/photos', '/api/v1/settings']);
 		expect(screen.getByRole('img').getAttribute('src')).toBe(
 			'/api/v1/galleries/g1/photos/a/thumbnail'
 		);

@@ -8,7 +8,7 @@
 
 	/**
 	 * Share and Deliver never refuse: when photos are missing, uploading or failed they warn and
-	 * the button says "anyway". Deliver counts the proofs for now; finished photos arrive with #71.
+	 * the button says "anyway". Deliver checks only finished photos.
 	 * `onconfirm` may resolve with the client link to offer after sharing.
 	 */
 	type Props = {
@@ -66,7 +66,7 @@
 	);
 
 	onMount(() => {
-		load(galleryId)
+		load(galleryId, fetch, kind === 'deliver' ? 'finals' : 'photos')
 			.then((list) => (photos = list))
 			.catch(() => {
 				checkFailed = true;
