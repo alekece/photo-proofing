@@ -71,6 +71,17 @@ describe('PhotoTile states', () => {
 		expect(onremove).toHaveBeenCalledOnce();
 	});
 
+	it('offers no Retry on a failed tile in select mode', () => {
+		render(PhotoTile, {
+			name: 'a.jpg',
+			state: 'upload-failed',
+			onretry: () => {},
+			onselect: () => {}
+		});
+
+		expect(screen.queryByRole('button', { name: 'Retry a.jpg' })).toBeNull();
+	});
+
 	it.each([
 		['waiting-upload', 'Waiting'],
 		['uploading', 'Uploading'],

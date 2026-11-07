@@ -117,7 +117,7 @@
 		>
 			<span class={failed ? 'sr-only' : 'max-w-full truncate'} title={name}>{name}</span>
 			<span class={failed ? 'font-semibold' : ''}>{LABELS[state]}</span>
-			{#if failed && error && error !== LABELS[state]}<span class="line-clamp-2">{error}</span>{/if}
+			{#if failed && error && error !== LABELS[state]}<span class="line-clamp-1">{error}</span>{/if}
 			{#if !onselect && onretry && (state === 'upload-failed' || state === 'process-failed')}
 				<button
 					type="button"
