@@ -37,7 +37,13 @@
   Frontend verify covered 521 tests, type/lint/format checks and production build.
 - Documentation uses the actual watermark requirement FR-07 (the original plan's FR-05
   reference was a numbering error); FR-03/04/05 clarify cover, visibility and processing.
-- Browser verification, independent review, bounded refactor and PR delivery are pending.
+- Browser verification passed with synthetic JPEGs through the real API/worker and frontend:
+  clean owner tiles/hero with watermark enabled, marked client preview and shared gallery,
+  clean Phone cover, switch-off clean previews, unchanged files/status/revisions/job count on
+  toggle, and marked-only regeneration preserving both clean files and the original byte-for-byte.
+  Paused regeneration showed truthful owner progress, clean disabled-client access and clean
+  cover, while enabled client media returned 404.
+- Independent review, bounded refactor and PR delivery are pending.
 
 ## Review Focus
 
@@ -229,10 +235,10 @@ component tests, `routes/routes.test.ts`, `routes/g/[token]/page.server.test.ts`
   inference with persisted clean readiness, so disabled galleries and reconnects show work accurately.
   Ordinary owner image identities do not depend on toggles. On photo events, refresh readiness
   through current repository list data; existing events need not acquire a new type.
-- [ ] **Step 5: Run targeted tests, then `pnpm --dir web verify`.**
+- [x] **Step 5: Run targeted tests, then `pnpm --dir web verify`.**
   Expected: zero format/lint/type warnings, all tests pass and build succeeds.
   Check desktop/phone cover and preview visually using synthetic photos and the browser canvas.
-- [ ] **Step 6: Commit with `feat: keep photographer images clean and preview client watermarking`.**
+- [x] **Step 6: Commit with `feat: keep photographer images clean and preview client watermarking`.**
 
 ### Task 5: Documentation, end-to-end invariants and independent delivery review
 
@@ -240,7 +246,7 @@ component tests, `routes/routes.test.ts`, `routes/g/[token]/page.server.test.ts`
 existing integration suites only where whole-flow regressions are missing.
 **Consumes:** Tasks 1-4; no new interfaces.
 
-- [ ] **Step 1: Update the approved product requirements and current implementation documents.**
+- [x] **Step 1: Update the approved product requirements and current implementation documents.**
   FR-03/FR-05 explain clean owner surfaces and hero, client-only marking, instant toggles and
   workspace-wide marked regeneration. Replace superseded single-pair/toggle-rebuild decisions
   in the existing watermark design; preserve unrelated settings/logo/rendering constraints.
@@ -251,7 +257,7 @@ existing integration suites only where whole-flow regressions are missing.
   Upload in an off gallery, complete processing, verify four files, switch on and off with unchanged
   job/status snapshots, change workspace watermark, and assert only marked bytes change.
   Verify clean owner images/hero and disabled selection remain available throughout.
-- [ ] **Step 3: Run the required affected-area checks.**
+- [x] **Step 3: Run the required affected-area checks.**
   `cargo +nightly fmt --all`
   `cargo clippy --workspace --all-targets --locked -- -D warnings`
   `cargo test --workspace`
