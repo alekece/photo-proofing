@@ -488,10 +488,11 @@ impl GalleryRepository<'_> {
         token: &ShareToken,
     ) -> Result<Option<SharedAccess>, DatabaseError> {
         Ok(sqlx::query_as(
-            "SELECT g.id AS gallery_id,g.workspace_id,g.title,g.layout,g.expires_at,g.included_photos,
+            "SELECT g.id AS gallery_id,g.workspace_id,g.title,g.layout,g.expires_at,g.included_photos, g.watermark_enabled,
                     g.delivered_at IS NOT NULL AS delivered,
                     (SELECT p.id FROM photos p
-                     WHERE p.id = g.hero_id AND p.status = 'ready' AND p.kind = 'proof') AS hero_id
+                     WHERE p.id = g.hero_id AND p.clean_ready AND p.kind = 'proof'
+                       AND p.gallery_id = g.id AND p.workspace_id = g.workspace_id) AS hero_id
              FROM galleries g
              WHERE g.share_token=$1 AND g.archived_at IS NULL
                AND (g.expires_at IS NULL OR g.expires_at > now())",
@@ -574,7 +575,7 @@ impl GalleryRepository<'_> {
              WHERE id=$1 AND workspace_id=$2
                AND (NOT $11 OR $12::uuid IS NULL OR EXISTS (
                    SELECT 1 FROM photos
-                   WHERE id=$12 AND gallery_id=$1 AND workspace_id=$2 AND status='ready'
+                   WHERE id=$12 AND gallery_id=$1 AND workspace_id=$2 AND clean_ready
                      AND kind='proof'
                    FOR KEY SHARE))
              RETURNING {}",
@@ -608,7 +609,7 @@ mod tests {
     use crate::{
         Database,
         jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
-        photo::{PhotoKind, PhotoRepository, PhotoStatus},
+        photo::{PhotoKind, PhotoRepository, PhotoStatus, Watermarked},
         tests::TestRepository,
         workspace_deletion::WorkspaceDeletion,
     };
@@ -1001,8 +1002,8 @@ mod tests {
         };
 
         sqlx::query(
-            "INSERT INTO photos(id, workspace_id, gallery_id, original_name, size, width, height, status)
-             VALUES ($1, $2, $3, 'p.jpg', 1, 1, 1, $4::photo_status)",
+            "INSERT INTO photos(id, workspace_id, gallery_id, original_name, size, width, height, status, clean_ready, watermark_revision)
+             VALUES ($1, $2, $3, 'p.jpg', 1, 1, 1, $4::photo_status, $4 = 'ready', CASE WHEN $4 = 'ready' THEN 0 END)",
         )
         .bind(id)
         .bind(workspace_id)
@@ -1155,7 +1156,7 @@ mod tests {
             assert_eq!(shared.gallery.hero_id, expected);
         }
 
-        sqlx::query("UPDATE photos SET status = 'processing' WHERE id = $1")
+        sqlx::query("UPDATE photos SET status = 'processing', clean_ready = false WHERE id = $1")
             .bind(second)
             .execute(&pool)
             .await
@@ -1254,7 +1255,7 @@ mod tests {
         for id in &ready[..2] {
             database
                 .repository::<PhotoRepository>()
-                .set_favorite(location, *id, true, PhotoKind::Proof)
+                .set_favorite(location, *id, true, PhotoKind::Proof, Watermarked(false))
                 .await
                 .unwrap();
         }

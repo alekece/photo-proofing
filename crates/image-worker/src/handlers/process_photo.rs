@@ -17,7 +17,7 @@ use tracing::warn;
 
 use crate::{
     handlers::HandlerError,
-    render::{ImageRenderer, RenderError, RenderedPhoto},
+    render::{ImageRenderer, ProofRender, RenderError, RenderedProof},
 };
 
 /// Shown to the photographer when the original cannot be decoded.
@@ -86,10 +86,26 @@ impl ProcessPhotoHandler {
         let stamp = proof.stamp;
         let original = self.read_original(location, id).await?;
         let renderer = self.renderer;
-        let rendered =
-            task::spawn_blocking(move || renderer.render(&original, proof.watermark.as_ref()))
-                .await
-                .map_err(HandlerError::failed)?;
+        let rendered = task::spawn_blocking(move || {
+            if stamp.revision().is_none() {
+                renderer
+                    .render(&original, None)
+                    .map(|watermarked| RenderedProof {
+                        clean: None,
+                        watermarked,
+                    })
+            } else {
+                let render = if proof.clean_ready {
+                    ProofRender::Watermarked
+                } else {
+                    ProofRender::All
+                };
+
+                renderer.render_proof(&original, proof.watermark.as_ref(), render)
+            }
+        })
+        .await
+        .map_err(HandlerError::failed)?;
 
         let reason = match rendered {
             Ok(rendered) => {
@@ -115,7 +131,7 @@ impl ProcessPhotoHandler {
         Ok(completion)
     }
 
-    /// Publishes both derivatives if their watermark is still current, marking the photo ready
+    /// Publishes the rendered pairs if their watermark is still current, marking the photo ready
     /// and finishing `job` together. Files are staged first, so only the renames happen while
     /// the job and photo are locked. If the photo was deleted meanwhile, whatever was written
     /// is removed so late or partial work leaves nothing behind; a photo that still exists
@@ -126,13 +142,34 @@ impl ProcessPhotoHandler {
         location: PhotoLocation,
         id: PhotoId,
         stamp: WatermarkStamp,
-        rendered: RenderedPhoto,
+        rendered: RenderedProof,
     ) -> Result<JobCompletion, HandlerError> {
-        let derivatives = [
-            (Variant::Thumbnail, rendered.thumbnail),
-            (Variant::Preview, rendered.preview),
-        ]
-        .map(|(variant, bytes)| (PhotoKey::with_location(location, id, variant), bytes));
+        let mut derivatives = Vec::new();
+
+        if let Some(clean) = rendered.clean {
+            derivatives.extend([
+                (Variant::Thumbnail, clean.thumbnail),
+                (Variant::Preview, clean.preview),
+            ]);
+        }
+
+        let marked = rendered.watermarked;
+        let variants = if stamp.revision().is_some() {
+            [Variant::WatermarkedThumbnail, Variant::WatermarkedPreview]
+        } else {
+            [Variant::Thumbnail, Variant::Preview]
+        };
+
+        derivatives.extend([
+            (variants[0], marked.thumbnail),
+            (variants[1], marked.preview),
+        ]);
+
+        let derivatives: Vec<_> = derivatives
+            .into_iter()
+            .map(|(variant, bytes)| (PhotoKey::with_location(location, id, variant), bytes))
+            .collect();
+
         let published = async {
             let staged = self.stage(&derivatives).await?;
             let jobs = self.database.repository::<JobRepository>();
@@ -153,6 +190,7 @@ impl ProcessPhotoHandler {
             }
         }
         .await;
+
         let photo_is_deleted = match &published {
             Ok((_, update)) => *update == PhotoUpdate::Missing,
             Err(_) => matches!(
@@ -230,6 +268,7 @@ mod tests {
         photo::{NewPhoto, PhotoDimensions, PhotoKind, PhotoStatus},
         photo_intake::PhotoIntake,
         tests::TestRepository,
+        watermark::{LogoChange, SettingsUpdate, WorkspaceSettings},
     };
     use tempfile::TempDir;
     use tokio::time::{sleep, timeout};
@@ -449,6 +488,46 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
+    async fn changing_the_mark_replaces_only_marked_files_in_a_disabled_gallery(pool: PgPool) {
+        let fixture = Fixture::new(&pool, jpeg()).await;
+
+        fixture.run().await.unwrap();
+        let clean = fixture.file(Variant::Preview).unwrap();
+        let thumbnail = fixture.file(Variant::Thumbnail).unwrap();
+
+        assert_eq!(fixture.file(Variant::WatermarkedPreview).unwrap(), clean);
+        let defaults = WorkspaceSettings::default();
+
+        fixture
+            .handler
+            .database
+            .repository::<WatermarkRepository>()
+            .save(
+                fixture.location.workspace_id,
+                SettingsUpdate {
+                    studio_name: "Studio".to_owned(),
+                    mark: defaults.mark,
+                    pattern: defaults.pattern,
+                    position: defaults.position,
+                    size: defaults.size,
+                    signature: defaults.signature,
+                    logo: LogoChange::Keep,
+                },
+            )
+            .await
+            .unwrap();
+        fixture.run().await.unwrap();
+
+        assert_eq!(fixture.file(Variant::Preview).unwrap(), clean);
+        assert_eq!(fixture.file(Variant::Thumbnail).unwrap(), thumbnail);
+        assert_ne!(fixture.file(Variant::WatermarkedPreview).unwrap(), clean);
+        assert_ne!(
+            fixture.file(Variant::WatermarkedThumbnail).unwrap(),
+            thumbnail
+        );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
     async fn processing_a_photo_publishes_both_derivatives_and_marks_it_ready(pool: PgPool) {
         let fixture = Fixture::new(&pool, jpeg()).await;
 
@@ -526,8 +605,14 @@ mod tests {
         assert_eq!(fixture.status().await, Some(PhotoStatus::Ready));
         assert_eq!(
             fixture.files(),
-            [Variant::Original, Variant::Preview, Variant::Thumbnail]
-                .map(|variant| format!("{}-{variant}", fixture.id))
+            [
+                Variant::Original,
+                Variant::Preview,
+                Variant::Thumbnail,
+                Variant::WatermarkedPreview,
+                Variant::WatermarkedThumbnail
+            ]
+            .map(|variant| format!("{}-{variant}", fixture.id))
         );
     }
 
@@ -570,7 +655,7 @@ mod tests {
         let rendered = fixture
             .handler
             .renderer
-            .render(&fixture.original, None)
+            .render_proof(&fixture.original, None, ProofRender::All)
             .unwrap();
 
         fixture
@@ -688,7 +773,7 @@ mod tests {
         let rendered = fixture
             .handler
             .renderer
-            .render(&fixture.original, None)
+            .render_proof(&fixture.original, None, ProofRender::All)
             .unwrap();
 
         fixture.run().await.unwrap();

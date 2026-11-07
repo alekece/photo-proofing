@@ -214,15 +214,19 @@ describe('ClientGallery', () => {
 		).toBe('true');
 	});
 
-	it('shows the hero photo preview as the cover', () => {
-		show({ gallery: shared('b'), proofs: [proof('a'), proof('b')] });
+	it('uses the clean cover separately from the client proofs', () => {
+		show({
+			gallery: shared('b'),
+			proofs: [proof('a'), proof('b')],
+			coverUrl: '/clean-cover/b'
+		});
 
 		expect(screen.getByRole('img', { name: 'Gallery cover' }).getAttribute('src')).toBe(
-			'/preview/b'
+			'/clean-cover/b'
 		);
 	});
 
-	it('shows no cover without a hero, or when its photo is not among the proofs', () => {
+	it('shows no image without an authorized clean cover', () => {
 		const { unmount } = show({ gallery: shared(null), proofs: [proof('a')] });
 
 		expect(screen.queryByRole('img', { name: 'Gallery cover' })).toBeNull();
@@ -232,5 +236,13 @@ describe('ClientGallery', () => {
 		show({ gallery: shared('gone'), proofs: [proof('a')] });
 
 		expect(screen.queryByRole('img', { name: 'Gallery cover' })).toBeNull();
+	});
+
+	it('keeps the clean hero when watermarked proofs are unavailable', () => {
+		show({ gallery: shared('b'), proofs: [], coverUrl: '/clean-cover/b' });
+
+		expect(screen.getByRole('img', { name: 'Gallery cover' }).getAttribute('src')).toBe(
+			'/clean-cover/b'
+		);
 	});
 });

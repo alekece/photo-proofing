@@ -31,7 +31,8 @@ impl PhotoRetry<'_> {
     ///
     /// Returns `None` when the gallery, or the given photo within it, does not exist in the
     /// workspace, otherwise the number of photos requeued; photos that are not failed are left
-    /// alone.
+    /// alone. Locks the workspace before jobs/photos so retries cannot start against a
+    /// settings change that skipped their failed rows.
     pub async fn retry_failed(
         &self,
         workspace_id: WorkspaceId,
@@ -40,6 +41,12 @@ impl PhotoRetry<'_> {
         photo: Option<PhotoId>,
     ) -> Result<Option<u64>, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
+
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR KEY SHARE")
+            .bind(workspace_id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+
         let target_exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM galleries WHERE id = $2 AND workspace_id = $1)
                 AND ($3::uuid IS NULL OR EXISTS(

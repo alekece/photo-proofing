@@ -3,7 +3,7 @@ use std::{future::Future, pin::Pin};
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
 use pp_database::{
     gallery::{GalleryRepository, ShareToken, SharedAccess},
-    photo::PhotoKind,
+    photo::{PhotoKind, Watermarked},
 };
 
 use crate::{api::ApiState, error::ErrorResponse};
@@ -31,6 +31,12 @@ impl ClientPhotoSet {
 impl ClientAccess {
     pub(crate) fn photo_set(&self) -> ClientPhotoSet {
         ClientPhotoSet::Proofs
+    }
+
+    /// The files the client sees: marked when the gallery's switch is on, never chosen by the
+    /// request.
+    pub(crate) fn watermarked(&self) -> Watermarked {
+        Watermarked(self.0.watermark_enabled)
     }
 }
 

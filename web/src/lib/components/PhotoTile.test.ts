@@ -49,6 +49,28 @@ describe('PhotoTile hero star', () => {
 });
 
 describe('PhotoTile states', () => {
+	it.each(['processing', 'process-failed'] as const)(
+		'keeps a prepared clean photo usable during %s',
+		async (state) => {
+			const onopen = vi.fn();
+			const onhero = vi.fn();
+			const onretry = vi.fn();
+			render(PhotoTile, { ...base, state, cleanReady: true, onopen, onhero, onretry });
+
+			expect(screen.getByRole('img', { name: 'a.jpg' }).getAttribute('src')).toBe('/t');
+			await userEvent.click(screen.getByRole('button', { name: 'Open a.jpg' }));
+			await userEvent.click(screen.getByRole('button', { name: 'Set as hero' }));
+
+			expect(onopen).toHaveBeenCalledOnce();
+			expect(onhero).toHaveBeenCalledOnce();
+
+			if (state === 'process-failed') {
+				await userEvent.click(screen.getByRole('button', { name: 'Retry a.jpg' }));
+				expect(onretry).toHaveBeenCalledOnce();
+			}
+		}
+	);
+
 	it('centers processing feedback inside the aspect-ratio tile', () => {
 		render(PhotoTile, { name: 'a.jpg', state: 'processing', ratio: 3 / 2 });
 		expect(screen.getByText('Processing').parentElement?.className).toContain('absolute inset-0');

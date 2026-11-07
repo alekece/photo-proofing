@@ -9,7 +9,6 @@
 		queue,
 		events,
 		heroId = $bindable(null),
-		watermarked = false,
 		set = 'photos'
 	}: {
 		galleryId: string;
@@ -26,4 +25,4 @@
 	setLiveEvents(events);
 </script>
 
-<PhotosPanel {galleryId} bind:heroId {watermarked} {set} />
+<PhotosPanel {galleryId} bind:heroId {set} />

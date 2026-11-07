@@ -10,7 +10,8 @@ const gallery = {
 	layout: 'grid',
 	expires_at: '2020-01-01T00:00:00Z',
 	share_token: null,
-	states: ['draft']
+	states: ['draft'],
+	watermark_enabled: false
 } as Gallery;
 
 const photo = (id: string, status = 'ready') => ({
@@ -39,7 +40,15 @@ const stub = (photos: unknown[]) => {
 								signature: 'name',
 								has_logo: false
 							}
-						: photos
+						: String(url).includes('?watermark=')
+							? photos.filter(
+									(photo) =>
+										typeof photo === 'object' &&
+										photo !== null &&
+										'status' in photo &&
+										photo.status === 'ready'
+								)
+							: photos
 				)
 			)
 	);
@@ -51,6 +60,37 @@ const stub = (photos: unknown[]) => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ClientPreview', () => {
+	it('refreshes mounted client media when the gallery switch changes', async () => {
+		const fetcher = stub([photo('a')]);
+		const onclose = () => {};
+		const view = render(ClientPreview, { gallery, onclose });
+
+		await waitFor(() =>
+			expect(screen.getByRole('img').getAttribute('src')).toContain('watermark=false')
+		);
+		await view.rerender({ gallery: { ...gallery, watermark_enabled: true }, onclose });
+
+		await waitFor(() =>
+			expect(screen.getByRole('img').getAttribute('src')).toContain('watermark=true')
+		);
+		expect(fetcher.mock.calls.filter(([url]) => String(url).includes('?watermark='))).toHaveLength(
+			2
+		);
+	});
+
+	it('keeps the clean hero when its marked copy is not ready', async () => {
+		stub([{ ...photo('hero', 'processing'), clean_ready: true }]);
+		render(ClientPreview, {
+			gallery: { ...gallery, hero_id: 'hero', watermark_enabled: true },
+			onclose: () => {}
+		});
+
+		await screen.findByText('Your photos are on their way.');
+		expect(screen.getByRole('img', { name: 'Gallery cover' }).getAttribute('src')).toBe(
+			'/api/v1/galleries/g1/photos/hero/preview'
+		);
+	});
+
 	it('uses saved studio signature and owner logo without a client credential', async () => {
 		vi.stubGlobal(
 			'fetch',
@@ -90,9 +130,13 @@ describe('ClientPreview', () => {
 		expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Wedding');
 
 		const urls = fetcher.mock.calls.map(([url]) => String(url));
-		expect(urls).toEqual(['/api/v1/galleries/g1/photos', '/api/v1/settings']);
+		expect(urls).toEqual([
+			'/api/v1/galleries/g1/photos',
+			'/api/v1/galleries/g1/photos?watermark=false',
+			'/api/v1/settings'
+		]);
 		expect(screen.getByRole('img').getAttribute('src')).toBe(
-			'/api/v1/galleries/g1/photos/a/thumbnail'
+			'/api/v1/galleries/g1/photos/a/thumbnail?watermark=false'
 		);
 	});
 

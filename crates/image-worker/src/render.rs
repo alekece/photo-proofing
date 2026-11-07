@@ -51,6 +51,19 @@ pub struct RenderedPhoto {
     pub preview: Vec<u8>,
 }
 
+/// Proof outputs; clean copies are omitted during marked-only regeneration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderedProof {
+    pub clean: Option<RenderedPhoto>,
+    pub watermarked: RenderedPhoto,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProofRender {
+    All,
+    Watermarked,
+}
+
 /// Renders proof derivatives from JPEG originals of at most `max_pixels`.
 #[derive(Debug, Clone, Copy)]
 pub struct ImageRenderer {
@@ -88,6 +101,40 @@ impl ImageRenderer {
         original: &[u8],
         watermark: Option<&Watermark>,
     ) -> Result<RenderedPhoto, RenderError> {
+        let image = self.prepare(original)?;
+
+        Ok(RenderedPhoto {
+            thumbnail: Self::fit(&image, THUMBNAIL_EDGE, watermark)?,
+            preview: Self::fit(&image, PREVIEW_EDGE, watermark)?,
+        })
+    }
+
+    /// Encodes both pairs for [`ProofRender::All`], or only the marked pair for
+    /// [`ProofRender::Watermarked`], from resized source pixels, not compressed clean copies.
+    pub fn render_proof(
+        &self,
+        original: &[u8],
+        watermark: Option<&Watermark>,
+        render: ProofRender,
+    ) -> Result<RenderedProof, RenderError> {
+        let image = self.prepare(original)?;
+        let thumbnail = Self::fit_pair(&image, THUMBNAIL_EDGE, watermark, render)?;
+        let preview = Self::fit_pair(&image, PREVIEW_EDGE, watermark, render)?;
+        let clean = thumbnail
+            .0
+            .zip(preview.0)
+            .map(|(thumbnail, preview)| RenderedPhoto { thumbnail, preview });
+
+        Ok(RenderedProof {
+            clean,
+            watermarked: RenderedPhoto {
+                thumbnail: thumbnail.1,
+                preview: preview.1,
+            },
+        })
+    }
+
+    fn prepare(&self, original: &[u8]) -> Result<VipsImage, RenderError> {
         // Loading is lazy: this reads the header only.
         let header =
             VipsImage::new_from_buffer(original, "").map_err(|_| RenderError::Unreadable)?;
@@ -123,10 +170,7 @@ impl ImageRenderer {
             image
         };
 
-        Ok(RenderedPhoto {
-            thumbnail: Self::fit(&image, THUMBNAIL_EDGE, watermark)?,
-            preview: Self::fit(&image, PREVIEW_EDGE, watermark)?,
-        })
+        Ok(image)
     }
 
     /// Encodes `image` with its long edge at most `edge`, without upscaling.
@@ -138,6 +182,42 @@ impl ImageRenderer {
         edge: u32,
         watermark: Option<&Watermark>,
     ) -> Result<Vec<u8>, RenderError> {
+        let fitted = Self::resize(image, edge)?;
+
+        let fitted = match watermark {
+            Some(watermark) => WatermarkPainter::new(watermark).paint(&fitted)?,
+            None => fitted,
+        };
+
+        Self::encode(&fitted)
+    }
+
+    fn fit_pair(
+        image: &VipsImage,
+        edge: u32,
+        watermark: Option<&Watermark>,
+        render: ProofRender,
+    ) -> Result<(Option<Vec<u8>>, Vec<u8>), RenderError> {
+        let fitted = Self::resize(image, edge)?;
+
+        let clean = if render == ProofRender::All {
+            Some(Self::encode(&fitted)?)
+        } else {
+            None
+        };
+
+        let marked = match watermark {
+            Some(watermark) => Self::encode(&WatermarkPainter::new(watermark).paint(&fitted)?)?,
+            None => match &clean {
+                Some(clean) => clean.clone(),
+                None => Self::encode(&fitted)?,
+            },
+        };
+
+        Ok((clean, marked))
+    }
+
+    fn resize(image: &VipsImage, edge: u32) -> Result<VipsImage, RenderError> {
         let long_edge = image.get_width().max(image.get_height());
         let target = long_edge.min(i32::try_from(edge).unwrap_or(i32::MAX));
         // `thumbnail_image` applies the EXIF orientation.
@@ -149,14 +229,14 @@ impl ImageRenderer {
                 .map_err(|_| RenderError::Unreadable)?;
         }
 
-        if let Some(watermark) = watermark {
-            fitted = WatermarkPainter::new(watermark).paint(&fitted)?;
-        }
+        Ok(fitted)
+    }
 
+    fn encode(fitted: &VipsImage) -> Result<Vec<u8>, RenderError> {
         // No `keep` flag drops EXIF, XMP and IPTC; the binding always sends a null `profile`, which
         // would write the image's ICC profile back, so `"none"` says to embed none.
         ops::jpegsave_buffer_with_opts(
-            &fitted,
+            fitted,
             &JpegsaveBufferOptions {
                 q: JPEG_QUALITY,
                 keep: ForeignKeep::None,
@@ -260,6 +340,46 @@ pub(crate) mod tests {
         ImageRenderer::new(max_pixels)
             .unwrap()
             .render(original, None)
+    }
+
+    #[test]
+    fn proof_render_keeps_clean_and_marked_pairs_separate() {
+        let renderer = ImageRenderer::new(UNBOUNDED).unwrap();
+        let watermark = pp_database::watermark::WorkspaceSettings {
+            studio_name: "Studio".to_owned(),
+            ..pp_database::watermark::WorkspaceSettings::default()
+        }
+        .watermark()
+        .unwrap();
+        let source = jpeg(600, 400);
+        let result = renderer
+            .render_proof(&source, Some(&watermark), ProofRender::All)
+            .unwrap();
+        let clean = result.clean.unwrap();
+
+        assert_eq!(size(&clean.thumbnail), (400, 267));
+        assert_eq!(size(&clean.preview), (600, 400));
+        assert_ne!(clean.thumbnail, result.watermarked.thumbnail);
+        assert_ne!(clean.preview, result.watermarked.preview);
+        assert_clean(&result.watermarked.thumbnail);
+        assert_clean(&result.watermarked.preview);
+
+        let marked_only = renderer
+            .render_proof(&source, Some(&watermark), ProofRender::Watermarked)
+            .unwrap();
+
+        assert!(marked_only.clean.is_none());
+        assert_eq!(marked_only.watermarked, result.watermarked);
+    }
+
+    #[test]
+    fn unconfigured_watermark_produces_identical_pairs() {
+        let result = ImageRenderer::new(UNBOUNDED)
+            .unwrap()
+            .render_proof(&jpeg(100, 80), None, ProofRender::All)
+            .unwrap();
+
+        assert_eq!(result.clean.unwrap(), result.watermarked);
     }
 
     #[test]

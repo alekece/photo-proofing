@@ -65,4 +65,7 @@ pub struct SharedAccess {
     pub location: PhotoLocation,
     #[sqlx(flatten)]
     pub gallery: SharedGallery,
+    /// Whether the client sees watermarked proofs; kept out of [`SharedGallery`] because the
+    /// client page never needs it.
+    pub watermark_enabled: bool,
 }

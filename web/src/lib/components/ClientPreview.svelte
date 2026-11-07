@@ -3,8 +3,8 @@
 	import { onMount } from 'svelte';
 	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
 	import type { Gallery } from '#lib/gallery/api.js';
-	import { listPhotos } from '#lib/gallery/photos.js';
-	import { toOwnerProofs } from '#lib/gallery/proofs.js';
+	import { listClientPreviewPhotos, listPhotos, previewUrl } from '#lib/gallery/photos.js';
+	import { toClientPreviewProofs } from '#lib/gallery/proofs.js';
 	import type { Proof } from '#lib/gallery/types.js';
 	import { parseSettings, type WorkspaceSettings } from '#lib/settings/settings.js';
 	import { cn } from '#lib/utils.js';
@@ -28,10 +28,18 @@
 
 	onMount(() => {
 		closeButton?.focus();
+	});
+
+	$effect(() => {
+		const id = gallery.id;
+		const watermarked = gallery.watermark_enabled;
 		let active = true;
+		loaded = false;
+		failed = false;
 
 		Promise.all([
-			listPhotos(gallery.id),
+			listPhotos(id),
+			listClientPreviewPhotos(id, watermarked),
 			fetch('/api/v1/settings').then(async (response) => {
 				if (!response.ok) throw new Error('Couldn’t load studio settings.');
 				const parsed = parseSettings(await response.json());
@@ -39,10 +47,10 @@
 				return parsed;
 			})
 		])
-			.then(([photos, studio]) => {
+			.then(([photos, visible, studio]) => {
 				if (!active) return;
 
-				proofs = toOwnerProofs(gallery.id, photos);
+				proofs = toClientPreviewProofs(id, visible, watermarked);
 				settings = studio;
 				favorites = photos.filter(({ favorite }) => favorite).map(({ id }) => id);
 			})
@@ -148,6 +156,7 @@
 					{:else if loaded}
 						<ClientGallery
 							gallery={{ ...gallery, delivered: gallery.states.includes('delivered') }}
+							coverUrl={gallery.hero_id ? previewUrl(gallery.id, gallery.hero_id) : undefined}
 							{proofs}
 							{favorites}
 							studio={settings?.studioName}

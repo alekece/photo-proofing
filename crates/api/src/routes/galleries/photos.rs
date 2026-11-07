@@ -21,7 +21,7 @@ use futures_util::future::LocalBoxFuture;
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
     gallery::{GalleryId, GalleryRepository},
-    photo::{NewPhoto, PhotoKind, PhotoLocation, PhotoRepository, PhotoStatus},
+    photo::{NewPhoto, PhotoKind, PhotoLocation, PhotoRepository, Watermarked},
     photo_intake::{PhotoIntake, PhotoIntakeError},
     photo_retry::PhotoRetry,
     workspace_deletion::WorkspaceDeletion,
@@ -111,6 +111,9 @@ async fn download_original(
 struct PhotoSet {
     #[serde(default)]
     finals: bool,
+    /// Whether the photographer wants the marked proof files: only photos ready for them are
+    /// listed, and they are served. Clean when absent.
+    watermark: Option<Watermarked>,
 }
 
 impl From<PhotoSet> for PhotoKind {
@@ -189,7 +192,7 @@ async fn list_photos(
     let photos = state
         .database()
         .repository::<PhotoRepository>()
-        .list(identity.workspace_id, gallery_id, set.into())
+        .list(identity.workspace_id, gallery_id, set.into(), set.watermark)
         .await?;
 
     Ok(HttpResponse::Ok().no_store().json(photos))
@@ -316,26 +319,28 @@ async fn serve_derivative_photo(
 ) -> Result<ImageFile, ErrorResponse> {
     let (gallery_id, photo_id, derivative) = path.into_inner();
     let set = set.into_inner();
-    let photo = state
-        .database()
-        .repository::<PhotoRepository>()
-        .get(identity.workspace_id, gallery_id, photo_id, set.into())
-        .await?;
-
-    if !matches!(photo, Some(photo) if photo.status == PhotoStatus::Ready) {
-        return Err(ErrorResponse::not_found());
-    }
-
+    let watermarked = set.watermark.unwrap_or_default();
     let location = PhotoLocation {
         workspace_id: identity.workspace_id,
         gallery_id,
     };
 
-    ImageFile::read(
+    if !state
+        .database()
+        .repository::<PhotoRepository>()
+        .is_ready(location, photo_id, set.into(), watermarked)
+        .await?
+    {
+        return Err(ErrorResponse::not_found());
+    }
+
+    let image = ImageFile::read(
         state.storage(),
-        &PhotoKey::with_location(location, photo_id, derivative.into()),
+        &PhotoKey::with_location(location, photo_id, derivative.variant(watermarked)),
     )
-    .await
+    .await?;
+
+    Ok(if set.finals { image } else { image.proof() })
 }
 
 #[post("/{id}/photos")]
@@ -1363,10 +1368,7 @@ pub(super) mod tests {
                 response.headers().get("Content-Type").unwrap(),
                 "image/jpeg"
             );
-            assert_eq!(
-                response.headers().get("Cache-Control").unwrap(),
-                "private, max-age=3600"
-            );
+            assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
             assert_eq!(
                 response.headers().get("Referrer-Policy").unwrap(),
                 "no-referrer"

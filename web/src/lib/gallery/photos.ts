@@ -3,6 +3,7 @@ import {
 	deletedPhotosSchema,
 	parseOrNull,
 	photoSchema,
+	sharedPhotoSchema,
 	uploadLimitsSchema,
 	type Photo
 } from './schemas';
@@ -67,6 +68,29 @@ export async function listPhotos(
 	const response = await request(photosPath(galleryId, { set }), {}, fetcher);
 
 	const photos = parseOrNull(v.array(photoSchema), await response.json().catch(() => null));
+
+	if (!photos) throw unexpected();
+
+	return photos;
+}
+
+/** Clean files remain usable while marked copies are being regenerated. */
+export function hasCleanPhoto(photo: Photo): boolean {
+	return photo.clean_ready ?? photo.status === 'ready';
+}
+
+/** The proofs ready in their marked or clean files, as the client gallery would show them. */
+export async function listClientPreviewPhotos(
+	galleryId: string,
+	watermarked: boolean,
+	fetcher: typeof fetch = fetch
+) {
+	const response = await request(
+		`/api/v1/galleries/${encodeURIComponent(galleryId)}/photos?watermark=${watermarked}`,
+		{},
+		fetcher
+	);
+	const photos = parseOrNull(v.array(sharedPhotoSchema), await response.json().catch(() => null));
 
 	if (!photos) throw unexpected();
 

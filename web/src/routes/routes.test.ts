@@ -94,6 +94,18 @@ describe('client gallery route', () => {
 });
 
 describe('ClientGallery', () => {
+	it('keeps a clean cover visible when marked proofs are temporarily unavailable', () => {
+		render(ClientGallery, {
+			gallery: shared({ hero_id: 'hero' }),
+			proofs: [],
+			coverUrl: '/api/v1/galleries/shared/tok/cover?hero=hero'
+		});
+
+		expect(screen.getByRole('img', { name: 'Gallery cover' }).getAttribute('src')).toBe(
+			'/api/v1/galleries/shared/tok/cover?hero=hero'
+		);
+	});
+
 	it('tells a delivered gallery without finals that they are on their way', async () => {
 		const { container } = render(ClientGallery, {
 			token: 'tok',
