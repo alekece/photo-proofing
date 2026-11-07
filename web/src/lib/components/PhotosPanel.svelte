@@ -28,6 +28,7 @@
 		retryPhoto,
 		thumbnailUrl,
 		type Photo,
+		type PhotoSet,
 		type PhotoStatus
 	} from '#lib/gallery/photos.js';
 	import type { Proof } from '#lib/gallery/types.js';
@@ -38,7 +39,8 @@
 		heroId = $bindable(null),
 		layout = 'masonry',
 		oncount,
-		watermarked = false
+		watermarked = false,
+		set = 'photos'
 	}: {
 		galleryId: string;
 		heroId?: string | null;
@@ -48,7 +50,11 @@
 		oncount?: (count: number | null) => void;
 		/** Whether the gallery has watermarking on. */
 		watermarked?: boolean;
+		/** The client proofs, or the photographer's finished photos, which have no hero or favorites. */
+		set?: PhotoSet;
 	} = $props();
+
+	const finals = $derived(set === 'finals');
 
 	/** Event storms and resyncs refetch the list at most this often. */
 	const REFRESH_INTERVAL_MS = 1000;
@@ -124,7 +130,7 @@
 	/** The photo to show, or `null` once deleted or while its deletion is pending. */
 	const withRecentChange = (photo: Photo) => (deleting.has(photo.id) ? null : changed(photo));
 
-	const queued = $derived(queue.forGallery(galleryId));
+	const queued = $derived(queue.forGallery(galleryId, set));
 	// Photos deleted meanwhile drop out, so the confirmed count is what is sent.
 	const selection = $derived(photos.filter(({ id }) => selected.has(id)));
 	const ready = $derived(photos.filter(({ status }) => status === 'ready'));
@@ -133,8 +139,8 @@
 		photos.map(({ id, original_name, width, height, status }) => ({
 			id,
 			alt: original_name,
-			thumbnailUrl: thumbnailUrl(galleryId, id),
-			previewUrl: previewUrl(galleryId, id),
+			thumbnailUrl: thumbnailUrl(galleryId, id, set),
+			previewUrl: previewUrl(galleryId, id, set),
 			width,
 			height,
 			status: PROOF_STATES[tileState(status)] ?? 'processing'
@@ -251,7 +257,7 @@
 		uploadedDuringLoad.clear();
 
 		try {
-			const listed = await listPhotos(id);
+			const listed = await listPhotos(id, fetch, set);
 
 			if (current !== loads) return;
 
@@ -301,7 +307,7 @@
 	}
 
 	function onPhoto(event: PhotoEvent) {
-		if (event.gallery_id !== galleryId) return;
+		if (event.gallery_id !== galleryId || (event.kind === 'final') !== finals) return;
 
 		recentChanges.set(event.photo_id, event.status);
 
@@ -311,7 +317,7 @@
 			photos = photos.filter(({ id }) => id !== event.photo_id);
 		} else if (photo !== undefined) {
 			photo.status = statusOf(event.status);
-		} else if (queue.inFlight(galleryId) === 0 && !deleting.has(event.photo_id)) {
+		} else if (queue.inFlight(galleryId, set) === 0 && !deleting.has(event.photo_id)) {
 			// While uploads are in flight, an unknown photo is usually one of them; its answer brings it in.
 			refresh();
 		}
@@ -338,11 +344,11 @@
 		const unsubscribe = [
 			events.onPhoto(onPhoto),
 			events.onResync(refresh),
-			events.onFavorites((event) => event.gallery_id === id && refresh()),
-			queue.onUploaded((gallery, photo) => {
+			events.onFavorites((event) => !finals && event.gallery_id === id && refresh()),
+			queue.onUploaded((gallery, photo, photoSet) => {
 				const current = withRecentChange(photo);
 
-				if (gallery !== id || current === null) return;
+				if (gallery !== id || photoSet !== set || current === null) return;
 
 				uploadedDuringLoad.add(photo.id);
 
@@ -361,7 +367,7 @@
 
 	// When the gallery's uploads finish, one refetch catches a photo whose answer was lost.
 	$effect(() => {
-		const inFlight = queue.inFlight(galleryId);
+		const inFlight = queue.inFlight(galleryId, set);
 
 		if (wasInFlight > 0 && inFlight === 0) void untrack(load);
 
@@ -369,7 +375,7 @@
 	});
 
 	function addFiles(files: FileList | null | undefined) {
-		if (files && files.length > 0) queue.add(galleryId, [...files]);
+		if (files && files.length > 0) queue.add(galleryId, [...files], set);
 	}
 
 	function ondrop(event: DragEvent) {
@@ -399,7 +405,7 @@
 		void focusAfterRemoving(index);
 
 		try {
-			await deletePhoto(galleryId, photo.id);
+			await deletePhoto(galleryId, photo.id, fetch, set);
 			recentChanges.set(photo.id, 'deleted');
 		} catch (cause) {
 			if (cause instanceof GalleryApiError && cause.status === 401) {
@@ -444,7 +450,7 @@
 		alert = '';
 
 		try {
-			await retryPhoto(galleryId, photo.id);
+			await retryPhoto(galleryId, photo.id, fetch, set);
 		} catch (cause) {
 			if (cause instanceof GalleryApiError && cause.status === 401) {
 				await signedOut();
@@ -530,7 +536,7 @@
 			while (deletedCount < ids.length) {
 				const chunk = ids.slice(deletedCount, deletedCount + BULK_DELETE_LIMIT);
 
-				await deletePhotos(confirmedGallery, chunk);
+				await deletePhotos(confirmedGallery, chunk, fetch, set);
 
 				for (const id of chunk) {
 					recentChanges.set(id, 'deleted');
@@ -611,7 +617,7 @@
 <svelte:window {onkeydown} />
 
 <section
-	aria-label="Photos"
+	aria-label={finals ? 'Final' : 'Photos'}
 	class={['grid gap-3 rounded-sm', dragging && 'outline-2 outline-offset-4 outline-foreground/40']}
 	{ondragover}
 	ondragleave={() => (dragging = false)}
@@ -661,7 +667,7 @@
 			multiple
 			accept="image/jpeg,.jpg,.jpeg"
 			class="hidden"
-			aria-label="Choose photos to upload"
+			aria-label={finals ? 'Choose finished photos to upload' : 'Choose photos to upload'}
 			onchange={onpick}
 		/>
 	</div>
@@ -674,7 +680,11 @@
 	</p>
 
 	{#if photos.length > 0 || queued.length > 0}
-		<ul bind:this={grid} aria-label="Photos" class={GRID_CLASSES[layout]}>
+		<ul
+			bind:this={grid}
+			aria-label={finals ? 'Final photos' : 'Photos'}
+			class={GRID_CLASSES[layout]}
+		>
 			{#each photos as photo (photo.id)}
 				{@const state = tileState(photo.status)}
 				<li class={ITEM_CLASSES[layout]}>
@@ -682,13 +692,13 @@
 						name={photo.original_name}
 						{state}
 						ratio={layout === 'masonry' ? photo.width / photo.height : 3 / 2}
-						thumbnailUrl={state === 'ready' ? thumbnailUrl(galleryId, photo.id) : undefined}
+						thumbnailUrl={state === 'ready' ? thumbnailUrl(galleryId, photo.id, set) : undefined}
 						selected={selected.has(photo.id)}
 						onremove={() => (confirming = photo)}
 						onretry={() => retry(photo)}
 						onopen={() => open(photo)}
-						hero={photo.id === heroId}
-						onhero={() => toggleHero(photo)}
+						hero={!finals && photo.id === heroId}
+						onhero={finals ? undefined : () => toggleHero(photo)}
 						onselect={selecting ? () => toggle(photo.id) : undefined}
 					/>
 				</li>
@@ -712,7 +722,7 @@
 	{:else if loaded}
 		<EmptyState>
 			<ImagePlus size={32} aria-hidden="true" />
-			<h3>Drop the shoot here</h3>
+			<h3>{finals ? 'Drop the finished photos here' : 'Drop the shoot here'}</h3>
 			<Button size="sm" onclick={() => picker?.click()}>Upload</Button>
 		</EmptyState>
 	{/if}
@@ -729,13 +739,15 @@
 		onconfirm={() => void remove(photo)}
 	>
 		{#snippet visual()}
-			<PhotoStack {galleryId} photoIds={[photo.id]} />
+			<PhotoStack {galleryId} {set} photoIds={[photo.id]} />
 		{/snippet}
 		{#snippet description()}
 			<p class="text-sm text-muted-foreground">
-				The photo and its previews are removed for good, wherever it is in processing.
+				{finals
+					? 'The finished photo and its previews are removed from the draft, wherever it is in processing.'
+					: 'The photo and its previews are removed for good, wherever it is in processing.'}
 			</p>
-			{#if photo.favorite}
+			{#if !finals && photo.favorite}
 				<p class="text-sm font-bold text-warning">
 					This photo is one of the client’s favorites. It leaves their selection too.
 				</p>
@@ -756,11 +768,11 @@
 		onconfirm={() => void removeSelection()}
 	>
 		{#snippet visual()}
-			<PhotoStack {galleryId} photoIds={selection.map(({ id }) => id)} />
+			<PhotoStack {galleryId} {set} photoIds={selection.map(({ id }) => id)} />
 		{/snippet}
 		{#snippet description()}
 			<p class="text-sm text-muted-foreground">This can’t be undone.</p>
-			{#if favoriteCount > 0}
+			{#if !finals && favoriteCount > 0}
 				<p class="text-sm font-bold text-warning">
 					{favoriteCount === count ? 'All' : favoriteCount} of them {favoriteCount === 1
 						? 'is'
@@ -785,7 +797,7 @@
 	>
 		{#snippet actions(proof)}
 			{@const photo = current(proof.id)}
-			{#if photo && photo.status === 'ready'}
+			{#if !finals && photo && photo.status === 'ready'}
 				<ViewerButton
 					pressed={photo.id === heroId}
 					aria-label={photo.id === heroId ? 'Remove hero' : 'Set as hero'}

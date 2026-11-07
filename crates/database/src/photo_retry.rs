@@ -9,6 +9,7 @@ use crate::{
     error::DatabaseError,
     gallery::GalleryId,
     jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
+    photo::PhotoKind,
 };
 
 /// Resets failed photos to waiting and gives each one a fresh processing job.
@@ -26,7 +27,7 @@ impl<'db> Repository<'db> for PhotoRetry<'db> {
 }
 
 impl PhotoRetry<'_> {
-    /// Requeues the gallery's failed photos, or only `photo` when given.
+    /// Requeues the gallery's failed photos of one kind, or only `photo` when given.
     ///
     /// Returns `None` when the gallery, or the given photo within it, does not exist in the
     /// workspace, otherwise the number of photos requeued; photos that are not failed are left
@@ -35,6 +36,7 @@ impl PhotoRetry<'_> {
         &self,
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
+        kind: PhotoKind,
         photo: Option<PhotoId>,
     ) -> Result<Option<u64>, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
@@ -42,11 +44,13 @@ impl PhotoRetry<'_> {
             "SELECT EXISTS(SELECT 1 FROM galleries WHERE id = $2 AND workspace_id = $1)
                 AND ($3::uuid IS NULL OR EXISTS(
                     SELECT 1 FROM photos
-                    WHERE id = $3 AND gallery_id = $2 AND workspace_id = $1))",
+                    WHERE id = $3 AND gallery_id = $2 AND workspace_id = $1
+                      AND kind = $4 AND removed_at IS NULL))",
         )
         .bind(workspace_id)
         .bind(gallery_id)
         .bind(photo)
+        .bind(kind)
         .fetch_one(&mut *transaction)
         .await?;
 
@@ -57,11 +61,12 @@ impl PhotoRetry<'_> {
         let failed_photo_ids: Vec<PhotoId> = sqlx::query_scalar(
             "SELECT id FROM photos
              WHERE workspace_id = $1 AND gallery_id = $2 AND status = 'failed'
-               AND ($3::uuid IS NULL OR id = $3)",
+               AND kind = $4 AND removed_at IS NULL AND ($3::uuid IS NULL OR id = $3)",
         )
         .bind(workspace_id)
         .bind(gallery_id)
         .bind(photo)
+        .bind(kind)
         .fetch_all(&mut *transaction)
         .await?;
         let failed_photo_keys = failed_photo_ids
@@ -134,7 +139,7 @@ mod tests {
         Database,
         gallery::GalleryRepository,
         jobs::{JobKind, JobRepository, JobState},
-        photo::{NewPhoto, PhotoDimensions, PhotoRepository, PhotoStatus},
+        photo::{NewPhoto, PhotoDimensions, PhotoKind, PhotoRepository, PhotoStatus},
         photo_intake::PhotoIntake,
         tests::TestRepository,
     };
@@ -171,6 +176,7 @@ mod tests {
         database
             .repository::<PhotoIntake>()
             .try_accept(NewPhoto {
+                kind: PhotoKind::Proof,
                 id,
                 workspace_id: gallery.workspace_id,
                 gallery_id: gallery.gallery_id,
@@ -236,7 +242,12 @@ mod tests {
     async fn retry(database: &Database, gallery: &Gallery, photo: Option<PhotoId>) -> Option<u64> {
         database
             .repository::<PhotoRetry>()
-            .retry_failed(gallery.workspace_id, gallery.gallery_id, photo)
+            .retry_failed(
+                gallery.workspace_id,
+                gallery.gallery_id,
+                PhotoKind::Proof,
+                photo,
+            )
             .await
             .unwrap()
     }
@@ -277,7 +288,12 @@ mod tests {
 
         database
             .repository_with::<PhotoRetry>(options)
-            .retry_failed(gallery.workspace_id, gallery.gallery_id, None)
+            .retry_failed(
+                gallery.workspace_id,
+                gallery.gallery_id,
+                PhotoKind::Proof,
+                None,
+            )
             .await
             .unwrap();
 
@@ -333,7 +349,7 @@ mod tests {
             async move {
                 database
                     .repository::<PhotoRetry>()
-                    .retry_failed(workspace_id, gallery_id, Some(id))
+                    .retry_failed(workspace_id, gallery_id, PhotoKind::Proof, Some(id))
                     .await
             }
         });
@@ -375,7 +391,7 @@ mod tests {
             async move {
                 database
                     .repository::<PhotoRetry>()
-                    .retry_failed(workspace_id, gallery_id, None)
+                    .retry_failed(workspace_id, gallery_id, PhotoKind::Proof, None)
                     .await
             }
         });

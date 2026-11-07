@@ -355,7 +355,8 @@ impl Drop for StreamSlot {
 mod tests {
     use pp_core::notifications::PhotoId;
     use pp_database::{
-        gallery::GalleryRepository, photo_events::PhotoChange, tests::TestRepository,
+        gallery::GalleryRepository, photo::PhotoKind, photo_events::PhotoChange,
+        tests::TestRepository,
     };
     use sqlx::PgPool;
     use tokio::task::JoinHandle;
@@ -471,6 +472,7 @@ mod tests {
                 workspace_id,
                 gallery_id,
                 photo_id,
+                kind: PhotoKind::Proof,
                 status: PhotoChange::Waiting,
             })
         );

@@ -131,7 +131,7 @@ impl PhotoIntake<'_> {
 
     async fn accept(&self, photo: &NewPhoto) -> Result<Option<Photo>, PhotoIntakeError> {
         let mut transaction = self.pool.begin().await?;
-        let outcome = PhotoRepository::open(self.pool, ())
+        let outcome = PhotoRepository::open(self.pool, photo.kind)
             .insert_in(&mut transaction, photo)
             .await?;
 
@@ -179,7 +179,7 @@ mod tests {
         auth::WorkspaceId,
         error::DatabaseError,
         gallery::{GalleryId, GalleryRepository},
-        photo::{NewPhoto, PhotoDimensions, PhotoInsertOutcome, PhotoRepository},
+        photo::{NewPhoto, PhotoDimensions, PhotoInsertOutcome, PhotoKind, PhotoRepository},
     };
 
     async fn workspace(pool: &PgPool) -> WorkspaceId {
@@ -201,6 +201,7 @@ mod tests {
         original_name: &str,
     ) -> NewPhoto {
         NewPhoto {
+            kind: PhotoKind::Proof,
             id,
             workspace_id,
             gallery_id,

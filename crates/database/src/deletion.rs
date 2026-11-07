@@ -9,6 +9,7 @@ use crate::{
     error::DatabaseError,
     gallery::GalleryId,
     jobs::{CleanupGallery, CleanupPhotos, JobOptions, JobRepository},
+    photo::PhotoKind,
 };
 
 /// Removes rows and queues the cleanup of their files in one transaction, so neither can happen
@@ -81,16 +82,20 @@ impl WorkspaceDeletion<'_> {
         Ok(true)
     }
 
-    /// Deletes photos whatever their status, together with all of their processing jobs, and
-    /// queues the removal of their files.
+    /// Deletes photos of one kind whatever their status, together with all of their processing
+    /// jobs, and queues the removal of their files.
     ///
-    /// Returns the ids removed, each once; ids outside this workspace and gallery, or already
-    /// gone, are ignored and never named by a cleanup job. A worker still rendering one finds
-    /// its claim gone and removes whatever it writes late.
+    /// A final already published only leaves the draft: its row and files stay until a later
+    /// publication, so the delivered set keeps it, and no cleanup job names it.
+    ///
+    /// Returns the ids removed, each once; ids outside this workspace, gallery and kind, or
+    /// already gone, are ignored. A worker still rendering one finds its claim gone and removes
+    /// whatever it writes late.
     pub async fn delete_photos(
         &self,
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
+        kind: PhotoKind,
         ids: &[PhotoId],
     ) -> Result<Vec<PhotoId>, DatabaseError> {
         if ids.is_empty() {
@@ -108,6 +113,7 @@ impl WorkspaceDeletion<'_> {
                    AND payload->'payload'->>'photo_id' IN (
                      SELECT id::text FROM photos
                      WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)
+                       AND kind = $4 AND removed_at IS NULL
                  )
                  ORDER BY id FOR UPDATE
              )",
@@ -115,13 +121,15 @@ impl WorkspaceDeletion<'_> {
         .bind(workspace_id)
         .bind(gallery_id)
         .bind(ids)
+        .bind(kind)
         .execute(&mut *transaction)
         .await?;
 
-        let removed_ids: Vec<PhotoId> = sqlx::query_scalar(
-            "DELETE FROM photos WHERE id IN (
+        let retained_ids: Vec<PhotoId> = sqlx::query_scalar(
+            "UPDATE photos SET removed_at = now() WHERE id IN (
                  SELECT id FROM photos
                  WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)
+                   AND kind = $4 AND removed_at IS NULL AND published_at IS NOT NULL
                  ORDER BY id FOR UPDATE
              )
              RETURNING id",
@@ -129,14 +137,30 @@ impl WorkspaceDeletion<'_> {
         .bind(workspace_id)
         .bind(gallery_id)
         .bind(ids)
+        .bind(kind)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let deleted_ids: Vec<PhotoId> = sqlx::query_scalar(
+            "DELETE FROM photos WHERE id IN (
+                 SELECT id FROM photos
+                 WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)
+                   AND kind = $4 AND removed_at IS NULL AND published_at IS NULL
+                 ORDER BY id FOR UPDATE
+             )
+             RETURNING id",
+        )
+        .bind(workspace_id)
+        .bind(gallery_id)
+        .bind(ids)
+        .bind(kind)
         .fetch_all(&mut *transaction)
         .await?;
 
-        if removed_ids.is_empty() {
-            return Ok(removed_ids);
+        if deleted_ids.is_empty() && retained_ids.is_empty() {
+            return Ok(deleted_ids);
         }
 
-        for batch in removed_ids.chunks(self.options.cleanup_batch.get()) {
+        for batch in deleted_ids.chunks(self.options.cleanup_batch.get()) {
             JobRepository::enqueue_in(
                 &mut transaction,
                 CleanupPhotos {
@@ -151,6 +175,6 @@ impl WorkspaceDeletion<'_> {
 
         transaction.commit().await?;
 
-        Ok(removed_ids)
+        Ok([deleted_ids, retained_ids].concat())
     }
 }

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import FavoritesPanel from '#lib/components/FavoritesPanel.svelte';
-	import FinalPanel from '#lib/components/FinalPanel.svelte';
 	import PhotosPanel from '#lib/components/PhotosPanel.svelte';
 	import type { GalleryLayout } from '#lib/gallery/api.js';
 	import Tabs from '#lib/components/ui/tabs/tabs.svelte';
@@ -60,7 +59,7 @@
 				<FavoritesPanel {galleryId} {layout} oncount={(n) => (favoriteCount = n)} />
 			</div>
 			<div hidden={active !== 'final'}>
-				<FinalPanel oncount={(n) => (finalCount = n)} />
+				<PhotosPanel set="finals" {galleryId} {layout} oncount={(n) => (finalCount = n)} />
 			</div>
 		{/snippet}
 	</Tabs>

@@ -5,7 +5,7 @@
 use pp_core::notifications::PhotoId;
 use serde::{Deserialize, Serialize};
 
-use crate::{auth::WorkspaceId, gallery::GalleryId, listener::Channel};
+use crate::{auth::WorkspaceId, gallery::GalleryId, listener::Channel, photo::PhotoKind};
 
 /// What happened to a photo: its new processing status, or its deletion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +25,8 @@ pub struct PhotoEvent {
     pub workspace_id: WorkspaceId,
     pub gallery_id: GalleryId,
     pub photo_id: PhotoId,
+    #[serde(default)]
+    pub kind: PhotoKind,
     pub status: PhotoChange,
 }
 
@@ -99,6 +101,7 @@ mod tests {
                 workspace_id: self.workspace_id,
                 gallery_id: self.gallery_id,
                 photo_id,
+                kind: PhotoKind::Proof,
                 status,
             })
         }

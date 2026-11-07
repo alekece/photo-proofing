@@ -47,7 +47,7 @@ describe('live events', () => {
 		expect(sources).toHaveLength(0);
 
 		events.start();
-		const event = { gallery_id: 'g', photo_id: 'p', status: 'ready' };
+		const event = { gallery_id: 'g', photo_id: 'p', kind: 'proof', status: 'ready' };
 		sources[0].emit('resync');
 		sources[0].emit('photo', JSON.stringify(event));
 		stop();
@@ -55,6 +55,21 @@ describe('live events', () => {
 
 		expect(resyncs).toHaveBeenCalledOnce();
 		expect(photos).toEqual([event]);
+	});
+
+	it('reads a photo event without a kind as a proof, and a final as such', () => {
+		const { events, sources } = setup();
+		const photos: PhotoEvent[] = [];
+
+		events.onPhoto((event) => photos.push(event));
+		events.start();
+		sources[0].emit('photo', JSON.stringify({ gallery_id: 'g', photo_id: 'p', status: 'ready' }));
+		sources[0].emit(
+			'photo',
+			JSON.stringify({ gallery_id: 'g', photo_id: 'q', kind: 'final', status: 'ready' })
+		);
+
+		expect(photos.map(({ kind }) => kind)).toEqual(['proof', 'final']);
 	});
 
 	it('dispatches favorites events, and refetches instead of trusting a malformed one', () => {

@@ -1,7 +1,7 @@
 //! Live changes as Server-Sent Events: `GET /api/v1/events` for the signed-in workspace.
 //!
 //! A stream starts with a `resync` event, then sends `photo` events
-//! (`{workspace_id, gallery_id, photo_id, status}`) and `favorites` events (`{workspace_id,
+//! (`{workspace_id, gallery_id, photo_id, kind, status}`) and `favorites` events (`{workspace_id,
 //! gallery_id}`, a client changed a selection) for its own workspace only, and `resync` again
 //! whenever events may have been lost. It holds the session read-only: on every keep-alive tick it
 //! checks the session is still valid, never extending it, and ends once it is not. Clients have no
@@ -190,6 +190,7 @@ mod tests {
         Database,
         favorite_events::FavoriteEvent,
         gallery::GalleryId,
+        photo::PhotoKind,
         photo_events::{PhotoChange, PhotoEvent},
         tests::TestRepository,
     };
@@ -302,6 +303,7 @@ mod tests {
             workspace_id,
             gallery_id: GalleryId(Uuid::new_v4()),
             photo_id: PhotoId::from(Uuid::new_v4()),
+            kind: PhotoKind::Proof,
             status: PhotoChange::Ready,
         }
     }
@@ -346,6 +348,7 @@ mod tests {
                     "workspace_id": own.workspace_id,
                     "gallery_id": own.gallery_id,
                     "photo_id": own.photo_id,
+                    "kind": "proof",
                     "status": "ready",
                 })
             )

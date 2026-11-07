@@ -658,7 +658,8 @@ mod tests {
         auth::WorkspaceId,
         gallery::GalleryRepository,
         photo::{
-            NewPhoto, PROCESSING_FAILED_REASON, PhotoDimensions, PhotoRepository, PhotoStatus,
+            NewPhoto, PROCESSING_FAILED_REASON, PhotoDimensions, PhotoKind, PhotoRepository,
+            PhotoStatus,
         },
     };
 
@@ -727,6 +728,7 @@ mod tests {
             .unwrap();
         let photo_id = PhotoId::generate();
         let photo = NewPhoto {
+            kind: PhotoKind::Proof,
             id: photo_id,
             workspace_id,
             gallery_id: gallery.id,

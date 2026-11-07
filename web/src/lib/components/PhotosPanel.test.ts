@@ -46,8 +46,8 @@ function fakeEvents() {
 
 	return {
 		events,
-		emit: (event: Omit<PhotoEvent, 'gallery_id'> & { gallery_id?: string }) => {
-			for (const handler of photoHandlers) handler({ gallery_id: 'g1', ...event });
+		emit: (event: Omit<PhotoEvent, 'gallery_id' | 'kind'> & Partial<PhotoEvent>) => {
+			for (const handler of photoHandlers) handler({ gallery_id: 'g1', kind: 'proof', ...event });
 		},
 		resync: () => {
 			for (const handler of resyncHandlers) handler();
@@ -133,7 +133,8 @@ const gallery = {
 function setup(
 	upload?: (file: File) => Promise<UploadOutcome>,
 	heroId: string | null = null,
-	watermarked = false
+	watermarked = false,
+	set: 'photos' | 'finals' = 'photos'
 ) {
 	const pending: ((outcome: UploadOutcome) => void)[] = [];
 	const queue = new UploadQueue({
@@ -144,7 +145,7 @@ function setup(
 	});
 	const live = fakeEvents();
 	const view = render(PhotosPanelHarness, {
-		props: { galleryId: 'g1', queue, events: live.events, heroId, watermarked }
+		props: { galleryId: 'g1', queue, events: live.events, heroId, watermarked, set }
 	});
 
 	return { ...live, queue, pending, view };
@@ -1254,6 +1255,49 @@ describe('PhotosPanel', () => {
 			await user.click(checkbox('p1.jpg')!);
 
 			expect((await axe(view.container)).violations).toEqual([]);
+		});
+	});
+
+	describe('finished photos', () => {
+		it('lists, uploads and deletes through the finals routes, without proof controls', async () => {
+			const api = stubApi([photo('f1')]);
+			const user = userEvent.setup();
+			const { queue } = setup(undefined, null, false, 'finals');
+
+			await screen.findByRole('button', { name: 'Open f1.jpg' });
+
+			expect(screen.getByRole('region', { name: 'Final' })).toBeTruthy();
+			expect(screen.queryByRole('button', { name: 'Set as hero' })).toBeNull();
+
+			queue.add('g1', [jpeg('a.jpg')], 'finals');
+			await user.click(await screen.findByRole('button', { name: 'Remove f1.jpg' }));
+			await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+			await waitFor(() => expect(api.calls('DELETE')).toEqual(['/api/v1/galleries/g1/finals/f1']));
+			expect(api.lists()).toBe(1);
+		});
+
+		it('ignores events about proofs and shows only finals changes', async () => {
+			stubApi([photo('f1', 'processing')]);
+			const { emit } = setup(undefined, null, false, 'finals');
+
+			await screen.findByRole('listitem');
+			emit({ photo_id: 'f1', status: 'ready', kind: 'proof' });
+
+			expect(within(tile('f1.jpg')).queryByRole('button', { name: 'Open f1.jpg' })).toBeNull();
+
+			emit({ photo_id: 'f1', status: 'ready', kind: 'final' });
+
+			expect(
+				await within(tile('f1.jpg')).findByRole('button', { name: 'Open f1.jpg' })
+			).toBeTruthy();
+		});
+
+		it('offers an empty state for finished photos', async () => {
+			stubApi([]);
+			setup(undefined, null, false, 'finals');
+
+			expect(await screen.findByText('Drop the finished photos here')).toBeTruthy();
 		});
 	});
 });
