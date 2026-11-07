@@ -1,10 +1,10 @@
 # Instant watermark switching and a clean hero
 
-Status: approved by the user on 2026-11-07; implementation pending.
+Status: approved by the user on 2026-11-07; implemented on the working branch.
 Related issue: [#67](https://github.com/alekece/photo-proofing/issues/67).
 Revises [the watermark design](2026-11-07-watermarks-design.md) and builds on
 [proof derivatives](2026-11-04-proof-derivatives-design.md).
-Requirements affected: FR-02, FR-03 and FR-05 in
+Requirements affected: FR-03 to FR-07 in
 [the product specifications](../SPECIFICATIONS.md).
 
 ## Intent
@@ -171,7 +171,7 @@ the existing original. Temporary staged files retain the existing cleanup behavi
 
 ## Documentation changes after approval
 
-Update FR-05 to describe instant gallery toggles, regeneration of marked copies across all
+Update FR-07 to describe instant gallery toggles, regeneration of marked copies across all
 galleries, and continued clean-gallery/cover availability. Clarify FR-03's clean hero exception
 without relaxing the prohibition on client access to proofing originals.
 
