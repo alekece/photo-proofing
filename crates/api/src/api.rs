@@ -134,7 +134,7 @@ impl ApiState {
     /// Applies the selection ZIP limits; without them the defaults of [`ExportConfig`] hold.
     #[must_use]
     pub fn with_export(mut self, config: &ExportConfig) -> Self {
-        self.export_max_size = config.max_size;
+        self.export_max_size = config.size_limit;
         self.export_retention = config.retention.get();
 
         self

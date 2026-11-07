@@ -137,7 +137,7 @@ pub struct ExportConfig {
         env = "PP_SELECTION_EXPORT_MAX_SIZE",
         default_value_t = DEFAULT_EXPORT_MAX_SIZE
     )]
-    pub max_size: NonZeroU64,
+    pub size_limit: NonZeroU64,
     /// A ZIP is unavailable and deleted once it is older than this.
     #[arg(
         long = "selection-export-retention",

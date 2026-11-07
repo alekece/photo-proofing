@@ -428,7 +428,7 @@ mod tests {
             });
 
             // One initial resync per listened channel.
-            for _ in 0..2 {
+            for _ in 0..3 {
                 assert_eq!(recv(&mut subscription).await, Broadcast::Resync);
             }
 

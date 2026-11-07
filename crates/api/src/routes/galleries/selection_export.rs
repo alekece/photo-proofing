@@ -150,12 +150,11 @@ async fn download_export(
 mod tests {
     use actix_web::{http::StatusCode, test};
     use pp_core::{config::PhotoDir, notifications::PhotoId, types::generate::Generate};
+    use pp_database::photo::PhotoLocation;
     use pp_database::{auth::WorkspaceId, gallery::GalleryId};
     use pp_storage::{ArchiveEntry, PhotoKey, PhotoStorage, Variant};
     use sqlx::PgPool;
     use uuid::Uuid;
-
-    use pp_database::photo::PhotoLocation;
 
     use super::*;
     use crate::{
