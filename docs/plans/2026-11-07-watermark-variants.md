@@ -10,6 +10,7 @@
 
 **Spec:** [Approved design](../designs/2026-11-07-watermark-variants-design.md).
 **Issue:** [#67](https://github.com/alekece/photo-proofing/issues/67), whose existing acceptance criteria cover watermark serving and approved regeneration behavior.
+**PR:** [#231](https://github.com/alekece/photo-proofing/pull/231). Retained through review and corrections.
 
 ## Global Constraints
 
@@ -57,7 +58,7 @@
   The same independent reviewer verified upload and retry corrections, with no remaining
   material issue. Final full Rust suites and frontend verify passed; an unchanged
   shutdown-grace timing test failed once under load, then passed both targeted and full reruns.
-  PR delivery remains pending.
+  Delivered for PR review; no merge has been performed.
 
 ## Review Focus
 
@@ -284,7 +285,7 @@ existing integration suites only where whole-flow regressions are missing.
 - [x] **Step 5: Perform a dedicated bounded refactor pass.**
   Remove duplicated access predicates or renderer preparation, clarify responsibilities/names,
   and record the result even if no change is warranted. Rerun affected checks after corrections.
-- [ ] **Step 6: Commit documentation and corrections, then deliver a PR referencing #67.**
+- [x] **Step 6: Commit documentation and corrections, then deliver a PR referencing #67.**
   Use the repository's user credentials and no co-author trailer. Keep this plan through
   implementation/review; remove it only after corrections and before asking final merge approval.
   Never merge without explicit final user approval. Preserve the worktree for review.

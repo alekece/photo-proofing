@@ -32,7 +32,7 @@ copy. Toggling a gallery never rebuilds images. See
 ## Non-goals
 
 - Per-gallery watermark designs, fonts, colours or opacity controls (excluded by the PRD).
-- Rendering the cover signature on the client cover: it is saved now, drawn by a follow-up.
+- Changing the existing client cover signature: keep its overlay separate from the clean hero.
 - Applying the watermark to originals or finished photos, which stay unchanged.
 - Rotating the repeated mark or other speculative rendering settings.
 
