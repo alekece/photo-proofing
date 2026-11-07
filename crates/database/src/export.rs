@@ -197,7 +197,7 @@ impl ExportRepository<'_> {
 
         let favorites: Vec<(PhotoId, String, i64)> = sqlx::query_as(
             "SELECT id, original_name, size FROM photos
-             WHERE workspace_id = $1 AND gallery_id = $2 AND favorite
+             WHERE workspace_id = $1 AND gallery_id = $2 AND favorite AND kind = 'proof'
              ORDER BY created_at, id",
         )
         .bind(workspace_id)
@@ -497,10 +497,10 @@ mod tests {
     use super::*;
     use crate::{
         Database,
-        deletion::WorkspaceDeletion,
         gallery::GalleryRepository,
         jobs::{Backoff, JobKind, JobState},
         tests::TestRepository,
+        workspace_deletion::WorkspaceDeletion,
     };
 
     const MAX: NonZeroU64 = NonZeroU64::new(1 << 30).unwrap();
