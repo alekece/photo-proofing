@@ -346,8 +346,9 @@ impl GalleryRepository<'_> {
     const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,hero_id,share_token,shared_at,last_opened_at,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
 
     /// How long after a recorded client open later opens change nothing. Fixed, not configurable:
-    /// a day keeps writes to one per gallery per day while "last opened" stays useful.
-    pub const OPEN_THROTTLE: Duration = Duration::from_secs(24 * 60 * 60);
+    /// a minute collapses reload bursts while "last opened" stays fresh enough to compare with
+    /// the shared and delivered times.
+    pub const OPEN_THROTTLE: Duration = Duration::from_secs(60);
 
     /// Creates an untitled gallery with the default settings.
     pub async fn create(&self, workspace_id: WorkspaceId) -> Result<Gallery, DatabaseError> {
@@ -1445,20 +1446,20 @@ mod tests {
         assert!(!store.record_opened(location).await.unwrap());
         assert_eq!(last_opened_at().await, first);
 
-        let age = |hours: i32| {
-            sqlx::query("UPDATE galleries SET last_opened_at = now() - make_interval(hours => $1)")
-                .bind(hours)
+        let age = |seconds: f64| {
+            sqlx::query("UPDATE galleries SET last_opened_at = now() - make_interval(secs => $1)")
+                .bind(seconds)
                 .execute(&pool)
         };
 
-        age(23).await.unwrap();
+        age(30.0).await.unwrap();
 
         let within = last_opened_at().await;
 
         assert!(!store.record_opened(location).await.unwrap());
         assert_eq!(last_opened_at().await, within);
 
-        age(25).await.unwrap();
+        age(61.0).await.unwrap();
 
         let aged = last_opened_at().await;
 

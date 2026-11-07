@@ -10,7 +10,7 @@ The photographer cannot tell whether the client has seen a shared gallery. The A
 ## Goals
 
 - A client opening the shared page tells the API once per page load.
-- The last open is stored on the gallery, to within 24 hours, and returned to the photographer.
+- The last open is stored on the gallery, to within one minute, and returned to the photographer.
 - Reloads and repeat visits change nothing and send no further notice.
 - Only a real client view counts. The photographer's preview, and unknown, unshared, expired or archived links, do not.
 - The share token never appears in logs or spans.
@@ -28,8 +28,8 @@ The photographer cannot tell whether the client has seen a shared gallery. The A
 
 ## Decisions
 
-- **Stored value:** nullable `galleries.last_opened_at timestamptz`, no first-open column (maintainer decision). *My call:* the throttle is a fixed 24 hours (`GalleryRepository::OPEN_THROTTLE`), not configuration; revisit if a deployment needs another value. #72 may derive a "first opened" notice separately, for example when the value goes from `NULL` to set.
-- **Throttle:** one conditional `UPDATE ... WHERE last_opened_at IS NULL OR last_opened_at < now() - 24h`. Reloads and repeat visits inside the delay match no row and write nothing, so write cost stays at one per gallery per day. The price is precision: the stored time can be up to 24 hours older than the real last open. Concurrent opens are safe; at most one wins and the rest match nothing.
+- **Stored value:** nullable `galleries.last_opened_at timestamptz`, no first-open column (maintainer decision). Rationale: the photographer (or #72) compares the value with milestones: opened since `shared_at` means the client started selecting; opened after `delivered_at` means the client looked at the finals. Real download tracking belongs to #71/#72. A "first opened" notice can be derived separately, and notification dedupe is #72's job. The throttle is a fixed 1 minute (`GalleryRepository::OPEN_THROTTLE`), not configuration.
+- **Throttle:** one conditional `UPDATE ... WHERE last_opened_at IS NULL OR last_opened_at < now() - 1 minute`. Reload bursts and repeat visits inside the delay match no row and write nothing, while the value stays fresh enough for the milestone comparisons above. The price is precision: the stored time can be up to a minute older than the real last open. Concurrent opens are safe; at most one wins and the rest match nothing.
 - **Availability:** the route takes the existing `ClientAccess` extractor, so unknown, malformed, unshared, archived and expired links get the same 404 as every client route. The update repeats the archive and expiry conditions so a link that expires in between does not count.
 - **Response:** always `204` for an available link, whether or not this call wrote, so the client learns nothing about earlier opens. `no-store` and `no-referrer` like the other client routes.
 - **Photographer read:** `last_opened_at` is added to the gallery JSON (`null` until opened). It is not part of `SharedGallery`, so clients never see it.
