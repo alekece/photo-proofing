@@ -5,10 +5,13 @@ use std::sync::Arc;
 use pp_core::notifications::PhotoId;
 use pp_database::{
     Database,
-    jobs::{Job, JobCompletion, JobRepository, PhotoResult, PhotoUpdate, ProcessPhoto},
+    jobs::{
+        Job, JobCompletion, JobRepository, PhotoResult, PhotoUpdate, ProcessPhoto, Publication,
+    },
     photo::{PhotoLocation, PhotoRepository},
+    watermark::{WatermarkRepository, WatermarkStamp},
 };
-use pp_storage::{PhotoKey, PhotoStorage, Variant};
+use pp_storage::{PhotoKey, PhotoStorage, StagedPhoto, Variant};
 use tokio::{io::AsyncReadExt, task};
 use tracing::warn;
 
@@ -41,6 +44,9 @@ impl ProcessPhotoHandler {
     /// Renders and publishes the derivatives of one photo, then marks it ready and finishes
     /// `job` together.
     ///
+    /// The proofs carry the watermark that is current when rendering starts. If it changes
+    /// before publication, nothing is published: the change already queued a job for the photo.
+    ///
     /// An original that cannot be rendered fails the photo for good and finishes the job, since
     /// retrying cannot change the bytes. Database, storage and library faults are returned for
     /// retry.
@@ -66,18 +72,31 @@ impl ProcessPhotoHandler {
             return jobs.complete(&job).await.map_err(HandlerError::failed);
         }
 
+        // Read after `mark_processing`: a change from here on resets the photo and queues
+        // another job, and publication checks the stamp, so no outdated proof is ever shown.
+        let Some(proof) = self
+            .database
+            .repository::<WatermarkRepository>()
+            .proof_watermark(id)
+            .await
+            .map_err(HandlerError::failed)?
+        else {
+            return jobs.complete(&job).await.map_err(HandlerError::failed);
+        };
+        let stamp = proof.stamp;
         let original = self.read_original(location, id).await?;
         let renderer = self.renderer;
-        let rendered = task::spawn_blocking(move || renderer.render(&original))
-            .await
-            .map_err(HandlerError::failed)?;
+        let rendered =
+            task::spawn_blocking(move || renderer.render(&original, proof.watermark.as_ref()))
+                .await
+                .map_err(HandlerError::failed)?;
 
         let reason = match rendered {
             Ok(rendered) => {
                 // From the first file written, the runtime may drop this run at any point, for
                 // instance when deleting the photo loses its lease, so publication runs on its
                 // own and always cleans up after a deleted photo.
-                return task::spawn(self.publish(job, location, id, rendered))
+                return task::spawn(self.publish(job, location, id, stamp, rendered))
                     .await
                     .map_err(HandlerError::failed)?;
             }
@@ -96,15 +115,17 @@ impl ProcessPhotoHandler {
         Ok(completion)
     }
 
-    /// Stores both derivatives, then marks the photo ready and finishes `job` together. If the
-    /// photo was deleted meanwhile, whatever was written is removed so late or partial work
-    /// leaves nothing behind; a photo that still exists keeps it, even if another run finished
-    /// it.
+    /// Publishes both derivatives if their watermark is still current, marking the photo ready
+    /// and finishing `job` together. Files are staged first, so only the renames happen while
+    /// the job and photo are locked. If the photo was deleted meanwhile, whatever was written
+    /// is removed so late or partial work leaves nothing behind; a photo that still exists
+    /// keeps it, even if another run finished it.
     async fn publish(
         self: Arc<Self>,
         job: Job,
         location: PhotoLocation,
         id: PhotoId,
+        stamp: WatermarkStamp,
         rendered: RenderedPhoto,
     ) -> Result<JobCompletion, HandlerError> {
         let derivatives = [
@@ -113,12 +134,23 @@ impl ProcessPhotoHandler {
         ]
         .map(|(variant, bytes)| (PhotoKey::with_location(location, id, variant), bytes));
         let published = async {
-            self.store(&derivatives).await?;
-            self.database
-                .repository::<JobRepository>()
-                .complete_photo(&job, id, PhotoResult::Ready)
+            let staged = self.stage(&derivatives).await?;
+            let jobs = self.database.repository::<JobRepository>();
+
+            match jobs
+                .begin_publication(&job, id, stamp)
                 .await
-                .map_err(HandlerError::failed)
+                .map_err(HandlerError::failed)?
+            {
+                Publication::Open(open) => {
+                    for (file, (key, _)) in staged.into_iter().zip(&derivatives) {
+                        file.commit(key).await.map_err(HandlerError::failed)?;
+                    }
+
+                    open.finish().await.map_err(HandlerError::failed)
+                }
+                Publication::Closed(completion, update) => Ok((completion, update)),
+            }
         }
         .await;
         let photo_is_deleted = match &published {
@@ -142,15 +174,20 @@ impl ProcessPhotoHandler {
         published.map(|(completion, _)| completion)
     }
 
-    async fn store(&self, derivatives: &[(PhotoKey, Vec<u8>)]) -> Result<(), HandlerError> {
-        for (key, bytes) in derivatives {
-            let mut staged = self.storage.stage().await.map_err(HandlerError::failed)?;
+    async fn stage(
+        &self,
+        derivatives: &[(PhotoKey, Vec<u8>)],
+    ) -> Result<Vec<StagedPhoto>, HandlerError> {
+        let mut staged = Vec::new();
 
-            staged.write(bytes).await.map_err(HandlerError::failed)?;
-            staged.commit(key).await.map_err(HandlerError::failed)?;
+        for (_, bytes) in derivatives {
+            let mut file = self.storage.stage().await.map_err(HandlerError::failed)?;
+
+            file.write(bytes).await.map_err(HandlerError::failed)?;
+            staged.push(file);
         }
 
-        Ok(())
+        Ok(staged)
     }
 
     async fn read_original(
@@ -288,6 +325,17 @@ mod tests {
             assert!(completion.is_current());
 
             Ok(())
+        }
+
+        async fn stamp(&self) -> WatermarkStamp {
+            self.handler
+                .database
+                .repository::<WatermarkRepository>()
+                .proof_watermark(self.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .stamp
         }
 
         async fn claim(&self) -> Job {
@@ -518,7 +566,12 @@ mod tests {
     #[sqlx::test(migrations = "../database/migrations")]
     async fn late_work_for_a_deleted_photo_leaves_nothing(pool: PgPool) {
         let fixture = Fixture::new(&pool, jpeg()).await;
-        let rendered = fixture.handler.renderer.render(&fixture.original).unwrap();
+        let stamp = fixture.stamp().await;
+        let rendered = fixture
+            .handler
+            .renderer
+            .render(&fixture.original, None)
+            .unwrap();
 
         fixture
             .testing()
@@ -530,6 +583,7 @@ mod tests {
                 fixture.claim().await,
                 fixture.location,
                 fixture.id,
+                stamp,
                 rendered,
             )
             .await
@@ -582,12 +636,12 @@ mod tests {
             sleep(Duration::from_millis(20)).await;
         }
 
-        // A key-share lock on its job holds the publication at its completion, which deletes
-        // that job, once both derivatives are written.
+        // A lock on its job holds the publication before it goes live, once both derivatives
+        // are staged.
         let mut completion_gate = pool.begin().await.unwrap();
 
         sqlx::query(
-            "SELECT 1 FROM jobs WHERE payload->'payload'->>'photo_id' = $1::text FOR KEY SHARE",
+            "SELECT 1 FROM jobs WHERE payload->'payload'->>'photo_id' = $1::text FOR UPDATE",
         )
         .bind(fixture.id)
         .execute(&mut *completion_gate)
@@ -600,17 +654,9 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        timeout(Duration::from_secs(10), async {
-            while fixture.file(Variant::Thumbnail).is_none()
-                || fixture.file(Variant::Preview).is_none()
-            {
-                sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .unwrap();
+        sleep(Duration::from_millis(500)).await;
 
-        // The photo goes while its derivatives are published. Its job, held by the gate, stays.
+        // The photo goes while its derivatives wait to be published. Its job, held by the gate, stays.
         sqlx::query("DELETE FROM photos WHERE id = $1")
             .bind(fixture.id)
             .execute(&pool)
@@ -624,22 +670,26 @@ mod tests {
 
         completion_gate.commit().await.unwrap();
         timeout(Duration::from_secs(10), async {
-            while fixture.file(Variant::Thumbnail).is_some()
-                || fixture.file(Variant::Preview).is_some()
-            {
+            while fixture.has_jobs().await {
                 sleep(Duration::from_millis(20)).await;
             }
         })
         .await
         .unwrap();
 
-        assert!(!fixture.has_jobs().await);
+        assert!(fixture.file(Variant::Thumbnail).is_none());
+        assert!(fixture.file(Variant::Preview).is_none());
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn late_work_for_a_ready_photo_keeps_its_derivatives(pool: PgPool) {
         let fixture = Fixture::new(&pool, jpeg()).await;
-        let rendered = fixture.handler.renderer.render(&fixture.original).unwrap();
+        let stamp = fixture.stamp().await;
+        let rendered = fixture
+            .handler
+            .renderer
+            .render(&fixture.original, None)
+            .unwrap();
 
         fixture.run().await.unwrap();
         let completion = Arc::clone(&fixture.handler)
@@ -647,6 +697,7 @@ mod tests {
                 fixture.claim().await,
                 fixture.location,
                 fixture.id,
+                stamp,
                 rendered,
             )
             .await

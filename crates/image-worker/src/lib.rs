@@ -7,3 +7,4 @@ pub mod config;
 pub mod handlers;
 pub mod render;
 pub mod runtime;
+mod watermark;

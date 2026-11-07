@@ -12,7 +12,10 @@ use libvips::{
     VipsApp, VipsImage,
     ops::{self, ForeignKeep, Interpretation, JpegsaveBufferOptions},
 };
+use pp_database::watermark::Watermark;
 use thiserror::Error;
+
+use crate::watermark::WatermarkPainter;
 
 /// Long edge of the gallery grid thumbnail.
 const THUMBNAIL_EDGE: u32 = 400;
@@ -76,11 +79,15 @@ impl ImageRenderer {
         Ok(Self { max_pixels })
     }
 
-    /// Renders the thumbnail and preview of `original`.
+    /// Renders the thumbnail and preview of `original`, with `watermark` drawn on both.
     ///
     /// Outputs are auto-rotated, sRGB, stripped of metadata and never larger than the original.
     /// A truncated or otherwise undecodable original is [`RenderError::Unreadable`].
-    pub fn render(&self, original: &[u8]) -> Result<RenderedPhoto, RenderError> {
+    pub fn render(
+        &self,
+        original: &[u8],
+        watermark: Option<&Watermark>,
+    ) -> Result<RenderedPhoto, RenderError> {
         // Loading is lazy: this reads the header only.
         let header =
             VipsImage::new_from_buffer(original, "").map_err(|_| RenderError::Unreadable)?;
@@ -117,8 +124,8 @@ impl ImageRenderer {
         };
 
         Ok(RenderedPhoto {
-            thumbnail: Self::fit(&image, THUMBNAIL_EDGE)?,
-            preview: Self::fit(&image, PREVIEW_EDGE)?,
+            thumbnail: Self::fit(&image, THUMBNAIL_EDGE, watermark)?,
+            preview: Self::fit(&image, PREVIEW_EDGE, watermark)?,
         })
     }
 
@@ -126,7 +133,11 @@ impl ImageRenderer {
     ///
     /// Decoding happens here, so every failure means the original is unreadable: the bindings only
     /// report static messages, which cannot tell a corrupt stream from a library fault.
-    fn fit(image: &VipsImage, edge: u32) -> Result<Vec<u8>, RenderError> {
+    fn fit(
+        image: &VipsImage,
+        edge: u32,
+        watermark: Option<&Watermark>,
+    ) -> Result<Vec<u8>, RenderError> {
         let long_edge = image.get_width().max(image.get_height());
         let target = long_edge.min(i32::try_from(edge).unwrap_or(i32::MAX));
         // `thumbnail_image` applies the EXIF orientation.
@@ -136,6 +147,10 @@ impl ImageRenderer {
         if !matches!(fitted.get_interpretation(), Ok(Interpretation::Srgb)) {
             fitted = ops::colourspace(&fitted, Interpretation::Srgb)
                 .map_err(|_| RenderError::Unreadable)?;
+        }
+
+        if let Some(watermark) = watermark {
+            fitted = WatermarkPainter::new(watermark).paint(&fitted)?;
         }
 
         // No `keep` flag drops EXIF, XMP and IPTC; the binding always sends a null `profile`, which
@@ -242,7 +257,9 @@ pub(crate) mod tests {
     }
 
     fn render(original: &[u8], max_pixels: NonZeroU64) -> Result<RenderedPhoto, RenderError> {
-        ImageRenderer::new(max_pixels).unwrap().render(original)
+        ImageRenderer::new(max_pixels)
+            .unwrap()
+            .render(original, None)
     }
 
     #[test]
