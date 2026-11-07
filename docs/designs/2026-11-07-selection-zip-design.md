@@ -20,7 +20,7 @@ originals, exactly as the selection stood when they pressed. Favorites stay edit
 
 ## Non-goals
 
-Individual or select-mode downloads (they stay unavailable), a download dashboard, a retouching state, a
+Individual or select-mode downloads (FR-09's last sentence stays unavailable here; follow-up issue), a download dashboard, a retouching state, a
 selection lock, the client delivery ZIP (#71) and watermarks. The ZIP builder is generic so #71 can reuse it.
 
 ## Approaches
@@ -47,9 +47,18 @@ selection lock, the client delivery ZIP (#71) and watermarks. The ZIP builder is
 - **One export per gallery in flight (my call).** Requesting while one is preparing returns it; the button
   is disabled meanwhile. A new request after `ready`/`failed` creates a fresh snapshot and removes the
   previous export.
-- **Photo removed after the request (my call).** If a snapshot photo has been deleted before the file is
-  built, the export fails with "A selected photo was removed", never a silently smaller ZIP; Retry
-  re-snapshots. Deleting after the ZIP is ready does not alter it.
+- **Photo removed after the request (my call).** If a snapshot photo is gone when its file is read, or
+  when the build is recorded, the export fails with "A selected photo was removed", never a silently
+  smaller ZIP, and without retrying; Retry re-snapshots. The recording statement only marks the export
+  ready when every snapshot photo still exists. A photo deleted after that moment is the same as one
+  deleted after the ZIP was ready: the ZIP is unchanged.
+- **Deletion coordination.** Gallery deletion deletes the gallery's export jobs first (in id order, like
+  photo jobs) and its export rows cascade, so a late build finds no row: it publishes nothing and removes
+  the file it wrote. Replacing an export deletes the old row and its job in one transaction; its file is
+  removed after that commit, best effort, with the sweep as the safety net.
+- **Exhausted attempts.** `claim` (expired lease on the last attempt), `fail` and `abandon` also mark the
+  linked export failed in their own transaction, as they do for a photo, so an export never stays
+  Preparing after its job gave up.
 - **Library.** The `zip` crate, entries stored uncompressed (JPEGs do not compress, and the size is
   predictable). Writing runs in `spawn_blocking`. The builder lives in `pp-storage` as a reusable
   `ArchiveBuilder` taking `(source key, entry name)` pairs; the selection job is one caller.
@@ -59,15 +68,21 @@ selection lock, the client delivery ZIP (#71) and watermarks. The ZIP builder is
   The download filename is fixed and safe (`selection.zip`).
 - **Authorization.** Request, status and download are photographer routes under the gallery scope: they
   need the session and the gallery in the caller's workspace, and the download is looked up by export id
-  *and* gallery *and* workspace. Client links get no route; the file path comes from UUIDs only.
+  *and* gallery *and* workspace. Client links get no route; the file path comes from UUIDs only. The POST follows the existing origin
+  protection of state-changing routes; the download sends `Cache-Control: private, no-store`,
+  `X-Content-Type-Options: nosniff` and a fixed attachment filename. The `export` event travels only on
+  the photographer's workspace-filtered stream; clients still have none.
 - **Bounded storage (my call).** The file lives in the gallery directory, so deleting the gallery removes
-  it. At most one retained export per gallery (the next request replaces it; the worker's startup sweep also
-  deletes exports older than a retention setting, default 24 h, and orphan ZIP files). A request is
-  refused when the originals total more than `selection-export-max-size` (default 4 GiB). The size is
-  checked at request time, not during the build, since the snapshot stores each size.
+  it. At most one retained export per gallery, replaced by the next request. A request is refused (413)
+  when the originals total more than `selection-export-max-size` (default 2 GiB, checked from the
+  snapshot sizes before anything is written); entries are written with ZIP64 so the limit is a policy,
+  not a format limit. An export older than `selection-export-retention` (default 24 h) is treated as gone
+  by the API (status 204, download 404) and the worker's startup sweep deletes its row and file, plus
+  ZIP files no row owns. There is no workspace-wide quota (followed up): disk use is bounded by one
+  capped export per gallery for at most the retention period, plus the concurrency of the worker.
 - **Empty selection (my call).** The button is disabled with no favorites, and the server also answers 409
   `empty_selection` for a race, creating nothing.
-- **Disk full.** A write error of that kind fails the export at once with "The server is out of disk
+- **Disk full (my call).** A write error of that kind fails the export at once with "The server is out of disk
   space"; the staged file is dropped. Other I/O errors retry with backoff, then fail visibly.
 - **Readiness over SSE.** A trigger announces export status changes on a new channel; the existing stream
   relays them as an `export` event (`gallery_id` only). The tab refetches the authoritative status on that
