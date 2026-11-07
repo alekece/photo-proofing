@@ -8,25 +8,21 @@ export function toProofs(token: string, photos: SharedPhoto[]): Proof[] {
 	return mediaProofs(base, photos);
 }
 
-function mediaProofs(
-	base: string,
-	photos: SharedPhoto[],
-	variant?: 'watermarked' | 'clean'
-): Proof[] {
+function mediaProofs(base: string, photos: SharedPhoto[], watermark?: boolean): Proof[] {
 	return photos.map(({ id, width, height, revision }, i) => ({
 		id,
 		alt: `Proof ${i + 1}`,
-		thumbnailUrl: `${base}/${encodeURIComponent(id)}/thumbnail${imageRevision(revision, variant)}`,
-		previewUrl: `${base}/${encodeURIComponent(id)}/preview${imageRevision(revision, variant)}`,
+		thumbnailUrl: `${base}/${encodeURIComponent(id)}/thumbnail${imageRevision(revision, watermark)}`,
+		previewUrl: `${base}/${encodeURIComponent(id)}/preview${imageRevision(revision, watermark)}`,
 		width,
 		height
 	}));
 }
 
-function imageRevision(revision?: number, variant?: 'watermarked' | 'clean'): string {
+function imageRevision(revision?: number, watermark?: boolean): string {
 	const query = new URLSearchParams();
 
-	if (variant !== undefined) query.set('variant', variant);
+	if (watermark !== undefined) query.set('watermark', String(watermark));
 	if (revision !== undefined) query.set('revision', String(revision));
 
 	return query.size ? `?${query}` : '';
@@ -40,7 +36,7 @@ export function toClientPreviewProofs(
 	return mediaProofs(
 		`/api/v1/galleries/${encodeURIComponent(galleryId)}/photos`,
 		photos,
-		watermarkEnabled ? 'watermarked' : 'clean'
+		watermarkEnabled
 	);
 }
 

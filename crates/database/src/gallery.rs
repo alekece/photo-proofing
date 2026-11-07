@@ -609,7 +609,7 @@ mod tests {
     use crate::{
         Database,
         jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
-        photo::{PhotoKind, PhotoRepository, PhotoStatus, ProofVariant},
+        photo::{PhotoKind, PhotoRepository, PhotoStatus, Watermarked},
         tests::TestRepository,
         workspace_deletion::WorkspaceDeletion,
     };
@@ -1255,7 +1255,7 @@ mod tests {
         for id in &ready[..2] {
             database
                 .repository::<PhotoRepository>()
-                .set_favorite(location, *id, true, PhotoKind::Proof, ProofVariant::Clean)
+                .set_favorite(location, *id, true, PhotoKind::Proof, Watermarked(false))
                 .await
                 .unwrap();
         }

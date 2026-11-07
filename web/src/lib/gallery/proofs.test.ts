@@ -66,13 +66,13 @@ describe('toOwnerProofs', () => {
 	});
 
 	describe('client preview media', () => {
-		it('uses authenticated variant URLs and changes identity on a toggle', () => {
+		it('uses authenticated watermark URLs and changes identity on a toggle', () => {
 			const photos = [{ id: 'p1', width: 300, height: 200, revision: 2 }];
 			const off = toClientPreviewProofs('g1', photos, false);
 			const on = toClientPreviewProofs('g1', photos, true);
 
 			expect(on[0].previewUrl).toBe(
-				'/api/v1/galleries/g1/photos/p1/preview?variant=watermarked&revision=2'
+				'/api/v1/galleries/g1/photos/p1/preview?watermark=true&revision=2'
 			);
 			expect(off[0].previewUrl).not.toBe(on[0].previewUrl);
 		});

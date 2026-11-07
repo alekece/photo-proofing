@@ -171,35 +171,27 @@ pub struct PhotoLocation {
     pub gallery_id: GalleryId,
 }
 
-/// Which derivatives of a proof a caller wants to serve.
+/// Whether a caller wants the marked files of a proof rather than the clean ones.
 ///
-/// Callers choose it; the repository only checks that those files are ready.
+/// Callers choose it; the repository only checks that those files are ready. Clean files are
+/// ready as soon as they are published, even while marked copies are being regenerated; marked
+/// ones only at the workspace's current watermark revision.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProofVariant {
-    /// Files without marks, ready as soon as they are published, even while marked copies are
-    /// being regenerated.
-    #[default]
-    Clean,
-    /// Files with marks, ready only at the workspace's current watermark revision.
-    Watermarked,
-}
+#[serde(transparent)]
+pub struct Watermarked(pub bool);
 
-impl ProofVariant {
+impl Watermarked {
     /// SQL condition over a `photos` row aliased `p`. Finals have a single set of files, so
     /// they are ready whenever their status is.
     const fn ready_condition(self) -> &'static str {
-        match self {
-            Self::Clean => {
-                "CASE WHEN p.kind = 'proof' THEN p.clean_ready ELSE p.status = 'ready' END"
-            }
-            Self::Watermarked => {
-                "CASE WHEN p.kind = 'proof' THEN p.clean_ready AND
+        if self.0 {
+            "CASE WHEN p.kind = 'proof' THEN p.clean_ready AND
                 p.watermark_revision = COALESCE(
                     (SELECT s.watermark_revision FROM workspace_settings s
                      WHERE s.workspace_id = p.workspace_id), 0)
                 ELSE p.status = 'ready' END"
-            }
+        } else {
+            "CASE WHEN p.kind = 'proof' THEN p.clean_ready ELSE p.status = 'ready' END"
         }
     }
 }
@@ -315,7 +307,7 @@ impl PhotoRepository<'_> {
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
         kind: PhotoKind,
-        variant: Option<ProofVariant>,
+        variant: Option<Watermarked>,
     ) -> Result<Vec<Photo>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM photos AS p
@@ -323,7 +315,7 @@ impl PhotoRepository<'_> {
                AND {}
              ORDER BY created_at, id",
             Self::COLUMNS,
-            variant.map_or("true", ProofVariant::ready_condition)
+            variant.map_or("true", Watermarked::ready_condition)
         )))
         .bind(workspace_id)
         .bind(gallery_id)
@@ -362,7 +354,7 @@ impl PhotoRepository<'_> {
         &self,
         location: PhotoLocation,
         kind: PhotoKind,
-        variant: ProofVariant,
+        variant: Watermarked,
     ) -> Result<Vec<ReadyPhoto>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT id, revision, width, height FROM photos AS p
@@ -384,7 +376,7 @@ impl PhotoRepository<'_> {
         location: PhotoLocation,
         id: PhotoId,
         kind: PhotoKind,
-        variant: ProofVariant,
+        variant: Watermarked,
     ) -> Result<bool, DatabaseError> {
         Ok(sqlx::query_scalar(AssertSqlSafe(format!(
             "SELECT EXISTS(SELECT 1 FROM photos AS p
@@ -411,7 +403,7 @@ impl PhotoRepository<'_> {
         id: PhotoId,
         favorite: bool,
         kind: PhotoKind,
-        variant: ProofVariant,
+        variant: Watermarked,
     ) -> Result<FavoriteChange, DatabaseError> {
         let delivered: Option<bool> = sqlx::query_scalar(AssertSqlSafe(format!(
             "WITH target AS (
@@ -832,7 +824,7 @@ mod tests {
 
         let listed = database
             .repository::<PhotoRepository>()
-            .list_ready(location, PhotoKind::Proof, ProofVariant::Clean)
+            .list_ready(location, PhotoKind::Proof, Watermarked(false))
             .await
             .unwrap();
         let dimensions = |width, height| PhotoDimensions {
@@ -869,7 +861,7 @@ mod tests {
 
         assert!(
             photos
-                .is_ready(location, ready, PhotoKind::Proof, ProofVariant::Clean)
+                .is_ready(location, ready, PhotoKind::Proof, Watermarked(false))
                 .await
                 .unwrap()
         );
@@ -877,7 +869,7 @@ mod tests {
         for id in [processing, foreign, PhotoId::from(Uuid::new_v4())] {
             assert!(
                 !photos
-                    .is_ready(location, id, PhotoKind::Proof, ProofVariant::Clean)
+                    .is_ready(location, id, PhotoKind::Proof, Watermarked(false))
                     .await
                     .unwrap()
             );
@@ -911,7 +903,7 @@ mod tests {
         for id in [newer, older, newer] {
             assert_eq!(
                 photos
-                    .set_favorite(location, id, true, PhotoKind::Proof, ProofVariant::Clean)
+                    .set_favorite(location, id, true, PhotoKind::Proof, Watermarked(false))
                     .await
                     .unwrap(),
                 FavoriteChange::Applied
@@ -926,13 +918,7 @@ mod tests {
         for _ in 0..2 {
             assert_eq!(
                 photos
-                    .set_favorite(
-                        location,
-                        older,
-                        false,
-                        PhotoKind::Proof,
-                        ProofVariant::Clean
-                    )
+                    .set_favorite(location, older, false, PhotoKind::Proof, Watermarked(false))
                     .await
                     .unwrap(),
                 FavoriteChange::Applied
@@ -957,7 +943,7 @@ mod tests {
         for id in [processing, foreign, PhotoId::from(Uuid::new_v4())] {
             assert_eq!(
                 photos
-                    .set_favorite(location, id, true, PhotoKind::Proof, ProofVariant::Clean)
+                    .set_favorite(location, id, true, PhotoKind::Proof, Watermarked(false))
                     .await
                     .unwrap(),
                 FavoriteChange::NotFound
@@ -989,13 +975,7 @@ mod tests {
         let photos = database.repository::<PhotoRepository>();
 
         photos
-            .set_favorite(
-                location,
-                chosen,
-                true,
-                PhotoKind::Proof,
-                ProofVariant::Clean,
-            )
+            .set_favorite(location, chosen, true, PhotoKind::Proof, Watermarked(false))
             .await
             .unwrap();
         deliver(&pool, location).await;
@@ -1003,13 +983,7 @@ mod tests {
         for (id, favorite) in [(chosen, false), (spare, true)] {
             assert_eq!(
                 photos
-                    .set_favorite(
-                        location,
-                        id,
-                        favorite,
-                        PhotoKind::Proof,
-                        ProofVariant::Clean
-                    )
+                    .set_favorite(location, id, favorite, PhotoKind::Proof, Watermarked(false))
                     .await
                     .unwrap(),
                 FavoriteChange::Delivered
@@ -1029,9 +1003,9 @@ mod tests {
         let id = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
         let photos = database.repository::<PhotoRepository>();
         let (first, second, third) = tokio::join!(
-            photos.set_favorite(location, id, true, PhotoKind::Proof, ProofVariant::Clean),
-            photos.set_favorite(location, id, true, PhotoKind::Proof, ProofVariant::Clean),
-            photos.set_favorite(location, id, true, PhotoKind::Proof, ProofVariant::Clean),
+            photos.set_favorite(location, id, true, PhotoKind::Proof, Watermarked(false)),
+            photos.set_favorite(location, id, true, PhotoKind::Proof, Watermarked(false)),
+            photos.set_favorite(location, id, true, PhotoKind::Proof, Watermarked(false)),
         );
 
         for result in [first, second, third] {
@@ -1054,7 +1028,7 @@ mod tests {
 
         for id in [doomed, kept] {
             photos
-                .set_favorite(location, id, true, PhotoKind::Proof, ProofVariant::Clean)
+                .set_favorite(location, id, true, PhotoKind::Proof, Watermarked(false))
                 .await
                 .unwrap();
         }
@@ -1085,13 +1059,7 @@ mod tests {
         let photos = database.repository::<PhotoRepository>();
 
         photos
-            .set_favorite(
-                location,
-                chosen,
-                true,
-                PhotoKind::Proof,
-                ProofVariant::Clean,
-            )
+            .set_favorite(location, chosen, true, PhotoKind::Proof, Watermarked(false))
             .await
             .unwrap();
 
@@ -1792,7 +1760,7 @@ mod tests {
         );
         assert_eq!(
             photos
-                .list_ready(location, PhotoKind::Proof, ProofVariant::Clean)
+                .list_ready(location, PhotoKind::Proof, Watermarked(false))
                 .await
                 .unwrap()
                 .len(),

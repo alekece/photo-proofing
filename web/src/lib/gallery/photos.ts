@@ -79,15 +79,14 @@ export function hasCleanPhoto(photo: Photo): boolean {
 	return photo.clean_ready ?? photo.status === 'ready';
 }
 
-/** The proofs ready in the marked or clean variant, as the client gallery would show them. */
+/** The proofs ready in their marked or clean files, as the client gallery would show them. */
 export async function listClientPreviewPhotos(
 	galleryId: string,
 	watermarked: boolean,
 	fetcher: typeof fetch = fetch
 ) {
-	const variant = watermarked ? 'watermarked' : 'clean';
 	const response = await request(
-		`/api/v1/galleries/${encodeURIComponent(galleryId)}/photos?variant=${variant}`,
+		`/api/v1/galleries/${encodeURIComponent(galleryId)}/photos?watermark=${watermarked}`,
 		{},
 		fetcher
 	);

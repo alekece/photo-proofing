@@ -28,7 +28,7 @@ use actix_web_lab::extract::Query as LabQuery;
 use pp_database::gallery::{
     GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
 };
-use pp_database::photo::ProofVariant;
+use pp_database::photo::Watermarked;
 use pp_database::watermark::WatermarkRepository;
 use pp_database::workspace_deletion::WorkspaceDeletion;
 use pp_storage::Variant;
@@ -54,12 +54,12 @@ enum DerivativePhoto {
 }
 
 impl DerivativePhoto {
-    fn variant(self, variant: ProofVariant) -> Variant {
-        match (self, variant) {
-            (Self::Thumbnail, ProofVariant::Clean) => Variant::Thumbnail,
-            (Self::Preview, ProofVariant::Clean) => Variant::Preview,
-            (Self::Thumbnail, ProofVariant::Watermarked) => Variant::WatermarkedThumbnail,
-            (Self::Preview, ProofVariant::Watermarked) => Variant::WatermarkedPreview,
+    fn variant(self, watermarked: Watermarked) -> Variant {
+        match (self, watermarked.0) {
+            (Self::Thumbnail, false) => Variant::Thumbnail,
+            (Self::Preview, false) => Variant::Preview,
+            (Self::Thumbnail, true) => Variant::WatermarkedThumbnail,
+            (Self::Preview, true) => Variant::WatermarkedPreview,
         }
     }
 }

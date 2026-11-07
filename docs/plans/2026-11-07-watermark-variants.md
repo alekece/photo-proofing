@@ -325,9 +325,9 @@ thread replies; representation/policy discussions remain open for the maintainer
 
 Review feedback: the database should not enforce the saved policy; the caller decides what it
 wants. `ProofAccess`, `ProofDerivative`, `list_visible`, `is_visible`, `visible_derivative` and the
-authenticated `client-preview` routes are replaced by one `ProofVariant { Clean, Watermarked }`.
+authenticated `client-preview` routes are replaced by a single `Watermarked(bool)` newtype.
 `list_ready`, `is_ready` and `set_favorite` take it and only check file readiness (marked means the
-current workspace revision). Owner `photos` list/thumbnail/preview routes accept `?variant=`
+current workspace revision). Owner `photos` list/thumbnail/preview routes accept `?watermark=true|false`
 (default clean); the client preview requests the variant matching the gallery switch. Public shared
 routes derive the variant from the saved switch and never accept a selector.
 

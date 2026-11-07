@@ -130,7 +130,7 @@ The server, not an arbitrary browser parameter, chooses the image variant:
   change switches clients to finals, a proof hero outside that set is not served; the default
   title cover is shown. Choosing a different delivery hero policy is outside this change.
 - Owner cover surfaces always use the clean hero. The authenticated photographer
-  thumbnail/preview/list routes take an optional `?variant=clean|watermarked` and default to
+  thumbnail/preview/list routes take an optional `?watermark=true|false` and default to
   clean; the caller chooses, and the database only checks that those files are ready.
   Photographer tabs and viewers stay usable during marked-only regeneration whenever their
   clean pair is valid; they still show truthful marked-copy processing/failure feedback.

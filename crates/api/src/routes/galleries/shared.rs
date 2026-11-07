@@ -20,7 +20,7 @@ use actix_web::{
 use pp_core::notifications::PhotoId;
 use pp_database::{
     gallery::GalleryRepository,
-    photo::{PhotoRepository, ProofVariant},
+    photo::{PhotoRepository, Watermarked},
 };
 use pp_database::{
     gallery::SharedGallery,
@@ -140,7 +140,7 @@ async fn list_shared_photos(
         .list_ready(
             access.0.location,
             access.photo_set().kind(),
-            access.proof_variant(),
+            access.watermarked(),
         )
         .await?;
 
@@ -175,7 +175,7 @@ async fn add_favorite(
             path.into_inner().1,
             true,
             access.photo_set().kind(),
-            access.proof_variant(),
+            access.watermarked(),
         )
         .await?;
 
@@ -198,7 +198,7 @@ async fn remove_favorite(
             path.into_inner().1,
             false,
             access.photo_set().kind(),
-            access.proof_variant(),
+            access.watermarked(),
         )
         .await?;
 
@@ -215,12 +215,12 @@ async fn serve_shared_photo(
 ) -> Result<ImageFile, ErrorResponse> {
     let (_, photo_id, derivative) = path.into_inner();
     let location = access.0.location;
-    let variant = access.proof_variant();
+    let watermarked = access.watermarked();
 
     if !state
         .database()
         .repository::<PhotoRepository>()
-        .is_ready(location, photo_id, access.photo_set().kind(), variant)
+        .is_ready(location, photo_id, access.photo_set().kind(), watermarked)
         .await?
     {
         return Err(ErrorResponse::not_found());
@@ -228,7 +228,7 @@ async fn serve_shared_photo(
 
     ImageFile::read(
         state.storage(),
-        &PhotoKey::with_location(location, photo_id, derivative.variant(variant)),
+        &PhotoKey::with_location(location, photo_id, derivative.variant(watermarked)),
     )
     .await
     .map(ImageFile::proof)
@@ -252,7 +252,7 @@ async fn serve_shared_cover(
             access.0.location,
             id,
             access.photo_set().kind(),
-            ProofVariant::Clean,
+            Watermarked(false),
         )
         .await?
     {
@@ -757,7 +757,7 @@ mod tests {
 
         let response = test::call_service(
             &app,
-            client_request(&token, &format!("/photos/{photo}/preview?variant=clean")),
+            client_request(&token, &format!("/photos/{photo}/preview?watermark=false")),
         )
         .await;
 
@@ -768,7 +768,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri(&format!(
-                    "/api/v1/galleries/{gallery_id}/photos/{photo}/preview?variant=watermarked"
+                    "/api/v1/galleries/{gallery_id}/photos/{photo}/preview?watermark=true"
                 ))
                 .cookie(cookie.clone())
                 .to_request(),
@@ -804,7 +804,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri(&format!(
-                    "/api/v1/galleries/{gallery_id}/photos?variant=watermarked"
+                    "/api/v1/galleries/{gallery_id}/photos?watermark=true"
                 ))
                 .cookie(cookie.clone())
                 .to_request(),
@@ -818,7 +818,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri(&format!(
-                    "/api/v1/galleries/{gallery_id}/photos?variant=watermarked"
+                    "/api/v1/galleries/{gallery_id}/photos?watermark=true"
                 ))
                 .to_request(),
         )

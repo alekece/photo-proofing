@@ -148,7 +148,7 @@ copies when enabled. A missing or unreadable original fails processing with the 
 reasons. Already-published clean copies remain usable during marked-only failures.
 
 **Serving and upgrade.** Authenticated owner media is clean unless the caller asks for
-`?variant=watermarked`, as the client preview does; public client routes pick the variant
+`?watermark=true`, as the client preview does; public client routes pick the variant
 from the saved switch. Client cover access is scoped to
 the current permitted hero. Proof responses are private/no-store. Existing proof files might
 already be marked: migration defaults clean readiness to false and durably queues one-time
