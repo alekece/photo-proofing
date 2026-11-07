@@ -366,6 +366,7 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
             .service(routes::events::stream_events)
             .service(routes::upload::upload_limits)
             .configure(routes::auth::configure)
+            .configure(routes::settings::configure)
             .configure(routes::galleries::configure),
     );
 }

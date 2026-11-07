@@ -11,7 +11,9 @@ use actix_web::{
     error::JsonPayloadError,
     http::{StatusCode, header::RETRY_AFTER},
 };
-use pp_database::{error::DatabaseError, gallery::GalleryError, photo::FavoriteChange};
+use pp_database::{
+    error::DatabaseError, gallery::GalleryError, photo::FavoriteChange, watermark::SettingsError,
+};
 use pp_storage::StorageError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -106,6 +108,14 @@ impl ErrorResponse {
         )
     }
 
+    pub fn invalid_logo() -> Self {
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid PNG logo")
+    }
+
+    pub fn logo_too_large() -> Self {
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, "logo is too large")
+    }
+
     /// The server is busy: the client may retry after `retry_after`, sent in whole seconds.
     pub fn busy(retry_after: Duration) -> Self {
         Self {
@@ -154,6 +164,23 @@ impl From<GalleryError> for ErrorResponse {
         Self {
             context: vec![setting.to_string(), error.to_string()],
             ..Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid gallery setting")
+        }
+    }
+}
+
+impl From<SettingsError> for ErrorResponse {
+    fn from(error: SettingsError) -> Self {
+        let setting = match error {
+            SettingsError::NameRequired | SettingsError::NameTooLong => "studio_name",
+            SettingsError::LogoRequired => "logo",
+            SettingsError::GridCell(_) => "position",
+            SettingsError::SizeStep(_) => "size",
+            SettingsError::Database(_) => return Self::unavailable(),
+        };
+
+        Self {
+            context: vec![setting.to_owned(), error.to_string()],
+            ..Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid settings")
         }
     }
 }
