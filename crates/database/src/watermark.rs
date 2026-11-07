@@ -1,7 +1,7 @@
 //! Workspace watermark settings and preparation of marked proof copies.
 //!
-//! The *watermark* is what is actually drawn on a proof: [`Watermark`]. Saving settings or
-//! changing the effective watermark requeues proofs in every gallery. A gallery switch only
+//! The *watermark* is what is actually drawn on a proof: [`Watermark`]. Changing the effective
+//! watermark requeues proofs in every gallery. A gallery switch only
 //! chooses the served pair. Clean readiness survives marked-only regeneration, while client
 //! marked access requires the current workspace revision.
 //! A render proves it used the current settings with a [`WatermarkStamp`]; see
@@ -360,6 +360,13 @@ impl WatermarkRepository<'_> {
 
         let mut transaction = self.pool.begin().await?;
 
+        // Photo insertion takes a foreign-key lock on this row. Prevent new uploads from
+        // escaping the regeneration snapshot and starting against uncommitted settings.
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR UPDATE")
+            .bind(workspace_id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+
         sqlx::query(
             "INSERT INTO workspace_settings(workspace_id) VALUES ($1) ON CONFLICT DO NOTHING",
         )
@@ -472,8 +479,9 @@ impl WatermarkRepository<'_> {
     }
 
     /// Sends the workspace's `ready` and `processing` proofs back to `waiting` with a new job
-    /// each. Photos lock in id order; jobs are only inserted, so this cannot deadlock with a
-    /// worker, which locks a job and then its photo.
+    /// each. Waiting proofs also lock, so their workers cannot read the old settings after
+    /// being skipped by regeneration. Photos lock in id order; jobs are only inserted, so
+    /// this cannot deadlock with a worker, which locks a job and then its photo.
     async fn regenerate_in(
         transaction: &mut Transaction<'_, Postgres>,
         workspace_id: WorkspaceId,
@@ -481,14 +489,15 @@ impl WatermarkRepository<'_> {
     ) -> Result<u64, sqlx::Error> {
         let connection: &mut PgConnection = transaction;
         let queued = sqlx::query(
-            "WITH stale AS (
-                 SELECT p.id FROM photos p JOIN galleries g ON g.id = p.gallery_id
-                 WHERE p.workspace_id = $1 AND p.kind = 'proof' AND p.status IN ('ready', 'processing')
+            "WITH locked AS (
+                 SELECT p.id, p.status FROM photos p JOIN galleries g ON g.id = p.gallery_id
+                 WHERE p.workspace_id = $1 AND p.kind = 'proof'
+                   AND p.status IN ('waiting', 'ready', 'processing')
                  ORDER BY p.id
                  FOR UPDATE OF p
              ), reset AS (
                  UPDATE photos SET status = 'waiting', failure_reason = NULL
-                 WHERE id IN (SELECT id FROM stale)
+                 WHERE id IN (SELECT id FROM locked WHERE status IN ('ready', 'processing'))
                  RETURNING id
              )
              INSERT INTO jobs(id, payload, max_attempts)
@@ -513,15 +522,17 @@ mod tests {
 
     use pp_core::types::generate::Generate;
     use sqlx::PgPool;
+    use tokio::{task, time};
 
     use super::*;
     use crate::{
         Database,
-        jobs::{Job, JobKind, JobRepository, PhotoUpdate, Publication},
+        jobs::{Job, JobKind, JobRepository, PhotoUpdate, ProcessPhoto, Publication},
         photo::{
             FavoriteChange, NewPhoto, PhotoDimensions, PhotoKind, PhotoRepository, PhotoStatus,
             ProofAccess,
         },
+        photo_retry::PhotoRetry,
         tests::TestRepository,
     };
 
@@ -1025,6 +1036,381 @@ mod tests {
             assert_eq!(fixture.status(photo).await, PhotoStatus::Waiting);
             assert_eq!(fixture.jobs(photo).await, 1);
         }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_waiting_upload_cannot_start_with_settings_that_skip_its_regeneration(pool: PgPool) {
+        waiting_upload_during_settings_save(pool, true).await;
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn regeneration_requeues_an_upload_that_starts_before_its_row_is_locked(pool: PgPool) {
+        waiting_upload_during_settings_save(pool, false).await;
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn an_upload_inserted_during_settings_save_retains_a_current_job(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+
+        fixture.save(update("Before")).await.unwrap();
+
+        let gallery = fixture.gallery(false).await;
+        let blocker = fixture.photo(gallery, PhotoStatus::Ready).await;
+        let mut locked = fixture.pool.begin().await.unwrap();
+
+        sqlx::query("SELECT id FROM photos WHERE id = $1 FOR UPDATE")
+            .bind(blocker)
+            .fetch_one(&mut *locked)
+            .await
+            .unwrap();
+
+        let saving = task::spawn({
+            let database = fixture.database.clone();
+            let workspace = fixture.workspace_id;
+
+            async move {
+                database
+                    .repository::<WatermarkRepository>()
+                    .save(workspace, update("After"))
+                    .await
+                    .unwrap();
+            }
+        });
+
+        time::timeout(
+            Duration::from_secs(5),
+            fixture
+                .database
+                .repository::<TestRepository>()
+                .wait_for_a_lock_waiter(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        let mut inserting = task::spawn({
+            let fixture = Fixture {
+                pool: fixture.pool.clone(),
+                database: fixture.database.clone(),
+                workspace_id: fixture.workspace_id,
+            };
+
+            async move { fixture.photo(gallery, PhotoStatus::Waiting).await }
+        });
+        let inserted = tokio::select! {
+            upload = &mut inserting => Some(upload.unwrap()),
+            () = wait_for_lock_waiters(&fixture.pool, 2) => None,
+        };
+
+        locked.commit().await.unwrap();
+        saving.await.unwrap();
+
+        assert!(
+            inserted.is_none(),
+            "new uploads must wait for the settings snapshot"
+        );
+
+        let upload = inserting.await.unwrap();
+        let jobs = fixture.database.repository::<JobRepository>();
+        let blocker_job = jobs.claim(KINDS, LEASE).await.unwrap().unwrap();
+
+        assert_eq!(
+            blocker_job.payload::<ProcessPhoto>().unwrap().photo_id,
+            blocker
+        );
+        assert!(jobs.complete(&blocker_job).await.unwrap().is_current());
+
+        jobs.enqueue(ProcessPhoto { photo_id: upload }, 5.try_into().unwrap())
+            .await
+            .unwrap();
+
+        let job = claimed_job(&fixture, upload).await;
+
+        assert!(
+            fixture
+                .database
+                .repository::<PhotoRepository>()
+                .mark_processing(upload)
+                .await
+                .unwrap()
+        );
+
+        let proof = fixture.proof(upload).await.unwrap();
+
+        assert_eq!(proof.stamp.revision(), Some(2));
+
+        let Publication::Open(publication) = jobs
+            .begin_publication(&job, upload, proof.stamp)
+            .await
+            .unwrap()
+        else {
+            panic!("the newly accepted upload must retain a publishable job");
+        };
+        let (completion, photo_update) = publication.finish().await.unwrap();
+
+        assert!(completion.is_current());
+        assert_eq!(photo_update, PhotoUpdate::Saved);
+        assert_eq!(fixture.jobs(upload).await, 0);
+        assert_eq!(fixture.status(upload).await, PhotoStatus::Ready);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_failed_retry_during_settings_save_keeps_a_publishable_job(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+
+        fixture.save(update("Before")).await.unwrap();
+
+        let gallery = fixture.gallery(false).await;
+        let failed = fixture
+            .photo(gallery, PhotoStatus::Failed("Processing failed".to_owned()))
+            .await;
+        let blocker = fixture.photo(gallery, PhotoStatus::Ready).await;
+        let mut locked = fixture.pool.begin().await.unwrap();
+
+        sqlx::query("SELECT id FROM photos WHERE id = $1 FOR UPDATE")
+            .bind(blocker)
+            .fetch_one(&mut *locked)
+            .await
+            .unwrap();
+
+        let saving = task::spawn({
+            let database = fixture.database.clone();
+            let workspace = fixture.workspace_id;
+
+            async move {
+                database
+                    .repository::<WatermarkRepository>()
+                    .save(workspace, update("After"))
+                    .await
+                    .unwrap();
+            }
+        });
+
+        wait_for_lock_waiters(&fixture.pool, 1).await;
+
+        let mut retrying = task::spawn({
+            let database = fixture.database.clone();
+            let workspace = fixture.workspace_id;
+
+            async move {
+                assert_eq!(
+                    database
+                        .repository::<PhotoRetry>()
+                        .retry_failed(workspace, gallery, PhotoKind::Proof, Some(failed))
+                        .await
+                        .unwrap(),
+                    Some(1)
+                );
+                assert!(
+                    database
+                        .repository::<PhotoRepository>()
+                        .mark_processing(failed)
+                        .await
+                        .unwrap()
+                );
+
+                database
+                    .repository::<WatermarkRepository>()
+                    .proof_watermark(failed)
+                    .await
+                    .unwrap()
+                    .unwrap()
+            }
+        });
+        let proof = tokio::select! {
+            proof = &mut retrying => Some(proof.unwrap()),
+            () = wait_for_lock_waiters(&fixture.pool, 2) => None,
+        };
+
+        locked.commit().await.unwrap();
+        saving.await.unwrap();
+
+        let proof = match proof {
+            Some(proof) => proof,
+            None => retrying.await.unwrap(),
+        };
+
+        assert_eq!(proof.stamp.revision(), Some(2));
+        assert_eq!(fixture.jobs(failed).await, 1);
+
+        let jobs = fixture.database.repository::<JobRepository>();
+        let blocker_job = jobs.claim(KINDS, LEASE).await.unwrap().unwrap();
+
+        assert_eq!(
+            blocker_job.payload::<ProcessPhoto>().unwrap().photo_id,
+            blocker
+        );
+        assert!(jobs.complete(&blocker_job).await.unwrap().is_current());
+
+        let job = claimed_job(&fixture, failed).await;
+        let Publication::Open(publication) = jobs
+            .begin_publication(&job, failed, proof.stamp)
+            .await
+            .unwrap()
+        else {
+            panic!("the manual retry must retain a publishable job");
+        };
+        let (completion, photo_update) = publication.finish().await.unwrap();
+
+        assert!(completion.is_current());
+        assert_eq!(photo_update, PhotoUpdate::Saved);
+        assert_eq!(fixture.status(failed).await, PhotoStatus::Ready);
+        assert_eq!(fixture.jobs(failed).await, 0);
+    }
+
+    async fn waiting_upload_during_settings_save(pool: PgPool, upload_before_blocker: bool) {
+        let fixture = Fixture::new(pool).await;
+
+        fixture.save(update("Before")).await.unwrap();
+
+        let gallery = fixture.gallery(false).await;
+        fixture.photo(gallery, PhotoStatus::Ready).await;
+        fixture.photo(gallery, PhotoStatus::Ready).await;
+
+        let ids: Vec<PhotoId> =
+            sqlx::query_scalar("SELECT id FROM photos WHERE workspace_id = $1 ORDER BY id")
+                .bind(fixture.workspace_id)
+                .fetch_all(&fixture.pool)
+                .await
+                .unwrap();
+        let (upload, blocker) = if upload_before_blocker {
+            (ids[0], ids[1])
+        } else {
+            (ids[1], ids[0])
+        };
+        let jobs = fixture.database.repository::<JobRepository>();
+
+        fixture
+            .database
+            .repository::<TestRepository>()
+            .force_photo_status(upload, &PhotoStatus::Waiting)
+            .await
+            .unwrap();
+        jobs.enqueue(ProcessPhoto { photo_id: upload }, 5.try_into().unwrap())
+            .await
+            .unwrap();
+
+        let job = claimed_job(&fixture, upload).await;
+        let mut locked = fixture.pool.begin().await.unwrap();
+
+        sqlx::query("SELECT id FROM photos WHERE id = $1 FOR UPDATE")
+            .bind(blocker)
+            .fetch_one(&mut *locked)
+            .await
+            .unwrap();
+
+        let saving = task::spawn({
+            let database = fixture.database.clone();
+            let workspace = fixture.workspace_id;
+
+            async move {
+                database
+                    .repository::<WatermarkRepository>()
+                    .save(workspace, update("After"))
+                    .await
+                    .unwrap();
+            }
+        });
+
+        time::timeout(
+            Duration::from_secs(5),
+            fixture
+                .database
+                .repository::<TestRepository>()
+                .wait_for_a_lock_waiter(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        // Pause the save during its ordered scan. The upload must either wait for the save
+        // or retain a replacement job when it starts before the scan reaches its row.
+        let mut starting = task::spawn({
+            let database = fixture.database.clone();
+
+            async move {
+                assert!(
+                    database
+                        .repository::<PhotoRepository>()
+                        .mark_processing(upload)
+                        .await
+                        .unwrap()
+                );
+                database
+                    .repository::<WatermarkRepository>()
+                    .proof_watermark(upload)
+                    .await
+                    .unwrap()
+                    .unwrap()
+            }
+        });
+        let proof = tokio::select! {
+            proof = &mut starting => Some(proof.unwrap()),
+            () = wait_for_lock_waiters(&fixture.pool, 2) => None,
+        };
+
+        locked.commit().await.unwrap();
+        saving.await.unwrap();
+
+        let proof = match proof {
+            Some(proof) => proof,
+            None => starting.await.unwrap(),
+        };
+
+        if !upload_before_blocker {
+            assert_eq!(proof.stamp.revision(), Some(1));
+            assert_eq!(fixture.status(upload).await, PhotoStatus::Waiting);
+            assert_eq!(fixture.jobs(upload).await, 2);
+
+            assert!(matches!(
+                jobs.begin_publication(&job, upload, proof.stamp)
+                    .await
+                    .unwrap(),
+                Publication::Closed(_, PhotoUpdate::Unchanged)
+            ));
+            assert_eq!(fixture.jobs(upload).await, 1);
+
+            return;
+        }
+
+        assert_eq!(proof.stamp.revision(), Some(2));
+        assert_eq!(fixture.jobs(upload).await, 1);
+
+        let Publication::Open(publication) = jobs
+            .begin_publication(&job, upload, proof.stamp)
+            .await
+            .unwrap()
+        else {
+            panic!("the waiting upload must retain a publishable job");
+        };
+        let (completion, photo_update) = publication.finish().await.unwrap();
+
+        assert!(completion.is_current());
+        assert_eq!(photo_update, PhotoUpdate::Saved);
+        assert_eq!(fixture.status(upload).await, PhotoStatus::Ready);
+        assert_eq!(fixture.jobs(upload).await, 0);
+    }
+
+    async fn wait_for_lock_waiters(pool: &PgPool, count: i64) {
+        time::timeout(Duration::from_secs(5), async {
+            loop {
+                let waiters: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM pg_stat_activity
+                     WHERE datname = current_database() AND wait_event_type = 'Lock'",
+                )
+                .fetch_one(pool)
+                .await
+                .unwrap();
+
+                if waiters >= count {
+                    return;
+                }
+
+                time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
     }
 
     #[sqlx::test(migrations = "./migrations")]

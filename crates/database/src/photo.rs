@@ -225,6 +225,9 @@ impl PhotoRepository<'_> {
     const COLUMNS: &'static str = "id, clean_ready, revision, original_name, size, width, height, status::text AS status, failure_reason, favorite, created_at";
 
     /// Inserts only photo metadata in the caller's transaction.
+    ///
+    /// Locks the workspace before inserting, so processing-settings changes cannot miss a
+    /// new upload and workspace/gallery foreign-key locks keep a consistent order.
     pub async fn insert_in(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
@@ -236,6 +239,12 @@ impl PhotoRepository<'_> {
             .map_err(|error| sqlx::Error::Encode(error.into()))?;
         let height = i32::try_from(photo.dimensions.height.get())
             .map_err(|error| sqlx::Error::Encode(error.into()))?;
+
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR KEY SHARE")
+            .bind(photo.workspace_id)
+            .fetch_optional(&mut **transaction)
+            .await?;
+
         let inserted: Option<Photo> = sqlx::query_as(
             "INSERT INTO photos
                  (id, workspace_id, gallery_id, original_name, size, width, height, kind)

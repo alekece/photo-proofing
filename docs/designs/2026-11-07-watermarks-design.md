@@ -108,13 +108,20 @@ and the original is only read.
 thousands of photos stay one short transaction). Affected means every proof in the workspace,
 including disabled galleries, when the effective revision increases. Switches change only the
 gallery row. Published clean readiness survives marked updates and failures. Lock order is
-the settings row first, then the photos in id order; inserting jobs locks nothing else, and the
+the workspace row first, then settings and photos in id order; inserting jobs locks nothing else, and the
 regeneration never deletes or updates existing jobs, so it cannot deadlock with the worker
 (which locks job, then photo). `waiting` photos need no job: their queued job reads the settings
-after it marks the photo `processing`, and any change after that sees `processing` and
-requeues. `failed` photos use the current settings when retried. A stale job that later exhausts
+after it marks the photo `processing`. The regeneration scan locks waiting proofs too,
+without resetting them or adding jobs: a worker starting after its row was scanned waits for
+the settings commit and reads the new revision. A worker that started before its row was
+locked is seen as processing and requeued. `failed` photos use the current settings when retried. A stale job that later exhausts
 its attempts on an infrastructure error fails its photo like any other job; the photographer
 retries it. No new job kind and no change to the job payload.
+
+Photo intake and manual retry take a shared foreign-key lock on the workspace before
+inserting or reactivating photos; settings
+saves hold its exclusive lock through regeneration. This prevents new rows from escaping
+the scan and starting with uncommitted old settings, without changing upload/job contents.
 
 **Publication.** The handler marks the photo `processing`, then reads clean readiness and
 settings (their *stamp*: workspace revision, independent of the switch), renders, and stages
