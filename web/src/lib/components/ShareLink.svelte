@@ -31,9 +31,6 @@
 	/>
 	<div class="flex gap-2 [&>*]:min-h-9! [&>*]:flex-1">
 		<Button size="sm" onclick={copyLink}>Copy link</Button>
-		<Button variant="outline" size="sm" href={link} target="_blank" rel="noopener noreferrer"
-			>Open</Button
-		>
 	</div>
 	<p class="text-xs empty:hidden" role="status">{copyStatus}</p>
 </div>

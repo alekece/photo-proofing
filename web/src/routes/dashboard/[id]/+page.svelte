@@ -45,10 +45,10 @@
 	let expiredSince = $state<string | null>(null);
 	let photoCount = $state<number | null>(null);
 	let favoriteCount = $state<number | null>(null);
+	let heroRevision = $state<number | undefined>();
 	let previewing = $state(false);
 	let signOutError = $state('');
 	let inflight = $state(0);
-	let justSaved = $state(false);
 	// Attempted values of fields whose last save failed; cleared per field on that field's success.
 	let failed = $state<GalleryChanges>({});
 	let hasFailures = $derived(Object.keys(failed).length > 0);
@@ -80,11 +80,10 @@
 		const number = ++saveCount;
 		for (const key of keys) latestSave[key] = number;
 		const isLatest = (key: keyof GalleryChanges) => latestSave[key] === number;
-		// Only the title keeps its inline status; the side nav answers with toasts.
+		// Title failures stay beside the field; setting failures use toasts.
 		const inTitle = keys.length === 1 && keys[0] === 'title';
 
 		inflight++;
-		justSaved = false;
 		void activity();
 		try {
 			const result = await updateGallery(saved.id, changes);
@@ -93,11 +92,10 @@
 				saved = { ...saved, [key]: result[key], updated_at: result.updated_at };
 				delete failed[key];
 			}
-			// Expiry decides whether the gallery counts as expired.
-			saved = { ...saved, states: result.states };
-			if (inTitle) {
-				if (current.length > 0) justSaved = true;
-			} else toasts.success('Saved');
+			// A response for another field may still describe an older expiry.
+			if (current.length > 0 && result.expires_at === saved.expires_at) {
+				saved = { ...saved, states: result.states };
+			}
 
 			return true;
 		} catch (error) {
@@ -229,6 +227,7 @@
 		</p>{/if}
 
 	<GalleryHeader
+		{heroRevision}
 		gallery={{ ...saved, share_token: shareToken }}
 		{photoCount}
 		{favoriteCount}
@@ -269,8 +268,6 @@
 							onmousedown={(event) => event.preventDefault()}
 							onclick={retry}>Retry</Button
 						>
-					{:else if justSaved}
-						<span>Saved</span>
 					{/if}
 				</div>
 			</div>
@@ -295,10 +292,12 @@
 		included={saved.included_photos}
 		layout={saved.layout}
 		bind:heroId={saved.hero_id}
+		bind:heroRevision
 		bind:photoCount
 		bind:favoriteCount
 		watermarked={saved.watermark_enabled}
 		delivered={saved.states.includes('delivered')}
+		shared={shareToken !== null}
 	/>
 </div>
 {#if previewing}

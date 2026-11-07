@@ -30,7 +30,9 @@
 {#if showLogo || showName}
 	<div
 		data-testid="studio-signature"
-		class="flex items-center justify-center gap-2.5 {stacked ? 'flex-col gap-2' : ''} {className}"
+		class="flex items-center justify-center gap-2.5 {stacked || signature === 'both'
+			? 'flex-col gap-2'
+			: ''} {className}"
 	>
 		{#if showLogo}
 			<img src={logo} alt="" class={stacked ? 'size-11' : 'size-[2.2em]'} />

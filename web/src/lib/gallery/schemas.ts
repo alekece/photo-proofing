@@ -53,11 +53,19 @@ export const sharedGallerySchema = v.object({
 	/** Once delivered, the selection is final and read-only. */
 	delivered: v.boolean(),
 	/** The cover photo, only while it is ready; `null` means no cover. */
-	hero_id: v.nullable(v.string())
+	hero_id: v.nullable(v.string()),
+	studio_name: v.optional(v.string()),
+	signature: v.optional(v.picklist(['name', 'logo', 'both', 'none'])),
+	has_logo: v.optional(v.boolean())
 });
 
 /** A photo a client may see; mirrors the API's `ReadyPhoto`. */
-export const sharedPhotoSchema = v.object({ id: v.string(), width: finite, height: finite });
+export const sharedPhotoSchema = v.object({
+	id: v.string(),
+	width: finite,
+	height: finite,
+	revision: v.optional(v.pipe(finite, v.integer(), v.minValue(0)))
+});
 
 export const photoStatusSchema = v.union([
 	v.picklist(['waiting', 'processing', 'ready']),
@@ -66,6 +74,7 @@ export const photoStatusSchema = v.union([
 
 export const photoSchema = v.object({
 	id: v.string(),
+	revision: v.optional(v.pipe(finite, v.integer(), v.minValue(0))),
 	original_name: v.string(),
 	size: finite,
 	width: finite,

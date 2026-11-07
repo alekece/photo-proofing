@@ -19,7 +19,12 @@ use actix_web::{
 };
 use pp_core::notifications::PhotoId;
 use pp_database::{gallery::GalleryRepository, photo::PhotoRepository};
+use pp_database::{
+    gallery::SharedGallery,
+    watermark::{CoverSignature, WatermarkRepository},
+};
 use pp_storage::PhotoKey;
+use serde::Serialize;
 
 use super::DerivativePhoto;
 use crate::{
@@ -37,17 +42,73 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(list_favorites)
         .service(add_favorite)
         .service(remove_favorite)
+        .service(serve_shared_logo)
         .service(serve_shared_photo);
 }
 
 #[get("/shared/{token}")]
 async fn show_shared_gallery(
+    state: Data<ApiState>,
     ClientAccess(access): ClientAccess,
 ) -> Result<HttpResponse, ErrorResponse> {
+    let settings = state
+        .database()
+        .repository::<WatermarkRepository>()
+        .settings(access.location.workspace_id)
+        .await?;
     Ok(HttpResponse::Ok()
         .no_store()
         .no_referrer()
-        .json(access.gallery))
+        .json(SharedGalleryView {
+            gallery: access.gallery,
+            studio_name: if matches!(
+                settings.signature,
+                CoverSignature::Name | CoverSignature::Both
+            ) {
+                settings.studio_name
+            } else {
+                String::new()
+            },
+            signature: settings.signature,
+            has_logo: settings.logo.is_some()
+                && matches!(
+                    settings.signature,
+                    CoverSignature::Logo | CoverSignature::Both
+                ),
+        }))
+}
+
+#[derive(Serialize)]
+struct SharedGalleryView {
+    #[serde(flatten)]
+    gallery: SharedGallery,
+    studio_name: String,
+    signature: CoverSignature,
+    has_logo: bool,
+}
+
+#[get("/shared/{token}/logo")]
+async fn serve_shared_logo(
+    state: Data<ApiState>,
+    access: ClientAccess,
+) -> Result<HttpResponse, ErrorResponse> {
+    let settings = state
+        .database()
+        .repository::<WatermarkRepository>()
+        .settings(access.0.location.workspace_id)
+        .await?;
+    if !matches!(
+        settings.signature,
+        CoverSignature::Logo | CoverSignature::Both
+    ) {
+        return Err(ErrorResponse::not_found());
+    }
+    let logo = settings.logo.ok_or_else(ErrorResponse::not_found)?;
+    Ok(HttpResponse::Ok()
+        .no_store()
+        .no_referrer()
+        .content_type("image/png")
+        .body(logo))
 }
 
 #[post("/shared/{token}/open")]
@@ -244,9 +305,57 @@ mod tests {
                 "expires_at": null,
                 "included_photos": null,
                 "delivered": false,
-                "hero_id": null
+                "hero_id": null,
+                "studio_name": "",
+                "signature": "name",
+                "has_logo": false
             })
         );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn shared_signature_logo_requires_an_available_link(pool: PgPool) {
+        let token = shared_gallery(&pool, json!({})).await;
+        let expired = shared_gallery(&pool, json!({"expires_at": "2000-01-01T00:00:00Z"})).await;
+        let workspace: uuid::Uuid =
+            sqlx::query_scalar("SELECT workspace_id FROM galleries WHERE share_token = $1")
+                .bind(&token)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        sqlx::query("INSERT INTO workspace_settings(workspace_id, studio_name, signature, logo) VALUES ($1, 'Studio', 'both', $2)")
+            .bind(workspace).bind(b"normalized PNG".as_slice()).execute(&pool).await.unwrap();
+        let (state, _directory) = app_state(pool).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+
+        let response = test::call_service(&app, get(&token).to_request()).await;
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(body["studio_name"], "Studio");
+        assert_eq!(body["signature"], "both");
+        assert_eq!(body["has_logo"], true);
+        for (link, expected) in [
+            (&token, StatusCode::OK),
+            (&expired, StatusCode::NOT_FOUND),
+            (&"A".repeat(22), StatusCode::NOT_FOUND),
+        ] {
+            let response = test::call_service(
+                &app,
+                test::TestRequest::get()
+                    .uri(&format!("/api/v1/galleries/shared/{link}/logo"))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), expected);
+            if expected == StatusCode::OK {
+                assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
+                assert_eq!(test::read_body(response).await.as_ref(), b"normalized PNG");
+            }
+        }
     }
 
     fn open(token: &str) -> test::TestRequest {
@@ -566,8 +675,8 @@ mod tests {
         assert_eq!(
             body,
             json!([
-                {"id": first, "width": 2, "height": 1},
-                {"id": second, "width": 2, "height": 1},
+                {"id": first, "width": 2, "height": 1, "revision": 1},
+                {"id": second, "width": 2, "height": 1, "revision": 1},
             ])
         );
     }

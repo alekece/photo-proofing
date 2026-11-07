@@ -32,6 +32,11 @@
 		gallery={data.gallery}
 		proofs={data.proofs}
 		favorites={data.favorites}
+		studio={data.gallery.studio_name}
+		studioLogo={data.gallery.has_logo
+			? `/api/v1/galleries/shared/${encodeURIComponent(params.token)}/logo`
+			: null}
+		signature={data.gallery.signature}
 	/>
 {:else}
 	<AccessUnavailable />

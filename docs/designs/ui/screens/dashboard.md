@@ -24,6 +24,10 @@ The photographer's home: what's new, and every gallery as a cover. Route `/dashb
    creates a gallery.
 5. **Footer:** workspace name and totals ("9 galleries · 412 photos").
 
+Search keeps a restrained, visible warm focus outline. The Status trigger has a fixed desktop
+width, truncates long summaries, and anchors the menu's right edge to its own right edge, so
+toggling statuses never moves the menu.
+
 ## Languages
 
 The workspace has one language, English or French, chosen from the top bar. Every screen follows it,

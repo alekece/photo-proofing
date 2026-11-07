@@ -38,7 +38,8 @@ impl ResponseBuilderExt for HttpResponseBuilder {
 }
 
 /// A private image: kept by the browser only, never sniffed as another type, and never
-/// named in a `Referer`. An image never changes for its id, so the browser may reuse it.
+/// named in a `Referer`. Callers include the published render revision in image URLs so a
+/// regenerated derivative does not reuse the previous image's private cache entry.
 pub(crate) struct ImageFile {
     content_type: ContentType,
     bytes: Vec<u8>,

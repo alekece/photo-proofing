@@ -43,13 +43,14 @@
 
 <Popover
 	{disabled}
-	rootClass="max-sm:flex-1"
+	align="end"
+	rootClass="w-40 shrink-0 max-sm:flex-1"
 	class="{menuButton} {isDefault ? '' : 'font-semibold'}"
-	panelClass="mt-1.5 w-60 max-sm:left-0"
+	panelClass="mt-1.5 w-60"
 >
 	{#snippet trigger()}
 		<ListFilter size={16} aria-hidden="true" />
-		<span class="max-sm:grow max-sm:text-left">{summary}</span>
+		<span class="min-w-0 flex-1 truncate text-left" title={summary}>{summary}</span>
 		<ChevronDown size={12} aria-hidden="true" />
 	{/snippet}
 	<ul class="grid">

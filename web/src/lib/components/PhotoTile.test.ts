@@ -49,6 +49,11 @@ describe('PhotoTile hero star', () => {
 });
 
 describe('PhotoTile states', () => {
+	it('centers processing feedback inside the aspect-ratio tile', () => {
+		render(PhotoTile, { name: 'a.jpg', state: 'processing', ratio: 3 / 2 });
+		expect(screen.getByText('Processing').parentElement?.className).toContain('absolute inset-0');
+	});
+
 	it('shows a failed upload with its reason, Retry and ×', async () => {
 		const onretry = vi.fn();
 		const onremove = vi.fn();

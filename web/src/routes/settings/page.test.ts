@@ -35,6 +35,27 @@ function open() {
 }
 
 describe('Settings page', () => {
+	it('shows Saving and prevents another submission while saving', async () => {
+		let finish!: (response: Response) => void;
+		const fetcher = vi.fn((url: string) =>
+			url.includes('/auth/')
+				? Promise.resolve(new Response(null, { status: 204 }))
+				: new Promise<Response>((resolve) => (finish = resolve))
+		);
+		vi.stubGlobal('fetch', fetcher);
+		open();
+		const user = userEvent.setup();
+
+		await user.type(screen.getByLabelText('Studio name'), 'Studio X');
+		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		const pending = screen.getByRole('button', { name: /Saving/ });
+		expect(pending.hasAttribute('disabled')).toBe(true);
+		await user.click(pending);
+		expect(fetcher.mock.calls.filter(([url]) => url === '/api/v1/settings')).toHaveLength(1);
+		finish(Response.json(saved));
+		expect(await screen.findByRole('button', { name: /Saved/ })).toBeTruthy();
+	});
+
 	it('keeps Save and Cancel disabled until something changes', async () => {
 		open();
 		const user = userEvent.setup();
@@ -49,6 +70,30 @@ describe('Settings page', () => {
 		expect(screen.getByRole('button', { name: 'Save changes' }).hasAttribute('disabled')).toBe(
 			false
 		);
+	});
+
+	it('preserves settings edited after a save started', async () => {
+		let finish!: (response: Response) => void;
+		vi.stubGlobal('fetch', (url: string) =>
+			url.includes('/auth/')
+				? Promise.resolve(new Response(null, { status: 204 }))
+				: new Promise<Response>((resolve) => (finish = resolve))
+		);
+		open();
+		const user = userEvent.setup();
+		const name = screen.getByLabelText('Studio name');
+
+		await user.type(name, 'Studio X');
+		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await user.type(name, ' II');
+		await user.click(screen.getByRole('radio', { name: 'None' }));
+		finish(Response.json(saved));
+
+		await vi.waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Save changes' })).toHaveProperty('disabled', false)
+		);
+		expect(name).toHaveProperty('value', 'Studio X II');
+		expect(screen.getByRole('radio', { name: 'None' }).getAttribute('aria-checked')).toBe('true');
 	});
 
 	it('saves, shows Saved and announces the regeneration', async () => {

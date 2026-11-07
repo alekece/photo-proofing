@@ -18,6 +18,7 @@
 		gallery,
 		photoCount = null,
 		favoriteCount = null,
+		heroRevision,
 		heading,
 		onpreview,
 		onshare,
@@ -27,6 +28,7 @@
 		gallery: Gallery;
 		photoCount?: number | null;
 		favoriteCount?: number | null;
+		heroRevision?: number;
 		heading: Snippet;
 		onpreview: () => void;
 		onshare: () => void;
@@ -90,7 +92,7 @@
 >
 	{#if gallery.hero_id}
 		<img
-			src={previewUrl(gallery.id, gallery.hero_id)}
+			src={previewUrl(gallery.id, gallery.hero_id, 'photos', heroRevision)}
 			alt=""
 			class="absolute inset-0 -z-20 size-full animate-hero-in object-cover {archived
 				? 'brightness-[0.85] grayscale-[0.7]'

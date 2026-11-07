@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
-	import { Check, Undo2, Upload, X } from '@lucide/svelte';
+	import { Check, LoaderCircle, Undo2, Upload, X } from '@lucide/svelte';
 	import { authRequest } from '#lib/auth.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
@@ -61,12 +61,17 @@
 		if (!dirty || saving) return;
 
 		saving = true;
+		clearTimeout(timer);
+		feedback = null;
 		try {
-			const watermark = watermarkChanged(draft, saved);
+			const submitted = { ...draft };
+			const watermark = watermarkChanged(submitted, saved);
 
-			saved = await api.save({ ...draft }, saved);
-			draft = { ...saved };
-			show('saved', SAVED_MS);
+			saved = await api.save(submitted, saved);
+			for (const key of Object.keys(submitted) as (keyof WorkspaceSettings)[]) {
+				if (draft[key] === submitted[key]) draft = { ...draft, [key]: saved[key] };
+			}
+			if (!dirty) show('saved', SAVED_MS);
 			if (watermark) toasts.success('Watermarked proofs are being regenerated');
 		} catch (error) {
 			if (error instanceof SettingsApiError && error.status === 422) {
@@ -139,7 +144,7 @@
 		<h1 class="m-0 flex-1 text-4xl leading-[1.1] max-sm:basis-full sm:text-[3.25rem]">Settings</h1>
 		<Button
 			variant="outline"
-			disabled={!dirty}
+			disabled={!dirty || saving}
 			onclick={cancel}
 			class="{action} border-[1.5px]! border-border! bg-input! {feedback === 'reverted'
 				? 'border-[#d8cab7]! bg-[#efe7dc]! opacity-100!'
@@ -165,8 +170,19 @@
 		>
 			<span
 				class="{face} {feedback === 'saved' ? '-translate-y-2 opacity-0' : ''}"
-				aria-hidden={feedback === 'saved'}>Save changes</span
+				aria-hidden={feedback === 'saved'}
 			>
+				{#if saving}
+					<LoaderCircle
+						size={16}
+						class="animate-spin motion-reduce:animate-none"
+						aria-hidden="true"
+					/>
+					Saving…
+				{:else}
+					Save changes
+				{/if}
+			</span>
 			<span
 				class="{face} {feedback === 'saved' ? '' : 'translate-y-2 opacity-0'}"
 				aria-hidden={feedback !== 'saved'}

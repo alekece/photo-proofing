@@ -13,15 +13,15 @@ use actix_web::{
     get,
     http::header::{self, ContentDisposition, DispositionParam, DispositionType},
     post,
-    web::{Data, Path as WebPath, ServiceConfig},
+    web::{Bytes, Data, Path as WebPath, ServiceConfig},
 };
-use pp_core::types::timestamp::Timestamp;
+use pp_core::{notifications::PhotoId, types::timestamp::Timestamp};
 use pp_database::{
     export::{Export, ExportId, ExportRepository, ExportRequest, ExportStatus},
     gallery::GalleryId,
 };
 use pp_storage::{ArchiveKey, StorageError};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio_util::io::ReaderStream;
 
 use crate::{
@@ -31,6 +31,12 @@ use crate::{
 
 /// The name the browser saves the ZIP under, the same for every gallery.
 const DOWNLOAD_NAME: &str = "selection.zip";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExportSelection {
+    photo_ids: Vec<PhotoId>,
+}
 
 /// An export as the photographer's UI receives it.
 #[derive(Debug, Serialize)]
@@ -64,12 +70,35 @@ async fn request_export(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: WebPath<GalleryId>,
+    body: Bytes,
 ) -> Result<HttpResponse, ErrorResponse> {
     let gallery_id = id.into_inner();
+    let selection = if body.is_empty() {
+        None
+    } else {
+        if body.len() > 64 * 1024 {
+            return Err(ErrorResponse::bad_request());
+        }
+
+        let selection: ExportSelection =
+            serde_json::from_slice(&body).map_err(|_| ErrorResponse::bad_request())?;
+        if selection.photo_ids.is_empty() || selection.photo_ids.len() > 1000 {
+            return Err(ErrorResponse::bad_request());
+        }
+
+        Some(selection)
+    };
     let outcome = state
         .database()
         .repository_with::<ExportRepository>(state.job_options())
-        .request(identity.workspace_id, gallery_id, state.export_max_size())
+        .request_selected(
+            identity.workspace_id,
+            gallery_id,
+            state.export_max_size(),
+            selection
+                .as_ref()
+                .map(|selection| selection.photo_ids.as_slice()),
+        )
         .await?;
 
     match outcome {
@@ -90,9 +119,10 @@ async fn request_export(
                 .no_store()
                 .json(ExportResponse::from(export)))
         }
-        ExportRequest::InProgress(export) => Ok(HttpResponse::Ok()
-            .no_store()
-            .json(ExportResponse::from(export))),
+        ExportRequest::InProgress(_) => {
+            Err(ErrorResponse::conflict("a ZIP is already being prepared"))
+        }
+        ExportRequest::InvalidSelection => Err(ErrorResponse::bad_request()),
         ExportRequest::EmptySelection => Err(ErrorResponse::empty_selection()),
         ExportRequest::TooLarge => Err(ErrorResponse::selection_too_large()),
         ExportRequest::MissingGallery => Err(ErrorResponse::not_found()),
@@ -176,7 +206,10 @@ async fn download_export(
 
 #[cfg(test)]
 mod tests {
-    use actix_web::{http::StatusCode, test};
+    use actix_web::{
+        http::{Method, StatusCode},
+        test,
+    };
     use pp_core::{config::PhotoDir, notifications::PhotoId, types::generate::Generate};
     use pp_database::photo::PhotoLocation;
     use pp_database::{auth::WorkspaceId, gallery::GalleryId};
@@ -213,6 +246,174 @@ mod tests {
             .uri(&format!("/api/v1/galleries/{gallery_id}/export"))
             .insert_header(("Origin", ORIGIN))
             .cookie(cookie.clone())
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn individual_original_is_an_owner_only_unchanged_attachment(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = favorite(&pool, &gallery_id, "proof.jpg").await;
+        let location = PhotoLocation {
+            workspace_id: sqlx::query_scalar("SELECT workspace_id FROM galleries WHERE id = $1")
+                .bind(Uuid::parse_str(&gallery_id).unwrap())
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            gallery_id: GalleryId(Uuid::parse_str(&gallery_id).unwrap()),
+        };
+        let storage = PhotoStorage::open(&PhotoDir::try_from(directory.path().to_owned()).unwrap())
+            .await
+            .unwrap();
+        let mut staged = storage.stage().await.unwrap();
+        staged.write(b"unchanged original").await.unwrap();
+        staged
+            .commit(&PhotoKey::with_location(location, photo, Variant::Original))
+            .await
+            .unwrap();
+        let uri = format!("/api/v1/galleries/{gallery_id}/photos/{photo}/download");
+        let checked = test::call_service(
+            &app,
+            test::TestRequest::default()
+                .method(Method::HEAD)
+                .uri(&uri)
+                .cookie(cookie.clone())
+                .to_request(),
+        )
+        .await;
+        assert_eq!(checked.status(), StatusCode::OK);
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&uri)
+                .cookie(cookie.clone())
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get("content-disposition").unwrap(),
+            "attachment; filename=\"proof.jpg\""
+        );
+        assert_eq!(
+            test::read_body(response).await.as_ref(),
+            b"unchanged original"
+        );
+        assert_eq!(
+            call(&app, test::TestRequest::get().uri(&uri)).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        let wrong_gallery = format!(
+            "/api/v1/galleries/{}/photos/{photo}/download",
+            GalleryId::generate().0
+        );
+        assert_eq!(
+            call(
+                &app,
+                test::TestRequest::get()
+                    .uri(&wrong_gallery)
+                    .cookie(cookie.clone())
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+        let finals = test::TestRequest::get()
+            .uri(&format!("{uri}?finals=true"))
+            .cookie(cookie);
+        assert_eq!(call(&app, finals).await.0, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn subset_export_snapshots_only_requested_favorites_and_rejects_competing_requests(
+        pool: PgPool,
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let first = favorite(&pool, &gallery_id, "a.jpg").await;
+        favorite(&pool, &gallery_id, "b.jpg").await;
+        let request =
+            post(&gallery_id, &cookie).set_json(serde_json::json!({"photo_ids": [first]}));
+        let (status, export) = call(&app, request).await;
+
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(export["photo_count"], 1);
+        let snapshot: Vec<PhotoId> = sqlx::query_scalar("SELECT photo_id FROM export_photos")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(snapshot, vec![first]);
+        assert_eq!(
+            call(&app, post(&gallery_id, &cookie)).await.0,
+            StatusCode::CONFLICT
+        );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn subset_export_rejects_empty_duplicate_and_unknown_ids(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let first = favorite(&pool, &gallery_id, "a.jpg").await;
+
+        for ids in [vec![], vec![first, first], vec![PhotoId::generate()]] {
+            let (status, _) = call(
+                &app,
+                post(&gallery_id, &cookie).set_json(serde_json::json!({"photo_ids": ids})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn subset_export_rejects_foreign_nonfavorite_final_and_oversized_selections(
+        pool: PgPool,
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let other_gallery = create_gallery(&app, &cookie).await;
+        let foreign = favorite(&pool, &other_gallery, "foreign.jpg").await;
+        let nonfavorite = favorite(&pool, &gallery_id, "not-selected.jpg").await;
+        let final_photo = favorite(&pool, &gallery_id, "final.jpg").await;
+
+        sqlx::query("UPDATE photos SET favorite = false WHERE id = $1")
+            .bind(nonfavorite)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE photos SET kind = 'final', published_at = now(), removed_at = now() WHERE id = $1")
+            .bind(final_photo).execute(&pool).await.unwrap();
+
+        for ids in [
+            vec![foreign],
+            vec![nonfavorite],
+            vec![final_photo],
+            vec![foreign; 1001],
+        ] {
+            assert_eq!(
+                call(
+                    &app,
+                    post(&gallery_id, &cookie).set_json(serde_json::json!({"photo_ids": ids}))
+                )
+                .await
+                .0,
+                StatusCode::BAD_REQUEST
+            );
+        }
+
+        let snapshots: i64 = sqlx::query_scalar("SELECT count(*) FROM exports")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(snapshots, 0);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -259,8 +460,8 @@ mod tests {
         assert_eq!(status, StatusCode::ACCEPTED);
         assert_eq!(first["status"]["kind"], "preparing");
         assert_eq!(first["photo_count"], 1);
-        assert_eq!(again, StatusCode::OK);
-        assert_eq!(second["id"], first["id"]);
+        assert_eq!(again, StatusCode::CONFLICT);
+        assert_eq!(second["error"], "a ZIP is already being prepared");
         assert_eq!(shown_status, StatusCode::OK);
         assert_eq!(latest["id"], first["id"]);
     }

@@ -65,13 +65,19 @@ One workspace groups galleries, settings, and activity. The MVP has one photogra
 
 ### FR-08
 
+Before the first share, the photographer's Favorites tab remains visible but disabled.
+
 **Favorites and allowance.** Persist each favorite change immediately in the shared gallery selection; clients can edit across visits until finished photos are delivered. Do not require submission, a client confirmation button, or a retouching phase. Downloading a selection does not lock it. When an included count is configured, allow overflow and show the selected count (for example, 13 selected), emphasised in the accent colour when over the included count, without a separate extra count. Changing the included count never deletes favorites or prevents additional choices. Reaching it does not mean the client is finished. Do not introduce prices, invoices, payment checks, or billing workflows.
 
 ### FR-09
 
-**Photographer selection export.** A single Download selection action prepares a ZIP containing the selected originals and initiates download when ready. Provide clear preparation/failure status. The ZIP represents the selection when requested; later changes do not alter that export or lock the live selection. The Favorites tab also lets the photographer download one favorite original, or several chosen with select mode. No separate download-management screen is required for MVP. Empty-selection handling and temporary ZIP retention belong in export design.
+**Photographer selection export.** A single Download action prepares a ZIP containing the selected originals and initiates download when ready. Show disabled Downloading… while pending, replace it with Download afterward, and surface failures without a separate download-started message. The ZIP represents the selection when requested; later changes do not alter that export or lock the live selection. The Favorites tab also lets the photographer download one favorite original, or several chosen with select mode. No separate download-management screen is required for MVP. Empty-selection handling and temporary ZIP retention belong in export design.
 
 ### FR-10
+
+The photographer's Final tab remains visible but disabled until the gallery has
+been shared; sharing enables Favorites and Final without reloading the page.
+Existing draft files are preserved.
 
 **Finished delivery.** Finished photos form an independent set, with no required count, filename match, or mapping to favorites. Upload privately, individually or in batches, review, then click Deliver to make them available at the existing private link. Deliver is never disabled: when no finished photo is ready, or some are still uploading, processing or failed, a dialog warns before delivering, and only ready photos reach clients. A delivered gallery with no ready finished photos shows clients "Your finished photos are on their way." After delivery, clients see only finished photos, cannot change favorites, and can download one photo or the whole delivered set as a ZIP. There is no separate publish step: later additions and removals reach clients without notice, and a photo is exposed only once it is ready. Removing every finished photo after delivery is allowed and leaves clients an empty delivered gallery, with no revert to proofing and no unavailable page. Restore from archive does not revert delivery to proofing; withdrawal to proofing is not an MVP feature.
 

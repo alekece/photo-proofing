@@ -21,6 +21,7 @@ describe('StudioSignature', () => {
 
 		expect(screen.getByText('Studio Lune')).toBeTruthy();
 		expect(document.querySelector('img')?.getAttribute('src')).toBe('/logo.png');
+		expect(screen.getByTestId('studio-signature').className).toContain('flex-col');
 	});
 
 	it('falls back to the name when a logo-only signature has no logo', () => {

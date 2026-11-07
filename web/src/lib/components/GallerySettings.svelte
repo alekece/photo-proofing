@@ -50,7 +50,6 @@
 	let layout = $state<GalleryLayout>(gallery.layout);
 	// svelte-ignore state_referenced_locally
 	let watermark = $state(gallery.watermark_enabled);
-	let flash = $state('');
 	let popped = $state<string | null>(null);
 
 	const archived = $derived(gallery.states.includes('archived'));
@@ -74,23 +73,18 @@
 			? 'absolute left-[3.875rem] z-20 grid w-[min(18.75rem,calc(100vw-5rem))] shadow-lg md:static md:w-auto md:shadow-none'
 			: 'hidden md:grid';
 
-	async function commit(field: string, changes: GalleryChanges, revert: () => void) {
-		if (await onsave(changes)) {
-			flash = field;
-			setTimeout(() => flash === field && (flash = ''), 1200);
-		} else revert();
+	async function commit(changes: GalleryChanges, revert: () => void) {
+		if (!(await onsave(changes))) revert();
 	}
-	const ring = (field: string) => (flash === field ? 'ring-2 ring-ok' : '');
 
 	function setLayout(value: string) {
 		const previous = layout;
 
 		layout = value as GalleryLayout;
-		void commit('layout', { layout }, () => (layout = previous));
+		void commit({ layout }, () => (layout = previous));
 	}
 	function setExpiry() {
 		void commit(
-			'expiry',
 			{ expires_at: expiryDay ? endOfLocalDay(expiryDay) : null },
 			() => (expiryDay = gallery.expires_at ? toLocalDate(gallery.expires_at) : '')
 		);
@@ -112,10 +106,10 @@
 		}
 		if (count === gallery.included_photos) return;
 
-		void commit('included', { included_photos: count }, revert);
+		void commit({ included_photos: count }, revert);
 	}
 	function setWatermark(value: boolean) {
-		void commit('watermark', { watermark_enabled: value }, () => (watermark = !value));
+		void commit({ watermark_enabled: value }, () => (watermark = !value));
 	}
 </script>
 
@@ -169,9 +163,7 @@
 			<Input
 				id="expiry"
 				type="date"
-				class="min-h-0 w-[8.75rem] rounded-lg px-2 py-[0.3125rem] text-sm font-semibold {ring(
-					'expiry'
-				)}"
+				class="min-h-0 w-[8.75rem] rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
 				value={expiryDay}
 				onchange={(event) => {
 					expiryDay = event.currentTarget.value;
@@ -187,9 +179,7 @@
 				min="1"
 				step="1"
 				placeholder="∞"
-				class="min-h-0 w-[4.5rem] rounded-lg px-2 py-[0.3125rem] text-right text-sm font-semibold {ring(
-					'included'
-				)}"
+				class="min-h-0 w-[4.5rem] rounded-lg px-2 py-[0.3125rem] text-right text-sm font-semibold"
 				bind:value={included}
 				oninput={() => schedule('included_photos', () => saveIncluded(false))}
 				onblur={() => {
@@ -206,18 +196,13 @@
 		>
 			Look
 		</h2>
-		<div class="{row} {ring('layout') ? 'rounded-control ring-2 ring-ok' : ''}">
+		<div class={row}>
 			<span class="text-muted-foreground">Layout</span>
 			<IconButtonGroup value={layout} items={layouts} label="Layout" onchange={setLayout} />
 		</div>
 		<div class={row}>
 			<Label for="watermark" class="text-muted-foreground">Watermark proofs</Label>
-			<Switch
-				id="watermark"
-				bind:checked={watermark}
-				class={ring('watermark')}
-				onchange={setWatermark}
-			/>
+			<Switch id="watermark" bind:checked={watermark} onchange={setWatermark} />
 		</div>
 	</Card>
 

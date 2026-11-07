@@ -42,6 +42,24 @@ function setup(over: Partial<Gallery> = {}, counts: { photos?: number; favorites
 }
 
 describe('GalleryHeader', () => {
+	it('uses the hero render revision without replacing the image on a title edit', async () => {
+		const props = {
+			gallery: { ...base, hero_id: 'p1' },
+			heroRevision: 2,
+			heading,
+			onpreview: vi.fn(),
+			onshare: vi.fn(),
+			ondeliver: vi.fn(),
+			onrestore: vi.fn()
+		};
+		const view = render(GalleryHeader, props);
+		const image = view.container.querySelector('img');
+
+		expect(image?.getAttribute('src')).toBe('/api/v1/galleries/g1/photos/p1/preview?revision=2');
+		await view.rerender({ ...props, gallery: { ...props.gallery, title: 'New title' } });
+		expect(view.container.querySelector('img')).toBe(image);
+	});
+
 	it('offers Share on a draft and lists the journey with Upload done', async () => {
 		const { onshare, user } = setup({}, { photos: 48 });
 

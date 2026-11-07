@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { LoaderCircle } from '@lucide/svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
 
@@ -64,6 +65,7 @@
 
 <Dialog
 	{onclose}
+	dismissible={!pending}
 	labelledby="{id}-title"
 	class="m-auto w-[min(27.5rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
 >
@@ -85,12 +87,23 @@
 				</div>
 				{#if error}<p role="alert" class="text-sm text-danger sm:col-span-2">{error}</p>{/if}
 				<div class="flex gap-2.5 sm:col-span-2 sm:justify-end max-sm:[&>*]:flex-1">
-					<Button variant="outline" onclick={close}>{cancelLabel}</Button>
+					<Button variant="outline" disabled={pending} onclick={close}>{cancelLabel}</Button>
 					<Button
 						variant={destructive ? 'destructive' : 'default'}
 						disabled={pending || busy}
-						onclick={() => void confirm(close)}>{confirmLabel}</Button
+						onclick={() => void confirm(close)}
 					>
+						{#if pending}
+							<LoaderCircle
+								size={16}
+								class="animate-spin motion-reduce:animate-none"
+								aria-hidden="true"
+							/>
+							{destructive ? 'Deleting…' : 'Working…'}
+						{:else}
+							{confirmLabel}
+						{/if}
+					</Button>
 				</div>
 			{/if}
 		</div>

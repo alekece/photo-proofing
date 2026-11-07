@@ -15,12 +15,12 @@ const clipboard = (writeText: unknown) =>
 afterEach(() => clipboard(undefined));
 
 describe('ShareLink', () => {
-	it('shows the private link built from the origin and opens it in a new tab', () => {
+	it('offers copying the client link without a photographer Open shortcut', () => {
 		render(ShareLink, { token, origin: 'https://pp.test' });
 
 		expect((screen.getByLabelText('Client link') as HTMLInputElement).value).toBe(link);
 		expect(screen.getByRole('button', { name: 'Copy link' })).toBeTruthy();
-		expect(screen.getByRole('link', { name: 'Open' }).getAttribute('href')).toBe(link);
+		expect(screen.queryByRole('link', { name: 'Open' })).toBeNull();
 	});
 
 	it('copies the exact link and announces it', async () => {

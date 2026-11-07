@@ -6,6 +6,7 @@
 	import { listPhotos } from '#lib/gallery/photos.js';
 	import { toOwnerProofs } from '#lib/gallery/proofs.js';
 	import type { Proof } from '#lib/gallery/types.js';
+	import { parseSettings, type WorkspaceSettings } from '#lib/settings/settings.js';
 	import { cn } from '#lib/utils.js';
 	import ClientGallery from './ClientGallery.svelte';
 
@@ -20,6 +21,7 @@
 	let view = $state<string>('desktop');
 	let proofs = $state<Proof[]>([]);
 	let favorites = $state<string[]>([]);
+	let settings = $state<WorkspaceSettings | null>(null);
 	let loaded = $state(false);
 	let failed = $state(false);
 	let closeButton = $state<HTMLButtonElement | null>(null);
@@ -28,11 +30,20 @@
 		closeButton?.focus();
 		let active = true;
 
-		listPhotos(gallery.id)
-			.then((photos) => {
+		Promise.all([
+			listPhotos(gallery.id),
+			fetch('/api/v1/settings').then(async (response) => {
+				if (!response.ok) throw new Error('Couldn’t load studio settings.');
+				const parsed = parseSettings(await response.json());
+				if (!parsed) throw new Error('Unexpected studio settings.');
+				return parsed;
+			})
+		])
+			.then(([photos, studio]) => {
 				if (!active) return;
 
 				proofs = toOwnerProofs(gallery.id, photos);
+				settings = studio;
 				favorites = photos.filter(({ favorite }) => favorite).map(({ id }) => id);
 			})
 			.catch(() => active && (failed = true))
@@ -139,6 +150,9 @@
 							gallery={{ ...gallery, delivered: gallery.states.includes('delivered') }}
 							{proofs}
 							{favorites}
+							studio={settings?.studioName}
+							studioLogo={settings?.logo}
+							signature={settings?.signature}
 							preview
 							framed={view === 'phone'}
 						/>
