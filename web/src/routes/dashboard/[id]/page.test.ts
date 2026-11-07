@@ -440,6 +440,128 @@ describe('gallery page', () => {
 		});
 	});
 
+	describe('restoring', () => {
+		const archived: Partial<Gallery> = {
+			states: ['shared', 'archived'],
+			expires_at: '2026-09-07T21:59:59Z'
+		};
+		// `restored` is the gallery the restore endpoint answers with; PATCH echoes the change.
+		const stubRestore = (changes: Partial<Gallery>, patchStatus = 200) => {
+			const restored = { expires_at: archived.expires_at, ...changes };
+			const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				if (url.endsWith('/restore')) return new Response(JSON.stringify({ ...base, ...restored }));
+				if (patchStatus !== 200) {
+					return new Response(JSON.stringify({ error: 'nope' }), { status: patchStatus });
+				}
+
+				return new Response(
+					JSON.stringify({
+						...base,
+						...restored,
+						states: ['shared'],
+						...JSON.parse(init?.body as string)
+					})
+				);
+			});
+			vi.stubGlobal('fetch', fetcher);
+
+			return () => fetcher.mock.calls.filter(([url]) => url.includes('/galleries/'));
+		};
+		const restore = () =>
+			userEvent.setup().click(screen.getAllByRole('button', { name: 'Restore' })[0]);
+
+		it('restores without prompting when the gallery is no longer expired', async () => {
+			stubRestore({ states: ['shared'], expires_at: null });
+			open(archived);
+
+			await restore();
+
+			await waitFor(() => expect(toasts.items.map(({ message }) => message)).toEqual(['Restored']));
+			expect(screen.queryByRole('dialog')).toBeNull();
+			expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
+		});
+
+		it('prompts when the restored gallery is still expired', async () => {
+			stubRestore({ states: ['shared', 'expired'] });
+			open(archived);
+
+			await restore();
+
+			expect(
+				await screen.findByRole('dialog', { name: 'Clients can’t see this gallery yet' })
+			).toBeTruthy();
+			expect(screen.getByText(/link expired on 7 Sep/)).toBeTruthy();
+		});
+
+		it('keeps the gallery restored and expired when the prompt is dismissed', async () => {
+			const calls = stubRestore({ states: ['shared', 'expired'] });
+			open(archived);
+			await restore();
+
+			await userEvent.setup().click(await screen.findByRole('button', { name: 'Keep expired' }));
+
+			expect(screen.queryByRole('dialog')).toBeNull();
+			expect(calls()).toHaveLength(1);
+			expect(screen.getByText('Expired')).toBeTruthy();
+		});
+
+		it('saves a new date through the gallery update and clears the expired state', async () => {
+			const calls = stubRestore({ states: ['shared', 'expired'] });
+			open(archived);
+			await restore();
+			await fireEvent.input(
+				await screen.findByLabelText('Open until', { selector: 'dialog input' }),
+				{
+					target: { value: '2999-01-02' }
+				}
+			);
+
+			await userEvent.setup().click(screen.getByRole('button', { name: 'Set date' }));
+
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+			const [url, init] = calls()[1];
+			expect(url).toBe('/api/v1/galleries/g1');
+			expect(init?.method).toBe('PATCH');
+			expect(Object.keys(JSON.parse(init?.body as string))).toEqual(['expires_at']);
+			expect(toasts.items.map(({ message }) => message)).toEqual(['Restored', 'Saved']);
+			expect(screen.queryByText('Expired')).toBeNull();
+		});
+
+		it('clears the expiry with No expiry', async () => {
+			const calls = stubRestore({ states: ['shared', 'expired'] });
+			open(archived);
+			await restore();
+
+			await userEvent.setup().click(await screen.findByRole('button', { name: 'No expiry' }));
+
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+			expect(JSON.parse(calls()[1][1]?.body as string)).toEqual({ expires_at: null });
+		});
+
+		it('keeps the prompt open when saving the date fails', async () => {
+			stubRestore({ states: ['shared', 'expired'] }, 500);
+			open(archived);
+			await restore();
+
+			await userEvent.setup().click(await screen.findByRole('button', { name: 'No expiry' }));
+
+			await waitFor(() => expect(toasts.items.map(({ message }) => message)).toContain('nope'));
+			expect(screen.getByRole('dialog')).toBeTruthy();
+		});
+
+		it('reports a failed restore and shows no prompt', async () => {
+			vi.stubGlobal('fetch', async () => new Response('{"error":"nope"}', { status: 500 }));
+			open(archived);
+
+			await restore();
+
+			await waitFor(() => expect(toasts.items.map(({ message }) => message)).toEqual(['nope']));
+			expect(screen.queryByRole('dialog')).toBeNull();
+			expect(screen.getAllByRole('button', { name: 'Restore' }).length).toBeGreaterThan(0);
+		});
+	});
+
 	describe('tabs', () => {
 		it('offers Photos, Favorites and Finals with Photos selected', () => {
 			open();
