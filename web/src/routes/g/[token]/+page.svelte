@@ -18,6 +18,18 @@
 	onMount(() => {
 		if (data.gallery) void recordOpened(params.token);
 	});
+
+	function oncontextmenu(event: MouseEvent) {
+		const target = event.target;
+
+		if (
+			target instanceof Element &&
+			(target.closest('img') ||
+				target.closest('[data-image-context-menu-overlay]') ||
+				target.closest('button')?.querySelector('img'))
+		)
+			event.preventDefault();
+	}
 </script>
 
 <svelte:head>
@@ -26,18 +38,29 @@
 	<meta name="robots" content="noindex" />
 </svelte:head>
 
+<svelte:window {oncontextmenu} />
+
 {#if data.gallery}
-	<ClientGallery
-		token={params.token}
-		gallery={data.gallery}
-		proofs={data.proofs}
-		favorites={data.favorites}
-		studio={data.gallery.studio_name}
-		studioLogo={data.gallery.has_logo
-			? `/api/v1/galleries/shared/${encodeURIComponent(params.token)}/logo`
-			: null}
-		signature={data.gallery.signature}
-	/>
+	<div class="client-gallery-protected">
+		<ClientGallery
+			token={params.token}
+			gallery={data.gallery}
+			proofs={data.proofs}
+			favorites={data.favorites}
+			studio={data.gallery.studio_name}
+			studioLogo={data.gallery.has_logo
+				? `/api/v1/galleries/shared/${encodeURIComponent(params.token)}/logo`
+				: null}
+			signature={data.gallery.signature}
+		/>
+	</div>
 {:else}
 	<AccessUnavailable />
 {/if}
+
+<style>
+	.client-gallery-protected :global(img),
+	.client-gallery-protected :global([data-image-context-menu-overlay]) {
+		-webkit-touch-callout: none;
+	}
+</style>
