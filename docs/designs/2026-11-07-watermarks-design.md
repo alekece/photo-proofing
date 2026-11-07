@@ -11,7 +11,9 @@ Builds on [proof derivatives](2026-11-04-proof-derivatives-design.md),
 
 The photographer saves one watermark for the workspace (studio name, logo, or both), and each
 gallery switches it on or off. Generated thumbnails and previews of a watermarked gallery carry
-it; the other galleries still serve reduced, metadata-free derivatives. Changing the watermark
+it; the other galleries still serve reduced, metadata-free derivatives. Only proofs are
+marked: a gallery's finals and ZIP exports of originals never carry the watermark, and changing
+the settings leaves them alone. Changing the watermark
 or a gallery's switch rebuilds the affected derivatives without ever exposing an original or an
 out-of-date derivative.
 

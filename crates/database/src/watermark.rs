@@ -282,9 +282,9 @@ pub struct SettingsUpdate {
 pub struct WatermarkStamp(Option<i64>);
 
 impl WatermarkStamp {
-    /// SQL for the stamp of the photo `p`; needs `galleries g` and `workspace_settings s` joined.
-    pub(crate) const SQL: &'static str =
-        "CASE WHEN g.watermark_enabled THEN COALESCE(s.watermark_revision, 0) END";
+    /// SQL for the stamp of the photo `p`, which only proofs have; needs `galleries g` and `workspace_settings s` joined.
+    pub(crate) const SQL: &'static str = "CASE WHEN g.watermark_enabled AND p.kind = 'proof'
+         THEN COALESCE(s.watermark_revision, 0) END";
 
     pub(crate) const fn new(revision: Option<i64>) -> Self {
         Self(revision)
@@ -491,7 +491,7 @@ impl WatermarkRepository<'_> {
         photo: PhotoId,
     ) -> Result<Option<ProofWatermark>, DatabaseError> {
         let row = sqlx::query(AssertSqlSafe(format!(
-            "SELECT g.watermark_enabled AS enabled, {stamp} AS stamp, {settings}
+            "SELECT g.watermark_enabled AND p.kind = 'proof' AS enabled, {stamp} AS stamp, {settings}
              FROM photos p
              JOIN galleries g ON g.id = p.gallery_id
              LEFT JOIN workspace_settings s ON s.workspace_id = p.workspace_id
@@ -532,7 +532,7 @@ impl WatermarkRepository<'_> {
         let queued = sqlx::query(
             "WITH stale AS (
                  SELECT p.id FROM photos p JOIN galleries g ON g.id = p.gallery_id
-                 WHERE p.workspace_id = $1 AND p.status IN ('ready', 'processing')
+                 WHERE p.workspace_id = $1 AND p.kind = 'proof' AND p.status IN ('ready', 'processing')
                    AND CASE WHEN $2::uuid IS NULL THEN g.watermark_enabled ELSE g.id = $2 END
                  ORDER BY p.id
                  FOR UPDATE OF p
@@ -569,7 +569,7 @@ mod tests {
     use crate::{
         Database,
         jobs::{Job, JobKind, JobRepository, PhotoUpdate, Publication},
-        photo::{NewPhoto, PhotoDimensions, PhotoRepository, PhotoStatus},
+        photo::{NewPhoto, PhotoDimensions, PhotoKind, PhotoRepository, PhotoStatus},
         tests::TestRepository,
     };
 
@@ -624,8 +624,18 @@ mod tests {
             id
         }
 
-        /// A photo in `status`, with no job.
+        /// A proof in `status`, with no job.
         async fn photo(&self, gallery_id: GalleryId, status: PhotoStatus) -> PhotoId {
+            self.photo_of_kind(gallery_id, PhotoKind::Proof, status)
+                .await
+        }
+
+        async fn photo_of_kind(
+            &self,
+            gallery_id: GalleryId,
+            kind: PhotoKind,
+            status: PhotoStatus,
+        ) -> PhotoId {
             let id = PhotoId::generate();
             let photo = NewPhoto {
                 id,
@@ -637,6 +647,7 @@ mod tests {
                     width: 20.try_into().unwrap(),
                     height: 10.try_into().unwrap(),
                 },
+                kind,
             };
             let mut transaction = self.pool.begin().await.unwrap();
 
@@ -660,11 +671,15 @@ mod tests {
         }
 
         async fn status(&self, id: PhotoId) -> PhotoStatus {
+            self.status_of_kind(id, PhotoKind::Proof).await
+        }
+
+        async fn status_of_kind(&self, id: PhotoId, kind: PhotoKind) -> PhotoStatus {
             let photos = self.database.repository::<PhotoRepository>();
             let location = photos.locate(id).await.unwrap().unwrap();
 
             photos
-                .get(location.workspace_id, location.gallery_id, id)
+                .get(location.workspace_id, location.gallery_id, id, kind)
                 .await
                 .unwrap()
                 .unwrap()
@@ -848,6 +863,28 @@ mod tests {
         assert_eq!(fixture.jobs(failed).await, 0);
         assert_eq!(fixture.status(unmarked).await, PhotoStatus::Ready);
         assert_eq!(fixture.jobs(unmarked).await, 0);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn finals_are_never_watermarked_or_regenerated(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+        let gallery = fixture.gallery(true).await;
+        let finished = fixture
+            .photo_of_kind(gallery, PhotoKind::Final, PhotoStatus::Ready)
+            .await;
+
+        fixture.save(update("Studio")).await.unwrap();
+
+        assert_eq!(
+            fixture.status_of_kind(finished, PhotoKind::Final).await,
+            PhotoStatus::Ready
+        );
+        assert_eq!(fixture.jobs(finished).await, 0);
+
+        let proof = fixture.proof(finished).await.unwrap();
+
+        assert_eq!(proof.watermark, None);
+        assert_eq!(proof.stamp, WatermarkStamp::new(None));
     }
 
     #[sqlx::test(migrations = "./migrations")]
