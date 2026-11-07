@@ -1,6 +1,6 @@
 # Record when a client opens a shared gallery
 
-Status: Implemented without waiting for design approval, as authorised by the maintainer; the PR is the review gate. Decisions marked *my call* are the author's.
+Status: the maintainer authorised implementing right away; the PR is the review gate. Decisions marked *my call* are the author's and open to change in review.
 Issue: [#211](https://github.com/alekece/photo-proofing/issues/211). The UI that shows it belongs to #72.
 
 ## Intent
@@ -23,7 +23,7 @@ The photographer cannot tell whether the client has seen a shared gallery. The A
 ## Approaches
 
 1. **Page loader records the open (rejected).** The server-side load of `/g/{token}` would call the API. It also runs for link-preview bots and prefetchers, which would report a view nobody had.
-2. **Explicit call from the browser (chosen).** After the page is shown in a browser, it sends `POST /api/v1/galleries/shared/{token}/open`. Crawlers that do not run scripts do not count. The preview never has a token, so it cannot call it.
+2. **Explicit call from the browser (chosen).** After the page is shown in a browser, it sends `POST /api/v1/galleries/shared/{token}/open`. Crawlers that do not run scripts do not count. The photographer's preview is the dashboard overlay of `ClientGallery` with no token and does not use `/g/[token]`, so it never calls it.
 3. **Record on any shared read (rejected).** Every `GET` of the gallery, photos or thumbnails would count. That includes reloads of media and requests that are not a page view.
 
 ## Decisions
@@ -34,16 +34,17 @@ The photographer cannot tell whether the client has seen a shared gallery. The A
 - **Response:** always `204` for an available link, whether or not this call was the first, so the client learns nothing about earlier opens. `no-store` and `no-referrer` like the other client routes.
 - **Photographer read:** `opened_at` is added to the gallery JSON (`null` until opened). It is not part of `SharedGallery`, so clients never see it.
 - **Client ping:** `+page.svelte` of `/g/[token]` sends it once on mount, only when the gallery is available, ignoring failures: a missed ping must never affect viewing. *My call:* a same-origin `fetch` with `keepalive`, like the selection calls.
-- **Secrets:** the token is in the path only. No new log, span or `#[instrument]` is added; the existing rule that access logs redact `/galleries/shared/` still covers the new route.
+- **Secrets:** the token is in the path only. No new log, span or `#[instrument]` is added; the API has no access logging today, so the criterion holds because nothing logs the path; the existing doc rule that any access log must redact `/galleries/shared/` covers the new route. Reverse-proxy logs are deployment configuration outside this change.
 - **Not retroactive:** existing galleries start with `null`. Past opens were never observed, so nothing is backfilled.
 
 ## Testing
 
 - Database: first open sets `opened_at`; a second open keeps the first value; expired and archived galleries are not marked; the column is `NULL` for new galleries.
 - API: the route returns 204 and sets `opened_at` once (visible in the photographer's gallery JSON); unknown, expired and archived links return the common 404 and record nothing; the photographer's own gallery read does not set it.
-- Web: the page sends one `POST` when a gallery is shown and none when it is unavailable; a failing ping does not break the page.
+- Web: the preview overlay (`ClientGallery`) sends no ping; the page sends one `POST` when a gallery is shown and none when it is unavailable; a failing ping does not break the page.
 
 ## Limitations
 
+- A photographer who opens the shared link in their own browser (not the preview) counts as a client; the API cannot tell them apart.
 - A client who opens the link in a browser that runs scripts counts, even if it is an automated one. Telling people from such tools is out of scope.
 - The open is not announced live; #72 decides how the photographer is told.
