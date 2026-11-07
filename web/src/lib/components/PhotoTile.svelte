@@ -115,9 +115,17 @@
 				failed ? 'bg-danger/10 text-danger' : 'text-placeholder-foreground'
 			]}
 		>
-			<span class="max-w-full truncate" title={name}>{name}</span>
-			<span>{LABELS[state]}</span>
-			{#if failed && error && error !== LABELS[state]}<span>{error}</span>{/if}
+			<span class={failed ? 'sr-only' : 'max-w-full truncate'} title={name}>{name}</span>
+			<span class={failed ? 'font-semibold' : ''}>{LABELS[state]}</span>
+			{#if failed && error && error !== LABELS[state]}<span class="line-clamp-2">{error}</span>{/if}
+			{#if !onselect && onretry && (state === 'upload-failed' || state === 'process-failed')}
+				<button
+					type="button"
+					class="mt-0.5 flex min-h-8 w-fit cursor-pointer items-center gap-1 rounded-full bg-panel px-3 text-xs text-foreground shadow"
+					aria-label="Retry {name}"
+					onclick={onretry}><RotateCw size={14} aria-hidden="true" />Retry</button
+				>
+			{/if}
 		</div>
 		{#if busy}
 			<div class="absolute inset-x-1.5 bottom-1.5 h-[3px] overflow-hidden rounded-full bg-white/60">
@@ -173,14 +181,6 @@
 				role="img"
 				aria-label="Downloaded by the client"
 				title="Downloaded by the client"><Download size={14} aria-hidden="true" /></span
-			>
-		{/if}
-		{#if onretry && (state === 'upload-failed' || state === 'process-failed')}
-			<button
-				type="button"
-				class="absolute inset-x-1.5 bottom-3 mx-auto flex min-h-8 w-fit cursor-pointer items-center gap-1 rounded-full bg-panel px-3 text-xs text-foreground shadow"
-				aria-label="Retry {name}"
-				onclick={onretry}><RotateCw size={14} aria-hidden="true" />Retry</button
 			>
 		{/if}
 	{/if}
