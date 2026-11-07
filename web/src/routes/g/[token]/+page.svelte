@@ -18,6 +18,10 @@
 	onMount(() => {
 		if (data.gallery) void recordOpened(params.token);
 	});
+
+	function oncontextmenu(event: MouseEvent) {
+		if (event.target instanceof HTMLImageElement) event.preventDefault();
+	}
 </script>
 
 <svelte:head>
@@ -25,6 +29,8 @@
 	<meta name="referrer" content="no-referrer" />
 	<meta name="robots" content="noindex" />
 </svelte:head>
+
+<svelte:window {oncontextmenu} />
 
 {#if data.gallery}
 	<ClientGallery
