@@ -57,7 +57,7 @@ One workspace groups galleries, settings, and activity. The MVP has one photogra
 
 ### FR-06
 
-**Proof previews.** Generate thumbnails and reduced-resolution/quality previews rather than exposing proofing originals. Preserve aspect ratio, correct orientation, and correct color appearance. Omit source identifying metadata, including GPS, from generated thumbnails and proof previews. Exact resolution/compression choices are implementation details; MVP has no quality-preset, custom-dimension, or metadata-policy controls. Uploaded originals and downloadable finished photos remain unchanged. Client access must never expose proofing originals, regardless of whether watermarking is enabled. The public client gallery suppresses the browser's image context menu as a casual deterrent; this does not protect against screenshots or other capture methods.
+**Proof previews.** Generate thumbnails and reduced-resolution/quality previews rather than exposing proofing originals. Preserve aspect ratio, correct orientation, and correct color appearance. Omit source identifying metadata, including GPS, from generated thumbnails and proof previews. Exact resolution/compression choices are implementation details; MVP has no quality-preset, custom-dimension, or metadata-policy controls. Uploaded originals and downloadable finished photos remain unchanged. Client access must never expose proofing originals, regardless of whether watermarking is enabled. The public client gallery suppresses the browser's image context menu and the iOS image long-press callout as casual deterrents; this does not protect against screenshots or other capture methods.
 
 ### FR-07
 

@@ -63,13 +63,15 @@ describe('client gallery page', () => {
 		expect(getByRole('heading', { level: 1 }).textContent).toContain('Wedding');
 	});
 
-	it('prevents the context menu on the client gallery cover and grid photos', () => {
+	it('prevents the context menu on the cover overlay and grid photos', () => {
 		render(Page, {
 			data: { gallery: { ...gallery, hero_id: 'p1' }, proofs: [proof], favorites: [] },
 			params: { token: 'tok' }
 		});
 
-		expect(contextMenu(screen.getByRole('img', { name: 'Gallery cover' }))).toBe(true);
+		const cover = screen.getByRole('img', { name: 'Gallery cover' });
+
+		expect(contextMenu(cover.nextElementSibling!)).toBe(true);
 		expect(contextMenu(screen.getByRole('img', { name: 'Proof 1' }))).toBe(true);
 	});
 
@@ -87,6 +89,15 @@ describe('client gallery page', () => {
 		expect(contextMenu(image)).toBe(true);
 	});
 
+	it('prevents the context menu when its target is the photo-opening button', () => {
+		render(Page, {
+			data: { gallery, proofs: [proof], favorites: [] },
+			params: { token: 'tok' }
+		});
+
+		expect(contextMenu(screen.getByRole('button', { name: 'Open proof 1 of 1' }))).toBe(true);
+	});
+
 	it('keeps the normal context menu for non-image content', () => {
 		render(Page, {
 			data: { gallery, proofs: [proof], favorites: [] },
@@ -94,5 +105,16 @@ describe('client gallery page', () => {
 		});
 
 		expect(contextMenu(screen.getByRole('heading', { level: 1, name: 'Wedding' }))).toBe(false);
+	});
+
+	it('scopes touch-callout protection to the public gallery wrapper', () => {
+		render(Page, {
+			data: { gallery, proofs: [proof], favorites: [] },
+			params: { token: 'tok' }
+		});
+
+		expect(
+			screen.getByRole('main').parentElement?.classList.contains('client-gallery-protected')
+		).toBe(true);
 	});
 });

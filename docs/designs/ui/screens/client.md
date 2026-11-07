@@ -3,8 +3,9 @@
 What the client sees at the private link `/g/{token}`. No account, no branding beyond the
 studio's signature.
 
-Right-clicking images in the cover, grid or viewer does not open the browser context menu; this is a
-casual deterrent, not a security feature.
+Right-clicking images in the cover, grid or viewer does not open the browser context menu. On iOS,
+long-pressing an image does not show its image callout. These are casual deterrents, not security
+features.
 
 | | Desktop | Phone |
 |---|---|---|

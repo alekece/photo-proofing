@@ -118,6 +118,7 @@
 					class="absolute inset-0 -z-20 size-full object-cover object-[center_35%]"
 				/>
 				<div
+					data-image-context-menu-overlay
 					class="absolute inset-0 -z-10 bg-[linear-gradient(rgb(43_36_32/0.3),transparent_30%,transparent_45%,rgb(43_36_32/0.75))]"
 				></div>
 			{:else}
@@ -165,6 +166,7 @@
 					class="absolute inset-0 -z-20 size-full object-cover object-[center_35%]"
 				/>
 				<div
+					data-image-context-menu-overlay
 					class="absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgb(43_36_32/0.35),transparent_22%,transparent_50%,rgb(43_36_32/0.8))]"
 				></div>
 			{:else}
