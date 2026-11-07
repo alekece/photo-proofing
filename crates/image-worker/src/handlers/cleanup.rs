@@ -11,7 +11,7 @@ use pp_storage::PhotoStorage;
 use thiserror::Error;
 use tracing::{info, warn};
 
-use crate::handlers::HandlerError;
+use crate::handlers::{HandlerError, export::ExportExpiry};
 
 #[derive(Debug, Error)]
 #[error("{count} photo files could not be removed")]
@@ -28,6 +28,7 @@ pub struct CleanupHandler {
     orphan_grace: Duration,
     /// A sweep that follows another one by less than this is skipped.
     sweep_interval: Duration,
+    expiry: ExportExpiry,
 }
 
 impl CleanupHandler {
@@ -36,12 +37,14 @@ impl CleanupHandler {
         storage: PhotoStorage,
         orphan_grace: Duration,
         sweep_interval: Duration,
+        expiry: ExportExpiry,
     ) -> Self {
         Self {
             database,
             storage,
             orphan_grace,
             sweep_interval,
+            expiry,
         }
     }
 
@@ -121,6 +124,16 @@ impl CleanupHandler {
 
         info!(removed, "orphaned photo files swept");
 
+        self.expiry.run().await;
+
+        let archives = self
+            .expiry
+            .sweep_archives(self.orphan_grace)
+            .await
+            .map_err(HandlerError::failed)?;
+
+        info!(archives, "orphaned selection ZIPs swept");
+
         jobs.complete_recorded(&job)
             .await
             .map_err(HandlerError::failed)
@@ -186,10 +199,11 @@ mod tests {
             Self {
                 _dir: dir,
                 handler: Arc::new(CleanupHandler::new(
-                    database,
-                    storage,
+                    database.clone(),
+                    storage.clone(),
                     orphan_grace,
                     sweep_interval,
+                    ExportExpiry::new(database, storage, Duration::from_secs(3600)),
                 )),
                 location: PhotoLocation {
                     workspace_id,

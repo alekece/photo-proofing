@@ -20,6 +20,7 @@ use pp_database::{
     Database,
     auth::WorkspaceId,
     error::DatabaseError,
+    export::ExportEvent,
     favorite_events::FavoriteEvent,
     listener::{Channel, Listener, MissedReason, Notification},
     photo_events::PhotoEvent,
@@ -38,6 +39,8 @@ pub(crate) enum Broadcast {
     Photo(PhotoEvent),
     /// A gallery's selection changed.
     Favorites(FavoriteEvent),
+    /// A selection ZIP started, finished or failed.
+    Export(ExportEvent),
     /// Events may have been lost: subscribers must refetch.
     Resync,
 }
@@ -143,6 +146,7 @@ impl EventHub {
         tokio::join!(
             self.relay_channel::<PhotoEvent>(&database, Broadcast::Photo),
             self.relay_channel::<FavoriteEvent>(&database, Broadcast::Favorites),
+            self.relay_channel::<ExportEvent>(&database, Broadcast::Export),
         );
     }
 
@@ -424,7 +428,7 @@ mod tests {
             });
 
             // One initial resync per listened channel.
-            for _ in 0..2 {
+            for _ in 0..3 {
                 assert_eq!(recv(&mut subscription).await, Broadcast::Resync);
             }
 

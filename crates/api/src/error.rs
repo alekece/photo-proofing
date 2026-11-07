@@ -84,6 +84,17 @@ impl ErrorResponse {
         Self::new(StatusCode::PAYLOAD_TOO_LARGE, "request body too large")
     }
 
+    pub fn empty_selection() -> Self {
+        Self::conflict("the selection is empty")
+    }
+
+    pub fn selection_too_large() -> Self {
+        Self::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "the selection is too large to download as one ZIP",
+        )
+    }
+
     pub fn invalid_image() -> Self {
         Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid JPEG image")
     }

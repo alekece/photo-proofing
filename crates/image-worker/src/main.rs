@@ -3,11 +3,16 @@ use std::{path::PathBuf, sync::Arc};
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
 use eyre::Result;
-use pp_core::config::{LogConfig, PhotoConfig};
+use pp_core::config::{ExportConfig, LogConfig, PhotoConfig};
 use pp_database::jobs::JobKind;
 use pp_image_worker::{
     config::WorkerConfig,
-    handlers::{HandlerRegistry, cleanup::CleanupHandler, process_photo::ProcessPhotoHandler},
+    handlers::{
+        HandlerRegistry,
+        cleanup::CleanupHandler,
+        export::{ExportExpiry, ExportHandler},
+        process_photo::ProcessPhotoHandler,
+    },
     render::ImageRenderer,
     runtime::Worker,
 };
@@ -35,6 +40,9 @@ struct Cli {
     #[command(flatten)]
     #[config(no_flatten)]
     photo: PhotoConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    export: ExportConfig,
 }
 
 #[tokio::main]
@@ -68,17 +76,25 @@ async fn main() -> Result<()> {
 
     let orphan_grace = cli.worker.cleanup.orphan_grace.get();
     let sweep_interval = cli.worker.cleanup.sweep_interval.get();
+    let retention = cli.export.retention.get();
     let worker = Worker::connect(cli.worker, |database| {
         let process_handler = Arc::new(ProcessPhotoHandler::new(
             database.clone(),
             storage.clone(),
             renderer,
         ));
+        let expiry = ExportExpiry::new(database.clone(), storage.clone(), retention);
+        let export_handler = Arc::new(ExportHandler::new(
+            database.clone(),
+            storage.clone(),
+            expiry.clone(),
+        ));
         let cleanup_handler = Arc::new(CleanupHandler::new(
             database.clone(),
             storage,
             orphan_grace,
             sweep_interval,
+            expiry,
         ));
 
         HandlerRegistry::default()
@@ -94,6 +110,9 @@ async fn main() -> Result<()> {
                 let cleanup_handler = Arc::clone(&cleanup_handler);
 
                 move |payload, job| Arc::clone(&cleanup_handler).remove_photos(payload, job)
+            })
+            .register(JobKind::ZipExport, move |payload, job| {
+                Arc::clone(&export_handler).run(payload, job)
             })
             .register(JobKind::SweepOrphans, move |payload, job| {
                 Arc::clone(&cleanup_handler).sweep_orphans(payload, job)

@@ -47,6 +47,13 @@ orphan_grace = "24h"
 # Sweeps requested sooner than this after the last successful one are skipped.
 sweep_interval = "1h"
 
+# Selection ZIPs built by the worker for the photographer's Favorites tab; read by both.
+[export]
+# Most bytes of originals one ZIP may hold; a larger selection is refused.
+size_limit = 2147483648
+# How long a finished ZIP stays downloadable (1m to 30d); its file is removed afterwards.
+retention = "24h"
+
 [photo]
 # Private photo files; the API and the worker must share this directory.
 dir = "./data/photos"

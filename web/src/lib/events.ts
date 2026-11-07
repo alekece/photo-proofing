@@ -1,20 +1,24 @@
 import { getContext, setContext } from 'svelte';
 import { goto } from '$app/navigation';
 import {
+	exportEventSchema,
 	favoritesEventSchema,
 	parseOrNull,
 	photoEventSchema,
+	type ExportEvent,
 	type FavoritesEvent,
 	type PhotoEvent
 } from './gallery/schemas';
 
-export type { FavoritesEvent, PhotoChange, PhotoEvent } from './gallery/schemas';
+export type { ExportEvent, FavoritesEvent, PhotoChange, PhotoEvent } from './gallery/schemas';
 
 /** The signed-in area's live updates. A resync means events may have been missed: refetch. */
 export interface LiveEvents {
 	onPhoto(handler: (event: PhotoEvent) => void): () => void;
 	/** The client changed the selection of one of the workspace's galleries. */
 	onFavorites(handler: (event: FavoritesEvent) => void): () => void;
+	/** A selection ZIP of one of the workspace's galleries was prepared or failed. */
+	onExport(handler: (event: ExportEvent) => void): () => void;
 	onResync(handler: () => void): () => void;
 	start(): void;
 	close(): void;
@@ -59,6 +63,7 @@ export function createLiveEvents({
 }: LiveEventsOptions = {}): LiveEvents {
 	const photoHandlers = new Set<(event: PhotoEvent) => void>();
 	const favoritesHandlers = new Set<(event: FavoritesEvent) => void>();
+	const exportHandlers = new Set<(event: ExportEvent) => void>();
 	const resyncHandlers = new Set<() => void>();
 	let source: EventSource | null = null;
 	let reopen: ReturnType<typeof setTimeout> | undefined;
@@ -92,6 +97,15 @@ export function createLiveEvents({
 			}
 			for (const handler of favoritesHandlers) handler(event);
 		});
+		current.addEventListener('export', (message) => {
+			const event = parseOrNull(exportEventSchema, parseData(message));
+
+			if (!event) {
+				for (const handler of resyncHandlers) handler();
+				return;
+			}
+			for (const handler of exportHandlers) handler(event);
+		});
 		current.addEventListener('error', () => {
 			if (current.readyState === CLOSED) void closed();
 		});
@@ -119,6 +133,7 @@ export function createLiveEvents({
 	return {
 		onPhoto: (handler) => subscribe(photoHandlers, handler),
 		onFavorites: (handler) => subscribe(favoritesHandlers, handler),
+		onExport: (handler) => subscribe(exportHandlers, handler),
 		onResync: (handler) => subscribe(resyncHandlers, handler),
 		start() {
 			if (active) return;

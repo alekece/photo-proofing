@@ -43,6 +43,7 @@ use crate::{
     Repository,
     auth::WorkspaceId,
     error::DatabaseError,
+    export::{ExportId, ExportRepository},
     gallery::GalleryId,
     photo::{PROCESSING_FAILED_REASON, PhotoRepository},
 };
@@ -96,6 +97,7 @@ pub enum JobKind {
     CleanupGallery,
     CleanupPhotos,
     SweepOrphans,
+    ZipExport,
 }
 
 impl JobKind {
@@ -127,6 +129,12 @@ pub struct CleanupPhotos {
     pub photo_ids: Vec<PhotoId>,
 }
 
+/// Builds the ZIP of one export from its stored snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ZipExport {
+    pub export_id: ExportId,
+}
+
 /// A durable job's tag and body, stored together in the `payload` JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "payload", rename_all = "snake_case")]
@@ -136,6 +144,13 @@ pub enum JobPayload {
     CleanupPhotos(CleanupPhotos),
     /// Removes photo files that no photo row owns.
     SweepOrphans,
+    ZipExport(ZipExport),
+}
+
+impl From<ZipExport> for JobPayload {
+    fn from(payload: ZipExport) -> Self {
+        Self::ZipExport(payload)
+    }
 }
 
 impl From<ProcessPhoto> for JobPayload {
@@ -164,6 +179,7 @@ impl JobPayload {
             Self::CleanupGallery(_) => JobKind::CleanupGallery,
             Self::CleanupPhotos(_) => JobKind::CleanupPhotos,
             Self::SweepOrphans => JobKind::SweepOrphans,
+            Self::ZipExport(_) => JobKind::ZipExport,
         }
     }
 }
@@ -326,6 +342,8 @@ impl JobRepository<'_> {
         COALESCE(payload->'payload', 'null'::jsonb) AS body, attempts, max_attempts";
     /// Photo targeted by a job, as text so a malformed payload cannot abort the statement.
     const PHOTO_ID: &'static str = "payload->'payload'->>'photo_id' AS photo_id";
+    /// Export targeted by a job, as text for the same reason.
+    const EXPORT_ID: &'static str = "payload->'payload'->>'export_id' AS export_id";
 
     /// Stores a job, due immediately.
     pub async fn enqueue(
@@ -377,21 +395,28 @@ impl JobRepository<'_> {
             .collect::<Vec<_>>();
 
         let mut transaction = self.pool.begin().await?;
-        let expired_photos: Vec<Option<String>> = sqlx::query_scalar(AssertSqlSafe(format!(
-            "UPDATE jobs SET state = 'failed', locked_until = NULL,
+        let expired: Vec<(Option<String>, Option<String>)> =
+            sqlx::query_as(AssertSqlSafe(format!(
+                "UPDATE jobs SET state = 'failed', locked_until = NULL,
                  last_error = 'the worker stopped answering on the final attempt'
              WHERE id IN (
                  SELECT id FROM jobs
                  WHERE state = 'running' AND locked_until < now() AND attempts >= max_attempts
                  FOR UPDATE SKIP LOCKED)
-             RETURNING {}",
-            Self::PHOTO_ID
-        )))
-        .fetch_all(&mut *transaction)
-        .await?;
+             RETURNING {}, {}",
+                Self::PHOTO_ID,
+                Self::EXPORT_ID
+            )))
+            .fetch_all(&mut *transaction)
+            .await?;
 
-        for photo_id in &expired_photos {
-            Self::mark_linked_photo_failed_in(&mut transaction, photo_id.as_deref()).await?;
+        for (photo_id, export_id) in &expired {
+            Self::mark_linked_failed_in(
+                &mut transaction,
+                photo_id.as_deref(),
+                export_id.as_deref(),
+            )
+            .await?;
         }
 
         transaction.commit().await?;
@@ -520,8 +545,9 @@ impl JobRepository<'_> {
         backoff: Backoff,
     ) -> Result<Option<JobState>, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
-        let failed: Option<(JobState, Option<String>)> = sqlx::query_as(AssertSqlSafe(format!(
-            "UPDATE jobs SET
+        let failed: Option<(JobState, Option<String>, Option<String>)> =
+            sqlx::query_as(AssertSqlSafe(format!(
+                "UPDATE jobs SET
                  state = CASE WHEN attempts >= max_attempts
                      THEN 'failed'::job_state ELSE 'queued'::job_state END,
                  run_at = CASE WHEN attempts >= max_attempts
@@ -529,22 +555,28 @@ impl JobRepository<'_> {
                  locked_until = NULL,
                  last_error = $3
              WHERE id = $1 AND state = 'running' AND attempts = $2
-             RETURNING state, {}",
-            Self::PHOTO_ID
-        )))
-        .bind(job.id)
-        .bind(attempts_param(job))
-        .bind(clean_error(error))
-        .bind(backoff.delay(job.attempts).as_secs_f64())
-        .fetch_optional(&mut *transaction)
-        .await?;
+             RETURNING state, {}, {}",
+                Self::PHOTO_ID,
+                Self::EXPORT_ID
+            )))
+            .bind(job.id)
+            .bind(attempts_param(job))
+            .bind(clean_error(error))
+            .bind(backoff.delay(job.attempts).as_secs_f64())
+            .fetch_optional(&mut *transaction)
+            .await?;
 
-        let Some((state, photo_id)) = failed else {
+        let Some((state, photo_id, export_id)) = failed else {
             return Ok(None);
         };
 
         if state == JobState::Failed {
-            Self::mark_linked_photo_failed_in(&mut transaction, photo_id.as_deref()).await?;
+            Self::mark_linked_failed_in(
+                &mut transaction,
+                photo_id.as_deref(),
+                export_id.as_deref(),
+            )
+            .await?;
         }
 
         transaction.commit().await?;
@@ -555,17 +587,27 @@ impl JobRepository<'_> {
     /// Fails the job for good, regardless of remaining attempts, for errors a retry cannot fix.
     /// `false` means the claim was no longer current.
     pub async fn abandon(&self, job: &Job, error: &str) -> Result<bool, DatabaseError> {
-        let done = sqlx::query(
-            "UPDATE jobs SET state = 'failed', locked_until = NULL, last_error = $3
-             WHERE id = $1 AND state = 'running' AND attempts = $2",
-        )
-        .bind(job.id)
-        .bind(attempts_param(job))
-        .bind(clean_error(error))
-        .execute(self.pool)
-        .await?;
+        let mut transaction = self.pool.begin().await?;
+        let abandoned_export_id: Option<Option<String>> =
+            sqlx::query_scalar(AssertSqlSafe(format!(
+                "UPDATE jobs SET state = 'failed', locked_until = NULL, last_error = $3
+             WHERE id = $1 AND state = 'running' AND attempts = $2
+             RETURNING {}",
+                Self::EXPORT_ID
+            )))
+            .bind(job.id)
+            .bind(attempts_param(job))
+            .bind(clean_error(error))
+            .fetch_optional(&mut *transaction)
+            .await?;
+        let Some(export_id) = abandoned_export_id else {
+            return Ok(false);
+        };
 
-        Ok(done.rows_affected() == 1)
+        Self::mark_linked_failed_in(&mut transaction, None, export_id.as_deref()).await?;
+        transaction.commit().await?;
+
+        Ok(true)
     }
 
     /// Manually requeues a failed job with a fresh set of attempts. `false` means there is no
@@ -593,7 +635,7 @@ impl JobRepository<'_> {
     }
 
     /// Finishes `job` if this run still owns it, through `executor`.
-    async fn complete_in(
+    pub(crate) async fn complete_in(
         executor: impl PgExecutor<'_>,
         job: &Job,
     ) -> Result<JobCompletion, DatabaseError> {
@@ -609,23 +651,32 @@ impl JobRepository<'_> {
         })
     }
 
-    /// Marks the photo of a job that failed for good, so the gallery shows why it has no proof.
+    /// Marks the photo or export of a job that failed for good, so the gallery shows why it has
+    /// no proof or ZIP.
     ///
-    /// Jobs without a readable photo id have nothing to update.
-    async fn mark_linked_photo_failed_in(
+    /// Jobs without a readable id have nothing to update.
+    async fn mark_linked_failed_in(
         transaction: &mut Transaction<'_, Postgres>,
         raw_photo_id: Option<&str>,
+        raw_export_id: Option<&str>,
     ) -> Result<(), DatabaseError> {
-        let Some(photo_id) = raw_photo_id.and_then(|id| Uuid::parse_str(id).ok()) else {
-            return Ok(());
-        };
+        if let Some(photo_id) = raw_photo_id.and_then(|id| Uuid::parse_str(id).ok()) {
+            PhotoRepository::mark_failed_in(
+                transaction,
+                PhotoId::from(photo_id),
+                PROCESSING_FAILED_REASON,
+            )
+            .await?;
+        }
 
-        PhotoRepository::mark_failed_in(
-            transaction,
-            PhotoId::from(photo_id),
-            PROCESSING_FAILED_REASON,
-        )
-        .await?;
+        if let Some(export_id) = raw_export_id.and_then(|id| Uuid::parse_str(id).ok()) {
+            ExportRepository::mark_failed_in(
+                transaction,
+                ExportId(export_id),
+                crate::export::EXPORT_FAILED_REASON,
+            )
+            .await?;
+        }
 
         Ok(())
     }

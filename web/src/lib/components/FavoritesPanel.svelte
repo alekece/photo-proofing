@@ -2,7 +2,14 @@
 	import { CircleCheck, Download, Heart } from '@lucide/svelte';
 	import PhotoTile, { GRID_CLASSES, ITEM_CLASSES } from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
-	import type { GalleryLayout } from '#lib/gallery/api.js';
+	import { GalleryApiError, type GalleryLayout } from '#lib/gallery/api.js';
+	import {
+		latestExport,
+		requestExport,
+		exportUrl,
+		startDownload,
+		type Export
+	} from '#lib/gallery/export.js';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
 	import SelectPill from '#lib/components/ui/select-pill/select-pill.svelte';
@@ -23,8 +30,9 @@
 		/** How many favorites the client has picked, for the tab. */
 		oncount?: (count: number | null) => void;
 		/**
-		 * Downloads these photos, a ZIP when there are several; the seam for the download endpoint
-		 * (#69). Without it, downloading is shown but unavailable.
+		 * Downloads these photos on their own (select mode, a single tile); the seam for the
+		 * individual originals download. Without it, those are shown but unavailable. The whole
+		 * selection downloads as a ZIP without it.
 		 */
 		ondownload?: (photos: Photo[]) => void | Promise<void>;
 	} = $props();
@@ -38,6 +46,13 @@
 	let viewIndex = $state(0);
 	let viewing = $state(false);
 	let downloading = $state(false);
+	let currentExport = $state<Export | null>(null);
+	let zipRequested = $state(false);
+	let zipStarted = $state(false);
+	let zipError = $state<string | null>(null);
+	let zipLoads = 0;
+	// The ZIP this page asked for downloads by itself once ready; one found later is only offered.
+	let awaited: string | null = null;
 	const mode = new SelectMode();
 
 	async function load(id: string) {
@@ -57,23 +72,80 @@
 		}
 	}
 
+	async function loadZip(id: string) {
+		const current = ++zipLoads;
+
+		try {
+			const latest = await latestExport(id);
+
+			if (current !== zipLoads) return;
+
+			currentExport = latest;
+
+			if (latest?.status.kind === 'ready' && latest.id === awaited) {
+				awaited = null;
+				zipStarted = true;
+				startDownload(exportUrl(id, latest.id));
+			} else if (latest?.status.kind !== 'preparing') {
+				awaited = null;
+			}
+		} catch {
+			// The next event or reload reports the state again.
+		}
+	}
+
+	async function requestZip() {
+		zipRequested = true;
+		zipStarted = false;
+		zipError = null;
+
+		try {
+			const created = await requestExport(galleryId);
+
+			awaited = created.id;
+			// The build may already have finished: take the state from the server, not the response.
+			await loadZip(galleryId);
+		} catch (error) {
+			zipError =
+				error instanceof GalleryApiError && error.status !== 502
+					? error.message
+					: 'Couldn’t prepare the ZIP. Please try again.';
+		}
+	}
+
+	const exportFailure = $derived(
+		currentExport?.status.kind === 'failed' ? currentExport.status.reason : null
+	);
+	const zipPreparing = $derived(currentExport?.status.kind === 'preparing');
+
 	$effect(() => {
 		const id = galleryId;
 
 		favorites = [];
 		loaded = false;
+		currentExport = null;
+		zipRequested = false;
+		zipStarted = false;
+		zipError = null;
+		awaited = null;
 		void load(id);
+		void loadZip(id);
 
 		const unsubscribe = [
 			events.onFavorites((event) => event.gallery_id === id && void load(id)),
 			events.onPhoto(
 				(event) => event.gallery_id === id && event.status === 'deleted' && void load(id)
 			),
-			events.onResync(() => void load(id))
+			events.onExport((event) => event.gallery_id === id && void loadZip(id)),
+			events.onResync(() => {
+				void load(id);
+				void loadZip(id);
+			})
 		];
 
 		return () => {
 			loads++;
+			zipLoads++;
 
 			for (const off of unsubscribe) off();
 		};
@@ -141,18 +213,40 @@
 			disabled={favorites.length === 0}
 			onclick={() => mode.enter()}><CircleCheck size={16} aria-hidden="true" />Select</Button
 		>
+		{#if currentExport?.status.kind === 'ready' && !zipRequested}
+			<Button
+				size="sm"
+				class="min-h-9! gap-1.5"
+				href={exportUrl(galleryId, currentExport.id)}
+				download=""
+			>
+				<Download size={16} aria-hidden="true" />Download ZIP ({currentExport.photo_count})
+			</Button>
+		{/if}
 		<Button
 			size="sm"
 			class="min-h-9! gap-1.5"
-			disabled={!ondownload || favorites.length === 0}
-			aria-busy={downloading}
-			title={ondownload ? undefined : 'Downloads arrive with a later release'}
-			onclick={() => download(favorites)}
+			disabled={favorites.length === 0 || zipPreparing}
+			aria-busy={zipPreparing}
+			onclick={() => void requestZip()}
 		>
-			<Download size={16} aria-hidden="true" />Download
+			<Download size={16} aria-hidden="true" />Download selection
 		</Button>
 	{/if}
 </div>
+
+<p role="status" class="text-right text-sm text-muted-foreground">
+	{#if zipPreparing}
+		Preparing the ZIP…
+	{:else if zipStarted}
+		Download started.
+	{/if}
+</p>
+{#if zipError || exportFailure}
+	<p role="alert" class="text-right text-sm text-danger">
+		{zipError ?? exportFailure} Use Download selection to try again.
+	</p>
+{/if}
 
 {#if failed}
 	<p role="alert" class="text-sm text-danger">Couldn’t load the favorites. Please reload.</p>

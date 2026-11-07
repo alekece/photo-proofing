@@ -37,6 +37,7 @@ use crate::{
     response::ResponseBuilderExt,
 };
 
+mod export;
 mod photos;
 mod shared;
 
@@ -82,7 +83,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(archive_gallery)
             .service(restore_gallery)
             .service(delete_gallery)
-            .configure(photos::configure),
+            .configure(photos::configure)
+            .configure(export::configure),
     );
 }
 

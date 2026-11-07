@@ -7,6 +7,7 @@ use crate::{
     Repository,
     auth::WorkspaceId,
     error::DatabaseError,
+    export::ExportRepository,
     gallery::GalleryId,
     jobs::{CleanupGallery, CleanupPhotos, JobOptions, JobRepository},
     photo::PhotoKind,
@@ -56,6 +57,7 @@ impl WorkspaceDeletion<'_> {
         .bind(workspace_id)
         .execute(&mut *transaction)
         .await?;
+        ExportRepository::delete_exports_in(&mut transaction, id).await?;
 
         let removed_galleries =
             sqlx::query("DELETE FROM galleries WHERE id=$1 AND workspace_id=$2")

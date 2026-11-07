@@ -106,7 +106,26 @@ export const favoriteIdsSchema = v.array(v.string());
 /** A change to the selection of a gallery of the signed-in workspace; the favorites come from a refetch. */
 export const favoritesEventSchema = v.object({ gallery_id: v.string() });
 
+/** A change to a selection ZIP of a gallery of the signed-in workspace; its state comes from a refetch. */
+export const exportEventSchema = v.object({ gallery_id: v.string() });
+
+/** Mirrors the API's `ExportStatus`: the failure reason travels with the `failed` kind. */
+export const exportStatusSchema = v.variant('kind', [
+	v.object({ kind: v.literal('preparing') }),
+	v.object({ kind: v.literal('ready') }),
+	v.object({ kind: v.literal('failed'), reason: v.string() })
+]);
+
+export const exportSchema = v.object({
+	id: v.string(),
+	status: exportStatusSchema,
+	photo_count: v.number(),
+	created_at: v.string()
+});
+
 export type Gallery = v.InferOutput<typeof gallerySchema>;
+export type Export = v.InferOutput<typeof exportSchema>;
+export type ExportEvent = v.InferOutput<typeof exportEventSchema>;
 export type GalleryOverview = v.InferOutput<typeof galleryOverviewSchema>;
 export type GalleryLayout = v.InferOutput<typeof galleryLayoutSchema>;
 export type GallerySort = v.InferOutput<typeof gallerySortSchema>;
