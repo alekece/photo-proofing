@@ -43,6 +43,12 @@ impl ResponseBuilderExt for HttpResponseBuilder {
 pub(crate) struct ImageFile {
     content_type: ContentType,
     bytes: Vec<u8>,
+    cache: ImageCache,
+}
+
+enum ImageCache {
+    Private,
+    NoStore,
 }
 
 impl ImageFile {
@@ -50,7 +56,14 @@ impl ImageFile {
         Self {
             content_type: ContentType::jpeg(),
             bytes,
+            cache: ImageCache::Private,
         }
+    }
+
+    pub(crate) fn proof(mut self) -> Self {
+        self.cache = ImageCache::NoStore;
+
+        self
     }
 
     /// Reads a stored JPEG; a file removed meanwhile is not found.
@@ -77,9 +90,15 @@ impl Responder for ImageFile {
     type Body = BoxBody;
 
     fn respond_to(self, _request: &HttpRequest) -> HttpResponse {
-        HttpResponse::Ok()
+        let mut response = HttpResponse::Ok();
+
+        match self.cache {
+            ImageCache::Private => response.private_cache(),
+            ImageCache::NoStore => response.no_store(),
+        };
+
+        response
             .content_type(self.content_type)
-            .private_cache()
             .no_referrer()
             .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
             .body(self.bytes)

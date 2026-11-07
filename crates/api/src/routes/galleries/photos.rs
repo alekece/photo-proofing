@@ -21,7 +21,7 @@ use futures_util::future::LocalBoxFuture;
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
     gallery::{GalleryId, GalleryRepository},
-    photo::{NewPhoto, PhotoKind, PhotoLocation, PhotoRepository, PhotoStatus},
+    photo::{NewPhoto, PhotoKind, PhotoLocation, PhotoRepository, PhotoStatus, ProofAccess},
     photo_intake::{PhotoIntake, PhotoIntakeError},
     photo_retry::PhotoRetry,
     workspace_deletion::WorkspaceDeletion,
@@ -50,6 +50,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(retry_photo)
         .service(delete_photo)
         .service(download_original)
+        .service(list_client_preview)
+        .service(serve_client_preview)
         .service(serve_derivative_photo);
 }
 
@@ -316,26 +318,83 @@ async fn serve_derivative_photo(
 ) -> Result<ImageFile, ErrorResponse> {
     let (gallery_id, photo_id, derivative) = path.into_inner();
     let set = set.into_inner();
-    let photo = state
-        .database()
-        .repository::<PhotoRepository>()
-        .get(identity.workspace_id, gallery_id, photo_id, set.into())
-        .await?;
-
-    if !matches!(photo, Some(photo) if photo.status == PhotoStatus::Ready) {
-        return Err(ErrorResponse::not_found());
-    }
-
     let location = PhotoLocation {
         workspace_id: identity.workspace_id,
         gallery_id,
     };
 
-    ImageFile::read(
+    if !state
+        .database()
+        .repository::<PhotoRepository>()
+        .is_visible(location, photo_id, set.into(), ProofAccess::Clean)
+        .await?
+    {
+        return Err(ErrorResponse::not_found());
+    }
+
+    let image = ImageFile::read(
         state.storage(),
         &PhotoKey::with_location(location, photo_id, derivative.into()),
     )
+    .await?;
+
+    Ok(if set.finals { image } else { image.proof() })
+}
+
+#[get("/{id}/client-preview/photos")]
+async fn list_client_preview(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    path: WebPath<GalleryId>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let gallery_id = path.into_inner();
+
+    state
+        .database()
+        .repository::<GalleryRepository>()
+        .get(identity.workspace_id, gallery_id)
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
+    let photos = state
+        .database()
+        .repository::<PhotoRepository>()
+        .list_visible(
+            PhotoLocation {
+                workspace_id: identity.workspace_id,
+                gallery_id,
+            },
+            PhotoKind::Proof,
+            ProofAccess::Client,
+        )
+        .await?;
+
+    Ok(HttpResponse::Ok().no_store().json(photos))
+}
+
+#[get("/{id}/client-preview/photos/{photo_id}/{derivative:thumbnail|preview}")]
+async fn serve_client_preview(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    path: WebPath<(GalleryId, PhotoId, DerivativePhoto)>,
+) -> Result<ImageFile, ErrorResponse> {
+    let (gallery_id, photo_id, derivative) = path.into_inner();
+    let location = PhotoLocation {
+        workspace_id: identity.workspace_id,
+        gallery_id,
+    };
+    let pair = state
+        .database()
+        .repository::<PhotoRepository>()
+        .visible_derivative(location, photo_id, PhotoKind::Proof, ProofAccess::Client)
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
+
+    ImageFile::read(
+        state.storage(),
+        &PhotoKey::with_location(location, photo_id, derivative.variant(pair)),
+    )
     .await
+    .map(ImageFile::proof)
 }
 
 #[post("/{id}/photos")]
@@ -1363,10 +1422,7 @@ pub(super) mod tests {
                 response.headers().get("Content-Type").unwrap(),
                 "image/jpeg"
             );
-            assert_eq!(
-                response.headers().get("Cache-Control").unwrap(),
-                "private, max-age=3600"
-            );
+            assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
             assert_eq!(
                 response.headers().get("Referrer-Policy").unwrap(),
                 "no-referrer"
