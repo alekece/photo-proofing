@@ -12,6 +12,7 @@
 	import GalleryHeader from '#lib/components/GalleryHeader.svelte';
 	import GallerySettings from '#lib/components/GallerySettings.svelte';
 	import GalleryTabs from '#lib/components/GalleryTabs.svelte';
+	import RestoreExpiredDialog from '#lib/components/RestoreExpiredDialog.svelte';
 	import PublishDialog from '#lib/components/PublishDialog.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
@@ -19,6 +20,7 @@
 	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
 	import {
 		GalleryApiError,
+		restoreGallery,
 		shareGallery,
 		updateGallery,
 		type GalleryChanges
@@ -39,6 +41,8 @@
 	let shareToken = $state(data.gallery.share_token);
 	let publishing = $state<'share' | 'deliver' | null>(null);
 	let confirming = $state<'archive' | 'delete' | null>(null);
+	// The expiry the restored gallery is still past; the prompt stays open while a new one is saved.
+	let expiredSince = $state<string | null>(null);
 	let photoCount = $state<number | null>(null);
 	let favoriteCount = $state<number | null>(null);
 	let previewing = $state(false);
@@ -177,8 +181,27 @@
 	async function remove(): Promise<void> {
 		throw new Error('Deleting galleries arrives with a later release.');
 	}
-	function restore() {
-		toasts.error('Restoring galleries arrives with a later release.');
+	/** Restore never changes the expiry, so an expired gallery gets a prompt to set a new date. */
+	async function restore(): Promise<void> {
+		flush();
+
+		try {
+			const restored = await restoreGallery(saved.id);
+
+			saved = { ...saved, states: restored.states, updated_at: restored.updated_at };
+			toasts.success('Restored');
+			expiredSince = restored.states.includes('expired') ? restored.expires_at : null;
+		} catch (error) {
+			if (error instanceof GalleryApiError && error.status === 401) {
+				await goto('/login?expired=1', { refreshAll: true });
+
+				return;
+			}
+
+			toasts.error(
+				error instanceof GalleryApiError ? error.message : 'Couldn’t restore. Please try again.'
+			);
+		}
 	}
 	async function logout() {
 		signOutError = '';
@@ -285,6 +308,13 @@
 	<ArchiveGalleryDialog onconfirm={archive} onclose={() => (confirming = null)} />
 {:else if confirming === 'delete'}
 	<DeleteGalleryDialog onconfirm={remove} onclose={() => (confirming = null)} />
+{/if}
+{#if expiredSince}
+	<RestoreExpiredDialog
+		expiresAt={expiredSince}
+		onsave={(expiresAt) => save({ expires_at: expiresAt })}
+		onclose={() => (expiredSince = null)}
+	/>
 {/if}
 {#if publishing}
 	<PublishDialog

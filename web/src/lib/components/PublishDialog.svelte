@@ -3,6 +3,7 @@
 	import ConfirmDialog from '#lib/components/ui/confirm-dialog/confirm-dialog.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import PhotoStack from '#lib/components/ui/photo-stack/photo-stack.svelte';
+	import { formatShortDate } from '#lib/gallery/format.js';
 	import { listPhotos, type Photo } from '#lib/gallery/photos.js';
 
 	/**
@@ -45,12 +46,7 @@
 	let failed = $derived(photos?.filter(({ status }) => typeof status === 'object').length ?? 0);
 	let empty = $derived(ready.length === 0);
 	let warned = $derived(empty || uploading > 0 || failed > 0);
-	// en-US keeps "Sep" where en-GB spells "Sept"; the day comes first as in the design.
-	let until = $derived(
-		expiresAt
-			? `${new Date(expiresAt).getDate()} ${new Date(expiresAt).toLocaleString('en-US', { month: 'short' })}`
-			: ''
-	);
+	let until = $derived(expiresAt ? formatShortDate(expiresAt) : '');
 
 	let shareText = $derived(
 		`This creates a private link. Anyone with it can see the proofs and pick favorites${until ? ` until ${until}` : ''}.`
