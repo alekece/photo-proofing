@@ -28,6 +28,21 @@ pub enum PhotoStatus {
     Failed(String),
 }
 
+/// Which of a gallery's two independent photo sets a photo belongs to.
+///
+/// Every [`PhotoRepository`] query that reads a gallery's photos takes the kind it wants, so
+/// a final is only ever returned to a caller that asked for one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "photo_kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum PhotoKind {
+    /// A photo clients choose favorites from. Events from before kinds existed default to it.
+    #[default]
+    Proof,
+    /// A finished photo the photographer prepares privately for delivery.
+    Final,
+}
+
 /// Displayed dimensions (after the EXIF orientation), both non-zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhotoDimensions {
@@ -110,6 +125,7 @@ impl FromRow<'_, PgRow> for Photo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewPhoto {
     pub id: PhotoId,
+    pub kind: PhotoKind,
     pub workspace_id: WorkspaceId,
     pub gallery_id: GalleryId,
     pub original_name: String,
@@ -159,7 +175,8 @@ pub enum FavoriteChange {
     Delivered,
 }
 
-/// Persistence for accepted photos and their processing jobs.
+/// Persistence for accepted photos. Queries that read a gallery's photos take the
+/// [`PhotoKind`] to read, and never return a photo removed from a draft.
 #[derive(Clone, Copy)]
 pub struct PhotoRepository<'db> {
     pool: &'db PgPool,
@@ -190,8 +207,8 @@ impl PhotoRepository<'_> {
             .map_err(|error| sqlx::Error::Encode(error.into()))?;
         let inserted: Option<Photo> = sqlx::query_as(
             "INSERT INTO photos
-                 (id, workspace_id, gallery_id, original_name, size, width, height)
-             SELECT $1, $2, g.id, $4, $5, $6, $7
+                 (id, workspace_id, gallery_id, original_name, size, width, height, kind)
+             SELECT $1, $2, g.id, $4, $5, $6, $7, $8
              FROM galleries AS g
              WHERE g.id = $3 AND g.workspace_id = $2
              ON CONFLICT (id) DO NOTHING
@@ -205,6 +222,7 @@ impl PhotoRepository<'_> {
         .bind(size)
         .bind(width)
         .bind(height)
+        .bind(photo.kind)
         .fetch_optional(&mut **transaction)
         .await?;
 
@@ -213,7 +231,7 @@ impl PhotoRepository<'_> {
         }
 
         let existing = sqlx::query(
-            "SELECT id, workspace_id, gallery_id, original_name, size, width, height,
+            "SELECT id, workspace_id, gallery_id, original_name, size, width, height, kind,
                     status::text AS status, failure_reason, favorite, created_at
              FROM photos WHERE id = $1",
         )
@@ -226,6 +244,7 @@ impl PhotoRepository<'_> {
         let existing = Photo::from_row(&row)?;
         let identical = row.try_get::<WorkspaceId, _>("workspace_id")? == photo.workspace_id
             && row.try_get::<GalleryId, _>("gallery_id")? == photo.gallery_id
+            && row.try_get::<PhotoKind, _>("kind")? == photo.kind
             && existing.original_name == photo.original_name
             && existing.size == photo.size
             && existing.dimensions == photo.dimensions;
@@ -244,15 +263,17 @@ impl PhotoRepository<'_> {
         &self,
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
+        kind: PhotoKind,
     ) -> Result<Vec<Photo>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM photos
-             WHERE workspace_id = $1 AND gallery_id = $2
+             WHERE workspace_id = $1 AND gallery_id = $2 AND kind = $3 AND removed_at IS NULL
              ORDER BY created_at, id",
             Self::COLUMNS
         )))
         .bind(workspace_id)
         .bind(gallery_id)
+        .bind(kind)
         .fetch_all(self.pool)
         .await?)
     }
@@ -263,15 +284,18 @@ impl PhotoRepository<'_> {
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
         id: PhotoId,
+        kind: PhotoKind,
     ) -> Result<Option<Photo>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM photos
-             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3",
+             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3
+               AND kind = $4 AND removed_at IS NULL",
             Self::COLUMNS
         )))
         .bind(workspace_id)
         .bind(gallery_id)
         .bind(id)
+        .bind(kind)
         .fetch_optional(self.pool)
         .await?)
     }
@@ -280,14 +304,17 @@ impl PhotoRepository<'_> {
     pub async fn list_ready(
         &self,
         location: PhotoLocation,
+        kind: PhotoKind,
     ) -> Result<Vec<ReadyPhoto>, DatabaseError> {
         Ok(sqlx::query_as(
             "SELECT id, width, height FROM photos
              WHERE workspace_id = $1 AND gallery_id = $2 AND status = 'ready'
+               AND kind = $3 AND removed_at IS NULL
              ORDER BY created_at, id",
         )
         .bind(location.workspace_id)
         .bind(location.gallery_id)
+        .bind(kind)
         .fetch_all(self.pool)
         .await?)
     }
@@ -297,14 +324,17 @@ impl PhotoRepository<'_> {
         &self,
         location: PhotoLocation,
         id: PhotoId,
+        kind: PhotoKind,
     ) -> Result<bool, DatabaseError> {
         Ok(sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM photos
-             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND status = 'ready')",
+             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND status = 'ready'
+               AND kind = $4 AND removed_at IS NULL)",
         )
         .bind(location.workspace_id)
         .bind(location.gallery_id)
         .bind(id)
+        .bind(kind)
         .fetch_one(self.pool)
         .await?)
     }
@@ -319,13 +349,14 @@ impl PhotoRepository<'_> {
         location: PhotoLocation,
         id: PhotoId,
         favorite: bool,
+        kind: PhotoKind,
     ) -> Result<FavoriteChange, DatabaseError> {
         let delivered: Option<bool> = sqlx::query_scalar(
             "WITH target AS (
                  SELECT p.id, g.delivered_at IS NOT NULL AS delivered
                  FROM photos AS p JOIN galleries AS g ON g.id = p.gallery_id
                  WHERE p.id = $3 AND p.workspace_id = $1 AND p.gallery_id = $2
-                   AND p.status = 'ready'
+                   AND p.status = 'ready' AND p.kind = $5
              ),
              changed AS (
                  UPDATE photos SET favorite = $4
@@ -338,6 +369,7 @@ impl PhotoRepository<'_> {
         .bind(location.gallery_id)
         .bind(id)
         .bind(favorite)
+        .bind(kind)
         .fetch_optional(self.pool)
         .await?;
 
@@ -349,19 +381,25 @@ impl PhotoRepository<'_> {
     }
 
     /// Lists the ids of the gallery's favorites in the same order as its photos.
-    pub async fn favorites(&self, location: PhotoLocation) -> Result<Vec<PhotoId>, DatabaseError> {
+    pub async fn favorites(
+        &self,
+        location: PhotoLocation,
+        kind: PhotoKind,
+    ) -> Result<Vec<PhotoId>, DatabaseError> {
         Ok(sqlx::query_scalar(
             "SELECT id FROM photos
-             WHERE workspace_id = $1 AND gallery_id = $2 AND favorite
+             WHERE workspace_id = $1 AND gallery_id = $2 AND favorite AND kind = $3
              ORDER BY created_at, id",
         )
         .bind(location.workspace_id)
         .bind(location.gallery_id)
+        .bind(kind)
         .fetch_all(self.pool)
         .await?)
     }
 
-    /// Finds the workspace and gallery owning a photo, regardless of its status.
+    /// Finds the workspace and gallery owning a photo of either kind, regardless of its status.
+    /// Workers and cleanup use it; nothing a client reaches may.
     pub async fn locate(&self, id: PhotoId) -> Result<Option<PhotoLocation>, DatabaseError> {
         Ok(
             sqlx::query_as("SELECT workspace_id, gallery_id FROM photos WHERE id = $1")
@@ -450,13 +488,13 @@ mod tests {
     use crate::{
         Database,
         auth::WorkspaceId,
-        deletion::WorkspaceDeletion,
         gallery::{GalleryId, GalleryRepository},
         jobs::{DEFAULT_CLEANUP_BATCH, JobOptions},
         listener::Notification,
         photo_events::{PhotoChange, PhotoEvent},
         photo_intake::PhotoIntake,
         tests::TestRepository,
+        workspace_deletion::WorkspaceDeletion,
     };
 
     async fn workspace(pool: &PgPool) -> WorkspaceId {
@@ -478,6 +516,7 @@ mod tests {
         original_name: &str,
     ) -> NewPhoto {
         NewPhoto {
+            kind: PhotoKind::Proof,
             id,
             workspace_id,
             gallery_id,
@@ -590,7 +629,10 @@ mod tests {
         }
         expected.sort_by_key(|(created_at, ..)| *created_at);
 
-        let listed = photos.list(workspace_id, gallery.id).await.unwrap();
+        let listed = photos
+            .list(workspace_id, gallery.id, PhotoKind::Proof)
+            .await
+            .unwrap();
 
         assert_eq!(
             listed.iter().map(|photo| photo.id).collect::<Vec<_>>(),
@@ -677,7 +719,7 @@ mod tests {
 
         let listed = database
             .repository::<PhotoRepository>()
-            .list_ready(location)
+            .list_ready(location, PhotoKind::Proof)
             .await
             .unwrap();
         let dimensions = |width, height| PhotoDimensions {
@@ -710,10 +752,20 @@ mod tests {
         let foreign = photo_in(&database, other, (20, 10), PhotoStatus::Ready, 3).await;
         let photos = database.repository::<PhotoRepository>();
 
-        assert!(photos.is_ready(location, ready).await.unwrap());
+        assert!(
+            photos
+                .is_ready(location, ready, PhotoKind::Proof)
+                .await
+                .unwrap()
+        );
 
         for id in [processing, foreign, PhotoId::from(Uuid::new_v4())] {
-            assert!(!photos.is_ready(location, id).await.unwrap());
+            assert!(
+                !photos
+                    .is_ready(location, id, PhotoKind::Proof)
+                    .await
+                    .unwrap()
+            );
         }
     }
 
@@ -733,25 +785,43 @@ mod tests {
         let newer = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 2).await;
         let photos = database.repository::<PhotoRepository>();
 
-        assert!(photos.favorites(location).await.unwrap().is_empty());
+        assert!(
+            photos
+                .favorites(location, PhotoKind::Proof)
+                .await
+                .unwrap()
+                .is_empty()
+        );
 
         for id in [newer, older, newer] {
             assert_eq!(
-                photos.set_favorite(location, id, true).await.unwrap(),
+                photos
+                    .set_favorite(location, id, true, PhotoKind::Proof)
+                    .await
+                    .unwrap(),
                 FavoriteChange::Applied
             );
         }
 
-        assert_eq!(photos.favorites(location).await.unwrap(), [older, newer]);
+        assert_eq!(
+            photos.favorites(location, PhotoKind::Proof).await.unwrap(),
+            [older, newer]
+        );
 
         for _ in 0..2 {
             assert_eq!(
-                photos.set_favorite(location, older, false).await.unwrap(),
+                photos
+                    .set_favorite(location, older, false, PhotoKind::Proof)
+                    .await
+                    .unwrap(),
                 FavoriteChange::Applied
             );
         }
 
-        assert_eq!(photos.favorites(location).await.unwrap(), [newer]);
+        assert_eq!(
+            photos.favorites(location, PhotoKind::Proof).await.unwrap(),
+            [newer]
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -765,13 +835,28 @@ mod tests {
 
         for id in [processing, foreign, PhotoId::from(Uuid::new_v4())] {
             assert_eq!(
-                photos.set_favorite(location, id, true).await.unwrap(),
+                photos
+                    .set_favorite(location, id, true, PhotoKind::Proof)
+                    .await
+                    .unwrap(),
                 FavoriteChange::NotFound
             );
         }
 
-        assert!(photos.favorites(location).await.unwrap().is_empty());
-        assert!(photos.favorites(other).await.unwrap().is_empty());
+        assert!(
+            photos
+                .favorites(location, PhotoKind::Proof)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            photos
+                .favorites(other, PhotoKind::Proof)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -782,17 +867,26 @@ mod tests {
         let spare = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 2).await;
         let photos = database.repository::<PhotoRepository>();
 
-        photos.set_favorite(location, chosen, true).await.unwrap();
+        photos
+            .set_favorite(location, chosen, true, PhotoKind::Proof)
+            .await
+            .unwrap();
         deliver(&pool, location).await;
 
         for (id, favorite) in [(chosen, false), (spare, true)] {
             assert_eq!(
-                photos.set_favorite(location, id, favorite).await.unwrap(),
+                photos
+                    .set_favorite(location, id, favorite, PhotoKind::Proof)
+                    .await
+                    .unwrap(),
                 FavoriteChange::Delivered
             );
         }
 
-        assert_eq!(photos.favorites(location).await.unwrap(), [chosen]);
+        assert_eq!(
+            photos.favorites(location, PhotoKind::Proof).await.unwrap(),
+            [chosen]
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -802,16 +896,19 @@ mod tests {
         let id = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
         let photos = database.repository::<PhotoRepository>();
         let (first, second, third) = tokio::join!(
-            photos.set_favorite(location, id, true),
-            photos.set_favorite(location, id, true),
-            photos.set_favorite(location, id, true),
+            photos.set_favorite(location, id, true, PhotoKind::Proof),
+            photos.set_favorite(location, id, true, PhotoKind::Proof),
+            photos.set_favorite(location, id, true, PhotoKind::Proof),
         );
 
         for result in [first, second, third] {
             assert_eq!(result.unwrap(), FavoriteChange::Applied);
         }
 
-        assert_eq!(photos.favorites(location).await.unwrap(), [id]);
+        assert_eq!(
+            photos.favorites(location, PhotoKind::Proof).await.unwrap(),
+            [id]
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -823,16 +920,27 @@ mod tests {
         let photos = database.repository::<PhotoRepository>();
 
         for id in [doomed, kept] {
-            photos.set_favorite(location, id, true).await.unwrap();
+            photos
+                .set_favorite(location, id, true, PhotoKind::Proof)
+                .await
+                .unwrap();
         }
 
         database
             .repository::<WorkspaceDeletion>()
-            .delete_photos(location.workspace_id, location.gallery_id, &[doomed])
+            .delete_photos(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Proof,
+                &[doomed],
+            )
             .await
             .unwrap();
 
-        assert_eq!(photos.favorites(location).await.unwrap(), [kept]);
+        assert_eq!(
+            photos.favorites(location, PhotoKind::Proof).await.unwrap(),
+            [kept]
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -843,10 +951,13 @@ mod tests {
         let spare = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 2).await;
         let photos = database.repository::<PhotoRepository>();
 
-        photos.set_favorite(location, chosen, true).await.unwrap();
+        photos
+            .set_favorite(location, chosen, true, PhotoKind::Proof)
+            .await
+            .unwrap();
 
         let listed = photos
-            .list(location.workspace_id, location.gallery_id)
+            .list(location.workspace_id, location.gallery_id, PhotoKind::Proof)
             .await
             .unwrap();
 
@@ -905,7 +1016,13 @@ mod tests {
         let photos = database.repository::<PhotoRepository>();
         let intake = database.repository::<PhotoIntake>();
 
-        assert!(photos.list(other, gallery.id).await.unwrap().is_empty());
+        assert!(
+            photos
+                .list(other, gallery.id, PhotoKind::Proof)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(
             intake
                 .try_accept(new_photo(
@@ -955,7 +1072,7 @@ mod tests {
         let (workspace_id, gallery_id, photo_id) = ids;
 
         photos
-            .get(workspace_id, gallery_id, photo_id)
+            .get(workspace_id, gallery_id, photo_id, PhotoKind::Proof)
             .await
             .unwrap()
             .unwrap()
@@ -985,7 +1102,7 @@ mod tests {
         assert!(photos.mark_failed(ids.2, "decode failed").await.unwrap());
         assert!(!photos.mark_ready(ids.2).await.unwrap());
 
-        let listed = photos.list(ids.0, ids.1).await.unwrap();
+        let listed = photos.list(ids.0, ids.1, PhotoKind::Proof).await.unwrap();
 
         assert_eq!(
             listed[0].status,
@@ -1035,21 +1152,21 @@ mod tests {
 
         assert!(
             photos
-                .get(workspace_id, gallery_id, photo_id)
+                .get(workspace_id, gallery_id, photo_id, PhotoKind::Proof)
                 .await
                 .unwrap()
                 .is_some()
         );
         assert!(
             photos
-                .get(other_workspace, gallery_id, photo_id)
+                .get(other_workspace, gallery_id, photo_id, PhotoKind::Proof)
                 .await
                 .unwrap()
                 .is_none()
         );
         assert!(
             photos
-                .get(workspace_id, other_gallery.id, photo_id)
+                .get(workspace_id, other_gallery.id, photo_id, PhotoKind::Proof)
                 .await
                 .unwrap()
                 .is_none()
@@ -1110,14 +1227,24 @@ mod tests {
             assert_eq!(
                 database
                     .repository::<WorkspaceDeletion>()
-                    .delete_photos(location.workspace_id, location.gallery_id, &[id])
+                    .delete_photos(
+                        location.workspace_id,
+                        location.gallery_id,
+                        PhotoKind::Proof,
+                        &[id]
+                    )
                     .await
                     .unwrap(),
                 vec![id]
             );
             assert_eq!(
                 photos
-                    .get(location.workspace_id, location.gallery_id, id)
+                    .get(
+                        location.workspace_id,
+                        location.gallery_id,
+                        id,
+                        PhotoKind::Proof
+                    )
                     .await
                     .unwrap(),
                 None
@@ -1144,18 +1271,29 @@ mod tests {
             .delete_photos(
                 location.workspace_id,
                 location.gallery_id,
+                PhotoKind::Proof,
                 &[first, foreign],
             )
             .await
             .unwrap();
         database
             .repository::<WorkspaceDeletion>()
-            .delete_photos(location.workspace_id, location.gallery_id, &[first])
+            .delete_photos(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Proof,
+                &[first],
+            )
             .await
             .unwrap();
         database
             .repository::<WorkspaceDeletion>()
-            .delete_photos(location.workspace_id, location.gallery_id, &[kept])
+            .delete_photos(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Proof,
+                &[kept],
+            )
             .await
             .unwrap();
 
@@ -1193,7 +1331,12 @@ mod tests {
         }
 
         deletion
-            .delete_photos(location.workspace_id, location.gallery_id, &ids)
+            .delete_photos(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Proof,
+                &ids,
+            )
             .await
             .unwrap();
 
@@ -1232,7 +1375,12 @@ mod tests {
 
         let deleted = database
             .repository::<WorkspaceDeletion>()
-            .delete_photos(location.workspace_id, location.gallery_id, &ids)
+            .delete_photos(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Proof,
+                &ids,
+            )
             .await
             .unwrap();
 
@@ -1243,7 +1391,12 @@ mod tests {
 
         database
             .repository::<WorkspaceDeletion>()
-            .delete_photos(location.workspace_id, location.gallery_id, &[more])
+            .delete_photos(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Proof,
+                &[more],
+            )
             .await
             .unwrap();
 
@@ -1270,7 +1423,12 @@ mod tests {
             async move {
                 database
                     .repository::<WorkspaceDeletion>()
-                    .delete_photos(location.workspace_id, location.gallery_id, &[id])
+                    .delete_photos(
+                        location.workspace_id,
+                        location.gallery_id,
+                        PhotoKind::Proof,
+                        &[id],
+                    )
                     .await
             }
         });
@@ -1319,7 +1477,7 @@ mod tests {
             assert!(
                 database
                     .repository::<WorkspaceDeletion>()
-                    .delete_photos(workspace_id, gallery_id, &[photo_id])
+                    .delete_photos(workspace_id, gallery_id, PhotoKind::Proof, &[photo_id])
                     .await
                     .unwrap()
                     .is_empty()
@@ -1328,7 +1486,12 @@ mod tests {
 
         assert!(
             photos
-                .get(location.workspace_id, location.gallery_id, id)
+                .get(
+                    location.workspace_id,
+                    location.gallery_id,
+                    id,
+                    PhotoKind::Proof
+                )
                 .await
                 .unwrap()
                 .is_some()
@@ -1366,6 +1529,7 @@ mod tests {
             .delete_photos(
                 location.workspace_id,
                 location.gallery_id,
+                PhotoKind::Proof,
                 &[first, second, foreign, PhotoId::from(Uuid::new_v4()), first],
             )
             .await
@@ -1397,7 +1561,12 @@ mod tests {
 
         database
             .repository::<WorkspaceDeletion>()
-            .delete_photos(location.workspace_id, location.gallery_id, &[id])
+            .delete_photos(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Proof,
+                &[id],
+            )
             .await
             .unwrap();
 
@@ -1407,5 +1576,311 @@ mod tests {
 
         assert_eq!(event.photo_id, id);
         assert_eq!(event.status, PhotoChange::Deleted);
+    }
+
+    async fn final_in(database: &Database, location: PhotoLocation) -> PhotoId {
+        let id = PhotoId::from(Uuid::new_v4());
+        let mut photo = new_photo(location.workspace_id, location.gallery_id, id, "final.jpg");
+
+        photo.kind = PhotoKind::Final;
+        database
+            .repository::<PhotoIntake>()
+            .try_accept(photo)
+            .await
+            .unwrap()
+            .unwrap();
+        database
+            .repository::<TestRepository>()
+            .force_photo_status(id, &PhotoStatus::Ready)
+            .await
+            .unwrap();
+
+        id
+    }
+
+    async fn publish(pool: &PgPool, id: PhotoId) {
+        sqlx::query("UPDATE photos SET published_at = now() WHERE id = $1")
+            .bind(id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn proofs_and_finals_are_listed_and_fetched_separately(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let proof = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let finished = final_in(&database, location).await;
+        let photos = database.repository::<PhotoRepository>();
+        let (workspace_id, gallery_id) = (location.workspace_id, location.gallery_id);
+
+        let listed: Vec<_> = photos
+            .list(workspace_id, gallery_id, PhotoKind::Proof)
+            .await
+            .unwrap();
+        let listed_finals = photos
+            .list(workspace_id, gallery_id, PhotoKind::Final)
+            .await
+            .unwrap();
+
+        assert_eq!(listed.iter().map(|p| p.id).collect::<Vec<_>>(), vec![proof]);
+        assert_eq!(
+            listed_finals.iter().map(|p| p.id).collect::<Vec<_>>(),
+            vec![finished]
+        );
+        assert!(
+            photos
+                .get(workspace_id, gallery_id, finished, PhotoKind::Proof)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            photos
+                .get(workspace_id, gallery_id, proof, PhotoKind::Final)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            photos
+                .list_ready(location, PhotoKind::Proof)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn removing_an_unpublished_final_deletes_it_and_queues_its_cleanup(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let finished = final_in(&database, location).await;
+
+        let removed = database
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Final,
+                &[finished],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(removed, vec![finished]);
+        assert_eq!(
+            database
+                .repository::<TestRepository>()
+                .count_photos()
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            database
+                .repository::<TestRepository>()
+                .jobs_of_kind("cleanup_photos")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn removing_a_published_final_keeps_row_and_files_but_hides_it(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let tests = database.repository::<TestRepository>();
+        let location = gallery_location(&database, &pool).await;
+        let finished = final_in(&database, location).await;
+        let deletion = database.repository::<WorkspaceDeletion>();
+        let photos = database.repository::<PhotoRepository>();
+
+        publish(&pool, finished).await;
+
+        let first = deletion
+            .delete_photos(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Final,
+                &[finished],
+            )
+            .await
+            .unwrap();
+        let second = deletion
+            .delete_photos(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Final,
+                &[finished],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(first, vec![finished]);
+        assert!(second.is_empty());
+        assert_eq!(tests.count_photos().await.unwrap(), 1);
+        assert!(
+            tests
+                .jobs_of_kind("cleanup_photos")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            photos
+                .list(location.workspace_id, location.gallery_id, PhotoKind::Final)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            photos
+                .get(
+                    location.workspace_id,
+                    location.gallery_id,
+                    finished,
+                    PhotoKind::Final
+                )
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_proof_delete_cannot_remove_a_final_and_vice_versa(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let proof = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let finished = final_in(&database, location).await;
+        let deletion = database.repository::<WorkspaceDeletion>();
+
+        assert!(
+            deletion
+                .delete_photos(
+                    location.workspace_id,
+                    location.gallery_id,
+                    PhotoKind::Proof,
+                    &[finished]
+                )
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            deletion
+                .delete_photos(
+                    location.workspace_id,
+                    location.gallery_id,
+                    PhotoKind::Final,
+                    &[proof]
+                )
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            database
+                .repository::<TestRepository>()
+                .count_photos()
+                .await
+                .unwrap(),
+            2
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn draft_columns_are_only_valid_on_finals(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let proof = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let finished = final_in(&database, location).await;
+
+        let published_proof = sqlx::query("UPDATE photos SET published_at = now() WHERE id = $1")
+            .bind(proof)
+            .execute(&pool)
+            .await;
+        let removed_unpublished = sqlx::query("UPDATE photos SET removed_at = now() WHERE id = $1")
+            .bind(finished)
+            .execute(&pool)
+            .await;
+
+        assert!(published_proof.is_err());
+        assert!(removed_unpublished.is_err());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn events_name_the_kind_and_report_soft_removal_as_deleted(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let mut listener = database.listen::<PhotoEvent>().await.unwrap();
+        let finished = final_in(&database, location).await;
+
+        publish(&pool, finished).await;
+        database
+            .repository::<WorkspaceDeletion>()
+            .delete_photos(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Final,
+                &[finished],
+            )
+            .await
+            .unwrap();
+
+        let mut seen = Vec::new();
+
+        while let Ok(Ok(Notification::Event(event))) =
+            tokio::time::timeout(std::time::Duration::from_millis(500), listener.next()).await
+        {
+            seen.push((event.kind, event.status));
+        }
+
+        assert_eq!(
+            seen.first(),
+            Some(&(PhotoKind::Final, PhotoChange::Waiting))
+        );
+        assert_eq!(seen.last(), Some(&(PhotoKind::Final, PhotoChange::Deleted)));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn retry_ignores_other_kinds_and_removed_finals(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let finished = final_in(&database, location).await;
+        let retry =
+            database.repository_with::<crate::photo_retry::PhotoRetry>(JobOptions::default());
+
+        database
+            .repository::<TestRepository>()
+            .force_photo_status(finished, &PhotoStatus::Failed("x".to_owned()))
+            .await
+            .unwrap();
+
+        let as_proof = retry
+            .retry_failed(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Proof,
+                Some(finished),
+            )
+            .await
+            .unwrap();
+        let as_final = retry
+            .retry_failed(
+                location.workspace_id,
+                location.gallery_id,
+                PhotoKind::Final,
+                Some(finished),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(as_proof, None);
+        assert_eq!(as_final, Some(1));
     }
 }

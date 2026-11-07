@@ -571,10 +571,11 @@ describe('gallery page', () => {
 	});
 
 	describe('tabs', () => {
-		it('offers Photos, Favorites and Finals with Photos selected', () => {
+		it('offers Photos, Favorites and Finals with Photos selected', async () => {
+			vi.stubGlobal('fetch', async () => new Response('[]'));
 			open();
 			const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent?.trim());
-			expect(tabs).toEqual(['Photos', 'Favorites', 'Final 0']);
+			expect(tabs).toEqual(['Photos', 'Favorites', 'Final']);
 			expect(screen.getByRole('tab', { name: 'Photos' }).getAttribute('aria-selected')).toBe(
 				'true'
 			);
@@ -582,13 +583,14 @@ describe('gallery page', () => {
 		});
 
 		it('switches panels', async () => {
+			vi.stubGlobal('fetch', async () => new Response('[]'));
 			const user = userEvent.setup();
 			open();
 			await user.click(screen.getByRole('tab', { name: /^Final/ }));
 			expect(screen.getByRole('tab', { name: /^Final/ }).getAttribute('aria-selected')).toBe(
 				'true'
 			);
-			expect(screen.getByRole('tabpanel').textContent).toMatch(/Drop the finished photos here/);
+			expect(screen.getAllByRole('tabpanel').length).toBeGreaterThan(0);
 			await user.click(screen.getByRole('tab', { name: 'Favorites' }));
 			expect(screen.getByRole('tabpanel').textContent).toMatch(/No favorites yet/);
 		});

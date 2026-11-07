@@ -385,6 +385,7 @@ impl GalleryRepository<'_> {
                  SELECT count(*) AS photo_count, count(*) FILTER (WHERE favorite) AS favorite_count
                  FROM photos
                  WHERE photos.gallery_id = galleries.id AND photos.status = 'ready'
+                   AND photos.kind = 'proof'
              ) AS totals
              WHERE workspace_id=$1{filter} ORDER BY {}",
             Self::COLUMNS,
@@ -490,7 +491,7 @@ impl GalleryRepository<'_> {
             "SELECT g.id AS gallery_id,g.workspace_id,g.title,g.layout,g.expires_at,g.included_photos,
                     g.delivered_at IS NOT NULL AS delivered,
                     (SELECT p.id FROM photos p
-                     WHERE p.id = g.hero_id AND p.status = 'ready') AS hero_id
+                     WHERE p.id = g.hero_id AND p.status = 'ready' AND p.kind = 'proof') AS hero_id
              FROM galleries g
              WHERE g.share_token=$1 AND g.archived_at IS NULL
                AND (g.expires_at IS NULL OR g.expires_at > now())",
@@ -564,6 +565,7 @@ impl GalleryRepository<'_> {
                AND (NOT $11 OR $12::uuid IS NULL OR EXISTS (
                    SELECT 1 FROM photos
                    WHERE id=$12 AND gallery_id=$1 AND workspace_id=$2 AND status='ready'
+                     AND kind='proof'
                    FOR KEY SHARE))
              RETURNING {}",
             Self::COLUMNS
@@ -595,10 +597,10 @@ mod tests {
     use super::*;
     use crate::{
         Database,
-        deletion::WorkspaceDeletion,
         jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
-        photo::{PhotoRepository, PhotoStatus},
+        photo::{PhotoKind, PhotoRepository, PhotoStatus},
         tests::TestRepository,
+        workspace_deletion::WorkspaceDeletion,
     };
 
     async fn workspace(pool: &PgPool) -> WorkspaceId {
@@ -1100,7 +1102,7 @@ mod tests {
             .unwrap();
         database
             .repository::<WorkspaceDeletion>()
-            .delete_photos(workspace, gallery.id, &[hero_photo])
+            .delete_photos(workspace, gallery.id, PhotoKind::Proof, &[hero_photo])
             .await
             .unwrap();
 
@@ -1110,7 +1112,7 @@ mod tests {
         assert!(
             database
                 .repository::<PhotoRepository>()
-                .get(workspace, gallery.id, other)
+                .get(workspace, gallery.id, other, PhotoKind::Proof)
                 .await
                 .unwrap()
                 .is_some()
@@ -1242,7 +1244,7 @@ mod tests {
         for id in &ready[..2] {
             database
                 .repository::<PhotoRepository>()
-                .set_favorite(location, *id, true)
+                .set_favorite(location, *id, true, PhotoKind::Proof)
                 .await
                 .unwrap();
         }

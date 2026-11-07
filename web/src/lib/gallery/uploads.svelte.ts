@@ -5,6 +5,7 @@ import {
 	getUploadLimits,
 	uploadPhoto,
 	type Photo,
+	type PhotoSet,
 	type UploadLimits,
 	type UploadOutcome
 } from './photos';
@@ -15,15 +16,21 @@ export type QueueState = 'waiting' | 'uploading' | 'failed' | 'rejected';
 export interface UploadItem {
 	key: string;
 	galleryId: string;
+	set: PhotoSet;
 	file: File;
 	state: QueueState;
 	error?: string;
 }
 
 interface UploadQueueOptions {
-	upload?: (galleryId: string, file: File, signal: AbortSignal) => Promise<UploadOutcome>;
+	upload?: (
+		galleryId: string,
+		file: File,
+		signal: AbortSignal,
+		set: PhotoSet
+	) => Promise<UploadOutcome>;
 	limits?: () => Promise<UploadLimits>;
-	remove?: (galleryId: string, photoId: string) => Promise<void>;
+	remove?: (galleryId: string, photoId: string, set: PhotoSet) => Promise<void>;
 	onSignedOut?: () => void;
 }
 
@@ -62,7 +69,7 @@ export class UploadQueue {
 	#onSignedOut;
 	// Bookkeeping that nothing renders, so plain collections on purpose.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
-	#uploadedHandlers = new Set<(galleryId: string, photo: Photo) => void>();
+	#uploadedHandlers = new Set<(galleryId: string, photo: Photo, set: PhotoSet) => void>();
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	#sending = new Map<string, Sending>();
 	#serverLimits: Pick<UploadLimits, 'concurrency' | 'max_size'> | null = null;
@@ -72,9 +79,9 @@ export class UploadQueue {
 	#nextKey = 0;
 
 	constructor({
-		upload = uploadPhoto,
+		upload = (galleryId, file, signal, set) => uploadPhoto(galleryId, file, signal, fetch, set),
 		limits = getUploadLimits,
-		remove = deletePhoto,
+		remove = (galleryId, photoId, set) => deletePhoto(galleryId, photoId, fetch, set),
 		onSignedOut = () => void goto('/login?expired=1', { refreshAll: true })
 	}: UploadQueueOptions = {}) {
 		this.#upload = upload;
@@ -88,14 +95,14 @@ export class UploadQueue {
 		return this.items.some(({ state }) => state === 'waiting' || state === 'uploading');
 	}
 
-	add(galleryId: string, files: Iterable<File>) {
+	add(galleryId: string, files: Iterable<File>, set: PhotoSet = 'photos') {
 		for (const file of files) {
 			const key = `upload-${++this.#nextKey}`;
 
 			this.items.push(
 				isJpeg(file)
-					? { key, galleryId, file, state: 'waiting' }
-					: { key, galleryId, file, state: 'rejected', error: 'Not a JPEG' }
+					? { key, galleryId, set, file, state: 'waiting' }
+					: { key, galleryId, set, file, state: 'rejected', error: 'Not a JPEG' }
 			);
 		}
 
@@ -119,19 +126,21 @@ export class UploadQueue {
 		this.#pump();
 	}
 
-	forGallery(galleryId: string) {
-		return this.items.filter((item) => item.galleryId === galleryId);
+	forGallery(galleryId: string, set: PhotoSet = 'photos') {
+		return this.items.filter((item) => item.galleryId === galleryId && item.set === set);
 	}
 
 	/** Files of this gallery that may still become photos. */
-	inFlight(galleryId: string) {
+	inFlight(galleryId: string, set: PhotoSet = 'photos') {
 		return this.items.filter(
 			(item) =>
-				item.galleryId === galleryId && (item.state === 'waiting' || item.state === 'uploading')
+				item.galleryId === galleryId &&
+				item.set === set &&
+				(item.state === 'waiting' || item.state === 'uploading')
 		).length;
 	}
 
-	onUploaded(handler: (galleryId: string, photo: Photo) => void) {
+	onUploaded(handler: (galleryId: string, photo: Photo, set: PhotoSet) => void) {
 		this.#uploadedHandlers.add(handler);
 
 		return () => {
@@ -227,7 +236,7 @@ export class UploadQueue {
 	}
 
 	async #send(item: UploadItem) {
-		const { key, galleryId, file } = item;
+		const { key, galleryId, set, file } = item;
 		const controller = new AbortController();
 		let outcome: UploadOutcome | null;
 
@@ -237,7 +246,7 @@ export class UploadQueue {
 		this.#sending.set(key, { ...sending, controller, notBefore: 0 });
 
 		try {
-			outcome = await this.#upload(galleryId, file, controller.signal);
+			outcome = await this.#upload(galleryId, file, controller.signal, set);
 		} catch {
 			outcome = controller.signal.aborted ? null : { kind: 'failed' };
 		}
@@ -251,7 +260,7 @@ export class UploadQueue {
 		if (current === undefined) {
 			// Cancelled; the server may have saved it anyway.
 			if (outcome?.kind === 'created')
-				void this.#remove(galleryId, outcome.photo.id).catch(() => {});
+				void this.#remove(galleryId, outcome.photo.id, set).catch(() => {});
 		} else if (outcome !== null) {
 			this.#settle(current, outcome);
 		}
@@ -264,7 +273,8 @@ export class UploadQueue {
 			case 'created':
 				this.#forget((other) => other.key === item.key);
 
-				for (const handler of this.#uploadedHandlers) handler(item.galleryId, outcome.photo);
+				for (const handler of this.#uploadedHandlers)
+					handler(item.galleryId, outcome.photo, item.set);
 
 				break;
 			case 'busy': {

@@ -137,8 +137,28 @@ describe('UploadQueue', () => {
 		calls[0].resolve({ kind: 'created', photo: photo('p1') });
 		await settle();
 
-		expect(uploaded).toHaveBeenCalledWith('g1', photo('p1'));
+		expect(uploaded).toHaveBeenCalledWith('g1', photo('p1'), 'photos');
 		expect(queue.items).toEqual([]);
+	});
+
+	it('keeps finals apart from proofs of the same gallery', async () => {
+		const { queue, calls } = setup({ concurrency: 2 });
+		const uploaded = vi.fn();
+
+		queue.onUploaded(uploaded);
+		queue.add('g1', [jpeg('a.jpg')]);
+		queue.add('g1', [jpeg('b.jpg')], 'finals');
+		await settle();
+
+		expect(queue.forGallery('g1').map(({ file }) => file.name)).toEqual(['a.jpg']);
+		expect(queue.forGallery('g1', 'finals').map(({ file }) => file.name)).toEqual(['b.jpg']);
+		expect(queue.inFlight('g1', 'finals')).toBe(1);
+
+		calls[1].resolve({ kind: 'created', photo: photo('f1') });
+		await settle();
+
+		expect(uploaded).toHaveBeenCalledWith('g1', photo('f1'), 'finals');
+		expect(queue.inFlight('g1')).toBe(1);
 	});
 
 	it('maps rejections and failures to their tile state', async () => {
@@ -298,7 +318,7 @@ describe('UploadQueue', () => {
 		calls[0].resolve({ kind: 'created', photo: photo('p1') });
 		await settle();
 
-		expect(remove).toHaveBeenCalledWith('g1', 'p1');
+		expect(remove).toHaveBeenCalledWith('g1', 'p1', 'photos');
 		expect(uploaded).not.toHaveBeenCalled();
 	});
 

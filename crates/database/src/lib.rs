@@ -1,7 +1,6 @@
 //! PostgreSQL persistence and versioned application migrations.
 
 pub mod auth;
-pub mod deletion;
 pub mod error;
 pub mod favorite_events;
 pub mod gallery;
@@ -13,6 +12,7 @@ pub mod photo_intake;
 pub mod photo_retry;
 #[cfg(any(test, feature = "tests"))]
 pub mod tests;
+pub mod workspace_deletion;
 
 pub use sqlx::PgPool;
 use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};

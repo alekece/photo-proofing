@@ -96,6 +96,7 @@ export const photoChangeSchema = v.picklist([
 export const photoEventSchema = v.object({
 	gallery_id: v.string(),
 	photo_id: v.string(),
+	kind: v.optional(v.picklist(['proof', 'final']), 'proof'),
 	status: photoChangeSchema
 });
 

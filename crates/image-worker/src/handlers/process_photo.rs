@@ -190,7 +190,7 @@ mod tests {
         auth::WorkspaceId,
         gallery::{GalleryId, GalleryRepository},
         jobs::{Backoff, JobKind, JobPayload},
-        photo::{NewPhoto, PhotoDimensions, PhotoStatus},
+        photo::{NewPhoto, PhotoDimensions, PhotoKind, PhotoStatus},
         photo_intake::PhotoIntake,
         tests::TestRepository,
     };
@@ -237,6 +237,7 @@ mod tests {
             database
                 .repository::<PhotoIntake>()
                 .try_accept(NewPhoto {
+                    kind: PhotoKind::Proof,
                     id,
                     workspace_id,
                     gallery_id,
@@ -329,6 +330,7 @@ mod tests {
                     self.location.workspace_id,
                     self.location.gallery_id,
                     self.id,
+                    PhotoKind::Proof,
                 )
                 .await
                 .unwrap()

@@ -25,7 +25,7 @@ use super::DerivativePhoto;
 use crate::{
     api::ApiState,
     error::ErrorResponse,
-    extractors::client_access::{ClientAccess, ClientPhotoSet},
+    extractors::client_access::ClientAccess,
     response::{ImageFile, ResponseBuilderExt},
 };
 
@@ -69,10 +69,11 @@ async fn list_shared_photos(
     state: Data<ApiState>,
     access: ClientAccess,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let photos = state.database().repository::<PhotoRepository>();
-    let photos = match access.photo_set() {
-        ClientPhotoSet::Proofs => photos.list_ready(access.0.location).await?,
-    };
+    let photos = state
+        .database()
+        .repository::<PhotoRepository>()
+        .list_ready(access.0.location, access.photo_set().kind())
+        .await?;
 
     Ok(HttpResponse::Ok().no_store().no_referrer().json(photos))
 }
@@ -85,7 +86,7 @@ async fn list_favorites(
     let favorites = state
         .database()
         .repository::<PhotoRepository>()
-        .favorites(access.0.location)
+        .favorites(access.0.location, access.photo_set().kind())
         .await?;
 
     Ok(HttpResponse::Ok().no_store().no_referrer().json(favorites))
@@ -100,7 +101,12 @@ async fn add_favorite(
     let change = state
         .database()
         .repository::<PhotoRepository>()
-        .set_favorite(access.0.location, path.into_inner().1, true)
+        .set_favorite(
+            access.0.location,
+            path.into_inner().1,
+            true,
+            access.photo_set().kind(),
+        )
         .await?;
 
     ErrorResponse::ensure_favorite_applied(change)?;
@@ -117,7 +123,12 @@ async fn remove_favorite(
     let change = state
         .database()
         .repository::<PhotoRepository>()
-        .set_favorite(access.0.location, path.into_inner().1, false)
+        .set_favorite(
+            access.0.location,
+            path.into_inner().1,
+            false,
+            access.photo_set().kind(),
+        )
         .await?;
 
     ErrorResponse::ensure_favorite_applied(change)?;
@@ -133,15 +144,11 @@ async fn serve_shared_photo(
 ) -> Result<ImageFile, ErrorResponse> {
     let (_, photo_id, derivative) = path.into_inner();
     let location = access.0.location;
-    let visible = match access.photo_set() {
-        ClientPhotoSet::Proofs => {
-            state
-                .database()
-                .repository::<PhotoRepository>()
-                .is_ready(location, photo_id)
-                .await?
-        }
-    };
+    let visible = state
+        .database()
+        .repository::<PhotoRepository>()
+        .is_ready(location, photo_id, access.photo_set().kind())
+        .await?;
 
     if !visible {
         return Err(ErrorResponse::not_found());

@@ -1,7 +1,10 @@
 use std::{future::Future, pin::Pin};
 
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
-use pp_database::gallery::{GalleryRepository, ShareToken, SharedAccess};
+use pp_database::{
+    gallery::{GalleryRepository, ShareToken, SharedAccess},
+    photo::PhotoKind,
+};
 
 use crate::{api::ApiState, error::ErrorResponse};
 
@@ -15,6 +18,14 @@ pub(crate) struct ClientAccess(pub SharedAccess);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClientPhotoSet {
     Proofs,
+}
+
+impl ClientPhotoSet {
+    pub(crate) fn kind(self) -> PhotoKind {
+        match self {
+            Self::Proofs => PhotoKind::Proof,
+        }
+    }
 }
 
 impl ClientAccess {

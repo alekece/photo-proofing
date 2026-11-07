@@ -95,6 +95,21 @@ describe('photo requests', () => {
 		);
 	});
 
+	it('addresses finals with the finals query', async () => {
+		const fetcher = respond(200, [photo]);
+		const deleted = respond(200, { deleted: 1 });
+
+		await listPhotos('g1', fetcher, 'finals');
+		await deletePhotos('g1', ['p1'], deleted, 'finals');
+
+		expect(fetcher.mock.calls[0][0]).toBe('/api/v1/galleries/g1/photos?finals=true');
+		expect(deleted.mock.calls[0][0]).toBe('/api/v1/galleries/g1/photos/delete?finals=true');
+		expect(thumbnailUrl('g1', 'p1', 'finals')).toBe(
+			'/api/v1/galleries/g1/photos/p1/thumbnail?finals=true'
+		);
+		expect(previewUrl('g1', 'p1')).toBe('/api/v1/galleries/g1/photos/p1/preview');
+	});
+
 	it('deletes and retries one photo', async () => {
 		const deleted = respond(204);
 		const retried = respond(200, { requeued: 1 });

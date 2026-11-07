@@ -658,7 +658,8 @@ mod tests {
         auth::WorkspaceId,
         gallery::GalleryRepository,
         photo::{
-            NewPhoto, PROCESSING_FAILED_REASON, PhotoDimensions, PhotoRepository, PhotoStatus,
+            NewPhoto, PROCESSING_FAILED_REASON, PhotoDimensions, PhotoKind, PhotoRepository,
+            PhotoStatus,
         },
     };
 
@@ -727,6 +728,7 @@ mod tests {
             .unwrap();
         let photo_id = PhotoId::generate();
         let photo = NewPhoto {
+            kind: PhotoKind::Proof,
             id: photo_id,
             workspace_id,
             gallery_id: gallery.id,
@@ -761,7 +763,12 @@ mod tests {
         let location = photos.locate(photo_id).await.unwrap().unwrap();
 
         photos
-            .get(location.workspace_id, location.gallery_id, photo_id)
+            .get(
+                location.workspace_id,
+                location.gallery_id,
+                photo_id,
+                PhotoKind::Proof,
+            )
             .await
             .unwrap()
             .unwrap()

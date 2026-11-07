@@ -26,10 +26,20 @@ const REJECTIONS: Record<number, string> = {
 	422: 'Unreadable image'
 };
 
-function photosPath(galleryId: string, photoId?: string) {
-	const base = `/api/v1/galleries/${encodeURIComponent(galleryId)}/photos`;
+/** The set a route addresses: the client proofs, or the photographer's finished photos. */
+export type PhotoSet = 'photos' | 'finals';
 
-	return photoId === undefined ? base : `${base}/${encodeURIComponent(photoId)}`;
+/** The photo routes of a gallery, which address the finals with `?finals=true`. */
+function photosPath(
+	galleryId: string,
+	{ photoId, action, set = 'photos' }: { photoId?: string; action?: string; set?: PhotoSet } = {}
+) {
+	const segments = [photoId === undefined ? undefined : encodeURIComponent(photoId), action];
+	const path = [`/api/v1/galleries/${encodeURIComponent(galleryId)}/photos`, ...segments]
+		.filter((segment) => segment !== undefined)
+		.join('/');
+
+	return set === 'finals' ? `${path}?finals=true` : path;
 }
 
 const unexpected = () => new GalleryApiError(502, 'Unexpected response from the server.');
@@ -49,8 +59,12 @@ async function request(path: string, init: RequestInit, fetcher: typeof fetch) {
 	return response;
 }
 
-export async function listPhotos(galleryId: string, fetcher: typeof fetch = fetch) {
-	const response = await request(photosPath(galleryId), {}, fetcher);
+export async function listPhotos(
+	galleryId: string,
+	fetcher: typeof fetch = fetch,
+	set: PhotoSet = 'photos'
+) {
+	const response = await request(photosPath(galleryId, { set }), {}, fetcher);
 
 	const photos = parseOrNull(v.array(photoSchema), await response.json().catch(() => null));
 
@@ -59,17 +73,27 @@ export async function listPhotos(galleryId: string, fetcher: typeof fetch = fetc
 	return photos;
 }
 
-export async function deletePhoto(galleryId: string, photoId: string, fetcher = fetch) {
-	await request(photosPath(galleryId, photoId), { method: 'DELETE' }, fetcher);
+export async function deletePhoto(
+	galleryId: string,
+	photoId: string,
+	fetcher = fetch,
+	set: PhotoSet = 'photos'
+) {
+	await request(photosPath(galleryId, { photoId, set }), { method: 'DELETE' }, fetcher);
 }
 
 /** Most photos one bulk delete request accepts. */
 export const BULK_DELETE_LIMIT = 1000;
 
 /** Deletes up to `BULK_DELETE_LIMIT` photos; ids already gone are not counted. */
-export async function deletePhotos(galleryId: string, photoIds: string[], fetcher = fetch) {
+export async function deletePhotos(
+	galleryId: string,
+	photoIds: string[],
+	fetcher = fetch,
+	set: PhotoSet = 'photos'
+) {
 	const response = await request(
-		`${photosPath(galleryId)}/delete`,
+		photosPath(galleryId, { action: 'delete', set }),
 		{
 			method: 'POST',
 			body: JSON.stringify({ photo_ids: photoIds }),
@@ -85,8 +109,17 @@ export async function deletePhotos(galleryId: string, photoIds: string[], fetche
 	return body.deleted;
 }
 
-export async function retryPhoto(galleryId: string, photoId: string, fetcher = fetch) {
-	await request(`${photosPath(galleryId, photoId)}/retry`, { method: 'POST' }, fetcher);
+export async function retryPhoto(
+	galleryId: string,
+	photoId: string,
+	fetcher = fetch,
+	set: PhotoSet = 'photos'
+) {
+	await request(
+		photosPath(galleryId, { photoId, action: 'retry', set }),
+		{ method: 'POST' },
+		fetcher
+	);
 }
 
 export async function getUploadLimits(fetcher: typeof fetch = fetch) {
@@ -104,12 +137,13 @@ export async function uploadPhoto(
 	galleryId: string,
 	file: File,
 	signal: AbortSignal,
-	fetcher: typeof fetch = fetch
+	fetcher: typeof fetch = fetch,
+	set: PhotoSet = 'photos'
 ): Promise<UploadOutcome> {
 	let response: Response;
 
 	try {
-		response = await fetcher(photosPath(galleryId), {
+		response = await fetcher(photosPath(galleryId, { set }), {
 			method: 'POST',
 			body: file,
 			signal,
@@ -145,10 +179,10 @@ export async function uploadPhoto(
 	return reason === undefined ? { kind: 'failed' } : { kind: 'rejected', reason };
 }
 
-export function thumbnailUrl(galleryId: string, photoId: string) {
-	return `${photosPath(galleryId, photoId)}/thumbnail`;
+export function thumbnailUrl(galleryId: string, photoId: string, set: PhotoSet = 'photos') {
+	return photosPath(galleryId, { photoId, action: 'thumbnail', set });
 }
 
-export function previewUrl(galleryId: string, photoId: string) {
-	return `${photosPath(galleryId, photoId)}/preview`;
+export function previewUrl(galleryId: string, photoId: string, set: PhotoSet = 'photos') {
+	return photosPath(galleryId, { photoId, action: 'preview', set });
 }

@@ -179,7 +179,7 @@ mod tests {
         auth::WorkspaceId,
         error::DatabaseError,
         gallery::{GalleryId, GalleryRepository},
-        photo::{NewPhoto, PhotoDimensions, PhotoInsertOutcome, PhotoRepository},
+        photo::{NewPhoto, PhotoDimensions, PhotoInsertOutcome, PhotoKind, PhotoRepository},
     };
 
     async fn workspace(pool: &PgPool) -> WorkspaceId {
@@ -201,6 +201,7 @@ mod tests {
         original_name: &str,
     ) -> NewPhoto {
         NewPhoto {
+            kind: PhotoKind::Proof,
             id,
             workspace_id,
             gallery_id,
