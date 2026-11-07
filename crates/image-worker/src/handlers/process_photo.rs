@@ -131,7 +131,7 @@ impl ProcessPhotoHandler {
         Ok(completion)
     }
 
-    /// Publishes both derivatives if their watermark is still current, marking the photo ready
+    /// Publishes the rendered pairs if their watermark is still current, marking the photo ready
     /// and finishing `job` together. Files are staged first, so only the renames happen while
     /// the job and photo are locked. If the photo was deleted meanwhile, whatever was written
     /// is removed so late or partial work leaves nothing behind; a photo that still exists
@@ -164,10 +164,12 @@ impl ProcessPhotoHandler {
             (variants[0], marked.thumbnail),
             (variants[1], marked.preview),
         ]);
+
         let derivatives: Vec<_> = derivatives
             .into_iter()
             .map(|(variant, bytes)| (PhotoKey::with_location(location, id, variant), bytes))
             .collect();
+
         let published = async {
             let staged = self.stage(&derivatives).await?;
             let jobs = self.database.repository::<JobRepository>();
@@ -188,6 +190,7 @@ impl ProcessPhotoHandler {
             }
         }
         .await;
+
         let photo_is_deleted = match &published {
             Ok((_, update)) => *update == PhotoUpdate::Missing,
             Err(_) => matches!(

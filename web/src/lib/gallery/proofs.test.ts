@@ -46,6 +46,7 @@ describe('toOwnerProofs', () => {
 
 		expect(toOwnerProofs('g1', photos).map(({ id }) => id)).toEqual(['0', '1']);
 	});
+
 	it('changes the first preview URL when its rendered asset changes', () => {
 		const original = {
 			id: 'a',

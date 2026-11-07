@@ -105,6 +105,7 @@ describe('ClientGallery', () => {
 			'/api/v1/galleries/shared/tok/cover?hero=hero'
 		);
 	});
+
 	it('tells a delivered gallery without finals that they are on their way', async () => {
 		const { container } = render(ClientGallery, {
 			token: 'tok',

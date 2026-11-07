@@ -298,3 +298,25 @@ cache identity, migration/restart/deletion and current documentation. Interface 
 tasks; rendering sizes and file policy stay those approved in the design. The five Review Focus
 conditions each have an owning task test. No new dependencies, delivery policy or larger hero asset
 is introduced.
+
+## PR guidance corrections
+
+A fresh independent guidance audit found missing separators in renderer/publication code,
+shared-route request cases and adjacent frontend tests, plus incomplete readiness documentation
+and stale gallery-screen regeneration guidance. Corrections preserve behavior and distinguish
+initial upload status from regeneration over an already usable clean image.
+
+The bounded refactor pass found no further responsibility or abstraction change warranted:
+access policy and the authorized storage pair remain distinct, and worker redesign stays outside
+this PR. The reported loop is alone in its async scope; the resize conditional already has a
+separator. The app-managed branch was already renamed and cannot be renamed again in this session.
+
+Verification after corrections: nightly format, strict workspace/all-target Clippy, all six
+database doctests (including three new contract examples), and frontend verification
+(529 tests in 71 files, zero type errors/warnings, production build) passed. No runtime behavior
+changed, so database integration and libvips rendering suites were not repeated for these
+spacing/documentation corrections.
+
+The same fresh reviewer verified the correction diff, including tail-expression spacing, and
+reported no material remaining guidance violation. All inline maintainer questions received
+thread replies; representation/policy discussions remain open for the maintainer.

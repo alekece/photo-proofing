@@ -79,6 +79,7 @@ pub struct ReadyPhoto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Photo {
     pub id: PhotoId,
+    /// Clean proof derivatives are published and remain usable during marked processing/failure.
     pub clean_ready: bool,
     /// Changes only when a newly rendered asset is published as ready.
     pub revision: i64,
@@ -173,7 +174,9 @@ pub struct PhotoLocation {
 /// Which proof presentation authorizes a derivative.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProofAccess {
+    /// Require clean proof files, regardless of the gallery watermark switch.
     Clean,
+    /// Enforce the saved switch and, when enabled, the current marked revision.
     Client,
 }
 
@@ -379,6 +382,25 @@ impl PhotoRepository<'_> {
         .await?)
     }
 
+    /// Lists scoped, nonremoved photos with derivatives ready under `access`.
+    ///
+    /// Clean proofs remain visible during marked processing/failure. Client access additionally
+    /// requires the current marked revision when the saved gallery switch is on; finals require
+    /// ready status under either policy. Database failures return [`DatabaseError`].
+    ///
+    /// ```
+    /// use pp_database::{
+    ///     error::DatabaseError,
+    ///     photo::{PhotoKind, PhotoLocation, PhotoRepository, ProofAccess, ReadyPhoto},
+    /// };
+    ///
+    /// async fn client_photos(
+    ///     photos: PhotoRepository<'_>,
+    ///     location: PhotoLocation,
+    /// ) -> Result<Vec<ReadyPhoto>, DatabaseError> {
+    ///     photos.list_visible(location, PhotoKind::Proof, ProofAccess::Client).await
+    /// }
+    /// ```
     pub async fn list_visible(
         &self,
         location: PhotoLocation,
@@ -401,6 +423,25 @@ impl PhotoRepository<'_> {
         .await?)
     }
 
+    /// Checks the same scoped readiness policy as [`Self::list_visible`].
+    ///
+    /// Returns false for missing, removed or unavailable photos, and propagates database errors.
+    ///
+    /// ```
+    /// use pp_core::notifications::PhotoId;
+    /// use pp_database::{
+    ///     error::DatabaseError,
+    ///     photo::{PhotoKind, PhotoLocation, PhotoRepository, ProofAccess},
+    /// };
+    ///
+    /// async fn owner_can_view(
+    ///     photos: PhotoRepository<'_>,
+    ///     location: PhotoLocation,
+    ///     id: PhotoId,
+    /// ) -> Result<bool, DatabaseError> {
+    ///     photos.is_visible(location, id, PhotoKind::Proof, ProofAccess::Clean).await
+    /// }
+    /// ```
     pub async fn is_visible(
         &self,
         location: PhotoLocation,
@@ -414,6 +455,27 @@ impl PhotoRepository<'_> {
             .is_some())
     }
 
+    /// Checks scoped readiness and resolves the permitted pair in a single database snapshot.
+    ///
+    /// Client access selects from the saved gallery switch, never a caller-supplied on/off value.
+    /// Returns `None` for missing, removed or unavailable photos; database errors propagate.
+    /// The result does not reserve access across a later policy change.
+    ///
+    /// ```
+    /// use pp_core::notifications::PhotoId;
+    /// use pp_database::{
+    ///     error::DatabaseError,
+    ///     photo::{PhotoKind, PhotoLocation, PhotoRepository, ProofAccess, ProofDerivative},
+    /// };
+    ///
+    /// async fn client_pair(
+    ///     photos: PhotoRepository<'_>,
+    ///     location: PhotoLocation,
+    ///     id: PhotoId,
+    /// ) -> Result<Option<ProofDerivative>, DatabaseError> {
+    ///     photos.visible_derivative(location, id, PhotoKind::Proof, ProofAccess::Client).await
+    /// }
+    /// ```
     pub async fn visible_derivative(
         &self,
         location: PhotoLocation,

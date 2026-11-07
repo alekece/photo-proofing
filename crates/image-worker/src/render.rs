@@ -109,7 +109,8 @@ impl ImageRenderer {
         })
     }
 
-    /// Encodes both pairs from the same resized pixels, never from compressed clean copies.
+    /// Encodes both pairs for [`ProofRender::All`], or only the marked pair for
+    /// [`ProofRender::Watermarked`], from resized source pixels, not compressed clean copies.
     pub fn render_proof(
         &self,
         original: &[u8],
@@ -182,6 +183,7 @@ impl ImageRenderer {
         watermark: Option<&Watermark>,
     ) -> Result<Vec<u8>, RenderError> {
         let fitted = Self::resize(image, edge)?;
+
         let fitted = match watermark {
             Some(watermark) => WatermarkPainter::new(watermark).paint(&fitted)?,
             None => fitted,
@@ -197,11 +199,13 @@ impl ImageRenderer {
         render: ProofRender,
     ) -> Result<(Option<Vec<u8>>, Vec<u8>), RenderError> {
         let fitted = Self::resize(image, edge)?;
+
         let clean = if render == ProofRender::All {
             Some(Self::encode(&fitted)?)
         } else {
             None
         };
+
         let marked = match watermark {
             Some(watermark) => Self::encode(&WatermarkPainter::new(watermark).paint(&fitted)?)?,
             None => match &clean {

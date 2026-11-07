@@ -94,10 +94,13 @@ with the reason, a **Retry** button and ×; a red toast says "1 photo failed to 
 ![Upload motion](gallery/upload-motion.gif)
 ![Upload frames](gallery/upload-motion.frames.png)
 
-**Updating watermarks:** after watermark settings change, galleries with watermarking on show a
-slim "Updating watermarks…" line with a small spinner in the toolbar until the proofs are
-regenerated. Published render revisions refresh tiles, the open viewer and the hero without
-reloading the gallery; originals and finals stay unwatermarked.
+**Updating watermarks:** after watermark settings change, all galleries show a slim
+"Updating watermarks…" line with a small spinner in the toolbar until the marked proofs are
+regenerated, even with watermarking off. Clean owner tiles, the open viewer and the hero remain
+usable and unwatermarked. Unlike initial upload processing, regeneration keeps the photo visible
+with a small bottom status badge; a failed regeneration includes **Retry**. Published render
+revisions refresh client images without reloading the gallery; originals and finals stay
+unwatermarked. Switching watermarking on or off only selects existing files.
 
 ### Favorites
 

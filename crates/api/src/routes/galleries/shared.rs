@@ -744,6 +744,7 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+
         let response = test::call_service(
             &app,
             client_request(&token, &format!("/photos/{photo}/preview")),
@@ -752,6 +753,7 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(test::read_body(response).await.as_ref(), marked);
+
         let response = test::call_service(
             &app,
             test::TestRequest::get()
@@ -768,10 +770,12 @@ mod tests {
 
         sqlx::query("UPDATE photos SET status = 'processing', watermark_revision = NULL WHERE id = $1::uuid")
             .bind(&photo).execute(&pool).await.unwrap();
+
         let response = test::call_service(&app, client_request(&token, "/cover")).await;
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(test::read_body(response).await.as_ref(), clean);
+
         let response = test::call_service(
             &app,
             test::TestRequest::get()
@@ -785,6 +789,7 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(test::read_body(response).await.as_ref(), clean);
+
         let response = test::call_service(
             &app,
             test::TestRequest::get()
@@ -798,6 +803,7 @@ mod tests {
         let photos: Value = test::read_body_json(response).await;
 
         assert_eq!(photos, json!([]));
+
         let response = test::call_service(
             &app,
             test::TestRequest::get()
@@ -809,6 +815,7 @@ mod tests {
         .await;
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
         let response = test::call_service(
             &app,
             client_request(&token, &format!("/photos/{photo}/preview?clean=true")),
