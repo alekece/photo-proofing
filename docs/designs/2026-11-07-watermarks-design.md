@@ -64,7 +64,7 @@ How a render that overlaps a change is kept from publishing stale files:
 
 **Settings storage.** A `workspace_settings` row per workspace holds the fields above, the
 normalised logo PNG as `bytea` (at most a few hundred KB, so it lives and is backed up with the
-database and survives container recreation without a new volume), and `watermark_revision`.
+database and survives container recreation without a new volume), and `watermark_revision`; it cascades with the workspace.
 No row means defaults: empty name, mark `name`, repeat, position 8, size 2, signature `name`,
 which is no watermark yet.
 
@@ -99,21 +99,31 @@ margin; `repeat` tiles it over the whole image in rows offset by half a cell. Th
 installs `fonts-dejavu-core`. Orientation, sRGB conversion and metadata stripping are unchanged,
 and the original is only read.
 
-**Regeneration.** One repository transaction does the change, and for every affected `ready` or
-`processing` photo sets it `waiting` and enqueues a `process_photo` job (jobs locked before
-photos, as retry does). Affected means: the photos of a gallery whose switch flipped (either
-direction, so turning it off removes the mark), or the photos of every watermark-enabled gallery
-when the revision increased. `waiting` photos already run later with the then current settings;
-`failed` photos use the current settings when retried. The handler reads the gallery switch and
-settings when it starts. No new job kind and no change to the job payload.
+**Regeneration.** One repository transaction does the change and, for every affected `ready` or
+`processing` photo, sets it `waiting` and inserts a `process_photo` job (one bulk statement, so
+thousands of photos stay one short transaction). Affected means: the photos of a gallery whose
+switch flipped (either direction, so turning it off removes the mark), or the photos of every
+watermark-enabled gallery when the revision increased. Lock order is the settings row or the
+gallery row first, then the photos in id order; inserting jobs locks nothing else, and the
+regeneration never deletes or updates existing jobs, so it cannot deadlock with the worker
+(which locks job, then photo). `waiting` photos need no job: their queued job reads the settings
+after it marks the photo `processing`, and any change after that sees `processing` and
+requeues. `failed` photos use the current settings when retried. A stale job that later exhausts
+its attempts on an infrastructure error fails its photo like any other job; the photographer
+retries it. No new job kind and no change to the job payload.
 
-**Publication.** When the render is ready, the handler opens a publication: one transaction that
-locks the job row, then the photo row, and re-reads the switch and revision. If they differ from
-what the render used, or the photo is gone, nothing is written, the job completes, and the job
-queued by the change renders the photo again. Otherwise the derivatives are renamed into place,
-and the photo is marked ready and the job completed in that same transaction, still holding the
-photo lock. A change cannot overtake it (its photo update waits for the lock), so an older
-render can never overwrite newer files and a ready photo always matches the current settings.
+**Publication.** The handler marks the photo `processing`, then reads the gallery switch and
+settings (their *stamp*: switch and revision), renders, and stages both derivatives as temporary
+files. It then opens a publication: one transaction that locks the job row, then the photo row,
+and checks that the claim is still current (job `running` with the same attempt), the photo still
+exists, and the stamp read under the lock equals the one the render used. If any check fails
+nothing is renamed and the job completes; for a stale stamp the change that made it stale
+has already requeued the photo (it was `processing` when that change committed). Otherwise only
+the two same-filesystem renames happen inside the lock, then the photo is marked `ready` and
+the job completed in that same transaction. A change cannot overtake it (its photo update waits
+for the lock), so an older render can never overwrite newer files and a `ready` photo always
+matches the current settings. If the commit fails after the renames the photo is still not
+`ready` and the job is retried, which renders again.
 
 **States and SSE.** The existing photo triggers announce each `waiting` and `ready` change over
 the photographer's event stream, so the Photos tab shows "Updating watermarks…" and refreshes on
