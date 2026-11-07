@@ -24,7 +24,12 @@ describe('Delete gallery dialog', () => {
 	it('offers Keep it and Delete, and keeps the dialog open when deleting fails', async () => {
 		const onconfirm = vi.fn().mockRejectedValue(new Error('Couldn’t delete.'));
 		const user = userEvent.setup();
-		render(DeleteGalleryDialog, { onconfirm, onclose: vi.fn() });
+		render(DeleteGalleryDialog, {
+			galleryId: 'g1',
+			load: async () => [],
+			onconfirm,
+			onclose: vi.fn()
+		});
 
 		expect(screen.getByRole('dialog', { name: 'Delete this gallery?' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Keep it' })).toBeTruthy();

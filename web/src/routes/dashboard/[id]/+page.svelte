@@ -307,7 +307,11 @@
 {#if confirming === 'archive'}
 	<ArchiveGalleryDialog onconfirm={archive} onclose={() => (confirming = null)} />
 {:else if confirming === 'delete'}
-	<DeleteGalleryDialog onconfirm={remove} onclose={() => (confirming = null)} />
+	<DeleteGalleryDialog
+		galleryId={saved.id}
+		onconfirm={remove}
+		onclose={() => (confirming = null)}
+	/>
 {/if}
 {#if expiredSince}
 	<RestoreExpiredDialog
