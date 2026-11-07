@@ -1,6 +1,6 @@
 # Release build on release tags only
 
-Status: Draft, awaiting approval. Decisions marked *my call* were made autonomously during brainstorming and need confirmation.
+Status: Approved by the maintainer on 2026-11-07, including the *my call* decisions.
 Issue: [#210](https://github.com/alekece/photo-proofing/issues/210).
 
 ## Intent

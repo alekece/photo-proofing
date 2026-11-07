@@ -1,0 +1,25 @@
+name: Release
+
+# Every future release or publish job must declare `needs: rust-release-build`
+# and live in this workflow, so a failed release build blocks the release.
+on:
+  push:
+    tags: ["v[0-9]*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-release-build:
+    name: Rust release build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev pkg-config
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --workspace --release
