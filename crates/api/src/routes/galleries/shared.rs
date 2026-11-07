@@ -1,7 +1,8 @@
 //! Public client routes under `/api/v1/galleries/shared/{token}`.
 //!
 //! - `GET /` returns the title, layout and expiry of the gallery behind a private link.
-//! - `POST /open` records the first client open of the gallery, once; repeats are no-ops (204).
+//! - `POST /open` records the client's open as the gallery's last-opened time, at most once per
+//!   throttle delay; other calls are no-ops (204).
 //! - `GET /photos` lists the photos the client may see, with their displayed size.
 //! - `GET /photos/{photo_id}/thumbnail|preview` serves one of those photos.
 //! - `GET /favorites` lists the ids the client selected; `PUT|DELETE /favorites/{photo_id}`
@@ -248,15 +249,15 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn opening_records_the_first_open_only_for_available_links(pool: PgPool) {
+    async fn opening_records_the_last_open_only_for_available_links(pool: PgPool) {
         let live = shared_gallery(&pool, json!({})).await;
         let expired = shared_gallery(&pool, json!({"expires_at": "2000-01-01T00:00:00Z"})).await;
-        let opened_at = |token: String| {
+        let last_opened_at = |token: String| {
             let pool = pool.clone();
 
             async move {
                 sqlx::query_scalar::<_, Option<String>>(
-                    "SELECT opened_at::text FROM galleries WHERE share_token = $1",
+                    "SELECT last_opened_at::text FROM galleries WHERE share_token = $1",
                 )
                 .bind(token)
                 .fetch_one(&pool)
@@ -272,26 +273,26 @@ mod tests {
         )
         .await;
 
-        assert_eq!(opened_at(live.clone()).await, None);
+        assert_eq!(last_opened_at(live.clone()).await, None);
 
         let response = test::call_service(&app, get(&live).to_request()).await;
 
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(opened_at(live.clone()).await, None);
+        assert_eq!(last_opened_at(live.clone()).await, None);
 
         let response = test::call_service(&app, open(&live).to_request()).await;
 
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
 
-        let first = opened_at(live.clone()).await;
+        let first = last_opened_at(live.clone()).await;
 
         assert!(first.is_some());
 
         let response = test::call_service(&app, open(&live).to_request()).await;
 
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
-        assert_eq!(opened_at(live).await, first);
+        assert_eq!(last_opened_at(live).await, first);
 
         for token in [expired.as_str(), &"A".repeat(22), "short"] {
             let response = test::call_service(&app, open(token).to_request()).await;
@@ -299,11 +300,11 @@ mod tests {
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
 
-        assert_eq!(opened_at(expired).await, None);
+        assert_eq!(last_opened_at(expired).await, None);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn photographer_reads_the_first_open(pool: PgPool) {
+    async fn photographer_reads_the_last_open(pool: PgPool) {
         let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
             App::new()
@@ -336,17 +337,17 @@ mod tests {
                 .cookie(cookie.clone())
         };
 
-        assert_eq!(created["opened_at"], Value::Null);
-        assert_eq!(call(&app, read()).await.1["opened_at"], Value::Null);
+        assert_eq!(created["last_opened_at"], Value::Null);
+        assert_eq!(call(&app, read()).await.1["last_opened_at"], Value::Null);
 
         call(&app, open(token)).await;
 
         let (_, gallery) = call(&app, read()).await;
 
-        assert!(gallery["opened_at"].is_string());
+        assert!(gallery["last_opened_at"].is_string());
         let (_, client) = call(&app, get(token)).await;
 
-        assert_eq!(client.get("opened_at"), None);
+        assert_eq!(client.get("last_opened_at"), None);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

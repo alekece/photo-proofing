@@ -7,7 +7,7 @@
 //! front end, which knows the viewer's language. Value limits live in the database as CHECK constraints, which are the
 //! single authority; violations surface as [`GalleryError`] variants.
 
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, time::Duration};
 
 use derive_more::Display;
 use pp_core::{
@@ -125,8 +125,9 @@ pub struct Gallery {
     pub hero_id: Option<PhotoId>,
     /// `None` means the gallery has not been shared.
     pub share_token: Option<ShareToken>,
-    /// When a client first opened the shared gallery; `None` means not yet.
-    pub opened_at: Option<Timestamp>,
+    /// When a client last opened the shared gallery, to within the throttle delay; `None` means
+    /// not yet.
+    pub last_opened_at: Option<Timestamp>,
     /// The progress state first, then `Archived` and `Expired` when they apply.
     pub states: Vec<GalleryState>,
     pub created_at: Timestamp,
@@ -183,7 +184,7 @@ impl FromRow<'_, PgRow> for Gallery {
             watermark_enabled: row.try_get("watermark_enabled")?,
             hero_id: row.try_get("hero_id")?,
             share_token: row.try_get("share_token")?,
-            opened_at: row.try_get("opened_at")?,
+            last_opened_at: row.try_get("last_opened_at")?,
             states,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
@@ -342,7 +343,11 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
 
 impl GalleryRepository<'_> {
     // Interpolated identifiers are fixed here or selected from GallerySort's closed enum.
-    const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,hero_id,share_token,shared_at,opened_at,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
+    const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,hero_id,share_token,shared_at,last_opened_at,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
+
+    /// How long after a recorded client open later opens change nothing. Fixed, not configurable:
+    /// a day keeps writes to one per gallery per day while "last opened" stays useful.
+    pub const OPEN_THROTTLE: Duration = Duration::from_secs(24 * 60 * 60);
 
     /// Creates an untitled gallery with the default settings.
     pub async fn create(&self, workspace_id: WorkspaceId) -> Result<Gallery, DatabaseError> {
@@ -494,17 +499,20 @@ impl GalleryRepository<'_> {
         .await?)
     }
 
-    /// Records the first client open of a gallery reached through its private link. Later opens
-    /// change nothing, and a gallery archived or expired meanwhile is not marked. Returns whether
-    /// this call recorded the open.
+    /// Records a client open of a gallery reached through its private link. A gallery opened less
+    /// than [`Self::OPEN_THROTTLE`] ago keeps its time, which bounds the writes of reloads and
+    /// repeat visits at the price of precision. An archived or expired gallery is not marked. Returns whether this
+    /// call recorded the open.
     pub async fn record_opened(&self, location: PhotoLocation) -> Result<bool, DatabaseError> {
         let result = sqlx::query(
-            "UPDATE galleries SET opened_at = now()
-             WHERE id=$1 AND workspace_id=$2 AND opened_at IS NULL AND archived_at IS NULL
-               AND (expires_at IS NULL OR expires_at > now())",
+            "UPDATE galleries SET last_opened_at = now()
+             WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL
+               AND (expires_at IS NULL OR expires_at > now())
+               AND (last_opened_at IS NULL OR last_opened_at < now() - make_interval(secs => $3))",
         )
         .bind(location.gallery_id)
         .bind(location.workspace_id)
+        .bind(Self::OPEN_THROTTLE.as_secs_f64())
         .execute(self.pool)
         .await?;
 
@@ -1406,7 +1414,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn record_opened_keeps_the_first_open(pool: PgPool) {
+    async fn record_opened_refreshes_only_after_the_throttle(pool: PgPool) {
         let database = Database::new(pool.clone());
         let store = database.repository::<GalleryRepository>();
         let workspace = workspace(&pool).await;
@@ -1419,21 +1427,43 @@ mod tests {
             .share_token
             .unwrap();
         let location = store.find_shared(&token).await.unwrap().unwrap().location;
+        let last_opened_at = || async {
+            store
+                .get(workspace, id)
+                .await
+                .unwrap()
+                .unwrap()
+                .last_opened_at
+        };
 
-        assert_eq!(
-            store.get(workspace, id).await.unwrap().unwrap().opened_at,
-            None
-        );
+        assert_eq!(last_opened_at().await, None);
         assert!(store.record_opened(location).await.unwrap());
 
-        let first = store.get(workspace, id).await.unwrap().unwrap().opened_at;
+        let first = last_opened_at().await;
 
         assert!(first.is_some());
         assert!(!store.record_opened(location).await.unwrap());
-        assert_eq!(
-            store.get(workspace, id).await.unwrap().unwrap().opened_at,
-            first
-        );
+        assert_eq!(last_opened_at().await, first);
+
+        let age = |hours: i32| {
+            sqlx::query("UPDATE galleries SET last_opened_at = now() - make_interval(hours => $1)")
+                .bind(hours)
+                .execute(&pool)
+        };
+
+        age(23).await.unwrap();
+
+        let within = last_opened_at().await;
+
+        assert!(!store.record_opened(location).await.unwrap());
+        assert_eq!(last_opened_at().await, within);
+
+        age(25).await.unwrap();
+
+        let aged = last_opened_at().await;
+
+        assert!(store.record_opened(location).await.unwrap());
+        assert!(last_opened_at().await > aged);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -1472,7 +1502,12 @@ mod tests {
         for (id, location) in locations {
             assert!(!store.record_opened(location).await.unwrap());
             assert_eq!(
-                store.get(workspace, id).await.unwrap().unwrap().opened_at,
+                store
+                    .get(workspace, id)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .last_opened_at,
                 None
             );
         }
