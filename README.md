@@ -242,7 +242,7 @@ Compose reads its development settings from [.env.example](.env.example)/`.env`:
 
 ## Verify and build
 
-Choose checks relevant to the change; report checks that could not run. CI definitions live in [.github/workflows/ci.yml](.github/workflows/ci.yml).
+Choose checks relevant to the change; report checks that could not run. CI definitions live in [.github/workflows/ci.yml](.github/workflows/ci.yml). The release build (`cargo build --workspace --release`) runs only for `v*` release tags and manual runs of [.github/workflows/release.yml](.github/workflows/release.yml), not on pull requests.
 
 ```sh
 cargo +nightly fmt --all --check
