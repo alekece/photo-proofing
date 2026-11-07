@@ -45,8 +45,8 @@ The `Rust release build` job (`cargo build --workspace --release`) runs on every
 - **Tag pattern: `v[0-9]*`** (*my call*): conventional `vMAJOR.MINOR.PATCH`, and it cannot match the existing moving `staging` tag. No scheme exists yet; if the owner prefers another, only this pattern changes.
 - **Job name stays `Rust release build`** (*my call*) for log and search continuity; it is not a required check anywhere after this change.
 - **Same command** `cargo build --workspace --release` (*my call*): the issue is about where it runs, not what it does.
-- **"Blocks the release"** is satisfied by job dependency: no release/publish step exists yet, so the contract is that any future release job must `needs:` this job. State this in a comment at the top of `release.yml`.
-- **Permissions** `contents: read` only; no secrets.
+- **"Blocks the release"** (*my call*): a pushed tag cannot be undone by a workflow, so no design can stop the tag itself. What is blockable is anything *after* the tag. No release/publish step exists yet, so today a failure only turns the tag's run red; acceptance criterion 2 is met in full once a release job exists that declares `needs:` on this job. Contract, stated in a comment at the top of `release.yml`: every future release/publish job must `needs:` the release build and be created in the same workflow. Tag creation is currently manual by the owner; tags created by a workflow with `GITHUB_TOKEN` do not trigger `on: push: tags`, so any future automated tagging must use a PAT/app token or call this workflow via `workflow_call`.
+- **Workflow shape** (*my call*): name `Release`; job id `rust-release-build`; `permissions: contents: read`; `CARGO_TERM_COLOR: always`; no `concurrency` (one run per tag); default timeout. No check that the tag is on `main`; the owner tags `main` by convention. Add `workflow_dispatch` (*my call*, reversing the earlier draft) so the job can be tried without creating a tag.
 - **Remove `rust-build` from `ci.yml`** entirely, including the now-unneeded `changes` dependency for it. The `rust` path filter and other Rust jobs are untouched.
 - **Branch protection (manual).** In *Settings → Branches* (or *Rules → Rulesets*, whichever protects `main`): open the rule for `main`, under "Require status checks to pass", remove `Rust release build` from the list and save. Leave all other checks (`Rust format`, `Rust clippy`, `Rust dependencies`, `Rust tests`, web and deployment checks) as they are.
 
@@ -54,25 +54,25 @@ The `Rust release build` job (`cargo build --workspace --release`) runs on every
 
 1. Remove `Rust release build` from required checks (safe in advance: an unrequired existing check is just informational).
 2. Merge the workflow PR.
-3. Confirm the next PR no longer shows the check.
+3. Confirm the merged PR itself (or the next Rust-touching PR) no longer shows the check.
 
 Reversing steps 1 and 2 would leave PRs waiting for a check that never reports.
 
 ## Risks
 
 - Release-profile-only breakage (e.g. `[profile.release]` edits, optimization-dependent failures) surfaces at tag time rather than in the PR. Accepted by the issue.
-- While `Build application images` remains, PRs touching crates still compile API and worker in release mode, so the time saving is partial. Flag for the owner; follow-up issue if desired.
+- While `Build application images` remains, PRs matching its `containers` filter still compile `pp-api` and `pp-image-worker` in release mode (not `--workspace`), so the time saving is partial. On `main` pushes that job is not forced on, so release coverage there is conditional; other crates and profile-only breakage are covered only at tag time. Accepted.
 - A bad tag can only be fixed with a new tag; acceptable for a gate that mirrors what was previously caught pre-merge.
 
 ## Verification
 
 - PR: the Checks tab for a Rust-touching PR shows no `Rust release build`.
-- Tag: after merge, push a throwaway tag such as `v0.0.0-ci-test` on a commit, confirm the `Release` workflow runs the job to success, then delete the tag locally and on the remote. A `workflow_dispatch` trigger is not added, to keep the surface minimal (*my call*).
-- Settings: after the manual step, the `main` rule's required-checks list is shown without `Rust release build`; record this (screenshot or text) in the PR.
+- Workflow: after merge, run `Release` via `workflow_dispatch` on `main` and confirm the job succeeds. This avoids a throwaway tag that would match `v[0-9]*` and could later trigger real release jobs. The tag trigger itself is exercised by the first real release tag.
+- Settings: the API reports no protection on `main`, so first record the current required-checks list from the settings UI (before), then after the change confirm it lacks `Rust release build` (after); put both in the PR.
 - `actionlint`-style validity is covered by GitHub accepting the workflow; no local tool is required.
 
 ## Left to the builder
 
 - Exact `release.yml` content (copying today's job steps), top-of-file comment on the `needs:` contract, and the `rust-build` removal in `ci.yml`.
-- Updating `README.md` verification/CI notes if it lists the CI jobs; add one line describing the tag-triggered release build.
+- Add one line to `README.md` where CI/verification is described, noting the tag-triggered release build (README currently does not mention the job).
 - Performing, or asking the owner to perform, the settings step and recording the evidence.
