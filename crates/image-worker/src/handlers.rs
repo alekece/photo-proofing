@@ -9,6 +9,7 @@ use thiserror::Error;
 
 pub mod cleanup;
 pub mod process_photo;
+pub mod selection_export;
 
 type BoxError = Box<dyn Error + Send + Sync>;
 type HandlerFuture = Pin<Box<dyn Future<Output = Result<JobCompletion, HandlerError>> + Send>>;

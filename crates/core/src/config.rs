@@ -13,8 +13,19 @@ use thiserror::Error;
 use tracing::level_filters::LevelFilter;
 use url::Url;
 
+use crate::time::BoundedDuration;
+
 /// Largest original, in pixels, that the API accepts and the worker renders.
 pub const DEFAULT_MAX_PIXELS: NonZeroU64 = NonZeroU64::new(100_000_000).unwrap();
+
+/// Default cap on the originals of one selection ZIP: 2 GiB.
+pub const DEFAULT_EXPORT_MAX_SIZE: NonZeroU64 = NonZeroU64::new(2 << 30).unwrap();
+
+/// Longest configurable ZIP retention: 30 days.
+const MAX_EXPORT_RETENTION_MILLIS: u64 = 30 * 24 * 60 * 60 * 1000;
+
+/// How long a finished ZIP stays available, from one minute up to 30 days.
+pub type ExportRetention = BoundedDuration<60_000, MAX_EXPORT_RETENTION_MILLIS>;
 
 #[derive(Args, ConfigArgs, Debug, Clone)]
 pub struct LogConfig {
@@ -111,6 +122,25 @@ pub struct PhotoConfig {
         default_value = "./data/photos"
     )]
     pub dir: PhotoDir,
+}
+
+/// Limits on the ZIP of a gallery's selection; the API and the worker must agree on them.
+#[derive(Args, ConfigArgs, Debug, Clone)]
+pub struct ExportConfig {
+    /// Selections whose originals together exceed this many bytes are refused.
+    #[arg(
+        long = "selection-export-max-size",
+        env = "PP_SELECTION_EXPORT_MAX_SIZE",
+        default_value_t = DEFAULT_EXPORT_MAX_SIZE
+    )]
+    pub max_size: NonZeroU64,
+    /// A ZIP is unavailable and deleted once it is older than this.
+    #[arg(
+        long = "selection-export-retention",
+        env = "PP_SELECTION_EXPORT_RETENTION",
+        default_value = "24h"
+    )]
+    pub retention: ExportRetention,
 }
 
 #[cfg(test)]
