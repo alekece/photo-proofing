@@ -597,10 +597,10 @@ mod tests {
     use super::*;
     use crate::{
         Database,
-        deletion::WorkspaceDeletion,
         jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
-        photo::{PhotoRepository, PhotoStatus},
+        photo::{PhotoKind, PhotoRepository, PhotoStatus},
         tests::TestRepository,
+        workspace_deletion::WorkspaceDeletion,
     };
 
     async fn workspace(pool: &PgPool) -> WorkspaceId {
@@ -1102,12 +1102,7 @@ mod tests {
             .unwrap();
         database
             .repository::<WorkspaceDeletion>()
-            .delete_photos(
-                workspace,
-                gallery.id,
-                crate::photo::PhotoKind::Proof,
-                &[hero_photo],
-            )
+            .delete_photos(workspace, gallery.id, PhotoKind::Proof, &[hero_photo])
             .await
             .unwrap();
 
@@ -1117,7 +1112,7 @@ mod tests {
         assert!(
             database
                 .repository::<PhotoRepository>()
-                .get(workspace, gallery.id, other)
+                .get(workspace, gallery.id, other, PhotoKind::Proof)
                 .await
                 .unwrap()
                 .is_some()
@@ -1249,7 +1244,7 @@ mod tests {
         for id in &ready[..2] {
             database
                 .repository::<PhotoRepository>()
-                .set_favorite(location, *id, true)
+                .set_favorite(location, *id, true, PhotoKind::Proof)
                 .await
                 .unwrap();
         }

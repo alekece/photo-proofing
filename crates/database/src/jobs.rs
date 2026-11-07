@@ -763,7 +763,12 @@ mod tests {
         let location = photos.locate(photo_id).await.unwrap().unwrap();
 
         photos
-            .get(location.workspace_id, location.gallery_id, photo_id)
+            .get(
+                location.workspace_id,
+                location.gallery_id,
+                photo_id,
+                PhotoKind::Proof,
+            )
             .await
             .unwrap()
             .unwrap()

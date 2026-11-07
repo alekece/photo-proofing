@@ -11,16 +11,16 @@ use actix_web::{
     FromRequest, HttpRequest, HttpResponse, delete,
     dev::Payload,
     get, post,
-    web::{self, Data, JsonBody, Path as WebPath, ServiceConfig},
+    web::{self, Data, JsonBody, Path as WebPath, Query, ServiceConfig},
 };
 use futures_util::future::LocalBoxFuture;
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
-    deletion::WorkspaceDeletion,
     gallery::{GalleryId, GalleryRepository},
     photo::{NewPhoto, PhotoKind, PhotoLocation, PhotoRepository, PhotoStatus},
     photo_intake::{PhotoIntake, PhotoIntakeError},
     photo_retry::PhotoRetry,
+    workspace_deletion::WorkspaceDeletion,
 };
 use pp_storage::{PhotoKey, StorageError, Variant};
 use serde::{Deserialize, Serialize};
@@ -47,20 +47,17 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(serve_derivative_photo);
 }
 
-/// The photo set a route addresses: the client proofs, or the finished photos of a draft.
+/// The photo set a route addresses, chosen by the `finals` query parameter: the client proofs by
+/// default, or the finished photos of a draft with `?finals=true`.
 #[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum PhotoSet {
-    Photos,
-    Finals,
+struct PhotoSet {
+    #[serde(default)]
+    finals: bool,
 }
 
 impl From<PhotoSet> for PhotoKind {
     fn from(set: PhotoSet) -> Self {
-        match set {
-            PhotoSet::Photos => Self::Proof,
-            PhotoSet::Finals => Self::Final,
-        }
+        if set.finals { Self::Final } else { Self::Proof }
     }
 }
 
@@ -111,13 +108,15 @@ impl FromRequest for PhotoSelection {
     }
 }
 
-#[get("/{id}/{set:photos|finals}")]
+#[get("/{id}/photos")]
 async fn list_photos(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    path: WebPath<(GalleryId, PhotoSet)>,
+    path: WebPath<GalleryId>,
+    set: Query<PhotoSet>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let (gallery_id, set) = path.into_inner();
+    let gallery_id = path.into_inner();
+    let set = set.into_inner();
 
     if state
         .database()
@@ -131,20 +130,22 @@ async fn list_photos(
 
     let photos = state
         .database()
-        .repository_with::<PhotoRepository>(set.into())
-        .list(identity.workspace_id, gallery_id)
+        .repository::<PhotoRepository>()
+        .list(identity.workspace_id, gallery_id, set.into())
         .await?;
 
     Ok(HttpResponse::Ok().no_store().json(photos))
 }
 
-#[post("/{id}/{set:photos|finals}/retry")]
+#[post("/{id}/photos/retry")]
 async fn retry_gallery(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    path: WebPath<(GalleryId, PhotoSet)>,
+    path: WebPath<GalleryId>,
+    set: Query<PhotoSet>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let (gallery_id, set) = path.into_inner();
+    let gallery_id = path.into_inner();
+    let set = set.into_inner();
     let requeued = state
         .database()
         .repository_with::<PhotoRetry>(state.job_options())
@@ -157,13 +158,15 @@ async fn retry_gallery(
         .json(RequeuedPhotos { requeued }))
 }
 
-#[post("/{id}/{set:photos|finals}/{photo_id}/retry")]
+#[post("/{id}/photos/{photo_id}/retry")]
 async fn retry_photo(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    path: WebPath<(GalleryId, PhotoSet, PhotoId)>,
+    path: WebPath<(GalleryId, PhotoId)>,
+    set: Query<PhotoSet>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let (gallery_id, set, photo_id) = path.into_inner();
+    let (gallery_id, photo_id) = path.into_inner();
+    let set = set.into_inner();
     let requeued = state
         .database()
         .repository_with::<PhotoRetry>(state.job_options())
@@ -182,13 +185,15 @@ async fn retry_photo(
 }
 
 /// Deletes a photo whatever its status. Its files are removed afterwards by the worker.
-#[delete("/{id}/{set:photos|finals}/{photo_id}")]
+#[delete("/{id}/photos/{photo_id}")]
 async fn delete_photo(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    path: WebPath<(GalleryId, PhotoSet, PhotoId)>,
+    path: WebPath<(GalleryId, PhotoId)>,
+    set: Query<PhotoSet>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let (gallery_id, set, photo_id) = path.into_inner();
+    let (gallery_id, photo_id) = path.into_inner();
+    let set = set.into_inner();
 
     if state
         .database()
@@ -205,14 +210,16 @@ async fn delete_photo(
 
 /// Deletes several photos of a gallery whatever their status. Ids outside the gallery or already
 /// gone are ignored and not counted. Their files are removed afterwards by the worker.
-#[post("/{id}/{set:photos|finals}/delete")]
+#[post("/{id}/photos/delete")]
 async fn delete_photos(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    path: WebPath<(GalleryId, PhotoSet)>,
+    path: WebPath<GalleryId>,
+    set: Query<PhotoSet>,
     selection: PhotoSelection,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let (gallery_id, set) = path.into_inner();
+    let gallery_id = path.into_inner();
+    let set = set.into_inner();
 
     if state
         .database()
@@ -242,17 +249,19 @@ async fn delete_photos(
 
 /// Serves a derivative of a ready photo; anything else, including a file removed meanwhile,
 /// is not found.
-#[get("/{id}/{set:photos|finals}/{photo_id}/{derivative:thumbnail|preview}")]
+#[get("/{id}/photos/{photo_id}/{derivative:thumbnail|preview}")]
 async fn serve_derivative_photo(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    path: WebPath<(GalleryId, PhotoSet, PhotoId, DerivativePhoto)>,
+    path: WebPath<(GalleryId, PhotoId, DerivativePhoto)>,
+    set: Query<PhotoSet>,
 ) -> Result<ImageFile, ErrorResponse> {
-    let (gallery_id, set, photo_id, derivative) = path.into_inner();
+    let (gallery_id, photo_id, derivative) = path.into_inner();
+    let set = set.into_inner();
     let photo = state
         .database()
-        .repository_with::<PhotoRepository>(set.into())
-        .get(identity.workspace_id, gallery_id, photo_id)
+        .repository::<PhotoRepository>()
+        .get(identity.workspace_id, gallery_id, photo_id, set.into())
         .await?;
 
     if !matches!(photo, Some(photo) if photo.status == PhotoStatus::Ready) {
@@ -271,16 +280,18 @@ async fn serve_derivative_photo(
     .await
 }
 
-#[post("/{id}/{set:photos|finals}")]
+#[post("/{id}/photos")]
 async fn upload_photo(
     state: Data<ApiState>,
     _slot: UploadSlot,
     Authenticated(identity): Authenticated,
     request: HttpRequest,
-    path: WebPath<(GalleryId, PhotoSet)>,
+    path: WebPath<GalleryId>,
+    set: Query<PhotoSet>,
     payload: web::Payload,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let (gallery_id, set) = path.into_inner();
+    let gallery_id = path.into_inner();
+    let set = set.into_inner();
     let storage = state.storage();
 
     if state
@@ -1122,7 +1133,12 @@ pub(super) mod tests {
         let location = photos.locate(photo_id(id)).await.unwrap().unwrap();
 
         photos
-            .get(location.workspace_id, location.gallery_id, photo_id(id))
+            .get(
+                location.workspace_id,
+                location.gallery_id,
+                photo_id(id),
+                PhotoKind::Proof,
+            )
             .await
             .unwrap()
             .unwrap()
@@ -1829,7 +1845,9 @@ pub(super) mod tests {
         S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
     {
         let request = test::TestRequest::post()
-            .uri(&format!("/api/v1/galleries/{gallery_id}/finals"))
+            .uri(&format!(
+                "/api/v1/galleries/{gallery_id}/photos?finals=true"
+            ))
             .insert_header(("Origin", ORIGIN))
             .insert_header(("Content-Type", "image/jpeg"))
             .insert_header(("X-Filename", "final.jpg"))
@@ -1847,13 +1865,16 @@ pub(super) mod tests {
         app: &S,
         cookie: &Cookie<'static>,
         gallery_id: &str,
-        set: &str,
+        finals: bool,
     ) -> Vec<Value>
     where
         S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
     {
         let request = test::TestRequest::get()
-            .uri(&format!("/api/v1/galleries/{gallery_id}/{set}"))
+            .uri(&format!(
+                "/api/v1/galleries/{gallery_id}/photos{}",
+                if finals { "?finals=true" } else { "" }
+            ))
             .cookie(cookie.clone());
         let (status, body) = call(app, request).await;
 
@@ -1877,8 +1898,8 @@ pub(super) mod tests {
         let bytes = jpeg(3, 2);
         let finished = upload_final(&app, &cookie, &gallery_id, &bytes).await;
 
-        let finals = list_set(&app, &cookie, &gallery_id, "finals").await;
-        let proofs = list_set(&app, &cookie, &gallery_id, "photos").await;
+        let finals = list_set(&app, &cookie, &gallery_id, true).await;
+        let proofs = list_set(&app, &cookie, &gallery_id, false).await;
         let stored = photo_files(directory.path(), &finished);
 
         assert_eq!(finals.len(), 1);
@@ -1910,7 +1931,9 @@ pub(super) mod tests {
             ),
         ] {
             let request = test::TestRequest::post()
-                .uri(&format!("/api/v1/galleries/{gallery_id}/finals"))
+                .uri(&format!(
+                    "/api/v1/galleries/{gallery_id}/photos?finals=true"
+                ))
                 .insert_header(("Origin", ORIGIN))
                 .insert_header(("Content-Type", content_type))
                 .insert_header(("X-Filename", "final.jpg"))
@@ -1926,7 +1949,28 @@ pub(super) mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn finals_are_only_served_ready_and_only_through_the_finals_route(pool: PgPool) {
+    async fn an_unreadable_finals_flag_is_a_bad_request(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(
+            pool.clone(),
+            directory.path(),
+            upload_config(1024 * 1024, 1_000_000),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let request = test::TestRequest::get()
+            .uri(&format!(
+                "/api/v1/galleries/{gallery_id}/photos?finals=maybe"
+            ))
+            .cookie(cookie.clone());
+        let (status, _) = call(&app, request).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn finals_are_only_served_ready_and_only_when_asked_for(pool: PgPool) {
         let directory = tempfile::tempdir().unwrap();
         let app = app(
             pool.clone(),
@@ -1937,17 +1981,17 @@ pub(super) mod tests {
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
         let finished = upload_final(&app, &cookie, &gallery_id, &jpeg(3, 2)).await;
-        let get = |set: &str| {
+        let get = |query: &str| {
             test::TestRequest::get()
                 .uri(&format!(
-                    "/api/v1/galleries/{gallery_id}/{set}/{finished}/thumbnail"
+                    "/api/v1/galleries/{gallery_id}/photos/{finished}/thumbnail{query}"
                 ))
                 .cookie(cookie.clone())
                 .to_request()
         };
 
         assert_eq!(
-            test::call_service(&app, get("finals")).await.status(),
+            test::call_service(&app, get("?finals=true")).await.status(),
             StatusCode::NOT_FOUND
         );
 
@@ -1957,12 +2001,12 @@ pub(super) mod tests {
             .await
             .unwrap();
         let stored = store_derivative(&pool, directory.path(), &finished, "thumbnail").await;
-        let served = test::call_service(&app, get("finals")).await;
+        let served = test::call_service(&app, get("?finals=true")).await;
 
         assert_eq!(served.status(), StatusCode::OK);
         assert_eq!(test::read_body(served).await, stored);
         assert_eq!(
-            test::call_service(&app, get("photos")).await.status(),
+            test::call_service(&app, get("")).await.status(),
             StatusCode::NOT_FOUND
         );
     }
@@ -2046,7 +2090,9 @@ pub(super) mod tests {
             .unwrap();
 
         let retry = test::TestRequest::post()
-            .uri(&format!("/api/v1/galleries/{gallery_id}/finals/retry"))
+            .uri(&format!(
+                "/api/v1/galleries/{gallery_id}/photos/retry?finals=true"
+            ))
             .insert_header(("Origin", ORIGIN))
             .cookie(cookie.clone());
         let (status, body) = call(&app, retry).await;
@@ -2056,7 +2102,10 @@ pub(super) mod tests {
         assert_eq!(
             test::call_service(
                 &app,
-                delete_request(Some(&cookie), &format!("{gallery_id}/finals/{proof}"))
+                delete_request(
+                    Some(&cookie),
+                    &format!("{gallery_id}/photos/{proof}?finals=true")
+                )
             )
             .await
             .status(),
@@ -2065,7 +2114,10 @@ pub(super) mod tests {
         assert_eq!(
             test::call_service(
                 &app,
-                delete_request(Some(&cookie), &format!("{gallery_id}/finals/{first}"))
+                delete_request(
+                    Some(&cookie),
+                    &format!("{gallery_id}/photos/{first}?finals=true")
+                )
             )
             .await
             .status(),
@@ -2073,7 +2125,9 @@ pub(super) mod tests {
         );
 
         let bulk = test::TestRequest::post()
-            .uri(&format!("/api/v1/galleries/{gallery_id}/finals/delete"))
+            .uri(&format!(
+                "/api/v1/galleries/{gallery_id}/photos/delete?finals=true"
+            ))
             .insert_header(("Origin", ORIGIN))
             .insert_header(("Content-Type", "application/json"))
             .cookie(cookie.clone())
@@ -2083,15 +2137,8 @@ pub(super) mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["deleted"], 2);
-        assert!(
-            list_set(&app, &cookie, &gallery_id, "finals")
-                .await
-                .is_empty()
-        );
-        assert_eq!(
-            list_set(&app, &cookie, &gallery_id, "photos").await.len(),
-            1
-        );
+        assert!(list_set(&app, &cookie, &gallery_id, true).await.is_empty());
+        assert_eq!(list_set(&app, &cookie, &gallery_id, false).await.len(), 1);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -2108,9 +2155,13 @@ pub(super) mod tests {
         let finished = upload_final(&app, &cookie, &gallery_id, &jpeg(3, 2)).await;
 
         for request in [
-            test::TestRequest::get().uri(&format!("/api/v1/galleries/{gallery_id}/finals")),
+            test::TestRequest::get().uri(&format!(
+                "/api/v1/galleries/{gallery_id}/photos?finals=true"
+            )),
             test::TestRequest::post()
-                .uri(&format!("/api/v1/galleries/{gallery_id}/finals/retry"))
+                .uri(&format!(
+                    "/api/v1/galleries/{gallery_id}/photos/retry?finals=true"
+                ))
                 .insert_header(("Origin", ORIGIN)),
         ] {
             let response = test::call_service(&app, request.to_request()).await;
@@ -2120,7 +2171,7 @@ pub(super) mod tests {
 
         let response = test::call_service(
             &app,
-            delete_request(None, &format!("{gallery_id}/finals/{finished}")),
+            delete_request(None, &format!("{gallery_id}/photos/{finished}?finals=true")),
         )
         .await;
 

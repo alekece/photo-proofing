@@ -131,7 +131,7 @@ impl PhotoIntake<'_> {
 
     async fn accept(&self, photo: &NewPhoto) -> Result<Option<Photo>, PhotoIntakeError> {
         let mut transaction = self.pool.begin().await?;
-        let outcome = PhotoRepository::open(self.pool, photo.kind)
+        let outcome = PhotoRepository::open(self.pool, ())
             .insert_in(&mut transaction, photo)
             .await?;
 

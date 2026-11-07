@@ -1259,7 +1259,7 @@ describe('PhotosPanel', () => {
 	});
 
 	describe('finished photos', () => {
-		it('lists, uploads and deletes through the finals routes, without proof controls', async () => {
+		it('lists, uploads and deletes with the finals query, without proof controls', async () => {
 			const api = stubApi([photo('f1')]);
 			const user = userEvent.setup();
 			const { queue } = setup(undefined, null, false, 'finals');
@@ -1273,7 +1273,9 @@ describe('PhotosPanel', () => {
 			await user.click(await screen.findByRole('button', { name: 'Remove f1.jpg' }));
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 
-			await waitFor(() => expect(api.calls('DELETE')).toEqual(['/api/v1/galleries/g1/finals/f1']));
+			await waitFor(() =>
+				expect(api.calls('DELETE')).toEqual(['/api/v1/galleries/g1/photos/f1?finals=true'])
+			);
 			expect(api.lists()).toBe(1);
 		});
 

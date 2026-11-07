@@ -29,10 +29,17 @@ const REJECTIONS: Record<number, string> = {
 /** The set a route addresses: the client proofs, or the photographer's finished photos. */
 export type PhotoSet = 'photos' | 'finals';
 
-function photosPath(galleryId: string, photoId?: string, set: PhotoSet = 'photos') {
-	const base = `/api/v1/galleries/${encodeURIComponent(galleryId)}/${set}`;
+/** The photo routes of a gallery, which address the finals with `?finals=true`. */
+function photosPath(
+	galleryId: string,
+	{ photoId, action, set = 'photos' }: { photoId?: string; action?: string; set?: PhotoSet } = {}
+) {
+	const segments = [photoId === undefined ? undefined : encodeURIComponent(photoId), action];
+	const path = [`/api/v1/galleries/${encodeURIComponent(galleryId)}/photos`, ...segments]
+		.filter((segment) => segment !== undefined)
+		.join('/');
 
-	return photoId === undefined ? base : `${base}/${encodeURIComponent(photoId)}`;
+	return set === 'finals' ? `${path}?finals=true` : path;
 }
 
 const unexpected = () => new GalleryApiError(502, 'Unexpected response from the server.');
@@ -57,7 +64,7 @@ export async function listPhotos(
 	fetcher: typeof fetch = fetch,
 	set: PhotoSet = 'photos'
 ) {
-	const response = await request(photosPath(galleryId, undefined, set), {}, fetcher);
+	const response = await request(photosPath(galleryId, { set }), {}, fetcher);
 
 	const photos = parseOrNull(v.array(photoSchema), await response.json().catch(() => null));
 
@@ -72,7 +79,7 @@ export async function deletePhoto(
 	fetcher = fetch,
 	set: PhotoSet = 'photos'
 ) {
-	await request(photosPath(galleryId, photoId, set), { method: 'DELETE' }, fetcher);
+	await request(photosPath(galleryId, { photoId, set }), { method: 'DELETE' }, fetcher);
 }
 
 /** Most photos one bulk delete request accepts. */
@@ -86,7 +93,7 @@ export async function deletePhotos(
 	set: PhotoSet = 'photos'
 ) {
 	const response = await request(
-		`${photosPath(galleryId, undefined, set)}/delete`,
+		photosPath(galleryId, { action: 'delete', set }),
 		{
 			method: 'POST',
 			body: JSON.stringify({ photo_ids: photoIds }),
@@ -108,7 +115,11 @@ export async function retryPhoto(
 	fetcher = fetch,
 	set: PhotoSet = 'photos'
 ) {
-	await request(`${photosPath(galleryId, photoId, set)}/retry`, { method: 'POST' }, fetcher);
+	await request(
+		photosPath(galleryId, { photoId, action: 'retry', set }),
+		{ method: 'POST' },
+		fetcher
+	);
 }
 
 export async function getUploadLimits(fetcher: typeof fetch = fetch) {
@@ -132,7 +143,7 @@ export async function uploadPhoto(
 	let response: Response;
 
 	try {
-		response = await fetcher(photosPath(galleryId, undefined, set), {
+		response = await fetcher(photosPath(galleryId, { set }), {
 			method: 'POST',
 			body: file,
 			signal,
@@ -169,9 +180,9 @@ export async function uploadPhoto(
 }
 
 export function thumbnailUrl(galleryId: string, photoId: string, set: PhotoSet = 'photos') {
-	return `${photosPath(galleryId, photoId, set)}/thumbnail`;
+	return photosPath(galleryId, { photoId, action: 'thumbnail', set });
 }
 
 export function previewUrl(galleryId: string, photoId: string, set: PhotoSet = 'photos') {
-	return `${photosPath(galleryId, photoId, set)}/preview`;
+	return photosPath(galleryId, { photoId, action: 'preview', set });
 }

@@ -330,6 +330,7 @@ mod tests {
                     self.location.workspace_id,
                     self.location.gallery_id,
                     self.id,
+                    PhotoKind::Proof,
                 )
                 .await
                 .unwrap()

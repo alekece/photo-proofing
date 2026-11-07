@@ -223,7 +223,12 @@ mod tests {
     async fn status(database: &Database, gallery: &Gallery, id: PhotoId) -> PhotoStatus {
         database
             .repository::<PhotoRepository>()
-            .get(gallery.workspace_id, gallery.gallery_id, id)
+            .get(
+                gallery.workspace_id,
+                gallery.gallery_id,
+                id,
+                PhotoKind::Proof,
+            )
             .await
             .unwrap()
             .unwrap()

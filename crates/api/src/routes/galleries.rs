@@ -25,10 +25,10 @@ use actix_web::{
     web::{self, Data, Json, Path, ServiceConfig},
 };
 use actix_web_lab::extract::Query as LabQuery;
-use pp_database::deletion::WorkspaceDeletion;
 use pp_database::gallery::{
     GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
 };
+use pp_database::workspace_deletion::WorkspaceDeletion;
 use pp_storage::Variant;
 use serde::Deserialize;
 
