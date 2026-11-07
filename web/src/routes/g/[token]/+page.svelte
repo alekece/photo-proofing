@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import AccessUnavailable from '#lib/components/AccessUnavailable.svelte';
 	import ClientGallery from '#lib/components/ClientGallery.svelte';
 	import { UNTITLED_GALLERY } from '#lib/gallery/format.js';
+	import { recordOpened } from '#lib/gallery/opened.js';
 	import type { Proof, SharedGallery } from '#lib/gallery/types.js';
 
 	let {
@@ -11,6 +13,11 @@
 		data: { gallery: SharedGallery | null; proofs: Proof[]; favorites: string[] };
 		params: { token: string };
 	} = $props();
+
+	// Only a browser showing an available gallery counts as an open, not link previews or the owner's preview.
+	onMount(() => {
+		if (data.gallery) void recordOpened(params.token);
+	});
 </script>
 
 <svelte:head>
