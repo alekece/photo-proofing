@@ -3,15 +3,17 @@ import { UNTITLED_GALLERY } from '#lib/gallery/format.js';
 import { previewUrl } from '#lib/gallery/photos.js';
 import { getAuthStatus } from '#lib/server/auth.js';
 import { listGalleries } from '#lib/server/galleries.js';
-import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
+import { getSettings } from '#lib/server/settings.js';
 import type { PageServerLoad } from './$types';
 
-/** Guards the page like the dashboard; settings come from the defaults until #67 stores them. */
+/** Guards the page like the dashboard and loads the saved settings. */
 export const load: PageServerLoad = async ({ fetch, request, setHeaders }) => {
 	setHeaders({ 'Cache-Control': 'no-store' });
 	const status = await getAuthStatus(fetch, request.headers.get('cookie'));
 
 	if (!status.identity) redirect(303, '/login');
+
+	const settings = await getSettings(fetch, request.headers.get('cookie'));
 
 	// The previews borrow the owner's own cover photos; a list outage just leaves plain tiles.
 	const galleries = await listGalleries(fetch, request.headers.get('cookie'), 'updated', []).catch(
@@ -23,5 +25,5 @@ export const load: PageServerLoad = async ({ fetch, request, setHeaders }) => {
 		? { image: samples[0], title: covered[0].title ?? UNTITLED_GALLERY }
 		: null;
 
-	return { idleTimeoutMs: status.idle_timeout_ms, settings: DEFAULT_SETTINGS, samples, cover };
+	return { idleTimeoutMs: status.idle_timeout_ms, settings, samples, cover };
 };

@@ -12,7 +12,9 @@
 	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
 	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
 	import {
+		LOGO_MAX_BYTES,
 		SettingsApi,
+		SettingsApiError,
 		settingsChanged,
 		watermarkChanged,
 		type WorkspaceSettings
@@ -61,11 +63,16 @@
 		try {
 			const watermark = watermarkChanged(draft, saved);
 
-			saved = await api.save({ ...draft });
+			saved = await api.save({ ...draft }, saved);
+			draft = { ...saved };
 			show('saved', SAVED_MS);
 			if (watermark) toasts.success('Watermarked proofs are being regenerated');
-		} catch {
-			toasts.error('Unable to save the settings.', () => void save());
+		} catch (error) {
+			if (error instanceof SettingsApiError && error.status === 422) {
+				toasts.error(error.message);
+			} else {
+				toasts.error('Unable to save the settings.', () => void save());
+			}
 		} finally {
 			saving = false;
 		}
@@ -83,7 +90,9 @@
 		const file = input.files?.[0];
 
 		input.value = '';
-		if (!file?.type.startsWith('image/')) return;
+		if (!file) return;
+		if (file.type !== 'image/png') return void toasts.error('The logo must be a PNG image.');
+		if (file.size > LOGO_MAX_BYTES) return void toasts.error('The logo must be under 1 MB.');
 
 		const reader = new FileReader();
 
@@ -187,7 +196,7 @@
 			>
 				<Upload size={20} strokeWidth={1.8} aria-hidden="true" />
 				Logo
-				<input type="file" accept="image/*" class="sr-only" onchange={pickLogo} />
+				<input type="file" accept="image/png" class="sr-only" onchange={pickLogo} />
 			</label>
 		{/if}
 		<Input

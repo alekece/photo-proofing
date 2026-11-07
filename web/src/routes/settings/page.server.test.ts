@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const server = vi.hoisted(() => ({ getAuthStatus: vi.fn() }));
+const server = vi.hoisted(() => ({ getAuthStatus: vi.fn(), getSettings: vi.fn() }));
 
 vi.mock('#lib/server/auth.js', () => ({ getAuthStatus: server.getAuthStatus }));
+vi.mock('#lib/server/settings.js', () => ({ getSettings: server.getSettings }));
 
 import { load } from './+page.server';
 
@@ -15,7 +16,10 @@ function run() {
 }
 
 describe('settings load', () => {
-	beforeEach(() => server.getAuthStatus.mockReset());
+	beforeEach(() => {
+		server.getAuthStatus.mockReset();
+		server.getSettings.mockReset();
+	});
 
 	it('redirects to login without a session', async () => {
 		server.getAuthStatus.mockResolvedValue({ identity: null });
@@ -28,7 +32,13 @@ describe('settings load', () => {
 			identity: { account_id: 'a', workspace_id: 'w' },
 			idle_timeout_ms: 1000
 		});
+		const settings = { studioName: 'Studio' };
 
-		expect((await run()).idleTimeoutMs).toBe(1000);
+		server.getSettings.mockResolvedValue(settings);
+
+		const data = (await run()) as { idleTimeoutMs: number; settings: unknown };
+
+		expect(data.idleTimeoutMs).toBe(1000);
+		expect(data.settings).toBe(settings);
 	});
 });
