@@ -26,6 +26,19 @@
 - This worktree is already isolated. Preserve unrelated edits and keep it through PR review.
 - The app already renamed this branch before design creation; it permits only one rename. Do not bypass that restriction with raw Git to obtain the normal `feat/67-...` naming.
 
+## Execution evidence
+
+- Tasks 1-3 implemented in `0d32245`, `b7f8115`, and `a1cc92f`, with database,
+  renderer/worker/storage and API regressions.
+- Task 4 implemented with separate clean cover and client-preview media, persisted clean
+  readiness, mounted-switch regression and usable clean tiles during marked failures.
+- Required format/clippy/workspace tests and frontend verify passed. The Rust suites ran
+  against isolated PostgreSQL 17 and libvips 8.15 because the host has unsupported libvips 8.12.
+  Frontend verify covered 521 tests, type/lint/format checks and production build.
+- Documentation uses the actual watermark requirement FR-07 (the original plan's FR-05
+  reference was a numbering error); FR-03/04/05 clarify cover, visibility and processing.
+- Browser verification, independent review, bounded refactor and PR delivery are pending.
+
 ## Review Focus
 
 - A hero becomes hidden from the marked grid: keep its clean cover and owner images visible (Tasks 3 and 4).
