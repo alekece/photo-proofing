@@ -3,7 +3,6 @@
 //! - `GET /` returns the title, layout and expiry of the gallery behind a private link.
 //! - `GET /photos` lists the photos the client may see, with their displayed size.
 //! - `GET /photos/{photo_id}/thumbnail|preview` serves one of those photos.
-//! - `GET /events` streams selection changes of this gallery (see [`events`]).
 //! - `GET /favorites` lists the ids the client selected; `PUT|DELETE /favorites/{photo_id}`
 //!   selects or unselects one, idempotently, until the gallery is delivered (409).
 //!
@@ -26,7 +25,6 @@ use crate::{
     error::ErrorResponse,
     extractors::client_access::{ClientAccess, ClientPhotoSet},
     response::{ImageFile, ResponseBuilderExt},
-    routes::events,
 };
 
 /// Registers the client routes inside the `/api/v1/galleries` scope.
@@ -36,7 +34,6 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(list_favorites)
         .service(add_favorite)
         .service(remove_favorite)
-        .service(events::stream_shared_events)
         .service(serve_shared_photo);
 }
 
@@ -390,6 +387,21 @@ mod tests {
         test::TestRequest::get()
             .uri(&format!("/api/v1/galleries/shared/{token}{path}"))
             .to_request()
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_valid_link_has_no_event_route(pool: PgPool) {
+        let token = shared_gallery(&pool, json!({})).await;
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool, directory.path(), upload_config(1024, 100)).await;
+
+        let response = test::call_service(&app, client_request(&token, "/photos")).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = test::call_service(&app, client_request(&token, "/events")).await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

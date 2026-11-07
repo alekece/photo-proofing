@@ -31,20 +31,6 @@ const proofs: Proof[] = [1, 2, 3].map((n) => ({
 
 const shared = (hero_id: string | null): SharedGallery => ({ ...gallery, hero_id });
 
-class FakeEventSource extends EventTarget {
-	static last: FakeEventSource | undefined;
-	closed = false;
-
-	constructor(readonly url: string) {
-		super();
-		FakeEventSource.last = this;
-	}
-
-	close() {
-		this.closed = true;
-	}
-}
-
 const show = (props: Partial<Parameters<typeof render<typeof ClientGallery>>[1]> = {}) =>
 	render(ClientGallery, { token: 'tok', gallery, proofs, favorites: [], ...props });
 const hearts = () => screen.getAllByRole('button', { name: /^favorite proof/i });
@@ -55,11 +41,9 @@ describe('ClientGallery', () => {
 	const fetcher = vi.fn();
 
 	beforeEach(() => {
-		FakeEventSource.last = undefined;
 		fetcher.mockReset();
 		fetcher.mockResolvedValue(new Response(null, { status: 204 }));
 		vi.stubGlobal('fetch', fetcher);
-		vi.stubGlobal('EventSource', FakeEventSource);
 	});
 	afterEach(() => vi.unstubAllGlobals());
 
@@ -168,7 +152,6 @@ describe('ClientGallery', () => {
 		);
 		for (const link of screen.getAllByRole('link', { name: /download all/i }))
 			expect(link.getAttribute('href')).toBe('/all.zip');
-		expect(FakeEventSource.last).toBeUndefined();
 	});
 
 	it('filters to favorites and says when there are none', async () => {
@@ -219,31 +202,6 @@ describe('ClientGallery', () => {
 		expect(screen.getByText('Favorites:').parentElement?.textContent).toContain('2');
 	});
 
-	it('refreshes from the link stream and closes it on leaving', async () => {
-		fetcher.mockResolvedValue(new Response(JSON.stringify(['p3']), { status: 200 }));
-		const { unmount } = show();
-		const source = FakeEventSource.last!;
-
-		expect(source.url).toBe('/api/v1/galleries/shared/tok/events');
-
-		source.dispatchEvent(new Event('favorites'));
-
-		await waitFor(() => expect(hearts()[2].getAttribute('aria-pressed')).toBe('true'));
-
-		unmount();
-
-		expect(source.closed).toBe(true);
-	});
-
-	it('refetches after the stream resyncs', async () => {
-		fetcher.mockResolvedValue(new Response(JSON.stringify(['p1']), { status: 200 }));
-		show();
-
-		FakeEventSource.last!.dispatchEvent(new Event('resync'));
-
-		await waitFor(() => expect(count()).toBe('1'));
-	});
-
 	it('shows the selection but cannot change it in preview mode', () => {
 		show({ preview: true, favorites: ['p1'] });
 
@@ -254,7 +212,6 @@ describe('ClientGallery', () => {
 		expect(
 			screen.getByRole('button', { name: 'Favorite proof 1' }).getAttribute('aria-pressed')
 		).toBe('true');
-		expect(FakeEventSource.last).toBeUndefined();
 	});
 
 	it('shows the hero photo preview as the cover', () => {

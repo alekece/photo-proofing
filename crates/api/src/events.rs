@@ -1,8 +1,8 @@
 //! Live photo and favorite events, from the database to every open event stream.
 //!
 //! One [`EventHub::relay`] task per process listens to the database and publishes on the hub;
-//! each `GET /api/v1/events` stream subscribes and forwards its own workspace's events, and each
-//! shared-link stream its own gallery's favorites (see [`routes::events`](crate::routes::events)). Whenever events may have been lost (a reconnect,
+//! each `GET /api/v1/events` stream subscribes and forwards its own workspace's events (see
+//! [`routes::events`](crate::routes::events)). Whenever events may have been lost (a reconnect,
 //! an undecodable notification or a lagging subscriber), streams receive [`Broadcast::Resync`]
 //! so the browser refetches instead of trusting a partial history.
 
@@ -21,7 +21,6 @@ use pp_database::{
     auth::WorkspaceId,
     error::DatabaseError,
     favorite_events::FavoriteEvent,
-    gallery::GalleryId,
     listener::{Channel, Listener, MissedReason, Notification},
     photo_events::PhotoEvent,
 };
@@ -41,26 +40,6 @@ pub(crate) enum Broadcast {
     Favorites(FavoriteEvent),
     /// Events may have been lost: subscribers must refetch.
     Resync,
-}
-
-/// Whose streams a slot counts against: the caps keep one workspace, or one shared link, from
-/// taking every slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum StreamOwner {
-    Workspace(WorkspaceId),
-    Gallery(GalleryId),
-}
-
-impl From<WorkspaceId> for StreamOwner {
-    fn from(workspace_id: WorkspaceId) -> Self {
-        Self::Workspace(workspace_id)
-    }
-}
-
-impl From<GalleryId> for StreamOwner {
-    fn from(gallery_id: GalleryId) -> Self {
-        Self::Gallery(gallery_id)
-    }
 }
 
 /// Fans database events out to the open streams, and bounds how many may be open.
@@ -100,10 +79,10 @@ impl EventHub {
         self.keep_alive.get()
     }
 
-    /// Opens a subscription for a stream of `owner`, or `None` when the process or the owner
+    /// Opens a subscription for a stream of `workspace_id`, or `None` when the process or the workspace
     /// already has as many streams as allowed.
-    pub fn subscribe(&self, owner: impl Into<StreamOwner>) -> Option<Subscription> {
-        let slot = self.slots.acquire(owner.into())?;
+    pub fn subscribe(&self, workspace_id: WorkspaceId) -> Option<Subscription> {
+        let slot = self.slots.acquire(workspace_id)?;
 
         Some(Subscription {
             receiver: self.sender.subscribe(),
@@ -313,7 +292,7 @@ impl StallWatchdog {
     }
 }
 
-/// How many streams are open, overall and per owner, against their caps.
+/// How many streams are open, overall and per workspace, against their caps.
 struct StreamSlots {
     counts: Mutex<StreamCounts>,
     max_streams: NonZeroUsize,
@@ -321,20 +300,20 @@ struct StreamSlots {
 }
 
 impl StreamSlots {
-    fn acquire(self: &Arc<Self>, owner: StreamOwner) -> Option<StreamSlot> {
+    fn acquire(self: &Arc<Self>, workspace_id: WorkspaceId) -> Option<StreamSlot> {
         let mut counts = self.counts();
-        let open = counts.owners.get(&owner).copied().unwrap_or(0);
+        let open = counts.workspaces.get(&workspace_id).copied().unwrap_or(0);
 
         if counts.total >= self.max_streams.get() || open >= self.max_streams_per_workspace.get() {
             return None;
         }
 
         counts.total += 1;
-        counts.owners.insert(owner, open + 1);
+        counts.workspaces.insert(workspace_id, open + 1);
 
         Some(StreamSlot {
             slots: Arc::clone(self),
-            owner,
+            workspace_id,
         })
     }
 
@@ -347,13 +326,13 @@ impl StreamSlots {
 #[derive(Default)]
 struct StreamCounts {
     total: usize,
-    owners: HashMap<StreamOwner, usize>,
+    workspaces: HashMap<WorkspaceId, usize>,
 }
 
 /// One open stream's place in [`StreamSlots`]; dropping it frees the place.
 struct StreamSlot {
     slots: Arc<StreamSlots>,
-    owner: StreamOwner,
+    workspace_id: WorkspaceId,
 }
 
 impl Drop for StreamSlot {
@@ -362,11 +341,11 @@ impl Drop for StreamSlot {
 
         counts.total -= 1;
 
-        if let Some(open) = counts.owners.get_mut(&self.owner) {
+        if let Some(open) = counts.workspaces.get_mut(&self.workspace_id) {
             *open -= 1;
 
             if *open == 0 {
-                counts.owners.remove(&self.owner);
+                counts.workspaces.remove(&self.workspace_id);
             }
         }
     }
@@ -424,7 +403,7 @@ mod tests {
         let counts = hub.slots.counts();
 
         assert_eq!(counts.total, 0);
-        assert!(counts.owners.is_empty());
+        assert!(counts.workspaces.is_empty());
     }
 
     struct Relay {

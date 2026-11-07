@@ -93,48 +93,4 @@ describe('Selection', () => {
 		expect(methods).toEqual(['PUT', 'DELETE', 'PUT']);
 		expect(picks.has('a')).toBe(true);
 	});
-
-	it('refreshes from the server but keeps what is still being saved', async () => {
-		let release: (response: Response) => void = () => {};
-		const fetcher = vi.fn(async (url: unknown) => {
-			if (String(url).endsWith('/favorites')) return respond(200, ['x']);
-
-			return new Promise<Response>((resolve) => (release = resolve));
-		}) as unknown as typeof fetch;
-		const picks = selection(fetcher, ['old']);
-		const saving = picks.toggle('a');
-
-		await picks.refresh();
-
-		expect([...picks.ids].sort()).toEqual(['a', 'x']);
-
-		release(respond(204));
-		await saving;
-	});
-
-	it('does not bring back a photo whose removal is still being saved', async () => {
-		let release: (response: Response) => void = () => {};
-		const fetcher = vi.fn(async (url: unknown) => {
-			if (String(url).endsWith('/favorites')) return respond(200, ['a']);
-
-			return new Promise<Response>((resolve) => (release = resolve));
-		}) as unknown as typeof fetch;
-		const picks = selection(fetcher, ['a']);
-		const saving = picks.toggle('a');
-
-		await picks.refresh();
-
-		expect([...picks.ids]).toEqual([]);
-
-		release(respond(204));
-		await saving;
-	});
-
-	it('keeps the selection when a refresh fails', async () => {
-		const picks = selection(async () => respond(503), ['a']);
-
-		await picks.refresh();
-
-		expect(picks.has('a')).toBe(true);
-	});
 });

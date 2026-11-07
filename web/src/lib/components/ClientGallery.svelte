@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Download, Heart } from '@lucide/svelte';
-	import { onMount } from 'svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import { UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import { Selection } from '#lib/gallery/selection.svelte.js';
@@ -61,18 +60,6 @@
 		gallery.included_photos === null ? 0 : Math.max(0, selection.count - gallery.included_photos)
 	);
 
-	// Another browser on the same link changes the selection; a resync means events were missed.
-	onMount(() => {
-		if (preview || gallery.delivered) return;
-
-		const source = new EventSource(`/api/v1/galleries/shared/${encodeURIComponent(token)}/events`);
-		const refresh = () => void selection.refresh();
-
-		source.addEventListener('favorites', refresh);
-		source.addEventListener('resync', refresh);
-
-		return () => source.close();
-	});
 	const delivered = $derived(gallery.delivered);
 	const shown = $derived(
 		onlyFavorites && !delivered ? proofs.filter(({ id }) => selection.has(id)) : proofs

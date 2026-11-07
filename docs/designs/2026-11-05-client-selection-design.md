@@ -12,7 +12,7 @@ The client marks favorites through the private link; every browser using the lin
 - The header shows the count, for example "13 selected", and with an included allowance "13 selected · 10 included · 3 extra". Without an allowance, selection is unlimited. Overflow is allowed: when the selection exceeds the allowance, the count is shown in bold in the warning colour (not red, since nothing is wrong). Reaching the allowance changes nothing else. The colour is never the only signal: the "extra" count stays in the text.
 - A failed save reverts the heart and shows a short error; the next click retries.
 - Once the photographer delivers, the hearts disappear and the selection is read-only.
-- Other browsers on the same link see changes live. After a connection loss they refresh the whole selection on reconnect, so the server's list is authoritative.
+- Clients have no live updates. A browser keeps its own selection until reload; a fresh load shows the server's list.
 
 ## Photographer behaviour
 
@@ -27,7 +27,7 @@ The client marks favorites through the private link; every browser using the lin
   - `PUT .../favorites/{photo_id}` adds and `DELETE` removes. Both are single conditional `UPDATE`s on the photo, so repeated or concurrent requests converge and cannot corrupt the selection.
 - Server checks: the share token must be valid (not expired, not archived); the photo must be a ready photo of that gallery; writes are rejected with a conflict once `delivered_at` is set. (Needs the `delivered_at` column from #86; the delivery slice must also reject favorite writes at its publication boundary.)
 - Photographer side: no separate route. The workspace-scoped photo list already carries each photo's `favorite` flag, and the Favorites tab filters it.
-- Toggling a favorite does not change `status`, so the existing photo-event triggers stay silent. Changes publish through a separate Postgres notification, in the same way as the photo events, to a per-link event stream for clients and to the photographer's existing stream, which refresh the list.
+- Toggling a favorite does not change `status`, so the existing photo-event triggers stay silent. Changes publish through a separate Postgres notification, in the same way as the photo events, to the photographer's existing stream, which refreshes the list.
 
 ## Web
 
@@ -36,4 +36,4 @@ The client marks favorites through the private link; every browser using the lin
 
 ## Tests
 
-Persistence across visits, repeated and concurrent toggles, overflow counts, deletion of a favorite photo, cross-gallery and not-ready photos rejected, expired, archived and delivered links rejected, failed-write revert, live refresh and reconnect refresh, keyboard and accessible names (`aria-pressed`).
+Persistence across visits, repeated and concurrent toggles, overflow counts, deletion of a favorite photo, cross-gallery and not-ready photos rejected, expired, archived and delivered links rejected, failed-write revert, the photographer's live refresh, keyboard and accessible names (`aria-pressed`).
