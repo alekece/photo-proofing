@@ -121,7 +121,7 @@ fn validate_pixel_count(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::{fs, num::NonZeroU64};
 
     use actix_web::{ResponseError, http::StatusCode};
@@ -204,7 +204,7 @@ mod tests {
         }
     }
 
-    fn with_segment(jpeg: &[u8], marker: u8, payload: &[u8]) -> Vec<u8> {
+    pub(crate) fn with_segment(jpeg: &[u8], marker: u8, payload: &[u8]) -> Vec<u8> {
         let length = u16::try_from(payload.len() + 2).unwrap();
         let mut out = jpeg[..2].to_vec();
 
@@ -217,7 +217,7 @@ mod tests {
     }
 
     /// Big-endian EXIF block whose IFD0 holds only the orientation tag.
-    fn orientation_exif(orientation: u16) -> Vec<u8> {
+    pub(crate) fn orientation_exif(orientation: u16) -> Vec<u8> {
         let mut exif = b"Exif\0\0MM\0\x2a\0\0\0\x08".to_vec();
 
         exif.extend(1_u16.to_be_bytes());

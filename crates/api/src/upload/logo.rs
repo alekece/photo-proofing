@@ -78,10 +78,11 @@ impl LogoNormaliser {
     }
 
     fn encode(image: &VipsImage, long_edge: i32) -> libvips::Result<Vec<u8>> {
+        let image = ops::autorot(image)?;
         let image = if matches!(image.get_interpretation(), Ok(Interpretation::Srgb)) {
-            ops::copy(image)?
+            ops::copy(&image)?
         } else {
-            ops::colourspace(image, Interpretation::Srgb)?
+            ops::colourspace(&image, Interpretation::Srgb)?
         };
         let image = if image.image_hasalpha() {
             image
@@ -110,7 +111,10 @@ mod tests {
     use libvips::ops::{black, jpegsave_buffer, pngsave_buffer};
 
     use super::*;
-    use crate::upload::jpeg;
+    use crate::upload::jpeg::{
+        self,
+        tests::{orientation_exif, with_segment},
+    };
 
     fn png(width: i32, height: i32) -> Vec<u8> {
         jpeg::install().unwrap();
@@ -145,6 +149,15 @@ mod tests {
         assert!(normal.starts_with(&LogoFormat::PNG_SIGNATURE));
         assert_eq!((image.get_width(), image.get_height()), (40, 20));
         assert_eq!(image.get_bands(), 4);
+    }
+
+    #[tokio::test]
+    async fn a_jpeg_logo_is_turned_upright() {
+        let source = with_segment(&jpeg_logo(40, 20), 0xe1, &orientation_exif(6));
+        let normal = LogoNormaliser::normalise(source).await.unwrap();
+        let image = decoded(&normal);
+
+        assert_eq!((image.get_width(), image.get_height()), (20, 40));
     }
 
     #[tokio::test]
