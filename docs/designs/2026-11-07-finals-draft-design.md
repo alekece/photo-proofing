@@ -45,6 +45,16 @@ Non-goals: Deliver/publish, client pages and downloads, ZIPs, matching finals to
 - **UI (Final tab).** `PhotosPanel` takes a `set`; the Final tab uses it with the same grid, select mode, status chips, retry, viewer, drop zone and empty state "Drop the finished photos here". Hero, favorite and watermark affordances are proof-only. The placeholder `FinalPanel` is removed. The "downloaded by the client" tile marker stays for #71.
 - **Migration.** `0013_finals_draft.sql` (renumber if another PR lands first).
 
+## Isolation and lifecycle details (from design review)
+
+- **Kind-agnostic by design:** `locate`, the job-completion helpers (`mark_ready_in`, `mark_failed_in`, `exists_in`), the cleanup handler and the orphan sweep work by photo id for both kinds; the worker therefore processes finals, and the sweep never treats a final's file as an orphan.
+- **Raw gallery SQL** that reads `photos` directly gets `kind = 'proof'`: dashboard counts, hero eligibility and the shared-page hero lookup.
+- **Removal SQL.** In one transaction, the processing jobs of the named finals are deleted; unpublished rows are deleted (and only their ids get a cleanup job); published rows get `removed_at = now()` if not already set. A repeated removal of a removed final is a no-op and is not reported. `list`, `get`, `list_ready`, retry, thumbnails and previews all exclude `removed_at IS NOT NULL`.
+- **Events.** The notify trigger also fires on `UPDATE OF removed_at` and reports `deleted`.
+- **Retention.** A removed published row keeps its files until #71's next publish removes it and queues cleanup; no cleanup job names a published id before that. Deleting the gallery removes everything, overriding retention. #71 must publish only ready finals.
+- **Spec conflict.** FR-10/AC-04 (no publish step) and the issue (explicit publication) differ. This slice follows the issue; if the PRD wins, #71 publishes on every change and the two columns still fit.
+- **Slots.** Upload slots and bounds are server-wide, as for proofs, not per gallery or kind. Finals and proofs share them; a very large proof batch only queues finals behind the same slots.
+
 ## Verification
 
 Database tests for kind scoping, soft removal, the CHECKs and event payload; API tests for finals upload, listing, independence from proofs, malformed and over-limit files, byte preservation, retry, deletion, cross-gallery/kind/workspace and client denial; worker test for finals; web tests for the API client, queue and panel.
