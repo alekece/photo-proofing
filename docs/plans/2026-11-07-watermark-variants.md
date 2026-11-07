@@ -43,7 +43,21 @@
   toggle, and marked-only regeneration preserving both clean files and the original byte-for-byte.
   Paused regeneration showed truthful owner progress, clean disabled-client access and clean
   cover, while enabled client media returned 404.
-- Independent review, bounded refactor and PR delivery are pending.
+- Independent review found a settings-save/upload-start race. A deterministic test reproduced
+  the skipped upload reading revision 1 after revision 2 was saved. Regeneration now locks
+  waiting proofs too, without resetting or adding jobs, so workers either read committed new
+  settings or retain a replacement job. Workspace locking serializes new photo insertion
+  with the scan, preventing phantom uploads from escaping it. Both ordered-scan interleavings
+  and concurrent new insertion have regressions. Reviewer follow-up identified the same
+  risk for manually retried failed photos; retry now takes the shared workspace lock before
+  job/photo locks, with a deterministic old-revision regression.
+- Dedicated refactor pass: access predicates and renderer preparation already share their
+  owning helpers; separate serving routes enforce genuinely distinct policies. No additional
+  abstraction or refactor was warranted beyond the corrected lock-scan responsibility.
+  The same independent reviewer verified upload and retry corrections, with no remaining
+  material issue. Final full Rust suites and frontend verify passed; an unchanged
+  shutdown-grace timing test failed once under load, then passed both targeted and full reruns.
+  PR delivery remains pending.
 
 ## Review Focus
 
@@ -253,7 +267,7 @@ existing integration suites only where whole-flow regressions are missing.
   README describes one-time preparation and deployment sequencing: stop old API/workers before
   new migrations/code start, preserve volumes, and never allow old two-file workers afterward.
   Describe unavailable unprepared photos and explicit failure/manual retry, not silent backfill success.
-- [ ] **Step 2: Add a whole-flow regression using existing API/worker infrastructure.**
+- [x] **Step 2: Add a whole-flow regression using existing API/worker infrastructure.**
   Upload in an off gallery, complete processing, verify four files, switch on and off with unchanged
   job/status snapshots, change workspace watermark, and assert only marked bytes change.
   Verify clean owner images/hero and disabled selection remain available throughout.
@@ -264,10 +278,10 @@ existing integration suites only where whole-flow regressions are missing.
   `pnpm --dir web verify`
   Configure the existing test database privately; do not print deployment secrets.
   Report missing prerequisites or failures; do not claim completion if required checks cannot run.
-- [ ] **Step 4: Request one fresh independent whole-branch review.**
+- [x] **Step 4: Request one fresh independent whole-branch review.**
   Review correctness and approved-spec compliance, especially clean-only owner routes, marked
   revision guards, backfill, selectors, cached images and all-variant cleanup. Fix material findings.
-- [ ] **Step 5: Perform a dedicated bounded refactor pass.**
+- [x] **Step 5: Perform a dedicated bounded refactor pass.**
   Remove duplicated access predicates or renderer preparation, clarify responsibilities/names,
   and record the result even if no change is warranted. Rerun affected checks after corrections.
 - [ ] **Step 6: Commit documentation and corrections, then deliver a PR referencing #67.**
