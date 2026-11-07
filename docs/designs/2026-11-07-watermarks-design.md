@@ -75,13 +75,13 @@ saved watermark differs from the previous one, so saving the cover signature or 
 regenerates nothing. A mark that uses the name needs a non-empty name and one that uses the logo
 needs a logo; otherwise the save is rejected with a field-level 422 (the save transaction checks it against the stored logo). Name: 1 to 100 characters after trimming, or empty when the mark is the logo.
 
-**Logo.** PNG only (transparency matters, no SVG attack surface, no extra codecs). Limits, all
-configurable with documented defaults: 1 MiB upload and 4 megapixels. The API accepts it
-inside the settings request as base64, checks the PNG signature and the loader libvips picked,
-rejects it on header dimensions before decoding pixels, then decodes in a blocking task and
+**Logo.** PNG only (transparency matters, no SVG attack surface, no extra codecs). Limits, fixed
+constants (my call: one logo per studio does not warrant deployment knobs): 1 MiB upload and
+4 megapixels. The API accepts it
+inside the settings request as base64, checks the PNG signature, rejects it on header dimensions before decoding pixels, then decodes in a blocking task and
 re-encodes a copy with its long edge at most 512 px and all metadata dropped. Failures are 422
 with a short safe reason (not a PNG, too large, too many pixels, unreadable). The request body
-limit of that route follows the configured size.
+limit of that route fits a base64 logo at the size limit.
 
 **API.** `GET /api/v1/settings` returns the fields and whether a logo exists;
 `GET /api/v1/settings/logo` returns the logo PNG (session required, `private, no-store`,
