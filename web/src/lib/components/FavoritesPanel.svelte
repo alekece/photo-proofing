@@ -103,7 +103,8 @@
 			const created = await requestSelectionExport(galleryId);
 
 			awaited = created.id;
-			selectionZip = created;
+			// The build may already have finished: take the state from the server, not the response.
+			await loadZip(galleryId);
 		} catch (error) {
 			zipError =
 				error instanceof GalleryApiError && error.status !== 502

@@ -157,11 +157,11 @@ impl PhotoStorage {
         for (path, name) in sources {
             let mut source = StdFile::open(path)?;
 
-            writer.start_file(name, options).map_err(io::Error::other)?;
+            writer.start_file(name, options).map_err(io::Error::from)?;
             io::copy(&mut source, &mut writer)?;
         }
 
-        let mut buffered = writer.finish().map_err(io::Error::other)?;
+        let mut buffered = writer.finish().map_err(io::Error::from)?;
 
         buffered.flush()?;
         buffered.get_ref().sync_all()?;
