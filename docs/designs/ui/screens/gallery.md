@@ -28,7 +28,7 @@ The hero photo fills a wide banner. Over it:
   ("48 photos · shared 12 Jun");
 - **Preview** (ghost) and the next main action: **Share** for a draft, **Deliver** once shared,
   nothing once delivered, **Restore** when archived;
-- the **journey steps** along the bottom: Upload → Share → Collect favorites → Deliver. Done steps
+- the **journey steps**, centred along the bottom: Upload → Share → Collect favorites → Deliver. Done steps
   show a green tick and a fact ("Shared 12 Jun", "13 selected"), the current step is highlighted,
   later ones are dim. On phones the steps collapse to four dots and the current step's label.
   Hidden when archived.
@@ -96,7 +96,7 @@ regenerated.
 
 Only the client's selection, read-only. Toolbar: **Select** and **Download** (the whole selection
 as a ZIP, with a busy state while it's prepared). Hovering a photo shows a small download button
-for that photo (always visible on touch). Empty: a heart and "No favorites yet". Opening a photo
+for that photo (always visible on touch). Empty: the same dashed drop-area look as the other empty tabs, with a heart and "No favorites yet". Opening a photo
 shows the viewer with the favorite heart.
 
 ### Final
@@ -107,8 +107,9 @@ download mark shows which photos the client has downloaded.
 
 ### Select mode
 
-**Select** turns the toolbar into a dark pill: ✕, "3 selected", **Select all**, and the action:
-**Delete** on Photos and Final, **Download** on Favorites. Tiles show a check; clicking toggles.
+**Select** keeps the toolbar where it is, with no dark bar. On the left appear ✕ and "3 selected"; on the right
+**Select** becomes **Select all**, and the main button becomes the action: **Delete** on Photos and Final,
+**Download** on Favorites. Tiles show a check; clicking toggles.
 Select all only picks the current tab.
 
 ## Dialogs
