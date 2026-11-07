@@ -73,8 +73,7 @@ which is no watermark yet.
 pattern, size and, only for `once`, position. `watermark_revision` increases exactly when the
 saved watermark differs from the previous one, so saving the cover signature or an unused logo
 regenerates nothing. A mark that uses the name needs a non-empty name and one that uses the logo
-needs a logo; otherwise the save is rejected with a field-level 422 (the database enforces it
-too). Name: 1 to 100 characters after trimming, or empty when the mark is the logo.
+needs a logo; otherwise the save is rejected with a field-level 422 (the save transaction checks it against the stored logo). Name: 1 to 100 characters after trimming, or empty when the mark is the logo.
 
 **Logo.** PNG only (transparency matters, no SVG attack surface, no extra codecs). Limits, all
 configurable with documented defaults: 1 MiB upload and 4 megapixels. The API accepts it

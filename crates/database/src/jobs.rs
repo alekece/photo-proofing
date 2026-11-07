@@ -46,6 +46,7 @@ use crate::{
     export::{ExportId, ExportRepository},
     gallery::GalleryId,
     photo::{PROCESSING_FAILED_REASON, PhotoRepository},
+    watermark::WatermarkStamp,
 };
 
 /// Longest `last_error` kept, in characters; the full error belongs in the logs.
@@ -273,6 +274,43 @@ pub enum PhotoUpdate {
     Unchanged,
     /// The photo no longer exists.
     Missing,
+}
+
+/// A photo job's claim to publish a render, see [`JobRepository::begin_publication`].
+#[must_use]
+pub enum Publication<'db> {
+    /// The render is current: write its files, then [`finish`](OpenPublication::finish).
+    Open(OpenPublication<'db>),
+    /// The render must not be published; the job is already finished.
+    Closed(JobCompletion, PhotoUpdate),
+}
+
+/// A held lock on a job and its photo, while the render's files are put in place.
+///
+/// Dropping it without [`finish`](Self::finish) rolls back and leaves the job to be retried.
+#[must_use]
+pub struct OpenPublication<'db> {
+    transaction: Transaction<'db, Postgres>,
+    job: Job,
+    photo_id: PhotoId,
+}
+
+impl OpenPublication<'_> {
+    /// Marks the photo ready and finishes the job.
+    pub async fn finish(mut self) -> Result<(JobCompletion, PhotoUpdate), DatabaseError> {
+        let completion = JobRepository::complete_in(&mut *self.transaction, &self.job).await?;
+        let saved = PhotoRepository::mark_ready_in(&mut self.transaction, self.photo_id).await?;
+
+        self.transaction.commit().await?;
+
+        let update = if saved {
+            PhotoUpdate::Saved
+        } else {
+            PhotoUpdate::Unchanged
+        };
+
+        Ok((completion, update))
+    }
 }
 
 /// A job as seen by an operator, without the claim bookkeeping.
@@ -531,6 +569,94 @@ impl JobRepository<'_> {
         transaction.commit().await?;
 
         Ok((completion, update))
+    }
+
+    /// Decides whether a render made for `stamp` may be published, holding the job and photo
+    /// locked until the result is [finished](OpenPublication::finish).
+    ///
+    /// The render is published only if this run still owns the job, the photo exists and is
+    /// unfinished, and the photo's current [`WatermarkStamp`] equals `stamp`. Otherwise nothing
+    /// is published and the job is finished here: a stale render is superseded by the job that
+    /// regeneration queued. Locks are taken job first, then photo, like everywhere else.
+    pub async fn begin_publication(
+        &self,
+        job: &Job,
+        photo_id: PhotoId,
+        stamp: WatermarkStamp,
+    ) -> Result<Publication<'_>, DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
+        let owned: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM (
+                 SELECT 1 FROM jobs WHERE id = $1 AND state = 'running' AND attempts = $2
+                 FOR UPDATE) owned)",
+        )
+        .bind(job.id)
+        .bind(attempts_param(job))
+        .fetch_one(&mut *transaction)
+        .await?;
+
+        if !owned {
+            let exists = PhotoRepository::exists_in(&mut transaction, photo_id).await?;
+
+            transaction.commit().await?;
+
+            return Ok(Publication::Closed(
+                JobCompletion { current: false },
+                if exists {
+                    PhotoUpdate::Unchanged
+                } else {
+                    PhotoUpdate::Missing
+                },
+            ));
+        }
+
+        // Lock first, then read in a new statement, so the stamp is the one committed by
+        // whoever held the photo last.
+        sqlx::query("SELECT 1 FROM photos WHERE id = $1 FOR UPDATE")
+            .bind(photo_id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+
+        let current = sqlx::query(AssertSqlSafe(format!(
+            "SELECT p.status = ANY(ARRAY['waiting', 'processing']::photo_status[]) AS unfinished,
+                    {} AS stamp
+             FROM photos p
+             JOIN galleries g ON g.id = p.gallery_id
+             LEFT JOIN workspace_settings s ON s.workspace_id = p.workspace_id
+             WHERE p.id = $1",
+            WatermarkStamp::SQL
+        )))
+        .bind(photo_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let publishable = match &current {
+            Some(row) => {
+                row.try_get::<bool, _>("unfinished")?
+                    && WatermarkStamp::new(row.try_get("stamp")?) == stamp
+            }
+            None => false,
+        };
+
+        if publishable {
+            return Ok(Publication::Open(OpenPublication {
+                transaction,
+                job: job.clone(),
+                photo_id,
+            }));
+        }
+
+        let completion = Self::complete_in(&mut *transaction, job).await?;
+
+        transaction.commit().await?;
+
+        Ok(Publication::Closed(
+            completion,
+            if current.is_some() {
+                PhotoUpdate::Unchanged
+            } else {
+                PhotoUpdate::Missing
+            },
+        ))
     }
 
     /// Records a recoverable failure: the job is requeued after `backoff`, or becomes
