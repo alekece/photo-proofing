@@ -4,7 +4,7 @@ Issue: [#236](https://github.com/alekece/photo-proofing/issues/236).
 Related: [#135](https://github.com/alekece/photo-proofing/issues/135) (image publication; its
 [design](2026-11-03-preproduction-deployment-design.md) left the server-side consumer out of scope).
 
-Status: draft, awaiting maintainer approval.
+Status: approved by the maintainer.
 
 ## Intent and scope
 
