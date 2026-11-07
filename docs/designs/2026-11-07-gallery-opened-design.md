@@ -40,8 +40,8 @@ The photographer cannot tell whether the client has seen a shared gallery. The A
 ## Testing
 
 - Database: `NULL` for new galleries; the first open sets it; an open within the delay keeps it; an open after the delay updates it (the test sets the column in the past rather than waiting); expired and archived galleries are not marked.
-- API: the route returns 204 and sets `last_opened_at`, and a repeat leaves it (visible in the photographer's gallery JSON); unknown, expired and archived links return the common 404 and record nothing; the photographer's own gallery read does not set it.
-- Web: the preview overlay (`ClientGallery`) sends no ping; the page sends one `POST` when a gallery is shown and none when it is unavailable; a failing ping does not break the page.
+- API: the route returns 204 and sets `last_opened_at`, and a repeat leaves it (visible in the photographer's gallery JSON); unknown, malformed and expired links return the common 404 and record nothing (archived links are covered by the database test, since the extractor shares the same lookup); the photographer's own gallery read does not set it.
+- Web: the ping lives only in the `/g/[token]` page, not in `ClientGallery`; the page sends one `POST` when a gallery is shown and none when it is unavailable; a failing ping does not break the page.
 
 ## Limitations
 
