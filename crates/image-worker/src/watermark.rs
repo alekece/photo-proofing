@@ -12,7 +12,7 @@ use libvips::{
         ExtractBandOptions, Interpretation, WrapOptions,
     },
 };
-use pp_database::watermark::{GridCell, Placement, Watermark};
+use pp_database::watermark::{GridCell, Watermark, WatermarkPlacement};
 
 use crate::render::RenderError;
 
@@ -52,7 +52,7 @@ impl<'a> WatermarkPainter<'a> {
         let image =
             &Self::as_srgb(&ops::bandjoin_const(image, &mut [255.0]).map_err(Self::fault)?)?;
         let painted = match self.watermark.placement {
-            Placement::Once(cell) => {
+            WatermarkPlacement::Once(cell) => {
                 let (x, y) = Self::cell_origin(cell, (width, height), &mark);
 
                 ops::composite2_with_opts(
@@ -66,7 +66,7 @@ impl<'a> WatermarkPainter<'a> {
                     },
                 )
             }
-            Placement::Repeat => {
+            WatermarkPlacement::Repeat => {
                 let overlay = Self::repeated(&mark, width, height)?;
 
                 ops::composite2(image, &overlay, BlendMode::Over)
@@ -294,7 +294,7 @@ mod tests {
     const WIDTH: i32 = 900;
     const HEIGHT: i32 = 600;
 
-    fn watermark(text: Option<&str>, logo: bool, placement: Placement) -> Watermark {
+    fn watermark(text: Option<&str>, logo: bool, placement: WatermarkPlacement) -> Watermark {
         Watermark {
             text: text.map(str::to_owned),
             logo: logo.then(white_logo),
@@ -361,7 +361,7 @@ mod tests {
             let mark = watermark(
                 Some("Studio"),
                 false,
-                Placement::Once(GridCell::try_from(cell).unwrap()),
+                WatermarkPlacement::Once(GridCell::try_from(cell).unwrap()),
             );
             let lit = cells(&painted(&mark));
 
@@ -377,7 +377,11 @@ mod tests {
 
     #[test]
     fn a_repeated_name_covers_the_whole_photo() {
-        let image = painted(&watermark(Some("Studio"), false, Placement::Repeat));
+        let image = painted(&watermark(
+            Some("Studio"),
+            false,
+            WatermarkPlacement::Repeat,
+        ));
 
         assert_eq!(image.get_width(), WIDTH);
         assert_eq!(image.get_height(), HEIGHT);
@@ -391,7 +395,7 @@ mod tests {
 
     #[test]
     fn a_logo_is_drawn_alone_or_above_the_name() {
-        let once = Placement::Once(GridCell::try_from(4).unwrap());
+        let once = WatermarkPlacement::Once(GridCell::try_from(4).unwrap());
         // libvips reads the logo buffer lazily, so the watermarks must outlive the images.
         let (logo_mark, both_mark, name_mark) = (
             watermark(None, true, once),
@@ -411,7 +415,7 @@ mod tests {
 
     #[test]
     fn a_larger_size_step_draws_more() {
-        let once = Placement::Once(GridCell::try_from(4).unwrap());
+        let once = WatermarkPlacement::Once(GridCell::try_from(4).unwrap());
         let mut small = watermark(Some("Studio"), false, once);
         let mut large = small.clone();
 
@@ -435,7 +439,7 @@ mod tests {
         let mark = watermark(
             Some("A very long studio name indeed"),
             false,
-            Placement::Repeat,
+            WatermarkPlacement::Repeat,
         );
         let image = WatermarkPainter::new(&mark).paint(&photo).unwrap();
 

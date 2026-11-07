@@ -109,7 +109,7 @@ impl ErrorResponse {
     }
 
     pub fn invalid_logo() -> Self {
-        Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid PNG logo")
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid logo image")
     }
 
     pub fn logo_too_large() -> Self {

@@ -13,6 +13,7 @@
 	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
 	import {
 		LOGO_MAX_BYTES,
+		LOGO_TYPES,
 		SettingsApi,
 		SettingsApiError,
 		settingsChanged,
@@ -91,7 +92,8 @@
 
 		input.value = '';
 		if (!file) return;
-		if (file.type !== 'image/png') return void toasts.error('The logo must be a PNG image.');
+		if (!LOGO_TYPES.includes(file.type))
+			return void toasts.error('The logo must be a PNG or JPEG image.');
 		if (file.size > LOGO_MAX_BYTES) return void toasts.error('The logo must be under 1 MB.');
 
 		const reader = new FileReader();
@@ -196,7 +198,7 @@
 			>
 				<Upload size={20} strokeWidth={1.8} aria-hidden="true" />
 				Logo
-				<input type="file" accept="image/png" class="sr-only" onchange={pickLogo} />
+				<input type="file" accept="image/png,image/jpeg" class="sr-only" onchange={pickLogo} />
 			</label>
 		{/if}
 		<Input

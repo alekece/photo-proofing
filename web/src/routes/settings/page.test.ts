@@ -106,20 +106,20 @@ describe('Settings page', () => {
 		);
 	});
 
-	it('refuses a logo that is not a PNG or is too large before uploading it', async () => {
+	it('refuses a logo that is not a PNG or JPEG or is too large before uploading it', async () => {
 		toasts.items = [];
 		const { container } = open();
 		const user = userEvent.setup({ applyAccept: false });
 		const input = container.querySelector('input[type=file]') as HTMLInputElement;
 
-		await user.upload(input, new File(['x'], 'logo.jpg', { type: 'image/jpeg' }));
+		await user.upload(input, new File(['x'], 'logo.gif', { type: 'image/gif' }));
 		await user.upload(
 			input,
 			new File([new Uint8Array(1024 * 1024 + 1)], 'big.png', { type: 'image/png' })
 		);
 
 		expect(toasts.items.map((toast) => toast.message)).toEqual([
-			'The logo must be a PNG image.',
+			'The logo must be a PNG or JPEG image.',
 			'The logo must be under 1 MB.'
 		]);
 		expect(screen.queryByAltText('Studio logo')).toBeNull();

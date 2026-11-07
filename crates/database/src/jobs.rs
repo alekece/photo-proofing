@@ -585,7 +585,7 @@ impl JobRepository<'_> {
         stamp: WatermarkStamp,
     ) -> Result<Publication<'_>, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
-        let owned: bool = sqlx::query_scalar(
+        let run_still_owns_job: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM (
                  SELECT 1 FROM jobs WHERE id = $1 AND state = 'running' AND attempts = $2
                  FOR UPDATE) owned)",
@@ -595,7 +595,7 @@ impl JobRepository<'_> {
         .fetch_one(&mut *transaction)
         .await?;
 
-        if !owned {
+        if !run_still_owns_job {
             let exists = PhotoRepository::exists_in(&mut transaction, photo_id).await?;
 
             transaction.commit().await?;

@@ -162,7 +162,7 @@ impl From<SizeStep> for u8 {
 
 /// Where a watermark goes on a photo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Placement {
+pub enum WatermarkPlacement {
     /// Tiled over the whole photo.
     Repeat,
     /// One copy in a grid cell.
@@ -177,7 +177,7 @@ pub struct Watermark {
     pub text: Option<String>,
     /// PNG bytes.
     pub logo: Option<Vec<u8>>,
-    pub placement: Placement,
+    pub placement: WatermarkPlacement,
     pub size: SizeStep,
 }
 
@@ -220,8 +220,8 @@ impl WorkspaceSettings {
         }
 
         let placement = match self.pattern {
-            WatermarkPattern::Repeat => Placement::Repeat,
-            WatermarkPattern::Once => Placement::Once(self.position),
+            WatermarkPattern::Repeat => WatermarkPlacement::Repeat,
+            WatermarkPattern::Once => WatermarkPlacement::Once(self.position),
         };
 
         Some(Watermark {
@@ -740,7 +740,7 @@ mod tests {
             Some(Watermark {
                 text: Some("Studio Lumière".to_owned()),
                 logo: Some(PNG.to_vec()),
-                placement: Placement::Once(GridCell::try_from(4).unwrap()),
+                placement: WatermarkPlacement::Once(GridCell::try_from(4).unwrap()),
                 size: SizeStep(4),
             })
         );

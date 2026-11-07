@@ -54,6 +54,8 @@ export const LOGO_URL = '/api/v1/settings/logo';
 
 /** What the API accepts, mirrored here to refuse a logo before uploading it. */
 export const LOGO_MAX_BYTES = 1024 * 1024;
+/** The image types accepted for a logo. */
+export const LOGO_TYPES = ['image/png', 'image/jpeg'];
 
 const settingsResponseSchema = v.object({
 	studio_name: v.string(),
@@ -99,9 +101,9 @@ export class SettingsApiError extends Error {
 function logoChange(next: string | null, saved: string | null) {
 	if (next === null) return saved === null ? { action: 'keep' } : { action: 'remove' };
 
-	const match = /^data:image\/png;base64,(.+)$/.exec(next);
+	const match = /^data:image\/(?:png|jpeg);base64,(.+)$/.exec(next);
 
-	return match ? { action: 'replace', png_base64: match[1] } : { action: 'keep' };
+	return match ? { action: 'replace', image_base64: match[1] } : { action: 'keep' };
 }
 
 export class SettingsApi {

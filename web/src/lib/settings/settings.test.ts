@@ -52,7 +52,13 @@ it.each([
 		'a new PNG is replaced',
 		'data:image/png;base64,QUJD',
 		null,
-		{ action: 'replace', png_base64: 'QUJD' }
+		{ action: 'replace', image_base64: 'QUJD' }
+	],
+	[
+		'a new JPEG is replaced',
+		'data:image/jpeg;base64,QUJD',
+		null,
+		{ action: 'replace', image_base64: 'QUJD' }
 	],
 	['a saved logo is kept', LOGO_URL, LOGO_URL, { action: 'keep' }],
 	['a dropped logo is removed', null, LOGO_URL, { action: 'remove' }],

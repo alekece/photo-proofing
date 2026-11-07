@@ -75,18 +75,18 @@ saved watermark differs from the previous one, so saving the cover signature or 
 regenerates nothing. A mark that uses the name needs a non-empty name and one that uses the logo
 needs a logo; otherwise the save is rejected with a field-level 422 (the save transaction checks it against the stored logo). Name: 1 to 100 characters after trimming, or empty when the mark is the logo.
 
-**Logo.** PNG only (transparency matters, no SVG attack surface, no extra codecs). Limits, fixed
+**Logo.** PNG or JPEG, the formats the app already accepts (transparency matters, so the stored copy is always a PNG; no SVG attack surface, no extra codecs). Limits, fixed
 constants (my call: one logo per studio does not warrant deployment knobs): 1 MiB upload and
 4 megapixels. The API accepts it
-inside the settings request as base64, checks the PNG signature, rejects it on header dimensions before decoding pixels, then decodes in a blocking task and
+inside the settings request as base64, checks the PNG or JPEG signature, rejects it on header dimensions before decoding pixels, then decodes in a blocking task and
 re-encodes a copy with its long edge at most 512 px and all metadata dropped. Failures are 422
-with a short safe reason (not a PNG, too large, too many pixels, unreadable). The request body
+with a short safe reason (not a PNG or JPEG, too large, too many pixels, unreadable). The request body
 limit of that route fits a base64 logo at the size limit.
 
 **API.** `GET /api/v1/settings` returns the fields and whether a logo exists;
-`GET /api/v1/settings/logo` returns the logo PNG (session required, `private, no-store`,
+`GET /api/v1/settings/logo` returns the stored logo, a PNG (session required, `private, no-store`,
 `nosniff`); `PUT /api/v1/settings` saves everything in one request, with `logo` set to `keep`,
-`remove` or a new base64 PNG, so a name, a logo and a mark change together or not at all.
+`remove` or a new base64 PNG or JPEG, so a name, a logo and a mark change together or not at all.
 Everything is workspace-scoped and needs a session.
 
 **Rendering.** In the worker, after resizing and before encoding, on both derivatives, so the
@@ -145,8 +145,8 @@ Module layout, exact opacity and shadow constants, SQL shape, and wording of val
 ## Verification
 
 Tests cover: settings round trip, defaults, revision bump only on effective change, validation
-(mark without name or logo, long name, bad position or size); logos that are not PNG, truncated,
-oversized in bytes or pixels, plus a valid transparent PNG normalised and stripped; rendering of
+(mark without name or logo, long name, bad position or size); logos that are neither PNG nor JPEG, truncated,
+oversized in bytes or pixels, plus a valid transparent PNG and a JPEG normalised and stripped; rendering of
 text, logo, both, repeat and once at several positions (pixels differ from the plain render,
 dimensions, orientation and metadata unchanged); gallery switch on and off and settings changes
 regenerating exactly the right photos; a change during processing leaving no stale `ready`

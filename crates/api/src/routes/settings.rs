@@ -4,8 +4,8 @@
 //! - `GET /` returns the saved settings, or the defaults. The logo is not inlined: `has_logo`
 //!   says whether `GET /logo` has one.
 //! - `PUT /` saves every setting at once and returns them. `logo` is `{"action": "keep"}` (the
-//!   default when absent), `{"action": "remove"}` or `{"action": "replace", "png_base64": …}`.
-//!   A change to what the watermark draws regenerates the proofs of watermarked galleries.
+//!   default when absent), `{"action": "remove"}` or `{"action": "replace", "image_base64": …}`
+//!   (a PNG or JPEG, stored as a normalised PNG). A change to what the watermark draws regenerates the proofs of watermarked galleries.
 //! - `GET /logo` returns the saved logo as a PNG, or a 404.
 
 use actix_web::{
@@ -59,7 +59,7 @@ impl From<WorkspaceSettings> for SettingsView {
 enum LogoRequest {
     Keep,
     Remove,
-    Replace { png_base64: String },
+    Replace { image_base64: String },
 }
 
 #[derive(Deserialize)]
@@ -79,12 +79,12 @@ impl SettingsRequest {
         let logo = match self.logo.unwrap_or(LogoRequest::Keep) {
             LogoRequest::Keep => LogoChange::Keep,
             LogoRequest::Remove => LogoChange::Remove,
-            LogoRequest::Replace { png_base64 } => {
-                let png = STANDARD
-                    .decode(png_base64)
+            LogoRequest::Replace { image_base64 } => {
+                let upload = STANDARD
+                    .decode(image_base64)
                     .map_err(|_| ErrorResponse::invalid_logo())?;
 
-                LogoChange::Replace(LogoNormaliser::normalise(png).await?)
+                LogoChange::Replace(LogoNormaliser::normalise(upload).await?)
             }
         };
 
@@ -247,7 +247,7 @@ mod tests {
                 "position": 4,
                 "size": 3,
                 "signature": "logo",
-                "logo": {"action": "replace", "png_base64": logo_base64()},
+                "logo": {"action": "replace", "image_base64": logo_base64()},
             }))),
         )
         .await;
@@ -339,13 +339,13 @@ mod tests {
         let (status, error) = call(
             &app,
             request(test::TestRequest::put(), &cookie).set_json(body(json!({
-                "logo": {"action": "replace", "png_base64": "bm90IGEgcG5n"},
+                "logo": {"action": "replace", "image_base64": "bm90IGEgcG5n"},
             }))),
         )
         .await;
 
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(error["error"], "invalid PNG logo");
+        assert_eq!(error["error"], "invalid logo image");
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
