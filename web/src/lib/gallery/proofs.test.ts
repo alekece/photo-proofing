@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toOwnerProofs, toProofs } from './proofs';
+import { toClientPreviewProofs, toOwnerProofs, toProofs } from './proofs';
 import type { Photo } from './photos';
 
 describe('toProofs', () => {
@@ -31,6 +31,21 @@ describe('toProofs', () => {
 });
 
 describe('toOwnerProofs', () => {
+	it('keeps clean photos visible during marked processing and failure', () => {
+		const photos: Photo[] = ['processing', { failed: 'Marked render failed' }].map((status, i) => ({
+			id: `${i}`,
+			original_name: 'photo.jpg',
+			size: 1,
+			width: 300,
+			height: 200,
+			status: status as Photo['status'],
+			clean_ready: true,
+			favorite: false,
+			created_at: ''
+		}));
+
+		expect(toOwnerProofs('g1', photos).map(({ id }) => id)).toEqual(['0', '1']);
+	});
 	it('changes the first preview URL when its rendered asset changes', () => {
 		const original = {
 			id: 'a',
@@ -47,6 +62,19 @@ describe('toOwnerProofs', () => {
 
 		expect(first[0].previewUrl).not.toBe(next[0].previewUrl);
 		expect(next[0].previewUrl).toBe('/api/v1/galleries/g1/photos/a/preview?revision=2');
+	});
+
+	describe('client preview media', () => {
+		it('uses authenticated client policy URLs and changes identity on a toggle', () => {
+			const photos = [{ id: 'p1', width: 300, height: 200, revision: 2 }];
+			const off = toClientPreviewProofs('g1', photos, false);
+			const on = toClientPreviewProofs('g1', photos, true);
+
+			expect(on[0].previewUrl).toBe(
+				'/api/v1/galleries/g1/client-preview/photos/p1/preview?watermark=on&revision=2'
+			);
+			expect(off[0].previewUrl).not.toBe(on[0].previewUrl);
+		});
 	});
 
 	const photo = (id: string, status: Photo['status']): Photo => ({

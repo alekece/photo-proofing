@@ -10,7 +10,12 @@
 		data,
 		params
 	}: {
-		data: { gallery: SharedGallery | null; proofs: Proof[]; favorites: string[] };
+		data: {
+			gallery: SharedGallery | null;
+			proofs: Proof[];
+			favorites: string[];
+			coverUrl?: string;
+		};
 		params: { token: string };
 	} = $props();
 
@@ -31,6 +36,7 @@
 		token={params.token}
 		gallery={data.gallery}
 		proofs={data.proofs}
+		coverUrl={data.coverUrl}
 		favorites={data.favorites}
 		studio={data.gallery.studio_name}
 		studioLogo={data.gallery.has_logo

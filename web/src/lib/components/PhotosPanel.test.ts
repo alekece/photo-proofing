@@ -24,6 +24,7 @@ function photo(id: string, status: PhotoStatus = 'ready'): Photo {
 		width: 300,
 		height: 200,
 		status,
+		clean_ready: status === 'ready',
 		favorite: false,
 		created_at: '2026-11-04T10:00:00Z'
 	};
@@ -195,7 +196,7 @@ describe('PhotosPanel', () => {
 		toasts.items = [];
 	});
 
-	it('says Updating watermarks… while a ready photo is regenerated, only with watermarking on', async () => {
+	it('says Updating watermarks… while a clean photo stays available during regeneration', async () => {
 		stubApi([photo('p1')]);
 		const { emit } = setup(undefined, null, true);
 
@@ -212,15 +213,19 @@ describe('PhotosPanel', () => {
 		await waitFor(() => expect(screen.queryByText('Updating watermarks…')).toBeNull());
 	});
 
-	it('does not say it for a photo that was never ready, or without watermarking', async () => {
+	it('reports regeneration even with watermarking off, but not for a new upload', async () => {
 		stubApi([photo('p1'), photo('p2', 'processing')]);
 		const { emit } = setup();
 
 		await screen.findByRole('button', { name: 'Open p1.jpg' });
+		expect(screen.queryByText('Updating watermarks…')).toBeNull();
 		emit({ photo_id: 'p1', status: 'processing' });
 
 		await waitFor(() => expect(within(tile('p1.jpg')).getByText('Processing')).toBeTruthy());
-		expect(screen.queryByText('Updating watermarks…')).toBeNull();
+		expect(screen.getByText('Updating watermarks…')).toBeTruthy();
+		expect(within(tile('p1.jpg')).getByRole('img').getAttribute('src')).toBe(
+			'/api/v1/galleries/g1/photos/p1/thumbnail'
+		);
 	});
 
 	it('invites a first drop when the gallery is empty', async () => {

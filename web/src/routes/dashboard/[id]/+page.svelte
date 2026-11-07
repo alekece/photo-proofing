@@ -295,7 +295,6 @@
 		bind:heroRevision
 		bind:photoCount
 		bind:favoriteCount
-		watermarked={saved.watermark_enabled}
 		delivered={saved.states.includes('delivered')}
 		shared={shareToken !== null}
 	/>

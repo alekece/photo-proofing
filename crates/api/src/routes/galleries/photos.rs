@@ -21,7 +21,7 @@ use futures_util::future::LocalBoxFuture;
 use pp_core::{notifications::PhotoId, types::generate::Generate};
 use pp_database::{
     gallery::{GalleryId, GalleryRepository},
-    photo::{NewPhoto, PhotoKind, PhotoLocation, PhotoRepository, PhotoStatus, ProofAccess},
+    photo::{NewPhoto, PhotoKind, PhotoLocation, PhotoRepository, ProofAccess},
     photo_intake::{PhotoIntake, PhotoIntakeError},
     photo_retry::PhotoRetry,
     workspace_deletion::WorkspaceDeletion,

@@ -10,7 +10,6 @@
 		layout = 'masonry',
 		heroId = $bindable(null),
 		heroRevision = $bindable(),
-		watermarked = false,
 		delivered = false,
 		shared,
 		photoCount = $bindable(null),
@@ -21,7 +20,6 @@
 		layout?: GalleryLayout;
 		heroId?: string | null;
 		heroRevision?: number;
-		watermarked?: boolean;
 		/** After delivery the client's selection is locked. */
 		delivered?: boolean;
 		/** Favorites and finals become available after the first share. */
@@ -68,7 +66,6 @@
 					bind:heroRevision
 					{layout}
 					oncount={(n) => (photoCount = n)}
-					{watermarked}
 				/>
 			</div>
 			<div hidden={active !== 'favorites'} class="grid gap-4">
