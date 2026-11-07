@@ -78,6 +78,10 @@ pub enum Variant {
     Original,
     Thumbnail,
     Preview,
+    #[strum(serialize = "watermarked-thumbnail")]
+    WatermarkedThumbnail,
+    #[strum(serialize = "watermarked-preview")]
+    WatermarkedPreview,
 }
 
 /// Address of one stored file.
@@ -177,7 +181,13 @@ impl PhotoStorage {
         let mut failures = Vec::new();
 
         for &photo in photos {
-            for variant in [Variant::Original, Variant::Thumbnail, Variant::Preview] {
+            for variant in [
+                Variant::Original,
+                Variant::Thumbnail,
+                Variant::Preview,
+                Variant::WatermarkedThumbnail,
+                Variant::WatermarkedPreview,
+            ] {
                 let key = PhotoKey::with_location(location, photo, variant);
 
                 match self.remove(&key).await {
@@ -478,7 +488,10 @@ impl StagedPhoto {
         match key.variant {
             // `hard_link` fails instead of replacing, unlike `rename`.
             Variant::Original => fs::hard_link(&self.path, &target).await?,
-            Variant::Thumbnail | Variant::Preview => fs::rename(&self.path, &target).await?,
+            Variant::Thumbnail
+            | Variant::Preview
+            | Variant::WatermarkedThumbnail
+            | Variant::WatermarkedPreview => fs::rename(&self.path, &target).await?,
         }
 
         // Persist the directory entry so a crash cannot lose a photo that was reported stored.
@@ -492,7 +505,10 @@ impl StagedPhoto {
         if let Err(error) = durability {
             let error = match key.variant {
                 Variant::Original => rollback_original(&target, error).await,
-                Variant::Thumbnail | Variant::Preview => StorageError::DirectorySync(error),
+                Variant::Thumbnail
+                | Variant::Preview
+                | Variant::WatermarkedThumbnail
+                | Variant::WatermarkedPreview => StorageError::DirectorySync(error),
             };
 
             return Err(error);
@@ -812,7 +828,13 @@ mod tests {
         let removed: PhotoId = Uuid::new_v4().into();
         let kept: PhotoId = Uuid::new_v4().into();
 
-        for variant in [Variant::Original, Variant::Thumbnail] {
+        for variant in [
+            Variant::Original,
+            Variant::Thumbnail,
+            Variant::Preview,
+            Variant::WatermarkedThumbnail,
+            Variant::WatermarkedPreview,
+        ] {
             store(
                 &storage,
                 &PhotoKey::with_location(location, removed, variant),
