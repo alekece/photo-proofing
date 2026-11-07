@@ -40,6 +40,7 @@
 		ratio,
 		error,
 		thumbnailUrl,
+		cleanReady = false,
 		selected = false,
 		onremove,
 		ondownload,
@@ -58,6 +59,7 @@
 		/** Replaces the label of a failed or rejected file, e.g. "Storage full". */
 		error?: string;
 		thumbnailUrl?: string;
+		cleanReady?: boolean;
 		selected?: boolean;
 		/** Deletes the photo; a read-only tile, like a favorite, has none. */
 		onremove?: () => void;
@@ -95,14 +97,14 @@
 	]}
 	style:aspect-ratio={ratio}
 >
-	{#if state === 'ready' && onselect}
+	{#if (state === 'ready' || (cleanReady && thumbnailUrl)) && onselect}
 		<img
 			src={thumbnailUrl}
 			alt={name}
 			loading="lazy"
 			class="size-full object-cover transition-transform {selected ? 'scale-[0.94] rounded' : ''}"
 		/>
-	{:else if state === 'ready'}
+	{:else if state === 'ready' || (cleanReady && thumbnailUrl)}
 		<button
 			type="button"
 			class="block size-full cursor-zoom-in"
@@ -137,6 +139,22 @@
 		{/if}
 	{/if}
 
+	{#if cleanReady && thumbnailUrl && state !== 'ready' && !onselect}
+		<div
+			class="absolute inset-x-1.5 bottom-1.5 flex items-center justify-between gap-2 rounded bg-panel/95 px-2 py-1 text-xs text-foreground"
+		>
+			<span>{LABELS[state]}</span>
+			{#if failed && onretry}
+				<button
+					type="button"
+					class="cursor-pointer rounded px-1 focus-visible:outline-2"
+					aria-label="Retry {name}"
+					onclick={onretry}>Retry</button
+				>
+			{/if}
+		</div>
+	{/if}
+
 	{#if onselect}
 		<Checkbox
 			class="absolute top-2 left-2 z-10 size-6 cursor-pointer appearance-none rounded-full border-2 border-panel bg-foreground/25 bg-center bg-no-repeat shadow-[0_1px_4px_rgb(0_0_0/0.3)] transition-colors checked:bg-panel checked:bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23201a16%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%2F%3E%3C%2Fsvg%3E')] checked:bg-[length:70%]"
@@ -145,7 +163,7 @@
 			onchange={onselect}
 		/>
 	{:else}
-		{#if state === 'ready' && onhero}
+		{#if (state === 'ready' || (cleanReady && thumbnailUrl)) && onhero}
 			<button
 				type="button"
 				class={[

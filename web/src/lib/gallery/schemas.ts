@@ -74,6 +74,7 @@ export const photoStatusSchema = v.union([
 
 export const photoSchema = v.object({
 	id: v.string(),
+	clean_ready: v.optional(v.boolean()),
 	revision: v.optional(v.pipe(finite, v.integer(), v.minValue(0))),
 	original_name: v.string(),
 	size: finite,

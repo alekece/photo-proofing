@@ -17,5 +17,12 @@ export const load: PageServerLoad = async ({ params, fetch, setHeaders }) => {
 	// The link can expire between the reads; the client then sees it as unavailable.
 	if (!gallery || !photos || !favorites) return { gallery: null, proofs: [], favorites: [] };
 
-	return { gallery, proofs: toProofs(params.token, photos), favorites };
+	return {
+		gallery,
+		proofs: toProofs(params.token, photos),
+		favorites,
+		coverUrl: gallery.hero_id
+			? `/api/v1/galleries/shared/${encodeURIComponent(params.token)}/cover?hero=${encodeURIComponent(gallery.hero_id)}`
+			: undefined
+	};
 };

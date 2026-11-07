@@ -16,6 +16,7 @@
 		token = '',
 		gallery,
 		proofs = [],
+		coverUrl,
 		favorites = [],
 		studio = null,
 		studioLogo = null,
@@ -28,6 +29,8 @@
 		token?: string;
 		gallery: SharedGallery;
 		proofs?: Proof[];
+		/** Clean hero preview, resolved independently of the visible client proof set. */
+		coverUrl?: string;
 		favorites?: string[];
 		/** The studio's signature from Settings; the cover and footer stay unsigned without it. */
 		studio?: string | null;
@@ -73,12 +76,11 @@
 
 		grid?.scrollIntoView?.({ behavior: reduced ? 'auto' : 'smooth' });
 	}
-	// Proofs are the ready photos, so the cover can only ever be a ready photo's preview.
-	let cover = $derived(proofs.find(({ id }) => id === gallery.hero_id));
+	let cover = $derived(coverUrl);
 </script>
 
 <!-- Container queries stand in for the prototype's 700px media rule, so the phone preview narrows too. -->
-{#if proofs.length === 0 && !delivered}
+{#if proofs.length === 0 && !delivered && !cover}
 	<main
 		class="@container flex min-h-dvh flex-col items-center overflow-hidden bg-[radial-gradient(120%_70%_at_50%_0,#2e241d,#16120f_60%)] pt-[34px] pb-10 text-center text-[#f4efe8]"
 	>
@@ -106,14 +108,14 @@
 		</div>
 		<p class="mt-auto pt-10 text-xs tracking-[0.06em] text-[#8d7f72]">Shared with PhotoProofing</p>
 	</main>
-{:else if proofs.length === 0}
+{:else if proofs.length === 0 && delivered}
 	<main class="@container flex min-h-dvh flex-col bg-background">
 		<header
 			class="relative isolate flex h-[300px] flex-none flex-col justify-end overflow-hidden bg-[#2b2420] px-8 pb-[26px] text-panel"
 		>
 			{#if cover}
 				<img
-					src={cover.previewUrl}
+					src={cover}
 					alt="Gallery cover"
 					class="absolute inset-0 -z-20 size-full object-cover object-[center_35%]"
 				/>
@@ -161,7 +163,7 @@
 		>
 			{#if cover}
 				<img
-					src={cover.previewUrl}
+					src={cover}
 					alt="Gallery cover"
 					class="absolute inset-0 -z-20 size-full object-cover object-[center_35%]"
 				/>
@@ -269,7 +271,9 @@
 				<p role="alert" class="py-2 text-center font-bold text-warning">{selection.error}</p>
 			{/if}
 			{#if shown.length === 0}
-				<p class="py-[50px] text-center text-muted-foreground">No favorites yet</p>
+				<p class="py-[50px] text-center text-muted-foreground">
+					{proofs.length === 0 ? 'Your photos are on their way.' : 'No favorites yet'}
+				</p>
 			{:else}
 				<ProofGrid
 					proofs={shown}

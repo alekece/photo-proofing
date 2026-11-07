@@ -26,6 +26,7 @@
 		deletePhotos,
 		listPhotos,
 		previewUrl,
+		hasCleanPhoto,
 		retryPhoto,
 		thumbnailUrl,
 		type Photo,
@@ -41,7 +42,6 @@
 		heroRevision = $bindable(),
 		layout = 'masonry',
 		oncount,
-		watermarked = false,
 		set = 'photos'
 	}: {
 		galleryId: string;
@@ -52,7 +52,6 @@
 		/** How many photos the gallery has, for the tab. */
 		oncount?: (count: number | null) => void;
 		/** Whether the gallery has watermarking on. */
-		watermarked?: boolean;
 		/** The client proofs, or the photographer's finished photos, which have no hero or favorites. */
 		set?: PhotoSet;
 	} = $props();
@@ -137,17 +136,17 @@
 	const queued = $derived(queue.forGallery(galleryId, set));
 	// Photos deleted meanwhile drop out, so the confirmed count is what is sent.
 	const selection = $derived(photos.filter(({ id }) => selected.has(id)));
-	const ready = $derived(photos.filter(({ status }) => status === 'ready'));
 	// Every photo, so one still processing or failed shows its state in the viewer.
 	const proofs = $derived<Proof[]>(
-		photos.map(({ id, original_name, width, height, status, revision }) => ({
-			id,
-			alt: original_name,
-			thumbnailUrl: thumbnailUrl(galleryId, id, set, revision),
-			previewUrl: previewUrl(galleryId, id, set, revision),
-			width,
-			height,
-			status: PROOF_STATES[tileState(status)] ?? 'processing'
+		photos.map((photo) => ({
+			...photo,
+			alt: photo.original_name,
+			thumbnailUrl: thumbnailUrl(galleryId, photo.id, set, photo.revision),
+			previewUrl: previewUrl(galleryId, photo.id, set, photo.revision),
+			status:
+				!finals && hasCleanPhoto(photo)
+					? 'ready'
+					: (PROOF_STATES[tileState(photo.status)] ?? 'processing')
 		}))
 	);
 	const summary = $derived.by(() => {
@@ -169,20 +168,17 @@
 			.join(', ');
 	});
 
-	// Photos that were ready: one that is not any more is being regenerated, not freshly uploaded.
-	// eslint-disable-next-line svelte/prefer-svelte-reactivity
-	const everReady = new Set<string>();
 	const updatingWatermarks = $derived(
-		watermarked && photos.some(({ id, status }) => status !== 'ready' && everReady.has(id))
+		!finals &&
+			photos.some(
+				(photo) =>
+					photo.clean_ready && (photo.status === 'waiting' || photo.status === 'processing')
+			)
 	);
 	const failedUploads = $derived(
 		queued.filter(({ state }) => state === 'failed' || state === 'rejected').length
 	);
 	let reportedFailures = 0;
-
-	$effect(() => {
-		for (const { id } of ready) everReady.add(id);
-	});
 
 	$effect(() => {
 		oncount?.(loaded ? photos.length : null);
@@ -713,8 +709,9 @@
 					<PhotoTile
 						name={photo.original_name}
 						{state}
+						cleanReady={!finals && hasCleanPhoto(photo)}
 						ratio={layout === 'masonry' ? photo.width / photo.height : 3 / 2}
-						thumbnailUrl={state === 'ready'
+						thumbnailUrl={(finals ? state === 'ready' : hasCleanPhoto(photo))
 							? thumbnailUrl(galleryId, photo.id, set, photo.revision)
 							: undefined}
 						selected={selected.has(photo.id)}
@@ -825,7 +822,7 @@
 	>
 		{#snippet actions(proof)}
 			{@const photo = current(proof.id)}
-			{#if !finals && photo && photo.status === 'ready'}
+			{#if !finals && photo && hasCleanPhoto(photo)}
 				<ViewerButton
 					pressed={photo.id === heroId}
 					aria-label={photo.id === heroId ? 'Remove hero' : 'Set as hero'}
