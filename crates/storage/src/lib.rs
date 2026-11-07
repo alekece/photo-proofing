@@ -27,6 +27,10 @@ use tokio::{
 };
 use uuid::Uuid;
 
+pub use self::archive::{ArchiveEntry, ArchiveKey};
+
+mod archive;
+
 const STAGING_DIR: &str = ".tmp";
 
 /// Failure of a storage operation. Callers branch on the variant; causes stay as sources.
