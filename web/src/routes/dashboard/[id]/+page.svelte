@@ -324,6 +324,7 @@
 	<PublishDialog
 		kind={publishing}
 		galleryId={saved.id}
+		title={saved.title ?? UNTITLED_GALLERY}
 		expiresAt={saved.expires_at}
 		uploading={queue?.inFlight(saved.id) ?? 0}
 		onconfirm={publishing === 'share' ? share : deliver}

@@ -3,7 +3,7 @@
 	import ConfirmDialog from '#lib/components/ui/confirm-dialog/confirm-dialog.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import PhotoStack from '#lib/components/ui/photo-stack/photo-stack.svelte';
-	import { formatShortDate } from '#lib/gallery/format.js';
+	import { formatLongDate } from '#lib/gallery/format.js';
 	import { listPhotos, type Photo } from '#lib/gallery/photos.js';
 
 	/**
@@ -14,6 +14,8 @@
 	type Props = {
 		kind: 'share' | 'deliver';
 		galleryId: string;
+		/** Who the delivered photos are for; Deliver names them. */
+		title: string;
 		/** ISO date the link works until; only Share mentions it. */
 		expiresAt?: string | null;
 		/** Files of this gallery still on their way to becoming photos. */
@@ -26,6 +28,7 @@
 	let {
 		kind,
 		galleryId,
+		title,
 		expiresAt = null,
 		uploading: uploadingFiles = 0,
 		load = listPhotos,
@@ -46,7 +49,7 @@
 	let failed = $derived(photos?.filter(({ status }) => typeof status === 'object').length ?? 0);
 	let empty = $derived(ready.length === 0);
 	let warned = $derived(empty || uploading > 0 || failed > 0);
-	let until = $derived(expiresAt ? formatShortDate(expiresAt) : '');
+	let until = $derived(expiresAt ? formatLongDate(expiresAt) : '');
 
 	let shareText = $derived(
 		`This creates a private link. Anyone with it can see the proofs and pick favorites${until ? ` until ${until}` : ''}.`
@@ -109,8 +112,9 @@
 				{#if kind === 'share'}
 					{shareText}
 				{:else}
-					Your client sees them at the same link and can download them. Favorites are locked from
-					now on.
+					{title}
+					{title.includes('&') ? 'see' : 'sees'} them at the same link and can download them. Favorites
+					are locked from now on.
 				{/if}
 			</p>
 			{#if empty}
