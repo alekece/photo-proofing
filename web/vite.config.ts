@@ -4,7 +4,13 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { defineConfig } from 'vitest/config';
 
+const buildSha = process.env.PP_BUILD_SHA ?? '';
+if (buildSha && !/^[0-9a-f]{40}$/.test(buildSha)) {
+	throw new Error('PP_BUILD_SHA must be a complete lowercase Git commit SHA.');
+}
+
 export default defineConfig({
+	define: { 'import.meta.env.PP_BUILD_SHA': JSON.stringify(buildSha) },
 	plugins: [
 		tailwindcss(),
 		sveltekit({

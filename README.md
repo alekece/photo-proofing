@@ -27,6 +27,12 @@ Favorites offers **Download**, disabled **Downloading…** during preparation, w
 
 ## Prerequisites
 
+The photographer's Settings footer identifies the loaded frontend build and can
+copy its full commit SHA. Deployment embeds the web image's revision at build
+time; local builds say Development build unless `PP_BUILD_SHA` is set to a full
+lowercase 40-character commit SHA when running `pnpm --dir web build`. Changing
+runtime environment variables does not change an already-built frontend.
+
 For local development:
 
 - A current stable Rust toolchain supporting edition 2024.
