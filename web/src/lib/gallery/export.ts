@@ -1,10 +1,10 @@
 import { GalleryApiError } from './api';
-import { parseOrNull, selectionExportSchema, type SelectionExport } from './schemas';
+import { parseOrNull, exportSchema, type Export } from './schemas';
 
-export type { SelectionExport } from './schemas';
+export type { Export } from './schemas';
 
 function exportPath(galleryId: string) {
-	return `/api/v1/galleries/${encodeURIComponent(galleryId)}/selection-export`;
+	return `/api/v1/galleries/${encodeURIComponent(galleryId)}/export`;
 }
 
 async function call(path: string, method: 'GET' | 'POST', fetcher: typeof fetch) {
@@ -23,7 +23,7 @@ async function call(path: string, method: 'GET' | 'POST', fetcher: typeof fetch)
 }
 
 async function parse(response: Response) {
-	const parsed = parseOrNull(selectionExportSchema, await response.json().catch(() => null));
+	const parsed = parseOrNull(exportSchema, await response.json().catch(() => null));
 
 	if (!parsed) throw new GalleryApiError(502, 'Unexpected response from the server.');
 
@@ -31,21 +31,21 @@ async function parse(response: Response) {
 }
 
 /** Stores the current favorites and queues their ZIP; a ZIP already being prepared is returned as is. */
-export async function requestSelectionExport(galleryId: string, fetcher: typeof fetch = fetch) {
+export async function requestExport(galleryId: string, fetcher: typeof fetch = fetch) {
 	return parse(await call(exportPath(galleryId), 'POST', fetcher));
 }
 
 /** The newest ZIP of the gallery, or `null` when there is none or it expired. */
-export async function latestSelectionExport(
+export async function latestExport(
 	galleryId: string,
 	fetcher: typeof fetch = fetch
-): Promise<SelectionExport | null> {
+): Promise<Export | null> {
 	const response = await call(exportPath(galleryId), 'GET', fetcher);
 
 	return response.status === 204 ? null : parse(response);
 }
 
-export function selectionExportUrl(galleryId: string, exportId: string) {
+export function exportUrl(galleryId: string, exportId: string) {
 	return `${exportPath(galleryId)}/${encodeURIComponent(exportId)}/download`;
 }
 

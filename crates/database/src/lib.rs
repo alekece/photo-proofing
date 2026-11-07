@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod error;
+pub mod export;
 pub mod favorite_events;
 pub mod gallery;
 pub mod jobs;
@@ -10,7 +11,6 @@ pub mod photo;
 pub mod photo_events;
 pub mod photo_intake;
 pub mod photo_retry;
-pub mod selection_export;
 #[cfg(any(test, feature = "tests"))]
 pub mod tests;
 pub mod workspace_deletion;

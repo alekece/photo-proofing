@@ -4,12 +4,12 @@
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
 	import { GalleryApiError, type GalleryLayout } from '#lib/gallery/api.js';
 	import {
-		latestSelectionExport,
-		requestSelectionExport,
-		selectionExportUrl,
+		latestExport,
+		requestExport,
+		exportUrl,
 		startDownload,
-		type SelectionExport
-	} from '#lib/gallery/selection-export.js';
+		type Export
+	} from '#lib/gallery/export.js';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
 	import SelectPill from '#lib/components/ui/select-pill/select-pill.svelte';
@@ -46,7 +46,7 @@
 	let viewIndex = $state(0);
 	let viewing = $state(false);
 	let downloading = $state(false);
-	let selectionZip = $state<SelectionExport | null>(null);
+	let currentExport = $state<Export | null>(null);
 	let zipRequested = $state(false);
 	let zipStarted = $state(false);
 	let zipError = $state<string | null>(null);
@@ -76,17 +76,17 @@
 		const current = ++zipLoads;
 
 		try {
-			const latest = await latestSelectionExport(id);
+			const latest = await latestExport(id);
 
 			if (current !== zipLoads) return;
 
-			selectionZip = latest;
+			currentExport = latest;
 
-			if (latest?.status === 'ready' && latest.id === awaited) {
+			if (latest?.status.kind === 'ready' && latest.id === awaited) {
 				awaited = null;
 				zipStarted = true;
-				startDownload(selectionExportUrl(id, latest.id));
-			} else if (latest?.status !== 'preparing') {
+				startDownload(exportUrl(id, latest.id));
+			} else if (latest?.status.kind !== 'preparing') {
 				awaited = null;
 			}
 		} catch {
@@ -100,7 +100,7 @@
 		zipError = null;
 
 		try {
-			const created = await requestSelectionExport(galleryId);
+			const created = await requestExport(galleryId);
 
 			awaited = created.id;
 			// The build may already have finished: take the state from the server, not the response.
@@ -113,14 +113,17 @@
 		}
 	}
 
-	const zipPreparing = $derived(selectionZip?.status === 'preparing');
+	const exportFailure = $derived(
+		currentExport?.status.kind === 'failed' ? currentExport.status.reason : null
+	);
+	const zipPreparing = $derived(currentExport?.status.kind === 'preparing');
 
 	$effect(() => {
 		const id = galleryId;
 
 		favorites = [];
 		loaded = false;
-		selectionZip = null;
+		currentExport = null;
 		zipRequested = false;
 		zipStarted = false;
 		zipError = null;
@@ -210,14 +213,14 @@
 			disabled={favorites.length === 0}
 			onclick={() => mode.enter()}><CircleCheck size={16} aria-hidden="true" />Select</Button
 		>
-		{#if selectionZip?.status === 'ready' && !zipRequested}
+		{#if currentExport?.status.kind === 'ready' && !zipRequested}
 			<Button
 				size="sm"
 				class="min-h-9! gap-1.5"
-				href={selectionExportUrl(galleryId, selectionZip.id)}
+				href={exportUrl(galleryId, currentExport.id)}
 				download=""
 			>
-				<Download size={16} aria-hidden="true" />Download ZIP ({selectionZip.photo_count})
+				<Download size={16} aria-hidden="true" />Download ZIP ({currentExport.photo_count})
 			</Button>
 		{/if}
 		<Button
@@ -239,9 +242,9 @@
 		Download started.
 	{/if}
 </p>
-{#if zipError || selectionZip?.status === 'failed'}
+{#if zipError || exportFailure}
 	<p role="alert" class="text-right text-sm text-danger">
-		{zipError ?? selectionZip?.failure_reason ?? 'The ZIP failed.'} Use Download selection to try again.
+		{zipError ?? exportFailure} Use Download selection to try again.
 	</p>
 {/if}
 

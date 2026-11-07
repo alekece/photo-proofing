@@ -4,11 +4,9 @@ use std::{sync::Arc, time::Duration};
 
 use pp_database::{
     Database,
-    jobs::{BuildSelectionExport, Job, JobCompletion, JobRepository},
+    export::{ExportId, ExportPlan, ExportRepository, ExportUpdate, PHOTO_REMOVED_REASON},
+    jobs::{Job, JobCompletion, JobRepository, ZipExport},
     photo::PhotoLocation,
-    selection_export::{
-        ExportId, ExportPlan, ExportUpdate, PHOTO_REMOVED_REASON, SelectionExportRepository,
-    },
 };
 use pp_storage::{ArchiveEntry, ArchiveKey, PhotoKey, PhotoStorage, StorageError, Variant};
 use tracing::{info, warn};
@@ -37,11 +35,11 @@ impl ExportExpiry {
 
     /// Removes expired export rows and files. A failure is logged and left for the next run.
     pub async fn run(&self) {
-        let exports = self.database.repository::<SelectionExportRepository>();
+        let exports = self.database.repository::<ExportRepository>();
         let expired = match exports.expire(self.retention).await {
             Ok(expired) => expired,
             Err(error) => {
-                warn!(%error, "expired selection exports could not be deleted");
+                warn!(%error, "expired exports could not be deleted");
 
                 return;
             }
@@ -62,7 +60,7 @@ impl ExportExpiry {
 
     /// Removes archives older than `grace` that no export row claims.
     pub async fn sweep_archives(&self, grace: Duration) -> Result<usize, StorageError> {
-        let exports = self.database.repository::<SelectionExportRepository>();
+        let exports = self.database.repository::<ExportRepository>();
 
         self.storage
             .sweep_archives(grace, async |key: ArchiveKey| {
@@ -73,14 +71,14 @@ impl ExportExpiry {
     }
 }
 
-/// Serves `build_selection_export` jobs.
-pub struct SelectionExportHandler {
+/// Serves `zip_export` jobs.
+pub struct ExportHandler {
     database: Database,
     storage: PhotoStorage,
     expiry: ExportExpiry,
 }
 
-impl SelectionExportHandler {
+impl ExportHandler {
     pub const fn new(database: Database, storage: PhotoStorage, expiry: ExportExpiry) -> Self {
         Self {
             database,
@@ -95,10 +93,10 @@ impl SelectionExportHandler {
     /// storage error is retried with the job and fails the export after the last attempt.
     pub async fn run(
         self: Arc<Self>,
-        payload: BuildSelectionExport,
+        payload: ZipExport,
         job: Job,
     ) -> Result<JobCompletion, HandlerError> {
-        let exports = self.database.repository::<SelectionExportRepository>();
+        let exports = self.database.repository::<ExportRepository>();
         let id = payload.export_id;
         let Some(plan) = exports.plan(id).await.map_err(HandlerError::failed)? else {
             return self.finish(&job).await;
@@ -126,7 +124,7 @@ impl SelectionExportHandler {
             self.discard(&key).await;
         }
 
-        info!(export = %id.0, photos = plan.photos.len(), ?update, "selection export built");
+        info!(export = %id.0, photos = plan.photos.len(), ?update, "export built");
         self.expiry.run().await;
 
         Ok(completion)
@@ -154,7 +152,7 @@ impl SelectionExportHandler {
         reason: &str,
     ) -> Result<JobCompletion, HandlerError> {
         self.database
-            .repository::<SelectionExportRepository>()
+            .repository::<ExportRepository>()
             .fail(job, id, reason)
             .await
             .map_err(HandlerError::failed)
@@ -182,9 +180,9 @@ mod tests {
     use pp_core::{config::PhotoDir, notifications::PhotoId, types::generate::Generate};
     use pp_database::{
         PgPool,
+        export::{ExportRequest, ExportStatus},
         gallery::GalleryRepository,
         jobs::JobKind,
-        selection_export::{ExportRequest, ExportStatus},
         tests::TestRepository,
     };
     use tempfile::TempDir;
@@ -198,7 +196,7 @@ mod tests {
         pool: PgPool,
         database: Database,
         storage: PhotoStorage,
-        handler: Arc<SelectionExportHandler>,
+        handler: Arc<ExportHandler>,
         location: PhotoLocation,
     }
 
@@ -225,7 +223,7 @@ mod tests {
             Self {
                 _dir: dir,
                 pool,
-                handler: Arc::new(SelectionExportHandler::new(
+                handler: Arc::new(ExportHandler::new(
                     database.clone(),
                     storage.clone(),
                     expiry,
@@ -270,7 +268,7 @@ mod tests {
         async fn request(&self) -> (ExportId, Job) {
             let ExportRequest::Created { export, .. } = self
                 .database
-                .repository::<SelectionExportRepository>()
+                .repository::<ExportRepository>()
                 .request(
                     self.location.workspace_id,
                     self.location.gallery_id,
@@ -284,7 +282,7 @@ mod tests {
             let job = self
                 .database
                 .repository::<JobRepository>()
-                .claim(&[JobKind::BuildSelectionExport], Duration::from_secs(60))
+                .claim(&[JobKind::ZipExport], Duration::from_secs(60))
                 .await
                 .unwrap()
                 .unwrap();
@@ -294,21 +292,21 @@ mod tests {
 
         async fn run(&self, id: ExportId, job: Job) -> JobCompletion {
             Arc::clone(&self.handler)
-                .run(BuildSelectionExport { export_id: id }, job)
+                .run(ZipExport { export_id: id }, job)
                 .await
                 .unwrap()
         }
 
-        async fn status(&self) -> (ExportStatus, Option<String>) {
+        async fn status(&self) -> ExportStatus {
             let export = self
                 .database
-                .repository::<SelectionExportRepository>()
+                .repository::<ExportRepository>()
                 .latest(self.location.workspace_id, self.location.gallery_id, DAY)
                 .await
                 .unwrap()
                 .unwrap();
 
-            (export.status, export.failure_reason)
+            export.status
         }
 
         fn key(&self, id: ExportId) -> ArchiveKey {
@@ -334,7 +332,7 @@ mod tests {
         let (id, job) = fixture.request().await;
 
         assert!(fixture.run(id, job).await.is_current());
-        assert_eq!(fixture.status().await, (ExportStatus::Ready, None));
+        assert_eq!(fixture.status().await, ExportStatus::Ready);
         assert!(fixture.has_zip(id).await);
     }
 
@@ -350,7 +348,7 @@ mod tests {
         assert!(fixture.run(id, job).await.is_current());
         assert_eq!(
             fixture.status().await,
-            (ExportStatus::Failed, Some(PHOTO_REMOVED_REASON.to_owned()))
+            ExportStatus::Failed(PHOTO_REMOVED_REASON.to_owned())
         );
         assert!(!fixture.has_zip(id).await);
         assert_eq!(
@@ -377,7 +375,10 @@ mod tests {
             .unwrap();
 
         assert!(fixture.run(id, job).await.is_current());
-        assert_eq!(fixture.status().await.0, ExportStatus::Failed);
+        assert_eq!(
+            fixture.status().await,
+            ExportStatus::Failed(PHOTO_REMOVED_REASON.to_owned())
+        );
         assert!(!fixture.has_zip(id).await);
     }
 
@@ -389,7 +390,7 @@ mod tests {
 
         let (id, job) = fixture.request().await;
 
-        sqlx::query("DELETE FROM selection_exports")
+        sqlx::query("DELETE FROM exports")
             .execute(&pool)
             .await
             .unwrap();
@@ -413,7 +414,7 @@ mod tests {
             .unwrap();
 
         assert!(fixture.run(id, job).await.is_current());
-        assert_eq!(fixture.status().await.0, ExportStatus::Ready);
+        assert_eq!(fixture.status().await, ExportStatus::Ready);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -438,7 +439,7 @@ mod tests {
         assert!(
             !fixture
                 .database
-                .repository::<SelectionExportRepository>()
+                .repository::<ExportRepository>()
                 .exists(id)
                 .await
                 .unwrap()

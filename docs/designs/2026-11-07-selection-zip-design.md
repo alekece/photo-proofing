@@ -27,7 +27,7 @@ selection lock, the client delivery ZIP (#71) and watermarks. The ZIP builder is
 
 1. **Stream the ZIP from the API request.** No state, but it runs inside the request, dies with the
    connection or a restart, cannot show "preparing" and cannot observe a consistent selection. Rejected.
-2. **Durable `selection_exports` row plus a worker job that writes a file, then a plain file download
+2. **Durable `exports` row plus a worker job that writes a file, then a plain file download
    (chosen).** Reuses the queue (retries, leases, restart recovery) and the event stream, and the download
    is an ordinary static-length response.
 3. **Hard-link the originals at request time and build later.** Protects against deletion races, but
@@ -36,11 +36,11 @@ selection lock, the client delivery ZIP (#71) and watermarks. The ZIP builder is
 ## Decisions
 
 - **Snapshot (my call).** The request, in one transaction, reads the favorites and stores their ids, names
-  and sizes in `selection_export_photos`, with no foreign key to `photos` so a later deletion cannot rewrite
+  and sizes in `export_photos`, with no foreign key to `photos` so a later deletion cannot rewrite
   the snapshot. Later favorite changes never touch it and nothing is locked: the gallery row is only locked
   against a concurrent request.
-- **Durable job.** A `selection_exports` row (`preparing`, `ready`, `failed`, with a user-safe
-  `failure_reason`) and a `build_selection_export` job are created in the same transaction. The job
+- **Durable job.** An `exports` row whose `status` is a tagged value (`preparing`, `ready`, or
+  `failed` carrying its user-safe `reason`, so a reason exists exactly for a failed export) and a `zip_export` job are created in the same transaction. The job
   streams each original into a staged file, publishes it atomically and marks the row ready in one
   transaction with completing the job. A crash leaves the job to be reclaimed; a rerun rewrites the same
   deterministic file. Exhausted attempts, including a worker that dies on the last one, fail the export too.
@@ -74,9 +74,9 @@ selection lock, the client delivery ZIP (#71) and watermarks. The ZIP builder is
   the photographer's workspace-filtered stream; clients still have none.
 - **Bounded storage (my call).** The file lives in the gallery directory, so deleting the gallery removes
   it. At most one retained export per gallery, replaced by the next request. A request is refused (413)
-  when the originals total more than `selection-export-max-size` (default 2 GiB, checked from the
+  when the originals total more than `export-max-size` (default 2 GiB, checked from the
   snapshot sizes before anything is written); entries are written with ZIP64 so the limit is a policy,
-  not a format limit. An export older than `selection-export-retention` (default 24 h) is treated as gone
+  not a format limit. An export older than `export-retention` (default 24 h) is treated as gone
   by the API (status 204, download 404) and the worker's startup sweep deletes its row and file, plus
   ZIP files no row owns. There is no workspace-wide quota (followed up): disk use is bounded by one
   capped export per gallery for at most the retention period, plus the concurrency of the worker.
@@ -89,9 +89,9 @@ selection lock, the client delivery ZIP (#71) and watermarks. The ZIP builder is
   event, on `resync` (reconnect) and on load, so a missed event costs nothing. When ready the tab starts
   the download once for the export the user requested; a Ready export found on a later load is offered
   as **Download**, not auto-started.
-- **API (my call).** `POST /api/v1/galleries/{id}/selection-export` (202 with the export, 200 if one is
+- **API (my call).** `POST /api/v1/galleries/{id}/export` (202 with the export, 200 if one is
   preparing, 409 empty, 413 too large), `GET` the same path (latest export or 204), and
-  `GET .../selection-export/{export_id}/download` (the ZIP as an attachment).
+  `GET .../export/{export_id}/download` (the ZIP as an attachment).
 - **UI.** The existing Favorites **Download** button becomes the export action with states per the page
   design: Preparing ZIP (busy, announced politely), Download started, Failed with the reason and Retry.
   Disabled with no favorites.

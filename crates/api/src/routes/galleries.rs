@@ -37,8 +37,8 @@ use crate::{
     response::ResponseBuilderExt,
 };
 
+mod export;
 mod photos;
-mod selection_export;
 mod shared;
 
 /// The photo files photographer and client routes may serve; the original is deliberately absent.
@@ -84,7 +84,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(restore_gallery)
             .service(delete_gallery)
             .configure(photos::configure)
-            .configure(selection_export::configure),
+            .configure(export::configure),
     );
 }
 

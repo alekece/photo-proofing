@@ -1,6 +1,6 @@
 //! Photographer ZIP exports of a gallery's selection.
 //!
-//! An export is requested once per click: [`SelectionExportRepository::request`] stores the
+//! An export is requested once per click: [`ExportRepository::request`] stores the
 //! favorites as they are at that moment, in one transaction, together with the job that builds
 //! the ZIP. The snapshot has no foreign key to `photos`, so favorite changes and deleted photos
 //! never rewrite it; the build notices a photo that is gone and the export then fails instead
@@ -17,7 +17,9 @@ use pp_core::{
     types::{generate::Generate, timestamp::Timestamp},
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{AssertSqlSafe, FromRow, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow};
+use sqlx::{
+    AssertSqlSafe, FromRow, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow, types::Json,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -25,7 +27,7 @@ use crate::{
     auth::WorkspaceId,
     error::DatabaseError,
     gallery::GalleryId,
-    jobs::{BuildSelectionExport, Job, JobCompletion, JobOptions, JobRepository},
+    jobs::{Job, JobCompletion, JobOptions, JobRepository, ZipExport},
     listener::Channel,
 };
 
@@ -46,7 +48,7 @@ impl Generate for ExportId {
     }
 }
 
-/// A selection export's export status changed. It carries no status: whoever shows it refetches.
+/// An export's status changed. It carries no status: whoever shows it refetches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExportEvent {
     pub workspace_id: WorkspaceId,
@@ -57,52 +59,51 @@ impl Channel for ExportEvent {
     const NAME: &'static str = "export_events";
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
-#[serde(rename_all = "snake_case")]
-#[sqlx(type_name = "export_status", rename_all = "snake_case")]
+/// Where an export stands. Stored and serialized as `{"kind": ..}`, with the `reason` next to
+/// the kind when it failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "reason", rename_all = "snake_case")]
 pub enum ExportStatus {
     Preparing,
     Ready,
-    Failed,
+    /// The reason is safe to show.
+    Failed(String),
 }
 
 /// One export as the photographer sees it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct SelectionExport {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Export {
     pub id: ExportId,
     pub status: ExportStatus,
-    /// Present exactly when the export failed; safe to show.
-    pub failure_reason: Option<String>,
     pub photo_count: u32,
     pub created_at: Timestamp,
 }
 
-impl FromRow<'_, PgRow> for SelectionExport {
+impl FromRow<'_, PgRow> for Export {
     fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
         let photo_count = u32::try_from(row.try_get::<i32, _>("photo_count")?)
             .map_err(|_| sqlx::Error::Decode("photo count is negative".into()))?;
 
         Ok(Self {
             id: row.try_get("id")?,
-            status: row.try_get("status")?,
-            failure_reason: row.try_get("failure_reason")?,
+            status: row.try_get::<Json<ExportStatus>, _>("status")?.0,
             photo_count,
             created_at: row.try_get("created_at")?,
         })
     }
 }
 
-/// What [`SelectionExportRepository::request`] did.
+/// What [`ExportRepository::request`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExportRequest {
     /// A new snapshot was stored and its job queued. `replaced` are the previous exports of the
     /// gallery, whose files are no longer needed.
     Created {
-        export: SelectionExport,
+        export: Export,
         replaced: Vec<ExportId>,
     },
     /// The gallery already has an export being prepared; it is returned instead.
-    InProgress(SelectionExport),
+    InProgress(Export),
     EmptySelection,
     /// The originals together exceed the allowed size.
     TooLarge,
@@ -124,7 +125,7 @@ pub struct ExportPlan {
     pub photos: Vec<ExportPhoto>,
 }
 
-/// What [`SelectionExportRepository::complete`] did to the export.
+/// What [`ExportRepository::complete`] did to the export.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportUpdate {
     /// The export is ready.
@@ -143,12 +144,12 @@ pub struct ExpiredExport {
     pub gallery_id: GalleryId,
 }
 
-pub struct SelectionExportRepository<'db> {
+pub struct ExportRepository<'db> {
     pool: &'db PgPool,
     options: JobOptions,
 }
 
-impl<'db> Repository<'db> for SelectionExportRepository<'db> {
+impl<'db> Repository<'db> for ExportRepository<'db> {
     type Options = JobOptions;
 
     fn open(pool: &'db PgPool, options: Self::Options) -> Self {
@@ -156,9 +157,9 @@ impl<'db> Repository<'db> for SelectionExportRepository<'db> {
     }
 }
 
-impl SelectionExportRepository<'_> {
-    const COLUMNS: &'static str = "id, status, failure_reason, photo_count, created_at";
-    const EXPORT_JOBS: &'static str = "payload->>'kind' = 'build_selection_export'
+impl ExportRepository<'_> {
+    const COLUMNS: &'static str = "id, status, photo_count, created_at";
+    const EXPORT_JOBS: &'static str = "payload->>'kind' = 'zip_export'
         AND payload->'payload'->>'export_id'";
 
     /// Stores the gallery's favorites as a new export and queues its build, all in one
@@ -182,8 +183,8 @@ impl SelectionExportRepository<'_> {
             return Ok(ExportRequest::MissingGallery);
         }
 
-        let preparing: Option<SelectionExport> = sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {} FROM selection_exports WHERE gallery_id = $1 AND status = 'preparing'",
+        let preparing: Option<Export> = sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {} FROM exports WHERE gallery_id = $1 AND status ->> 'kind' = 'preparing'",
             Self::COLUMNS
         )))
         .bind(gallery_id)
@@ -214,12 +215,12 @@ impl SelectionExportRepository<'_> {
             return Ok(ExportRequest::TooLarge);
         }
 
-        let replaced = Self::delete_gallery_exports_in(&mut transaction, gallery_id).await?;
+        let replaced_ids = Self::delete_exports_in(&mut transaction, gallery_id).await?;
         let id = ExportId::generate();
         let photo_count = i32::try_from(favorites.len())
             .map_err(|_| sqlx::Error::Encode("selection is too large to count".into()))?;
-        let export: SelectionExport = sqlx::query_as(AssertSqlSafe(format!(
-            "INSERT INTO selection_exports (id, workspace_id, gallery_id, photo_count, size)
+        let export: Export = sqlx::query_as(AssertSqlSafe(format!(
+            "INSERT INTO exports (id, workspace_id, gallery_id, photo_count, size)
              VALUES ($1, $2, $3, $4, $5) RETURNING {}",
             Self::COLUMNS
         )))
@@ -235,7 +236,7 @@ impl SelectionExportRepository<'_> {
         let names: Vec<&str> = favorites.iter().map(|(_, name, _)| name.as_str()).collect();
 
         sqlx::query(
-            "INSERT INTO selection_export_photos (export_id, photo_id, original_name, position)
+            "INSERT INTO export_photos (export_id, photo_id, original_name, position)
              SELECT $1, photo_id, original_name, position::integer
              FROM unnest($2::uuid[], $3::text[]) WITH ORDINALITY AS t(photo_id, original_name, position)",
         )
@@ -246,13 +247,16 @@ impl SelectionExportRepository<'_> {
         .await?;
         JobRepository::enqueue_in(
             &mut transaction,
-            BuildSelectionExport { export_id: id },
+            ZipExport { export_id: id },
             self.options.max_attempts,
         )
         .await?;
         transaction.commit().await?;
 
-        Ok(ExportRequest::Created { export, replaced })
+        Ok(ExportRequest::Created {
+            export,
+            replaced: replaced_ids,
+        })
     }
 
     /// The gallery's newest export that has not outlived `retention`.
@@ -261,9 +265,9 @@ impl SelectionExportRepository<'_> {
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
         retention: Duration,
-    ) -> Result<Option<SelectionExport>, DatabaseError> {
+    ) -> Result<Option<Export>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {} FROM selection_exports
+            "SELECT {} FROM exports
              WHERE workspace_id = $1 AND gallery_id = $2
                AND COALESCE(finished_at, created_at) > now() - $3 * interval '1 second'
              ORDER BY created_at DESC LIMIT 1",
@@ -284,10 +288,10 @@ impl SelectionExportRepository<'_> {
         gallery_id: GalleryId,
         id: ExportId,
         retention: Duration,
-    ) -> Result<Option<SelectionExport>, DatabaseError> {
+    ) -> Result<Option<Export>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {} FROM selection_exports
-             WHERE id = $1 AND workspace_id = $2 AND gallery_id = $3 AND status = 'ready'
+            "SELECT {} FROM exports
+             WHERE id = $1 AND workspace_id = $2 AND gallery_id = $3 AND status ->> 'kind' = 'ready'
                AND finished_at > now() - $4 * interval '1 second'",
             Self::COLUMNS
         )))
@@ -302,8 +306,8 @@ impl SelectionExportRepository<'_> {
     /// The snapshot of an export still being prepared; `None` once it finished or was deleted.
     pub async fn plan(&self, id: ExportId) -> Result<Option<ExportPlan>, DatabaseError> {
         let export: Option<(WorkspaceId, GalleryId)> = sqlx::query_as(
-            "SELECT workspace_id, gallery_id FROM selection_exports
-             WHERE id = $1 AND status = 'preparing'",
+            "SELECT workspace_id, gallery_id FROM exports
+             WHERE id = $1 AND status ->> 'kind' = 'preparing'",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -312,7 +316,7 @@ impl SelectionExportRepository<'_> {
             return Ok(None);
         };
         let photos = sqlx::query_as::<_, (PhotoId, String)>(
-            "SELECT photo_id, original_name FROM selection_export_photos
+            "SELECT photo_id, original_name FROM export_photos
              WHERE export_id = $1 ORDER BY position",
         )
         .bind(id)
@@ -332,7 +336,7 @@ impl SelectionExportRepository<'_> {
     /// Whether the export still has a row, so its file is wanted.
     pub async fn exists(&self, id: ExportId) -> Result<bool, DatabaseError> {
         Ok(
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM selection_exports WHERE id = $1)")
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM exports WHERE id = $1)")
                 .bind(id)
                 .fetch_one(self.pool)
                 .await?,
@@ -356,18 +360,19 @@ impl SelectionExportRepository<'_> {
             return Ok((completion, ExportUpdate::Gone));
         }
 
-        let ready = sqlx::query(
-            "UPDATE selection_exports SET status = 'ready', finished_at = now()
-             WHERE id = $1 AND status = 'preparing'
+        let marked_ready = sqlx::query(
+            "UPDATE exports SET status = $2, finished_at = now()
+             WHERE id = $1 AND status ->> 'kind' = 'preparing'
                AND NOT EXISTS (
-                   SELECT 1 FROM selection_export_photos s
+                   SELECT 1 FROM export_photos s
                    WHERE s.export_id = $1
                      AND NOT EXISTS (SELECT 1 FROM photos p WHERE p.id = s.photo_id))",
         )
         .bind(id)
+        .bind(Json(ExportStatus::Ready))
         .execute(&mut *transaction)
         .await?;
-        let update = if ready.rows_affected() == 1 {
+        let update = if marked_ready.rows_affected() == 1 {
             ExportUpdate::Saved
         } else if Self::mark_failed_in(&mut transaction, id, PHOTO_REMOVED_REASON).await? {
             ExportUpdate::PhotoRemoved
@@ -405,17 +410,16 @@ impl SelectionExportRepository<'_> {
         id: ExportId,
         reason: &str,
     ) -> Result<bool, DatabaseError> {
-        let done = sqlx::query(
-            "UPDATE selection_exports
-             SET status = 'failed', failure_reason = $2, finished_at = now()
-             WHERE id = $1 AND status = 'preparing'",
+        let failed = sqlx::query(
+            "UPDATE exports SET status = $2, finished_at = now()
+             WHERE id = $1 AND status ->> 'kind' = 'preparing'",
         )
         .bind(id)
-        .bind(reason)
+        .bind(Json(ExportStatus::Failed(reason.to_owned())))
         .execute(&mut **transaction)
         .await?;
 
-        Ok(done.rows_affected() == 1)
+        Ok(failed.rows_affected() == 1)
     }
 
     /// Deletes the exports that have outlived `retention`, with their jobs, and returns them so
@@ -423,7 +427,7 @@ impl SelectionExportRepository<'_> {
     pub async fn expire(&self, retention: Duration) -> Result<Vec<ExpiredExport>, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
         let expired: Vec<ExpiredExport> = sqlx::query_as(
-            "SELECT id, workspace_id, gallery_id FROM selection_exports
+            "SELECT id, workspace_id, gallery_id FROM exports
              WHERE COALESCE(finished_at, created_at) <= now() - $1 * interval '1 second'
              ORDER BY id FOR UPDATE",
         )
@@ -433,7 +437,7 @@ impl SelectionExportRepository<'_> {
         let ids: Vec<ExportId> = expired.iter().map(|export| export.id).collect();
 
         Self::delete_jobs_in(&mut transaction, &ids).await?;
-        sqlx::query("DELETE FROM selection_exports WHERE id = ANY($1)")
+        sqlx::query("DELETE FROM exports WHERE id = ANY($1)")
             .bind(&ids)
             .execute(&mut *transaction)
             .await?;
@@ -443,19 +447,19 @@ impl SelectionExportRepository<'_> {
     }
 
     /// Deletes the gallery's exports and their jobs, jobs first like every other deletion.
-    pub(crate) async fn delete_gallery_exports_in(
+    pub(crate) async fn delete_exports_in(
         transaction: &mut Transaction<'_, Postgres>,
         gallery_id: GalleryId,
     ) -> Result<Vec<ExportId>, DatabaseError> {
         let ids: Vec<ExportId> = sqlx::query_scalar(
-            "SELECT id FROM selection_exports WHERE gallery_id = $1 ORDER BY id FOR UPDATE",
+            "SELECT id FROM exports WHERE gallery_id = $1 ORDER BY id FOR UPDATE",
         )
         .bind(gallery_id)
         .fetch_all(&mut **transaction)
         .await?;
 
         Self::delete_jobs_in(transaction, &ids).await?;
-        sqlx::query("DELETE FROM selection_exports WHERE id = ANY($1)")
+        sqlx::query("DELETE FROM exports WHERE id = ANY($1)")
             .bind(&ids)
             .execute(&mut **transaction)
             .await?;
@@ -560,11 +564,11 @@ mod tests {
                 .unwrap()
         }
 
-        fn exports(&self) -> SelectionExportRepository<'_> {
-            self.database.repository::<SelectionExportRepository>()
+        fn exports(&self) -> ExportRepository<'_> {
+            self.database.repository::<ExportRepository>()
         }
 
-        async fn created(&self) -> SelectionExport {
+        async fn created(&self) -> Export {
             match self.request().await {
                 ExportRequest::Created { export, .. } => export,
                 other => panic!("expected a new export, got {other:?}"),
@@ -574,7 +578,7 @@ mod tests {
         async fn claim(&self) -> Job {
             self.database
                 .repository::<JobRepository>()
-                .claim(&[JobKind::BuildSelectionExport], Duration::from_secs(60))
+                .claim(&[JobKind::ZipExport], Duration::from_secs(60))
                 .await
                 .unwrap()
                 .expect("a build job is due")
@@ -728,8 +732,10 @@ mod tests {
 
         assert!(completion.is_current());
         assert_eq!(update, ExportUpdate::PhotoRemoved);
-        assert_eq!(latest.status, ExportStatus::Failed);
-        assert_eq!(latest.failure_reason.as_deref(), Some(PHOTO_REMOVED_REASON));
+        assert_eq!(
+            latest.status,
+            ExportStatus::Failed(PHOTO_REMOVED_REASON.to_owned())
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -804,10 +810,9 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(latest.status, ExportStatus::Failed);
         assert_eq!(
-            latest.failure_reason.as_deref(),
-            Some("The server is out of disk space.")
+            latest.status,
+            ExportStatus::Failed("The server is out of disk space.".to_owned())
         );
     }
 
@@ -844,8 +849,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(export.id, latest.id);
-        assert_eq!(latest.status, ExportStatus::Failed);
-        assert_eq!(latest.failure_reason.as_deref(), Some(EXPORT_FAILED_REASON));
+        assert_eq!(
+            latest.status,
+            ExportStatus::Failed(EXPORT_FAILED_REASON.to_owned())
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -861,13 +868,13 @@ mod tests {
 
         let jobs = fixture.database.repository::<JobRepository>();
 
-        jobs.claim(&[JobKind::BuildSelectionExport], Duration::ZERO)
+        jobs.claim(&[JobKind::ZipExport], Duration::ZERO)
             .await
             .unwrap()
             .unwrap();
 
         assert!(
-            jobs.claim(&[JobKind::BuildSelectionExport], Duration::from_secs(60))
+            jobs.claim(&[JobKind::ZipExport], Duration::from_secs(60))
                 .await
                 .unwrap()
                 .is_none()
@@ -880,7 +887,47 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(latest.status, ExportStatus::Failed);
+        assert_eq!(
+            latest.status,
+            ExportStatus::Failed(EXPORT_FAILED_REASON.to_owned())
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn database_accepts_only_well_formed_statuses(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        fixture.photo("a.jpg", 10, true).await;
+
+        let export = fixture.created().await;
+
+        for (status, finished) in [
+            (r#"{"kind": "failed"}"#, true),
+            (r#"{"kind": "failed", "reason": 3}"#, true),
+            (r#"{"kind": "ready", "reason": "no"}"#, true),
+            (r#"{"kind": "paused"}"#, true),
+            (r#"{"kind": "ready"}"#, false),
+            (r#"{"kind": "preparing"}"#, true),
+        ] {
+            let outcome = sqlx::query(
+                "UPDATE exports SET status = $2::jsonb,
+                     finished_at = CASE WHEN $3 THEN now() END WHERE id = $1",
+            )
+            .bind(export.id)
+            .bind(status)
+            .bind(finished)
+            .execute(&pool)
+            .await;
+
+            assert!(outcome.is_err(), "{status} was accepted");
+        }
+
+        sqlx::query(
+            r#"UPDATE exports SET status = '{"kind": "failed", "reason": "r"}', finished_at = now()"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -930,7 +977,7 @@ mod tests {
             fixture
                 .database
                 .repository::<TestRepository>()
-                .jobs_of_kind("build_selection_export")
+                .jobs_of_kind("zip_export")
                 .await
                 .unwrap()
                 .is_empty()

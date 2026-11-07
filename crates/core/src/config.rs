@@ -133,15 +133,15 @@ pub struct PhotoConfig {
 pub struct ExportConfig {
     /// Selections whose originals together exceed this many bytes are refused.
     #[arg(
-        long = "selection-export-max-size",
-        env = "PP_SELECTION_EXPORT_MAX_SIZE",
+        long = "export-max-size",
+        env = "PP_EXPORT_MAX_SIZE",
         default_value_t = DEFAULT_EXPORT_MAX_SIZE
     )]
     pub size_limit: NonZeroU64,
     /// A ZIP is unavailable and deleted once it is older than this.
     #[arg(
-        long = "selection-export-retention",
-        env = "PP_SELECTION_EXPORT_RETENTION",
+        long = "export-retention",
+        env = "PP_EXPORT_RETENTION",
         default_value = "24h"
     )]
     pub retention: ExportRetention,

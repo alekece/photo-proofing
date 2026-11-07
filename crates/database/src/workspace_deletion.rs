@@ -7,10 +7,10 @@ use crate::{
     Repository,
     auth::WorkspaceId,
     error::DatabaseError,
+    export::ExportRepository,
     gallery::GalleryId,
     jobs::{CleanupGallery, CleanupPhotos, JobOptions, JobRepository},
     photo::PhotoKind,
-    selection_export::SelectionExportRepository,
 };
 
 /// Removes rows and queues the cleanup of their files in one transaction, so neither can happen
@@ -57,7 +57,7 @@ impl WorkspaceDeletion<'_> {
         .bind(workspace_id)
         .execute(&mut *transaction)
         .await?;
-        SelectionExportRepository::delete_gallery_exports_in(&mut transaction, id).await?;
+        ExportRepository::delete_exports_in(&mut transaction, id).await?;
 
         let removed_galleries =
             sqlx::query("DELETE FROM galleries WHERE id=$1 AND workspace_id=$2")

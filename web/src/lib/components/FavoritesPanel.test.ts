@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
-vi.mock('#lib/gallery/selection-export.js', async (original) => ({
-	...(await original<typeof import('#lib/gallery/selection-export.js')>()),
+vi.mock('#lib/gallery/export.js', async (original) => ({
+	...(await original<typeof import('#lib/gallery/export.js')>()),
 	startDownload: vi.fn()
 }));
-import { startDownload } from '#lib/gallery/selection-export.js';
+import { startDownload } from '#lib/gallery/export.js';
 import type { FavoritesEvent, LiveEvents } from '#lib/events.js';
 import type { Photo } from '#lib/gallery/photos.js';
 import Harness from './FavoritesPanelHarness.test.svelte';
@@ -25,16 +25,14 @@ const photo = (id: string, favorite: boolean): Photo => ({
 
 interface Zip {
 	id: string;
-	status: 'preparing' | 'ready' | 'failed';
-	failure_reason: string | null;
+	status: { kind: 'preparing' } | { kind: 'ready' } | { kind: 'failed'; reason: string };
 	photo_count: number;
 	created_at: string;
 }
 
-const zip = (status: Zip['status'], id = 'e1', failure_reason: string | null = null): Zip => ({
+const zip = (status: Zip['status']['kind'], id = 'e1', reason = 'The ZIP failed.'): Zip => ({
 	id,
-	status,
-	failure_reason,
+	status: status === 'failed' ? { kind: status, reason } : { kind: status },
 	photo_count: 1,
 	created_at: '2026-11-07T10:00:00Z'
 });
@@ -61,7 +59,7 @@ function setup(
 	vi.stubGlobal(
 		'fetch',
 		vi.fn(async (url: string, init?: RequestInit) => {
-			if (!url.endsWith('/selection-export')) return new Response(JSON.stringify(server));
+			if (!url.endsWith('/export')) return new Response(JSON.stringify(server));
 			if (init?.method === 'POST') {
 				if (rejection) return rejection;
 
@@ -174,7 +172,7 @@ describe('FavoritesPanel', () => {
 
 		await waitFor(() =>
 			expect(startDownload).toHaveBeenCalledExactlyOnceWith(
-				'/api/v1/galleries/g1/selection-export/e1/download'
+				'/api/v1/galleries/g1/export/e1/download'
 			)
 		);
 		expect(await screen.findByText('Download started.')).toBeTruthy();
@@ -185,7 +183,7 @@ describe('FavoritesPanel', () => {
 
 		const link = await screen.findByRole('link', { name: /Download ZIP/ });
 
-		expect(link.getAttribute('href')).toBe('/api/v1/galleries/g1/selection-export/e1/download');
+		expect(link.getAttribute('href')).toBe('/api/v1/galleries/g1/export/e1/download');
 		expect(startDownload).not.toHaveBeenCalled();
 	});
 

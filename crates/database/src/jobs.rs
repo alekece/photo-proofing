@@ -43,9 +43,9 @@ use crate::{
     Repository,
     auth::WorkspaceId,
     error::DatabaseError,
+    export::{ExportId, ExportRepository},
     gallery::GalleryId,
     photo::{PROCESSING_FAILED_REASON, PhotoRepository},
-    selection_export::{ExportId, SelectionExportRepository},
 };
 
 /// Longest `last_error` kept, in characters; the full error belongs in the logs.
@@ -97,7 +97,7 @@ pub enum JobKind {
     CleanupGallery,
     CleanupPhotos,
     SweepOrphans,
-    BuildSelectionExport,
+    ZipExport,
 }
 
 impl JobKind {
@@ -129,9 +129,9 @@ pub struct CleanupPhotos {
     pub photo_ids: Vec<PhotoId>,
 }
 
-/// Builds the ZIP of one selection export from its stored snapshot.
+/// Builds the ZIP of one export from its stored snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BuildSelectionExport {
+pub struct ZipExport {
     pub export_id: ExportId,
 }
 
@@ -144,12 +144,12 @@ pub enum JobPayload {
     CleanupPhotos(CleanupPhotos),
     /// Removes photo files that no photo row owns.
     SweepOrphans,
-    BuildSelectionExport(BuildSelectionExport),
+    ZipExport(ZipExport),
 }
 
-impl From<BuildSelectionExport> for JobPayload {
-    fn from(payload: BuildSelectionExport) -> Self {
-        Self::BuildSelectionExport(payload)
+impl From<ZipExport> for JobPayload {
+    fn from(payload: ZipExport) -> Self {
+        Self::ZipExport(payload)
     }
 }
 
@@ -179,7 +179,7 @@ impl JobPayload {
             Self::CleanupGallery(_) => JobKind::CleanupGallery,
             Self::CleanupPhotos(_) => JobKind::CleanupPhotos,
             Self::SweepOrphans => JobKind::SweepOrphans,
-            Self::BuildSelectionExport(_) => JobKind::BuildSelectionExport,
+            Self::ZipExport(_) => JobKind::ZipExport,
         }
     }
 }
@@ -342,7 +342,7 @@ impl JobRepository<'_> {
         COALESCE(payload->'payload', 'null'::jsonb) AS body, attempts, max_attempts";
     /// Photo targeted by a job, as text so a malformed payload cannot abort the statement.
     const PHOTO_ID: &'static str = "payload->'payload'->>'photo_id' AS photo_id";
-    /// Selection export targeted by a job, as text for the same reason.
+    /// Export targeted by a job, as text for the same reason.
     const EXPORT_ID: &'static str = "payload->'payload'->>'export_id' AS export_id";
 
     /// Stores a job, due immediately.
@@ -588,18 +588,19 @@ impl JobRepository<'_> {
     /// `false` means the claim was no longer current.
     pub async fn abandon(&self, job: &Job, error: &str) -> Result<bool, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
-        let abandoned: Option<Option<String>> = sqlx::query_scalar(AssertSqlSafe(format!(
-            "UPDATE jobs SET state = 'failed', locked_until = NULL, last_error = $3
+        let abandoned_export_id: Option<Option<String>> =
+            sqlx::query_scalar(AssertSqlSafe(format!(
+                "UPDATE jobs SET state = 'failed', locked_until = NULL, last_error = $3
              WHERE id = $1 AND state = 'running' AND attempts = $2
              RETURNING {}",
-            Self::EXPORT_ID
-        )))
-        .bind(job.id)
-        .bind(attempts_param(job))
-        .bind(clean_error(error))
-        .fetch_optional(&mut *transaction)
-        .await?;
-        let Some(export_id) = abandoned else {
+                Self::EXPORT_ID
+            )))
+            .bind(job.id)
+            .bind(attempts_param(job))
+            .bind(clean_error(error))
+            .fetch_optional(&mut *transaction)
+            .await?;
+        let Some(export_id) = abandoned_export_id else {
             return Ok(false);
         };
 
@@ -669,10 +670,10 @@ impl JobRepository<'_> {
         }
 
         if let Some(export_id) = raw_export_id.and_then(|id| Uuid::parse_str(id).ok()) {
-            SelectionExportRepository::mark_failed_in(
+            ExportRepository::mark_failed_in(
                 transaction,
                 ExportId(export_id),
-                crate::selection_export::EXPORT_FAILED_REASON,
+                crate::export::EXPORT_FAILED_REASON,
             )
             .await?;
         }

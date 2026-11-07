@@ -1,6 +1,6 @@
 //! The photographer's ZIP of a gallery's selection.
 //!
-//! `POST /api/v1/galleries/{id}/selection-export` stores the selection as it is now and queues
+//! `POST /api/v1/galleries/{id}/export` stores the selection as it is now and queues
 //! the build; `GET` on the same path reports the newest export and `GET
 //! .../{export_id}/download` streams a finished ZIP as an attachment. All three need the
 //! photographer's session and the gallery's workspace: another workspace, an unknown export or an
@@ -15,11 +15,13 @@ use actix_web::{
     post,
     web::{Data, Path as WebPath, ServiceConfig},
 };
+use pp_core::types::timestamp::Timestamp;
 use pp_database::{
+    export::{Export, ExportId, ExportRepository, ExportRequest, ExportStatus},
     gallery::GalleryId,
-    selection_export::{ExportId, ExportRequest, SelectionExportRepository},
 };
 use pp_storage::{ArchiveKey, StorageError};
+use serde::Serialize;
 use tokio_util::io::ReaderStream;
 
 use crate::{
@@ -30,14 +32,34 @@ use crate::{
 /// The name the browser saves the ZIP under, the same for every gallery.
 const DOWNLOAD_NAME: &str = "selection.zip";
 
-/// Registers the selection export routes inside the `/api/v1/galleries` scope.
+/// An export as the photographer's UI receives it.
+#[derive(Debug, Serialize)]
+struct ExportResponse {
+    id: ExportId,
+    status: ExportStatus,
+    photo_count: u32,
+    created_at: Timestamp,
+}
+
+impl From<Export> for ExportResponse {
+    fn from(export: Export) -> Self {
+        Self {
+            id: export.id,
+            status: export.status,
+            photo_count: export.photo_count,
+            created_at: export.created_at,
+        }
+    }
+}
+
+/// Registers the export routes inside the `/api/v1/galleries` scope.
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(request_export)
         .service(show_export)
         .service(download_export);
 }
 
-#[post("/{id}/selection-export")]
+#[post("/{id}/export")]
 async fn request_export(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
@@ -46,7 +68,7 @@ async fn request_export(
     let gallery_id = id.into_inner();
     let outcome = state
         .database()
-        .repository_with::<SelectionExportRepository>(state.job_options())
+        .repository_with::<ExportRepository>(state.job_options())
         .request(identity.workspace_id, gallery_id, state.export_max_size())
         .await?;
 
@@ -64,9 +86,13 @@ async fn request_export(
                 }
             }
 
-            Ok(HttpResponse::Accepted().no_store().json(export))
+            Ok(HttpResponse::Accepted()
+                .no_store()
+                .json(ExportResponse::from(export)))
         }
-        ExportRequest::InProgress(export) => Ok(HttpResponse::Ok().no_store().json(export)),
+        ExportRequest::InProgress(export) => Ok(HttpResponse::Ok()
+            .no_store()
+            .json(ExportResponse::from(export))),
         ExportRequest::EmptySelection => Err(ErrorResponse::empty_selection()),
         ExportRequest::TooLarge => Err(ErrorResponse::selection_too_large()),
         ExportRequest::MissingGallery => Err(ErrorResponse::not_found()),
@@ -74,7 +100,7 @@ async fn request_export(
 }
 
 /// The newest export, or `204` when there is none or it expired.
-#[get("/{id}/selection-export")]
+#[get("/{id}/export")]
 async fn show_export(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
@@ -82,7 +108,7 @@ async fn show_export(
 ) -> Result<HttpResponse, ErrorResponse> {
     let export = state
         .database()
-        .repository::<SelectionExportRepository>()
+        .repository::<ExportRepository>()
         .latest(
             identity.workspace_id,
             id.into_inner(),
@@ -91,12 +117,14 @@ async fn show_export(
         .await?;
 
     Ok(match export {
-        Some(export) => HttpResponse::Ok().no_store().json(export),
+        Some(export) => HttpResponse::Ok()
+            .no_store()
+            .json(ExportResponse::from(export)),
         None => HttpResponse::NoContent().no_store().finish(),
     })
 }
 
-#[get("/{id}/selection-export/{export_id}/download")]
+#[get("/{id}/export/{export_id}/download")]
 async fn download_export(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
@@ -105,7 +133,7 @@ async fn download_export(
     let (gallery_id, export_id) = path.into_inner();
     let ready = state
         .database()
-        .repository::<SelectionExportRepository>()
+        .repository::<ExportRepository>()
         .ready(
             identity.workspace_id,
             gallery_id,
@@ -182,7 +210,7 @@ mod tests {
 
     fn post(gallery_id: &str, cookie: &actix_web::cookie::Cookie<'static>) -> test::TestRequest {
         test::TestRequest::post()
-            .uri(&format!("/api/v1/galleries/{gallery_id}/selection-export"))
+            .uri(&format!("/api/v1/galleries/{gallery_id}/export"))
             .insert_header(("Origin", ORIGIN))
             .cookie(cookie.clone())
     }
@@ -194,12 +222,9 @@ mod tests {
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
         let anonymous = test::TestRequest::post()
-            .uri(&format!("/api/v1/galleries/{gallery_id}/selection-export"))
+            .uri(&format!("/api/v1/galleries/{gallery_id}/export"))
             .insert_header(("Origin", ORIGIN));
-        let foreign = format!(
-            "/api/v1/galleries/{}/selection-export",
-            GalleryId::generate().0
-        );
+        let foreign = format!("/api/v1/galleries/{}/export", GalleryId::generate().0);
 
         assert_eq!(call(&app, anonymous).await.0, StatusCode::UNAUTHORIZED);
         assert_eq!(
@@ -227,12 +252,12 @@ mod tests {
         let (status, first) = call(&app, post(&gallery_id, &cookie)).await;
         let (again, second) = call(&app, post(&gallery_id, &cookie)).await;
         let shown = test::TestRequest::get()
-            .uri(&format!("/api/v1/galleries/{gallery_id}/selection-export"))
+            .uri(&format!("/api/v1/galleries/{gallery_id}/export"))
             .cookie(cookie.clone());
         let (shown_status, latest) = call(&app, shown).await;
 
         assert_eq!(status, StatusCode::ACCEPTED);
-        assert_eq!(first["status"], "preparing");
+        assert_eq!(first["status"]["kind"], "preparing");
         assert_eq!(first["photo_count"], 1);
         assert_eq!(again, StatusCode::OK);
         assert_eq!(second["id"], first["id"]);
@@ -247,7 +272,7 @@ mod tests {
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
         let shown = test::TestRequest::get()
-            .uri(&format!("/api/v1/galleries/{gallery_id}/selection-export"))
+            .uri(&format!("/api/v1/galleries/{gallery_id}/export"))
             .cookie(cookie);
 
         assert_eq!(call(&app, shown).await.0, StatusCode::NO_CONTENT);
@@ -296,12 +321,12 @@ mod tests {
             .await
             .unwrap();
 
-        let uri = format!("/api/v1/galleries/{gallery_id}/selection-export/{export_id}/download");
+        let uri = format!("/api/v1/galleries/{gallery_id}/export/{export_id}/download");
         let preparing = test::TestRequest::get().uri(&uri).cookie(cookie.clone());
 
         assert_eq!(call(&app, preparing).await.0, StatusCode::NOT_FOUND);
 
-        sqlx::query("UPDATE selection_exports SET status = 'ready', finished_at = now()")
+        sqlx::query("UPDATE exports SET status = '{\"kind\": \"ready\"}', finished_at = now()")
             .execute(&pool)
             .await
             .unwrap();
@@ -348,9 +373,9 @@ mod tests {
             .await
             .unwrap();
         sqlx::query(
-            "INSERT INTO selection_exports (id, workspace_id, gallery_id, status, photo_count,
+            "INSERT INTO exports (id, workspace_id, gallery_id, status, photo_count,
                                             size, finished_at)
-             VALUES ($1, $2, $3, 'ready', 1, 1, now())",
+             VALUES ($1, $2, $3, '{\"kind\": \"ready\"}', 1, 1, now())",
         )
         .bind(foreign_export)
         .bind(other)
@@ -361,7 +386,7 @@ mod tests {
 
         for gallery in [gallery_id, foreign_gallery.0.to_string()] {
             let uri = format!(
-                "/api/v1/galleries/{gallery}/selection-export/{}/download",
+                "/api/v1/galleries/{gallery}/export/{}/download",
                 foreign_export.0
             );
             let request = test::TestRequest::get().uri(&uri).cookie(cookie.clone());

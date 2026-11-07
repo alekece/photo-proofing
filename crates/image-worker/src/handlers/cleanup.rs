@@ -11,7 +11,7 @@ use pp_storage::PhotoStorage;
 use thiserror::Error;
 use tracing::{info, warn};
 
-use crate::handlers::{HandlerError, selection_export::ExportExpiry};
+use crate::handlers::{HandlerError, export::ExportExpiry};
 
 #[derive(Debug, Error)]
 #[error("{count} photo files could not be removed")]

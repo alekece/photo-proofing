@@ -10,8 +10,8 @@ use pp_image_worker::{
     handlers::{
         HandlerRegistry,
         cleanup::CleanupHandler,
+        export::{ExportExpiry, ExportHandler},
         process_photo::ProcessPhotoHandler,
-        selection_export::{ExportExpiry, SelectionExportHandler},
     },
     render::ImageRenderer,
     runtime::Worker,
@@ -84,7 +84,7 @@ async fn main() -> Result<()> {
             renderer,
         ));
         let expiry = ExportExpiry::new(database.clone(), storage.clone(), retention);
-        let export_handler = Arc::new(SelectionExportHandler::new(
+        let export_handler = Arc::new(ExportHandler::new(
             database.clone(),
             storage.clone(),
             expiry.clone(),
@@ -111,7 +111,7 @@ async fn main() -> Result<()> {
 
                 move |payload, job| Arc::clone(&cleanup_handler).remove_photos(payload, job)
             })
-            .register(JobKind::BuildSelectionExport, move |payload, job| {
+            .register(JobKind::ZipExport, move |payload, job| {
                 Arc::clone(&export_handler).run(payload, job)
             })
             .register(JobKind::SweepOrphans, move |payload, job| {

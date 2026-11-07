@@ -8,8 +8,8 @@ use serde_json::Error as JsonError;
 use thiserror::Error;
 
 pub mod cleanup;
+pub mod export;
 pub mod process_photo;
-pub mod selection_export;
 
 type BoxError = Box<dyn Error + Send + Sync>;
 type HandlerFuture = Pin<Box<dyn Future<Output = Result<JobCompletion, HandlerError>> + Send>>;

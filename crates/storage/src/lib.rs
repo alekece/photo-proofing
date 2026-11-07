@@ -11,22 +11,26 @@
 
 use std::{
     ffi::OsStr,
+    fs::File as StdFile,
     future::Future,
-    io::{self, ErrorKind},
+    io::{self, BufWriter, ErrorKind, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use pp_core::{config::PhotoDir, notifications::PhotoId};
-use pp_database::{auth::WorkspaceId, gallery::GalleryId, photo::PhotoLocation};
+use pp_database::{auth::WorkspaceId, export::ExportId, gallery::GalleryId, photo::PhotoLocation};
 use strum::{Display, EnumString};
 use thiserror::Error;
 use tokio::{
     fs::{self, File},
     io::AsyncWriteExt,
+    task,
 };
 use uuid::Uuid;
+use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
+use self::archive::EntryNames;
 pub use self::archive::{ArchiveEntry, ArchiveKey};
 
 mod archive;
@@ -217,15 +221,56 @@ impl PhotoStorage {
         Fut: Future<Output = bool>,
     {
         let mut removed = 0;
+
+        for (location, dir) in self.gallery_dirs().await? {
+            removed += Self::sweep_dir(&dir, grace, Self::photo_name, |photo| {
+                is_stored(location, photo)
+            })
+            .await?;
+        }
+
+        Ok(removed)
+    }
+
+    /// Deletes archives older than `grace` that `is_wanted` does not claim, such as leftovers of
+    /// a crash or of an export row deleted by expiry. Returns how many files went.
+    pub async fn sweep_archives<Fut>(
+        &self,
+        grace: Duration,
+        is_wanted: impl Fn(ArchiveKey) -> Fut,
+    ) -> Result<usize, StorageError>
+    where
+        Fut: Future<Output = bool>,
+    {
+        let mut removed = 0;
+
+        for (location, dir) in self.gallery_dirs().await? {
+            removed += Self::sweep_dir(&dir, grace, Self::archive_name, |export| {
+                is_wanted(ArchiveKey {
+                    workspace: location.workspace_id,
+                    gallery: location.gallery_id,
+                    export,
+                })
+            })
+            .await?;
+        }
+
+        Ok(removed)
+    }
+
+    /// The gallery directories of every workspace; entries that are not named by a UUID are
+    /// skipped.
+    async fn gallery_dirs(&self) -> Result<Vec<(PhotoLocation, PathBuf)>, StorageError> {
+        let mut galleries = Vec::new();
         let mut workspaces = fs::read_dir(&self.root).await?;
 
         while let Some(workspace_entry) = workspaces.next_entry().await? {
             let Some(workspace) = Self::uuid_name(&workspace_entry.file_name()) else {
                 continue;
             };
-            let mut galleries = fs::read_dir(workspace_entry.path()).await?;
+            let mut entries = fs::read_dir(workspace_entry.path()).await?;
 
-            while let Some(gallery_entry) = galleries.next_entry().await? {
+            while let Some(gallery_entry) = entries.next_entry().await? {
                 let Some(gallery) = Self::uuid_name(&gallery_entry.file_name()) else {
                     continue;
                 };
@@ -234,21 +279,20 @@ impl PhotoStorage {
                     gallery_id: GalleryId(gallery),
                 };
 
-                removed += self
-                    .sweep_gallery(&gallery_entry.path(), location, grace, &is_stored)
-                    .await?;
+                galleries.push((location, gallery_entry.path()));
             }
         }
 
-        Ok(removed)
+        Ok(galleries)
     }
 
-    async fn sweep_gallery<Fut>(
-        &self,
+    /// Deletes the files of `dir` that `parse` recognises, that are older than `grace` and that
+    /// `is_wanted` does not claim. Returns how many files went.
+    async fn sweep_dir<K, Fut>(
         dir: &Path,
-        location: PhotoLocation,
         grace: Duration,
-        is_stored: &impl Fn(PhotoLocation, PhotoId) -> Fut,
+        parse: impl Fn(&OsStr) -> Option<K>,
+        is_wanted: impl Fn(K) -> Fut,
     ) -> Result<usize, StorageError>
     where
         Fut: Future<Output = bool>,
@@ -257,7 +301,7 @@ impl PhotoStorage {
         let mut files = fs::read_dir(dir).await?;
 
         while let Some(file) = files.next_entry().await? {
-            let Some(photo) = Self::photo_name(&file.file_name()) else {
+            let Some(name) = parse(&file.file_name()) else {
                 continue;
             };
             let age = file
@@ -267,7 +311,7 @@ impl PhotoStorage {
                 .elapsed()
                 .unwrap_or_default();
 
-            if age < grace || is_stored(location, photo).await {
+            if age < grace || is_wanted(name).await {
                 continue;
             }
 
@@ -281,8 +325,75 @@ impl PhotoStorage {
         Ok(removed)
     }
 
+    /// Writes a ZIP of `entries`, in order, and publishes it under `key`, replacing a file left
+    /// by an earlier attempt. A missing original is [`StorageError::NotFound`] and nothing is
+    /// published.
+    pub async fn build_archive(
+        &self,
+        key: &ArchiveKey,
+        entries: Vec<ArchiveEntry>,
+    ) -> Result<(), StorageError> {
+        let staged = self.stage().await?;
+        let target = staged.temporary_path().to_owned();
+        let root = self.root.clone();
+        let sources: Vec<(PathBuf, String)> = entries
+            .iter()
+            .scan(EntryNames::default(), |names, entry| {
+                Some((entry.source.path(&root), names.next(&entry.original_name)))
+            })
+            .collect();
+
+        task::spawn_blocking(move || Self::write_archive(&target, &sources))
+            .await
+            .map_err(|error| StorageError::Io(io::Error::other(error)))??;
+
+        staged.publish_archive(key).await
+    }
+
+    fn write_archive(target: &Path, sources: &[(PathBuf, String)]) -> Result<(), StorageError> {
+        let file = StdFile::options().write(true).open(target)?;
+        let mut writer = ZipWriter::new(BufWriter::new(file));
+        let options = SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Stored)
+            .large_file(true);
+
+        for (path, name) in sources {
+            let mut source = StdFile::open(path)?;
+
+            writer.start_file(name, options).map_err(io::Error::from)?;
+            io::copy(&mut source, &mut writer)?;
+        }
+
+        let mut buffered = writer.finish().map_err(io::Error::from)?;
+
+        buffered.flush()?;
+        buffered.get_ref().sync_all()?;
+
+        Ok(())
+    }
+
+    /// Opens a published archive; [`StorageError::NotFound`] if it does not exist.
+    pub async fn read_archive(&self, key: &ArchiveKey) -> Result<File, StorageError> {
+        Ok(File::open(key.path(&self.root)).await?)
+    }
+
+    /// Deletes an archive. A file already gone counts as removed.
+    pub async fn remove_archive(&self, key: &ArchiveKey) -> Result<(), StorageError> {
+        match fs::remove_file(key.path(&self.root)).await {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     fn uuid_name(name: &OsStr) -> Option<Uuid> {
         name.to_str()?.parse().ok()
+    }
+
+    fn archive_name(name: &OsStr) -> Option<ExportId> {
+        let id = Self::uuid_name(name.to_str()?.strip_suffix(".zip")?.as_ref())?;
+
+        Some(ExportId(id))
     }
 
     fn photo_name(name: &OsStr) -> Option<PhotoId> {
@@ -316,6 +427,18 @@ impl StagedPhoto {
     /// `write` or by [`commit`](Self::commit), which never succeeds after a failed write.
     pub async fn write(&mut self, bytes: &[u8]) -> Result<(), StorageError> {
         Ok(self.file.write_all(bytes).await?)
+    }
+
+    /// Atomically publishes the staged file as the archive `key`, replacing an earlier one.
+    async fn publish_archive(self, key: &ArchiveKey) -> Result<(), StorageError> {
+        fs::create_dir_all(key.dir(&self.root)).await?;
+        fs::rename(&self.path, key.path(&self.root)).await?;
+
+        let directory = File::open(key.dir(&self.root)).await?;
+
+        directory.sync_all().await?;
+
+        Ok(())
     }
 
     /// Flushes staged bytes so another reader can inspect the temporary file.
@@ -397,9 +520,10 @@ impl Drop for StagedPhoto {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs as std_fs, os::unix::fs::PermissionsExt};
+    use std::{fs as std_fs, io::Read, os::unix::fs::PermissionsExt};
 
     use tempfile::TempDir;
+    use zip::ZipArchive;
 
     use super::*;
 
@@ -859,5 +983,120 @@ mod tests {
         ));
         assert!(dir.path().join(STAGING_DIR).exists());
         assert!(dir.path().join("stray").exists());
+    }
+
+    fn archive_source(photo: u128) -> PhotoKey {
+        PhotoKey {
+            workspace: WorkspaceId(Uuid::from_u128(1)),
+            gallery: GalleryId(Uuid::from_u128(2)),
+            photo: Uuid::from_u128(photo).into(),
+            variant: Variant::Original,
+        }
+    }
+
+    fn archive_key() -> ArchiveKey {
+        ArchiveKey {
+            workspace: WorkspaceId(Uuid::from_u128(1)),
+            gallery: GalleryId(Uuid::from_u128(2)),
+            export: ExportId(Uuid::from_u128(9)),
+        }
+    }
+
+    fn entry(photo: u128, name: &str) -> ArchiveEntry {
+        ArchiveEntry {
+            source: archive_source(photo),
+            original_name: name.to_owned(),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_archive_holds_every_original_byte_for_byte_in_order() {
+        let (_dir, storage) = storage().await;
+
+        store(&storage, &archive_source(3), b"first original").await;
+        store(&storage, &archive_source(4), b"second original").await;
+        storage
+            .build_archive(&archive_key(), vec![entry(3, "a.jpg"), entry(4, "a.jpg")])
+            .await
+            .unwrap();
+
+        let path = archive_key().path(&storage.root);
+        let mut zip = ZipArchive::new(StdFile::open(path).unwrap()).unwrap();
+        let mut first = String::new();
+        let mut second = String::new();
+
+        zip.by_index(0).unwrap().read_to_string(&mut first).unwrap();
+        zip.by_index(1)
+            .unwrap()
+            .read_to_string(&mut second)
+            .unwrap();
+
+        assert_eq!(zip.name_for_index(0).unwrap().unwrap(), "a.jpg");
+        assert_eq!(zip.name_for_index(1).unwrap().unwrap(), "a (2).jpg");
+        assert_eq!(first, "first original");
+        assert_eq!(second, "second original");
+    }
+
+    #[tokio::test]
+    async fn a_missing_original_publishes_nothing_and_leaves_no_temp_file() {
+        let (dir, storage) = storage().await;
+
+        store(&storage, &archive_source(3), b"present").await;
+
+        let result = storage
+            .build_archive(&archive_key(), vec![entry(3, "a.jpg"), entry(4, "b.jpg")])
+            .await;
+
+        assert!(matches!(result, Err(StorageError::NotFound)));
+        assert!(matches!(
+            storage.read_archive(&archive_key()).await,
+            Err(StorageError::NotFound)
+        ));
+        assert_eq!(
+            std::fs::read_dir(dir.path().join(".tmp")).unwrap().count(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn removing_an_archive_is_idempotent() {
+        let (_dir, storage) = storage().await;
+
+        store(&storage, &archive_source(3), b"x").await;
+        storage
+            .build_archive(&archive_key(), vec![entry(3, "a.jpg")])
+            .await
+            .unwrap();
+        storage.remove_archive(&archive_key()).await.unwrap();
+        storage.remove_archive(&archive_key()).await.unwrap();
+
+        assert!(storage.read_archive(&archive_key()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn sweeping_removes_only_old_unwanted_archives() {
+        let (_dir, storage) = storage().await;
+
+        store(&storage, &archive_source(3), b"x").await;
+        storage
+            .build_archive(&archive_key(), vec![entry(3, "a.jpg")])
+            .await
+            .unwrap();
+
+        let young = storage
+            .sweep_archives(Duration::from_secs(3600), |_| async { false })
+            .await
+            .unwrap();
+        let wanted = storage
+            .sweep_archives(Duration::ZERO, |_| async { true })
+            .await
+            .unwrap();
+        let orphan = storage
+            .sweep_archives(Duration::ZERO, |_| async { false })
+            .await
+            .unwrap();
+
+        assert_eq!((young, wanted, orphan), (0, 0, 1));
+        assert!(storage.read(&archive_source(3)).await.is_ok());
     }
 }
