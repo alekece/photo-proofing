@@ -1,9 +1,9 @@
-//! The workspace watermark, its per-gallery switch, and the regeneration they trigger.
+//! Workspace watermark settings and preparation of marked proof copies.
 //!
 //! The *watermark* is what is actually drawn on a proof: [`Watermark`]. Saving settings or
-//! flipping a gallery's switch changes what the proofs of some photos must look like, so in the
-//! same transaction those photos go back to `waiting` with a fresh `process_photo` job. Photos
-//! are only shown once `ready`, so nobody sees a proof that does not match the current settings.
+//! changing the effective watermark requeues proofs in every gallery. A gallery switch only
+//! chooses the served pair. Clean readiness survives marked-only regeneration, while client
+//! marked access requires the current workspace revision.
 //! A render proves it used the current settings with a [`WatermarkStamp`]; see
 //! [`JobRepository::begin_publication`](JobRepository::begin_publication).
 
@@ -275,19 +275,22 @@ pub struct SettingsUpdate {
     pub logo: LogoChange,
 }
 
-/// Identifies the watermark a render used: `None` while the gallery's switch is off, otherwise
-/// the revision of the saved watermark. A proof is current only while its stamp equals the
-/// photo's current one.
+/// Identifies the workspace watermark a render used, independently of the gallery switch.
+/// Finals have no watermark revision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WatermarkStamp(Option<i64>);
 
 impl WatermarkStamp {
     /// SQL for the stamp of the photo `p`, which only proofs have; needs `galleries g` and `workspace_settings s` joined.
-    pub(crate) const SQL: &'static str = "CASE WHEN g.watermark_enabled AND p.kind = 'proof'
+    pub(crate) const SQL: &'static str = "CASE WHEN p.kind = 'proof'
          THEN COALESCE(s.watermark_revision, 0) END";
 
     pub(crate) const fn new(revision: Option<i64>) -> Self {
         Self(revision)
+    }
+
+    pub const fn revision(self) -> Option<i64> {
+        self.0
     }
 }
 
@@ -295,17 +298,9 @@ impl WatermarkStamp {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProofWatermark {
     pub stamp: WatermarkStamp,
-    /// `None` when the gallery's switch is off or nothing is saved to draw.
+    pub clean_ready: bool,
+    /// `None` for finals or when nothing is saved to draw.
     pub watermark: Option<Watermark>,
-}
-
-/// Which photos a regeneration resets.
-#[derive(Debug, Clone, Copy)]
-enum Scope {
-    /// Every photo of one gallery.
-    Gallery(GalleryId),
-    /// Every photo of the workspace's galleries whose switch is on.
-    Enabled,
 }
 
 /// Data access for the workspace settings; see the module docs.
@@ -344,7 +339,7 @@ impl WatermarkRepository<'_> {
         .await?)
     }
 
-    /// Saves the settings, and regenerates the proofs of every watermarked gallery when what is
+    /// Saves the settings, and regenerates the proofs of every gallery when what is
     /// drawn changed. All in one transaction.
     ///
     /// The name is trimmed. A mark or cover signature that shows the name or logo needs one.
@@ -420,13 +415,7 @@ impl WatermarkRepository<'_> {
         .await?;
 
         if changed {
-            Self::regenerate_in(
-                &mut transaction,
-                workspace_id,
-                Scope::Enabled,
-                self.jobs.max_attempts,
-            )
-            .await?;
+            Self::regenerate_in(&mut transaction, workspace_id, self.jobs.max_attempts).await?;
         }
 
         transaction.commit().await?;
@@ -434,53 +423,16 @@ impl WatermarkRepository<'_> {
         Ok(saved)
     }
 
-    /// Applies `changes` like [`GalleryRepository::update`], and when they flip the gallery's
-    /// watermark switch regenerates the gallery's proofs in the same transaction.
+    /// Updates the gallery without changing prepared images or enqueueing processing.
     pub async fn update_gallery(
         &self,
         workspace_id: WorkspaceId,
         id: GalleryId,
         changes: &GalleryChanges,
     ) -> Result<Option<Gallery>, GalleryError> {
-        if changes.watermark_enabled.is_none() {
-            return GalleryRepository::open(self.pool, ())
-                .update(workspace_id, id, changes)
-                .await;
-        }
-
-        let mut transaction = self.pool.begin().await.map_err(DatabaseError::from)?;
-        let was_enabled: Option<bool> = sqlx::query_scalar(
-            "SELECT watermark_enabled FROM galleries WHERE id = $1 AND workspace_id = $2
-             FOR UPDATE",
-        )
-        .bind(id)
-        .bind(workspace_id)
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(DatabaseError::from)?;
-        let Some(was_enabled) = was_enabled else {
-            return Ok(None);
-        };
-        let Some(gallery) =
-            GalleryRepository::update_in(&mut *transaction, workspace_id, id, changes).await?
-        else {
-            return Ok(None);
-        };
-
-        if gallery.watermark_enabled != was_enabled {
-            Self::regenerate_in(
-                &mut transaction,
-                workspace_id,
-                Scope::Gallery(id),
-                self.jobs.max_attempts,
-            )
+        GalleryRepository::open(self.pool, ())
+            .update(workspace_id, id, changes)
             .await
-            .map_err(DatabaseError::from)?;
-        }
-
-        transaction.commit().await.map_err(DatabaseError::from)?;
-
-        Ok(Some(gallery))
     }
 
     /// What `photo`'s proofs must show right now, or `None` if the photo does not exist.
@@ -491,7 +443,7 @@ impl WatermarkRepository<'_> {
         photo: PhotoId,
     ) -> Result<Option<ProofWatermark>, DatabaseError> {
         let row = sqlx::query(AssertSqlSafe(format!(
-            "SELECT g.watermark_enabled AND p.kind = 'proof' AS enabled, {stamp} AS stamp, {settings}
+            "SELECT p.kind = 'proof' AS enabled, p.clean_ready, {stamp} AS stamp, {settings}
              FROM photos p
              JOIN galleries g ON g.id = p.gallery_id
              LEFT JOIN workspace_settings s ON s.workspace_id = p.workspace_id
@@ -509,31 +461,29 @@ impl WatermarkRepository<'_> {
             let settings = WorkspaceSettings::from_row(&row)?;
             let watermark = settings.watermark().filter(|_| enabled);
 
-            Ok(ProofWatermark { stamp, watermark })
+            Ok(ProofWatermark {
+                stamp,
+                clean_ready: row.try_get("clean_ready")?,
+                watermark,
+            })
         })
         .transpose()
         .map_err(|error: sqlx::Error| error.into())
     }
 
-    /// Sends the `ready` and `processing` photos in `scope` back to `waiting` with a new job
+    /// Sends the workspace's `ready` and `processing` proofs back to `waiting` with a new job
     /// each. Photos lock in id order; jobs are only inserted, so this cannot deadlock with a
     /// worker, which locks a job and then its photo.
     async fn regenerate_in(
         transaction: &mut Transaction<'_, Postgres>,
         workspace_id: WorkspaceId,
-        scope: Scope,
         max_attempts: NonZeroU16,
     ) -> Result<u64, sqlx::Error> {
-        let gallery_id = match scope {
-            Scope::Gallery(id) => Some(id),
-            Scope::Enabled => None,
-        };
         let connection: &mut PgConnection = transaction;
         let queued = sqlx::query(
             "WITH stale AS (
                  SELECT p.id FROM photos p JOIN galleries g ON g.id = p.gallery_id
                  WHERE p.workspace_id = $1 AND p.kind = 'proof' AND p.status IN ('ready', 'processing')
-                   AND CASE WHEN $2::uuid IS NULL THEN g.watermark_enabled ELSE g.id = $2 END
                  ORDER BY p.id
                  FOR UPDATE OF p
              ), reset AS (
@@ -545,11 +495,10 @@ impl WatermarkRepository<'_> {
              SELECT gen_random_uuid(),
                     jsonb_build_object('kind', 'process_photo',
                                        'payload', jsonb_build_object('photo_id', id)),
-                    $3
+                    $2
              FROM reset",
         )
         .bind(workspace_id)
-        .bind(gallery_id)
         .bind(i32::from(max_attempts.get()))
         .execute(connection)
         .await?;
@@ -569,7 +518,10 @@ mod tests {
     use crate::{
         Database,
         jobs::{Job, JobKind, JobRepository, PhotoUpdate, Publication},
-        photo::{NewPhoto, PhotoDimensions, PhotoKind, PhotoRepository, PhotoStatus},
+        photo::{
+            FavoriteChange, NewPhoto, PhotoDimensions, PhotoKind, PhotoRepository, PhotoStatus,
+            ProofAccess,
+        },
         tests::TestRepository,
     };
 
@@ -838,7 +790,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn a_changed_watermark_regenerates_watermarked_galleries_only(pool: PgPool) {
+    async fn a_changed_watermark_regenerates_all_galleries(pool: PgPool) {
         let fixture = Fixture::new(pool).await;
         let on = fixture.gallery(true).await;
         let off = fixture.gallery(false).await;
@@ -861,8 +813,8 @@ mod tests {
             PhotoStatus::Failed("bad".to_owned())
         );
         assert_eq!(fixture.jobs(failed).await, 0);
-        assert_eq!(fixture.status(unmarked).await, PhotoStatus::Ready);
-        assert_eq!(fixture.jobs(unmarked).await, 0);
+        assert_eq!(fixture.status(unmarked).await, PhotoStatus::Waiting);
+        assert_eq!(fixture.jobs(unmarked).await, 1);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -922,7 +874,161 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn flipping_a_gallery_switch_regenerates_that_gallery_only(pool: PgPool) {
+    async fn upgrade_requires_new_clean_publication_and_preserves_finals(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+        let gallery = fixture.gallery(true).await;
+        let proof = fixture.photo(gallery, PhotoStatus::Ready).await;
+        let finished = fixture
+            .photo_of_kind(gallery, PhotoKind::Final, PhotoStatus::Ready)
+            .await;
+        let mut transaction = fixture.pool.begin().await.unwrap();
+
+        sqlx::raw_sql("ALTER TABLE photos DROP COLUMN clean_ready, DROP COLUMN watermark_revision")
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!("../migrations/0017_proof_variants.sql"))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        let state: (bool, Option<i64>, String) = sqlx::query_as(
+            "SELECT clean_ready, watermark_revision, status::text FROM photos WHERE id = $1",
+        )
+        .bind(proof)
+        .fetch_one(&mut *transaction)
+        .await
+        .unwrap();
+        let final_status: String =
+            sqlx::query_scalar("SELECT status::text FROM photos WHERE id = $1")
+                .bind(finished)
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap();
+        let queued: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM jobs WHERE payload->'payload'->>'photo_id' = $1",
+        )
+        .bind(proof.to_string())
+        .fetch_one(&mut *transaction)
+        .await
+        .unwrap();
+
+        assert_eq!(state, (false, None, "waiting".to_owned()));
+        assert_eq!(final_status, "ready");
+        assert_eq!(queued, 1);
+
+        transaction.rollback().await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn clean_access_survives_marked_failure_and_toggle(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+        let gallery = fixture.gallery(false).await;
+        let photo = fixture.photo(gallery, PhotoStatus::Waiting).await;
+        let photos = fixture.database.repository::<PhotoRepository>();
+
+        photos.mark_ready(photo).await.unwrap();
+        let location = photos.locate(photo).await.unwrap().unwrap();
+
+        fixture.save(update("Studio")).await.unwrap();
+        photos.mark_failed(photo, "Rendering failed").await.unwrap();
+
+        assert!(
+            photos
+                .is_visible(location, photo, PhotoKind::Proof, ProofAccess::Clean)
+                .await
+                .unwrap()
+        );
+        assert!(
+            photos
+                .is_visible(location, photo, PhotoKind::Proof, ProofAccess::Client)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            photos
+                .set_favorite(location, photo, true, PhotoKind::Proof)
+                .await
+                .unwrap(),
+            FavoriteChange::Applied
+        );
+
+        fixture
+            .watermarks()
+            .update_gallery(
+                fixture.workspace_id,
+                gallery,
+                &GalleryChanges {
+                    watermark_enabled: Some(true),
+                    ..GalleryChanges::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            !photos
+                .is_visible(location, photo, PhotoKind::Proof, ProofAccess::Client)
+                .await
+                .unwrap()
+        );
+        assert!(
+            photos
+                .is_visible(location, photo, PhotoKind::Proof, ProofAccess::Clean)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            photos.favorites(location, PhotoKind::Proof).await.unwrap(),
+            vec![photo]
+        );
+        assert_eq!(fixture.jobs(photo).await, 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn toggle_does_not_reset_or_enqueue(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+        let gallery = fixture.gallery(false).await;
+        let photo = fixture.photo(gallery, PhotoStatus::Ready).await;
+
+        for enabled in [true, false] {
+            fixture
+                .watermarks()
+                .update_gallery(
+                    fixture.workspace_id,
+                    gallery,
+                    &GalleryChanges {
+                        watermark_enabled: Some(enabled),
+                        ..GalleryChanges::default()
+                    },
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(fixture.status(photo).await, PhotoStatus::Ready);
+            assert_eq!(fixture.jobs(photo).await, 0);
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn settings_update_requeues_disabled_and_enabled_proofs(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+
+        for enabled in [false, true] {
+            let gallery = fixture.gallery(enabled).await;
+            let photo = fixture.photo(gallery, PhotoStatus::Ready).await;
+
+            fixture
+                .save(update(if enabled { "Second" } else { "First" }))
+                .await
+                .unwrap();
+
+            assert_eq!(fixture.status(photo).await, PhotoStatus::Waiting);
+            assert_eq!(fixture.jobs(photo).await, 1);
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn flipping_a_gallery_switch_leaves_all_photos_alone(pool: PgPool) {
         let fixture = Fixture::new(pool).await;
         let gallery = fixture.gallery(false).await;
         let other = fixture.gallery(false).await;
@@ -937,7 +1043,7 @@ mod tests {
             ..GalleryChanges::default()
         };
 
-        for (changes, expected_jobs) in [(retitle, 0), (flip(false), 0), (flip(true), 1)] {
+        for (changes, expected_jobs) in [(retitle, 0), (flip(false), 0), (flip(true), 0)] {
             fixture
                 .watermarks()
                 .update_gallery(fixture.workspace_id, gallery, &changes)
@@ -948,10 +1054,10 @@ mod tests {
             assert_eq!(fixture.jobs(photo).await, expected_jobs);
         }
 
-        assert_eq!(fixture.status(photo).await, PhotoStatus::Waiting);
+        assert_eq!(fixture.status(photo).await, PhotoStatus::Ready);
         assert_eq!(fixture.status(bystander).await, PhotoStatus::Ready);
 
-        // Switching off also redraws: the proofs must lose the mark.
+        // Switching off selects existing clean files without processing.
         fixture
             .database
             .repository::<TestRepository>()
@@ -964,7 +1070,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(fixture.jobs(photo).await, 2);
+        assert_eq!(fixture.jobs(photo).await, 0);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -1000,7 +1106,7 @@ mod tests {
         assert_eq!(first.watermark, None);
         assert_eq!(
             fixture.proof(plain).await.unwrap().stamp,
-            WatermarkStamp::new(None)
+            WatermarkStamp::new(Some(0))
         );
         assert_eq!(first.stamp, WatermarkStamp::new(Some(0)));
         assert!(fixture.proof(PhotoId::generate()).await.is_none());
@@ -1011,7 +1117,17 @@ mod tests {
 
         assert_eq!(second.stamp, WatermarkStamp::new(Some(1)));
         assert_eq!(second.watermark.unwrap().text.as_deref(), Some("Studio"));
-        assert_eq!(fixture.proof(plain).await.unwrap().watermark, None);
+        assert_eq!(
+            fixture
+                .proof(plain)
+                .await
+                .unwrap()
+                .watermark
+                .unwrap()
+                .text
+                .as_deref(),
+            Some("Studio")
+        );
     }
 
     /// Claims the only queued job of `photo`'s gallery after making it waiting.
@@ -1039,6 +1155,18 @@ mod tests {
             .unwrap()
             .unwrap();
         let jobs = fixture.database.repository::<JobRepository>();
+        fixture
+            .watermarks()
+            .update_gallery(
+                fixture.workspace_id,
+                gallery,
+                &GalleryChanges {
+                    watermark_enabled: Some(false),
+                    ..GalleryChanges::default()
+                },
+            )
+            .await
+            .unwrap();
         let Publication::Open(open) = jobs
             .begin_publication(&job, photo, proof.stamp)
             .await
