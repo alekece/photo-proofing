@@ -15,7 +15,7 @@
 
 <div
 	data-slot="photo-stack"
-	class="relative mx-auto grid h-24 w-32 place-items-center overflow-hidden"
+	class="relative grid size-24 flex-none place-items-center"
 	aria-hidden="true"
 >
 	<div class="contents" class:fly={done}>
@@ -23,12 +23,12 @@
 			<img
 				src={thumbnailUrl(galleryId, id)}
 				alt=""
-				class="absolute size-20 rounded-control border-2 border-panel object-cover shadow-md {TILTS[
+				class="absolute size-[5.25rem] rounded-control border-2 border-panel object-cover shadow-md {TILTS[
 					index
 				]}"
 			/>
 		{:else}
-			<span class="size-20 rounded-control border-2 border-dashed border-border-strong"></span>
+			<span class="size-24 rounded-control border-2 border-dashed border-border-strong"></span>
 		{/each}
 	</div>
 	{#if done}

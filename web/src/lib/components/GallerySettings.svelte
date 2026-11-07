@@ -1,12 +1,5 @@
 <script lang="ts">
-	import {
-		Archive,
-		ArchiveRestore,
-		Link,
-		Palette,
-		SlidersHorizontal,
-		Trash2
-	} from '@lucide/svelte';
+	import { Archive, ArchiveRestore, Calendar, Link, Trash2 } from '@lucide/svelte';
 	import type { Component } from 'svelte';
 	import LayoutRowsIcon from '#lib/components/icons/LayoutRowsIcon.svelte';
 	import LayoutStaggeredIcon from '#lib/components/icons/LayoutStaggeredIcon.svelte';
@@ -63,8 +56,8 @@
 	const archived = $derived(gallery.states.includes('archived'));
 	const cards: { id: string; label: string; icon: Component<{ size?: number }> }[] = [
 		{ id: 'link', label: 'Client link', icon: Link },
-		{ id: 'access', label: 'Client access', icon: SlidersHorizontal },
-		{ id: 'look', label: 'Look', icon: Palette },
+		{ id: 'access', label: 'Client access', icon: Calendar },
+		{ id: 'look', label: 'Look', icon: LayoutStaggeredIcon },
 		{ id: 'gallery', label: 'Gallery', icon: Archive }
 	];
 	const layouts = [

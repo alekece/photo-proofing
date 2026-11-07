@@ -402,7 +402,7 @@ describe('gallery page', () => {
 			const user = userEvent.setup();
 			open({ expires_at: '2026-09-12T12:00:00Z' });
 			await user.click(screen.getByRole('button', { name: 'Share' }));
-			expect(await screen.findByText(/pick favorites until 12 Sep\./)).toBeTruthy();
+			expect(await screen.findByText(/pick favorites until 12 Sep 2026\./)).toBeTruthy();
 		});
 
 		it('starts from the link row and an enabled Deliver when already shared', () => {
@@ -412,6 +412,14 @@ describe('gallery page', () => {
 			expect((screen.getByRole('button', { name: 'Deliver' }) as HTMLButtonElement).disabled).toBe(
 				false
 			);
+		});
+
+		it('names the gallery in the Deliver text, plural when it has an ampersand', async () => {
+			stubShareFlow();
+			const user = userEvent.setup();
+			open({ share_token: 'B'.repeat(22), title: 'Camille & Hugo' });
+			await user.click(screen.getByRole('button', { name: 'Deliver' }));
+			expect(await screen.findByText(/Camille & Hugo see them at the same link/)).toBeTruthy();
 		});
 
 		it('opens the Deliver dialog and explains that delivering is not available yet', async () => {

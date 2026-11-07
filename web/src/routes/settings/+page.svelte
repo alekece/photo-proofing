@@ -125,9 +125,7 @@
 >
 	{#if message}<p role="alert" class="mb-4 text-danger">{message}</p>{/if}
 	<div class="mb-7 flex flex-wrap items-center gap-3">
-		<h1 class="m-0 flex-1 text-[2rem] leading-[1.1] max-sm:basis-full sm:text-[3.25rem]">
-			Settings
-		</h1>
+		<h1 class="m-0 flex-1 text-4xl leading-[1.1] max-sm:basis-full sm:text-[3.25rem]">Settings</h1>
 		<Button
 			variant="outline"
 			disabled={!dirty}

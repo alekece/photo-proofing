@@ -40,7 +40,7 @@
 	const repeat = $derived(settings.pattern === 'repeat');
 	const scale = $derived(SCALES[Math.min(settings.size, SIZE_STEPS - 1)]);
 	const item =
-		'grid h-12 min-w-[3.25rem] cursor-pointer place-items-center rounded-xl px-2.5 transition-colors hover:bg-[#f3ede5] aria-pressed:bg-foreground aria-pressed:text-inverse disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent';
+		'grid h-[2.625rem] min-w-[2.625rem] cursor-pointer place-items-center rounded-xl px-1.5 sm:h-12 sm:min-w-[3.25rem] sm:px-2.5 transition-colors hover:bg-[#f3ede5] aria-pressed:bg-foreground aria-pressed:text-inverse disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent';
 	const glyph = 'inline-flex items-center gap-1 font-serif text-xl italic';
 </script>
 
@@ -76,7 +76,7 @@
 	role="toolbar"
 	aria-label="Watermark"
 >
-	<div role="group" aria-label="Mark" class="flex items-center gap-1 px-2">
+	<div role="group" aria-label="Mark" class="flex items-center gap-0.5 px-1 sm:gap-1 sm:px-2">
 		{#each marks as { id, label } (id)}
 			<button
 				type="button"
@@ -97,7 +97,7 @@
 	<div
 		role="group"
 		aria-label="Pattern"
-		class="flex items-center gap-1 border-l border-border px-2"
+		class="flex items-center gap-0.5 border-l border-border px-1 sm:gap-1 sm:px-2"
 	>
 		{#each patterns as { id, label } (id)}
 			<button
@@ -130,7 +130,7 @@
 			</button>
 		{/each}
 	</div>
-	<div class="flex items-center border-l border-border px-2 max-sm:border-l-0" title="Position">
+	<div class="flex items-center border-l border-border px-1 sm:px-2" title="Position">
 		<fieldset
 			disabled={repeat}
 			aria-label="Position"

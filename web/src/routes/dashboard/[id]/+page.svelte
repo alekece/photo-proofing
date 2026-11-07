@@ -307,7 +307,11 @@
 {#if confirming === 'archive'}
 	<ArchiveGalleryDialog onconfirm={archive} onclose={() => (confirming = null)} />
 {:else if confirming === 'delete'}
-	<DeleteGalleryDialog onconfirm={remove} onclose={() => (confirming = null)} />
+	<DeleteGalleryDialog
+		galleryId={saved.id}
+		onconfirm={remove}
+		onclose={() => (confirming = null)}
+	/>
 {/if}
 {#if expiredSince}
 	<RestoreExpiredDialog
@@ -320,6 +324,7 @@
 	<PublishDialog
 		kind={publishing}
 		galleryId={saved.id}
+		title={saved.title ?? UNTITLED_GALLERY}
 		expiresAt={saved.expires_at}
 		uploading={queue?.inFlight(saved.id) ?? 0}
 		onconfirm={publishing === 'share' ? share : deliver}

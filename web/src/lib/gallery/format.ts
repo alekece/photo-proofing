@@ -29,6 +29,11 @@ export function formatShortDate(iso: string): string {
 	return `${date.getDate()} ${date.toLocaleString('en-US', { month: 'short' })}`;
 }
 
+/** "7 Sep 2026": like `formatShortDate`, with the year. */
+export function formatLongDate(iso: string): string {
+	return `${formatShortDate(iso)} ${new Date(iso).getFullYear()}`;
+}
+
 /** 23:59:59 of the chosen day in the browser's time zone, as an RFC 3339 instant. */
 export function endOfLocalDay(day: string): string {
 	const [year, month, date] = day.split('-').map(Number);

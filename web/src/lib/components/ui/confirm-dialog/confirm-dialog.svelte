@@ -65,22 +65,27 @@
 <Dialog
 	{onclose}
 	labelledby="{id}-title"
-	class="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
+	class="m-auto w-[min(27.5rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
 >
 	{#snippet children(close)}
-		<div class="grid gap-4" aria-busy={pending}>
+		<div
+			class="grid gap-4 {visual && !(done && result)
+				? 'sm:grid-cols-[6rem_1fr] sm:gap-x-[1.125rem]'
+				: ''}"
+			aria-busy={pending}
+		>
 			{@render visual?.(done)}
 			{#if done && result}
 				<h2 id="{id}-title" class="text-center text-xl">{result.title}</h2>
 				{@render result.body(close)}
 			{:else}
-				<div class="grid gap-2">
+				<div class="grid content-start gap-2">
 					<h2 id="{id}-title" class="text-xl">{title}</h2>
 					{@render description?.()}
 				</div>
-				{#if error}<p role="alert" class="text-sm text-danger">{error}</p>{/if}
-				<div class="flex justify-end gap-2">
-					<Button variant="ghost" onclick={close}>{cancelLabel}</Button>
+				{#if error}<p role="alert" class="text-sm text-danger sm:col-span-2">{error}</p>{/if}
+				<div class="flex gap-2.5 sm:col-span-2 sm:justify-end max-sm:[&>*]:flex-1">
+					<Button variant="outline" onclick={close}>{cancelLabel}</Button>
 					<Button
 						variant={destructive ? 'destructive' : 'default'}
 						disabled={pending || busy}
