@@ -66,6 +66,8 @@ Four cards on the left; on phones an icon rail whose buttons pop the same cards 
 
 **Photos**, **Favorites** and **Final**, each with its count. The Favorites count turns bold
 accent when over the allowance. After delivery Favorites shows a padlock: the selection is locked.
+While the gallery is a draft, **Favorites** and **Final** are dimmed and disabled (tooltip "Available once the
+gallery is shared"); only Photos opens, even from a direct link.
 
 ### Photos
 

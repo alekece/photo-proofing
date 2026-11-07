@@ -258,6 +258,8 @@ label.kv>span{white-space:nowrap}
 .tabs{display:flex;gap:24px;border-bottom:1px solid var(--line);flex:1}
 .tabs button{padding:6px 0 10px;font:500 15px/1.2 system-ui,sans-serif;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;align-items:baseline;gap:8px;transition:color .15s,border-color .15s}
 .tabs button:hover{color:var(--ink)}
+.tabs button:disabled{opacity:.45;cursor:not-allowed}
+.tabs button:disabled:hover{color:var(--muted)}
 .tabs button.on{color:var(--ink);border-color:var(--ink);font-weight:600}
 .tabs em{font:700 10.5px system-ui;letter-spacing:.04em;font-style:normal;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:1px 6px;background:var(--panel)}
 .tabs button.on em{color:var(--ink);border-color:#cdbda9;background:#fff}
@@ -1020,6 +1022,7 @@ const T={
  'tab.photos':{en:'Photos',fr:'Photos'},
  'tab.favorites':{en:'Favorites',fr:'Favoris'},
  'tab.final':{en:'Final',fr:'Finales'},
+ 'tab.afterShare':{en:'Available once the gallery is shared',fr:'Disponible une fois la galerie partagée'},
  'tab.locked':{en:'Locked after delivery',fr:'Verrouillés après la livraison'},
  'drop.final':{en:'Drop the finished photos here',fr:'Déposez les photos finales ici'},
  'drop.photos':{en:'Drop the shoot here',fr:'Déposez la séance ici'},
@@ -1326,7 +1329,7 @@ function tile(p,{g,tab,sel}){
 }
 function tabs(g,tab){
   const del=g.status==='delivered',n=g.photos.length,f=favCount(g),fi=g.finals.length;
-  const b=(k,l,em,lk)=>`<button class="${tab===k?'on':''}" data-a="tab" data-v="${k}">${l}${lk?`<span class="lk" title="${lk}">${lock}</span>`:''}<em${k==='favorites'&&over(g)?' class="x"':''}>${em}</em></button>`;
+  const b=(k,l,em,lk)=>{const off=g.status==='draft'&&k!=='photos';return `<button class="${tab===k?'on':''}" data-a="tab" data-v="${k}"${off?` disabled title="${t('tab.afterShare')}"`:''}>${l}${lk?`<span class="lk" title="${lk}">${lock}</span>`:''}<em${k==='favorites'&&over(g)?' class="x"':''}>${em}</em></button>`};
   return `<div class="tbar" data-r="tabs"><div class="tabs">${b('photos',t('tab.photos'),n)}${b('favorites',t('tab.favorites'),f,del&&t('tab.locked'))}${b('final',t('tab.final'),fi)}</div></div>`;
 }
 const tabList=(g,tab)=>tab==='final'?g.finals:tab==='favorites'?g.photos.filter(p=>p.fav&&p.st==='ok'):g.photos;
@@ -1539,7 +1542,7 @@ function clientView(g,{preview=false,narrow=false}={}){
 /* ---------- router & render ---------- */
 function route(){
   const h=location.hash.replace(/^#\/?/,'').split('/');
-  if(h[0]==='g'&&G(h[1]))return {page:'g',gid:h[1],tab:['photos','favorites','final'].includes(h[2])?h[2]:'photos'};
+  if(h[0]==='g'&&G(h[1]))return {page:'g',gid:h[1],tab:G(h[1]).status!=='draft'&&['favorites','final'].includes(h[2])?h[2]:'photos'};
   if(h[0]==='settings')return {page:'settings'};
   if(h[0]==='c')return {page:'c',token:h[1]||''};
   return {page:'dash'};
