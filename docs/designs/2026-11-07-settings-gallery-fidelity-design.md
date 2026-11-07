@@ -13,11 +13,11 @@ draft gallery: ready, processing, waiting and failed photos).
 
 | Acceptance criterion | Finding |
 |---|---|
-| Settings: title, Cancel / Save changes, logo tile, inline studio name, single toolbar, live preview, dirty/saved/discard, toast | Match at desktop. Phone: the position grid wraps to its own row, where the prototype keeps mark, pattern and position in one row. **Gap 1.** |
+| Settings: title, Cancel / Save changes, logo tile, inline studio name, single toolbar, live preview, dirty/saved/discard, toast | Match at desktop. Phone: the title is 32 px (prototype 36 px), and the position grid wraps to its own row where the prototype keeps mark, pattern and position in one row (its ≤700 px rule shrinks buttons to 42 px with 6 px padding). **Gap 1.** |
 | Gallery: hero header, no-hero, journey, tabs, select pill, uploading, dialogs | Match at 1280, 768 and 390 px. |
 | Gallery: failed-upload retry | On small tiles (two columns on a phone) the **Retry** button covers the failure text. The prototype lays the label, reason and button out in one overlay. **Gap 2.** |
 | Gallery: Client link / access / Look cards | Content matches. The phone icon rail uses a sliders and a palette icon; the prototype uses a calendar for access and the layout icon for Look. **Gap 3.** |
-| Missing backend | Logo is kept in the page (data URL, not stored) and Save resolves through `SettingsApi`, the seam for #67. Archive, Delete and Deliver keep their "later release" errors (#73, #71). No new backend. |
+| Missing backend | Logo and name live in the page (logo as a data URL) and Save resolves through `SettingsApi`, the seam for #67; the seam does not persist yet, so they reset on reload. Placement is kept; persistence is #67. Archive, Delete and Deliver keep their "later release" errors (#73, #71). No new backend. |
 
 Known, deliberately unchanged:
 
@@ -41,12 +41,12 @@ My call: approach 1.
 
 ## Decisions (my call)
 
-- Failed tiles put the reason and **Retry** in the tile's normal flow, so they can never overlap.
-- Phone toolbar buttons shrink (44 → 40 px) so Mark, Pattern and Position share a row at 390 px.
+- Failed tiles show label, reason and **Retry** in one flowing column and drop the file name (kept as a tooltip), like the prototype's overlay, so nothing overlaps or clips on a ~113 px phone tile.
+- Phone toolbar buttons take the prototype's ≤700 px sizes (42 px, 6 px padding, tighter group padding) so Mark, Pattern and Position share a row at 390 px; the slider keeps its own row. The phone title is 36 px.
 - The phone rail uses `Calendar` for Client access and the staggered-layout icon for Look.
 
 ## Test plan
 
-- `PhotoTile`: a failed tile shows its label and a Retry button, and clicking Retry calls back.
+- `PhotoTile`: a failed tile shows its label, reason and a Retry button, and clicking Retry calls back.
 - `GallerySettings`: the rail buttons stay labelled "Show Client access" and "Show Look".
-- Visual check at 390 px for gaps 1 and 2; `pnpm --dir web verify`.
+- Screenshot check at 390 px: toolbar in one row plus slider, failed tile text fully visible and clear of Retry; `pnpm --dir web verify`.
