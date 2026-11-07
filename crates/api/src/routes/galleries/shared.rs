@@ -18,12 +18,15 @@ use actix_web::{
     web::{Data, Path, ServiceConfig},
 };
 use pp_core::notifications::PhotoId;
-use pp_database::{gallery::GalleryRepository, photo::PhotoRepository};
+use pp_database::{
+    gallery::GalleryRepository,
+    photo::{PhotoRepository, ProofAccess},
+};
 use pp_database::{
     gallery::SharedGallery,
     watermark::{CoverSignature, WatermarkRepository},
 };
-use pp_storage::PhotoKey;
+use pp_storage::{PhotoKey, Variant};
 use serde::Serialize;
 
 use super::DerivativePhoto;
@@ -43,6 +46,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(add_favorite)
         .service(remove_favorite)
         .service(serve_shared_logo)
+        .service(serve_shared_cover)
         .service(serve_shared_photo);
 }
 
@@ -133,7 +137,11 @@ async fn list_shared_photos(
     let photos = state
         .database()
         .repository::<PhotoRepository>()
-        .list_ready(access.0.location, access.photo_set().kind())
+        .list_visible(
+            access.0.location,
+            access.photo_set().kind(),
+            ProofAccess::Client,
+        )
         .await?;
 
     Ok(HttpResponse::Ok().no_store().no_referrer().json(photos))
@@ -205,21 +213,57 @@ async fn serve_shared_photo(
 ) -> Result<ImageFile, ErrorResponse> {
     let (_, photo_id, derivative) = path.into_inner();
     let location = access.0.location;
-    let visible = state
+    let pair = state
         .database()
         .repository::<PhotoRepository>()
-        .is_ready(location, photo_id, access.photo_set().kind())
-        .await?;
+        .visible_derivative(
+            location,
+            photo_id,
+            access.photo_set().kind(),
+            ProofAccess::Client,
+        )
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
 
-    if !visible {
+    ImageFile::read(
+        state.storage(),
+        &PhotoKey::with_location(location, photo_id, derivative.variant(pair)),
+    )
+    .await
+    .map(ImageFile::proof)
+}
+
+#[get("/shared/{token}/cover")]
+async fn serve_shared_cover(
+    state: Data<ApiState>,
+    access: ClientAccess,
+) -> Result<ImageFile, ErrorResponse> {
+    let id = access
+        .0
+        .gallery
+        .hero_id
+        .ok_or_else(ErrorResponse::not_found)?;
+
+    if !state
+        .database()
+        .repository::<PhotoRepository>()
+        .is_visible(
+            access.0.location,
+            id,
+            access.photo_set().kind(),
+            ProofAccess::Clean,
+        )
+        .await?
+    {
         return Err(ErrorResponse::not_found());
     }
 
     ImageFile::read(
         state.storage(),
-        &PhotoKey::with_location(location, photo_id, derivative.into()),
+        &PhotoKey::with_location(access.0.location, id, Variant::Preview),
     )
     .await
+    .map(ImageFile::proof)
 }
 
 #[cfg(test)]
@@ -564,7 +608,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn shared_page_exposes_the_hero_only_while_it_is_ready(pool: PgPool) {
+    async fn shared_page_keeps_the_clean_hero_during_marked_processing(pool: PgPool) {
         let directory = tempfile::tempdir().unwrap();
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let cookie = sign_up(&app).await;
@@ -592,7 +636,7 @@ mod tests {
 
         let (_, body) = call(&app, get(&token)).await;
 
-        assert_eq!(body["hero_id"], Value::Null);
+        assert_eq!(body["hero_id"], hero.as_str());
     }
 
     /// Shares the gallery through the photographer route and returns its token.
@@ -682,6 +726,99 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
+    async fn marked_client_images_and_clean_cover_are_separate(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        let clean = store_derivative(&pool, directory.path(), &photo, "preview").await;
+        let marked = store_derivative(&pool, directory.path(), &photo, "watermarked-preview").await;
+        let token = share(&app, &cookie, &gallery_id).await;
+
+        sqlx::query(
+            "UPDATE galleries SET watermark_enabled = true, hero_id = $2::uuid WHERE id = $1::uuid",
+        )
+        .bind(&gallery_id)
+        .bind(&photo)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let response = test::call_service(
+            &app,
+            client_request(&token, &format!("/photos/{photo}/preview")),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(test::read_body(response).await.as_ref(), marked);
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!(
+                    "/api/v1/galleries/{gallery_id}/client-preview/photos/{photo}/preview"
+                ))
+                .cookie(cookie.clone())
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(test::read_body(response).await.as_ref(), marked);
+
+        sqlx::query("UPDATE photos SET status = 'processing', watermark_revision = NULL WHERE id = $1::uuid")
+            .bind(&photo).execute(&pool).await.unwrap();
+        let response = test::call_service(&app, client_request(&token, "/cover")).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(test::read_body(response).await.as_ref(), clean);
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!(
+                    "/api/v1/galleries/{gallery_id}/photos/{photo}/preview"
+                ))
+                .cookie(cookie.clone())
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(test::read_body(response).await.as_ref(), clean);
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!(
+                    "/api/v1/galleries/{gallery_id}/client-preview/photos"
+                ))
+                .cookie(cookie.clone())
+                .to_request(),
+        )
+        .await;
+        let photos: Value = test::read_body_json(response).await;
+
+        assert_eq!(photos, json!([]));
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!(
+                    "/api/v1/galleries/{gallery_id}/client-preview/photos"
+                ))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let response = test::call_service(
+            &app,
+            client_request(&token, &format!("/photos/{photo}/preview?clean=true")),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
     async fn client_serves_thumbnail_and_preview_of_a_ready_photo(pool: PgPool) {
         let directory = tempfile::tempdir().unwrap();
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
@@ -701,10 +838,7 @@ mod tests {
 
             assert_eq!(response.status(), StatusCode::OK, "{image}");
             assert_eq!(headers.get("content-type").unwrap(), "image/jpeg");
-            assert_eq!(
-                headers.get("cache-control").unwrap(),
-                "private, max-age=3600"
-            );
+            assert_eq!(headers.get("cache-control").unwrap(), "no-store");
             assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
             assert_eq!(headers.get("referrer-policy").unwrap(), "no-referrer");
             assert_eq!(test::read_body(response).await, stored);
