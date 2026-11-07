@@ -2,9 +2,9 @@
 //!
 //! A stream starts with a `resync` event, then sends `photo` events
 //! (`{workspace_id, gallery_id, photo_id, status}`) and `favorites` events (`{workspace_id,
-//! gallery_id}`, a client changed a selection) for its own workspace only, and `resync` again whenever
-//! events may have been lost. It holds the session read-only: on every keep-alive tick it checks
-//! the session is still valid, never extending it, and ends once it is not. Clients have no
+//! gallery_id}`, a client changed a selection) for its own workspace only, and `resync` again
+//! whenever events may have been lost. It holds the session read-only: on every keep-alive tick it
+//! checks the session is still valid, never extending it, and ends once it is not. Clients have no
 //! stream.
 
 use std::time::SystemTime;

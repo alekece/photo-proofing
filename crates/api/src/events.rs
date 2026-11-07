@@ -79,8 +79,8 @@ impl EventHub {
         self.keep_alive.get()
     }
 
-    /// Opens a subscription for a stream of `workspace_id`, or `None` when the process or the workspace
-    /// already has as many streams as allowed.
+    /// Opens a subscription for a stream of `workspace_id`, or `None` when the process or the
+    /// workspace already has as many streams as allowed.
     pub fn subscribe(&self, workspace_id: WorkspaceId) -> Option<Subscription> {
         let slot = self.slots.acquire(workspace_id)?;
 
