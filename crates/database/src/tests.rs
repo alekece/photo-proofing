@@ -107,7 +107,13 @@ impl TestRepository<'_> {
         };
 
         sqlx::query(
-            "UPDATE photos SET status = $2::photo_status, failure_reason = $3 WHERE id = $1",
+            "UPDATE photos SET status = $2::photo_status, failure_reason = $3,
+                 clean_ready = $2 = 'ready',
+                 watermark_revision = CASE WHEN $2 = 'ready' AND kind = 'proof'
+                     THEN COALESCE((SELECT watermark_revision FROM workspace_settings
+                                    WHERE workspace_id = photos.workspace_id), 0)
+                     ELSE NULL END
+             WHERE id = $1",
         )
         .bind(id)
         .bind(status)

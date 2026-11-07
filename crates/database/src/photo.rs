@@ -79,6 +79,7 @@ pub struct ReadyPhoto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Photo {
     pub id: PhotoId,
+    pub clean_ready: bool,
     /// Changes only when a newly rendered asset is published as ready.
     pub revision: i64,
     pub original_name: String,
@@ -114,6 +115,7 @@ impl FromRow<'_, PgRow> for Photo {
 
         Ok(Self {
             id: row.try_get("id")?,
+            clean_ready: row.try_get("clean_ready")?,
             revision: row.try_get("revision")?,
             original_name: row.try_get("original_name")?,
             size,
@@ -168,6 +170,31 @@ pub struct PhotoLocation {
     pub gallery_id: GalleryId,
 }
 
+/// Which proof presentation authorizes a derivative.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProofAccess {
+    Clean,
+    Client,
+}
+
+/// The pair a caller may serve after checking the current gallery policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProofDerivative {
+    Clean,
+    Watermarked,
+}
+
+impl ProofAccess {
+    fn predicate(self) -> &'static str {
+        match self {
+            Self::Clean => "CASE WHEN p.kind = 'proof' THEN p.clean_ready ELSE p.status = 'ready' END",
+            Self::Client => "CASE WHEN p.kind = 'proof' THEN p.clean_ready AND
+                (NOT g.watermark_enabled OR p.watermark_revision = COALESCE(s.watermark_revision, 0))
+                ELSE p.status = 'ready' END",
+        }
+    }
+}
+
 /// What [`PhotoRepository::set_favorite`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FavoriteChange {
@@ -195,7 +222,7 @@ impl<'db> Repository<'db> for PhotoRepository<'db> {
 }
 
 impl PhotoRepository<'_> {
-    const COLUMNS: &'static str = "id, revision, original_name, size, width, height, status::text AS status, failure_reason, favorite, created_at";
+    const COLUMNS: &'static str = "id, clean_ready, revision, original_name, size, width, height, status::text AS status, failure_reason, favorite, created_at";
 
     /// Inserts only photo metadata in the caller's transaction.
     pub async fn insert_in(
@@ -216,7 +243,7 @@ impl PhotoRepository<'_> {
              FROM galleries AS g
              WHERE g.id = $3 AND g.workspace_id = $2
              ON CONFLICT (id) DO NOTHING
-             RETURNING id, revision, original_name, size, width, height,
+             RETURNING id, clean_ready, revision, original_name, size, width, height,
                        status::text AS status, failure_reason, favorite, created_at",
         )
         .bind(photo.id)
@@ -235,7 +262,7 @@ impl PhotoRepository<'_> {
         }
 
         let existing = sqlx::query(
-            "SELECT id, revision, workspace_id, gallery_id, original_name, size, width, height, kind,
+            "SELECT id, clean_ready, revision, workspace_id, gallery_id, original_name, size, width, height, kind,
                     status::text AS status, failure_reason, favorite, created_at
              FROM photos WHERE id = $1",
         )
@@ -343,6 +370,72 @@ impl PhotoRepository<'_> {
         .await?)
     }
 
+    pub async fn list_visible(
+        &self,
+        location: PhotoLocation,
+        kind: PhotoKind,
+        access: ProofAccess,
+    ) -> Result<Vec<ReadyPhoto>, DatabaseError> {
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT p.id, p.revision, p.width, p.height FROM photos p
+             JOIN galleries g ON g.id = p.gallery_id
+             LEFT JOIN workspace_settings s ON s.workspace_id = p.workspace_id
+             WHERE p.workspace_id = $1 AND p.gallery_id = $2 AND p.kind = $3
+               AND p.removed_at IS NULL AND {}
+             ORDER BY p.created_at, p.id",
+            access.predicate()
+        )))
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .bind(kind)
+        .fetch_all(self.pool)
+        .await?)
+    }
+
+    pub async fn is_visible(
+        &self,
+        location: PhotoLocation,
+        id: PhotoId,
+        kind: PhotoKind,
+        access: ProofAccess,
+    ) -> Result<bool, DatabaseError> {
+        Ok(self
+            .visible_derivative(location, id, kind, access)
+            .await?
+            .is_some())
+    }
+
+    pub async fn visible_derivative(
+        &self,
+        location: PhotoLocation,
+        id: PhotoId,
+        kind: PhotoKind,
+        access: ProofAccess,
+    ) -> Result<Option<ProofDerivative>, DatabaseError> {
+        let marked: Option<bool> = sqlx::query_scalar(AssertSqlSafe(format!(
+            "SELECT g.watermark_enabled AND p.kind = 'proof' FROM photos p
+             JOIN galleries g ON g.id = p.gallery_id
+             LEFT JOIN workspace_settings s ON s.workspace_id = p.workspace_id
+             WHERE p.workspace_id = $1 AND p.gallery_id = $2 AND p.id = $3
+               AND p.kind = $4 AND p.removed_at IS NULL AND {}",
+            access.predicate()
+        )))
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .bind(id)
+        .bind(kind)
+        .fetch_optional(self.pool)
+        .await?;
+
+        Ok(marked.map(|marked| {
+            if access == ProofAccess::Client && marked {
+                ProofDerivative::Watermarked
+            } else {
+                ProofDerivative::Clean
+            }
+        }))
+    }
+
     /// Adds `photo` to the gallery's favorites, or removes it when `favorite` is false.
     ///
     /// One conditional `UPDATE` decides everything, so repeated and concurrent calls converge. The
@@ -355,12 +448,13 @@ impl PhotoRepository<'_> {
         favorite: bool,
         kind: PhotoKind,
     ) -> Result<FavoriteChange, DatabaseError> {
-        let delivered: Option<bool> = sqlx::query_scalar(
+        let delivered: Option<bool> = sqlx::query_scalar(AssertSqlSafe(format!(
             "WITH target AS (
                  SELECT p.id, g.delivered_at IS NOT NULL AS delivered
                  FROM photos AS p JOIN galleries AS g ON g.id = p.gallery_id
+                 LEFT JOIN workspace_settings s ON s.workspace_id = p.workspace_id
                  WHERE p.id = $3 AND p.workspace_id = $1 AND p.gallery_id = $2
-                   AND p.status = 'ready' AND p.kind = $5
+                   AND p.kind = $5 AND p.removed_at IS NULL AND {}
              ),
              changed AS (
                  UPDATE photos SET favorite = $4
@@ -368,7 +462,8 @@ impl PhotoRepository<'_> {
                    AND favorite IS DISTINCT FROM $4
              )
              SELECT delivered FROM target",
-        )
+            ProofAccess::Client.predicate()
+        )))
         .bind(location.workspace_id)
         .bind(location.gallery_id)
         .bind(id)
@@ -467,6 +562,11 @@ impl PhotoRepository<'_> {
     ) -> Result<bool, DatabaseError> {
         let result = sqlx::query(
             "UPDATE photos SET status = $2::photo_status, failure_reason = $3,
+                 clean_ready = clean_ready OR $2 = 'ready',
+                 watermark_revision = CASE WHEN $2 = 'ready' AND kind = 'proof'
+                     THEN COALESCE((SELECT watermark_revision FROM workspace_settings
+                                    WHERE workspace_id = photos.workspace_id), 0)
+                     ELSE watermark_revision END,
                  revision = revision + CASE WHEN $2 = 'ready' THEN 1 ELSE 0 END
              WHERE id = $1 AND status IN ('waiting', 'processing')",
         )
@@ -599,7 +699,7 @@ mod tests {
             ("unknown", Some("unexpected"), None),
         ] {
             let row = sqlx::query(
-                "SELECT $1::uuid AS id, 0::bigint AS revision, 'proof.jpg'::text AS original_name,
+                "SELECT $1::uuid AS id, false AS clean_ready, 0::bigint AS revision, 'proof.jpg'::text AS original_name,
                  1024::bigint AS size, 20::integer AS width, 10::integer AS height,
                  $2::text AS status, $3::text AS failure_reason, false AS favorite, now() AS created_at",
             )
