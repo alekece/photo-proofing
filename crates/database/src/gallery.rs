@@ -15,7 +15,7 @@ use pp_core::{
     types::{generate::Generate, timestamp::Timestamp},
 };
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
-use sqlx::{AssertSqlSafe, FromRow, PgPool, Row, Type, postgres::PgRow};
+use sqlx::{AssertSqlSafe, FromRow, PgExecutor, PgPool, Row, Type, postgres::PgRow};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -535,6 +535,16 @@ impl GalleryRepository<'_> {
             return Ok(self.get(workspace_id, id).await?);
         }
 
+        Self::update_in(self.pool, workspace_id, id, changes).await
+    }
+
+    /// Applies a non-empty changeset through `executor`; see [`update`](Self::update).
+    pub(crate) async fn update_in(
+        executor: impl PgExecutor<'_>,
+        workspace_id: WorkspaceId,
+        id: GalleryId,
+        changes: &GalleryChanges,
+    ) -> Result<Option<Gallery>, GalleryError> {
         let included_photos = changes
             .included_photos
             .map(|count| {
@@ -582,7 +592,7 @@ impl GalleryRepository<'_> {
         .bind(changes.watermark_enabled)
         .bind(changes.hero_id.is_some())
         .bind(changes.hero_id.flatten())
-        .fetch_optional(self.pool)
+        .fetch_optional(executor)
         .await
         .map_err(GalleryError::classify)
     }

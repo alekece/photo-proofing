@@ -5,6 +5,7 @@
 
 pub(crate) mod jpeg;
 pub(crate) mod limiter;
+pub(crate) mod logo;
 
 use std::{num::NonZeroU64, time::Duration};
 
