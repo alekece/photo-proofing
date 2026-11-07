@@ -5,6 +5,8 @@ WORKDIR /app
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml web/.npmrc ./
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
 COPY web/ ./
+ARG PP_BUILD_SHA
+ENV PP_BUILD_SHA=$PP_BUILD_SHA
 RUN pnpm build && pnpm prune --prod --ignore-scripts
 
 FROM node:24-bookworm-slim

@@ -92,6 +92,7 @@ jobs:
             echo "build=true" >> "$GITHUB_OUTPUT"
             docker buildx build --load \
               --file docker/web.production.Dockerfile \
+              --build-arg "PP_BUILD_SHA=${REVISION}" \
               --tag "$IMAGE:$TAG" \
               --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
               --label "org.opencontainers.image.revision=${REVISION}" \

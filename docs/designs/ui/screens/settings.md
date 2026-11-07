@@ -45,3 +45,7 @@ Workspace settings shared by every gallery. Route `/settings`, from the account 
 
 Per-gallery choices are limited to the **Watermark proofs** switch in the gallery's side nav; the
 watermark design itself is the same for every gallery.
+
+The footer shows the frontend's short build SHA and a button to copy the full
+SHA. Clipboard failure offers manual copying. Unstamped local builds say
+Development build. Build identity does not appear on client galleries.
