@@ -1,5 +1,4 @@
 import { SvelteSet } from 'svelte/reactivity';
-import { favoriteIdsSchema, parseOrNull } from './schemas';
 
 interface SelectionOptions {
 	token: string;
@@ -54,29 +53,6 @@ export class Selection {
 		this.#saving.set(id, tracked);
 
 		return tracked;
-	}
-
-	/** Replaces the selection with the server's, except photos still being saved. */
-	async refresh(): Promise<void> {
-		let ids: string[] | null = null;
-
-		try {
-			const response = await this.#fetcher(`${this.#base}/favorites`, {
-				credentials: 'same-origin',
-				cache: 'no-store'
-			});
-
-			if (response.ok) ids = parseOrNull(favoriteIdsSchema, await response.json());
-		} catch {
-			// The next event or reconnect refreshes again.
-		}
-
-		if (ids === null) return;
-
-		for (const id of [...this.ids]) {
-			if (!ids.includes(id) && !this.#saving.has(id)) this.ids.delete(id);
-		}
-		for (const id of ids) if (!this.#saving.has(id)) this.ids.add(id);
 	}
 
 	async #save(id: string, selected: boolean) {

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('$app/navigation', () => ({ afterNavigate: vi.fn(), goto: vi.fn() }));
 vi.mock('$app/state', () => ({ navigating: { to: null } }));
@@ -51,18 +51,6 @@ describe('route shells', () => {
 		expect(screen.getByText('Nothing in frame yet.')).toBeTruthy();
 	});
 });
-
-// jsdom has no EventSource; the client page opens one for live selection updates.
-beforeEach(() =>
-	vi.stubGlobal(
-		'EventSource',
-		class {
-			addEventListener() {}
-			close() {}
-		}
-	)
-);
-afterEach(() => vi.unstubAllGlobals());
 
 describe('client gallery route', () => {
 	it('shows a neutral unavailable page without gallery data', () => {
