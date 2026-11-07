@@ -65,7 +65,12 @@ describe('client gallery page', () => {
 
 	it('prevents the context menu on the cover overlay and grid photos', () => {
 		render(Page, {
-			data: { gallery: { ...gallery, hero_id: 'p1' }, proofs: [proof], favorites: [] },
+			data: {
+				gallery: { ...gallery, hero_id: 'p1' },
+				proofs: [proof],
+				coverUrl: 'data:,clean-cover',
+				favorites: []
+			},
 			params: { token: 'tok' }
 		});
 
