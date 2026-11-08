@@ -707,7 +707,33 @@ impl ExportRepository<'_> {
         Ok(expired)
     }
 
-    /// Deletes the gallery's exports of `kind` (every kind when `None`) and their jobs, jobs
+    /// Deletes the delivery ZIPs of galleries the client can no longer open, archived or past
+    /// their expiry, with their jobs, and returns them so their files can follow. The next client
+    /// click after the link works again builds a new one.
+    pub async fn remove_unreachable_deliveries(&self) -> Result<Vec<ExpiredExport>, DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
+        let unreachable: Vec<ExpiredExport> = sqlx::query_as(
+            "SELECT e.id, e.workspace_id, e.gallery_id FROM exports e
+             JOIN galleries g ON g.id = e.gallery_id
+             WHERE e.kind = 'delivery'
+               AND (g.archived_at IS NOT NULL OR g.expires_at <= now())
+             ORDER BY e.id FOR UPDATE OF e",
+        )
+        .fetch_all(&mut *transaction)
+        .await?;
+        let ids: Vec<ExportId> = unreachable.iter().map(|export| export.id).collect();
+
+        Self::delete_jobs_in(&mut transaction, &ids).await?;
+        sqlx::query("DELETE FROM exports WHERE id = ANY($1)")
+            .bind(&ids)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+
+        Ok(unreachable)
+    }
+
+    /// Deletes the gallery's exports of `kind' (every kind when `None`) and their jobs, jobs
     /// first like every other deletion.
     pub(crate) async fn delete_exports_in(
         transaction: &mut Transaction<'_, Postgres>,

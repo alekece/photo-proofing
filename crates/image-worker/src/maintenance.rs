@@ -86,17 +86,23 @@ impl Maintenance {
         self.sweep_archives().await;
     }
 
-    /// Removes exports past their retention together with their files.
+    /// Removes selection exports past their retention, and the delivery ZIPs of galleries the
+    /// client can no longer open, together with their files.
     async fn expire_exports(&self) {
         let exports = self.database.repository::<ExportRepository>();
-        let expired = match exports.expire(self.retention).await {
+        let mut expired = match exports.expire(self.retention).await {
             Ok(expired) => expired,
             Err(error) => {
                 warn!(%error, "expired exports could not be deleted");
 
-                return;
+                Vec::new()
             }
         };
+
+        match exports.remove_unreachable_deliveries().await {
+            Ok(unreachable) => expired.extend(unreachable),
+            Err(error) => warn!(%error, "unreachable delivery ZIPs could not be deleted"),
+        }
 
         for export in &expired {
             let key = ArchiveKey {
@@ -106,7 +112,7 @@ impl Maintenance {
             };
 
             if let Err(error) = self.storage.remove_archive(&key).await {
-                warn!(%error, export = %export.id.0, "expired selection ZIP could not be removed");
+                warn!(%error, export = %export.id.0, "expired ZIP could not be removed");
             }
         }
 
@@ -343,6 +349,58 @@ mod tests {
                 .await
                 .unwrap()
         );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn delivery_zips_outlive_retention_but_not_an_unreachable_link(pool: PgPool) {
+        let fixture = Fixture::new(pool.clone()).await;
+
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width,
+                                 height, status, kind)
+             VALUES ($1, $2, $3, 'f.jpg', 5, 2, 2, 'ready', 'final')",
+        )
+        .bind(PhotoId::generate())
+        .bind(fixture.location.workspace_id)
+        .bind(fixture.location.gallery_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE galleries SET delivered_at = now()")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let exports = fixture.database.repository::<ExportRepository>();
+
+        exports
+            .ensure_delivery(fixture.location.workspace_id, fixture.location.gallery_id)
+            .await
+            .unwrap();
+
+        let id: ExportId = sqlx::query_scalar("SELECT id FROM exports")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let key = ArchiveKey {
+            workspace: fixture.location.workspace_id,
+            gallery: fixture.location.gallery_id,
+            export: id,
+        };
+
+        fixture.storage.build_archive(&key, Vec::new()).await.unwrap();
+        fixture.maintenance(DAY, Duration::ZERO).run().await;
+
+        assert!(fixture.has_zip(&key).await);
+
+        sqlx::query("UPDATE galleries SET archived_at = now()")
+            .execute(&pool)
+            .await
+            .unwrap();
+        fixture.maintenance(DAY, DAY).run().await;
+
+        assert!(!fixture.has_zip(&key).await);
+        assert!(!exports.exists(id).await.unwrap());
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
