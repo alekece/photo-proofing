@@ -96,6 +96,15 @@ impl CoverSignature {
     }
 }
 
+/// The language of the photographer app and every client page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "ui_language", rename_all = "snake_case")]
+pub enum Language {
+    En,
+    Fr,
+}
+
 /// A cell of the 3 × 3 position grid, 0 (top left) to 8 (bottom right).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "u8", into = "u8")]
@@ -430,6 +439,47 @@ impl WatermarkRepository<'_> {
         Ok(saved)
     }
 
+    /// The workspace's language, English when none was saved.
+    pub async fn language(&self, workspace_id: WorkspaceId) -> Result<Language, DatabaseError> {
+        Ok(sqlx::query_scalar(
+            "SELECT COALESCE(s.language, 'en') FROM (SELECT $1::uuid AS id) w
+             LEFT JOIN workspace_settings s ON s.workspace_id = w.id",
+        )
+        .bind(workspace_id)
+        .fetch_one(self.pool)
+        .await?)
+    }
+
+    /// Saves the language alone: the watermark and its revision stay as they are.
+    pub async fn save_language(
+        &self,
+        workspace_id: WorkspaceId,
+        language: Language,
+    ) -> Result<(), DatabaseError> {
+        sqlx::query(
+            "INSERT INTO workspace_settings(workspace_id, language) VALUES ($1, $2)
+             ON CONFLICT (workspace_id)
+             DO UPDATE SET language = EXCLUDED.language, updated_at = now()",
+        )
+        .bind(workspace_id)
+        .bind(language)
+        .execute(self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// The language of the installation's only workspace, or `None` before setup created it.
+    pub async fn installation_language(&self) -> Result<Option<Language>, DatabaseError> {
+        Ok(sqlx::query_scalar(
+            "SELECT COALESCE(s.language, 'en') FROM workspaces w
+             LEFT JOIN workspace_settings s ON s.workspace_id = w.id
+             ORDER BY w.id LIMIT 1",
+        )
+        .fetch_optional(self.pool)
+        .await?)
+    }
+
     /// Updates the gallery without changing prepared images or enqueueing processing.
     pub async fn update_gallery(
         &self,
@@ -688,6 +738,75 @@ mod tests {
             WorkspaceSettings::default()
         );
         assert_eq!(WorkspaceSettings::default().watermark(), None);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn language_defaults_to_english_without_a_settings_row(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+        let language = fixture
+            .watermarks()
+            .language(fixture.workspace_id)
+            .await
+            .unwrap();
+
+        assert_eq!(language, Language::En);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn saving_the_language_keeps_the_watermark_revision(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+
+        fixture.save(update("Studio")).await.unwrap();
+
+        let revision = || {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT watermark_revision FROM workspace_settings WHERE workspace_id = $1",
+            )
+            .bind(fixture.workspace_id)
+            .fetch_one(&fixture.pool)
+        };
+        let before = revision().await.unwrap();
+
+        fixture
+            .watermarks()
+            .save_language(fixture.workspace_id, Language::Fr)
+            .await
+            .unwrap();
+
+        let language = fixture
+            .watermarks()
+            .language(fixture.workspace_id)
+            .await
+            .unwrap();
+
+        assert_eq!(language, Language::Fr);
+        assert_eq!(revision().await.unwrap(), before);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn installation_language_is_none_before_setup_then_the_workspace_language(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let watermarks = database.repository::<WatermarkRepository>();
+
+        assert_eq!(watermarks.installation_language().await.unwrap(), None);
+
+        let fixture = Fixture::new(pool).await;
+
+        assert_eq!(
+            watermarks.installation_language().await.unwrap(),
+            Some(Language::En)
+        );
+
+        fixture
+            .watermarks()
+            .save_language(fixture.workspace_id, Language::Fr)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            watermarks.installation_language().await.unwrap(),
+            Some(Language::Fr)
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]

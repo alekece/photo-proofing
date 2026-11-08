@@ -6,6 +6,8 @@
 //! - `PUT /` saves every setting at once and returns them. `logo` is `{"action": "keep"}` (the
 //!   default when absent), `{"action": "remove"}` or `{"action": "replace", "image_base64": …}`
 //!   (a PNG or JPEG, stored as a normalised PNG). A change to what the watermark draws regenerates the proofs of watermarked galleries.
+//! - `PUT /language` saves the workspace language alone, `{"language": "en" | "fr"}`, and returns
+//!   it. The proofs are untouched.
 //! - `GET /logo` returns the saved logo as a PNG, or a 404.
 
 use actix_web::{
@@ -16,14 +18,14 @@ use actix_web::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use pp_database::watermark::{
-    CoverSignature, GridCell, LogoChange, SettingsUpdate, SizeStep, WatermarkMark,
+    CoverSignature, GridCell, Language, LogoChange, SettingsUpdate, SizeStep, WatermarkMark,
     WatermarkPattern, WatermarkRepository, WorkspaceSettings,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
-    response::ResponseBuilderExt, upload::logo::LogoNormaliser,
+    response::ResponseBuilderExt, routes::language::LanguageBody, upload::logo::LogoNormaliser,
 };
 
 /// Room for a base64 logo at its size limit and the other settings.
@@ -111,8 +113,28 @@ pub fn configure(cfg: &mut ServiceConfig) {
             )
             .service(show_settings)
             .service(save_settings)
+            .service(save_language)
             .service(show_logo),
     );
+}
+
+#[put("/language")]
+async fn save_language(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    request: Json<LanguageBody<Language>>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let language = request.into_inner().language;
+
+    state
+        .database()
+        .repository::<WatermarkRepository>()
+        .save_language(identity.workspace_id, language)
+        .await?;
+
+    Ok(HttpResponse::Ok()
+        .no_store()
+        .json(LanguageBody { language }))
 }
 
 #[get("")]
@@ -225,6 +247,39 @@ mod tests {
             .await;
             let $cookie = sign_up(&$app).await;
         };
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn saving_the_language_requires_a_session(pool: PgPool) {
+        signed_in_app!(pool, app, _cookie);
+
+        let (status, _) = call(
+            &app,
+            test::TestRequest::put()
+                .uri("/api/v1/settings/language")
+                .insert_header(("Origin", ORIGIN))
+                .set_json(json!({ "language": "fr" })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn saving_an_unknown_language_is_refused(pool: PgPool) {
+        signed_in_app!(pool, app, cookie);
+
+        let (status, _) = call(
+            &app,
+            test::TestRequest::put()
+                .uri("/api/v1/settings/language")
+                .insert_header(("Origin", ORIGIN))
+                .cookie(cookie)
+                .set_json(json!({ "language": "de" })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

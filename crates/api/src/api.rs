@@ -383,6 +383,7 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
             )
             .app_data(PathConfig::default().error_handler(|_, _| ErrorResponse::not_found().into()))
             .service(routes::health::report_health)
+            .service(routes::language::show_language)
             .service(routes::events::stream_events)
             .service(routes::upload::upload_limits)
             .configure(routes::auth::configure)
