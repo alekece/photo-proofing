@@ -230,7 +230,7 @@ describe('FavoritesPanel', () => {
 		finish(zip('ready'));
 		await waitFor(() => expect(startDownload).toHaveBeenCalled());
 
-		await user.click(screen.getByRole('button', { name: 'Select', pressed: true }));
+		await user.keyboard('{Escape}');
 
 		expect(screen.queryByText('2 selected')).toBeNull();
 	});
@@ -270,30 +270,31 @@ describe('FavoritesPanel', () => {
 		expect(startDownload).not.toHaveBeenCalled();
 	});
 
-	it('keeps the toolbar buttons and shows select mode as a pressed Select', async () => {
+	it('swaps Select for Select all and restores it on exit, keeping Download', async () => {
 		setup([photo('p1', true), photo('p2', true)]);
 		const user = userEvent.setup();
 		await screen.findByAltText('p1.jpg');
 		const select = screen.getByRole('button', { name: 'Select' });
 		const download = screen.getByRole('button', { name: 'Download all' });
 
-		expect(select.getAttribute('aria-pressed')).toBe('false');
 		expect(screen.queryByRole('button', { name: 'Unselect all' })).toBeNull();
 
 		await user.click(select);
 
-		expect(screen.getByRole('button', { name: 'Select' })).toBe(select);
+		expect(screen.getByRole('button', { name: 'Select all' })).toBe(select);
 		expect(screen.getByRole('button', { name: 'Download all' })).toBe(download);
-		expect(select.getAttribute('aria-pressed')).toBe('true');
-		expect(screen.getByRole('button', { name: 'Unselect all' })).toHaveProperty('disabled', true);
+		expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
+		expect(select.hasAttribute('aria-pressed')).toBe(false);
+		expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
 
-		await user.click(select);
+		await user.keyboard('{Escape}');
 
-		expect(select.getAttribute('aria-pressed')).toBe('false');
+		expect(screen.getByRole('button', { name: 'Select' })).toBe(select);
+		expect(screen.queryByRole('button', { name: 'Unselect all' })).toBeNull();
 		expect(screen.queryByText('0 selected')).toBeNull();
 	});
 
-	it('unselects everything and stays in select mode', async () => {
+	it('unselects everything, then cancels to leave select mode', async () => {
 		setup([photo('p1', true), photo('p2', true)]);
 		const user = userEvent.setup();
 		await screen.findByAltText('p1.jpg');
@@ -305,11 +306,12 @@ describe('FavoritesPanel', () => {
 		await user.click(screen.getByRole('button', { name: 'Unselect all' }));
 
 		expect(screen.getByText('0 selected')).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Unselect all' })).toHaveProperty('disabled', true);
-		expect(screen.getByRole('button', { name: 'Select' }).getAttribute('aria-pressed')).toBe(
-			'true'
-		);
 		expect(screen.getByRole('button', { name: 'Download all' })).toBeTruthy();
+
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+		expect(screen.queryByText('0 selected')).toBeNull();
+		expect(screen.getByRole('button', { name: 'Select' })).toBeTruthy();
 	});
 
 	it('shows why a ZIP failed and allows another try', async () => {

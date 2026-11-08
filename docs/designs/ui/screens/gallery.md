@@ -121,10 +121,11 @@ download mark shows which photos the client has downloaded.
 
 ### Select mode
 
-The toolbar keeps its layout: **Select** stays in place as a pressed toggle (`aria-pressed`) and
-the buttons beside it do not change or move. A left group appears with "3 selected", **Select all**,
-**Unselect all** (disabled at 0; stays in select mode) and, on Photos and Final, **Delete**. Pressing
-**Select** again or Escape leaves select mode. Tiles show a check; clicking toggles.
+Select mode reuses the toolbar's own buttons: **Select** becomes **Select all** and, on Photos and
+Final, **Upload** becomes **Delete** (disabled at 0); on Favorites, **Download** keeps its
+selection-aware label. The only addition is a left group with "3 selected" and **Unselect all**, which
+reads **Cancel** at 0 selected and then leaves select mode. Escape also leaves it; the buttons return
+to normal. Tiles show a check; clicking toggles.
 Select all only picks the current tab.
 
 All three tabs use the same striped empty-state background. Confirming a photo deletion shows
