@@ -30,6 +30,7 @@
 	--animate-spin-slow: spin 900ms linear infinite;
 	--animate-save-pop: save-pop 450ms cubic-bezier(0.3, 1.6, 0.5, 1);
 	--animate-revert-spin: revert-spin 500ms ease-out;
+	--animate-copied-pop: copied-pop 450ms cubic-bezier(0.3, 1.6, 0.5, 1);
 	--color-input: #fff;
 	--color-inverse: #fff;
 	--color-warning: oklch(47.3% 0.137 46.201);
@@ -165,6 +166,12 @@ h2,
 @keyframes revert-spin {
 	from {
 		transform: rotate(360deg);
+	}
+}
+@keyframes copied-pop {
+	from {
+		opacity: 0;
+		transform: scale(0.4) rotate(-20deg);
 	}
 }
 @keyframes leak {

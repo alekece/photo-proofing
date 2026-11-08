@@ -394,9 +394,7 @@ describe('gallery page', () => {
 			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Share' }));
 			expect(await screen.findByRole('dialog', { name: 'Your gallery is shared' })).toBeTruthy();
 			expect(shares()).toHaveLength(1);
-			expect(
-				within(screen.getByRole('dialog')).getByRole('button', { name: 'Copy link' })
-			).toBeTruthy();
+			expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Copy' })).toBeTruthy();
 
 			await user.click(screen.getByRole('button', { name: 'Done' }));
 			expect(screen.getByLabelText('Client link')).toBeTruthy();

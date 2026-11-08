@@ -60,7 +60,7 @@ describe('GallerySettings', () => {
 
 		setup({}, true, 'A'.repeat(22));
 
-		expect(screen.getByRole('button', { name: 'Copy link' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy();
 		expect(screen.queryByRole('link', { name: 'Open' })).toBeNull();
 	});
 
