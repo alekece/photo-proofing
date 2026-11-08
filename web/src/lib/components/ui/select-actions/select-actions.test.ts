@@ -25,6 +25,7 @@ describe('SelectActions', () => {
 
 		expect(onselectall).toHaveBeenCalledOnce();
 		expect(onunselectall).toHaveBeenCalledOnce();
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Select all' }));
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
