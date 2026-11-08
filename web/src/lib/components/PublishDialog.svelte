@@ -102,7 +102,12 @@
 	}}
 >
 	{#snippet visual(done)}
-		<PhotoStack {galleryId} photoIds={ready.map(({ id }) => id)} {done} />
+		<PhotoStack
+			{galleryId}
+			photoIds={ready.map(({ id }) => id)}
+			set={kind === 'deliver' ? 'finals' : 'photos'}
+			{done}
+		/>
 	{/snippet}
 	{#snippet description()}
 		{#if photos === null}
