@@ -1,5 +1,5 @@
+import { m } from '#lib/paraglide/messages.js';
 import { redirect } from '@sveltejs/kit';
-import { UNTITLED_GALLERY } from '#lib/gallery/format.js';
 import { previewUrl } from '#lib/gallery/photos.js';
 import { getAuthStatus } from '#lib/server/auth.js';
 import { listGalleries } from '#lib/server/galleries.js';
@@ -22,7 +22,7 @@ export const load: PageServerLoad = async ({ fetch, request, setHeaders }) => {
 	const covered = galleries.filter((gallery) => gallery.hero_id !== null);
 	const samples = covered.map((gallery) => previewUrl(gallery.id, gallery.hero_id!));
 	const cover = covered.length
-		? { image: samples[0], title: covered[0].title ?? UNTITLED_GALLERY }
+		? { image: samples[0], title: covered[0].title ?? m.gallery_untitled() }
 		: null;
 
 	return { idleTimeoutMs: status.idle_timeout_ms, settings, samples, cover };

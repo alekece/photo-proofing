@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { ArrowLeft, Bell, LogOut, Settings, User } from '@lucide/svelte';
+	import LanguageMenu from '#lib/components/LanguageMenu.svelte';
+	import { m } from '#lib/paraglide/messages.js';
 	import NotificationBell from '#lib/components/NotificationBell.svelte';
 	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
 	import Popover from '#lib/components/ui/Popover/Popover.svelte';
@@ -55,24 +57,18 @@
 		</a>
 	{/if}
 	<span class="flex-1"></span>
-	<button
-		type="button"
-		disabled
-		title="More languages arrive with a later release"
-		aria-label="Language: English"
-		class="{round} text-xs font-semibold tracking-wide opacity-70">EN</button
-	>
+	<LanguageMenu class="{round} {hover}" />
 	{#if actions}
 		{@render actions()}
 	{:else if notifications}
 		<NotificationBell center={notifications} class="{round} {hover}" />
 	{:else}
-		<button type="button" disabled aria-label="Notifications" class="{round} opacity-70"
+		<button type="button" disabled aria-label={m.header_notifications()} class="{round} opacity-70"
 			><Bell size={18} aria-hidden="true" /></button
 		>
 	{/if}
 	<Popover
-		label="Account menu"
+		label={m.header_account_menu()}
 		align="end"
 		class="grid place-items-center rounded-full {hover} size-[2.125rem] border-2 border-panel bg-border-strong text-foreground ring-1 ring-border"
 		panelClass="w-48 text-foreground"
@@ -83,7 +79,7 @@
 			class="flex min-h-10 w-full items-center gap-2 rounded-control px-3 text-sm text-foreground hover:bg-border/60"
 		>
 			<Settings size={16} aria-hidden="true" />
-			Settings
+			{m.header_settings()}
 		</a>
 		<button
 			type="button"
@@ -91,7 +87,7 @@
 			onclick={() => onsignout?.()}
 		>
 			<LogOut size={16} aria-hidden="true" />
-			Sign out
+			{m.header_sign_out()}
 		</button>
 	</Popover>
 </header>

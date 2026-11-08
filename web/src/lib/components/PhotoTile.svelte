@@ -1,4 +1,5 @@
 <script lang="ts" module>
+	import { m } from '#lib/paraglide/messages.js';
 	export type TileState =
 		| 'waiting-upload'
 		| 'uploading'
@@ -22,14 +23,14 @@
 	/** Type style of every status label on a tile. */
 	const STATUS_TEXT = 'text-xs font-semibold';
 
-	const LABELS: Record<Exclude<TileState, 'ready'>, string> = {
-		'waiting-upload': 'Waiting',
-		uploading: 'Uploading',
-		'upload-failed': 'Upload failed',
-		rejected: 'Rejected',
-		'waiting-process': 'Waiting',
-		processing: 'Processing',
-		'process-failed': 'Processing failed'
+	const LABELS: Record<Exclude<TileState, 'ready'>, () => string> = {
+		'waiting-upload': m.tile_waiting,
+		uploading: m.tile_uploading,
+		'upload-failed': m.upload_failed,
+		rejected: m.tile_rejected,
+		'waiting-process': m.tile_waiting,
+		processing: m.tile_processing,
+		'process-failed': m.tile_processing_failed
 	};
 </script>
 
@@ -111,7 +112,7 @@
 		<button
 			type="button"
 			class="block size-full cursor-zoom-in"
-			aria-label="Open {name}"
+			aria-label={m.tile_open({ name })}
 			onclick={onopen}
 		>
 			<img src={thumbnailUrl} alt={name} loading="lazy" class="size-full object-cover" />
@@ -132,14 +133,15 @@
 			{:else}
 				<span class="sr-only">{name}</span>
 			{/if}
-			<span class="font-semibold">{LABELS[state]}</span>
-			{#if failed && error && error !== LABELS[state]}<span class="line-clamp-1">{error}</span>{/if}
+			<span class="font-semibold">{LABELS[state]()}</span>
+			{#if failed && error && error !== LABELS[state]()}<span class="line-clamp-1">{error}</span
+				>{/if}
 			{#if !onselect && onretry && (state === 'upload-failed' || state === 'process-failed')}
 				<button
 					type="button"
 					class="mt-0.5 flex min-h-8 w-fit cursor-pointer items-center gap-1 rounded-full bg-panel px-3 text-xs text-foreground shadow"
-					aria-label="Retry {name}"
-					onclick={onretry}><RotateCw size={14} aria-hidden="true" />Retry</button
+					aria-label={m.tile_retry({ name })}
+					onclick={onretry}><RotateCw size={14} aria-hidden="true" />{m.action_retry()}</button
 				>
 			{/if}
 		</div>
@@ -154,13 +156,13 @@
 		<div
 			class="absolute inset-x-1.5 bottom-1.5 flex items-center justify-between gap-2 rounded bg-panel/95 px-2 py-1 text-xs font-semibold text-foreground"
 		>
-			<span>{LABELS[state]}</span>
+			<span>{LABELS[state]()}</span>
 			{#if failed && onretry}
 				<button
 					type="button"
 					class="cursor-pointer rounded px-1 focus-visible:outline-2"
-					aria-label="Retry {name}"
-					onclick={onretry}>Retry</button
+					aria-label={m.tile_retry({ name })}
+					onclick={onretry}>{m.action_retry()}</button
 				>
 			{/if}
 		</div>
@@ -169,7 +171,7 @@
 	{#if onselect}
 		<Checkbox
 			class="absolute top-2 left-2 z-10 size-6 cursor-pointer appearance-none rounded-full border-2 border-panel bg-foreground/25 bg-center bg-no-repeat shadow-[0_1px_4px_rgb(0_0_0/0.3)] transition-colors checked:bg-panel checked:bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23201a16%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%2F%3E%3C%2Fsvg%3E')] checked:bg-[length:70%]"
-			aria-label="Select {name}"
+			aria-label={m.tile_select({ name })}
 			checked={selected}
 			onchange={onselect}
 		/>
@@ -181,8 +183,8 @@
 					'absolute top-2 left-2 grid size-[1.875rem] cursor-pointer place-items-center rounded-full bg-panel/95',
 					hero ? 'text-hero opacity-100' : `text-foreground ${reveal}`
 				]}
-				aria-label={hero ? 'Remove cover' : 'Set as cover'}
-				title={hero ? 'Remove cover' : 'Set as cover'}
+				aria-label={hero ? m.cover_remove() : m.cover_set()}
+				title={hero ? m.cover_remove() : m.cover_set()}
 				aria-pressed={hero}
 				onclick={onhero}
 				><Star size={14} fill={hero ? 'currentColor' : 'none'} aria-hidden="true" /></button
@@ -195,7 +197,7 @@
 					'absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground',
 					failed ? 'opacity-100' : reveal
 				]}
-				aria-label="Remove {name}"
+				aria-label={m.tile_remove({ name })}
 				onclick={onremove}><X size={14} aria-hidden="true" /></button
 			>
 		{/if}
@@ -203,7 +205,7 @@
 			<button
 				type="button"
 				class="absolute right-1.5 bottom-1.5 grid size-8 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground {reveal}"
-				aria-label="Download {name}"
+				aria-label={m.tile_download({ name })}
 				aria-busy={downloadBusy}
 				disabled={downloadBusy}
 				onclick={ondownload}
@@ -223,8 +225,8 @@
 			<span
 				class="absolute bottom-1.5 left-1.5 grid size-6 place-items-center rounded-full bg-panel/90 text-foreground"
 				role="img"
-				aria-label="Downloaded by the client"
-				title="Downloaded by the client"><Download size={14} aria-hidden="true" /></span
+				aria-label={m.tile_downloaded()}
+				title={m.tile_downloaded()}><Download size={14} aria-hidden="true" /></span
 			>
 		{/if}
 	{/if}

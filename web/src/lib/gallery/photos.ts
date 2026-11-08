@@ -1,3 +1,4 @@
+import { m } from '#lib/paraglide/messages.js';
 import { GalleryApiError } from './api';
 import {
 	deletedPhotosSchema,
@@ -8,6 +9,7 @@ import {
 	type Photo
 } from './schemas';
 import * as v from 'valibot';
+import { apiErrorMessage } from '#lib/i18n/errors.js';
 
 export type { Photo, PhotoStatus, UploadLimits } from './schemas';
 
@@ -21,10 +23,10 @@ export type UploadOutcome =
 	| { kind: 'gone' }
 	| { kind: 'signed-out' };
 
-const REJECTIONS: Record<number, string> = {
-	413: 'Too large',
-	415: 'Not a JPEG',
-	422: 'Unreadable image'
+const REJECTIONS: Record<number, () => string> = {
+	413: m.upload_too_large,
+	415: m.upload_not_jpeg,
+	422: m.upload_unreadable
 };
 
 /** The set a route addresses: the client proofs, or the photographer's finished photos. */
@@ -43,18 +45,13 @@ function photosPath(
 	return set === 'finals' ? `${path}?finals=true` : path;
 }
 
-const unexpected = () => new GalleryApiError(502, 'Unexpected response from the server.');
+const unexpected = () => new GalleryApiError(502, apiErrorMessage(502));
 
 async function request(path: string, init: RequestInit, fetcher: typeof fetch) {
 	const response = await fetcher(path, { ...init, credentials: 'same-origin' });
 
 	if (!response.ok) {
-		const data = await response.json().catch(() => ({}));
-
-		throw new GalleryApiError(
-			response.status,
-			typeof data.error === 'string' ? data.error : 'Unable to complete the request.'
-		);
+		throw new GalleryApiError(response.status, apiErrorMessage(response.status));
 	}
 
 	return response;
@@ -200,7 +197,7 @@ export async function uploadPhoto(
 
 	const reason = REJECTIONS[response.status];
 
-	return reason === undefined ? { kind: 'failed' } : { kind: 'rejected', reason };
+	return reason === undefined ? { kind: 'failed' } : { kind: 'rejected', reason: reason() };
 }
 
 export function thumbnailUrl(

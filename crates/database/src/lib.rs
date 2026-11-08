@@ -12,9 +12,9 @@ pub mod photo;
 pub mod photo_events;
 pub mod photo_intake;
 pub mod photo_retry;
+pub mod settings;
 #[cfg(any(test, feature = "tests"))]
 pub mod tests;
-pub mod watermark;
 pub mod workspace_deletion;
 
 pub use sqlx::PgPool;

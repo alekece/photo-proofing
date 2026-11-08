@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import type { Proof, SharedGallery } from '#lib/gallery/types.js';
+import { useLocale } from '#lib/i18n/testing.js';
 import ClientGallery from './ClientGallery.svelte';
 
 const gallery: SharedGallery = {
@@ -35,8 +36,8 @@ const shared = (hero_id: string | null): SharedGallery => ({ ...gallery, hero_id
 const show = (props: Partial<Parameters<typeof render<typeof ClientGallery>>[1]> = {}) =>
 	render(ClientGallery, { token: 'tok', gallery, proofs, favorites: [], ...props });
 const hearts = () => screen.getAllByRole('button', { name: /^favorite proof/i });
-const favoritesToggle = () => screen.getByRole('button', { name: 'Favorites' });
-const count = () => favoritesToggle().textContent?.trim();
+const favoritesToggle = () => screen.getByRole('button', { name: /^Favorites/ });
+const count = () => favoritesToggle().textContent?.replace('Favorites', '').trim();
 
 describe('ClientGallery', () => {
 	const fetcher = vi.fn();
@@ -111,18 +112,20 @@ describe('ClientGallery', () => {
 		);
 	});
 
-	it('shows the package allowance and warns about extras in words', () => {
+	it('emphasises the selected count over the allowance without a separate extra count', () => {
 		show({ gallery: { ...gallery, included_photos: 1 }, favorites: ['p1', 'p2', 'p3'] });
 
 		expect(count()).toBe('3 of 1');
-		expect(screen.getByText('2 extra').classList.contains('font-bold')).toBe(true);
+		expect(screen.getByText('3').classList.contains('text-warning')).toBe(true);
+		expect(screen.getByRole('button', { name: 'Favorites 3 of 1' })).toBeTruthy();
+		expect(screen.queryByText(/extra/)).toBeNull();
 	});
 
-	it('shows no extras within the allowance', () => {
+	it('keeps the selected count plain within the allowance', () => {
 		show({ gallery: { ...gallery, included_photos: 5 }, favorites: ['p1'] });
 
 		expect(count()).toBe('1 of 5');
-		expect(screen.queryByText(/extra/)).toBeNull();
+		expect(screen.getByText('1').classList.contains('text-warning')).toBe(false);
 	});
 
 	it('shows no allowance when selection is unlimited', () => {
@@ -145,7 +148,7 @@ describe('ClientGallery', () => {
 		});
 
 		expect(screen.queryAllByRole('button', { name: /^favorite proof/i })).toEqual([]);
-		expect(screen.queryByRole('button', { name: 'Favorites' })).toBeNull();
+		expect(screen.queryByRole('button', { name: /^Favorites/ })).toBeNull();
 		expect(screen.getByText('Your photos are ready')).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'Download photo 1' }).getAttribute('href')).toBe(
 			'/final/a'
@@ -175,7 +178,7 @@ describe('ClientGallery', () => {
 
 		await vi.waitFor(() =>
 			expect(toasts.items.map((toast) => toast.message)).toContain(
-				"Couldn't prepare the download. Please try again."
+				'Couldn’t prepare the download. Please try again.'
 			)
 		);
 		vi.unstubAllGlobals();
@@ -185,7 +188,7 @@ describe('ClientGallery', () => {
 		const user = userEvent.setup();
 		show({ favorites: ['p2'] });
 
-		await user.click(screen.getByRole('button', { name: 'Favorites' }));
+		await user.click(screen.getByRole('button', { name: /^Favorites/ }));
 
 		expect(hearts()).toHaveLength(1);
 
@@ -193,7 +196,7 @@ describe('ClientGallery', () => {
 
 		expect(hearts()).toHaveLength(3);
 
-		await user.click(screen.getByRole('button', { name: 'Favorites' }));
+		await user.click(screen.getByRole('button', { name: /^Favorites/ }));
 		await user.click(hearts()[0]);
 
 		expect(screen.getByText('No favorites yet')).toBeTruthy();
@@ -203,7 +206,7 @@ describe('ClientGallery', () => {
 		const user = userEvent.setup();
 		show({ favorites: ['p3'] });
 
-		await user.click(screen.getByRole('button', { name: 'Favorites' }));
+		await user.click(screen.getByRole('button', { name: /^Favorites/ }));
 		await user.click(screen.getByRole('button', { name: 'Open proof 1 of 1' }));
 		await user.click(screen.getByRole('button', { name: 'Favorite' }));
 
@@ -269,5 +272,34 @@ describe('ClientGallery', () => {
 		expect(screen.getByRole('img', { name: 'Gallery cover' }).getAttribute('src')).toBe(
 			'/clean-cover/b'
 		);
+	});
+});
+
+describe('ClientGallery in French', () => {
+	useLocale('fr');
+
+	it('shows the proofing gallery in French', async () => {
+		show({ gallery: { ...gallery, included_photos: 2 } });
+
+		expect(screen.getByRole('button', { name: 'Voir la galerie' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Favoris 0 sur 2' })).toBeTruthy();
+		expect(screen.getByText('sur 2')).toBeTruthy();
+		expect(screen.getAllByRole('button', { name: /^Mettre l’épreuve 1 en favori/ })).toBeTruthy();
+		expect(screen.queryByText('View the gallery')).toBeNull();
+
+		await userEvent
+			.setup()
+			.click(screen.getByRole('button', { name: /^Ouvrir l’épreuve 1 sur 3/ }));
+
+		expect(screen.getByRole('button', { name: 'Fermer la visionneuse' })).toBeTruthy();
+		expect(screen.getByText('1 sur 3')).toBeTruthy();
+	});
+
+	it('shows the delivered page in French', () => {
+		show({ gallery: { ...gallery, delivered: true } });
+
+		expect(screen.getByText('Vos photos sont prêtes')).toBeTruthy();
+		expect(screen.getAllByRole('button', { name: /Tout télécharger/ }).length).toBeGreaterThan(0);
+		expect(screen.queryByText('Your photos are ready')).toBeNull();
 	});
 });

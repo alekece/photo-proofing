@@ -4,6 +4,7 @@
 	import { buildVersion, displayVersion } from '#lib/build.js';
 	import { legalNotices as defaultNotices, type LegalNotice } from '#lib/footer.js';
 	import Button from '#lib/components/ui/Button/Button.svelte';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		version = buildVersion,
@@ -23,10 +24,10 @@
 		try {
 			await navigator.clipboard.writeText(version);
 			manual = false;
-			status = 'Copied';
+			status = m.footer_copied();
 		} catch {
 			manual = true;
-			status = 'Couldn’t copy automatically. Please copy it manually.';
+			status = m.footer_copy_failed();
 			await tick();
 			input?.focus();
 			input?.select();
@@ -41,7 +42,7 @@
 		<span class="font-serif text-sm text-foreground italic">PhotoProofing</span>
 		<span>© {new Date().getFullYear()} PhotoProofing</span>
 		{#if legalNotices.length}
-			<nav aria-label="Legal" class="flex gap-4">
+			<nav aria-label={m.footer_legal()} class="flex gap-4">
 				{#each legalNotices as notice (notice.href)}
 					<a href={notice.href} class="underline-offset-2 hover:underline">{notice.label}</a>
 				{/each}
@@ -49,15 +50,17 @@
 		{/if}
 		{#if version}
 			<span class="flex items-center gap-1">
-				<span class="font-mono" title={version}>Build {displayVersion(version)}</span>
+				<span class="font-mono" title={version}
+					>{m.footer_build({ version: displayVersion(version) })}</span
+				>
 				{#if copyable}
-					<Button variant="ghost" size="sm" aria-label="Copy build version" onclick={copy}>
+					<Button variant="ghost" size="sm" aria-label={m.footer_copy_build()} onclick={copy}>
 						<Copy size={14} aria-hidden="true" />
 					</Button>
 				{/if}
 			</span>
 		{:else}
-			<span>Development build</span>
+			<span>{m.footer_development_build()}</span>
 		{/if}
 	</div>
 	{#if manual}
@@ -65,7 +68,7 @@
 			bind:this={input}
 			readonly
 			value={version}
-			aria-label="Full build version"
+			aria-label={m.footer_full_build()}
 			class="w-full max-w-sm rounded border border-border bg-input p-2 font-mono"
 		/>
 	{/if}

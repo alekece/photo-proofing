@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import StudioSignature from '#lib/components/StudioSignature.svelte';
 	import { SIGNATURES, type Signature } from '#lib/settings/settings.js';
 
@@ -15,11 +16,11 @@
 		cover?: { image: string | null; title: string } | null;
 	} = $props();
 
-	const LABELS: Record<Signature, string> = {
-		name: 'Name',
-		logo: 'Logo',
-		both: 'Both',
-		none: 'None'
+	const LABELS: Record<Signature, () => string> = {
+		name: m.common_name,
+		logo: m.common_logo,
+		both: m.signature_both,
+		none: m.signature_none
 	};
 
 	function disabled(signature: Signature) {
@@ -29,7 +30,7 @@
 
 <div
 	role="radiogroup"
-	aria-label="Cover signature"
+	aria-label={m.signature_label()}
 	class="grid grid-cols-[repeat(auto-fit,minmax(9.375rem,1fr))] gap-[1.125rem]"
 >
 	{#each SIGNATURES as signature (signature)}
@@ -58,13 +59,13 @@
 					class="absolute inset-x-0 top-[6cqw] z-10 gap-[2cqw] text-[3cqw]"
 				/>
 				<span class="absolute bottom-[7cqw] left-[7cqw] z-10 font-serif text-[8cqw] leading-none"
-					>{cover?.title ?? 'Gallery title'}</span
+					>{cover?.title ?? m.gallery_title_label()}</span
 				>
 			</span>
 			<span
 				class="w-max rounded-full px-3.5 py-1 font-semibold transition-colors {value === signature
 					? 'bg-foreground text-inverse'
-					: ''}">{LABELS[signature]}</span
+					: ''}">{LABELS[signature]()}</span
 			>
 		</button>
 	{/each}

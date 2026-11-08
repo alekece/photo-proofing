@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useLocale } from '#lib/i18n/testing.js';
 
 vi.mock('$app/navigation', () => ({
 	afterNavigate: vi.fn(),
@@ -281,5 +282,21 @@ describe('dashboard', () => {
 
 			expect(screen.getByText('Nothing in frame yet.')).toBeTruthy();
 		});
+	});
+});
+
+describe('dashboard in French', () => {
+	useLocale('fr');
+
+	it('greets, searches, sorts and totals in French', async () => {
+		render(Dashboard, { props: props([gallery(), gallery({ id: 'g2', title: 'Portraits' })]) });
+
+		expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(
+			/^(Bonjour|Bon après-midi|Bonsoir)/
+		);
+		expect(screen.getByRole('searchbox', { name: 'Rechercher une galerie' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Modifiées récemment' })).toBeTruthy();
+		expect(screen.getByText('2 galeries · 0 photo')).toBeTruthy();
+		expect(screen.queryByText(/Who’s in front/)).toBeNull();
 	});
 });

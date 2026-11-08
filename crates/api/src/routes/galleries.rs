@@ -30,7 +30,7 @@ use pp_database::gallery::{
     Delivery, GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
 };
 use pp_database::photo::{PhotoLocation, Watermarked};
-use pp_database::watermark::WatermarkRepository;
+use pp_database::settings::SettingsRepository;
 use pp_database::workspace_deletion::WorkspaceDeletion;
 use pp_storage::Variant;
 use serde::Deserialize;
@@ -152,7 +152,7 @@ async fn update_gallery(
 ) -> Result<HttpResponse, ErrorResponse> {
     let gallery = state
         .database()
-        .repository_with::<WatermarkRepository>(state.job_options())
+        .repository_with::<SettingsRepository>(state.job_options())
         .update_gallery(identity.workspace_id, id.into_inner(), &changes)
         .await?
         .ok_or_else(ErrorResponse::not_found)?;

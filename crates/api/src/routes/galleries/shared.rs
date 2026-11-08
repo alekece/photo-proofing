@@ -33,7 +33,7 @@ use pp_database::{
 };
 use pp_database::{
     gallery::SharedGallery,
-    watermark::{CoverSignature, WatermarkRepository},
+    settings::{CoverSignature, SettingsRepository},
 };
 use pp_storage::{ArchiveKey, PhotoKey, Variant};
 use serde::Serialize;
@@ -73,7 +73,7 @@ async fn show_shared_gallery(
 ) -> Result<HttpResponse, ErrorResponse> {
     let settings = state
         .database()
-        .repository::<WatermarkRepository>()
+        .repository::<SettingsRepository>()
         .settings(access.location.workspace_id)
         .await?;
     Ok(HttpResponse::Ok()
@@ -114,7 +114,7 @@ async fn serve_shared_logo(
 ) -> Result<HttpResponse, ErrorResponse> {
     let settings = state
         .database()
-        .repository::<WatermarkRepository>()
+        .repository::<SettingsRepository>()
         .settings(access.0.location.workspace_id)
         .await?;
     if !matches!(

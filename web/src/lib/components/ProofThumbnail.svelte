@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { Download } from '@lucide/svelte';
 	import type { Proof } from '../gallery/types';
 	import FavoriteButton from './FavoriteButton.svelte';
@@ -34,7 +35,7 @@
 		type="button"
 		class="block w-full cursor-zoom-in focus-visible:outline-3 focus-visible:outline-offset-2! focus-visible:outline-focus!"
 		onclick={onopen}
-		aria-label="Open proof {position} of {total}"
+		aria-label={m.thumb_open({ position, total })}
 	>
 		<!-- The grid crops every tile alike; masonry keeps each photo's own shape. -->
 		<img
@@ -52,7 +53,7 @@
 		<a
 			href={proof.downloadUrl}
 			download
-			aria-label="Download photo {position}"
+			aria-label={m.thumb_download({ position })}
 			class="{BADGE} bg-panel text-foreground shadow-none"
 		>
 			<Download size={15} aria-hidden="true" />
@@ -60,7 +61,7 @@
 	{:else if onselect || readonly}
 		<FavoriteButton
 			{selected}
-			label="Favorite proof {position}"
+			label={m.thumb_favorite({ position })}
 			disabled={!onselect}
 			onclick={onselect}
 			class="{BADGE} {selected

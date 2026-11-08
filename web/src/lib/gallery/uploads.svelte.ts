@@ -1,3 +1,4 @@
+import { m } from '#lib/paraglide/messages.js';
 import { getContext, setContext } from 'svelte';
 import { goto } from '$app/navigation';
 import {
@@ -89,7 +90,7 @@ export class UploadQueue {
 			this.items.push(
 				isJpeg(file)
 					? { key, galleryId, set, file, state: 'waiting' }
-					: { key, galleryId, set, file, state: 'rejected', error: 'Not a JPEG' }
+					: { key, galleryId, set, file, state: 'rejected', error: m.upload_not_jpeg() }
 			);
 		}
 
@@ -187,7 +188,7 @@ export class UploadQueue {
 
 			if (item.file.size > limits.max_size) {
 				item.state = 'rejected';
-				item.error = 'Too large';
+				item.error = m.upload_too_large();
 				continue;
 			}
 
@@ -212,7 +213,7 @@ export class UploadQueue {
 				() => {
 					// Without limits nothing can be sent; Retry reads them again.
 					for (const item of this.items) {
-						if (item.state === 'waiting') this.#fail(item, 'Upload failed');
+						if (item.state === 'waiting') this.#fail(item, m.upload_failed());
 					}
 				}
 			)
@@ -269,10 +270,10 @@ export class UploadQueue {
 
 				break;
 			case 'storage-full':
-				this.#fail(item, 'Storage full');
+				this.#fail(item, m.upload_storage_full());
 
 				for (const other of this.items) {
-					if (other.state === 'waiting') this.#fail(other, 'Storage full');
+					if (other.state === 'waiting') this.#fail(other, m.upload_storage_full());
 				}
 
 				break;
@@ -282,7 +283,7 @@ export class UploadQueue {
 
 				break;
 			case 'failed':
-				this.#fail(item, 'Upload failed');
+				this.#fail(item, m.upload_failed());
 
 				break;
 			case 'gone':

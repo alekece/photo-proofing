@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { Lock } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
 
@@ -78,7 +79,7 @@
 				>
 			{/if}
 			{#if locked}
-				<Lock size={12} aria-label="Locked" />
+				<Lock size={12} aria-label={m.tab_locked()} />
 			{/if}
 		</button>
 	{/each}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 
 	let {
@@ -20,6 +21,6 @@
 		size="sm"
 		class="min-h-9!"
 		onclick={count === 0 ? onleave : onunselectall}
-		>{count === 0 ? 'Cancel' : 'Unselect all'}</Button
+		>{count === 0 ? m.common_cancel() : m.action_unselect_all()}</Button
 	>
 </div>

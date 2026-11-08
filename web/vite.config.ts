@@ -1,3 +1,4 @@
+import { paraglideVitePlugin } from '@inlang/paraglide-js';
 import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
@@ -12,6 +13,8 @@ if (buildSha && !/^[0-9a-f]{40}$/.test(buildSha)) {
 export default defineConfig({
 	define: { 'import.meta.env.PP_BUILD_SHA': JSON.stringify(buildSha) },
 	plugins: [
+		// Options live in project.inlang/paraglide.config.js, shared with the `paraglide` script.
+		paraglideVitePlugin({ project: './project.inlang' }),
 		tailwindcss(),
 		sveltekit({
 			compilerOptions: {

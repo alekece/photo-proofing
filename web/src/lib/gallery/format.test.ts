@@ -1,5 +1,36 @@
 import { describe, expect, it } from 'vitest';
-import { galleryInitials, gallerySummary, galleryStatus, highlightParts } from './format.js';
+import { useLocale } from '#lib/i18n/testing.js';
+import {
+	formatFullDate,
+	formatLongDate,
+	formatShortDate,
+	galleryInitials,
+	gallerySummary,
+	galleryStatus,
+	highlightParts
+} from './format.js';
+
+const noon = '2026-09-12T12:00:00Z';
+
+describe('dates in English', () => {
+	useLocale('en');
+
+	it('read day first', () => {
+		expect(formatShortDate(noon)).toBe('12 Sep');
+		expect(formatLongDate(noon)).toBe('12 Sep 2026');
+		expect(formatFullDate(noon, 'UTC')).toBe('September 12, 2026');
+	});
+});
+
+describe('dates in French', () => {
+	useLocale('fr');
+
+	it('follow the French conventions', () => {
+		expect(formatShortDate(noon)).toBe('12 sept.');
+		expect(formatLongDate(noon)).toBe('12 sept. 2026');
+		expect(formatFullDate(noon, 'UTC')).toBe('12 septembre 2026');
+	});
+});
 
 describe('galleryStatus', () => {
 	it('lets archived and expired win over the progress state', () => {
@@ -57,7 +88,7 @@ describe('gallerySummary', () => {
 		expect(line({ ...base, states: ['draft'] as never })).toBe('32 photos');
 		expect(line({ ...base, states: ['draft'] as never, photo_count: 1 })).toBe('1 photo');
 		expect(line({ ...base, states: ['draft'] as never, photo_count: 0 })).toBe('No photos yet');
-		expect(line(base)).toBe('32 photos · 12 selected');
+		expect(line(base)).toBe('32 photos · 12\u00a0selected');
 		expect(line({ ...base, states: ['delivered'] as never })).toBe('Final photos delivered');
 		expect(line({ ...base, states: ['delivered', 'archived'] as never })).toBe(
 			'32 photos · archived'
@@ -67,10 +98,10 @@ describe('gallerySummary', () => {
 	it('reports how many delivered finals were downloaded', () => {
 		const delivered = { ...base, states: ['delivered'] as never, final_count: 20 };
 
-		expect(line({ ...delivered, downloaded_count: 12 })).toBe('20 finals · 12 downloaded');
+		expect(line({ ...delivered, downloaded_count: 12 })).toBe('20 finals · 12\u00a0downloaded');
 		expect(line({ ...delivered, downloaded_count: 20 })).toBe('20 finals · all downloaded');
 		expect(line({ ...delivered, final_count: 1, downloaded_count: 0 })).toBe(
-			'1 final · 0 downloaded'
+			'1 final · 0\u00a0downloaded'
 		);
 	});
 
@@ -90,10 +121,40 @@ describe('gallerySummary', () => {
 		const expired = { ...base, states: ['shared', 'expired'] as never };
 
 		expect(line({ ...expired, expires_at: '2026-11-07T12:00:00Z' })).toBe(
-			'32 photos · 12 selected · expired 3 days ago'
+			'32 photos · 12\u00a0selected · expired 3 days ago'
 		);
 		expect(line({ ...expired, expires_at: '2026-11-09T12:00:00Z' })).toContain('expired yesterday');
 		expect(line({ ...expired, expires_at: '2026-11-10T08:00:00Z' })).toContain('expired today');
 		expect(line(expired)).toMatch(/ · expired$/);
+	});
+});
+
+describe('gallerySummary in French', () => {
+	useLocale('fr');
+
+	const now = new Date('2026-11-10T12:00:00Z');
+	const base = {
+		states: ['shared'] as never,
+		included_photos: 10,
+		expires_at: null,
+		photo_count: 32,
+		favorite_count: 12,
+		final_count: 0,
+		downloaded_count: 0
+	};
+	const line = (gallery: Parameters<typeof gallerySummary>[0]) =>
+		gallerySummary(gallery, now)
+			.map(({ text }) => text)
+			.join('');
+
+	it('agrees with the counts', () => {
+		expect(line(base)).toBe('32 photos · 12\u00a0sélectionnées');
+		expect(line({ ...base, favorite_count: 1 })).toBe('32 photos · 1\u00a0sélectionnée');
+		expect(
+			line({ ...base, states: ['delivered'] as never, final_count: 20, downloaded_count: 1 })
+		).toBe('20 photos finales · 1\u00a0téléchargée');
+		expect(
+			line({ ...base, states: ['shared', 'expired'] as never, expires_at: '2026-11-07T12:00:00Z' })
+		).toBe('32 photos · 12\u00a0sélectionnées · expirée il y a 3 jours');
 	});
 });

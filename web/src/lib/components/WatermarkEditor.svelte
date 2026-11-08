@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import {
 		SIZE_STEPS,
 		type Mark,
@@ -25,18 +26,18 @@
 	const ALIGN = ['start', 'center', 'end'];
 	const noLogo = $derived(settings.logo === null);
 	const marks: { id: Mark; label: string }[] = [
-		{ id: 'name', label: 'Name' },
-		{ id: 'logo', label: 'Logo' },
-		{ id: 'both', label: 'Name and logo' }
+		{ id: 'name', label: m.common_name() },
+		{ id: 'logo', label: m.common_logo() },
+		{ id: 'both', label: m.watermark_both() }
 	];
 	const patterns: { id: Pattern; label: string }[] = [
-		{ id: 'repeat', label: 'Repeat' },
-		{ id: 'once', label: 'Once' }
+		{ id: 'repeat', label: m.watermark_repeat() },
+		{ id: 'once', label: m.watermark_once() }
 	];
 	// A logo-only mark falls back to the name until a logo exists.
 	const showLogo = $derived(settings.mark !== 'name' && !noLogo);
 	const showName = $derived(settings.mark !== 'logo' || noLogo);
-	const name = $derived(settings.studioName.trim() || 'Your studio');
+	const name = $derived(settings.studioName.trim() || m.watermark_your_studio());
 	const repeat = $derived(settings.pattern === 'repeat');
 	const scale = $derived(SCALES[Math.min(settings.size, SIZE_STEPS - 1)]);
 	const item =
@@ -74,9 +75,13 @@
 <div
 	class="mb-[1.125rem] flex flex-wrap items-center gap-x-1.5 gap-y-2 rounded-[1.25rem] border border-border bg-input p-2 shadow-[0_14px_30px_-18px_rgb(60_40_20/0.5)]"
 	role="toolbar"
-	aria-label="Watermark"
+	aria-label={m.watermark_label()}
 >
-	<div role="group" aria-label="Mark" class="flex items-center gap-0.5 px-1 sm:gap-1 sm:px-2">
+	<div
+		role="group"
+		aria-label={m.watermark_mark()}
+		class="flex items-center gap-0.5 px-1 sm:gap-1 sm:px-2"
+	>
 		{#each marks as { id, label } (id)}
 			<button
 				type="button"
@@ -96,7 +101,7 @@
 	</div>
 	<div
 		role="group"
-		aria-label="Pattern"
+		aria-label={m.watermark_pattern()}
 		class="flex items-center gap-0.5 border-l border-border px-1 sm:gap-1 sm:px-2"
 	>
 		{#each patterns as { id, label } (id)}
@@ -130,10 +135,10 @@
 			</button>
 		{/each}
 	</div>
-	<div class="flex items-center border-l border-border px-1 sm:px-2" title="Position">
+	<div class="flex items-center border-l border-border px-1 sm:px-2" title={m.watermark_position()}>
 		<fieldset
 			disabled={repeat}
-			aria-label="Position"
+			aria-label={m.watermark_position()}
 			class="m-0 grid min-w-0 grid-cols-[repeat(3,1rem)] gap-[3px] border-0 p-1 transition-opacity {repeat
 				? 'opacity-40'
 				: ''}"
@@ -141,7 +146,7 @@
 			{#each Array.from({ length: 9 }, (_, cell) => cell) as cell (cell)}
 				<button
 					type="button"
-					aria-label="Position {cell + 1}"
+					aria-label={m.watermark_position_cell({ cell: cell + 1 })}
 					aria-pressed={!repeat && settings.position === cell}
 					class="grid h-3 w-4 cursor-pointer place-items-center rounded-[3px] bg-[#efe7dc] hover:bg-[#e2d6c6] disabled:cursor-default aria-pressed:bg-foreground aria-pressed:after:size-[5px] aria-pressed:after:rounded-[1px] aria-pressed:after:bg-inverse aria-pressed:after:content-['']"
 					onclick={() => (settings.position = cell)}
@@ -162,7 +167,7 @@
 				min="0"
 				max={SIZE_STEPS - 1}
 				step="1"
-				aria-label="Watermark size"
+				aria-label={m.watermark_size()}
 				bind:value={settings.size}
 				class="h-7 flex-1 accent-foreground"
 			/>
@@ -172,11 +177,7 @@
 		</div>
 	</div>
 </div>
-<div
-	class="mb-14 flex flex-col gap-2"
-	role="img"
-	aria-label="Preview of six proofs with the watermark"
->
+<div class="mb-14 flex flex-col gap-2" role="img" aria-label={m.watermark_preview()}>
 	{#each SHEET as row, r (r)}
 		<div class="flex h-[clamp(6.875rem,22vw,15.625rem)] gap-2">
 			{#each row as ratio, c (c)}

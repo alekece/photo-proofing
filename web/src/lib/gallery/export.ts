@@ -1,5 +1,6 @@
 import { GalleryApiError } from './api';
 import { parseOrNull, exportSchema, type Export } from './schemas';
+import { apiErrorMessage } from '#lib/i18n/errors.js';
 
 export type { Export } from './schemas';
 
@@ -25,12 +26,7 @@ async function call(
 	});
 
 	if (!response.ok) {
-		const data = await response.json().catch(() => ({}));
-
-		throw new GalleryApiError(
-			response.status,
-			typeof data.error === 'string' ? data.error : 'Unable to prepare the ZIP.'
-		);
+		throw new GalleryApiError(response.status, apiErrorMessage(response.status));
 	}
 
 	return response;
@@ -39,7 +35,7 @@ async function call(
 async function parse(response: Response) {
 	const parsed = parseOrNull(exportSchema, await response.json().catch(() => null));
 
-	if (!parsed) throw new GalleryApiError(502, 'Unexpected response from the server.');
+	if (!parsed) throw new GalleryApiError(502, apiErrorMessage(502));
 
 	return parsed;
 }

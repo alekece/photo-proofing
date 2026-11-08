@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import type { Snippet } from 'svelte';
 	import { LoaderCircle } from '@lucide/svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
@@ -28,7 +29,7 @@
 	let {
 		title,
 		confirmLabel,
-		cancelLabel = 'Not yet',
+		cancelLabel = m.dialog_not_yet(),
 		destructive = false,
 		busy = false,
 		onconfirm,
@@ -56,7 +57,7 @@
 			if (result) done = true;
 			else close();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Something went wrong. Please try again.';
+			error = cause instanceof Error ? cause.message : m.api_error_generic();
 		} finally {
 			pending = false;
 		}
@@ -99,7 +100,7 @@
 								class="animate-spin motion-reduce:animate-none"
 								aria-hidden="true"
 							/>
-							{destructive ? 'Deleting…' : 'Working…'}
+							{destructive ? m.dialog_deleting() : m.dialog_working()}
 						{:else}
 							{confirmLabel}
 						{/if}

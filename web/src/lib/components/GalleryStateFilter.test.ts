@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { describe, expect, it, vi } from 'vitest';
+import { useLocale } from '#lib/i18n/testing.js';
 
 import GalleryStateFilter from './GalleryStateFilter.svelte';
 import { ALL_STATES, DEFAULT_STATES } from '#lib/gallery/states.js';
@@ -69,5 +70,18 @@ describe('GalleryStateFilter', () => {
 			true
 		);
 		expect((await axe(container)).violations).toEqual([]);
+	});
+});
+
+describe('GalleryStateFilter in French', () => {
+	useLocale('fr');
+
+	it('names the statuses in French', () => {
+		const { unmount } = setup();
+
+		expect(screen.getByRole('button', { name: 'Statut' })).toBeTruthy();
+		unmount();
+		setup(['shared', 'expired']);
+		expect(screen.getByRole('button', { name: 'Partagée, Expirée' })).toBeTruthy();
 	});
 });

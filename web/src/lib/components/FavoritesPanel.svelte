@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { CircleCheck, Download, Heart, LoaderCircle } from '@lucide/svelte';
 	import PhotoTile, { GRID_CLASSES, ITEM_CLASSES } from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
@@ -28,11 +29,7 @@
 			const url = `/api/v1/galleries/${encodeURIComponent(galleryId)}/photos/${encodeURIComponent(photos[0].id)}/download`;
 			const response = await fetch(url, { method: 'HEAD', credentials: 'same-origin' });
 			if (current !== generation) return;
-			if (!response.ok)
-				throw new GalleryApiError(
-					response.status,
-					'Couldn’t download the photo. Please try again.'
-				);
+			if (!response.ok) throw new GalleryApiError(response.status, m.favorites_download_failed());
 			startDownload(url);
 		}
 	}: {
@@ -99,7 +96,7 @@
 				awaited = null;
 			}
 		} catch {
-			if (current === zipLoads) zipError = 'Couldn’t check the ZIP. Please try again.';
+			if (current === zipLoads) zipError = m.favorites_zip_check_failed();
 		}
 	}
 
@@ -124,7 +121,7 @@
 				zipError =
 					error instanceof GalleryApiError && error.status !== 502
 						? error.message
-						: 'Couldn’t prepare the ZIP. Please try again.';
+						: m.favorites_zip_failed();
 			}
 		} finally {
 			if (current === generation) zipRequesting = false;
@@ -206,7 +203,7 @@
 		try {
 			await ondownload(photos);
 		} catch {
-			if (current === generation) zipError = 'Couldn’t download the photo. Please try again.';
+			if (current === generation) zipError = m.favorites_download_failed();
 		} finally {
 			if (current === generation) downloading = null;
 		}
@@ -233,7 +230,9 @@
 		class="min-h-9! gap-1.5"
 		disabled={!mode.active && favorites.length === 0}
 		onclick={() => (mode.active ? mode.selectAll(favorites.map(({ id }) => id)) : mode.enter())}
-		><CircleCheck size={16} aria-hidden="true" />{mode.active ? 'Select all' : 'Select'}</Button
+		><CircleCheck size={16} aria-hidden="true" />{mode.active
+			? m.action_select_all()
+			: m.action_select()}</Button
 	>
 	{#if favorites.length > 0}
 		<Button
@@ -250,32 +249,33 @@
 		>
 			<Download size={16} aria-hidden="true" />
 			{zipPreparing || zipRequesting
-				? 'Downloading…'
+				? m.favorites_downloading()
 				: mode.count > 0
-					? `Download ${mode.count}`
-					: 'Download all'}
+					? m.favorites_download_count({ count: mode.count })
+					: m.favorites_download_all()}
 		</Button>
 	{/if}
 </div>
 
 {#if zipError || exportFailure}
 	<p role="alert" class="text-right text-sm text-danger">
-		{zipError ?? exportFailure} Use Download to try again.
+		{zipError ?? exportFailure}
+		{m.favorites_try_again()}
 	</p>
 {/if}
 
 {#if failed}
-	<p role="alert" class="text-sm text-danger">Couldn’t load the favorites. Please reload.</p>
+	<p role="alert" class="text-sm text-danger">{m.favorites_load_failed()}</p>
 {:else if loaded && favorites.length === 0}
 	<EmptyState>
 		<span class="grid size-14 place-items-center rounded-full bg-background"
 			><Heart size={26} aria-hidden="true" /></span
 		>
-		<h3>No favorites yet</h3>
-		<p class="text-sm">The client’s selection will appear here.</p>
+		<h3>{m.favorites_empty()}</h3>
+		<p class="text-sm">{m.favorites_empty_body()}</p>
 	</EmptyState>
 {:else}
-	<ul aria-label="Favorites" class={GRID_CLASSES[layout]}>
+	<ul aria-label={m.tab_favorites()} class={GRID_CLASSES[layout]}>
 		{#each favorites as photo, index (photo.id)}
 			<li class={ITEM_CLASSES[layout]}>
 				<PhotoTile
@@ -307,7 +307,7 @@
 	>
 		{#snippet actions(proof)}
 			<ViewerButton
-				aria-label="Download {proof.alt}"
+				aria-label={m.tile_download({ name: proof.alt })}
 				disabled={downloading !== null}
 				aria-busy={downloading === proof.id}
 				onclick={() => {

@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useLocale } from '#lib/i18n/testing.js';
 
 vi.mock('$app/navigation', () => ({ goto: vi.fn(), afterNavigate: vi.fn() }));
 import Page from './+page.svelte';
@@ -149,7 +150,9 @@ describe('Settings page', () => {
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
 		await vi.waitFor(() =>
-			expect(toasts.items.map((toast) => toast.message)).toContain('invalid settings')
+			expect(toasts.items.map((toast) => toast.message)).toContain(
+				'Enter a studio name of up to 100 characters.'
+			)
 		);
 		expect(savedToast).not.toHaveBeenCalled();
 	});
@@ -206,5 +209,17 @@ describe('Settings page', () => {
 		const { container } = open();
 
 		expect((await axe(container)).violations).toEqual([]);
+	});
+});
+
+describe('Settings page in French', () => {
+	useLocale('fr');
+
+	it('shows the heading and the save button in French', () => {
+		open();
+
+		expect(screen.getByRole('heading', { level: 1, name: 'Réglages' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeTruthy();
+		expect(screen.queryByText('Save changes')).toBeNull();
 	});
 });

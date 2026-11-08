@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '#lib/i18n/errors.js';
 export interface Identity {
 	account_id: string;
 	workspace_id: string;
@@ -30,13 +31,7 @@ export async function authRequest(
 		body: input ? JSON.stringify(input) : undefined
 	});
 	if (!response.ok) {
-		const data = await response.json().catch(() => ({}));
-		throw new AuthError(
-			response.status,
-			typeof data.error === 'string'
-				? data.error
-				: 'Unable to complete the request. Please try again.'
-		);
+		throw new AuthError(response.status, apiErrorMessage(response.status));
 	}
 }
 

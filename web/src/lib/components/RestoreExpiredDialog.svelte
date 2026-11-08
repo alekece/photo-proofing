@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
@@ -32,7 +33,7 @@
 		if (pending) return;
 
 		if (value !== null && value < today) {
-			error = 'Pick a date from today on.';
+			error = m.restore_date_past();
 
 			return;
 		}
@@ -65,14 +66,13 @@
 			}}
 		>
 			<div class="grid gap-2">
-				<h2 id="{id}-title" class="text-xl">Clients can’t see this gallery yet</h2>
+				<h2 id="{id}-title" class="text-xl">{m.restore_title()}</h2>
 				<p class="text-sm text-muted-foreground">
-					It was restored, but its link expired on {formatShortDate(expiresAt)}. Set a new date or
-					remove the expiry so clients can open it.
+					{m.restore_body({ date: formatShortDate(expiresAt) })}
 				</p>
 			</div>
 			<div class="grid gap-1.5">
-				<Label for="{id}-day" class="text-muted-foreground">Open until</Label>
+				<Label for="{id}-day" class="text-muted-foreground">{m.expiry_open_until()}</Label>
 				<Input
 					id="{id}-day"
 					type="date"
@@ -85,14 +85,14 @@
 				{#if error}<p id="{id}-error" role="alert" class="text-sm text-danger">{error}</p>{/if}
 			</div>
 			<div class="flex flex-wrap justify-end gap-2">
-				<Button variant="ghost" type="button" onclick={close}>Keep expired</Button>
+				<Button variant="ghost" type="button" onclick={close}>{m.restore_keep_expired()}</Button>
 				<Button
 					variant="outline"
 					type="button"
 					disabled={pending}
-					onclick={() => void save(null, close)}>No expiry</Button
+					onclick={() => void save(null, close)}>{m.restore_no_expiry()}</Button
 				>
-				<Button type="submit" disabled={pending || !day}>Set date</Button>
+				<Button type="submit" disabled={pending || !day}>{m.restore_set_date()}</Button>
 			</div>
 		</form>
 	{/snippet}

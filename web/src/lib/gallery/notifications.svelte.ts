@@ -1,5 +1,6 @@
 import { getContext, setContext } from 'svelte';
 import type { LiveEvents } from '#lib/events.js';
+import { m } from '#lib/paraglide/messages.js';
 import { notificationListSchema, parseOrNull, type Notification } from './schemas';
 
 export type { Notification } from './schemas';
@@ -10,24 +11,28 @@ const DAY_MS = 24 * HOUR_MS;
 
 /** What happened, in the words of the bell and the card badge. */
 export function notificationText(notification: Notification): string {
-	if (notification.kind === 'selection') return `${notification.selected} selected`;
-	if (notification.count === 0) return 'Downloaded as a ZIP';
+	if (notification.kind === 'selection') {
+		return m.notification_selected({ count: notification.selected });
+	}
+	if (notification.count === 0) return m.notification_zip();
 
-	return notification.count === 1 ? '1 new download' : `${notification.count} new downloads`;
+	return m.notification_downloads({ count: notification.count });
 }
 
 export function notificationBadge(notification: Notification): string {
-	return notification.kind === 'selection' ? 'New selection' : 'New downloads';
+	return notification.kind === 'selection'
+		? m.notification_badge_selection()
+		: m.notification_badge_downloads();
 }
 
 export function timeAgo(iso: string, now: number = Date.now()): string {
 	const elapsed = Math.max(0, now - Date.parse(iso));
 
-	if (elapsed < MINUTE_MS) return 'just now';
-	if (elapsed < HOUR_MS) return `${Math.floor(elapsed / MINUTE_MS)} min ago`;
-	if (elapsed < DAY_MS) return `${Math.floor(elapsed / HOUR_MS)} h ago`;
+	if (elapsed < MINUTE_MS) return m.time_just_now();
+	if (elapsed < HOUR_MS) return m.time_minutes_ago({ count: Math.floor(elapsed / MINUTE_MS) });
+	if (elapsed < DAY_MS) return m.time_hours_ago({ count: Math.floor(elapsed / HOUR_MS) });
 
-	return `${Math.floor(elapsed / DAY_MS)} d ago`;
+	return m.time_days_ago({ count: Math.floor(elapsed / DAY_MS) });
 }
 
 /** The workspace's notifications; the server's list is authoritative, so every change refetches. */

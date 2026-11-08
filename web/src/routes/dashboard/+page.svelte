@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { navigating } from '$app/state';
@@ -15,7 +16,7 @@
 	import GallerySortMenu from '#lib/components/GallerySortMenu.svelte';
 	import type { GallerySort, GalleryState } from '#lib/gallery/schemas.js';
 	import { ALL_STATES, DEFAULT_STATES } from '#lib/gallery/states.js';
-	import { galleryStatus, UNTITLED_GALLERY } from '#lib/gallery/format.js';
+	import { galleryStatus } from '#lib/gallery/format.js';
 	import { getNotifications, notificationBadge } from '#lib/gallery/notifications.svelte.js';
 	import type { PageData } from './$types';
 
@@ -55,7 +56,7 @@
 		const needle = query.trim().toLowerCase();
 
 		return all.filter((gallery) =>
-			(gallery.title ?? UNTITLED_GALLERY).toLowerCase().includes(needle)
+			(gallery.title ?? m.gallery_untitled()).toLowerCase().includes(needle)
 		);
 	});
 	let visible = $derived(
@@ -72,7 +73,11 @@
 	let greeting = $derived.by(() => {
 		const hour = new Date().getHours();
 
-		return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+		return hour < 12
+			? m.dashboard_morning()
+			: hour < 18
+				? m.dashboard_afternoon()
+				: m.dashboard_evening();
 	});
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
 	afterNavigate(() => {
@@ -87,7 +92,7 @@
 			await authRequest('logout');
 			await goto('/login', { refreshAll: true });
 		} catch (error) {
-			message = error instanceof Error ? error.message : 'Unable to sign out. Please try again.';
+			message = error instanceof Error ? error.message : m.sign_out_failed();
 		} finally {
 			pending = false;
 		}
@@ -101,7 +106,7 @@
 	}
 </script>
 
-<svelte:head><title>Dashboard — PhotoProofing</title></svelte:head>
+<svelte:head><title>{m.dashboard_head()} — PhotoProofing</title></svelte:head>
 <AppHeader onsignout={logout} />
 <main class="flex flex-1 flex-col">
 	<div
@@ -111,16 +116,15 @@
 			<h1 class="text-[1.875rem] leading-[1.05] sm:text-[2.75rem]">
 				{greeting}.
 				{#if galleriesWithNews > 0}
-					<em class="text-danger"
-						>{galleriesWithNews === 1 ? '1 gallery has' : `${galleriesWithNews} galleries have`} news.</em
-					>
+					<em class="text-danger">{m.dashboard_news({ count: galleriesWithNews })}</em>
 				{:else}
-					<em class="text-danger">All quiet</em> for now.
+					<em class="text-danger">{m.dashboard_quiet()}</em>
+					{m.dashboard_quiet_rest()}
 				{/if}
 			</h1>
 		</div>
 		<Button class="justify-self-start sm:justify-self-auto" onclick={() => (dialogOpen = true)}
-			>+ New gallery</Button
+			>{m.dashboard_new_gallery()}</Button
 		>
 	</div>
 	{#if message}<p role="alert" class="px-3.5 pb-3 text-danger sm:px-8">{message}</p>{/if}
@@ -138,8 +142,8 @@
 				<Search size={16} aria-hidden="true" class="shrink-0" />
 				<input
 					type="search"
-					aria-label="Search galleries"
-					placeholder="Search galleries"
+					aria-label={m.dashboard_search()}
+					placeholder={m.dashboard_search()}
 					bind:value={query}
 					disabled={none}
 					class="w-full border-0 bg-transparent text-[0.9375rem] outline-none placeholder:text-muted-foreground focus-visible:shadow-none focus-visible:outline-none [&::-webkit-search-cancel-button]:hidden"
@@ -155,7 +159,7 @@
 		</div>
 	{/if}
 	{#if loading}
-		<p class="sr-only" role="status">Loading galleries…</p>
+		<p class="sr-only" role="status">{m.dashboard_loading()}</p>
 		<ul class={gridClass} aria-busy="true">
 			{#each [1, 2, 3, 4] as n (n)}
 				<li class="aspect-[3/4] overflow-hidden rounded-card border border-border sm:aspect-[4/5]">
@@ -165,7 +169,7 @@
 		</ul>
 	{:else if data.galleries === null}
 		<p role="alert" class="px-3.5 sm:px-8">
-			Couldn’t load your galleries. Please reload the page to try again.
+			{m.dashboard_load_failed()}
 		</p>
 	{:else if all.length === 0}
 		<EmptyWorkspace />
@@ -178,19 +182,18 @@
 				<li class="col-span-full px-0 pt-14 pb-10 text-center text-muted-foreground">
 					<h2 class="mb-1.5 text-2xl leading-[1.2] text-foreground">
 						{query.trim() !== '' && matching.length === 0
-							? `No gallery called “${query.trim()}”`
-							: 'No galleries with these statuses'}
+							? m.dashboard_no_match({ query: query.trim() })
+							: m.dashboard_no_status_match()}
 					</h2>
 					<p>
 						{#if hiddenMatches > 0}
-							{hiddenMatches === 1 ? '1 match is' : `${hiddenMatches} matches are`} hidden in unselected
-							statuses.
+							{m.dashboard_hidden_matches({ count: hiddenMatches })}
 						{:else}
-							Check the spelling, or try part of the client’s name.
+							{m.dashboard_check_spelling()}
 						{/if}
 					</p>
 					<Button variant="outline" class="mt-3.5" onclick={clearAll}
-						>Clear search and status</Button
+						>{m.dashboard_clear_filters()}</Button
 					>
 				</li>
 			{/each}
@@ -212,17 +215,16 @@
 						</span>
 						<strong
 							class="px-2 font-serif text-[1.0625rem] leading-[1.2] font-normal text-foreground italic sm:text-[1.375rem]"
-							>Who’s in front of <br />your lens next?</strong
+							>{m.dashboard_next_client_line1()} <br />{m.dashboard_next_client_line2()}</strong
 						>
 					</button>
 				</li>
 			{/if}
 		</ul>
 		<p class="mt-auto px-3.5 pt-6 pb-6 text-[0.8125rem] text-muted-foreground sm:px-8">
-			{totals.galleries === 1 ? '1 gallery' : `${totals.galleries} galleries`} · {totals.photos ===
-			1
-				? '1 photo'
-				: `${totals.photos} photos`}
+			{m.dashboard_total_galleries({ count: totals.galleries })} · {m.summary_photos({
+				count: totals.photos
+			})}
 		</p>
 	{/if}
 </main>

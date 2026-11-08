@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { CircleCheck, ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack } from 'svelte';
@@ -128,15 +129,15 @@
 		];
 		const count = (...kinds: TileState[]) => states.filter((state) => kinds.includes(state)).length;
 		const parts = [
-			[selecting ? selection.length : 0, 'selected'],
-			[count('waiting-upload', 'uploading'), 'uploading'],
-			[count('waiting-process', 'processing'), 'processing'],
-			[count('upload-failed', 'rejected', 'process-failed'), 'failed']
+			[selecting ? selection.length : 0, m.notification_selected],
+			[count('waiting-upload', 'uploading'), m.photos_status_uploading],
+			[count('waiting-process', 'processing'), m.photos_status_processing],
+			[count('upload-failed', 'rejected', 'process-failed'), m.photos_status_failed]
 		] as const;
 
 		return parts
 			.filter(([n]) => n > 0)
-			.map(([n, label]) => `${n} ${label}`)
+			.map(([n, label]) => label({ count: n }))
 			.join(', ');
 	});
 
@@ -162,7 +163,7 @@
 		if (failures > reportedFailures) {
 			const fresh = failures - reportedFailures;
 
-			toasts.error(`${fresh} ${fresh === 1 ? 'photo' : 'photos'} failed to upload.`);
+			toasts.error(m.photos_failed_upload({ count: fresh }));
 		}
 
 		reportedFailures = failures;
@@ -200,7 +201,7 @@
 				return;
 			}
 
-			if (galleryId === id) alert = 'Couldn’t update the cover photo. Please try again.';
+			if (galleryId === id) alert = m.photos_cover_failed();
 		} finally {
 			savingHero = false;
 		}
@@ -241,7 +242,7 @@
 				return;
 			}
 
-			alert = 'Couldn’t load the photos. Please reload the page.';
+			alert = m.photos_load_failed();
 		} finally {
 			if (view === shown) {
 				loaded = true;
@@ -338,7 +339,7 @@
 			}
 
 			if (!(cause instanceof GalleryApiError && cause.status === 404)) {
-				alert = `Couldn’t delete ${photo.original_name}. Please try again.`;
+				alert = m.photos_delete_failed({ name: photo.original_name });
 			}
 		}
 
@@ -372,7 +373,7 @@
 			}
 
 			photo.status = before;
-			alert = `Couldn’t retry ${photo.original_name}. Please try again.`;
+			alert = m.photos_retry_failed({ name: photo.original_name });
 		}
 	}
 
@@ -464,7 +465,7 @@
 			await finishSelecting();
 
 			announcement = {
-				text: `${ids.length} ${ids.length === 1 ? 'photo' : 'photos'} deleted`,
+				text: m.photos_deleted({ count: ids.length }),
 				summary
 			};
 		} catch (cause) {
@@ -476,7 +477,7 @@
 
 			if (!showsGallery()) return;
 
-			alert = `Deleted ${deletedCount} of ${ids.length} photos. Please try again.`;
+			alert = m.photos_partly_deleted({ deleted: deletedCount, total: ids.length });
 			refresh();
 		}
 	}
@@ -490,7 +491,7 @@
 <svelte:window {onkeydown} />
 
 <section
-	aria-label={finals ? 'Final' : 'Photos'}
+	aria-label={finals ? m.tab_final() : m.common_photos()}
 	class={['grid gap-3 rounded-sm', dragging && 'outline-2 outline-offset-4 outline-foreground/40']}
 	{ondragover}
 	ondragleave={() => (dragging = false)}
@@ -500,7 +501,7 @@
 		{#if updatingWatermarks}
 			<p class="mr-auto flex items-center gap-2 text-sm text-muted-foreground">
 				<LoaderCircle size={16} class="animate-spin-slow" aria-hidden="true" />
-				Updating watermarks…
+				{m.photos_updating_watermarks()}
 			</p>
 		{/if}
 		{#if selecting}
@@ -517,7 +518,9 @@
 			class="min-h-9! gap-1.5"
 			disabled={!selecting && photos.length === 0}
 			onclick={() => (selecting ? selectAll() : (selecting = true))}
-			><CircleCheck size={16} aria-hidden="true" />{selecting ? 'Select all' : 'Select'}</Button
+			><CircleCheck size={16} aria-hidden="true" />{selecting
+				? m.action_select_all()
+				: m.action_select()}</Button
 		>
 		<Button
 			bind:ref={uploadButton}
@@ -526,10 +529,10 @@
 			class="min-h-9! gap-1.5"
 			disabled={selecting && selection.length === 0}
 			onclick={() => (selecting ? (confirmingSelection = true) : picker?.click())}
-			>{#if selecting}<Trash2 size={16} aria-hidden="true" />Delete{:else}<Upload
+			>{#if selecting}<Trash2 size={16} aria-hidden="true" />{m.action_delete()}{:else}<Upload
 					size={16}
 					aria-hidden="true"
-				/>Upload{/if}</Button
+				/>{m.action_upload()}{/if}</Button
 		>
 		<input
 			bind:this={picker}
@@ -537,7 +540,7 @@
 			multiple
 			accept="image/jpeg,.jpg,.jpeg"
 			class="hidden"
-			aria-label={finals ? 'Choose finished photos to upload' : 'Choose photos to upload'}
+			aria-label={finals ? m.photos_choose_finals() : m.photos_choose()}
 			onchange={onpick}
 		/>
 	</div>
@@ -552,7 +555,7 @@
 	{#if photos.length > 0 || queued.length > 0}
 		<ul
 			bind:this={grid}
-			aria-label={finals ? 'Final photos' : 'Photos'}
+			aria-label={finals ? m.photos_list_finals() : m.common_photos()}
 			class={GRID_CLASSES[layout]}
 		>
 			{#each photos as photo (photo.id)}
@@ -608,8 +611,8 @@
 	{:else if loaded}
 		<EmptyState>
 			<ImagePlus size={32} aria-hidden="true" />
-			<h3>{finals ? 'Drop the finished photos here' : 'Drop the shoot here'}</h3>
-			<Button size="sm" onclick={() => picker?.click()}>Upload</Button>
+			<h3>{finals ? m.photos_drop_finals() : m.photos_drop()}</h3>
+			<Button size="sm" onclick={() => picker?.click()}>{m.action_upload()}</Button>
 		</EmptyState>
 	{/if}
 </section>
@@ -617,9 +620,9 @@
 {#if confirming}
 	{@const photo = confirming}
 	<ConfirmDialog
-		title="Delete {photo.original_name}?"
-		confirmLabel="Delete"
-		cancelLabel="Cancel"
+		title={m.photos_delete_one({ name: photo.original_name })}
+		confirmLabel={m.action_delete()}
+		cancelLabel={m.common_cancel()}
 		destructive
 		onclose={() => (confirming = null)}
 		onconfirm={() => remove(photo)}
@@ -629,13 +632,11 @@
 		{/snippet}
 		{#snippet description()}
 			<p class="text-sm text-muted-foreground">
-				{finals
-					? 'The finished photo and its previews are removed from the draft, wherever it is in processing.'
-					: 'The photo and its previews are removed for good, wherever it is in processing.'}
+				{finals ? m.photos_delete_one_body_finals() : m.photos_delete_one_body()}
 			</p>
 			{#if !finals && photo.favorite}
 				<p class="text-sm font-bold text-warning">
-					This photo is one of the client’s favorites. It leaves their selection too.
+					{m.photos_delete_one_favorite()}
 				</p>
 			{/if}
 		{/snippet}
@@ -647,9 +648,9 @@
 	{@const count = confirmed.length}
 	{@const favoriteCount = confirmed.filter(({ favorite }) => favorite).length}
 	<ConfirmDialog
-		title="Delete {count} {count === 1 ? 'photo' : 'photos'}?"
-		confirmLabel="Delete"
-		cancelLabel="Cancel"
+		title={m.photos_delete_many({ count })}
+		confirmLabel={m.action_delete()}
+		cancelLabel={m.common_cancel()}
 		destructive
 		onclose={() => {
 			confirmingSelection = false;
@@ -661,12 +662,12 @@
 			<PhotoStack {galleryId} {set} photoIds={confirmed.map(({ id }) => id)} />
 		{/snippet}
 		{#snippet description()}
-			<p class="text-sm text-muted-foreground">This can’t be undone.</p>
+			<p class="text-sm text-muted-foreground">{m.photos_delete_undone()}</p>
 			{#if !finals && favoriteCount > 0}
 				<p class="text-sm font-bold text-warning">
-					{favoriteCount === count ? 'All' : favoriteCount} of them {favoriteCount === 1
-						? 'is'
-						: 'are'} the client’s favorites. They leave the client’s selection too.
+					{favoriteCount === count
+						? m.photos_delete_all_favorites()
+						: m.photos_delete_some_favorites({ count: favoriteCount })}
 				</p>
 			{/if}
 		{/snippet}
@@ -690,7 +691,7 @@
 			{#if !finals && photo && hasCleanPhoto(photo)}
 				<ViewerButton
 					pressed={photo.id === heroId}
-					aria-label={photo.id === heroId ? 'Remove cover' : 'Set as cover'}
+					aria-label={photo.id === heroId ? m.cover_remove() : m.cover_set()}
 					onclick={() => void toggleHero(photo)}
 				>
 					<Star
@@ -700,14 +701,18 @@
 						class="text-[#f2c063]"
 					/>
 					<span class="max-[700px]:hidden"
-						>{photo.id === heroId ? 'Remove cover' : 'Set as cover'}</span
+						>{photo.id === heroId ? m.cover_remove() : m.cover_set()}</span
 					>
 				</ViewerButton>
 			{/if}
 			{#if photo}
-				<ViewerButton tone="warn" aria-label="Delete" onclick={() => (confirming = photo)}>
+				<ViewerButton
+					tone="warn"
+					aria-label={m.action_delete()}
+					onclick={() => (confirming = photo)}
+				>
 					<Trash2 size={18} aria-hidden="true" />
-					<span class="max-[700px]:hidden">Delete</span>
+					<span class="max-[700px]:hidden">{m.action_delete()}</span>
 				</ViewerButton>
 			{/if}
 		{/snippet}

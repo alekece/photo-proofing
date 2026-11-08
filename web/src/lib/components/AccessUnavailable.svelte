@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
+
 	// x, y and size as percentages of the viewfinder, then the bokeh color.
 	const BOKEH = [
 		['22%', '58%', '34%', '#f2b27a'],
@@ -22,7 +24,7 @@
 >
 	<div
 		role="img"
-		aria-label="A camera viewfinder failing to focus"
+		aria-label={m.unavailable_viewfinder()}
 		class="relative aspect-3/2 w-[min(640px,100%)] overflow-hidden rounded-[4px] bg-[#1c1612] max-[700px]:aspect-3/4"
 	>
 		<div class="bokeh absolute inset-0">
@@ -53,9 +55,11 @@
 		</div>
 	</div>
 	<div class="text-center">
-		<h1 class="font-serif text-[clamp(28px,4vw,40px)] font-normal italic">Focus not locked</h1>
+		<h1 class="font-serif text-[clamp(28px,4vw,40px)] font-normal italic">
+			{m.unavailable_title()}
+		</h1>
 		<p class="mt-2 text-[#bfb2a4]">
-			This link no longer works. Ask your photographer for a new one.
+			{m.unavailable_body()}
 		</p>
 	</div>
 	<p class="text-xs tracking-[0.06em] text-muted-foreground">PhotoProofing</p>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { Eye, Monitor, Smartphone } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
@@ -14,8 +15,8 @@
 	let { gallery, onclose }: { gallery: Gallery; onclose: () => void } = $props();
 
 	const VIEWS = [
-		{ id: 'desktop', label: 'Desktop', icon: Monitor },
-		{ id: 'phone', label: 'Phone', icon: Smartphone }
+		{ id: 'desktop', label: m.preview_desktop(), icon: Monitor },
+		{ id: 'phone', label: m.preview_phone(), icon: Smartphone }
 	] as const;
 
 	let view = $state<string>('desktop');
@@ -86,7 +87,7 @@
 <Dialog
 	{onclose}
 	{onkeydown}
-	label="Client preview"
+	label={m.preview_label()}
 	aria-modal="true"
 	class="m-0 h-dvh max-h-dvh w-screen max-w-screen border-0 bg-[#1d1815] p-0 text-foreground open:flex open:flex-col"
 >
@@ -95,11 +96,13 @@
 			class="grid grid-cols-[1fr_auto_1fr] items-center gap-3.5 border-b border-[#3b322b] bg-foreground px-4 py-2.5 text-sm font-medium text-[#efe6da] max-[700px]:grid-cols-[auto_1fr_auto] max-[700px]:gap-2 max-[700px]:px-2.5 max-[700px]:py-2"
 		>
 			<span class="flex items-center gap-2 font-semibold">
-				<Eye size={18} aria-hidden="true" /><span class="max-[700px]:hidden">Preview</span>
+				<Eye size={18} aria-hidden="true" /><span class="max-[700px]:hidden"
+					>{m.action_preview()}</span
+				>
 			</span>
 			<div
 				role="group"
-				aria-label="Preview size"
+				aria-label={m.preview_size()}
 				class="flex justify-self-center rounded-full bg-[#3a302a] p-[3px]"
 			>
 				{#each VIEWS as { id, label, icon: Icon } (id)}
@@ -120,11 +123,12 @@
 			<button
 				type="button"
 				bind:this={closeButton}
-				aria-label="Close preview"
+				aria-label={m.preview_close()}
 				onclick={close}
 				class="cursor-pointer justify-self-end rounded-full border border-[#4a3f37] px-3.5 py-[7px] text-[0.8125rem] font-semibold focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
 			>
-				<span aria-hidden="true">✕</span> Close
+				<span aria-hidden="true">✕</span>
+				{m.action_close()}
 			</button>
 		</header>
 		<div
@@ -151,7 +155,7 @@
 				>
 					{#if failed}
 						<p role="alert" class="p-4 text-danger">
-							Couldn’t load the photos. Close and try again.
+							{m.preview_load_failed()}
 						</p>
 					{:else if loaded}
 						<ClientGallery

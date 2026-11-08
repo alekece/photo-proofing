@@ -1,0 +1,525 @@
+{
+	"$schema": "https://inlang.com/schema/inlang-message-format",
+	"language_menu_label": "Language: {language}",
+	"language_menu_options": "Language",
+	"language_name_en": "English",
+	"language_name_fr": "French",
+	"language_save_failed": "The language was not saved. Please try again.",
+	"header_account_menu": "Account menu",
+	"header_settings": "Settings",
+	"header_sign_out": "Sign out",
+	"header_notifications": "Notifications",
+	"sign_out_failed": "Unable to sign out. Please try again.",
+	"error_page_title_not_found": "We couldn't find this page.",
+	"error_page_title_server": "Something went wrong on our side.",
+	"error_page_title_client": "We can't show this page.",
+	"error_page_detail_not_found_client": "The link may be old or mistyped. Ask your photographer for a new one.",
+	"error_page_detail_not_found": "The link may be old or mistyped.",
+	"error_page_detail_server": "Please try again in a moment. If it keeps happening, let your photographer know.",
+	"error_page_detail_client": "If you expected to see it, let your photographer know.",
+	"error_page_back_to_galleries": "Back to your galleries",
+	"error_page_try_again": "Try again",
+	"error_page_go_to_sign_in": "Go to sign in",
+	"error_page_head_not_found": "Page not found",
+	"error_page_head_error": "Something went wrong",
+	"unavailable_viewfinder": "A camera viewfinder failing to focus",
+	"unavailable_title": "Focus not locked",
+	"unavailable_body": "This link no longer works. Ask your photographer for a new one.",
+	"login_title_setup": "Create your photographer account",
+	"login_title": "Sign in",
+	"login_setup_intro": "Create the single account for this installation. Your galleries will belong to its workspace.",
+	"login_session_expired": "Your session expired. Please sign in again.",
+	"login_email": "Email",
+	"login_password": "Password",
+	"login_password_help": "Use 12–128 characters. Spaces are allowed.",
+	"login_confirm_password": "Confirm password",
+	"login_passwords_differ": "Passwords don't match.",
+	"login_please_wait": "Please wait…",
+	"login_create_account": "Create account",
+	"login_submit": "Sign in",
+	"login_invalid_credentials": "Invalid email or password.",
+	"login_setup_closed": "This installation already has an account. Please sign in.",
+	"login_too_many_attempts": "Too many sign-in attempts. Please wait a moment and try again.",
+	"login_failed": "Sign-in failed. Please try again.",
+	"footer_copied": "Copied",
+	"footer_copy_failed": "Couldn’t copy automatically. Please copy it manually.",
+	"footer_legal": "Legal",
+	"footer_build": "Build {version}",
+	"footer_copy_build": "Copy build version",
+	"footer_full_build": "Full build version",
+	"footer_development_build": "Development build",
+	"dialog_not_yet": "Not yet",
+	"dialog_deleting": "Deleting…",
+	"dialog_working": "Working…",
+	"toast_saved": "Saved",
+	"toast_retry": "Retry",
+	"toast_dismiss": "Dismiss",
+	"api_error_generic": "Something went wrong. Please try again.",
+	"api_error_unauthorized": "Your session expired. Please sign in again.",
+	"api_error_forbidden": "This request was refused. Reload the page and try again.",
+	"api_error_not_found": "This item no longer exists.",
+	"api_error_conflict": "This can’t be done right now. Reload the page and try again.",
+	"api_error_too_large": "This is too large to send.",
+	"api_error_unsupported": "This file type isn’t supported.",
+	"api_error_invalid": "Some details aren’t valid. Check them and try again.",
+	"api_error_invalid_title": "Enter a title of up to 255 characters.",
+	"api_error_invalid_included_photos": "Enter a valid number of included photos.",
+	"api_error_invalid_studio_name": "Enter a studio name of up to 100 characters.",
+	"api_error_invalid_logo": "Add a logo, or choose another mark.",
+	"api_error_invalid_position": "Choose a position on the grid.",
+	"api_error_invalid_size": "Choose one of the offered sizes.",
+	"api_error_busy": "Too many requests. Please wait a moment and try again.",
+	"api_error_unavailable": "The service is temporarily unavailable. Please try again in a moment.",
+	"api_error_storage_full": "Photo storage is full. Free some space and try again.",
+	"api_error_unexpected": "Unexpected response from the server.",
+	"common_cancel": "Cancel",
+	"gallery_untitled": "Untitled gallery",
+	"state_draft": "Draft",
+	"state_shared": "Shared",
+	"state_delivered": "Delivered",
+	"state_expired": "Expired",
+	"state_archived": "Archived",
+	"time_just_now": "just now",
+	"time_minutes_ago": "{count} min ago",
+	"time_hours_ago": "{count} h ago",
+	"time_days_ago": "{count} d ago",
+	"summary_photos": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} photo",
+				"countPlural=*": "{count} photos"
+			}
+		}
+	],
+	"summary_finals": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} final",
+				"countPlural=*": "{count} finals"
+			}
+		}
+	],
+	"summary_archived": "{items} · archived",
+	"summary_finals_delivered": "Final photos delivered",
+	"summary_all_downloaded": "{finals} · all downloaded",
+	"summary_some_downloaded": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{finals} · {count} downloaded",
+				"countPlural=*": "{finals} · {count} downloaded"
+			}
+		}
+	],
+	"summary_no_photos": "No photos yet",
+	"summary_selected": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": " selected",
+				"countPlural=*": " selected"
+			}
+		}
+	],
+	"summary_expired": "expired",
+	"summary_expired_today": "expired today",
+	"summary_expired_yesterday": "expired yesterday",
+	"summary_expired_days_ago": "expired {days} days ago",
+	"notification_selected": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} selected",
+				"countPlural=*": "{count} selected"
+			}
+		}
+	],
+	"notification_zip": "Downloaded as a ZIP",
+	"notification_downloads": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} new download",
+				"countPlural=*": "{count} new downloads"
+			}
+		}
+	],
+	"notification_badge_selection": "New selection",
+	"notification_badge_downloads": "New downloads",
+	"notifications_unread": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Notifications, {count} unread",
+				"countPlural=*": "Notifications, {count} unread"
+			}
+		}
+	],
+	"notifications_mark_all_read": "Mark all as read",
+	"notifications_none": "Nothing new.",
+	"expiry_open_until": "Open until",
+	"expiry_today": "expires today",
+	"expiry_days_left": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} day left",
+				"countPlural=*": "{count} days left"
+			}
+		}
+	],
+	"filter_status": "Status",
+	"filter_none": "None",
+	"filter_all": "All statuses",
+	"filter_select_all": "Select all",
+	"filter_reset": "Reset",
+	"sort_updated": "Recently updated",
+	"sort_created": "Newest created",
+	"sort_oldest": "Oldest created",
+	"sort_title": "Title A–Z",
+	"sort_by": "Sort by",
+	"new_gallery_title": "New gallery",
+	"new_gallery_field": "Title",
+	"new_gallery_placeholder": "e.g. Martin wedding",
+	"new_gallery_title_required": "Enter a title for the gallery.",
+	"new_gallery_title_too_long": "Titles can be up to {max} characters.",
+	"new_gallery_failed": "Couldn’t create the gallery. Please try again.",
+	"new_gallery_creating": "Creating…",
+	"new_gallery_create": "Create",
+	"dashboard_head": "Dashboard",
+	"dashboard_morning": "Good morning",
+	"dashboard_afternoon": "Good afternoon",
+	"dashboard_evening": "Good evening",
+	"dashboard_news": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} gallery has news.",
+				"countPlural=*": "{count} galleries have news."
+			}
+		}
+	],
+	"dashboard_quiet": "All quiet",
+	"dashboard_quiet_rest": "for now.",
+	"dashboard_new_gallery": "+ New gallery",
+	"dashboard_search": "Search galleries",
+	"dashboard_loading": "Loading galleries…",
+	"dashboard_load_failed": "Couldn’t load your galleries. Please reload the page to try again.",
+	"dashboard_no_match": "No gallery called “{query}”",
+	"dashboard_no_status_match": "No galleries with these statuses",
+	"dashboard_hidden_matches": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} match is hidden in unselected statuses.",
+				"countPlural=*": "{count} matches are hidden in unselected statuses."
+			}
+		}
+	],
+	"dashboard_check_spelling": "Check the spelling, or try part of the client’s name.",
+	"dashboard_clear_filters": "Clear search and status",
+	"dashboard_next_client_line1": "Who’s in front of",
+	"dashboard_next_client_line2": "your lens next?",
+	"dashboard_total_galleries": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} gallery",
+				"countPlural=*": "{count} galleries"
+			}
+		}
+	],
+	"dashboard_empty": "Nothing in frame yet.",
+	"action_preview": "Preview",
+	"action_restore": "Restore",
+	"action_share": "Share",
+	"action_deliver": "Deliver",
+	"action_archive": "Archive",
+	"action_delete": "Delete",
+	"action_upload": "Upload",
+	"action_select": "Select",
+	"action_select_all": "Select all",
+	"action_unselect_all": "Unselect all",
+	"action_retry": "Retry",
+	"action_done": "Done",
+	"action_close": "Close",
+	"header_meta_empty": "Created {created} · no photos yet",
+	"header_meta_delivered": "delivered",
+	"header_meta_shared": "shared",
+	"header_meta_created": "created {created}",
+	"step_progress": "Gallery progress",
+	"step_add_proofs": "Add your proofs",
+	"step_copy_link": "Copy the link",
+	"step_collect": "Collect favorites",
+	"step_client_picks": "Client picks",
+	"step_upload_finals": "Upload finals, then deliver",
+	"tabs_label": "Gallery content",
+	"common_photos": "Photos",
+	"tab_favorites": "Favorites",
+	"tab_final": "Final",
+	"tab_after_sharing": "Available once the gallery is shared",
+	"archive_title": "Archive this gallery?",
+	"archive_body": "The client link stops working. You can restore it any time.",
+	"delete_title": "Delete this gallery?",
+	"delete_keep": "Keep it",
+	"delete_body": "Its photos, favorites and client link go for good.",
+	"restore_date_past": "Pick a date from today on.",
+	"restore_title": "Clients can’t see this gallery yet",
+	"restore_body": "It was restored, but its link expired on {date}. Set a new date or remove the expiry so clients can open it.",
+	"restore_keep_expired": "Keep expired",
+	"restore_no_expiry": "No expiry",
+	"restore_set_date": "Set date",
+	"copy_link_label": "Client link",
+	"copy_copied": "Copied",
+	"copy_copy": "Copy",
+	"copy_failed": "Couldn’t copy automatically. Please copy it manually.",
+	"publish_share_question": "Share?",
+	"publish_deliver_question": "Deliver?",
+	"publish_share_empty": "Share with no photos?",
+	"publish_deliver_empty": "Deliver with no photos?",
+	"publish_share_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Share {count} photo?",
+				"countPlural=*": "Share {count} photos?"
+			}
+		}
+	],
+	"publish_deliver_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Deliver {count} photo?",
+				"countPlural=*": "Deliver {count} photos?"
+			}
+		}
+	],
+	"publish_share_anyway": "Share anyway",
+	"publish_deliver_anyway": "Deliver anyway",
+	"publish_shared_title": "Your gallery is shared",
+	"publish_delivered_title": "Your gallery is delivered",
+	"publish_share_text": "This creates a private link. Anyone with it can see the proofs and pick favorites.",
+	"publish_share_text_until": "This creates a private link. Anyone with it can see the proofs and pick favorites until {until}.",
+	"publish_deliver_text": "{title} sees them at the same link and can download them. Favorites are locked from now on.",
+	"publish_deliver_text_many": "{title} see them at the same link and can download them. Favorites are locked from now on.",
+	"publish_uploading": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} is still uploading",
+				"countPlural=*": "{count} are still uploading"
+			}
+		}
+	],
+	"publish_failed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} failed",
+				"countPlural=*": "{count} failed"
+			}
+		}
+	],
+	"publish_checking": "Checking your photos…",
+	"publish_empty_share": "Clients see an empty gallery until you upload.",
+	"publish_empty_deliver": "Clients see nothing to download until you upload.",
+	"publish_check_failed": "Couldn’t check the photos.",
+	"publish_send_link": "Send the link to your client.",
+	"publish_can_download": "Your client can now download them.",
+	"signature_label": "Cover signature",
+	"common_name": "Name",
+	"signature_both": "Both",
+	"signature_none": "None",
+	"preview_label": "Client preview",
+	"preview_size": "Preview size",
+	"preview_desktop": "Desktop",
+	"preview_phone": "Phone",
+	"preview_close": "Close preview",
+	"preview_load_failed": "Couldn’t load the photos. Close and try again.",
+	"upload_not_jpeg": "Not a JPEG",
+	"upload_too_large": "Too large",
+	"upload_unreadable": "Unreadable image",
+	"upload_failed": "Upload failed",
+	"upload_storage_full": "Storage full",
+	"tile_waiting": "Waiting",
+	"tile_uploading": "Uploading",
+	"tile_rejected": "Rejected",
+	"tile_processing": "Processing",
+	"tile_processing_failed": "Processing failed",
+	"tile_open": "Open {name}",
+	"tile_retry": "Retry {name}",
+	"tile_select": "Select {name}",
+	"tile_remove": "Remove {name}",
+	"tile_download": "Download {name}",
+	"tile_downloaded": "Downloaded by the client",
+	"cover_set": "Set as cover",
+	"cover_remove": "Remove cover",
+	"photos_failed_upload": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} photo failed to upload.",
+				"countPlural=*": "{count} photos failed to upload."
+			}
+		}
+	],
+	"photos_cover_failed": "Couldn’t update the cover photo. Please try again.",
+	"photos_load_failed": "Couldn’t load the photos. Please reload the page.",
+	"photos_delete_failed": "Couldn’t delete {name}. Please try again.",
+	"photos_retry_failed": "Couldn’t retry {name}. Please try again.",
+	"photos_deleted": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} photo deleted",
+				"countPlural=*": "{count} photos deleted"
+			}
+		}
+	],
+	"photos_partly_deleted": "Deleted {deleted} of {total} photos. Please try again.",
+	"photos_status_uploading": "{count} uploading",
+	"photos_status_processing": "{count} processing",
+	"photos_status_failed": "{count} failed",
+	"photos_updating_watermarks": "Updating watermarks…",
+	"photos_list_finals": "Final photos",
+	"photos_choose": "Choose photos to upload",
+	"photos_choose_finals": "Choose finished photos to upload",
+	"photos_drop": "Drop the shoot here",
+	"photos_drop_finals": "Drop the finished photos here",
+	"photos_delete_one": "Delete {name}?",
+	"photos_delete_one_body": "The photo and its previews are removed for good, wherever it is in processing.",
+	"photos_delete_one_body_finals": "The finished photo and its previews are removed from the draft, wherever it is in processing.",
+	"photos_delete_one_favorite": "This photo is one of the client’s favorites. It leaves their selection too.",
+	"photos_delete_many": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Delete {count} photo?",
+				"countPlural=*": "Delete {count} photos?"
+			}
+		}
+	],
+	"photos_delete_undone": "This can’t be undone.",
+	"photos_delete_all_favorites": "All of them are the client’s favorites. They leave the client’s selection too.",
+	"photos_delete_some_favorites": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} of them is the client’s favorites. They leave the client’s selection too.",
+				"countPlural=*": "{count} of them are the client’s favorites. They leave the client’s selection too."
+			}
+		}
+	],
+	"favorites_download_failed": "Couldn’t download the photo. Please try again.",
+	"favorites_zip_check_failed": "Couldn’t check the ZIP. Please try again.",
+	"favorites_zip_failed": "Couldn’t prepare the ZIP. Please try again.",
+	"favorites_downloading": "Downloading…",
+	"favorites_download_count": "Download {count}",
+	"favorites_download_all": "Download all",
+	"favorites_try_again": "Use Download to try again.",
+	"favorites_load_failed": "Couldn’t load the favorites. Please reload.",
+	"favorites_empty": "No favorites yet",
+	"favorites_empty_body": "The client’s selection will appear here.",
+	"settings_panel": "Gallery settings",
+	"settings_sections": "Gallery settings sections",
+	"settings_show": "Show {label}",
+	"settings_access": "Client access",
+	"settings_look": "Look",
+	"settings_gallery": "Gallery",
+	"settings_not_shared": "Not shared yet",
+	"settings_included": "Included photos",
+	"settings_included_invalid": "Included photos must be a whole number of at least 1.",
+	"settings_layout": "Layout",
+	"settings_layout_masonry": "Staggered columns",
+	"settings_layout_grid": "Even rows",
+	"settings_watermark": "Watermark proofs",
+	"gallery_save_failed": "Couldn’t save. Please try again.",
+	"gallery_share_failed": "Couldn’t share the gallery. Please try again.",
+	"gallery_deliver_failed": "Couldn’t deliver the gallery. Please try again.",
+	"gallery_archive_failed": "Couldn’t archive the gallery. Please try again.",
+	"gallery_delete_failed": "Couldn’t delete the gallery. Please try again.",
+	"gallery_restore_failed": "Couldn’t restore. Please try again.",
+	"gallery_restored": "Restored",
+	"gallery_title_label": "Gallery title",
+	"gallery_not_saved": "Couldn’t save",
+	"studio_regenerating": "Watermarked proofs are being regenerated",
+	"studio_save_failed": "Unable to save the settings.",
+	"studio_logo_type": "The logo must be a PNG or JPEG image.",
+	"studio_logo_size": "The logo must be under 1 MB.",
+	"studio_reverted": "Reverted",
+	"studio_saving": "Saving…",
+	"studio_save": "Save changes",
+	"studio_logo_alt": "Studio logo",
+	"studio_logo_remove": "Remove logo",
+	"studio_name": "Studio name",
+	"studio_watermark": "Watermark on proofs",
+	"watermark_label": "Watermark",
+	"watermark_mark": "Mark",
+	"watermark_both": "Name and logo",
+	"watermark_pattern": "Pattern",
+	"watermark_repeat": "Repeat",
+	"watermark_once": "Once",
+	"watermark_your_studio": "Your studio",
+	"watermark_position": "Position",
+	"watermark_position_cell": "Position {cell}",
+	"watermark_size": "Watermark size",
+	"watermark_preview": "Preview of six proofs with the watermark",
+	"common_logo": "Logo",
+	"action_download": "Download",
+	"client_unavailable": "Gallery unavailable",
+	"client_download_failed": "Couldn’t prepare the download. Please try again.",
+	"client_on_their_way": "Your photos are on their way.",
+	"client_finals_on_their_way": "Your finished photos are on their way.",
+	"client_check_back": "Check back soon.",
+	"client_shared_with": "Shared with PhotoProofing",
+	"client_cover_alt": "Gallery cover",
+	"client_ready": "Your photos are ready",
+	"client_view_gallery": "View the gallery",
+	"client_show": "Show",
+	"client_of_included": "of {count}",
+	"client_all": "All",
+	"selection_failed": "We couldn’t save that choice. Please try again.",
+	"selection_final": "This gallery has been delivered, so the selection is final.",
+	"proof_alt": "Proof {number}",
+	"grid_label": "Proofs",
+	"grid_empty": "No proofs are available to view.",
+	"thumb_open": "Open proof {position} of {total}",
+	"thumb_download": "Download photo {position}",
+	"thumb_favorite": "Favorite proof {position}",
+	"viewer_label": "Proof viewer",
+	"viewer_position": "{position} of {total}",
+	"viewer_favorites": "Favorites:",
+	"viewer_favorite": "Favorite",
+	"viewer_add_favorite": "Add to favorites",
+	"viewer_close": "Close viewer",
+	"viewer_download": "Download this photo",
+	"viewer_marked": "Marked as a favorite by the client",
+	"viewer_processing": "Processing…",
+	"viewer_failed": "This photo could not be processed",
+	"viewer_try_again": "Try again",
+	"viewer_previous": "Previous proof",
+	"viewer_next": "Next proof",
+	"tab_locked": "Locked"
+}

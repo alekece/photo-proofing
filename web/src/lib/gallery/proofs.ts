@@ -1,3 +1,4 @@
+import { m } from '#lib/paraglide/messages.js';
 import { hasCleanPhoto, previewUrl, thumbnailUrl, type Photo } from './photos';
 import type { Proof, SharedPhoto } from './types';
 
@@ -17,7 +18,7 @@ export function toProofs(token: string, photos: SharedPhoto[], delivered = false
 function mediaProofs(base: string, photos: SharedPhoto[], watermark?: boolean): Proof[] {
 	return photos.map(({ id, width, height, revision }, i) => ({
 		id,
-		alt: `Proof ${i + 1}`,
+		alt: m.proof_alt({ number: i + 1 }),
 		thumbnailUrl: `${base}/${encodeURIComponent(id)}/thumbnail${imageRevision(revision, watermark)}`,
 		previewUrl: `${base}/${encodeURIComponent(id)}/preview${imageRevision(revision, watermark)}`,
 		width,
@@ -50,7 +51,7 @@ export function toClientPreviewProofs(
 export function toOwnerProofs(galleryId: string, photos: Photo[]): Proof[] {
 	return photos.filter(hasCleanPhoto).map(({ id, width, height, revision }, i) => ({
 		id,
-		alt: `Proof ${i + 1}`,
+		alt: m.proof_alt({ number: i + 1 }),
 		thumbnailUrl: thumbnailUrl(galleryId, id, 'photos', revision),
 		previewUrl: previewUrl(galleryId, id, 'photos', revision),
 		width,

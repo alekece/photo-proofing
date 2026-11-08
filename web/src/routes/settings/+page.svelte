@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { LoaderCircle, Undo2, Upload, X } from '@lucide/svelte';
@@ -71,12 +72,12 @@
 				if (draft[key] === submitted[key]) draft = { ...draft, [key]: saved[key] };
 			}
 			toasts.saved();
-			if (watermark) toasts.success('Watermarked proofs are being regenerated');
+			if (watermark) toasts.success(m.studio_regenerating());
 		} catch (error) {
 			if (error instanceof SettingsApiError && error.status === 422) {
 				toasts.error(error.message);
 			} else {
-				toasts.error('Unable to save the settings.', () => void save());
+				toasts.error(m.studio_save_failed(), () => void save());
 			}
 		} finally {
 			saving = false;
@@ -96,9 +97,8 @@
 
 		input.value = '';
 		if (!file) return;
-		if (!LOGO_TYPES.includes(file.type))
-			return void toasts.error('The logo must be a PNG or JPEG image.');
-		if (file.size > LOGO_MAX_BYTES) return void toasts.error('The logo must be under 1 MB.');
+		if (!LOGO_TYPES.includes(file.type)) return void toasts.error(m.studio_logo_type());
+		if (file.size > LOGO_MAX_BYTES) return void toasts.error(m.studio_logo_size());
 
 		const reader = new FileReader();
 
@@ -121,7 +121,7 @@
 			await authRequest('logout');
 			await goto('/login', { refreshAll: true });
 		} catch (error) {
-			message = error instanceof Error ? error.message : 'Unable to sign out. Please try again.';
+			message = error instanceof Error ? error.message : m.sign_out_failed();
 		} finally {
 			signingOut = false;
 		}
@@ -133,14 +133,16 @@
 		'col-start-1 row-start-1 inline-flex items-center justify-center gap-2 transition-[opacity,transform] duration-300';
 </script>
 
-<svelte:head><title>Settings — PhotoProofing</title></svelte:head>
-<AppHeader crumb="Settings" onsignout={logout} />
+<svelte:head><title>{m.header_settings()} — PhotoProofing</title></svelte:head>
+<AppHeader crumb={m.header_settings()} onsignout={logout} />
 <PageShell
 	class="max-w-[75rem] gap-0 px-3.5 pt-5 pb-[3.75rem] sm:px-[clamp(1.25rem,5vw,3.5rem)] sm:pt-9"
 >
 	{#if message}<p role="alert" class="mb-4 text-danger">{message}</p>{/if}
 	<div class="mb-7 flex flex-wrap items-center gap-3">
-		<h1 class="m-0 flex-1 text-4xl leading-[1.1] max-sm:basis-full sm:text-[3.25rem]">Settings</h1>
+		<h1 class="m-0 flex-1 text-4xl leading-[1.1] max-sm:basis-full sm:text-[3.25rem]">
+			{m.header_settings()}
+		</h1>
 		<Button
 			variant="outline"
 			disabled={!dirty || saving}
@@ -151,7 +153,7 @@
 		>
 			<span
 				class="{face} {feedback === 'reverted' ? '-translate-y-2 opacity-0' : ''}"
-				aria-hidden={feedback === 'reverted'}>Cancel</span
+				aria-hidden={feedback === 'reverted'}>{m.common_cancel()}</span
 			>
 			<span
 				class="{face} {feedback === 'reverted' ? '' : 'translate-y-2 opacity-0'}"
@@ -159,7 +161,7 @@
 			>
 				<span class="inline-flex {feedback === 'reverted' ? 'animate-revert-spin' : ''}"
 					><Undo2 size={16} strokeWidth={2.4} aria-hidden="true" /></span
-				>Reverted
+				>{m.studio_reverted()}
 			</span>
 		</Button>
 		<Button disabled={!dirty || saving} onclick={save} class={action}>
@@ -170,15 +172,15 @@
 						class="animate-spin motion-reduce:animate-none"
 						aria-hidden="true"
 					/>
-					Saving…
+					{m.studio_saving()}
 				{:else}
-					Save changes
+					{m.studio_save()}
 				{/if}
 			</span>
 		</Button>
 	</div>
 	<span role="status" class="sr-only">
-		{feedback === 'reverted' ? 'Reverted' : ''}
+		{feedback === 'reverted' ? m.studio_reverted() : ''}
 	</span>
 
 	<div class="mb-10 flex items-center gap-5">
@@ -186,10 +188,10 @@
 			<div
 				class="group/logo relative grid size-16 flex-none place-items-center rounded-[0.875rem] border-[1.5px] border-border bg-input"
 			>
-				<img src={draft.logo} alt="Studio logo" class="max-h-[2.375rem] max-w-[2.375rem]" />
+				<img src={draft.logo} alt={m.studio_logo_alt()} class="max-h-[2.375rem] max-w-[2.375rem]" />
 				<button
 					type="button"
-					aria-label="Remove logo"
+					aria-label={m.studio_logo_remove()}
 					class="absolute -top-2 -right-2 grid size-[1.625rem] cursor-pointer place-items-center rounded-full bg-foreground text-inverse opacity-0 transition-opacity group-hover/logo:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
 					onclick={removeLogo}><X size={13} aria-hidden="true" /></button
 				>
@@ -199,23 +201,23 @@
 				class="grid size-16 flex-none cursor-pointer place-content-center justify-items-center gap-0.5 rounded-[0.875rem] border-[1.5px] border-dashed border-border text-xs font-semibold text-muted-foreground focus-within:outline-3 focus-within:outline-offset-3"
 			>
 				<Upload size={20} strokeWidth={1.8} aria-hidden="true" />
-				Logo
+				{m.common_logo()}
 				<input type="file" accept="image/png,image/jpeg" class="sr-only" onchange={pickLogo} />
 			</label>
 		{/if}
 		<Input
 			bind:value={draft.studioName}
-			aria-label="Studio name"
-			placeholder="Studio name"
+			aria-label={m.studio_name()}
+			placeholder={m.studio_name()}
 			autocomplete="organization"
 			class="min-h-0 max-w-[32.5rem] min-w-0 flex-1 rounded-none border-0 border-b-[1.5px] border-border bg-transparent px-0 py-1.5 font-serif text-[1.625rem] leading-[normal] shadow-none focus:border-foreground"
 		/>
 	</div>
 
-	<h2 class="mb-4 text-[1.875rem] leading-[1.15]">Watermark on proofs</h2>
+	<h2 class="mb-4 text-[1.875rem] leading-[1.15]">{m.studio_watermark()}</h2>
 	<WatermarkEditor bind:settings={draft} samples={data.samples} />
 
-	<h2 class="mb-4 text-[1.875rem] leading-[1.15]">Cover signature</h2>
+	<h2 class="mb-4 text-[1.875rem] leading-[1.15]">{m.signature_label()}</h2>
 	<CoverSignaturePicker
 		bind:value={draft.signature}
 		studioName={draft.studioName}

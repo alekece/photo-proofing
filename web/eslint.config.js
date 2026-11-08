@@ -5,7 +5,17 @@ import globals from 'globals';
 import ts from 'typescript-eslint';
 
 export default ts.config(
-	{ ignores: ['.svelte-kit/', 'build/', '.output/', 'node_modules/', 'playwright-report/'] },
+	{
+		ignores: [
+			'.svelte-kit/',
+			'build/',
+			'.output/',
+			'node_modules/',
+			'playwright-report/',
+			'src/lib/paraglide/',
+			'project.inlang/cache/'
+		]
+	},
 	js.configs.recommended,
 	ts.configs.recommended,
 	svelte.configs.recommended,

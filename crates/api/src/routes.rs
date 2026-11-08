@@ -4,6 +4,7 @@ pub mod auth;
 pub mod events;
 pub mod galleries;
 pub mod health;
+pub mod language;
 pub mod notifications;
 pub mod settings;
 pub mod upload;

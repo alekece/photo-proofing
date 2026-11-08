@@ -1,3 +1,4 @@
+import { m } from '#lib/paraglide/messages.js';
 import { SvelteSet } from 'svelte/reactivity';
 
 interface SelectionOptions {
@@ -5,9 +6,6 @@ interface SelectionOptions {
 	initial: string[];
 	fetcher?: typeof fetch;
 }
-
-const FAILED = 'We couldn’t save that choice. Please try again.';
-const FINAL = 'This gallery has been delivered, so the selection is final.';
 
 /**
  * What a client has selected on a private link. A choice shows at once and is saved in the
@@ -56,7 +54,7 @@ export class Selection {
 	}
 
 	async #save(id: string, selected: boolean) {
-		let failure = FAILED;
+		let failure = m.selection_failed();
 
 		try {
 			const response = await this.#fetcher(`${this.#base}/favorites/${encodeURIComponent(id)}`, {
@@ -69,7 +67,7 @@ export class Selection {
 
 				return;
 			}
-			if (response.status === 409) failure = FINAL;
+			if (response.status === 409) failure = m.selection_final();
 		} catch {
 			// Reported below like any failed save.
 		}

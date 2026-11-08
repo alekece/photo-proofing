@@ -18,7 +18,7 @@ describe('gallery API errors', () => {
 			);
 		await expect(updateGallery('g1', { title: 'x' }, fetcher)).rejects.toMatchObject({
 			status: 422,
-			message: 'too long',
+			message: 'Enter a title of up to 255 characters.',
 			field: 'title'
 		});
 		await expect(updateGallery('g1', {}, fetcher)).rejects.toBeInstanceOf(GalleryApiError);

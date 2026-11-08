@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
+	import { getLocale } from '#lib/paraglide/runtime.js';
 	import { onMount } from 'svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
@@ -51,18 +53,15 @@
 	let warned = $derived(empty || uploading > 0 || failed > 0);
 	let until = $derived(expiresAt ? formatLongDate(expiresAt) : '');
 
-	let shareText = $derived(
-		`This creates a private link. Anyone with it can see the proofs and pick favorites${until ? ` until ${until}` : ''}.`
-	);
-	const noun = $derived(kind === 'share' ? 'Share' : 'Deliver');
-	const photoCount = (count: number) => `${count} ${count === 1 ? 'photo' : 'photos'}`;
+	let shareText = $derived(until ? m.publish_share_text_until({ until }) : m.publish_share_text());
+	const sharing = $derived(kind === 'share');
 	let issues = $derived(
-		[
-			uploading > 0 && `${uploading} ${uploading === 1 ? 'is' : 'are'} still uploading`,
-			failed > 0 && `${failed} failed`
-		]
-			.filter(Boolean)
-			.join(' and ')
+		new Intl.ListFormat(getLocale(), { type: 'conjunction' }).format(
+			[
+				uploading > 0 ? m.publish_uploading({ count: uploading }) : '',
+				failed > 0 ? m.publish_failed({ count: failed }) : ''
+			].filter(Boolean)
+		)
 	);
 
 	onMount(() => {
@@ -77,18 +76,30 @@
 
 <ConfirmDialog
 	title={!photos
-		? `${noun}?`
+		? sharing
+			? m.publish_share_question()
+			: m.publish_deliver_question()
 		: empty
-			? `${noun} with no photos?`
-			: `${noun} ${photoCount(ready.length)}?`}
-	confirmLabel={warned && photos ? `${noun} anyway` : noun}
+			? sharing
+				? m.publish_share_empty()
+				: m.publish_deliver_empty()
+			: sharing
+				? m.publish_share_count({ count: ready.length })
+				: m.publish_deliver_count({ count: ready.length })}
+	confirmLabel={warned && photos
+		? sharing
+			? m.publish_share_anyway()
+			: m.publish_deliver_anyway()
+		: sharing
+			? m.action_share()
+			: m.action_deliver()}
 	busy={photos === null}
 	onconfirm={async () => {
 		link = (await onconfirm()) ?? '';
 	}}
 	{onclose}
 	result={{
-		title: kind === 'share' ? 'Your gallery is shared' : 'Your gallery is delivered',
+		title: sharing ? m.publish_shared_title() : m.publish_delivered_title(),
 		body: resultBody
 	}}
 >
@@ -102,29 +113,27 @@
 	{/snippet}
 	{#snippet description()}
 		{#if photos === null}
-			<p class="text-sm text-muted-foreground" role="status">Checking your photos…</p>
+			<p class="text-sm text-muted-foreground" role="status">{m.publish_checking()}</p>
 		{:else}
 			<p class="text-sm text-muted-foreground">
 				{#if kind === 'share'}
 					{shareText}
 				{:else}
-					{title}
-					{title.includes('&') ? 'see' : 'sees'} them at the same link and can download them. Favorites
-					are locked from now on.
+					{title.includes('&')
+						? m.publish_deliver_text_many({ title })
+						: m.publish_deliver_text({ title })}
 				{/if}
 			</p>
 			{#if empty}
 				<p class="text-sm font-bold text-warning">
-					{kind === 'share'
-						? 'Clients see an empty gallery until you upload.'
-						: 'Clients see nothing to download until you upload.'}
+					{sharing ? m.publish_empty_share() : m.publish_empty_deliver()}
 				</p>
 			{/if}
 			{#if issues}
 				<p class="text-sm font-bold text-warning">{issues[0].toUpperCase() + issues.slice(1)}.</p>
 			{/if}
 			{#if checkFailed}
-				<p class="text-sm font-bold text-warning">Couldn’t check the photos.</p>
+				<p class="text-sm font-bold text-warning">{m.publish_check_failed()}</p>
 			{/if}
 		{/if}
 	{/snippet}
@@ -132,10 +141,10 @@
 
 {#snippet resultBody(close: () => void)}
 	<p class="text-center text-sm text-muted-foreground">
-		{kind === 'share' ? 'Send the link to your client.' : 'Your client can now download them.'}
+		{sharing ? m.publish_send_link() : m.publish_can_download()}
 	</p>
 	{#if link}<CopyLink {link} />{/if}
 	<div class="flex justify-center">
-		<Button variant="ghost" onclick={close}>Done</Button>
+		<Button variant="ghost" onclick={close}>{m.action_done()}</Button>
 	</div>
 {/snippet}

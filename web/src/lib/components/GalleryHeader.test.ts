@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
+import { useLocale } from '#lib/i18n/testing.js';
 
 import type { Gallery } from '#lib/gallery/api.js';
 
@@ -120,5 +121,17 @@ describe('GalleryHeader', () => {
 		const { container } = setup({}, { photos: 2 });
 
 		expect((await axe(container)).violations).toEqual([]);
+	});
+});
+
+describe('GalleryHeader in French', () => {
+	useLocale('fr');
+
+	it('shows the actions and the next step in French', () => {
+		setup();
+
+		expect(screen.getByRole('button', { name: /Aperçu/ })).toBeTruthy();
+		expect(screen.getByText('Ajoutez vos épreuves')).toBeTruthy();
+		expect(screen.queryByText('Add your proofs')).toBeNull();
 	});
 });

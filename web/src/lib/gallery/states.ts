@@ -1,11 +1,13 @@
+import { m } from '#lib/paraglide/messages.js';
 import type { GalleryState } from './schemas.js';
 
-export const STATE_LABELS: Record<GalleryState, string> = {
-	draft: 'Draft',
-	shared: 'Shared',
-	delivered: 'Delivered',
-	expired: 'Expired',
-	archived: 'Archived'
+/** The name of each state, in the workspace language. */
+export const STATE_LABELS: Record<GalleryState, () => string> = {
+	draft: m.state_draft,
+	shared: m.state_shared,
+	delivered: m.state_delivered,
+	expired: m.state_expired,
+	archived: m.state_archived
 };
 
 /** Every state, in the order the filter lists them. */
