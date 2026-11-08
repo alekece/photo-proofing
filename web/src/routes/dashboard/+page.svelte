@@ -128,7 +128,7 @@
 					placeholder="Search galleries"
 					bind:value={query}
 					disabled={none}
-					class="w-full border-0 bg-transparent text-[0.9375rem] outline-none placeholder:text-muted-foreground focus-visible:outline-none [&::-webkit-search-cancel-button]:hidden"
+					class="w-full border-0 bg-transparent text-[0.9375rem] outline-none placeholder:text-muted-foreground focus-visible:shadow-none focus-visible:outline-none [&::-webkit-search-cancel-button]:hidden"
 				/>
 			</label>
 			<GalleryStateFilter
