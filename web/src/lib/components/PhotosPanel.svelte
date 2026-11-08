@@ -227,7 +227,7 @@
 				return;
 			}
 
-			if (galleryId === id) alert = 'Couldn’t update the hero photo. Please try again.';
+			if (galleryId === id) alert = 'Couldn’t update the cover photo. Please try again.';
 		} finally {
 			savingHero = false;
 		}
@@ -825,7 +825,7 @@
 			{#if !finals && photo && hasCleanPhoto(photo)}
 				<ViewerButton
 					pressed={photo.id === heroId}
-					aria-label={photo.id === heroId ? 'Remove hero' : 'Set as hero'}
+					aria-label={photo.id === heroId ? 'Remove cover' : 'Set as cover'}
 					onclick={() => void toggleHero(photo)}
 				>
 					<Star
@@ -835,7 +835,7 @@
 						class="text-[#f2c063]"
 					/>
 					<span class="max-[700px]:hidden"
-						>{photo.id === heroId ? 'Remove hero' : 'Set as hero'}</span
+						>{photo.id === heroId ? 'Remove cover' : 'Set as cover'}</span
 					>
 				</ViewerButton>
 			{/if}

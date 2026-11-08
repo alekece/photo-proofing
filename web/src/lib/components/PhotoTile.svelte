@@ -170,8 +170,8 @@
 					'absolute top-2 left-2 grid size-[1.875rem] cursor-pointer place-items-center rounded-full bg-panel/95',
 					hero ? 'text-hero opacity-100' : `text-foreground ${reveal}`
 				]}
-				aria-label={hero ? 'Remove hero' : 'Set as hero'}
-				title={hero ? 'Remove hero' : 'Set as hero'}
+				aria-label={hero ? 'Remove cover' : 'Set as cover'}
+				title={hero ? 'Remove cover' : 'Set as cover'}
 				aria-pressed={hero}
 				onclick={onhero}
 				><Star size={14} fill={hero ? 'currentColor' : 'none'} aria-hidden="true" /></button

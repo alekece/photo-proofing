@@ -707,9 +707,9 @@ describe('PhotosPanel', () => {
 
 		const viewer = screen.getByRole('dialog', { name: /proof viewer/i });
 
-		await user.click(within(viewer).getByRole('button', { name: 'Set as hero' }));
+		await user.click(within(viewer).getByRole('button', { name: 'Set as cover' }));
 		await waitFor(() =>
-			expect(within(viewer).getByRole('button', { name: 'Remove hero' })).toBeTruthy()
+			expect(within(viewer).getByRole('button', { name: 'Remove cover' })).toBeTruthy()
 		);
 		expect(api.heroes()).toEqual(['p2']);
 	});
@@ -738,7 +738,7 @@ describe('PhotosPanel', () => {
 	});
 
 	describe('hero photo', () => {
-		const star = (name: string, label = 'Set as hero') =>
+		const star = (name: string, label = 'Set as cover') =>
 			within(tile(name)).getByRole('button', { name: label });
 
 		it('moves the hero with one click and clears it by clicking the hero again', async () => {
@@ -748,17 +748,17 @@ describe('PhotosPanel', () => {
 			setup(undefined, 'p1');
 			await screen.findByRole('button', { name: 'Open p2.jpg' });
 
-			expect(star('p1.jpg', 'Remove hero').getAttribute('aria-pressed')).toBe('true');
+			expect(star('p1.jpg', 'Remove cover').getAttribute('aria-pressed')).toBe('true');
 			expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false');
 
 			await user.click(star('p2.jpg'));
 
 			await waitFor(() =>
-				expect(star('p2.jpg', 'Remove hero').getAttribute('aria-pressed')).toBe('true')
+				expect(star('p2.jpg', 'Remove cover').getAttribute('aria-pressed')).toBe('true')
 			);
 			expect(star('p1.jpg').getAttribute('aria-pressed')).toBe('false');
 
-			await user.click(star('p2.jpg', 'Remove hero'));
+			await user.click(star('p2.jpg', 'Remove cover'));
 
 			await waitFor(() => expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false'));
 			expect(api.heroes()).toEqual(['p2', null]);
@@ -773,8 +773,8 @@ describe('PhotosPanel', () => {
 			setup(undefined, 'p1');
 			await user.click(await waitFor(() => star('p2.jpg')));
 
-			expect((await screen.findByRole('alert')).textContent).toContain('hero photo');
-			expect(star('p1.jpg', 'Remove hero').getAttribute('aria-pressed')).toBe('true');
+			expect((await screen.findByRole('alert')).textContent).toContain('cover photo');
+			expect(star('p1.jpg', 'Remove cover').getAttribute('aria-pressed')).toBe('true');
 			expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false');
 		});
 
@@ -1304,7 +1304,7 @@ describe('PhotosPanel', () => {
 			await screen.findByRole('button', { name: 'Open f1.jpg' });
 
 			expect(screen.getByRole('region', { name: 'Final' })).toBeTruthy();
-			expect(screen.queryByRole('button', { name: 'Set as hero' })).toBeNull();
+			expect(screen.queryByRole('button', { name: 'Set as cover' })).toBeNull();
 
 			queue.add('g1', [jpeg('a.jpg')], 'finals');
 			await user.click(await screen.findByRole('button', { name: 'Remove f1.jpg' }));

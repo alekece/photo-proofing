@@ -10,7 +10,7 @@ describe('PhotoTile hero star', () => {
 		const onhero = vi.fn();
 		const user = userEvent.setup();
 		const view = render(PhotoTile, { ...base, onhero });
-		const star = screen.getByRole('button', { name: 'Set as hero' });
+		const star = screen.getByRole('button', { name: 'Set as cover' });
 
 		expect(star.getAttribute('aria-pressed')).toBe('false');
 
@@ -20,7 +20,7 @@ describe('PhotoTile hero star', () => {
 
 		await view.rerender({ ...base, onhero, hero: true });
 
-		expect(screen.getByRole('button', { name: 'Remove hero' }).getAttribute('aria-pressed')).toBe(
+		expect(screen.getByRole('button', { name: 'Remove cover' }).getAttribute('aria-pressed')).toBe(
 			'true'
 		);
 	});
@@ -33,7 +33,7 @@ describe('PhotoTile hero star', () => {
 		screen.getByRole('button', { name: 'Open a.jpg' }).focus();
 		await user.tab();
 
-		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Set as hero' }));
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Set as cover' }));
 
 		await user.keyboard('{Enter}');
 
@@ -59,7 +59,7 @@ describe('PhotoTile states', () => {
 
 			expect(screen.getByRole('img', { name: 'a.jpg' }).getAttribute('src')).toBe('/t');
 			await userEvent.click(screen.getByRole('button', { name: 'Open a.jpg' }));
-			await userEvent.click(screen.getByRole('button', { name: 'Set as hero' }));
+			await userEvent.click(screen.getByRole('button', { name: 'Set as cover' }));
 
 			expect(onopen).toHaveBeenCalledOnce();
 			expect(onhero).toHaveBeenCalledOnce();

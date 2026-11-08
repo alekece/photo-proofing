@@ -11,11 +11,11 @@ describe('Placeholder', () => {
 
 	it('shows the sheet variant with icon and label', () => {
 		const { container } = render(Placeholder, {
-			props: { background: 'sheet', icon: true, label: 'Your hero photo will appear here' }
+			props: { background: 'sheet', icon: true, label: 'Your cover photo will appear here' }
 		});
 		expect(container.firstElementChild?.getAttribute('data-background')).toBe('sheet');
 		expect(container.firstElementChild?.getAttribute('aria-hidden')).toBeNull();
-		expect(screen.getByText('Your hero photo will appear here')).toBeTruthy();
+		expect(screen.getByText('Your cover photo will appear here')).toBeTruthy();
 		expect(screen.getByTestId('placeholder-icon')).toBeTruthy();
 	});
 
