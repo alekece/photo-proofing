@@ -39,7 +39,7 @@
 			])
 		) as Record<GalleryState, number>
 	);
-	// Archived galleries stay out of the footer totals, as in the prototype.
+	// Archived galleries stay out of the totals, as in the prototype.
 	let totals = $derived.by(() => {
 		const live = all.filter((gallery) => galleryStatus(gallery.states) !== 'archived');
 
@@ -95,7 +95,7 @@
 <svelte:head><title>Dashboard — PhotoProofing</title></svelte:head>
 <!-- The bell joins AppHeader's `actions` once #72 provides unread activity. -->
 <AppHeader onsignout={logout} />
-<main class="flex min-h-[calc(100dvh-3.6rem)] flex-col">
+<main class="flex flex-1 flex-col">
 	<div
 		class="grid items-end gap-3 px-3.5 pt-[1.125rem] pb-[1.125rem] sm:grid-cols-[1fr_auto] sm:gap-6 sm:px-8 sm:pt-6 sm:pb-[1.625rem]"
 	>
@@ -203,23 +203,12 @@
 				</li>
 			{/if}
 		</ul>
-		<footer
-			class="mt-auto flex flex-col items-start justify-between gap-4 border-t border-border px-3.5 pt-6 pb-6 sm:flex-row sm:items-end sm:px-8 sm:pt-[2.125rem] sm:pb-[1.875rem]"
-		>
-			<div class="font-serif text-[1.625rem] leading-none italic">
-				Your workspace
-				<small
-					class="mt-1.5 block font-sans text-[0.8125rem] leading-[1.6] text-muted-foreground not-italic"
-					>on PhotoProofing</small
-				>
-			</div>
-			<p class="text-[0.8125rem] text-muted-foreground sm:text-right">
-				{totals.galleries === 1 ? '1 gallery' : `${totals.galleries} galleries`} · {totals.photos ===
-				1
-					? '1 photo'
-					: `${totals.photos} photos`}
-			</p>
-		</footer>
+		<p class="mt-auto px-3.5 pt-6 pb-6 text-[0.8125rem] text-muted-foreground sm:px-8">
+			{totals.galleries === 1 ? '1 gallery' : `${totals.galleries} galleries`} · {totals.photos ===
+			1
+				? '1 photo'
+				: `${totals.photos} photos`}
+		</p>
 	{/if}
 </main>
 {#if dialogOpen}

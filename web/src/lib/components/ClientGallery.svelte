@@ -32,7 +32,7 @@
 		/** Clean hero preview, resolved independently of the visible client proof set. */
 		coverUrl?: string;
 		favorites?: string[];
-		/** The studio's signature from Settings; the cover and footer stay unsigned without it. */
+		/** The studio's signature from Settings; the cover stays unsigned without it. */
 		studio?: string | null;
 		/** The studio's logo image URL from Settings. */
 		studioLogo?: string | null;
@@ -44,7 +44,6 @@
 		/** Shown inside the preview's phone frame, which has a fixed height. */
 		framed?: boolean;
 	} = $props();
-	const SEPARATOR = ' · ';
 	const CTA =
 		'inline-flex cursor-pointer items-center gap-2 rounded-full border px-5 py-2.5 text-xs tracking-[0.16em] uppercase transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus';
 	let viewerIndex = $state<number | null>(null);
@@ -69,7 +68,6 @@
 	);
 	const count = $derived(`${proofs.length} ${proofs.length === 1 ? 'photo' : 'photos'}`);
 	const title = $derived(gallery.title ?? UNTITLED_GALLERY);
-	const footer = $derived(`${studio ? `${studio.toUpperCase()}${SEPARATOR}` : ''}PHOTOPROOFING`);
 
 	function viewGallery() {
 		const reduced = matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -288,9 +286,6 @@
 				/>
 			{/if}
 		</div>
-		<footer class="px-5 pt-2.5 pb-10 text-center text-xs tracking-[0.06em] text-muted-foreground">
-			{footer}
-		</footer>
 	</main>
 {/if}
 {#if viewerIndex !== null}
