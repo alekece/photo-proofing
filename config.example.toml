@@ -69,13 +69,8 @@ retry_after = "1s"
 body_idle_timeout = "30s"
 
 [events]
-# Live dashboard updates. Keep-alive period (also how soon a signed-out stream closes), and how
-# many streams may be open at once, overall and per workspace.
+# Live dashboard updates. Keep-alive period (also how soon a signed-out stream closes).
 keep_alive = "15s"
-# Keep-alive periods a stream may go unread before it is closed as stalled (at least 2).
-stall_intervals = 3
-max_streams = 256
-max_streams_per_workspace = 32
 # Events buffered per stream before it lags and is told to resync (1 to 65535).
 capacity = 1024
 # Delay before the database listener is reopened after a failure: starts at the first value,

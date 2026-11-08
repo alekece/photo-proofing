@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use pp_core::notifications::PhotoId;
+use pp_database::photo::PhotoId;
 use pp_database::{
     Database,
     jobs::{

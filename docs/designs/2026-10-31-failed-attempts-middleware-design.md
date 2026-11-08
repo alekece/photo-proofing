@@ -10,14 +10,14 @@ error path must remember to set.
 
 ## Goals
 
-- A real actix middleware (`Transform`/`Service`, like `SameOrigin`) records failed attempts.
+- A real actix middleware records failed attempts and gates over-limit peers.
 - The generic mechanism ("record the peer when the response status matches") is separate from
   the policy ("which statuses count"), which is declared where the routes are defined.
 - `ErrorResponse` stays generic; no typed error is reintroduced to carry meaning.
 
 ## Non-goals
 
-- Changing the limiter itself (`AttemptLimiter`, window, limits) or the `Attempt` gate.
+- Changing the limiter itself (`AttemptLimiter`, window, limits).
 - Limiting routes that take no credentials (`status`, `logout`, `renew`).
 
 ## Anti-goals
@@ -32,23 +32,23 @@ error path must remember to set.
    typed error to distinguish a guess, which the owner rejected.
 3. **Count in the handler.** What the PR removed; not viable for extractor rejections.
 
-Chosen: a status-based variant of 2. The middleware decides from the response status through a
-configurable predicate, so no typed error is needed. The owner picked this.
+Chosen: a status-based variant of 2. The middleware decides from the response status, so no
+typed error is needed. The owner picked this.
 
 ## Design
 
-- `FailedAttempts<F>` with `F: Fn(StatusCode) -> bool + 'static` is a `Transform` and
-  `Service` pair modelled on `SameOrigin`. The predicate is held in an `Rc<F>` because
-  `new_transform` takes `&self` and the `'static` future returned by `call` runs the check
-  after the inner service responds; `Rc` avoids a `Clone` bound (workers are single-threaded).
-- After the inner service responds, if the predicate accepts the response status, it calls
-  `ApiState::record_failure` for the request's peer.
-- `Default` counts every `4xx` except `429`; `5xx` never counts. `.counting(predicate)`
-  replaces the rule with any function or closure.
-- `routes/auth.rs` wraps `login` and `setup` only, with the default.
+- `FailedAttempts::limit` is one async function wrapped by `actix_web::middleware::from_fn`,
+  held as an associated function because actix accepts only a function there. A hand-written
+  `Transform`/`Service` pair and a separate extractor are no longer needed.
+- It refuses a peer over the limit with `429` before the route runs, so no `Attempt`
+  extractor is needed. Otherwise it calls the route and, when the response is a client error
+  other than `429`, calls `ApiState::record_failure` for the request's peer.
+- `5xx` never counts. The rule is fixed rather than configurable, since only one route group
+  uses it.
+- `routes/auth.rs` wraps `login` and `setup` only. `/auth` keeps using the API-wide
+  `JsonConfig`.
 - `FailedGuess`, `ErrorResponse::guess`, `AuthError::is_guess` and the marking in
-  `error_response` are removed. `/auth` keeps using the API-wide `JsonConfig`.
-- `Attempt` remains the gate that rejects over-limit peers with `429`.
+  `error_response` are removed.
 
 ## Behaviour change
 
@@ -59,4 +59,4 @@ to match. The cost is that a buggy client can lock itself out; an attacker gains
 ## Left to the builder
 
 Module naming and file layout, doc comments, and tests: the default rule (401/422 count,
-429/5xx do not), a custom predicate, and that unprotected `/auth` routes never count.
+429/5xx do not), and that unprotected `/auth` routes never count.

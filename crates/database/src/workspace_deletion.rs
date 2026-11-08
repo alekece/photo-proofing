@@ -1,8 +1,8 @@
 //! Deletes galleries and photos together with the jobs that remove their files.
 
-use pp_core::notifications::PhotoId;
 use sqlx::PgPool;
 
+use crate::photo::PhotoId;
 use crate::{
     Repository,
     auth::WorkspaceId,
@@ -41,22 +41,17 @@ impl WorkspaceDeletion<'_> {
     ) -> Result<bool, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
 
-        // Jobs before the gallery, in id order, like a photo delete (see `Self::delete_photos`).
-        sqlx::query(
-            "DELETE FROM jobs WHERE id IN (
-                 SELECT id FROM jobs
-                 WHERE payload->>'kind' = 'process_photo'
-                   AND payload->'payload'->>'photo_id' IN (
-                       SELECT p.id::text FROM photos p
-                       JOIN galleries g ON g.id = p.gallery_id
-                       WHERE g.id = $1 AND g.workspace_id = $2)
-                 ORDER BY id FOR UPDATE
-             )",
+        let photo_ids: Vec<PhotoId> = sqlx::query_scalar(
+            "SELECT p.id FROM photos p
+             JOIN galleries g ON g.id = p.gallery_id
+             WHERE g.id = $1 AND g.workspace_id = $2",
         )
         .bind(id)
         .bind(workspace_id)
-        .execute(&mut *transaction)
+        .fetch_all(&mut *transaction)
         .await?;
+
+        JobRepository::delete_photo_jobs_in(&mut transaction, &photo_ids).await?;
         ExportRepository::delete_exports_in(&mut transaction, id).await?;
 
         let removed_galleries =
@@ -106,26 +101,19 @@ impl WorkspaceDeletion<'_> {
 
         let mut transaction = self.pool.begin().await?;
 
-        // Jobs before photos, each in id order: the worker locks a job then its photo, so neither
-        // it nor an overlapping delete deadlocks with this one.
-        sqlx::query(
-            "DELETE FROM jobs WHERE id IN (
-                 SELECT id FROM jobs
-                 WHERE payload->>'kind' = 'process_photo'
-                   AND payload->'payload'->>'photo_id' IN (
-                     SELECT id::text FROM photos
-                     WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)
-                       AND kind = $4 AND removed_at IS NULL
-                 )
-                 ORDER BY id FOR UPDATE
-             )",
+        let photo_ids: Vec<PhotoId> = sqlx::query_scalar(
+            "SELECT id FROM photos
+             WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)
+               AND kind = $4 AND removed_at IS NULL",
         )
         .bind(workspace_id)
         .bind(gallery_id)
         .bind(ids)
         .bind(kind)
-        .execute(&mut *transaction)
+        .fetch_all(&mut *transaction)
         .await?;
+
+        JobRepository::delete_photo_jobs_in(&mut transaction, &photo_ids).await?;
 
         let retained_ids: Vec<PhotoId> = sqlx::query_scalar(
             "UPDATE photos SET removed_at = now() WHERE id IN (

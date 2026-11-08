@@ -6,13 +6,30 @@
 
 use std::num::{NonZeroU32, NonZeroU64};
 
-use pp_core::{notifications::PhotoId, types::timestamp::Timestamp};
+use derive_more::{Display, From};
+use pp_core::types::{generate::Generate, timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     AssertSqlSafe, FromRow, PgExecutor, PgPool, Postgres, Row, Transaction, postgres::PgRow,
 };
+use uuid::Uuid;
 
 use crate::{Repository, auth::WorkspaceId, error::DatabaseError, gallery::GalleryId};
+
+/// Identifies a photo.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+#[derive(sqlx::Type)]
+#[sqlx(transparent)]
+pub struct PhotoId(Uuid);
+
+impl Generate for PhotoId {
+    fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
 
 /// Reason shown when the worker gives up on a photo after its last attempt.
 pub const PROCESSING_FAILED_REASON: &str = "Processing failed after several attempts.";
@@ -540,7 +557,6 @@ impl PhotoRepository<'_> {
 mod tests {
     use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 
-    use pp_core::notifications::PhotoId;
     use sqlx::PgPool;
     use time::OffsetDateTime;
     use uuid::Uuid;
@@ -552,7 +568,7 @@ mod tests {
         gallery::{GalleryId, GalleryRepository},
         jobs::{DEFAULT_CLEANUP_BATCH, JobOptions},
         listener::Notification,
-        photo_events::{PhotoChange, PhotoEvent},
+        photo_events::PhotoChange,
         photo_intake::PhotoIntake,
         tests::TestRepository,
         workspace_deletion::WorkspaceDeletion,
@@ -1672,7 +1688,7 @@ mod tests {
         let database = Database::new(pool.clone());
         let location = gallery_location(&database, &pool).await;
         let id = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
-        let mut listener = database.listen::<PhotoEvent>().await.unwrap();
+        let mut listener = database.listen().await.unwrap();
 
         database
             .repository::<WorkspaceDeletion>()
@@ -1685,7 +1701,7 @@ mod tests {
             .await
             .unwrap();
 
-        let Notification::Event(event) = listener.next().await.unwrap() else {
+        let Notification::Photo(event) = listener.next().await.unwrap() else {
             panic!("expected a photo event");
         };
 
@@ -1937,7 +1953,7 @@ mod tests {
     async fn events_name_the_kind_and_report_soft_removal_as_deleted(pool: PgPool) {
         let database = Database::new(pool.clone());
         let location = gallery_location(&database, &pool).await;
-        let mut listener = database.listen::<PhotoEvent>().await.unwrap();
+        let mut listener = database.listen().await.unwrap();
         let finished = final_in(&database, location).await;
 
         publish(&pool, finished).await;
@@ -1954,7 +1970,7 @@ mod tests {
 
         let mut seen = Vec::new();
 
-        while let Ok(Ok(Notification::Event(event))) =
+        while let Ok(Ok(Notification::Photo(event))) =
             tokio::time::timeout(std::time::Duration::from_millis(500), listener.next()).await
         {
             seen.push((event.kind, event.status));

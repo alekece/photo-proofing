@@ -14,8 +14,8 @@
 //! configured `Origin`, which the API-wide [`SameOrigin`](crate::middlewares::origin::SameOrigin)
 //! middleware enforces as the CSRF defence for this cookie-authenticated API before any
 //! extractor reads the request. Sign-in routes also pass the failed-attempt limiter
-//! ([`Attempt`]); [`FailedAttempts`] counts their failed responses, including credential bodies
-//! rejected while being parsed. Request bodies are validated while being parsed
+//! ([`FailedAttempts`]), which refuses peers over the limit and counts failed responses,
+//! including credential bodies rejected while being parsed. Request bodies are validated while being parsed
 //! ([`Credentials`]), and policy and limiter state live in [`ApiState`].
 
 use std::time::SystemTime;
@@ -23,6 +23,7 @@ use std::time::SystemTime;
 use actix_web::{
     HttpResponse, ResponseError, get,
     http::StatusCode,
+    middleware::from_fn,
     post,
     web::{self, Data, Json, ServiceConfig},
 };
@@ -33,10 +34,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::ApiState,
     credentials::{Password, PasswordHash},
-    extractors::{
-        attempt::Attempt,
-        session_token::{SessionToken, TokenHash},
-    },
+    extractors::session_token::{SessionToken, TokenHash},
     middlewares::failed_attempts::FailedAttempts,
     response::ResponseBuilderExt,
 };
@@ -103,7 +101,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(renew)
             .service(
                 web::scope("")
-                    .wrap(FailedAttempts::new())
+                    .wrap(from_fn(FailedAttempts::limit))
                     .service(setup)
                     .service(login),
             ),
@@ -142,7 +140,6 @@ async fn report_status(
 #[post("/setup")]
 async fn setup(
     state: Data<ApiState>,
-    _attempt: Attempt,
     credentials: Json<Credentials>,
 ) -> Result<HttpResponse, AuthError> {
     let Credentials { email, password } = credentials.into_inner();
@@ -185,7 +182,6 @@ async fn setup(
 async fn login(
     state: Data<ApiState>,
     session: Option<SessionToken>,
-    _attempt: Attempt,
     credentials: Json<Credentials>,
 ) -> Result<HttpResponse, AuthError> {
     let Credentials { email, password } = credentials.into_inner();

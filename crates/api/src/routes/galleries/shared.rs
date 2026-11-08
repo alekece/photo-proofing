@@ -17,7 +17,7 @@ use actix_web::{
     HttpResponse, delete, get, post, put,
     web::{Data, Path, ServiceConfig},
 };
-use pp_core::notifications::PhotoId;
+use pp_database::photo::PhotoId;
 use pp_database::{
     gallery::GalleryRepository,
     photo::{PhotoRepository, Watermarked},

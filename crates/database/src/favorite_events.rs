@@ -1,10 +1,10 @@
 //! Live changes of a gallery's favorites, announced by PostgreSQL itself whenever a photo's
 //! favorite flag changes or a favorite photo is deleted. Read them with
-//! [`Database::listen`](crate::Database::listen)`::<FavoriteEvent>()`.
+//! [`Database::listen`](crate::Database::listen)`()`.
 
 use serde::{Deserialize, Serialize};
 
-use crate::{auth::WorkspaceId, gallery::GalleryId, listener::Channel};
+use crate::{auth::WorkspaceId, gallery::GalleryId};
 
 /// A gallery's selection changed. It carries no photo: whoever shows the selection refetches it,
 /// so the server's list stays authoritative.
@@ -14,20 +14,20 @@ pub struct FavoriteEvent {
     pub gallery_id: GalleryId,
 }
 
-impl Channel for FavoriteEvent {
-    const NAME: &'static str = "favorite_events";
+impl FavoriteEvent {
+    pub(crate) const CHANNEL: &'static str = "favorite_events";
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use pp_core::notifications::PhotoId;
     use sqlx::PgPool;
     use tokio::time;
     use uuid::Uuid;
 
     use super::*;
+    use crate::photo::PhotoId;
     use crate::{
         Database,
         gallery::GalleryRepository,
@@ -37,7 +37,7 @@ mod tests {
 
     struct Fixture {
         database: Database,
-        event: Notification<FavoriteEvent>,
+        event: Notification,
         photo_id: PhotoId,
     }
 
@@ -70,7 +70,7 @@ mod tests {
 
             Self {
                 database,
-                event: Notification::Event(FavoriteEvent {
+                event: Notification::Favorites(FavoriteEvent {
                     workspace_id,
                     gallery_id,
                 }),
@@ -78,15 +78,23 @@ mod tests {
             }
         }
 
-        async fn next(listener: &mut Listener<FavoriteEvent>) -> Notification<FavoriteEvent> {
-            time::timeout(Duration::from_secs(5), listener.next())
-                .await
-                .expect("a notification arrives")
-                .unwrap()
+        /// The next favorite notification; the listener also reports other channels.
+        async fn next(listener: &mut Listener) -> Notification {
+            time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let notification = listener.next().await.unwrap();
+
+                    if matches!(notification, Notification::Favorites(_)) {
+                        return notification;
+                    }
+                }
+            })
+            .await
+            .expect("a notification arrives")
         }
 
-        async fn assert_silent(listener: &mut Listener<FavoriteEvent>) {
-            let received = time::timeout(Duration::from_millis(200), listener.next()).await;
+        async fn assert_silent(listener: &mut Listener) {
+            let received = time::timeout(Duration::from_millis(200), Self::next(listener)).await;
 
             assert!(received.is_err(), "unexpected {received:?}");
         }
@@ -104,7 +112,7 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn each_change_of_the_flag_notifies_once(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
-        let mut listener = fixture.database.listen::<FavoriteEvent>().await.unwrap();
+        let mut listener = fixture.database.listen().await.unwrap();
 
         fixture.set_favorite(&pool, true).await;
 
@@ -122,7 +130,7 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn deleting_a_favorite_notifies_but_deleting_another_photo_does_not(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
-        let mut listener = fixture.database.listen::<FavoriteEvent>().await.unwrap();
+        let mut listener = fixture.database.listen().await.unwrap();
 
         sqlx::query("DELETE FROM photos WHERE id = $1")
             .bind(fixture.photo_id)
@@ -133,7 +141,7 @@ mod tests {
         Fixture::assert_silent(&mut listener).await;
 
         let fixture = Fixture::new(&pool).await;
-        let mut listener = fixture.database.listen::<FavoriteEvent>().await.unwrap();
+        let mut listener = fixture.database.listen().await.unwrap();
 
         fixture.set_favorite(&pool, true).await;
         Fixture::next(&mut listener).await;

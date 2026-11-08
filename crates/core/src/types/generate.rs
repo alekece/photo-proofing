@@ -3,11 +3,22 @@
 /// Creates a fresh identifier using the implementing type's generation policy.
 ///
 /// ```
-/// use pp_core::{notifications::PhotoId, types::generate::Generate};
+/// use std::sync::atomic::{AtomicU64, Ordering};
 ///
-/// let photo_id = PhotoId::generate();
-/// let another_photo_id = PhotoId::generate();
-/// assert_ne!(photo_id, another_photo_id);
+/// use pp_core::types::generate::Generate;
+///
+/// #[derive(Debug, PartialEq)]
+/// struct PhotoId(u64);
+///
+/// impl Generate for PhotoId {
+///     fn generate() -> Self {
+///         static NEXT: AtomicU64 = AtomicU64::new(0);
+///
+///         Self(NEXT.fetch_add(1, Ordering::Relaxed))
+///     }
+/// }
+///
+/// assert_ne!(PhotoId::generate(), PhotoId::generate());
 /// ```
 pub trait Generate {
     #[must_use]

@@ -12,10 +12,7 @@
 
 use std::{num::NonZeroU64, time::Duration};
 
-use pp_core::{
-    notifications::PhotoId,
-    types::{generate::Generate, timestamp::Timestamp},
-};
+use pp_core::types::{generate::Generate, timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     AssertSqlSafe, FromRow, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow, types::Json,
@@ -28,7 +25,7 @@ use crate::{
     error::DatabaseError,
     gallery::GalleryId,
     jobs::{Job, JobCompletion, JobOptions, JobRepository, ZipExport},
-    listener::Channel,
+    photo::PhotoId,
 };
 
 /// Reason shown when the worker gives up on an export after its last attempt.
@@ -55,8 +52,8 @@ pub struct ExportEvent {
     pub gallery_id: GalleryId,
 }
 
-impl Channel for ExportEvent {
-    const NAME: &'static str = "export_events";
+impl ExportEvent {
+    pub(crate) const CHANNEL: &'static str = "export_events";
 }
 
 /// Where an export stands. Stored and serialized as `{"kind": ..}`, with the `reason` next to

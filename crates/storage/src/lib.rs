@@ -18,7 +18,8 @@ use std::{
     time::Duration,
 };
 
-use pp_core::{config::PhotoDir, notifications::PhotoId};
+use pp_core::config::PhotoDir;
+use pp_database::photo::PhotoId;
 use pp_database::{auth::WorkspaceId, export::ExportId, gallery::GalleryId, photo::PhotoLocation};
 use strum::{Display, EnumString};
 use thiserror::Error;

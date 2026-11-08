@@ -1,122 +1,48 @@
-//! Records failed sign-in attempts for the failed-attempt limiter.
+//! Limits failed sign-in attempts per peer.
 //!
-//! The middleware is generic: after the wrapped route answers, it records the peer when a
-//! predicate accepts the response status. Which statuses count is policy, chosen where the
-//! routes are defined. The default counts every client error except `429`, which is the
-//! limiter's own refusal, and never counts server faults, so an outage cannot lock out honest
-//! peers. [`Attempt`](crate::extractors::attempt::Attempt) is the matching gate that refuses
-//! peers already over the limit.
-
-use std::{
-    future::{Future, Ready, ready},
-    pin::Pin,
-    rc::Rc,
-};
+//! [`FailedAttempts::limit`] refuses a peer already over the limit with `429` before the route
+//! runs, then records the peer when the route answers with a client error. `429` is the
+//! limiter's own refusal and is never counted, and neither are server faults, so an outage cannot
+//! lock out honest peers. Wrap it with [`from_fn`](actix_web::middleware::from_fn).
 
 use actix_web::{
     Error,
-    dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready},
+    body::{BoxBody, MessageBody},
+    dev::{ServiceRequest, ServiceResponse},
     http::StatusCode,
+    middleware::Next,
     web::Data,
 };
 
-use crate::{api::ApiState, request::RequestExt};
+use crate::{api::ApiState, request::RequestExt, routes::auth::AuthError};
 
-fn default_counts(status: StatusCode) -> bool {
-    status.is_client_error() && status != StatusCode::TOO_MANY_REQUESTS
-}
+/// Namespace of the failed-attempt middleware.
+pub(crate) struct FailedAttempts;
 
-/// Middleware that records the peer of every request whose response status is counted.
-pub(crate) struct FailedAttempts<F>
-where
-    F: Fn(StatusCode) -> bool,
-{
-    // Shared with each service because `new_transform` only borrows `self` and the response
-    // future outlives `call`'s borrow; `Rc` suffices as actix workers are single-threaded.
-    predicate: Rc<F>,
-}
-
-impl FailedAttempts<fn(StatusCode) -> bool> {
-    /// Counts every `4xx` response except `429`.
-    pub fn new() -> Self {
-        Self::counting(default_counts)
-    }
-}
-
-impl Default for FailedAttempts<fn(StatusCode) -> bool> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<F> FailedAttempts<F>
-where
-    F: Fn(StatusCode) -> bool + 'static,
-{
-    /// Counts the responses whose status satisfies `predicate`.
-    pub fn counting(predicate: F) -> Self {
-        Self {
-            predicate: Rc::new(predicate),
-        }
-    }
-}
-
-impl<S, B, F> Transform<S, ServiceRequest> for FailedAttempts<F>
-where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
-    S::Future: 'static,
-    B: 'static,
-    F: Fn(StatusCode) -> bool + 'static,
-{
-    type Response = ServiceResponse<B>;
-    type Error = Error;
-    type Transform = FailedAttemptsService<S, F>;
-    type InitError = ();
-    type Future = Ready<Result<Self::Transform, Self::InitError>>;
-
-    fn new_transform(&self, service: S) -> Self::Future {
-        ready(Ok(FailedAttemptsService {
-            service,
-            predicate: Rc::clone(&self.predicate),
-        }))
-    }
-}
-
-pub(crate) struct FailedAttemptsService<S, F> {
-    service: S,
-    predicate: Rc<F>,
-}
-
-impl<S, B, F> Service<ServiceRequest> for FailedAttemptsService<S, F>
-where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
-    S::Future: 'static,
-    B: 'static,
-    F: Fn(StatusCode) -> bool + 'static,
-{
-    type Response = ServiceResponse<B>;
-    type Error = Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
-
-    forward_ready!(service);
-
-    fn call(&self, request: ServiceRequest) -> Self::Future {
-        let state = request.app_data::<Data<ApiState>>().cloned();
+impl FailedAttempts {
+    /// The middleware function; actix only accepts a function here, so this is the one
+    /// function that cannot be a trait or extractor.
+    pub async fn limit<B: MessageBody + 'static>(
+        request: ServiceRequest,
+        next: Next<B>,
+    ) -> Result<ServiceResponse<BoxBody>, Error> {
+        let Some(state) = request.app_data::<Data<ApiState>>().cloned() else {
+            return Ok(request.error_response(AuthError::Unavailable));
+        };
         let peer = request.request().peer_ip();
-        let predicate = Rc::clone(&self.predicate);
-        let response = self.service.call(request);
 
-        Box::pin(async move {
-            let response = response.await?;
+        if !state.allow_attempt(peer) {
+            return Ok(request.error_response(AuthError::Limited));
+        }
 
-            if let Some(state) = state
-                && predicate(response.status())
-            {
-                state.record_failure(peer);
-            }
+        let response = next.call(request).await?;
+        let status = response.status();
 
-            Ok(response)
-        })
+        if status.is_client_error() && status != StatusCode::TOO_MANY_REQUESTS {
+            state.record_failure(peer);
+        }
+
+        Ok(response.map_into_boxed_body())
     }
 }
 
@@ -126,7 +52,7 @@ mod tests {
 
     use actix_web::{
         App, HttpResponse,
-        http::StatusCode,
+        middleware::from_fn,
         test,
         web::{self, Data},
     };
@@ -185,63 +111,56 @@ mod tests {
         HttpResponse::new(StatusCode::from_u16(*status).unwrap())
     }
 
-    /// Calls a route that answers with each of `statuses` in turn and reports whether the peer
-    /// may still attempt afterwards.
-    async fn allowed_after<F>(middleware: FailedAttempts<F>, statuses: &[u16]) -> bool
-    where
-        F: Fn(StatusCode) -> bool + 'static,
-    {
+    /// Calls a route that answers with each of `statuses` in turn, and reports the statuses seen
+    /// and whether the peer may still attempt afterwards.
+    async fn call_with(statuses: &[u16]) -> (Vec<StatusCode>, bool) {
         let (state, _directory) = state().await;
         let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .service(web::resource("/{status}").wrap(middleware).to(respond)),
+            App::new().app_data(state.clone()).service(
+                web::resource("/{status}")
+                    .wrap(from_fn(FailedAttempts::limit))
+                    .to(respond),
+            ),
         )
         .await;
+        let mut seen = Vec::new();
 
         for status in statuses {
             let request = test::TestRequest::get()
                 .uri(&format!("/{status}"))
                 .to_request();
 
-            test::call_service(&app, request).await;
+            seen.push(test::call_service(&app, request).await.status());
         }
 
-        state.allow_attempt(PEER)
+        (seen, state.allow_attempt(PEER))
     }
 
     #[actix_web::test]
-    async fn default_counts_client_errors_except_too_many_requests() {
+    async fn client_errors_except_too_many_requests_count() {
         for status in [400, 401, 413, 415, 422] {
             assert!(
-                !allowed_after(FailedAttempts::new(), &[status, status]).await,
+                !call_with(&[status, status]).await.1,
                 "{status} should count"
             );
         }
 
         for status in [200, 429, 503] {
-            assert!(
-                allowed_after(FailedAttempts::new(), &[status; 5]).await,
-                "{status} should not count"
-            );
+            assert!(call_with(&[status; 5]).await.1, "{status} should not count");
         }
     }
 
     #[actix_web::test]
-    async fn custom_predicate_replaces_the_default() {
-        let conflicts = || FailedAttempts::counting(|status| status == StatusCode::CONFLICT);
+    async fn a_peer_over_the_limit_is_refused_before_the_route() {
+        let (seen, _) = call_with(&[401, 401, 200]).await;
 
-        assert!(!allowed_after(conflicts(), &[409, 409]).await);
-        assert!(allowed_after(conflicts(), &[401, 401, 401]).await);
-    }
-
-    #[actix_web::test]
-    async fn closure_may_capture_non_clone_state() {
-        struct Counted(StatusCode);
-
-        let only = Counted(StatusCode::UNAUTHORIZED);
-        let middleware = FailedAttempts::counting(move |status| status == only.0);
-
-        assert!(!allowed_after(middleware, &[401, 401]).await);
+        assert_eq!(
+            seen,
+            [
+                StatusCode::UNAUTHORIZED,
+                StatusCode::UNAUTHORIZED,
+                StatusCode::TOO_MANY_REQUESTS
+            ]
+        );
     }
 }

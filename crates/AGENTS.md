@@ -12,11 +12,11 @@ These rules apply to Rust changes. They add to the repository-wide policy in the
 - Replace boolean or stringly-typed flags with enums or config types. Use a builder when construction has many optional parts or needs validation.
 - Never write a free function unless no alternative below works; in practice one always does, and reviewers reject it. This includes private helpers and functions that only reshape data or build log fields. Free functions in test code (`#[cfg(test)]`, `tests/`) are fine. Put behavior on the type that owns the data. Use the first that fits:
   - inline it when it has a single short call site;
-  - make it a method or associated function of the type it works on, introducing a small type when the logic has no owner yet (`Renderer`, `Listener<T>`, `StreamSlots`);
+  - make it a method or associated function of the type it works on, introducing a small type when the logic has no owner yet (`Renderer`);
   - express it as a standard trait (`From`, `TryFrom`, `FromStr`, `Default`) or an extension trait;
   - in `api`, use the actix mechanism: an extractor (`FromRequest`), a middleware, or a `#[get]`/`#[post]` handler registered with `.service`.
   A free function is a last resort: only after you have tried every option above and can state in the PR why none fits.
-- Prefer one generic type over several near-identical specific ones when only a type parameter differs (`Database::listen::<T>()` returning `Listener<T>`, not one listener per payload).
+- Prefer one generic type over several near-identical specific ones when only a type parameter differs (`BoundedDuration<MIN, MAX>`, not one duration type per range).
 - Make limits an operator may need to tune (concurrency, caps, request sizes, session and timeout lengths) configuration with a documented default. Internal tuning such as retry backoff or buffer sizes may stay a documented constant.
 - Keep SQLx inside the `database` crate. Other crates go through `Database` and its repositories; a repository method takes a transaction only when the caller must compose several steps in it.
 - Make items private by default and widen visibility only when another module needs them. Derive a trait only when something uses it. Implement `Debug`, `Clone`, and `PartialEq` on public types when sound, except on credentials (see Secrets and Observability).
