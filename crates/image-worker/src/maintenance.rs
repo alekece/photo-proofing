@@ -388,7 +388,11 @@ mod tests {
             export: id,
         };
 
-        fixture.storage.build_archive(&key, Vec::new()).await.unwrap();
+        fixture
+            .storage
+            .build_archive(&key, Vec::new())
+            .await
+            .unwrap();
         fixture.maintenance(DAY, Duration::ZERO).run().await;
 
         assert!(fixture.has_zip(&key).await);

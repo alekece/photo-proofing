@@ -2406,4 +2406,184 @@ pub(super) mod tests {
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
+
+    async fn client_bytes<S>(
+        app: &S,
+        request: test::TestRequest,
+    ) -> (StatusCode, actix_web::http::header::HeaderMap, Vec<u8>)
+    where
+        S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
+    {
+        let response = test::call_service(app, request.to_request()).await;
+        let status = response.status();
+        let headers = response.headers().clone();
+
+        (status, headers, test::read_body(response).await.to_vec())
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_client_downloads_delivered_finals_and_each_download_is_recorded_once(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(
+            pool.clone(),
+            directory.path(),
+            upload_config(1024 * 1024, 1_000_000),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let proof = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        let bytes = jpeg(3, 2);
+        let ready = upload_final(&app, &cookie, &gallery_id, &bytes).await;
+        let waiting = upload_final(&app, &cookie, &gallery_id, &bytes).await;
+
+        Database::new(pool.clone())
+            .repository::<TestRepository>()
+            .force_photo_status(photo_id(&ready), &PhotoStatus::Ready)
+            .await
+            .unwrap();
+
+        let (_, shared) = call(&app, gallery_post(&gallery_id, "share", Some(&cookie))).await;
+        let token = shared["share_token"].as_str().unwrap().to_owned();
+        let single = |photo: &str| {
+            test::TestRequest::get().uri(&format!(
+                "/api/v1/galleries/shared/{token}/photos/{photo}/download"
+            ))
+        };
+        let zip = |post: bool| {
+            let request = if post {
+                test::TestRequest::post().insert_header(("Origin", ORIGIN))
+            } else {
+                test::TestRequest::get()
+            };
+
+            request.uri(&format!("/api/v1/galleries/shared/{token}/download"))
+        };
+        let downloaded = async |id: &str| -> bool {
+            sqlx::query_scalar("SELECT downloaded_at IS NOT NULL FROM photos WHERE id = $1::uuid")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        };
+
+        assert_eq!(
+            client_bytes(&app, single(&ready)).await.0,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(client_bytes(&app, zip(true)).await.0, StatusCode::NOT_FOUND);
+
+        call(&app, gallery_post(&gallery_id, "deliver", Some(&cookie))).await;
+
+        for hidden in [&proof, &waiting] {
+            assert_eq!(
+                client_bytes(&app, single(hidden)).await.0,
+                StatusCode::NOT_FOUND
+            );
+        }
+
+        let (status, headers, body) = client_bytes(&app, single(&ready)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, bytes);
+        assert_eq!(headers.get("cache-control").unwrap(), "private, no-store");
+        assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
+        assert!(
+            headers
+                .get("content-disposition")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("attachment")
+        );
+        assert!(downloaded(&ready).await);
+        assert!(!downloaded(&waiting).await);
+
+        let (status, body) = call_request(&app, zip(true).to_request()).await;
+
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(body["status"], "building");
+        assert_eq!(client_bytes(&app, zip(false)).await.0, StatusCode::CONFLICT);
+
+        let (workspace_id, export_id): (Uuid, Uuid) =
+            sqlx::query_as("SELECT workspace_id, id FROM exports WHERE kind = 'delivery'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let location = pp_database::photo::PhotoLocation {
+            workspace_id: pp_database::auth::WorkspaceId(workspace_id),
+            gallery_id: GalleryId(Uuid::parse_str(&gallery_id).unwrap()),
+        };
+        let storage = pp_storage::PhotoStorage::open(
+            &pp_core::config::PhotoDir::try_from(directory.path().to_owned()).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        storage
+            .build_archive(
+                &pp_storage::ArchiveKey {
+                    workspace: location.workspace_id,
+                    gallery: location.gallery_id,
+                    export: pp_database::export::ExportId(export_id),
+                },
+                vec![pp_storage::ArchiveEntry {
+                    source: pp_storage::PhotoKey::with_location(
+                        location,
+                        photo_id(&ready),
+                        pp_storage::Variant::Original,
+                    ),
+                    original_name: "final.jpg".to_owned(),
+                }],
+            )
+            .await
+            .unwrap();
+        sqlx::query("UPDATE exports SET status = '{\"kind\": \"ready\"}', finished_at = now()")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (status, body) = call_request(&app, zip(true).to_request()).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "ready");
+
+        let (status, headers, body) = client_bytes(&app, zip(false)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers.get("content-type").unwrap(), "application/zip");
+        assert!(body.starts_with(b"PK"));
+
+        let recorded: Option<time::OffsetDateTime> =
+            sqlx::query_scalar("SELECT downloaded_at FROM exports WHERE kind = 'delivery'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert!(recorded.is_some());
+
+        client_bytes(&app, zip(false)).await;
+
+        let again: Option<time::OffsetDateTime> =
+            sqlx::query_scalar("SELECT downloaded_at FROM exports WHERE kind = 'delivery'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert_eq!(again, recorded);
+
+        sqlx::query("UPDATE galleries SET archived_at = now()")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            client_bytes(&app, zip(false)).await.0,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            client_bytes(&app, single(&ready)).await.0,
+            StatusCode::NOT_FOUND
+        );
+    }
 }

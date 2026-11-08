@@ -303,7 +303,8 @@ impl ExportRepository<'_> {
             }
         }
 
-        let replaced_ids = Self::delete_exports_in(&mut transaction, gallery_id, Some(ExportKind::Selection))
+        let replaced_ids =
+            Self::delete_exports_in(&mut transaction, gallery_id, Some(ExportKind::Selection))
                 .await?;
         let export = self
             .insert_in(
@@ -404,12 +405,9 @@ impl ExportRepository<'_> {
                     });
                 }
 
-                let replaced = Self::delete_exports_in(
-                    transaction,
-                    gallery_id,
-                    Some(ExportKind::Delivery),
-                )
-                .await?;
+                let replaced =
+                    Self::delete_exports_in(transaction, gallery_id, Some(ExportKind::Delivery))
+                        .await?;
 
                 return Ok(Delivery {
                     zip: DeliveryZip::Failed,

@@ -16,8 +16,15 @@ use pp_core::{
     config::{DEFAULT_EXPORT_MAX_SIZE, DEFAULT_EXPORT_RETENTION, ExportConfig},
     url::Origin,
 };
-use pp_database::{Database, auth::AuthRepository, error::DatabaseError, jobs::JobOptions};
-use pp_storage::{PhotoStorage, StorageError};
+use pp_database::{
+    Database,
+    auth::AuthRepository,
+    error::DatabaseError,
+    export::{DeliveryZip, ExportRepository},
+    jobs::JobOptions,
+    photo::PhotoLocation,
+};
+use pp_storage::{ArchiveKey, PhotoStorage, StorageError};
 use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
@@ -148,6 +155,34 @@ impl ApiState {
     /// How the jobs the API enqueues are configured.
     pub fn job_options(&self) -> JobOptions {
         self.job_options
+    }
+
+    /// The state of the gallery's delivery ZIP, starting a build when none matches the finals.
+    /// The files of replaced ZIPs are removed; one that cannot be is left to the sweep.
+    pub async fn ensure_delivery(
+        &self,
+        location: PhotoLocation,
+    ) -> Result<DeliveryZip, DatabaseError> {
+        let delivery = self
+            .database
+            .repository_with::<ExportRepository>(self.job_options)
+            .ensure_delivery(location.workspace_id, location.gallery_id)
+            .await?;
+
+        for export in delivery.replaced {
+            let key = ArchiveKey {
+                workspace: location.workspace_id,
+                gallery: location.gallery_id,
+                export,
+            };
+
+            match self.storage.remove_archive(&key).await {
+                Ok(()) | Err(StorageError::NotFound) => {}
+                Err(error) => tracing::warn!(%error, "replaced delivery ZIP could not be removed"),
+            }
+        }
+
+        Ok(delivery.zip)
     }
 
     pub fn storage(&self) -> &PhotoStorage {

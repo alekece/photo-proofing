@@ -9,15 +9,28 @@
 //! - `GET /favorites` lists the ids the client selected; `PUT|DELETE /favorites/{photo_id}`
 //!   selects or unselects one, idempotently, until the gallery is delivered (409).
 //!
+//! - `GET /photos/{photo_id}/download` sends one ready final as an attachment, once delivered.
+//! - `POST /download` makes sure the ZIP of every ready final exists: 200 `{"status":"ready"}`,
+//!   202 `{"status":"building"}`, or 503 `{"status":"failed"}` once after a failed build.
+//!   `GET /download` then sends that ZIP. A download is recorded when it is first sent.
+//!
 //! Every route takes [`ClientAccess`], so malformed, unknown, unshared and expired links are
 //! the same 404, and so are unready, foreign and unknown photos. No route serves an original.
 //! The link is a bearer credential: any access log added later must redact
 //! `/galleries/shared/` paths.
 
 use actix_web::{
-    HttpResponse, delete, get, post, put,
+    HttpResponse,
+    body::SizedStream,
+    delete, get,
+    http::{
+        StatusCode,
+        header::{self, ContentDisposition, DispositionParam, DispositionType},
+    },
+    post, put,
     web::{Data, Path, ServiceConfig},
 };
+use pp_database::export::{DeliveryZip, ExportRepository};
 use pp_database::photo::PhotoId;
 use pp_database::{
     gallery::GalleryRepository,
@@ -27,14 +40,19 @@ use pp_database::{
     gallery::SharedGallery,
     watermark::{CoverSignature, WatermarkRepository},
 };
-use pp_storage::{PhotoKey, Variant};
+use pp_storage::{ArchiveKey, PhotoKey, StorageError, Variant};
 use serde::Serialize;
+use serde_json::json;
+use tokio_util::io::ReaderStream;
 
 use super::DerivativePhoto;
+
+/// The name the browser saves the client's ZIP under.
+const DOWNLOAD_NAME: &str = "photos.zip";
 use crate::{
     api::ApiState,
     error::ErrorResponse,
-    extractors::client_access::ClientAccess,
+    extractors::client_access::{ClientAccess, ClientPhotoSet},
     response::{ImageFile, ResponseBuilderExt},
 };
 
@@ -48,7 +66,10 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(remove_favorite)
         .service(serve_shared_logo)
         .service(serve_shared_cover)
-        .service(serve_shared_photo);
+        .service(serve_shared_photo)
+        .service(download_shared_photo)
+        .service(prepare_shared_zip)
+        .service(download_shared_zip);
 }
 
 #[get("/shared/{token}")]
@@ -233,6 +254,134 @@ async fn serve_shared_photo(
     )
     .await
     .map(ImageFile::proof)
+}
+
+/// The delivered finals, as the client keeps them: the stored bytes, saved under their own name.
+#[get("/shared/{token}/photos/{photo_id}/download")]
+async fn download_shared_photo(
+    state: Data<ApiState>,
+    access: ClientAccess,
+    path: Path<(String, PhotoId)>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let (_, photo_id) = path.into_inner();
+    let location = access.0.location;
+    let photos = state.database().repository::<PhotoRepository>();
+
+    if access.photo_set() != ClientPhotoSet::Finals
+        || !photos
+            .is_ready(location, photo_id, PhotoKind::Final, Watermarked(false))
+            .await?
+    {
+        return Err(ErrorResponse::not_found());
+    }
+
+    let photo = photos
+        .get(
+            location.workspace_id,
+            location.gallery_id,
+            photo_id,
+            PhotoKind::Final,
+        )
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
+    let file = state
+        .storage()
+        .read(&PhotoKey::with_location(
+            location,
+            photo_id,
+            Variant::Original,
+        ))
+        .await?;
+    let length = file
+        .metadata()
+        .await
+        .map_err(|error| ErrorResponse::from(StorageError::from(error)))?
+        .len();
+
+    photos.mark_downloaded(location, photo_id).await?;
+
+    Ok(HttpResponse::Ok()
+        .content_type("application/octet-stream")
+        .insert_header(ContentDisposition {
+            disposition: DispositionType::Attachment,
+            parameters: vec![DispositionParam::Filename(photo.original_name)],
+        })
+        .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
+        .insert_header((header::CACHE_CONTROL, "private, no-store"))
+        .no_referrer()
+        .body(SizedStream::new(length, ReaderStream::new(file))))
+}
+
+#[post("/shared/{token}/download")]
+async fn prepare_shared_zip(
+    state: Data<ApiState>,
+    access: ClientAccess,
+) -> Result<HttpResponse, ErrorResponse> {
+    if access.photo_set() != ClientPhotoSet::Finals {
+        return Err(ErrorResponse::not_found());
+    }
+
+    let (status, body) = match state.ensure_delivery(access.0.location).await? {
+        DeliveryZip::Ready(_) => (StatusCode::OK, "ready"),
+        DeliveryZip::Building => (StatusCode::ACCEPTED, "building"),
+        DeliveryZip::Failed => (StatusCode::SERVICE_UNAVAILABLE, "failed"),
+        DeliveryZip::Empty | DeliveryZip::Unavailable => return Err(ErrorResponse::not_found()),
+    };
+
+    Ok(HttpResponse::build(status)
+        .no_store()
+        .no_referrer()
+        .json(json!({ "status": body })))
+}
+
+#[get("/shared/{token}/download")]
+async fn download_shared_zip(
+    state: Data<ApiState>,
+    access: ClientAccess,
+) -> Result<HttpResponse, ErrorResponse> {
+    let location = access.0.location;
+
+    if access.photo_set() != ClientPhotoSet::Finals {
+        return Err(ErrorResponse::not_found());
+    }
+
+    let export = match state.ensure_delivery(location).await? {
+        DeliveryZip::Ready(export) => export,
+        DeliveryZip::Building | DeliveryZip::Failed => {
+            return Err(ErrorResponse::conflict("the ZIP is not ready"));
+        }
+        DeliveryZip::Empty | DeliveryZip::Unavailable => return Err(ErrorResponse::not_found()),
+    };
+    let file = state
+        .storage()
+        .read_archive(&ArchiveKey {
+            workspace: location.workspace_id,
+            gallery: location.gallery_id,
+            export: export.id,
+        })
+        .await?;
+    let length = file
+        .metadata()
+        .await
+        .map_err(|error| ErrorResponse::from(StorageError::from(error)))?
+        .len();
+
+    state
+        .database()
+        .repository::<ExportRepository>()
+        .mark_downloaded(export.id)
+        .await?;
+
+    Ok(HttpResponse::Ok()
+        .content_type("application/zip")
+        .insert_header(ContentDisposition {
+            disposition: DispositionType::Attachment,
+            parameters: vec![DispositionParam::Filename(DOWNLOAD_NAME.to_owned())],
+        })
+        .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
+        .insert_header((header::CACHE_CONTROL, "private, no-store"))
+        .no_referrer()
+        .body(SizedStream::new(length, ReaderStream::new(file))))
 }
 
 #[get("/shared/{token}/cover")]
