@@ -112,6 +112,27 @@ pub struct Photo {
     pub created_at: Timestamp,
 }
 
+impl Photo {
+    /// A safe attachment name: the last path segment of the uploaded name, without control
+    /// characters, or `photo.jpg` when nothing usable is left.
+    pub fn download_name(&self) -> String {
+        let name: String = self
+            .original_name
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or_default()
+            .chars()
+            .filter(|character| !character.is_control())
+            .collect();
+
+        if name.is_empty() {
+            "photo.jpg".to_owned()
+        } else {
+            name
+        }
+    }
+}
+
 impl FromRow<'_, PgRow> for Photo {
     fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
         let size = u64::try_from(row.try_get::<i64, _>("size")?)

@@ -298,14 +298,16 @@ async fn download_shared_photo(
         .map_err(|error| ErrorResponse::from(StorageError::from(error)))?
         .len();
 
+    let disposition = ContentDisposition {
+        disposition: DispositionType::Attachment,
+        parameters: vec![DispositionParam::Filename(photo.download_name())],
+    };
+
     photos.mark_downloaded(location, photo_id).await?;
 
     Ok(HttpResponse::Ok()
         .content_type("application/octet-stream")
-        .insert_header(ContentDisposition {
-            disposition: DispositionType::Attachment,
-            parameters: vec![DispositionParam::Filename(photo.original_name)],
-        })
+        .insert_header(disposition)
         .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
         .insert_header((header::CACHE_CONTROL, "private, no-store"))
         .no_referrer()

@@ -87,13 +87,7 @@ async fn download_original(
     };
     let file = state.storage().read(&key).await?;
     let length = file.metadata().await.map_err(StorageError::from)?.len();
-    let name = photo
-        .original_name
-        .rsplit(['/', '\\'])
-        .next()
-        .filter(|name| !name.is_empty())
-        .unwrap_or("photo.jpg")
-        .to_owned();
+    let name = photo.download_name();
 
     Ok(HttpResponse::Ok()
         .no_store()
@@ -2482,10 +2476,22 @@ pub(super) mod tests {
             );
         }
 
+        sqlx::query(
+            "UPDATE photos SET original_name = E'../dir\\\\a\\r\\nb.jpg' WHERE id = $1::uuid",
+        )
+        .bind(&ready)
+        .execute(&pool)
+        .await
+        .unwrap();
+
         let (status, headers, body) = client_bytes(&app, single(&ready)).await;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, bytes);
+        assert_eq!(
+            headers.get("content-disposition").unwrap(),
+            "attachment; filename=\"ab.jpg\""
+        );
         assert_eq!(headers.get("cache-control").unwrap(), "private, no-store");
         assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
         assert!(
