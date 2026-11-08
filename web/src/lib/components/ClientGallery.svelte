@@ -269,11 +269,11 @@
 							<button
 								type="button"
 								aria-pressed={onlyFavorites === only}
-								aria-label={only ? m.tab_favorites() : undefined}
 								onclick={() => (onlyFavorites = only)}
 								class="group inline-flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-[5px] text-[0.8125rem] font-semibold text-muted-foreground focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-foreground aria-pressed:text-panel"
 							>
 								{#if only}
+									<span class="sr-only">{m.tab_favorites()}</span>
 									<Heart
 										size={14}
 										aria-hidden="true"

@@ -396,7 +396,16 @@
 			}
 		}
 	],
-	"photos_partly_deleted": "{deleted} photos sur {total} supprimées. Réessayez.",
+	"photos_partly_deleted": [
+		{
+			"declarations": ["input deleted", "input total", "local deletedPlural = deleted: plural"],
+			"selectors": ["deletedPlural"],
+			"match": {
+				"deletedPlural=one": "{deleted} photo sur {total} supprimée. Réessayez.",
+				"deletedPlural=*": "{deleted} photos sur {total} supprimées. Réessayez."
+			}
+		}
+	],
 	"photos_status_uploading": "{count} en cours d’import",
 	"photos_status_processing": "{count} en traitement",
 	"photos_status_failed": "{count} en échec",

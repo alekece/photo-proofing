@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { m } from '#lib/paraglide/messages.js';
+import { useLocale } from './testing.js';
 import en from '../../../messages/en.json';
 import fr from '../../../messages/fr.json';
 
@@ -33,5 +35,18 @@ describe('message catalogues', () => {
 			.map(([key]) => key);
 
 		expect(same.sort()).toEqual([...SAME_IN_BOTH].sort());
+	});
+});
+
+describe('French counts', () => {
+	useLocale('fr');
+
+	it('agree with a single deleted photo', () => {
+		expect(m.photos_partly_deleted({ deleted: 1, total: 3 })).toBe(
+			'1 photo sur 3 supprimée. Réessayez.'
+		);
+		expect(m.photos_partly_deleted({ deleted: 2, total: 3 })).toBe(
+			'2 photos sur 3 supprimées. Réessayez.'
+		);
 	});
 });

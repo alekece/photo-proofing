@@ -36,8 +36,8 @@ const shared = (hero_id: string | null): SharedGallery => ({ ...gallery, hero_id
 const show = (props: Partial<Parameters<typeof render<typeof ClientGallery>>[1]> = {}) =>
 	render(ClientGallery, { token: 'tok', gallery, proofs, favorites: [], ...props });
 const hearts = () => screen.getAllByRole('button', { name: /^favorite proof/i });
-const favoritesToggle = () => screen.getByRole('button', { name: 'Favorites' });
-const count = () => favoritesToggle().textContent?.trim();
+const favoritesToggle = () => screen.getByRole('button', { name: /^Favorites/ });
+const count = () => favoritesToggle().textContent?.replace('Favorites', '').trim();
 
 describe('ClientGallery', () => {
 	const fetcher = vi.fn();
@@ -117,6 +117,7 @@ describe('ClientGallery', () => {
 
 		expect(count()).toBe('3 of 1');
 		expect(screen.getByText('3').classList.contains('text-warning')).toBe(true);
+		expect(screen.getByRole('button', { name: 'Favorites 3 of 1' })).toBeTruthy();
 		expect(screen.queryByText(/extra/)).toBeNull();
 	});
 
@@ -147,7 +148,7 @@ describe('ClientGallery', () => {
 		});
 
 		expect(screen.queryAllByRole('button', { name: /^favorite proof/i })).toEqual([]);
-		expect(screen.queryByRole('button', { name: 'Favorites' })).toBeNull();
+		expect(screen.queryByRole('button', { name: /^Favorites/ })).toBeNull();
 		expect(screen.getByText('Your photos are ready')).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'Download photo 1' }).getAttribute('href')).toBe(
 			'/final/a'
@@ -187,7 +188,7 @@ describe('ClientGallery', () => {
 		const user = userEvent.setup();
 		show({ favorites: ['p2'] });
 
-		await user.click(screen.getByRole('button', { name: 'Favorites' }));
+		await user.click(screen.getByRole('button', { name: /^Favorites/ }));
 
 		expect(hearts()).toHaveLength(1);
 
@@ -195,7 +196,7 @@ describe('ClientGallery', () => {
 
 		expect(hearts()).toHaveLength(3);
 
-		await user.click(screen.getByRole('button', { name: 'Favorites' }));
+		await user.click(screen.getByRole('button', { name: /^Favorites/ }));
 		await user.click(hearts()[0]);
 
 		expect(screen.getByText('No favorites yet')).toBeTruthy();
@@ -205,7 +206,7 @@ describe('ClientGallery', () => {
 		const user = userEvent.setup();
 		show({ favorites: ['p3'] });
 
-		await user.click(screen.getByRole('button', { name: 'Favorites' }));
+		await user.click(screen.getByRole('button', { name: /^Favorites/ }));
 		await user.click(screen.getByRole('button', { name: 'Open proof 1 of 1' }));
 		await user.click(screen.getByRole('button', { name: 'Favorite' }));
 
@@ -281,7 +282,7 @@ describe('ClientGallery in French', () => {
 		show({ gallery: { ...gallery, included_photos: 2 } });
 
 		expect(screen.getByRole('button', { name: 'Voir la galerie' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Favoris' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Favoris 0 sur 2' })).toBeTruthy();
 		expect(screen.getByText('sur 2')).toBeTruthy();
 		expect(screen.getAllByRole('button', { name: /^Mettre l’épreuve 1 en favori/ })).toBeTruthy();
 		expect(screen.queryByText('View the gallery')).toBeNull();
