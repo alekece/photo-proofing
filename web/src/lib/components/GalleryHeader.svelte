@@ -3,8 +3,8 @@
 	import { Eye, ArchiveRestore, Send } from '@lucide/svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
 	import JourneySteps from '#lib/components/JourneySteps.svelte';
-	import Button from '#lib/components/ui/button/button.svelte';
-	import StatusChip from '#lib/components/ui/status-chip/status-chip.svelte';
+	import Button from '#lib/components/ui/Button/Button.svelte';
+	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
 	import { previewUrl } from '#lib/gallery/photos.js';
 	import { galleryStatus } from '#lib/gallery/format.js';
 	import type { Gallery } from '#lib/gallery/api.js';

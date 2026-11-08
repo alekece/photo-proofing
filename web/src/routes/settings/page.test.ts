@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$app/navigation', () => ({ goto: vi.fn(), afterNavigate: vi.fn() }));
 import Page from './+page.svelte';
-import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
+import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
 
 const data = { idleTimeoutMs: 60000, settings: DEFAULT_SETTINGS };

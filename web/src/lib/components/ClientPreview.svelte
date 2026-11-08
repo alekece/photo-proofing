@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Eye, Monitor, Smartphone } from '@lucide/svelte';
 	import { onMount } from 'svelte';
-	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
+	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import type { Gallery } from '#lib/gallery/api.js';
 	import { listClientPreviewPhotos, listPhotos, previewUrl } from '#lib/gallery/photos.js';
 	import { toClientPreviewProofs } from '#lib/gallery/proofs.js';

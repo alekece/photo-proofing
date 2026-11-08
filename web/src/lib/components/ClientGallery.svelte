@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Download, Heart } from '@lucide/svelte';
-	import Button from '#lib/components/ui/button/button.svelte';
+	import Button from '#lib/components/ui/Button/Button.svelte';
 	import { UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import { Selection } from '#lib/gallery/selection.svelte.js';
 	import type { Proof, SharedGallery } from '#lib/gallery/types.js';

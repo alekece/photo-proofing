@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Button from '#lib/components/ui/button/button.svelte';
-	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
-	import Input from '#lib/components/ui/input/input.svelte';
-	import Label from '#lib/components/ui/label/label.svelte';
+	import Button from '#lib/components/ui/Button/Button.svelte';
+	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
+	import Input from '#lib/components/ui/Input/Input.svelte';
+	import Label from '#lib/components/ui/Label/Label.svelte';
 	import { endOfLocalDay, formatShortDate, toLocalDate } from '#lib/gallery/format.js';
 
 	/**

@@ -3,7 +3,7 @@
 	import { Copy } from '@lucide/svelte';
 	import { buildVersion, displayVersion } from '#lib/build.js';
 	import { legalNotices as defaultNotices, type LegalNotice } from '#lib/footer.js';
-	import Button from '#lib/components/ui/button/button.svelte';
+	import Button from '#lib/components/ui/Button/Button.svelte';
 
 	let {
 		version = buildVersion,

@@ -2,7 +2,7 @@
 	import FavoritesPanel from '#lib/components/FavoritesPanel.svelte';
 	import PhotosPanel from '#lib/components/PhotosPanel.svelte';
 	import type { GalleryLayout } from '#lib/gallery/api.js';
-	import Tabs from '#lib/components/ui/tabs/tabs.svelte';
+	import Tabs from '#lib/components/ui/Tabs/Tabs.svelte';
 
 	let {
 		galleryId,

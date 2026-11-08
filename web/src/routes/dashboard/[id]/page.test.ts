@@ -18,7 +18,7 @@ vi.mock('#lib/components/FavoritesPanel.svelte', async () => ({
 }));
 import { goto } from '$app/navigation';
 import type { Gallery } from '#lib/gallery/api.js';
-import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
+import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import GalleryPage from './+page.svelte';
 
 const base: Gallery = {

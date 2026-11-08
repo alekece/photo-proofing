@@ -11,9 +11,9 @@
 		startDownload,
 		type Export
 	} from '#lib/gallery/export.js';
-	import Button from '#lib/components/ui/button/button.svelte';
-	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
-	import SelectActions from '#lib/components/ui/select-actions/select-actions.svelte';
+	import Button from '#lib/components/ui/Button/Button.svelte';
+	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
+	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { getLiveEvents } from '#lib/events.js';
 	import { listPhotos, previewUrl, thumbnailUrl, type Photo } from '#lib/gallery/photos.js';
 	import { SelectMode } from '#lib/gallery/select-mode.svelte.js';

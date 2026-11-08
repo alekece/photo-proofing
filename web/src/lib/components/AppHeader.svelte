@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ArrowLeft, Bell, LogOut, Settings, User } from '@lucide/svelte';
-	import Popover from '#lib/components/ui/popover/popover.svelte';
+	import Popover from '#lib/components/ui/Popover/Popover.svelte';
 	import { cn } from '#lib/utils.js';
 	import type { Snippet } from 'svelte';
 

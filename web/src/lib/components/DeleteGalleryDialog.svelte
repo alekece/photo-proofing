@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import ConfirmDialog from '#lib/components/ui/confirm-dialog/confirm-dialog.svelte';
-	import PhotoStack from '#lib/components/ui/photo-stack/photo-stack.svelte';
+	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
+	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
 	import { listPhotos } from '#lib/gallery/photos.js';
 
 	let {

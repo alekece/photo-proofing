@@ -2,8 +2,8 @@
 	import { onDestroy } from 'svelte';
 	import { Check } from '@lucide/svelte';
 	import ClickPop from '#lib/components/ClickPop.svelte';
-	import Button from '#lib/components/ui/button/button.svelte';
-	import Input from '#lib/components/ui/input/input.svelte';
+	import Button from '#lib/components/ui/Button/Button.svelte';
+	import Input from '#lib/components/ui/Input/Input.svelte';
 
 	const COPIED_MS = 3000;
 

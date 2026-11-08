@@ -35,7 +35,7 @@
 
 <script lang="ts">
 	import { Download, LoaderCircle, RotateCw, Star, X } from '@lucide/svelte';
-	import Checkbox from '#lib/components/ui/checkbox/checkbox.svelte';
+	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
 
 	let {
 		name,

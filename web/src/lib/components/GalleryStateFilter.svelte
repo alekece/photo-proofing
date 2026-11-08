@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { ChevronDown, ListFilter } from '@lucide/svelte';
-	import Checkbox from '#lib/components/ui/checkbox/checkbox.svelte';
-	import Popover from '#lib/components/ui/popover/popover.svelte';
-	import { statusDots } from '#lib/components/ui/status-chip/status-chip.svelte';
-	import { menuButton } from '#lib/components/ui/popover/menu.js';
+	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
+	import Popover from '#lib/components/ui/Popover/Popover.svelte';
+	import { statusDots } from '#lib/components/ui/StatusChip/StatusChip.svelte';
+	import { menuButton } from '#lib/components/ui/Popover/menu.js';
 	import type { GalleryState } from '#lib/gallery/schemas.js';
 	import { ALL_STATES, DEFAULT_STATES, STATE_LABELS, sameStates } from '#lib/gallery/states.js';
 

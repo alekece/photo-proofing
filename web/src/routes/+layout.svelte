@@ -3,7 +3,7 @@
 	import favicon from '#lib/assets/favicon.svg';
 	import { page } from '$app/state';
 	import SiteFooter from '#lib/components/SiteFooter.svelte';
-	import Toaster from '#lib/components/ui/toast/toaster.svelte';
+	import Toaster from '#lib/components/ui/Toast/Toaster.svelte';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();

@@ -5,7 +5,7 @@ import { axe } from 'vitest-axe';
 
 import type { Gallery } from '#lib/gallery/api.js';
 
-import { toasts } from './ui/toast/toasts.svelte.js';
+import { toasts } from './ui/Toast/toasts.svelte.js';
 import GallerySettings from './GallerySettings.svelte';
 
 const gallery = {
