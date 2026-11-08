@@ -112,9 +112,7 @@
 			if (inTitle) {
 				for (const key of keys.filter(isLatest)) failed = { ...failed, [key]: changes[key] };
 			} else {
-				toasts.error(
-					error instanceof GalleryApiError ? error.message : 'Couldn’t save. Please try again.'
-				);
+				toasts.error(error instanceof GalleryApiError ? error.message : m.gallery_save_failed());
 			}
 
 			return false;
@@ -174,7 +172,7 @@
 				await goto('/login?expired=1', { refreshAll: true });
 			}
 
-			throw new Error('Couldn’t share the gallery. Please try again.', { cause: error });
+			throw new Error(m.gallery_share_failed(), { cause: error });
 		}
 
 		return `${page.url.origin}/g/${shareToken}`;
@@ -194,9 +192,9 @@
 			const delivered = await deliverGallery(saved.id);
 
 			saved = { ...saved, states: delivered.states, updated_at: delivered.updated_at };
-			toasts.success('Delivered');
+			toasts.success(m.state_delivered());
 		} catch (error) {
-			await failAction(error, 'Couldn’t deliver the gallery. Please try again.');
+			await failAction(error, m.gallery_deliver_failed());
 		}
 	}
 	async function archive(): Promise<void> {
@@ -206,16 +204,16 @@
 			const archived = await archiveGallery(saved.id);
 
 			saved = { ...saved, states: archived.states, updated_at: archived.updated_at };
-			toasts.success('Archived');
+			toasts.success(m.state_archived());
 		} catch (error) {
-			await failAction(error, 'Couldn’t archive the gallery. Please try again.');
+			await failAction(error, m.gallery_archive_failed());
 		}
 	}
 	async function remove(): Promise<void> {
 		try {
 			await deleteGallery(saved.id);
 		} catch (error) {
-			await failAction(error, 'Couldn’t delete the gallery. Please try again.');
+			await failAction(error, m.gallery_delete_failed());
 		}
 
 		cancelAll();
@@ -229,7 +227,7 @@
 			const restored = await restoreGallery(saved.id);
 
 			saved = { ...saved, states: restored.states, updated_at: restored.updated_at };
-			toasts.success('Restored');
+			toasts.success(m.gallery_restored());
 			expiredSince = restored.states.includes('expired') ? restored.expires_at : null;
 		} catch (error) {
 			if (error instanceof GalleryApiError && error.status === 401) {
@@ -238,9 +236,7 @@
 				return;
 			}
 
-			toasts.error(
-				error instanceof GalleryApiError ? error.message : 'Couldn’t restore. Please try again.'
-			);
+			toasts.error(error instanceof GalleryApiError ? error.message : m.gallery_restore_failed());
 		}
 	}
 	async function logout() {
@@ -279,7 +275,7 @@
 	>
 		{#snippet heading()}
 			<div class="flex flex-wrap items-center gap-3">
-				<Label srOnly for="title">Gallery title</Label>
+				<Label srOnly for="title">{m.gallery_title_label()}</Label>
 				<Input
 					id="title"
 					class="mt-2 mb-1.5 min-h-0 flex-1 rounded-none border-0 border-b border-transparent bg-transparent p-0 font-serif text-[2rem] leading-none text-panel placeholder:text-panel/70 hover:border-dotted hover:border-panel/50 focus:border-solid focus:border-panel sm:text-[2.875rem]"
@@ -297,7 +293,7 @@
 				/>
 				<div class="flex items-center gap-2 text-sm" role="status" aria-live="polite">
 					{#if inflight === 0 && hasFailures}
-						<span>Couldn’t save</span>
+						<span>{m.gallery_not_saved()}</span>
 						<!-- mousedown would blur the edited field, which reverts a failed value before the click -->
 						<Button
 							variant="outline"
@@ -305,7 +301,7 @@
 							data-retry
 							class="border-white/60 bg-transparent text-inverse hover:bg-white/15"
 							onmousedown={(event) => event.preventDefault()}
-							onclick={retry}>Retry</Button
+							onclick={retry}>{m.action_retry()}</Button
 						>
 					{/if}
 				</div>

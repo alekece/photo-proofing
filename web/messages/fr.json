@@ -242,5 +242,249 @@
 			}
 		}
 	],
-	"dashboard_empty": "Rien dans le cadre pour l’instant."
+	"dashboard_empty": "Rien dans le cadre pour l’instant.",
+	"action_preview": "Aperçu",
+	"action_restore": "Restaurer",
+	"action_share": "Partager",
+	"action_deliver": "Livrer",
+	"action_archive": "Archiver",
+	"action_delete": "Supprimer",
+	"action_upload": "Importer",
+	"action_select": "Sélectionner",
+	"action_select_all": "Tout sélectionner",
+	"action_unselect_all": "Tout désélectionner",
+	"action_retry": "Réessayer",
+	"action_done": "Terminé",
+	"action_close": "Fermer",
+	"header_meta_empty": "Créée le {created} · pas encore de photo",
+	"header_meta_delivered": "livrée",
+	"header_meta_shared": "partagée",
+	"header_meta_created": "créée le {created}",
+	"step_progress": "Avancement de la galerie",
+	"step_add_proofs": "Ajoutez vos épreuves",
+	"step_copy_link": "Copiez le lien",
+	"step_collect": "Recueillir les favoris",
+	"step_client_picks": "Le client choisit",
+	"step_upload_finals": "Importez les finales, puis livrez",
+	"tabs_label": "Contenu de la galerie",
+	"common_photos": "Photos",
+	"tab_favorites": "Favoris",
+	"tab_final": "Finales",
+	"tab_after_sharing": "Disponible une fois la galerie partagée",
+	"archive_title": "Archiver cette galerie ?",
+	"archive_body": "Le lien client cesse de fonctionner. Vous pouvez la restaurer à tout moment.",
+	"delete_title": "Supprimer cette galerie ?",
+	"delete_keep": "La garder",
+	"delete_body": "Ses photos, ses favoris et son lien client disparaissent définitivement.",
+	"restore_date_past": "Choisissez une date à partir d’aujourd’hui.",
+	"restore_title": "Vos clients ne voient pas encore cette galerie",
+	"restore_body": "Elle a été restaurée, mais son lien a expiré le {date}. Choisissez une nouvelle date ou retirez l’échéance pour que vos clients puissent l’ouvrir.",
+	"restore_keep_expired": "Laisser expirée",
+	"restore_no_expiry": "Sans échéance",
+	"restore_set_date": "Fixer la date",
+	"copy_link_label": "Lien client",
+	"copy_copied": "Copié",
+	"copy_copy": "Copier",
+	"copy_failed": "Copie automatique impossible. Copiez le lien vous-même.",
+	"publish_share_question": "Partager ?",
+	"publish_deliver_question": "Livrer ?",
+	"publish_share_empty": "Partager sans photo ?",
+	"publish_deliver_empty": "Livrer sans photo ?",
+	"publish_share_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Partager {count} photo ?",
+				"countPlural=*": "Partager {count} photos ?"
+			}
+		}
+	],
+	"publish_deliver_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Livrer {count} photo ?",
+				"countPlural=*": "Livrer {count} photos ?"
+			}
+		}
+	],
+	"publish_share_anyway": "Partager quand même",
+	"publish_deliver_anyway": "Livrer quand même",
+	"publish_shared_title": "Votre galerie est partagée",
+	"publish_delivered_title": "Votre galerie est livrée",
+	"publish_share_text": "Cela crée un lien privé. Toute personne qui l’a peut voir les épreuves et choisir ses favoris.",
+	"publish_share_text_until": "Cela crée un lien privé. Toute personne qui l’a peut voir les épreuves et choisir ses favoris jusqu’au {until}.",
+	"publish_deliver_text": "{title} les retrouve au même lien et peut les télécharger. Les favoris sont désormais verrouillés.",
+	"publish_deliver_text_many": "{title} les retrouvent au même lien et peuvent les télécharger. Les favoris sont désormais verrouillés.",
+	"publish_uploading": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} est encore en cours d’import",
+				"countPlural=*": "{count} sont encore en cours d’import"
+			}
+		}
+	],
+	"publish_failed": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} a échoué",
+				"countPlural=*": "{count} ont échoué"
+			}
+		}
+	],
+	"publish_checking": "Vérification de vos photos…",
+	"publish_empty_share": "Vos clients voient une galerie vide tant que vous n’importez rien.",
+	"publish_empty_deliver": "Vos clients n’ont rien à télécharger tant que vous n’importez rien.",
+	"publish_check_failed": "Impossible de vérifier les photos.",
+	"publish_send_link": "Envoyez le lien à votre client.",
+	"publish_can_download": "Votre client peut maintenant les télécharger.",
+	"signature_label": "Signature de couverture",
+	"common_name": "Nom",
+	"signature_both": "Les deux",
+	"signature_none": "Aucune",
+	"preview_label": "Aperçu client",
+	"preview_size": "Taille de l’aperçu",
+	"preview_desktop": "Ordinateur",
+	"preview_phone": "Téléphone",
+	"preview_close": "Fermer l’aperçu",
+	"preview_load_failed": "Impossible de charger les photos. Fermez et réessayez.",
+	"upload_not_jpeg": "Pas un JPEG",
+	"upload_too_large": "Trop lourd",
+	"upload_unreadable": "Image illisible",
+	"upload_failed": "Échec de l’import",
+	"upload_storage_full": "Stockage plein",
+	"tile_waiting": "En attente",
+	"tile_uploading": "Import en cours",
+	"tile_rejected": "Refusée",
+	"tile_processing": "Traitement",
+	"tile_processing_failed": "Échec du traitement",
+	"tile_open": "Ouvrir {name}",
+	"tile_retry": "Réessayer {name}",
+	"tile_select": "Sélectionner {name}",
+	"tile_remove": "Retirer {name}",
+	"tile_download": "Télécharger {name}",
+	"tile_downloaded": "Téléchargée par le client",
+	"cover_set": "Mettre en couverture",
+	"cover_remove": "Retirer la couverture",
+	"photos_failed_upload": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} photo n’a pas pu être importée.",
+				"countPlural=*": "{count} photos n’ont pas pu être importées."
+			}
+		}
+	],
+	"photos_cover_failed": "Impossible de changer la photo de couverture. Réessayez.",
+	"photos_load_failed": "Impossible de charger les photos. Rechargez la page.",
+	"photos_delete_failed": "Impossible de supprimer {name}. Réessayez.",
+	"photos_retry_failed": "Impossible de relancer {name}. Réessayez.",
+	"photos_deleted": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} photo supprimée",
+				"countPlural=*": "{count} photos supprimées"
+			}
+		}
+	],
+	"photos_partly_deleted": "{deleted} photos sur {total} supprimées. Réessayez.",
+	"photos_status_uploading": "{count} en cours d’import",
+	"photos_status_processing": "{count} en traitement",
+	"photos_status_failed": "{count} en échec",
+	"photos_updating_watermarks": "Mise à jour des filigranes…",
+	"photos_list_finals": "Photos finales",
+	"photos_choose": "Choisir les photos à importer",
+	"photos_choose_finals": "Choisir les photos finales à importer",
+	"photos_drop": "Déposez la séance ici",
+	"photos_drop_finals": "Déposez les photos finales ici",
+	"photos_delete_one": "Supprimer {name} ?",
+	"photos_delete_one_body": "La photo et ses aperçus sont supprimés définitivement, où qu’elle en soit dans le traitement.",
+	"photos_delete_one_body_finals": "La photo finale et ses aperçus sont retirés du brouillon, où qu’elle en soit dans le traitement.",
+	"photos_delete_one_favorite": "Cette photo fait partie des favoris du client. Elle quitte aussi sa sélection.",
+	"photos_delete_many": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Supprimer {count} photo ?",
+				"countPlural=*": "Supprimer {count} photos ?"
+			}
+		}
+	],
+	"photos_delete_undone": "Cette action est définitive.",
+	"photos_delete_all_favorites": "Toutes font partie des favoris du client. Elles quittent aussi sa sélection.",
+	"photos_delete_some_favorites": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} d’entre elles fait partie des favoris du client. Elle quitte aussi sa sélection.",
+				"countPlural=*": "{count} d’entre elles font partie des favoris du client. Elles quittent aussi sa sélection."
+			}
+		}
+	],
+	"favorites_download_failed": "Impossible de télécharger la photo. Réessayez.",
+	"favorites_zip_check_failed": "Impossible de vérifier le ZIP. Réessayez.",
+	"favorites_zip_failed": "Impossible de préparer le ZIP. Réessayez.",
+	"favorites_downloading": "Téléchargement…",
+	"favorites_download_count": "Télécharger {count}",
+	"favorites_download_all": "Tout télécharger",
+	"favorites_try_again": "Utilisez Télécharger pour réessayer.",
+	"favorites_load_failed": "Impossible de charger les favoris. Rechargez la page.",
+	"favorites_empty": "Pas encore de favoris",
+	"favorites_empty_body": "La sélection du client apparaîtra ici.",
+	"settings_panel": "Réglages de la galerie",
+	"settings_sections": "Sections des réglages de la galerie",
+	"settings_show": "Afficher {label}",
+	"settings_access": "Accès client",
+	"settings_look": "Apparence",
+	"settings_gallery": "Galerie",
+	"settings_not_shared": "Pas encore partagée",
+	"settings_included": "Photos incluses",
+	"settings_included_invalid": "Le nombre de photos incluses doit être un entier d’au moins 1.",
+	"settings_layout": "Disposition",
+	"settings_layout_masonry": "Colonnes décalées",
+	"settings_layout_grid": "Rangées régulières",
+	"settings_watermark": "Filigraner les épreuves",
+	"gallery_save_failed": "Enregistrement impossible. Réessayez.",
+	"gallery_share_failed": "Impossible de partager la galerie. Réessayez.",
+	"gallery_deliver_failed": "Impossible de livrer la galerie. Réessayez.",
+	"gallery_archive_failed": "Impossible d’archiver la galerie. Réessayez.",
+	"gallery_delete_failed": "Impossible de supprimer la galerie. Réessayez.",
+	"gallery_restore_failed": "Restauration impossible. Réessayez.",
+	"gallery_restored": "Restaurée",
+	"gallery_title_label": "Titre de la galerie",
+	"gallery_not_saved": "Non enregistré",
+	"studio_regenerating": "Les épreuves filigranées sont en cours de régénération",
+	"studio_save_failed": "Impossible d’enregistrer les réglages.",
+	"studio_logo_type": "Le logo doit être une image PNG ou JPEG.",
+	"studio_logo_size": "Le logo doit faire moins de 1 Mo.",
+	"studio_reverted": "Annulé",
+	"studio_saving": "Enregistrement…",
+	"studio_save": "Enregistrer",
+	"studio_logo_alt": "Logo du studio",
+	"studio_logo_remove": "Retirer le logo",
+	"studio_name": "Nom du studio",
+	"studio_watermark": "Filigrane des épreuves",
+	"watermark_label": "Filigrane",
+	"watermark_mark": "Marque",
+	"watermark_both": "Nom et logo",
+	"watermark_pattern": "Motif",
+	"watermark_repeat": "Répété",
+	"watermark_once": "Unique",
+	"watermark_your_studio": "Votre studio",
+	"watermark_position": "Position",
+	"watermark_position_cell": "Position {cell}",
+	"watermark_size": "Taille du filigrane",
+	"watermark_preview": "Aperçu de six épreuves avec le filigrane",
+	"common_logo": "Logo"
 }

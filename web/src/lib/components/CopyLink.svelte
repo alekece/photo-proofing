@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { onDestroy } from 'svelte';
 	import { Check } from '@lucide/svelte';
 	import ClickPop from '#lib/components/ClickPop.svelte';
@@ -7,7 +8,7 @@
 
 	const COPIED_MS = 3000;
 
-	let { link, label = 'Client link' }: { link: string; label?: string } = $props();
+	let { link, label = m.copy_link_label() }: { link: string; label?: string } = $props();
 
 	let copied = $state(false);
 	let popping = $state(false);
@@ -50,14 +51,14 @@
 						<Check size={16} aria-hidden="true" />
 					</ClickPop>
 				</span>
-				Copied
+				{m.copy_copied()}
 			{:else}
-				Copy
+				{m.copy_copy()}
 			{/if}
 		</Button>
 	</div>
 	<!-- The button already shows "Copied"; only the announcement is hidden visually. -->
 	<p class={failed ? 'text-xs' : 'sr-only'} role="status">
-		{copied ? 'Copied' : failed ? 'Couldn’t copy automatically. Please copy it manually.' : ''}
+		{copied ? m.copy_copied() : failed ? m.copy_failed() : ''}
 	</p>
 </div>

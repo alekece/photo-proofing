@@ -1,3 +1,4 @@
+import { m } from '#lib/paraglide/messages.js';
 import { GalleryApiError } from './api';
 import {
 	deletedPhotosSchema,
@@ -22,10 +23,10 @@ export type UploadOutcome =
 	| { kind: 'gone' }
 	| { kind: 'signed-out' };
 
-const REJECTIONS: Record<number, string> = {
-	413: 'Too large',
-	415: 'Not a JPEG',
-	422: 'Unreadable image'
+const REJECTIONS: Record<number, () => string> = {
+	413: m.upload_too_large,
+	415: m.upload_not_jpeg,
+	422: m.upload_unreadable
 };
 
 /** The set a route addresses: the client proofs, or the photographer's finished photos. */
@@ -196,7 +197,7 @@ export async function uploadPhoto(
 
 	const reason = REJECTIONS[response.status];
 
-	return reason === undefined ? { kind: 'failed' } : { kind: 'rejected', reason };
+	return reason === undefined ? { kind: 'failed' } : { kind: 'rejected', reason: reason() };
 }
 
 export function thumbnailUrl(

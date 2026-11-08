@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
@@ -27,9 +28,9 @@
 </script>
 
 <ConfirmDialog
-	title="Delete this gallery?"
-	confirmLabel="Delete"
-	cancelLabel="Keep it"
+	title={m.delete_title()}
+	confirmLabel={m.action_delete()}
+	cancelLabel={m.delete_keep()}
 	destructive
 	{onconfirm}
 	{onclose}
@@ -38,6 +39,6 @@
 		<PhotoStack {galleryId} photoIds={ids} />
 	{/snippet}
 	{#snippet description()}
-		<p class="text-sm text-muted-foreground">Its photos, favorites and client link go for good.</p>
+		<p class="text-sm text-muted-foreground">{m.delete_body()}</p>
 	{/snippet}
 </ConfirmDialog>

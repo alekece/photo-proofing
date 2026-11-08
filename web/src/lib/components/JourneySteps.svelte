@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { Check } from '@lucide/svelte';
 
 	type Step = {
@@ -19,7 +20,7 @@
 </script>
 
 <nav
-	aria-label="Gallery progress"
+	aria-label={m.step_progress()}
 	class="absolute inset-x-0 bottom-0 border-t border-panel/20 bg-scrim text-panel/85 backdrop-blur-[14px] backdrop-saturate-120"
 >
 	<ol class="mx-auto hidden max-w-5xl items-center justify-center gap-3.5 px-8 sm:flex">

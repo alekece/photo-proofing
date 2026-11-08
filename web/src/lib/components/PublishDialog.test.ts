@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
+import { useLocale } from '#lib/i18n/testing.js';
 import { thumbnailUrl, type Photo } from '#lib/gallery/photos.js';
 import PublishDialog from './PublishDialog.svelte';
 
@@ -41,5 +42,24 @@ describe('PublishDialog photo set', () => {
 			const src = baseElement.querySelector('[data-slot="photo-stack"] img')?.getAttribute('src');
 			expect(src).toBe(thumbnailUrl('g1', 'p1', set));
 		});
+	});
+});
+
+describe('PublishDialog in French', () => {
+	useLocale('fr');
+
+	it('asks to deliver the photos in French', async () => {
+		render(PublishDialog, {
+			kind: 'deliver',
+			galleryId: 'g1',
+			title: 'Camille & Hugo',
+			load: async () => [{ id: 'p1', status: 'ready' } as Photo],
+			onconfirm: async () => {},
+			onclose: () => {}
+		});
+
+		expect(await screen.findByRole('dialog', { name: 'Livrer 1 photo ?' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Livrer' })).toBeTruthy();
+		expect(screen.queryByText(/Deliver/)).toBeNull();
 	});
 });

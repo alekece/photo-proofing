@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import type { Snippet } from 'svelte';
 	import { Eye, ArchiveRestore, Send } from '@lucide/svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
@@ -44,10 +45,14 @@
 	const createdLong = $derived(formatLongDate(gallery.created_at));
 	const meta = $derived(
 		photoCount === 0 && !shared
-			? `Created ${created} · no photos yet`
+			? m.header_meta_empty({ created })
 			: [
-					photoCount === null ? '' : `${photoCount} ${photoCount === 1 ? 'photo' : 'photos'}`,
-					delivered ? 'delivered' : shared ? 'shared' : `created ${created}`
+					photoCount === null ? '' : m.summary_photos({ count: photoCount }),
+					delivered
+						? m.header_meta_delivered()
+						: shared
+							? m.header_meta_shared()
+							: m.header_meta_created({ created })
 				]
 					.filter(Boolean)
 					.join(' · ')
@@ -57,23 +62,28 @@
 	const steps = $derived([
 		{
 			id: 'upload',
-			label: 'Upload',
+			label: m.action_upload(),
 			done: photos > 0,
-			fact: photos > 0 ? `${photos} ${photos === 1 ? 'photo' : 'photos'}` : 'Add your proofs'
+			fact: photos > 0 ? m.summary_photos({ count: photos }) : m.step_add_proofs()
 		},
-		{ id: 'share', label: 'Share', done: shared, fact: shared ? 'Shared' : 'Copy the link' },
+		{
+			id: 'share',
+			label: m.action_share(),
+			done: shared,
+			fact: shared ? m.state_shared() : m.step_copy_link()
+		},
 		{
 			id: 'collect',
-			label: 'Collect favorites',
+			label: m.step_collect(),
 			done: delivered,
-			fact: shared ? `${favorites} selected` : 'Client picks',
+			fact: shared ? m.notification_selected({ count: favorites }) : m.step_client_picks(),
 			accent: gallery.included_photos !== null && favorites > gallery.included_photos
 		},
 		{
 			id: 'deliver',
-			label: 'Deliver',
+			label: m.action_deliver(),
 			done: delivered,
-			fact: delivered ? 'Delivered' : 'Upload finals, then deliver'
+			fact: delivered ? m.state_delivered() : m.step_upload_finals()
 		}
 	]);
 </script>
@@ -108,25 +118,26 @@
 			variant="outline"
 			size="sm"
 			class="min-h-10! gap-2 border-panel/40! bg-panel/15! font-semibold text-panel! backdrop-blur-[6px] hover:bg-panel/25!"
-			onclick={onpreview}><Eye size={16} aria-hidden="true" />Preview</Button
+			onclick={onpreview}><Eye size={16} aria-hidden="true" />{m.action_preview()}</Button
 		>
 		{#if archived}
 			<Button
 				size="sm"
 				class="min-h-10! gap-2 bg-panel! font-semibold text-foreground!"
-				onclick={onrestore}><ArchiveRestore size={16} aria-hidden="true" />Restore</Button
+				onclick={onrestore}
+				><ArchiveRestore size={16} aria-hidden="true" />{m.action_restore()}</Button
 			>
 		{:else if !shared}
 			<Button
 				size="sm"
 				class="min-h-10! gap-2 bg-panel! font-semibold text-foreground!"
-				onclick={onshare}><Send size={16} aria-hidden="true" />Share</Button
+				onclick={onshare}><Send size={16} aria-hidden="true" />{m.action_share()}</Button
 			>
 		{:else if !delivered}
 			<Button
 				size="sm"
 				class="min-h-10! gap-2 bg-panel! font-semibold text-foreground!"
-				onclick={ondeliver}><Send size={16} aria-hidden="true" />Deliver</Button
+				onclick={ondeliver}><Send size={16} aria-hidden="true" />{m.action_deliver()}</Button
 			>
 		{/if}
 	</div>

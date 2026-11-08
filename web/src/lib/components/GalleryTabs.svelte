@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import FavoritesPanel from '#lib/components/FavoritesPanel.svelte';
 	import PhotosPanel from '#lib/components/PhotosPanel.svelte';
 	import type { GalleryLayout } from '#lib/gallery/api.js';
@@ -35,28 +36,28 @@
 	const id = $derived(galleryId);
 
 	const items = $derived([
-		{ id: 'photos', label: 'Photos', count: photoCount },
+		{ id: 'photos', label: m.common_photos(), count: photoCount },
 		{
 			id: 'favorites',
-			label: 'Favorites',
+			label: m.tab_favorites(),
 			count: favoriteCount,
 			accent: included !== null && favoriteCount !== null && favoriteCount > included,
 			locked: delivered,
 			disabled: !shared,
-			title: shared ? undefined : 'Available once the gallery is shared'
+			title: shared ? undefined : m.tab_after_sharing()
 		},
 		{
 			id: 'final',
-			label: 'Final',
+			label: m.tab_final(),
 			count: finalCount,
 			disabled: !shared,
-			title: shared ? undefined : 'Available once the gallery is shared'
+			title: shared ? undefined : m.tab_after_sharing()
 		}
 	]);
 </script>
 
 <section class="min-w-0 px-3 pt-3 pb-8 sm:px-7 sm:pt-[1.125rem] sm:pb-10">
-	<Tabs bind:value={tab} {items} label="Gallery content">
+	<Tabs bind:value={tab} {items} label={m.tabs_label()}>
 		{#snippet panel(active)}
 			<!-- All panels stay mounted so every tab can show its count; only the active one is visible. -->
 			<div hidden={active !== 'photos'}>
