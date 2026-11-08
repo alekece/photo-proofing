@@ -22,7 +22,8 @@ Focused inputs show a heavy 3px near-black outline that clashes with the soft wa
 ## Chosen style
 
 - Buttons and links: 2px `--color-focus` outline, 2px offset (thinner than before).
-- Fields (`input`, `select`, `textarea`): no outline; the border darkens to `--color-foreground` (`focus-visible:border-foreground` on the input and select components) plus a 3px ring of `--color-focus` at 18%.
+- Checkboxes, radios, range and file inputs: same outline as buttons, since a tinted ring around a tiny control is too faint.
+- Text fields (text-like `input`, `select`, `textarea`): no outline; the border darkens to `--color-foreground` (`focus-visible:border-foreground` on the input and select components) plus a 3px ring of `--color-focus` at 18%.
 - Component-specific overrides (inline title inputs, viewer controls) are unchanged and keep winning, as the rule is in `base`.
 
 ## Contrast
