@@ -304,7 +304,7 @@
 		{/snippet}
 	</GalleryHeader>
 </div>
-<div class="grid min-h-[calc(100vh-25rem)] grid-cols-[3.5rem_1fr] md:grid-cols-[18.75rem_1fr]">
+<div class="grid min-h-[calc(100vh-25rem)] grid-cols-[3.5rem_1fr] md:grid-cols-[21rem_1fr]">
 	<GallerySettings
 		gallery={saved}
 		{shareToken}
