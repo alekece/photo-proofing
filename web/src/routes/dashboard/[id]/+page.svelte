@@ -200,14 +200,13 @@
 		}
 	}
 	async function remove(): Promise<void> {
-		cancelAll();
-
 		try {
 			await deleteGallery(saved.id);
 		} catch (error) {
 			await failAction(error, 'Couldn’t delete the gallery. Please try again.');
 		}
 
+		cancelAll();
 		await goto('/dashboard', { refreshAll: true });
 	}
 	/** Restore never changes the expiry, so an expired gallery gets a prompt to set a new date. */
