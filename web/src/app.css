@@ -125,9 +125,17 @@ h2,
 		font-weight: 500;
 	}
 }
-:where(button, input, select, textarea, a):focus-visible {
-	outline: 3px solid var(--color-focus);
-	outline-offset: 3px;
+/* Single source for focus. In the base layer so utilities such as `outline-none` can override it. */
+@layer base {
+	:where(button, a):focus-visible {
+		outline: 2px solid var(--color-focus);
+		outline-offset: 2px;
+	}
+	/* Fields show a darkened border (`focus-visible:border-foreground`) plus this soft ring. */
+	:where(input, select, textarea):focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-focus) 18%, transparent);
+	}
 }
 @keyframes dialog-in {
 	from {

@@ -17,7 +17,10 @@
 <select
 	bind:this={ref}
 	data-slot={dataSlot}
-	class={cn('rounded-full border border-border-strong bg-panel px-3 py-1.5 text-sm', className)}
+	class={cn(
+		'rounded-full border border-border-strong bg-panel px-3 py-1.5 text-sm focus-visible:border-foreground',
+		className
+	)}
 	bind:value
 	{...restProps}
 >
