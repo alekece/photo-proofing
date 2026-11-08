@@ -18,7 +18,7 @@
 	import SelectActions from '#lib/components/ui/select-actions/select-actions.svelte';
 	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
 	import PhotoStack from '#lib/components/ui/photo-stack/photo-stack.svelte';
-	import { getLiveEvents, type PhotoChange, type PhotoEvent } from '#lib/events.js';
+	import { getLiveEvents, type PhotoEvent } from '#lib/events.js';
 	import { GalleryApiError, updateGallery } from '#lib/gallery/api.js';
 	import {
 		BULK_DELETE_LIMIT,
@@ -58,9 +58,6 @@
 
 	const finals = $derived(set === 'finals');
 
-	/** Event storms and resyncs refetch the list at most this often. */
-	const REFRESH_INTERVAL_MS = 1000;
-
 	const queue = getUploadQueue();
 	const events = getLiveEvents();
 
@@ -82,22 +79,12 @@
 	let grid = $state<HTMLUListElement | null>(null);
 	const selected = new SvelteSet<string>();
 
-	// Bookkeeping that nothing renders, so plain collections on purpose.
-	// Photos whose deletion is pending, as last known, or `null` once known to be gone.
-	// eslint-disable-next-line svelte/prefer-svelte-reactivity
-	const deleting = new Map<string, Photo | null>();
-	// Changes since the last list request started, which an answer arriving later may predate.
-	// eslint-disable-next-line svelte/prefer-svelte-reactivity
-	const recentChanges = new Map<string, PhotoChange>();
-	// eslint-disable-next-line svelte/prefer-svelte-reactivity
-	const uploadedDuringLoad = new Set<string>();
-	let loads = 0;
-	// Bumped whenever the panel stops showing a gallery, by a change of gallery or unmounting.
+	// Bookkeeping that nothing renders. `shown` is bumped whenever the panel stops showing a
+	// gallery, by a change of gallery or unmounting, so a late list answer can tell it is stale.
 	let shown = 0;
 	let destroyed = false;
-	let lastLoadAt = -Infinity;
-	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-	let wasInFlight = 0;
+	let fetching = false;
+	let outdated = false;
 
 	const SERVER_STATES: Record<Exclude<PhotoStatus, { failed: string }>, TileState> = {
 		waiting: 'waiting-process',
@@ -117,21 +104,6 @@
 
 	const tileState = (status: PhotoStatus) =>
 		typeof status === 'object' ? 'process-failed' : SERVER_STATES[status];
-
-	const statusOf = (change: Exclude<PhotoChange, 'deleted'>): PhotoStatus =>
-		change === 'failed' ? { failed: 'Processing failed' } : change;
-
-	/** The photo as the latest change seen says, or `null` once deleted. */
-	function changed(photo: Photo): Photo | null {
-		const change = recentChanges.get(photo.id);
-
-		if (change === 'deleted') return null;
-
-		return change === undefined ? photo : { ...photo, status: statusOf(change) };
-	}
-
-	/** The photo to show, or `null` once deleted or while its deletion is pending. */
-	const withRecentChange = (photo: Photo) => (deleting.has(photo.id) ? null : changed(photo));
 
 	const queued = $derived(queue.forGallery(galleryId, set));
 	// Photos deleted meanwhile drop out, so the confirmed count is what is sent.
@@ -251,35 +223,17 @@
 
 	async function load() {
 		const id = galleryId;
-		const current = ++loads;
+		const view = shown;
 
-		lastLoadAt = Date.now();
-
-		// Changes are cleared below, so a pending deletion keeps what they said about its photo.
-		for (const [id, photo] of deleting) deleting.set(id, photo && changed(photo));
-
-		recentChanges.clear();
-		uploadedDuringLoad.clear();
+		fetching = true;
+		outdated = false;
 
 		try {
 			const listed = await listPhotos(id, fetch, set);
 
-			if (current !== loads) return;
-
-			// A photo uploaded after the list was requested may be missing from it, not gone.
-			for (const [id, known] of deleting) {
-				const fresh = listed.find((photo) => photo.id === id);
-
-				deleting.set(id, fresh ?? (uploadedDuringLoad.has(id) ? known : null));
-			}
-
-			const missing = photos.filter(
-				(photo) => uploadedDuringLoad.has(photo.id) && !listed.some(({ id }) => id === photo.id)
-			);
-
-			photos = withRecentChanges([...listed, ...missing]);
+			if (view === shown) photos = listed;
 		} catch (cause) {
-			if (current !== loads) return;
+			if (view !== shown) return;
 
 			if (cause instanceof GalleryApiError && cause.status === 401) {
 				await signedOut();
@@ -289,44 +243,24 @@
 
 			alert = 'Couldn’t load the photos. Please reload the page.';
 		} finally {
-			if (current === loads) loaded = true;
+			if (view === shown) {
+				loaded = true;
+				fetching = false;
+
+				if (outdated) void load();
+			}
 		}
 	}
 
-	/** Refetches now, or once the interval since the last fetch has passed. */
+	/** Marks the list outdated: one fetch runs at a time, and one more follows if this came during it. */
 	function refresh() {
-		if (refreshTimer !== undefined) return;
+		outdated = true;
 
-		const wait = lastLoadAt + REFRESH_INTERVAL_MS - Date.now();
-
-		if (wait <= 0) {
-			void load();
-
-			return;
-		}
-
-		refreshTimer = setTimeout(() => {
-			refreshTimer = undefined;
-			void load();
-		}, wait);
+		if (!fetching) void load();
 	}
 
 	function onPhoto(event: PhotoEvent) {
-		if (event.gallery_id !== galleryId || (event.kind === 'final') !== finals) return;
-
-		recentChanges.set(event.photo_id, event.status);
-
-		const photo = photos.find(({ id }) => id === event.photo_id);
-
-		if (event.status === 'deleted') {
-			photos = photos.filter(({ id }) => id !== event.photo_id);
-		} else if (photo !== undefined) {
-			photo.status = statusOf(event.status);
-			if (event.status === 'ready') refresh();
-		} else if (queue.inFlight(galleryId, set) === 0 && !deleting.has(event.photo_id)) {
-			// While uploads are in flight, an unknown photo is usually one of them; its answer brings it in.
-			refresh();
-		}
+		if (event.gallery_id === galleryId && (event.kind === 'final') === finals) refresh();
 	}
 
 	onDestroy(() => (destroyed = true));
@@ -341,6 +275,8 @@
 		untrack(() => {
 			photos = [];
 			loaded = false;
+			fetching = false;
+			outdated = false;
 			alert = '';
 			announcement = null;
 			leaveSelectMode();
@@ -351,33 +287,16 @@
 			events.onPhoto(onPhoto),
 			events.onResync(refresh),
 			events.onFavorites((event) => !finals && event.gallery_id === id && refresh()),
-			queue.onUploaded((gallery, photo, photoSet) => {
-				const current = withRecentChange(photo);
-
-				if (gallery !== id || photoSet !== set || current === null) return;
-
-				uploadedDuringLoad.add(photo.id);
-
-				if (!photos.some(({ id }) => id === photo.id)) photos.push(current);
+			queue.onUploaded((gallery, _photo, photoSet) => {
+				if (gallery === id && photoSet === set) refresh();
 			})
 		];
 
 		return () => {
 			shown++;
-			clearTimeout(refreshTimer);
-			refreshTimer = undefined;
 
 			for (const off of unsubscribe) off();
 		};
-	});
-
-	// When the gallery's uploads finish, one refetch catches a photo whose answer was lost.
-	$effect(() => {
-		const inFlight = queue.inFlight(galleryId, set);
-
-		if (wasInFlight > 0 && inFlight === 0) void untrack(load);
-
-		wasInFlight = inFlight;
 	});
 
 	function addFiles(files: FileList | null | undefined) {
@@ -405,38 +324,26 @@
 
 		if (index === -1) return;
 
-		deleting.set(photo.id, photos[index]);
 		photos.splice(index, 1);
 		alert = '';
 		void focusAfterRemoving(index);
 
 		try {
 			await deletePhoto(galleryId, photo.id, fetch, set);
-			recentChanges.set(photo.id, 'deleted');
 		} catch (cause) {
 			if (cause instanceof GalleryApiError && cause.status === 401) {
 				await signedOut();
-			} else if (cause instanceof GalleryApiError && cause.status === 404) {
-				recentChanges.set(photo.id, 'deleted');
-			} else {
-				restore(photo.id, index);
+
+				return;
 			}
-		} finally {
-			deleting.delete(photo.id);
+
+			if (!(cause instanceof GalleryApiError && cause.status === 404)) {
+				alert = `Couldn’t delete ${photo.original_name}. Please try again.`;
+			}
 		}
-	}
 
-	/** Puts back a photo whose deletion failed, as last known, unless it is gone meanwhile. */
-	function restore(photoId: string, index: number) {
-		const known = deleting.get(photoId);
-		const current = known && changed(known);
-
-		deleting.delete(photoId);
-
-		if (!current || photos.some(({ id }) => id === photoId)) return;
-
-		photos.splice(Math.min(index, photos.length), 0, current);
-		alert = `Couldn’t delete ${current.original_name}. Please try again.`;
+		// The list says what is left, whether the photo is gone or was put back.
+		refresh();
 	}
 
 	/** Once the tile at `position` is gone, focuses the one now there, else the previous, else Upload. */
@@ -519,7 +426,7 @@
 
 	/**
 	 * Deletes the selection chunk by chunk in the gallery it was confirmed in, even if the panel
-	 * moves on; on a failure, stops and refetches what the server kept.
+	 * moves on; on a failure, stops. The list is refetched either way.
 	 */
 	async function removeSelection() {
 		const confirmedGallery = galleryId;
@@ -533,9 +440,7 @@
 		let deletedCount = 0;
 
 		deletingSelection = removed;
-		for (const photo of removed) deleting.set(photo.id, photo);
-
-		photos = photos.filter(({ id }) => !deleting.has(id));
+		photos = photos.filter(({ id }) => !ids.includes(id));
 		alert = '';
 		announcement = null;
 
@@ -546,14 +451,13 @@
 				await deletePhotos(confirmedGallery, chunk, fetch, set);
 
 				for (const id of chunk) {
-					recentChanges.set(id, 'deleted');
-					deleting.delete(id);
-
 					if (stillShown()) selected.delete(id);
 				}
 
 				deletedCount += chunk.length;
 			}
+
+			if (showsGallery()) refresh();
 
 			if (!stillShown()) return;
 
@@ -573,46 +477,8 @@
 			if (!showsGallery()) return;
 
 			alert = `Deleted ${deletedCount} of ${ids.length} photos. Please try again.`;
-			await load();
-
-			if (showsGallery()) restoreSurvivors(ids.slice(deletedCount));
-		} finally {
-			for (const id of ids) deleting.delete(id);
+			refresh();
 		}
-	}
-
-	/** The photos as the latest changes seen say, without those deleted. */
-	function withRecentChanges(records: Photo[]) {
-		return records.map(withRecentChange).filter((photo) => photo !== null);
-	}
-
-	/** Puts back photos whose deletion failed, as last known, unless shown already or gone since. */
-	function restoreSurvivors(photoIds: string[]) {
-		const back = photoIds
-			.map((photoId) => deleting.get(photoId))
-			.map((known) => known && changed(known))
-			.filter((photo): photo is Photo => !!photo && !photos.some(({ id }) => id === photo.id));
-
-		for (const photo of back) {
-			const index = photos.findIndex((other) => listedBefore(photo, other));
-
-			photos.splice(index === -1 ? photos.length : index, 0, photo);
-		}
-	}
-
-	/** Whether `a` comes before `b` in the server's order, by creation then id. */
-	function listedBefore(a: Photo, b: Photo) {
-		const [atA, atB] = [instant(a.created_at), instant(b.created_at)];
-
-		return atA === atB ? a.id < b.id : atA < atB;
-	}
-
-	/** A UTC RFC 3339 timestamp, with its fraction padded so timestamps compare as strings. */
-	function instant(timestamp: string) {
-		return timestamp.replace(
-			/(?:\.(\d+))?Z$/,
-			(_, fraction = '') => `.${fraction.padEnd(9, '0')}Z`
-		);
 	}
 
 	function open(photo: Photo) {

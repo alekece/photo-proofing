@@ -30,6 +30,10 @@ function photo(id: string, status: PhotoStatus = 'ready'): Photo {
 	};
 }
 
+function regenerating(id: string): Photo {
+	return { ...photo(id, 'processing'), clean_ready: true };
+}
+
 function jpeg(name: string) {
 	return new File([new Uint8Array(3)], name, { type: 'image/jpeg' });
 }
@@ -71,6 +75,16 @@ function stubApi(
 		hero?: (heroId: string | null) => Response | Promise<Response>;
 	} = {}
 ) {
+	const listOf = (url: string) => (Array.isArray(server) ? server : server[url.split('/')[4]]);
+	const drop = (url: string, ids: string[]) => {
+		const list = listOf(url);
+
+		for (const id of ids) {
+			const at = list.findIndex((listed) => listed.id === id);
+
+			if (at !== -1) list.splice(at, 1);
+		}
+	};
 	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
 		if (init?.method === 'PATCH') {
 			const { hero_id } = JSON.parse(String(init.body));
@@ -79,22 +93,28 @@ function stubApi(
 		}
 
 		if (init?.method === 'DELETE') {
-			return new Response(null, { status: (await answers.delete) ?? 204 });
+			const status = (await answers.delete) ?? 204;
+
+			if (status < 400) drop(url, [url.split('?')[0].split('/')[6]]);
+
+			return new Response(null, { status });
 		}
 
 		if (init?.method === 'POST' && url.endsWith('/photos/delete')) {
 			const ids: string[] = JSON.parse(String(init.body)).photo_ids;
 
-			return answers.bulk?.(ids) ?? Response.json({ deleted: ids.length });
+			if (answers.bulk) return answers.bulk(ids);
+
+			drop(url, ids);
+
+			return Response.json({ deleted: ids.length });
 		}
 
 		if (init?.method === 'POST') {
 			return new Response(JSON.stringify({ requeued: 1 }), { status: answers.retry ?? 200 });
 		}
 
-		const listed = JSON.stringify(Array.isArray(server) ? server : server[url.split('/')[4]]);
-
-		return (await answers.list?.()) ?? new Response(listed);
+		return (await answers.list?.()) ?? new Response(JSON.stringify(listOf(url)));
 	});
 
 	vi.stubGlobal('fetch', fetcher);
@@ -197,28 +217,33 @@ describe('PhotosPanel', () => {
 	});
 
 	it('says Updating watermarks… while a clean photo stays available during regeneration', async () => {
-		stubApi([photo('p1')]);
+		const server = [photo('p1')];
+		stubApi(server);
 		const { emit } = setup(undefined, null, true);
 
 		await screen.findByRole('button', { name: 'Open p1.jpg' });
 
 		expect(screen.queryByText('Updating watermarks…')).toBeNull();
 
+		server[0] = regenerating('p1');
 		emit({ photo_id: 'p1', status: 'processing' });
 
 		expect(await screen.findByText('Updating watermarks…')).toBeTruthy();
 
+		server[0] = photo('p1');
 		emit({ photo_id: 'p1', status: 'ready' });
 
 		await waitFor(() => expect(screen.queryByText('Updating watermarks…')).toBeNull());
 	});
 
 	it('reports regeneration even with watermarking off, but not for a new upload', async () => {
-		stubApi([photo('p1'), photo('p2', 'processing')]);
+		const server = [photo('p1'), photo('p2', 'processing')];
+		stubApi(server);
 		const { emit } = setup();
 
 		await screen.findByRole('button', { name: 'Open p1.jpg' });
 		expect(screen.queryByText('Updating watermarks…')).toBeNull();
+		server[0] = regenerating('p1');
 		emit({ photo_id: 'p1', status: 'processing' });
 
 		await waitFor(() => expect(within(tile('p1.jpg')).getByText('Processing')).toBeTruthy());
@@ -294,111 +319,174 @@ describe('PhotosPanel', () => {
 	});
 
 	it('follows live events: status changes and deletions', async () => {
-		stubApi([photo('p1', 'waiting'), photo('p2', 'processing')]);
+		const server = [photo('p1', 'waiting'), photo('p2', 'processing')];
+		const api = stubApi(server);
 		const { emit } = setup();
 
 		await screen.findByText('p1.jpg');
+		server[0] = photo('p1', 'processing');
+		server[1] = photo('p2', 'ready');
 		emit({ photo_id: 'p1', status: 'processing' });
-		emit({ photo_id: 'p2', status: 'ready' });
 		emit({ photo_id: 'p1', status: 'failed', gallery_id: 'other' });
 
 		await waitFor(() => expect(within(tile('p1.jpg')).getByText('Processing')).toBeTruthy());
 		expect(screen.getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
 
+		server[0] = photo('p1', { failed: 'x' });
 		emit({ photo_id: 'p1', status: 'failed' });
 
 		await waitFor(() => expect(within(tile('p1.jpg')).getByText('Processing failed')).toBeTruthy());
 
+		server.shift();
 		emit({ photo_id: 'p1', status: 'deleted' });
 
 		await waitFor(() => expect(screen.queryByText('p1.jpg')).toBeNull());
+		expect(api.lists()).toBe(4);
 	});
 
-	it('brings in an uploaded photo through its answer, not a refetch', async () => {
-		const api = stubApi([]);
-		const { emit, pending } = setup();
+	it('brings in an uploaded photo by refetching the list', async () => {
+		const server: Photo[] = [];
+		const api = stubApi(server);
+		const { pending } = setup();
 
 		await screen.findByText(/Drop the shoot here/);
 		await fireEvent.drop(screen.getByRole('region', { name: 'Photos' }), {
-			dataTransfer: { files: [jpeg('new.jpg'), jpeg('later.jpg')] }
+			dataTransfer: { files: [jpeg('new.jpg')] }
 		});
 		await waitFor(() => expect(pending).toHaveLength(1));
 
-		emit({ photo_id: 'new', status: 'processing' });
+		server.push(photo('new', 'waiting'));
 		pending[0]({ kind: 'created', photo: photo('new', 'waiting') });
 
-		await waitFor(() => expect(within(tile('new.jpg')).getByText('Processing')).toBeTruthy());
-		expect(api.lists()).toBe(1);
-
-		await waitFor(() => expect(pending).toHaveLength(2));
-		pending[1]({ kind: 'created', photo: photo('later', 'waiting') });
-
-		// The gallery's uploads are done: one refetch catches a photo whose answer was lost.
+		expect(await screen.findByText('new.jpg')).toBeTruthy();
 		await waitFor(() => expect(api.lists()).toBe(2));
 	});
 
-	it('refetches on an unknown photo or a resync, at most once a second', async () => {
-		vi.useFakeTimers();
-		const api = stubApi([]);
+	it('runs one fetch at a time, with one follow-up for everything that changed meanwhile', async () => {
+		const gates: PromiseWithResolvers<void>[] = [];
+		const server = [photo('p1', 'processing')];
+		const api = stubApi(server, {
+			list: () => {
+				const gate = Promise.withResolvers<void>();
+
+				gates.push(gate);
+
+				return gate.promise;
+			}
+		});
 		const { emit, resync } = setup();
 
-		await vi.advanceTimersByTimeAsync(0);
+		await waitFor(() => expect(gates).toHaveLength(1));
+		emit({ photo_id: 'p1', status: 'ready' });
+		emit({ photo_id: 'p2', status: 'waiting' });
+		resync();
+		resync();
 
 		expect(api.lists()).toBe(1);
 
-		emit({ photo_id: 'elsewhere', status: 'ready' });
-		await vi.advanceTimersByTimeAsync(0);
-
-		expect(api.lists()).toBe(1);
-
-		await vi.advanceTimersByTimeAsync(1000);
-		resync();
-		resync();
-		emit({ photo_id: 'elsewhere', status: 'ready' });
-		await vi.advanceTimersByTimeAsync(0);
+		server[0] = photo('p1');
+		gates[0].resolve();
+		await waitFor(() => expect(gates).toHaveLength(2));
 
 		expect(api.lists()).toBe(2);
 
-		await vi.advanceTimersByTimeAsync(1000);
+		server.push(photo('p2', 'waiting'));
+		gates[1].resolve();
 
-		expect(api.lists()).toBe(3);
+		expect(await screen.findByText('p2.jpg')).toBeTruthy();
+		expect(api.lists()).toBe(2);
+
+		resync();
+
+		await waitFor(() => expect(gates).toHaveLength(3));
+		gates[2].resolve();
 	});
 
-	it('keeps changes that arrive while a refetch is pending', async () => {
-		vi.useFakeTimers();
-		let answerLate: (photos: Photo[]) => void = () => {};
-		const lists = [
-			Promise.resolve([photo('p1', 'processing'), photo('p2'), photo('p3')]),
-			new Promise<Photo[]>((resolve) => (answerLate = resolve))
-		];
+	it('shows what the server lists when uploads, deletes, events and resyncs overlap', async () => {
+		const server = [photo('p1'), photo('p2', 'processing'), photo('p3')];
+		const gates: PromiseWithResolvers<void>[] = [];
+		const user = userEvent.setup();
+		const api = stubApi(server, {
+			list: () => {
+				const gate = Promise.withResolvers<void>();
 
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async (_url: string, init?: RequestInit) =>
-				init?.method === 'DELETE'
-					? new Response(null, { status: 204 })
-					: new Response(JSON.stringify(await lists.shift()))
+				gates.push(gate);
+
+				return gate.promise;
+			}
+		});
+		const { emit, resync, pending } = setup();
+
+		await waitFor(() => expect(gates).toHaveLength(1));
+		gates[0].resolve();
+		await screen.findByRole('button', { name: 'Open p3.jpg' });
+
+		// A list is answered late while a photo is uploaded, another deleted and another changes.
+		resync();
+		await waitFor(() => expect(gates).toHaveLength(2));
+		await fireEvent.drop(screen.getByRole('region', { name: 'Photos' }), {
+			dataTransfer: { files: [jpeg('new.jpg')] }
+		});
+		await waitFor(() => expect(pending).toHaveLength(1));
+		await user.click(screen.getByRole('button', { name: 'Remove p3.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+		server.push(photo('new', 'waiting'));
+		server[1] = photo('p2');
+		pending[0]({ kind: 'created', photo: photo('new', 'waiting') });
+		emit({ photo_id: 'p2', status: 'ready' });
+		gates[1].resolve();
+		await waitFor(() => expect(gates).toHaveLength(3));
+		gates[2].resolve();
+
+		await waitFor(() =>
+			expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual(
+				expect.arrayContaining([expect.stringContaining('new.jpg')])
 			)
 		);
+		expect(screen.queryByRole('button', { name: 'Open p3.jpg' })).toBeNull();
+		expect(within(tile('p2.jpg')).getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
+		expect(api.calls('DELETE')).toHaveLength(1);
+	});
 
-		const { emit, resync } = setup();
+	it('ignores a late answer from the gallery it no longer shows', async () => {
+		const late = Promise.withResolvers<void>();
+		let first = true;
+		const api = stubApi(
+			{ g1: [photo('p1')], g2: [photo('q1')] },
+			{
+				list: () => {
+					if (!first) return;
 
-		await vi.advanceTimersByTimeAsync(0);
-		resync();
-		await vi.advanceTimersByTimeAsync(1000);
+					first = false;
 
-		emit({ photo_id: 'p1', status: 'ready' });
-		emit({ photo_id: 'p3', status: 'deleted' });
-		await fireEvent.click(screen.getByRole('button', { name: 'Remove p2.jpg' }));
-		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-		await vi.advanceTimersByTimeAsync(0);
+					return late.promise;
+				}
+			}
+		);
+		const { view } = setup();
 
-		answerLate([photo('p1', 'processing'), photo('p2'), photo('p3')]);
-		await vi.advanceTimersByTimeAsync(0);
+		await waitFor(() => expect(api.lists()).toBe(1));
+		await view.rerender({ galleryId: 'g2' });
 
-		expect(screen.getAllByRole('button', { name: /^Open/ }).map((open) => open.ariaLabel)).toEqual([
-			'Open p1.jpg'
-		]);
+		expect(await screen.findByRole('button', { name: 'Open q1.jpg' })).toBeTruthy();
+
+		late.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'Open q1.jpg' })).toBeTruthy();
+	});
+
+	it('does not refetch for events about other galleries', async () => {
+		const api = stubApi([photo('p1')]);
+		const { emit } = setup();
+
+		await screen.findByRole('button', { name: 'Open p1.jpg' });
+		emit({ photo_id: 'p1', status: 'ready', gallery_id: 'other' });
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		expect(api.lists()).toBe(1);
 	});
 
 	it('removes a file still in the browser without asking', async () => {
@@ -534,129 +622,37 @@ describe('PhotosPanel', () => {
 		]);
 	});
 
-	it('keeps a photo gone when it was deleted elsewhere before its deletion failed', async () => {
+	it('puts a photo back as the server lists it when its deletion fails', async () => {
 		const answer = Promise.withResolvers<number>();
-		stubApi([photo('p1'), photo('p2')], { delete: answer.promise });
+		const server = [photo('p1'), photo('p2', 'waiting')];
+		stubApi(server, { delete: answer.promise });
 		const user = userEvent.setup();
 		const { emit } = setup();
 
 		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
 		await user.click(screen.getByRole('button', { name: 'Delete' }));
-		emit({ photo_id: 'p2', status: 'processing' });
-		emit({ photo_id: 'p2', status: 'deleted' });
-		answer.resolve(500);
-
-		// Lets the failed answer reach the panel.
-		await new Promise((resolve) => setTimeout(resolve, 10));
-
-		expect(screen.queryByRole('alert')).toBeNull();
-		expect(screen.getAllByRole('listitem')).toHaveLength(1);
-		expect(screen.getByRole('button', { name: 'Open p1.jpg' })).toBeTruthy();
-	});
-
-	it('puts a photo back as its latest status says when its deletion fails', async () => {
-		const answer = Promise.withResolvers<number>();
-		stubApi([photo('p1'), photo('p2', 'waiting')], { delete: answer.promise });
-		const user = userEvent.setup();
-		const { emit } = setup();
-
-		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
-		await user.click(screen.getByRole('button', { name: 'Delete' }));
-		emit({ photo_id: 'p2', status: 'processing' });
+		server[1] = photo('p2', { failed: 'x' });
 		emit({ photo_id: 'p2', status: 'failed' });
 		answer.resolve(500);
 
 		expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t delete p2\.jpg/);
+		await waitFor(() => expect(tile('p2.jpg').textContent).toContain('Processing failed'));
 		expect(screen.getAllByRole('listitem')).toHaveLength(2);
-		expect(tile('p2.jpg').textContent).toContain('Processing failed');
-		expect(within(tile('p2.jpg')).getByRole('button', { name: 'Retry p2.jpg' })).toBeTruthy();
 	});
 
-	it('puts a photo back as a reload during its failed deletion listed it', async () => {
-		vi.useFakeTimers();
-		const answer = Promise.withResolvers<number>();
-		const server = [photo('p1'), photo('p2', 'processing')];
-		const api = stubApi(server, { delete: answer.promise });
-		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
-		const { emit, resync } = setup();
-
-		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
-		await user.click(screen.getByRole('button', { name: 'Delete' }));
-		emit({ photo_id: 'p2', status: 'ready' });
-		server[1] = photo('p2', 'ready');
-		await vi.advanceTimersByTimeAsync(1000);
-		resync();
-		await vi.advanceTimersByTimeAsync(0);
-
-		expect(api.lists()).toBe(2);
-
-		answer.resolve(500);
-		await vi.advanceTimersByTimeAsync(0);
-
-		expect(screen.getByRole('alert').textContent).toMatch(/Couldn’t delete p2\.jpg/);
-		expect(screen.getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
-	});
-
-	it('keeps a photo gone when a reload during its failed deletion no longer listed it', async () => {
-		vi.useFakeTimers();
-		const answer = Promise.withResolvers<number>();
+	it('refetches without an alert when the photo to delete is already gone', async () => {
 		const server = [photo('p1'), photo('p2')];
-		const api = stubApi(server, { delete: answer.promise });
-		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
-		const { emit, resync } = setup();
+		const api = stubApi(server, { delete: 404 });
+		const user = userEvent.setup();
 
+		setup();
 		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
-		await user.click(screen.getByRole('button', { name: 'Delete' }));
 		server.pop();
-		emit({ photo_id: 'p2', status: 'deleted' });
-		await vi.advanceTimersByTimeAsync(1000);
-		resync();
-		await vi.advanceTimersByTimeAsync(0);
-
-		expect(api.lists()).toBe(2);
-
-		answer.resolve(502);
-		await vi.advanceTimersByTimeAsync(0);
-
-		expect(screen.queryByRole('alert')).toBeNull();
-		expect(screen.getAllByRole('listitem')).toHaveLength(1);
-		expect(screen.queryByRole('button', { name: 'Open p2.jpg' })).toBeNull();
-	});
-
-	it('puts back a photo uploaded and deleted while a reload was pending when its deletion fails', async () => {
-		vi.useFakeTimers();
-		const answer = Promise.withResolvers<number>();
-		let listAnswer: PromiseWithResolvers<void> | undefined = undefined;
-		const api = stubApi([photo('p1')], {
-			delete: answer.promise,
-			list: () => listAnswer?.promise ?? Promise.resolve()
-		});
-		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
-		const { queue, pending, resync } = setup();
-
-		await screen.findByRole('button', { name: 'Open p1.jpg' });
-		listAnswer = Promise.withResolvers<void>();
-		await vi.advanceTimersByTimeAsync(1000);
-		resync();
-		await vi.advanceTimersByTimeAsync(0);
-
-		expect(api.lists()).toBe(2);
-
-		// A second upload keeps the gallery busy, so finishing the first doesn't refetch.
-		queue.add('g1', [jpeg('new.jpg'), jpeg('next.jpg')]);
-		await vi.advanceTimersByTimeAsync(0);
-		pending[0]({ kind: 'created', photo: photo('new', 'waiting') });
-		await vi.advanceTimersByTimeAsync(0);
-		await user.click(await screen.findByRole('button', { name: 'Remove new.jpg' }));
 		await user.click(screen.getByRole('button', { name: 'Delete' }));
-		listAnswer.resolve();
-		await vi.advanceTimersByTimeAsync(0);
-		answer.resolve(500);
-		await vi.advanceTimersByTimeAsync(0);
 
-		expect(screen.getByRole('alert').textContent).toMatch(/Couldn’t delete new\.jpg/);
-		expect(tile('new.jpg').textContent).toContain('Waiting');
-		expect(api.lists()).toBe(2);
+		await waitFor(() => expect(api.lists()).toBe(2));
+		expect(screen.queryByRole('alert')).toBeNull();
+		expect(screen.queryByText('p2.jpg')).toBeNull();
 	});
 
 	it('goes to sign-in when a deletion finds the session ended', async () => {
@@ -808,10 +804,12 @@ describe('PhotosPanel', () => {
 		});
 
 		it('forgets the hero once its photo is gone', async () => {
-			stubApi([photo('p1'), photo('p2')]);
+			const server = [photo('p1'), photo('p2')];
+			stubApi(server);
 			const { emit } = setup(undefined, 'p1');
 
 			await screen.findByRole('button', { name: 'Open p2.jpg' });
+			server.shift();
 			emit({ photo_id: 'p1', status: 'deleted' });
 
 			await waitFor(() => expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull());
@@ -1004,7 +1002,8 @@ describe('PhotosPanel', () => {
 		});
 
 		it('announces a deletion once, not again with the next change', async () => {
-			stubApi([photo('p1'), photo('p2'), photo('p3')]);
+			const server = [photo('p1'), photo('p2'), photo('p3')];
+			stubApi(server);
 			const user = userEvent.setup();
 			const { emit } = setup();
 
@@ -1013,6 +1012,7 @@ describe('PhotosPanel', () => {
 			await confirmDeletion(user);
 			await waitFor(() => expect(announced()).toContain('1 photo deleted'));
 
+			server[0] = photo('p2', 'processing');
 			emit({ photo_id: 'p2', status: 'processing' });
 
 			await waitFor(() => expect(announced()).toContain('1 processing'));
@@ -1075,41 +1075,6 @@ describe('PhotosPanel', () => {
 			expect(api.lists()).toBe(1);
 		});
 
-		it('puts back a photo uploaded during a reload when its bulk deletion and refetch fail', async () => {
-			vi.useFakeTimers();
-			const bulkAnswer = Promise.withResolvers<number>();
-			let listAnswer: PromiseWithResolvers<void> | undefined = undefined;
-			let lists = 0;
-			stubApi([photo('p1')], {
-				bulk: async () => new Response(null, { status: await bulkAnswer.promise }),
-				list: () => (++lists === 3 ? new Response(null, { status: 500 }) : listAnswer?.promise)
-			});
-			const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
-			const { queue, pending, resync } = setup();
-
-			await screen.findByRole('button', { name: 'Open p1.jpg' });
-			listAnswer = Promise.withResolvers<void>();
-			await vi.advanceTimersByTimeAsync(1000);
-			resync();
-			await vi.advanceTimersByTimeAsync(0);
-
-			// A second upload keeps the gallery busy, so finishing the first doesn't refetch.
-			queue.add('g1', [jpeg('new.jpg'), jpeg('next.jpg')]);
-			await vi.advanceTimersByTimeAsync(0);
-			pending[0]({ kind: 'created', photo: photo('new', 'waiting') });
-			await vi.advanceTimersByTimeAsync(0);
-			await enter(user);
-			await user.click(checkbox('new.jpg')!);
-			await confirmDeletion(user);
-			listAnswer.resolve();
-			await vi.advanceTimersByTimeAsync(0);
-			bulkAnswer.resolve(500);
-			await vi.advanceTimersByTimeAsync(0);
-
-			expect(lists).toBe(3);
-			expect(tile('new.jpg').textContent).toContain('Waiting');
-		});
-
 		it('restores the photos left after switching away and back during a deletion', async () => {
 			let answer: (response: Response) => void = () => {};
 			const kept = [photo('p1'), photo('p2'), photo('p3')];
@@ -1136,71 +1101,9 @@ describe('PhotosPanel', () => {
 			kept.splice(0, 2);
 			answer(Response.json({ deleted: 2 }));
 
-			expect(await screen.findByRole('button', { name: 'Open p3.jpg' })).toBeTruthy();
-			expect(screen.getByRole('alert').textContent).toMatch(/Deleted 2 of 3 photos/);
-			expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull();
-		});
-
-		it('puts restored photos back in server order', async () => {
-			let lists = 0;
-			const at = (id: string, created_at: string) => ({ ...photo(id), created_at });
-			stubApi(
-				[
-					at('w', '2026-11-04T10:00:00Z'),
-					at('x', '2026-11-04T10:00:00.1Z'),
-					at('y', '2026-11-04T10:00:00.5Z'),
-					at('z', '2026-11-04T10:00:00.51Z')
-				],
-				{
-					bulk: () => new Response(null, { status: 500 }),
-					list: () => (++lists > 1 ? new Response(null, { status: 500 }) : undefined)
-				}
-			);
-			setup();
-			const user = userEvent.setup();
-
-			await enter(user);
-			await user.click(checkbox('w.jpg')!);
-			await user.click(checkbox('z.jpg')!);
-			await confirmDeletion(user);
-
-			await waitFor(() => expect(lists).toBe(2));
-			await waitFor(() => expect(checkbox('z.jpg')).not.toBeNull());
-			expect(screen.getAllByRole('checkbox').map((box) => box.getAttribute('aria-label'))).toEqual([
-				'Select w.jpg',
-				'Select x.jpg',
-				'Select y.jpg',
-				'Select z.jpg'
-			]);
-		});
-
-		it('restores the photos left when both the deletion and the refetch fail', async () => {
-			let answer: (response: Response) => void = () => {};
-			let lists = 0;
-			stubApi([photo('p1'), photo('p2'), photo('p3'), photo('p4')], {
-				bulk: () => new Promise((resolve) => (answer = resolve)),
-				list: () => (++lists > 1 ? new Response(null, { status: 500 }) : undefined)
-			});
-			const { emit } = setup();
-			const user = userEvent.setup();
-
-			await enter(user);
-			await user.click(checkbox('p1.jpg')!);
-			await user.click(checkbox('p2.jpg')!);
-			await user.click(checkbox('p3.jpg')!);
-			await confirmDeletion(user);
-			emit({ photo_id: 'p2', status: 'deleted' });
-			answer(new Response(null, { status: 500 }));
-
-			await waitFor(() => expect(lists).toBe(2));
-			await waitFor(() => expect(checkbox('p3.jpg')).not.toBeNull());
-			expect(screen.getAllByRole('checkbox').map((box) => box.getAttribute('aria-label'))).toEqual([
-				'Select p1.jpg',
-				'Select p3.jpg',
-				'Select p4.jpg'
-			]);
-			expect(screen.queryByText(/Drop the shoot here/)).toBeNull();
-			expect(checkbox('p1.jpg')!.checked).toBe(true);
+			expect((await screen.findByRole('alert')).textContent).toMatch(/Deleted 2 of 3 photos/);
+			await waitFor(() => expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull());
+			expect(screen.getByRole('button', { name: 'Open p3.jpg' })).toBeTruthy();
 		});
 
 		it('sends a large selection in chunks, one after another', async () => {
@@ -1275,12 +1178,14 @@ describe('PhotosPanel', () => {
 		});
 
 		it('drops a photo deleted elsewhere from the selection', async () => {
-			stubApi([photo('p1'), photo('p2')]);
+			const server = [photo('p1'), photo('p2')];
+			stubApi(server);
 			const { emit } = setup();
 			const user = userEvent.setup();
 
 			await enter(user);
 			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			server.pop();
 			emit({ photo_id: 'p2', status: 'deleted' });
 
 			await waitFor(() => expect(counter()).toBe('1 selected'));
@@ -1353,16 +1258,20 @@ describe('PhotosPanel', () => {
 			await waitFor(() =>
 				expect(api.calls('DELETE')).toEqual(['/api/v1/galleries/g1/photos/f1?finals=true'])
 			);
-			expect(api.lists()).toBe(1);
+			expect(api.lists()).toBe(2);
 		});
 
 		it('ignores events about proofs and shows only finals changes', async () => {
-			stubApi([photo('f1', 'processing')]);
+			const server = [photo('f1', 'processing')];
+			const api = stubApi(server);
 			const { emit } = setup(undefined, null, false, 'finals');
 
 			await screen.findByRole('listitem');
+			server[0] = photo('f1');
 			emit({ photo_id: 'f1', status: 'ready', kind: 'proof' });
+			await new Promise((resolve) => setTimeout(resolve, 10));
 
+			expect(api.lists()).toBe(1);
 			expect(within(tile('f1.jpg')).queryByRole('button', { name: 'Open f1.jpg' })).toBeNull();
 
 			emit({ photo_id: 'f1', status: 'ready', kind: 'final' });

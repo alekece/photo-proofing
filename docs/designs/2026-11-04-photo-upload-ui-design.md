@@ -89,9 +89,10 @@ My calls (to check while reading):
   Other dashboard users share the same server slots, so the server can still be busy.
 - **Busy is not broken.** Today every 503 looks alike. The upload route now answers **429** with
   `Retry-After` when no upload slot is free, and **507** when photo storage is full; other 503s stay
-  server errors. On 429 the queue puts the file back to wait and retries after the given delay,
-  doubled at each answer up to a minute. Only after several in a row, none while another of its
-  own uploads holds a slot, does it show "Upload failed" with Retry. On 507 that file and every
+  server errors. On 429 the queue puts the file back to wait and sends it again after the server's
+  `Retry-After`; a busy server delays a file but never fails it (see the 2026-11-08 simplification
+  design). If the limits cannot be read, the waiting files show "Upload failed" and Retry reads
+  them again. On 507 that file and every
   file still waiting in the queue show "Storage full" with Retry, so a full disk does not receive
   the rest of the batch.
 - **Answer mapping.** 201: the tile now follows the server photo. 413, 415, 422: rejected with a
@@ -105,11 +106,10 @@ My calls (to check while reading):
   authoritative.
 - **Photos tab.** A `PhotosPanel` component replaces the placeholder: loads `GET
   /galleries/{id}/photos`, merges it with the queue's items for that gallery (server photos in their
-  order, then queued files in drop order), and applies #80's `photo` events by id. An event for an
-  unknown id while this gallery still has uploads in flight is usually one of them saved before its
-  201 arrived, so it is ignored and the 201 brings it in; otherwise, and on `resync`, the list is
-  refetched (at most once a second). When the gallery's uploads finish, the list is refetched once
-  to catch any photo whose 201 was lost. The whole panel is a drop target; the empty state is the
+  order, then queued files in drop order). The server list is the only source of truth: a
+  relevant #80 `photo` event, a `resync`, a finished upload or a delete marks it outdated and it is
+  refetched, one fetch at a time with one follow-up (see
+  `2026-11-08-simplify-web-photo-list-design.md`). The whole panel is a drop target; the empty state is the
   drop zone from the mockup; `+ Upload` opens a multi-file picker (`accept="image/jpeg"`). Ready
   tiles open the existing `ProofViewer` on the photographer preview route. Thumbnails lazy-load;
   tiles are keyed by photo id or queue key so a 100-file batch does not re-render everything.
@@ -128,8 +128,7 @@ My calls (to check while reading):
   browser never hears about, the photo appears on the next event or refresh and can be deleted
   like any other.
 - **Delete in the browser.** The tile disappears immediately (optimistic); a failed request other
-  than 404 puts it back with an error toast, as last known: live events and list refetches that
-  arrive during the request still apply, and a photo they report deleted stays gone. Removing a
+  than 404 shows an error and refetches, so the photo returns as the server lists it. Removing a
   tile moves keyboard focus to the next tile, else the previous one, else `+ Upload`. The
   confirmation uses the existing `Dialog`.
 - **Accessibility.** Tiles are list items with their state as text; ✕ and Retry are buttons with
@@ -138,7 +137,7 @@ My calls (to check while reading):
 
 ## Left to the builder
 
-- Number of busy retries and their delays; toast wording; exact tile markup and spacing within the
+- Toast wording; exact tile markup and spacing within the
   mockup tokens.
 - Whether `ProofViewer` gets a small adapter or a prop for the photographer URLs.
 - Where `+ Upload` and the hidden file input live within `GalleryTabs`.

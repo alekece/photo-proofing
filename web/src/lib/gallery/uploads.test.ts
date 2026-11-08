@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Photo, UploadLimits, UploadOutcome } from './photos';
-import { MAX_BUSY_RETRIES, UploadQueue } from './uploads.svelte';
+import { UploadQueue } from './uploads.svelte';
 
 interface Call {
 	galleryId: string;
@@ -93,20 +93,24 @@ describe('UploadQueue', () => {
 		expect(getLimits).toHaveBeenCalledOnce();
 	});
 
-	it('sends one at a time when the limits cannot be read, and asks again later', async () => {
+	it('fails the waiting files when the limits cannot be read, and reads them again on Retry', async () => {
 		const { queue, calls, getLimits } = setup();
 
 		getLimits.mockRejectedValueOnce(new Error('offline'));
-		queue.add('g1', [jpeg('a.jpg'), jpeg('b.jpg'), jpeg('c.jpg')]);
+		queue.add('g1', [jpeg('a.jpg'), jpeg('b.jpg')]);
 		await settle();
 
-		expect(calls).toHaveLength(1);
+		expect(calls).toHaveLength(0);
+		expect(states(queue)).toEqual([
+			['a.jpg', 'failed', 'Upload failed'],
+			['b.jpg', 'failed', 'Upload failed']
+		]);
 
-		calls[0].resolve({ kind: 'created', photo: photo('p1') });
+		queue.retry(queue.items[0].key);
 		await settle();
 
 		expect(getLimits).toHaveBeenCalledTimes(2);
-		expect(calls).toHaveLength(3);
+		expect(calls.map((call) => call.file.name)).toEqual(['a.jpg']);
 	});
 
 	it('rejects non-JPEG and too-large files without sending them', async () => {
@@ -176,21 +180,19 @@ describe('UploadQueue', () => {
 		]);
 	});
 
-	it('waits out a busy server longer each time, up to a minute, then gives up', async () => {
+	it('puts a file back and sends it again after the Retry-After, however often the server is busy', async () => {
 		const { queue, calls } = setup({ concurrency: 1 });
 
 		queue.add('g1', [jpeg('a.jpg')]);
 		await settle();
 
-		const waits = [2000, 4000, 8000, 16000, 32000, 60000, 60000];
-
-		for (const [answer, wait] of waits.entries()) {
+		for (let answer = 0; answer < 20; answer++) {
 			calls[answer].resolve({ kind: 'busy', retryAfterMs: 2000 });
 			await settle();
 
 			expect(states(queue)).toEqual([['a.jpg', 'waiting', undefined]]);
 
-			await vi.advanceTimersByTimeAsync(wait - 1);
+			await vi.advanceTimersByTimeAsync(1999);
 
 			expect(calls).toHaveLength(answer + 1);
 
@@ -199,12 +201,10 @@ describe('UploadQueue', () => {
 			expect(calls).toHaveLength(answer + 2);
 		}
 
-		expect(calls).toHaveLength(MAX_BUSY_RETRIES);
-
-		calls.at(-1)!.resolve({ kind: 'busy', retryAfterMs: 2000 });
+		calls.at(-1)!.resolve({ kind: 'created', photo: photo('p1') });
 		await settle();
 
-		expect(states(queue)).toEqual([['a.jpg', 'failed', 'Upload failed']]);
+		expect(states(queue)).toEqual([]);
 	});
 
 	it('honours a Retry-After longer than a minute', async () => {
@@ -222,28 +222,19 @@ describe('UploadQueue', () => {
 		expect(calls).toHaveLength(2);
 	});
 
-	it('keeps a file waiting while the server stays busy with one of its own uploads', async () => {
-		const { queue, calls } = setup({ concurrency: 2 });
+	it('lets the next file go while a busy one waits out its delay', async () => {
+		const { queue, calls } = setup({ concurrency: 1 });
 
 		queue.add('g1', [jpeg('a.jpg'), jpeg('b.jpg')]);
 		await settle();
+		calls[0].resolve({ kind: 'busy', retryAfterMs: 5000 });
+		await settle();
 
-		for (let answer = 1; answer <= MAX_BUSY_RETRIES * 3; answer++) {
-			calls.at(-1)!.resolve({ kind: 'busy', retryAfterMs: 1000 });
-			await vi.advanceTimersByTimeAsync(1000);
-		}
-
+		expect(calls.map((call) => call.file.name)).toEqual(['a.jpg', 'b.jpg']);
 		expect(states(queue)).toEqual([
-			['a.jpg', 'uploading', undefined],
+			['a.jpg', 'waiting', undefined],
 			['b.jpg', 'uploading', undefined]
 		]);
-
-		calls[0].resolve({ kind: 'created', photo: photo('a') });
-		await settle();
-		calls.at(-1)!.resolve({ kind: 'busy', retryAfterMs: 1000 });
-		await settle();
-
-		expect(states(queue)).toEqual([['b.jpg', 'waiting', undefined]]);
 	});
 
 	it('marks the file and everything still waiting as storage full', async () => {

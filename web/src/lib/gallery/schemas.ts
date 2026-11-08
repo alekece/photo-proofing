@@ -145,7 +145,6 @@ export type SharedPhoto = v.InferOutput<typeof sharedPhotoSchema>;
 export type Photo = v.InferOutput<typeof photoSchema>;
 export type PhotoStatus = v.InferOutput<typeof photoStatusSchema>;
 export type UploadLimits = v.InferOutput<typeof uploadLimitsSchema>;
-export type PhotoChange = v.InferOutput<typeof photoChangeSchema>;
 export type PhotoEvent = v.InferOutput<typeof photoEventSchema>;
 export type FavoritesEvent = v.InferOutput<typeof favoritesEventSchema>;
 
