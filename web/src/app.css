@@ -160,6 +160,14 @@ h2,
 		transform: translateY(1rem);
 	}
 }
+@keyframes toast-countdown {
+	to {
+		transform: scaleX(0);
+	}
+}
+.toast-countdown {
+	animation: toast-countdown var(--toast-ms) linear forwards;
+}
 @keyframes photo-in {
 	from {
 		opacity: 0;
@@ -216,6 +224,10 @@ dialog[data-slot='dialog'][open] {
 		animation-duration: 0.001ms !important;
 		animation-iteration-count: 1 !important;
 		transition-duration: 0.001ms !important;
+	}
+	/* The countdown keeps running, in four steps instead of a smooth slide. */
+	.toast-countdown {
+		animation: toast-countdown var(--toast-ms) steps(4) forwards !important;
 	}
 	.animate-sweep {
 		animation: none !important;
