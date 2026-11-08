@@ -606,6 +606,68 @@ describe('gallery page', () => {
 		});
 	});
 
+	describe('archive and delete', () => {
+		const stub = (status = 200) => {
+			const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/photos')) return new Response('[]');
+				if (status !== 200) return new Response('{"error":"nope"}', { status });
+				if (init?.method === 'DELETE') return new Response(null, { status: 204 });
+				return new Response(JSON.stringify({ ...base, states: ['draft', 'archived'] }));
+			});
+			vi.stubGlobal('fetch', fetcher);
+			return fetcher;
+		};
+		const confirm = async (action: 'Archive' | 'Delete') => {
+			const user = userEvent.setup();
+			await user.click(screen.getByRole('button', { name: action }));
+			const dialog = await screen.findByRole('dialog');
+			await user.click(within(dialog).getByRole('button', { name: action }));
+		};
+
+		it('archives through the API and shows the archived state', async () => {
+			const fetcher = stub();
+			open();
+			await confirm('Archive');
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+			expect(
+				fetcher.mock.calls.some(
+					([url, init]) => url === '/api/v1/galleries/g1/archive' && init?.method === 'POST'
+				)
+			).toBe(true);
+			expect(screen.getAllByRole('button', { name: 'Restore' }).length).toBeGreaterThan(0);
+		});
+
+		it('deletes through the API and returns to the dashboard', async () => {
+			const fetcher = stub();
+			open();
+			await confirm('Delete');
+			await waitFor(() => expect(goto).toHaveBeenCalledWith('/dashboard', { refreshAll: true }));
+			expect(
+				fetcher.mock.calls.some(
+					([url, init]) => url === '/api/v1/galleries/g1' && init?.method === 'DELETE'
+				)
+			).toBe(true);
+		});
+
+		it.each(['Archive', 'Delete'] as const)('sends %s to sign in on a 401', async (action) => {
+			stub(401);
+			open();
+			await confirm(action);
+			await waitFor(() =>
+				expect(goto).toHaveBeenCalledWith('/login?expired=1', { refreshAll: true })
+			);
+		});
+
+		it.each(['Archive', 'Delete'] as const)('shows a %s failure in the dialog', async (action) => {
+			stub(500);
+			open();
+			await confirm(action);
+			expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t/);
+			expect(screen.getByRole('dialog')).toBeTruthy();
+			expect(goto).not.toHaveBeenCalled();
+		});
+	});
+
 	describe('tabs', () => {
 		it('offers Photos, Favorites and Finals with Photos selected', async () => {
 			vi.stubGlobal('fetch', async () => new Response('[]'));

@@ -19,6 +19,8 @@
 	import Label from '#lib/components/ui/label/label.svelte';
 	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
 	import {
+		archiveGallery,
+		deleteGallery,
 		GalleryApiError,
 		restoreGallery,
 		shareGallery,
@@ -130,6 +132,11 @@
 		clearTimeout(timers.get(field)?.timer);
 		timers.delete(field);
 	}
+	/** Drops pending saves; the gallery they would update is going away. */
+	function cancelAll() {
+		for (const { timer } of timers.values()) clearTimeout(timer);
+		timers.clear();
+	}
 	/** Sends every debounced change now; used on blur, navigation and page hide. */
 	function flush() {
 		for (const [field, { timer, run }] of [...timers]) {
@@ -172,12 +179,35 @@
 	async function deliver(): Promise<void> {
 		throw new Error('Delivering finished photos arrives with a later release.');
 	}
-	/** Archiving, restoring and deleting arrive with #73; the dialogs are ready for it. */
+	/** Sends the photographer to sign in on a 401; otherwise rethrows with a retryable message. */
+	async function failAction(error: unknown, message: string): Promise<never> {
+		if (error instanceof GalleryApiError && error.status === 401) {
+			await goto('/login?expired=1', { refreshAll: true });
+		}
+
+		throw new Error(message, { cause: error });
+	}
 	async function archive(): Promise<void> {
-		throw new Error('Archiving galleries arrives with a later release.');
+		flush();
+
+		try {
+			const archived = await archiveGallery(saved.id);
+
+			saved = { ...saved, states: archived.states, updated_at: archived.updated_at };
+			toasts.success('Archived');
+		} catch (error) {
+			await failAction(error, 'Couldn’t archive the gallery. Please try again.');
+		}
 	}
 	async function remove(): Promise<void> {
-		throw new Error('Deleting galleries arrives with a later release.');
+		try {
+			await deleteGallery(saved.id);
+		} catch (error) {
+			await failAction(error, 'Couldn’t delete the gallery. Please try again.');
+		}
+
+		cancelAll();
+		await goto('/dashboard', { refreshAll: true });
 	}
 	/** Restore never changes the expiry, so an expired gallery gets a prompt to set a new date. */
 	async function restore(): Promise<void> {
