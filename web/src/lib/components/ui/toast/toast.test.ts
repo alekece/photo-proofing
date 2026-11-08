@@ -69,4 +69,45 @@ describe('Toaster', () => {
 
 		expect(toasts.items.map((toast) => toast.message)).toEqual(['Saved']);
 	});
+
+	it('shows a countdown bar only on auto-dismissing toasts', async () => {
+		const { container } = render(Toaster);
+
+		toasts.error('Upload failed');
+		await screen.findByRole('alert');
+
+		expect(container.querySelector('[data-slot="toast-countdown"]')).toBeNull();
+
+		toasts.success('Saved');
+		await screen.findByRole('status');
+
+		const bar = container.querySelector<HTMLElement>('[data-slot="toast-countdown"]');
+
+		expect(bar?.style.getPropertyValue('--toast-ms')).toBe('4000ms');
+	});
+
+	it('still closes an auto-dismissing toast with the close button', async () => {
+		render(Toaster);
+		toasts.success('Saved');
+		await userEvent.click(await screen.findByRole('button', { name: 'Dismiss' }));
+
+		expect(screen.queryByRole('status')).toBeNull();
+	});
+
+	it('does not stack an identical toast while one is visible', async () => {
+		render(Toaster);
+
+		const first = toasts.success('Copied');
+		await vi.advanceTimersByTimeAsync(3000);
+
+		expect(toasts.success('Copied')).toBe(first);
+		expect(toasts.error('Copied')).not.toBe(first);
+		expect(toasts.items).toHaveLength(2);
+
+		// The duplicate left the original timer alone.
+		await vi.advanceTimersByTimeAsync(1100);
+
+		expect(toasts.items.map((toast) => toast.kind)).toEqual(['error']);
+		expect(toasts.success('Copied')).not.toBe(first);
+	});
 });

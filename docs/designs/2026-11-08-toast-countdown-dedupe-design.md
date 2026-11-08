@@ -1,63 +1,37 @@
-# Toast countdown and duplicate merging
+# Toast countdown and duplicate suppression
 
 Issue: [#262](https://github.com/alekece/photo-proofing/issues/262)
 
 ## Intent
 
 Auto-dismissing toasts give no hint of how long they stay, and repeated triggers
-stack identical toasts. Make the remaining time visible and merge repeats.
-
-## Goals
-
-- Auto-dismissing toasts show a thin bar along the bottom edge that shrinks
-  slowly over the dismiss duration. No percentage or text.
-- The close button stays.
-- Identical toasts merge while one is visible: the countdown restarts and an
-  optional `×N` counter increases.
-
-## Non-goals
-
-- Pause on hover/focus.
-- A reusable progress component (this is the app's first bar; extract it when a
-  second use appears).
-- Changing the 4s duration or the default persistence of errors.
+stack identical toasts. Show the remaining time and suppress repeats, centrally.
 
 ## Behavior
 
-- **Same toast:** same `kind` and `message`, and only while it is still visible.
-  A duplicate arriving after it disappeared creates a fresh toast (count 1).
-- **On duplicate:** the existing toast's timer restarts (auto-dismissing toasts
-  only), its count increments, and a newer `retry` replaces the old one.
-- **Auto-dismiss:** each toast is either auto-closable or persistent. Defaults
-  stay as today (success auto-closes after 4s, errors persist); a call can
-  override either way.
-- **Bar:** only on auto-closable toasts. A persistent toast shows no bar at all,
-  just the close button. Honors `prefers-reduced-motion` by not animating (the toast
-  still dismisses on schedule).
-- **Counter:** shown as `×N` from the second occurrence, only when enabled.
-  Default on for errors, off for success; a call can override it, e.g.
-  `toasts.success('Saved', { count: true })`.
-- **`saved()`:** the 3s quiet-period debounce (`SAVED_QUIET_MS`) is removed.
-  "Saved" appears immediately and repeated saves merge into it.
+- **Countdown:** an auto-dismissing toast shows a thin bar along its bottom edge that
+  shrinks over the dismiss duration (a CSS animation sized from the toast's `duration`,
+  4 s today). Persistent toasts (errors) show no bar. The close button stays.
+- **Same toast:** same `kind` and `message`, only while it is still visible. A repeat
+  after it disappeared shows a fresh toast.
+- **On duplicate:** the existing toast is left alone (timer not restarted, no counter), so
+  the bar always matches the real dismissal time. A newer `retry` is ignored.
+- **Reduced motion:** the bar still shrinks, in four discrete steps instead of a smooth slide,
+  so time is conveyed without continuous motion.
+- **No pause on hover/focus:** out of scope for the MVP.
+- **`saved()`:** keeps its quiet-period debounce (`SAVED_QUIET_MS`, see the debounced Saved
+  toast design). Central suppression does not replace it: it would show "Saved" immediately
+  and again once the first toast is gone, whereas the debounce shows one toast after
+  editing stops.
 
-## Approaches
+## Rejected
 
-- **A. CSS animation (chosen).** The store keeps a per-toast timer; a restart
-  bumps a `generation` number. The toaster renders the bar with a CSS animation
-  lasting the dismiss duration, re-keyed on `generation` so it restarts. Small
-  and smooth; bar and timer are separate clocks (drift is invisible at 4s).
-- **B. JS-driven progress** (`expiresAt` plus `requestAnimationFrame`/`Tween`).
-  Guaranteed sync and easy hover-pause later, but more code and harder tests.
-  Rejected: hover-pause is out of scope.
+- Restarting the timer on duplicates: the bar would need to restart too, and a spammed
+  toast could never go away.
+- JS-driven progress: more code and harder tests than a CSS animation, with no benefit
+  without hover-pause.
 
-## Constraints
+## Tests
 
-- Changes stay within `web/src/lib/components/ui/toast/` and call sites of
-  `saved()`; `pnpm --dir web verify` must pass.
-- Tests cover merge rules, restart, counter defaults/override, bar presence,
-  and the removed debounce.
-
-## Left to the builder
-
-Bar color/height, exact counter styling, keyframe name, and how timers are
-tracked per toast.
+Bar only on auto-dismissing toasts, close button works, duplicates are not stacked
+(different kind is distinct, original timer unchanged, repeat after dismissal allowed).
