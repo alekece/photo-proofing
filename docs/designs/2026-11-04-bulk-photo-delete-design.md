@@ -64,12 +64,11 @@ My calls (to check while reading):
 - **Browser.** Selected tiles disappear at once. A selection larger than 1000 is sent in chunks,
   one after another. If a chunk fails, the rest are not sent, the list is refetched so the page
   shows exactly what the server kept, select mode stays open with the surviving photos still
-  selected, and the panel's alert says how many were deleted. If that refetch fails too, the
-  photos not deleted come back as last known, in the server's order, minus those deleted
-  meanwhile. #80's `deleted` events reconcile any other open tab.
+  selected, and the panel's alert says how many were deleted. A success refetches too. #80's
+  `deleted` events reconcile any other open tab.
 - **A confirmed deletion finishes.** Every chunk goes to the gallery it was confirmed in, even if
   the panel switches gallery or closes meanwhile. Only the panel still showing that gallery shows
-  the alert and the restored photos; selection, focus and announcement belong to the view it was
+  the alert and the refetched list; selection, focus and announcement belong to the view it was
   confirmed in.
 - **Focus and announcements.** Leaving select mode (Esc, Cancel, or a successful delete) puts
   focus back on Select, or Upload when Select is disabled. The panel's polite status region

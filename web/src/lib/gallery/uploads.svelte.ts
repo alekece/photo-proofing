@@ -37,20 +37,8 @@ interface UploadQueueOptions {
 /** What the queue tracks about a file besides what tiles show. */
 interface Sending {
 	controller?: AbortController;
-	busyAnswers: number;
 	notBefore: number;
 }
-
-/**
- * Busy answers in a row before a file shows "Upload failed". An answer while another of the
- * queue's own uploads holds a slot does not count: that upload keeps the server busy for a while.
- */
-export const MAX_BUSY_RETRIES = 8;
-
-/** Each busy answer doubles the wait from the server's `Retry-After`, up to this cap. */
-const MAX_BUSY_WAIT_MS = 60_000;
-
-const UNREACHABLE_LIMITS = { concurrency: 1, max_size: Infinity };
 
 function isJpeg(file: File) {
 	return file.type === 'image/jpeg' || /\.jpe?g$/i.test(file.name);
@@ -58,7 +46,7 @@ function isJpeg(file: File) {
 
 /**
  * The signed-in area's uploads, across galleries and page changes. It sends the oldest waiting
- * files, never more at once than the server's upload concurrency, and waits out busy answers.
+ * files, never more at once than the server's upload concurrency, and puts a file back to wait for the server's `Retry-After` on a busy answer.
  */
 export class UploadQueue {
 	items = $state<UploadItem[]>([]);
@@ -74,7 +62,6 @@ export class UploadQueue {
 	#sending = new Map<string, Sending>();
 	#serverLimits: Pick<UploadLimits, 'concurrency' | 'max_size'> | null = null;
 	#readingLimits = false;
-	#limitsUnreadable = false;
 	#wake: ReturnType<typeof setTimeout> | undefined;
 	#nextKey = 0;
 
@@ -176,16 +163,13 @@ export class UploadQueue {
 
 		if (waiting.length === 0) return;
 
-		const limits = this.#serverLimits ?? (this.#limitsUnreadable ? UNREACHABLE_LIMITS : null);
+		const limits = this.#serverLimits;
 
 		if (limits === null) {
 			this.#readLimits();
 
 			return;
 		}
-
-		// After an unreadable answer, send one file, then ask again.
-		this.#limitsUnreadable = false;
 
 		const now = Date.now();
 		let uploading = this.items.filter((item) => item.state === 'uploading').length;
@@ -226,7 +210,10 @@ export class UploadQueue {
 					this.#serverLimits = limits;
 				},
 				() => {
-					this.#limitsUnreadable = true;
+					// Without limits nothing can be sent; Retry reads them again.
+					for (const item of this.items) {
+						if (item.state === 'waiting') this.#fail(item, 'Upload failed');
+					}
 				}
 			)
 			.finally(() => {
@@ -240,10 +227,8 @@ export class UploadQueue {
 		const controller = new AbortController();
 		let outcome: UploadOutcome | null;
 
-		const sending = this.#sending.get(key) ?? { busyAnswers: 0, notBefore: 0 };
-
 		item.state = 'uploading';
-		this.#sending.set(key, { ...sending, controller, notBefore: 0 });
+		this.#sending.set(key, { controller, notBefore: 0 });
 
 		try {
 			outcome = await this.#upload(galleryId, file, controller.signal, set);
@@ -277,29 +262,12 @@ export class UploadQueue {
 					handler(item.galleryId, outcome.photo, item.set);
 
 				break;
-			case 'busy': {
-				const ownUploadRunning = this.items.some(
-					(other) => other !== item && other.state === 'uploading'
-				);
-				const busyAnswers =
-					(this.#sending.get(item.key)?.busyAnswers ?? 0) + (ownUploadRunning ? 0 : 1);
-
-				if (busyAnswers >= MAX_BUSY_RETRIES) {
-					this.#fail(item, 'Upload failed');
-
-					break;
-				}
-
-				const backoff = Math.min(MAX_BUSY_WAIT_MS, outcome.retryAfterMs * 2 ** (busyAnswers - 1));
-
-				this.#sending.set(item.key, {
-					busyAnswers,
-					notBefore: Date.now() + Math.max(outcome.retryAfterMs, backoff)
-				});
+			case 'busy':
+				// The file goes back in the queue until the server says it may try again.
+				this.#sending.set(item.key, { notBefore: Date.now() + outcome.retryAfterMs });
 				item.state = 'waiting';
 
 				break;
-			}
 			case 'storage-full':
 				this.#fail(item, 'Storage full');
 
