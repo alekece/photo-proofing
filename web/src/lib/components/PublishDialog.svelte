@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import ConfirmDialog from '#lib/components/ui/confirm-dialog/confirm-dialog.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
+	import CopyLink from '#lib/components/CopyLink.svelte';
 	import PhotoStack from '#lib/components/ui/photo-stack/photo-stack.svelte';
 	import { formatLongDate } from '#lib/gallery/format.js';
 	import { listPhotos, type Photo } from '#lib/gallery/photos.js';
@@ -39,7 +40,6 @@
 	let photos = $state<Photo[] | null>(null);
 	let checkFailed = $state(false);
 	let link = $state('');
-	let copyStatus = $state('');
 
 	let ready = $derived(photos?.filter(({ status }) => status === 'ready') ?? []);
 	let uploading = $derived(
@@ -73,15 +73,6 @@
 				photos = [];
 			});
 	});
-
-	async function copy() {
-		try {
-			await navigator.clipboard.writeText(link);
-			copyStatus = 'Copied';
-		} catch {
-			copyStatus = 'Couldn’t copy automatically. Use the client link on the page.';
-		}
-	}
 </script>
 
 <ConfirmDialog
@@ -143,9 +134,8 @@
 	<p class="text-center text-sm text-muted-foreground">
 		{kind === 'share' ? 'Send the link to your client.' : 'Your client can now download them.'}
 	</p>
-	<p class="text-center text-xs" role="status">{copyStatus}</p>
-	<div class="flex justify-center gap-2">
+	{#if link}<CopyLink {link} />{/if}
+	<div class="flex justify-center">
 		<Button variant="ghost" onclick={close}>Done</Button>
-		{#if link}<Button onclick={copy}>Copy link</Button>{/if}
 	</div>
 {/snippet}
