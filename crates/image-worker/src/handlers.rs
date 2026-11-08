@@ -120,6 +120,7 @@ impl HandlerRegistry {
                 Ok(finishing)
             })
         });
+
         self.handlers.insert(kind, erased);
 
         self
