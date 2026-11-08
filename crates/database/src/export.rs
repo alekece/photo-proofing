@@ -214,7 +214,7 @@ impl ExportRepository<'_> {
         let favorites: Vec<(PhotoId, String, i64)> = sqlx::query_as(
             "SELECT id, original_name, size FROM photos
              WHERE workspace_id = $1 AND gallery_id = $2 AND favorite AND kind = 'proof'
-               AND removed_at IS NULL AND ($3::uuid[] IS NULL OR id = ANY($3))
+               AND ($3::uuid[] IS NULL OR id = ANY($3))
              ORDER BY created_at, id",
         )
         .bind(workspace_id)

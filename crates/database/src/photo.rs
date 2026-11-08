@@ -328,7 +328,7 @@ impl PhotoRepository<'_> {
     ) -> Result<Vec<Photo>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM photos AS p
-             WHERE workspace_id = $1 AND gallery_id = $2 AND kind = $3 AND removed_at IS NULL
+             WHERE workspace_id = $1 AND gallery_id = $2 AND kind = $3
                AND {}
              ORDER BY created_at, id",
             Self::COLUMNS,
@@ -352,7 +352,7 @@ impl PhotoRepository<'_> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM photos
              WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3
-               AND kind = $4 AND removed_at IS NULL",
+               AND kind = $4",
             Self::COLUMNS
         )))
         .bind(workspace_id)
@@ -375,7 +375,7 @@ impl PhotoRepository<'_> {
     ) -> Result<Vec<ReadyPhoto>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT id, revision, width, height FROM photos AS p
-             WHERE workspace_id = $1 AND gallery_id = $2 AND kind = $3 AND removed_at IS NULL
+             WHERE workspace_id = $1 AND gallery_id = $2 AND kind = $3
                AND {}
              ORDER BY created_at, id",
             variant.ready_condition()
@@ -398,7 +398,7 @@ impl PhotoRepository<'_> {
         Ok(sqlx::query_scalar(AssertSqlSafe(format!(
             "SELECT EXISTS(SELECT 1 FROM photos AS p
              WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3
-               AND kind = $4 AND removed_at IS NULL AND {})",
+               AND kind = $4 AND {})",
             variant.ready_condition()
         )))
         .bind(location.workspace_id)
@@ -427,7 +427,8 @@ impl PhotoRepository<'_> {
                  SELECT p.id, g.delivered_at IS NOT NULL AS delivered
                  FROM photos AS p JOIN galleries AS g ON g.id = p.gallery_id
                  WHERE p.id = $3 AND p.workspace_id = $1 AND p.gallery_id = $2
-                   AND p.kind = $5 AND p.removed_at IS NULL AND {}
+                   AND p.kind = $5 AND {}
+                 FOR SHARE OF g
              ),
              changed AS (
                  UPDATE photos SET favorite = $4
@@ -1009,6 +1010,44 @@ mod tests {
         assert_eq!(
             photos.favorites(location, PhotoKind::Proof).await.unwrap(),
             [chosen]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_favorite_racing_delivery_is_rejected_once_delivery_commits(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let id = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let mut delivery = pool.begin().await.unwrap();
+
+        sqlx::query("UPDATE galleries SET delivered_at = now() WHERE id = $1")
+            .bind(location.gallery_id)
+            .execute(&mut *delivery)
+            .await
+            .unwrap();
+
+        let write = tokio::spawn({
+            let database = database.clone();
+
+            async move {
+                database
+                    .repository::<PhotoRepository>()
+                    .set_favorite(location, id, true, PhotoKind::Proof, Watermarked(false))
+                    .await
+            }
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        delivery.commit().await.unwrap();
+
+        assert_eq!(write.await.unwrap().unwrap(), FavoriteChange::Delivered);
+        assert!(
+            database
+                .repository::<PhotoRepository>()
+                .favorites(location, PhotoKind::Proof)
+                .await
+                .unwrap()
+                .is_empty()
         );
     }
 
@@ -1729,14 +1768,6 @@ mod tests {
         id
     }
 
-    async fn publish(pool: &PgPool, id: PhotoId) {
-        sqlx::query("UPDATE photos SET published_at = now() WHERE id = $1")
-            .bind(id)
-            .execute(pool)
-            .await
-            .unwrap();
-    }
-
     #[sqlx::test(migrations = "./migrations")]
     async fn proofs_and_finals_are_listed_and_fetched_separately(pool: PgPool) {
         let database = Database::new(pool.clone());
@@ -1785,7 +1816,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn removing_an_unpublished_final_deletes_it_and_queues_its_cleanup(pool: PgPool) {
+    async fn removing_a_final_deletes_it_and_queues_its_cleanup(pool: PgPool) {
         let database = Database::new(pool.clone());
         let location = gallery_location(&database, &pool).await;
         let finished = final_in(&database, location).await;
@@ -1818,72 +1849,6 @@ mod tests {
                 .unwrap()
                 .len(),
             1
-        );
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
-    async fn removing_a_published_final_keeps_row_and_files_but_hides_it(pool: PgPool) {
-        let database = Database::new(pool.clone());
-        let tests = database.repository::<TestRepository>();
-        let location = gallery_location(&database, &pool).await;
-        let finished = final_in(&database, location).await;
-        let deletion = database.repository::<WorkspaceDeletion>();
-        let photos = database.repository::<PhotoRepository>();
-
-        publish(&pool, finished).await;
-
-        let first = deletion
-            .delete_photos(
-                location.workspace_id,
-                location.gallery_id,
-                PhotoKind::Final,
-                &[finished],
-            )
-            .await
-            .unwrap();
-        let second = deletion
-            .delete_photos(
-                location.workspace_id,
-                location.gallery_id,
-                PhotoKind::Final,
-                &[finished],
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(first, vec![finished]);
-        assert!(second.is_empty());
-        assert_eq!(tests.count_photos().await.unwrap(), 1);
-        assert!(
-            tests
-                .jobs_of_kind("cleanup_photos")
-                .await
-                .unwrap()
-                .is_empty()
-        );
-        assert!(
-            photos
-                .list(
-                    location.workspace_id,
-                    location.gallery_id,
-                    PhotoKind::Final,
-                    None
-                )
-                .await
-                .unwrap()
-                .is_empty()
-        );
-        assert!(
-            photos
-                .get(
-                    location.workspace_id,
-                    location.gallery_id,
-                    finished,
-                    PhotoKind::Final
-                )
-                .await
-                .unwrap()
-                .is_none()
         );
     }
 
@@ -1930,33 +1895,12 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn draft_columns_are_only_valid_on_finals(pool: PgPool) {
-        let database = Database::new(pool.clone());
-        let location = gallery_location(&database, &pool).await;
-        let proof = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
-        let finished = final_in(&database, location).await;
-
-        let published_proof = sqlx::query("UPDATE photos SET published_at = now() WHERE id = $1")
-            .bind(proof)
-            .execute(&pool)
-            .await;
-        let removed_unpublished = sqlx::query("UPDATE photos SET removed_at = now() WHERE id = $1")
-            .bind(finished)
-            .execute(&pool)
-            .await;
-
-        assert!(published_proof.is_err());
-        assert!(removed_unpublished.is_err());
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
-    async fn events_name_the_kind_and_report_soft_removal_as_deleted(pool: PgPool) {
+    async fn events_name_the_kind_and_report_removal_as_deleted(pool: PgPool) {
         let database = Database::new(pool.clone());
         let location = gallery_location(&database, &pool).await;
         let mut listener = database.listen().await.unwrap();
         let finished = final_in(&database, location).await;
 
-        publish(&pool, finished).await;
         database
             .repository::<WorkspaceDeletion>()
             .delete_photos(

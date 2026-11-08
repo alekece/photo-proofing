@@ -100,6 +100,15 @@ pub enum GalleryLayout {
     Masonry,
 }
 
+/// The result of [`GalleryRepository::deliver`].
+#[derive(Debug)]
+pub enum Delivery {
+    Delivered(Gallery),
+    /// The gallery is not shared yet, or is archived.
+    NotDeliverable,
+    NotFound,
+}
+
 /// Where a gallery stands. Exactly one of `Draft`, `Shared` and `Delivered` always applies;
 /// `Archived` and `Expired` are flags that can come on top of any of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -430,6 +439,38 @@ impl GalleryRepository<'_> {
         .bind(workspace_id)
         .fetch_optional(self.pool)
         .await?)
+    }
+
+    /// Switches the gallery's private link from proofs to the finished photos. Only a shared,
+    /// unarchived gallery can be delivered; delivering again keeps the first time. Delivery is
+    /// not an edit, so `updated_at` is untouched, and it never depends on the finals' status:
+    /// clients only ever see the ready ones.
+    ///
+    /// The `UPDATE` takes the row lock that [`PhotoRepository::set_favorite`] waits on, so a
+    /// favorite write either lands before delivery or is rejected after it.
+    ///
+    /// [`PhotoRepository::set_favorite`]: crate::photo::PhotoRepository::set_favorite
+    pub async fn deliver(
+        &self,
+        workspace_id: WorkspaceId,
+        id: GalleryId,
+    ) -> Result<Delivery, DatabaseError> {
+        let delivered = sqlx::query_as(AssertSqlSafe(format!(
+            "UPDATE galleries SET delivered_at = COALESCE(delivered_at, now())
+             WHERE id=$1 AND workspace_id=$2 AND shared_at IS NOT NULL AND archived_at IS NULL
+             RETURNING {}",
+            Self::COLUMNS
+        )))
+        .bind(id)
+        .bind(workspace_id)
+        .fetch_optional(self.pool)
+        .await?;
+
+        Ok(match delivered {
+            Some(gallery) => Delivery::Delivered(gallery),
+            None if self.get(workspace_id, id).await?.is_some() => Delivery::NotDeliverable,
+            None => Delivery::NotFound,
+        })
     }
 
     /// Undoes [`archive`](Self::archive) at the same link. Delivery, sharing and expiry are
@@ -1652,6 +1693,53 @@ mod tests {
         set_column(&pool, id, "archived_at", "now()").await;
 
         assert_eq!(store.find_shared(&token).await.unwrap(), None);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn deliver_needs_a_shared_unarchived_gallery_and_is_idempotent(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let id = store.create(workspace).await.unwrap().id;
+
+        assert!(matches!(
+            store.deliver(workspace, id).await.unwrap(),
+            Delivery::NotDeliverable
+        ));
+        assert!(matches!(
+            store
+                .deliver(workspace, GalleryId(Uuid::new_v4()))
+                .await
+                .unwrap(),
+            Delivery::NotFound
+        ));
+        assert!(matches!(
+            store
+                .deliver(self::workspace(&pool).await, id)
+                .await
+                .unwrap(),
+            Delivery::NotFound
+        ));
+
+        store.share(workspace, id).await.unwrap();
+
+        let Delivery::Delivered(first) = store.deliver(workspace, id).await.unwrap() else {
+            panic!("a shared gallery can be delivered");
+        };
+        let Delivery::Delivered(second) = store.deliver(workspace, id).await.unwrap() else {
+            panic!("delivering again keeps the delivery");
+        };
+
+        assert_eq!(first.states, [GalleryState::Delivered]);
+        assert_eq!(first.updated_at, second.updated_at);
+        assert_eq!(first.states, second.states);
+
+        store.archive(workspace, id).await.unwrap();
+
+        assert!(matches!(
+            store.deliver(workspace, id).await.unwrap(),
+            Delivery::NotDeliverable
+        ));
     }
 
     #[sqlx::test(migrations = "./migrations")]
