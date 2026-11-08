@@ -67,7 +67,7 @@ export class NotificationCenter {
 	}
 
 	async markAllRead(): Promise<void> {
-		await this.#post('/read-all');
+		await this.#post('/read');
 	}
 
 	/** Loads the list and keeps it current; returns what stops that. */

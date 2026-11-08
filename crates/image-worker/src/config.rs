@@ -55,6 +55,13 @@ pub struct CleanupConfig {
         default_value = "5m"
     )]
     pub sweep_interval: QueueDuration,
+    /// How long a read notification is kept before the sweep deletes it.
+    #[arg(
+        long = "cleanup-notification-retention",
+        env = "PP_CLEANUP_NOTIFICATION_RETENTION",
+        default_value = "30d"
+    )]
+    pub notification_retention: QueueDuration,
 }
 
 /// Limits on the originals the worker renders into proof derivatives.

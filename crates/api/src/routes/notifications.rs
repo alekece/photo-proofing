@@ -2,7 +2,7 @@
 //!
 //! - `GET /` lists the workspace's newest notifications (unread first) with the unread total.
 //! - `POST /{id}/read` marks one read; another workspace's or an unknown id is a 404.
-//! - `POST /read-all` marks every unread notification of the workspace read.
+//! - `POST /read` marks every unread notification of the workspace read.
 //!
 //! Read state belongs to the workspace, so every signed-in browser sees it. Changes arrive on the
 //! event stream as `notification` events. Like every state-changing route, the `POST`s must carry
@@ -43,7 +43,7 @@ async fn list_notifications(
     Ok(HttpResponse::Ok().no_store().json(list))
 }
 
-#[post("/read-all")]
+#[post("/read")]
 async fn read_all(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
@@ -181,7 +181,7 @@ mod tests {
             &app,
             request(
                 test::TestRequest::post(),
-                "/api/v1/notifications/read-all",
+                "/api/v1/notifications/read",
                 &cookie,
             ),
         )

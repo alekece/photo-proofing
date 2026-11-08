@@ -56,13 +56,13 @@ client saved a file. Showing the "news chips" under the greeting (only its "N ga
   gallery's live selected count, so it never goes stale), "1 new download" / "4 new downloads", or
   "Downloaded as a ZIP" when the count is 0. Relative time comes from `updated_at`.
 - **Reading.** `POST /api/v1/notifications/{id}/read` sets `read_at` where it is still NULL (idempotent);
-  `POST /api/v1/notifications/read-all` sets it for every unread row of the workspace. Both take the usual
+  `POST /api/v1/notifications/read` sets it for every unread row of the workspace. Both take the usual
   `Origin` check. Opening the panel or the gallery reads nothing; the row click reads then navigates.
   Races hold because the upsert and the read both lock the unread row: activity that commits first is
   included in the read, activity after it finds no unread row and starts a new one.
 - **Listing.** `GET /api/v1/notifications` returns every unread row of the workspace plus its newest 20 read rows,
   each with gallery id, title, hero id, kind, count, the live selected count, `read_at` and `updated_at`,
-  plus the total unread. The sweep deletes read rows older than 30 days (**my call**); the cap and the
+  plus the total unread. The sweep deletes read rows older than `PP_CLEANUP_NOTIFICATION_RETENTION` (default 30 days; **my call**); the cap and the
   retention are constants, not settings.
 - **Cards.** The gallery overview gains the ready finals count and the downloaded finals count. Delivered
   cards show "N finals · M downloaded", or "· all downloaded" only when N > 0 and M = N; removed finals stop
@@ -86,5 +86,5 @@ the dashboard's event subscription. The text is English like the rest of the app
 Trigger tests: selection and download activity create or update one unread row; a read followed by
 activity creates a new row; repeated downloads and ZIP-after-photos do not inflate the count; deleting a
 gallery removes its rows; concurrent read and activity never lose activity. API tests: listing, read and
-read-all, workspace isolation, unauthenticated access. Card tests for the counts and "all downloaded".
+read, workspace isolation, unauthenticated access. Card tests for the counts and "all downloaded".
 Web tests for the panel (no read on open, read on click, mark all, empty, live update) and the badge.

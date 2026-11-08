@@ -25,9 +25,6 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-/// How long a read notification is kept.
-const READ_NOTIFICATION_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
-
 /// The maintenance steps and how often they run.
 pub struct Maintenance {
     database: Database,
@@ -37,6 +34,8 @@ pub struct Maintenance {
     orphan_grace: Duration,
     /// How long an export is kept after it finished.
     retention: Duration,
+    /// How long a read notification is kept.
+    notification_retention: Duration,
 }
 
 impl Maintenance {
@@ -46,6 +45,7 @@ impl Maintenance {
         interval: Duration,
         orphan_grace: Duration,
         retention: Duration,
+        notification_retention: Duration,
     ) -> Self {
         Self {
             database,
@@ -53,6 +53,7 @@ impl Maintenance {
             interval,
             orphan_grace,
             retention,
+            notification_retention,
         }
     }
 
@@ -129,7 +130,7 @@ impl Maintenance {
         match self
             .database
             .repository::<NotificationRepository>()
-            .expire(READ_NOTIFICATION_RETENTION)
+            .expire(self.notification_retention)
             .await
         {
             Ok(removed) => info!(removed, "read notifications expired"),
@@ -240,6 +241,7 @@ mod tests {
                 TICK,
                 orphan_grace,
                 retention,
+                Duration::from_secs(30 * 24 * 60 * 60),
             )
         }
 
