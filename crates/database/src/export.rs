@@ -654,6 +654,34 @@ impl ExportRepository<'_> {
         Ok(failed.rows_affected() == 1)
     }
 
+    /// Records the first download of the delivery ZIP: on the export and on every final it holds
+    /// that was not downloaded yet, in one transaction. Later requests change nothing.
+    pub async fn mark_downloaded(&self, id: ExportId) -> Result<(), DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
+        let first = sqlx::query(
+            "UPDATE exports SET downloaded_at = now()
+             WHERE id = $1 AND kind = 'delivery' AND downloaded_at IS NULL",
+        )
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
+
+        if first.rows_affected() == 1 {
+            sqlx::query(
+                "UPDATE photos SET downloaded_at = now()
+                 WHERE downloaded_at IS NULL AND kind = 'final'
+                   AND id IN (SELECT photo_id FROM export_photos WHERE export_id = $1)",
+            )
+            .bind(id)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        transaction.commit().await?;
+
+        Ok(())
+    }
+
     /// Deletes the exports that have outlived `retention`, with their jobs, and returns them so
     /// their files can follow.
     pub async fn expire(&self, retention: Duration) -> Result<Vec<ExpiredExport>, DatabaseError> {
@@ -1519,5 +1547,57 @@ mod tests {
         assert_eq!(failed.zip, DeliveryZip::Failed);
         assert_eq!(failed.replaced, [id]);
         assert_eq!(fixture.delivery().await.zip, DeliveryZip::Building);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_zip_download_marks_the_export_and_its_finals_once(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let first = fixture.final_photo("f.jpg").await;
+        let second = fixture.final_photo("g.jpg").await;
+        let proof = fixture.photo("p.jpg", 10, false).await;
+
+        fixture.deliver().await;
+        fixture.delivery().await;
+
+        let job = fixture.claim().await;
+        let id: ExportId = sqlx::query_scalar("SELECT id FROM exports")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        fixture.exports().complete(&job, id).await.unwrap();
+        fixture.mark_downloaded_at(second).await;
+
+        let earlier: Option<Timestamp> = fixture.downloaded_at(second).await;
+
+        fixture.exports().mark_downloaded(id).await.unwrap();
+
+        let marked = fixture.downloaded_at(first).await;
+
+        assert!(marked.is_some());
+        assert_eq!(fixture.downloaded_at(second).await, earlier);
+        assert!(fixture.downloaded_at(proof).await.is_none());
+
+        fixture.exports().mark_downloaded(id).await.unwrap();
+
+        assert_eq!(fixture.downloaded_at(first).await, marked);
+    }
+
+    impl Fixture {
+        async fn downloaded_at(&self, id: PhotoId) -> Option<Timestamp> {
+            sqlx::query_scalar("SELECT downloaded_at FROM photos WHERE id = $1")
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await
+                .unwrap()
+        }
+
+        async fn mark_downloaded_at(&self, id: PhotoId) {
+            sqlx::query("UPDATE photos SET downloaded_at = now() - interval '1 day' WHERE id = $1")
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .unwrap();
+        }
     }
 }

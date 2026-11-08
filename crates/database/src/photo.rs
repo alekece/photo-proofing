@@ -107,6 +107,8 @@ pub struct Photo {
     pub status: PhotoStatus,
     /// Whether the client has picked it.
     pub favorite: bool,
+    /// When the client first downloaded a final; always empty for proofs.
+    pub downloaded_at: Option<Timestamp>,
     pub created_at: Timestamp,
 }
 
@@ -140,6 +142,7 @@ impl FromRow<'_, PgRow> for Photo {
             dimensions,
             status,
             favorite: row.try_get("favorite")?,
+            downloaded_at: row.try_get("downloaded_at")?,
             created_at: row.try_get("created_at")?,
         })
     }
@@ -240,7 +243,7 @@ impl<'db> Repository<'db> for PhotoRepository<'db> {
 }
 
 impl PhotoRepository<'_> {
-    const COLUMNS: &'static str = "id, clean_ready, revision, original_name, size, width, height, status::text AS status, failure_reason, favorite, created_at";
+    const COLUMNS: &'static str = "id, clean_ready, revision, original_name, size, width, height, status::text AS status, failure_reason, favorite, downloaded_at, created_at";
 
     /// Inserts only photo metadata in the caller's transaction.
     ///
@@ -271,7 +274,7 @@ impl PhotoRepository<'_> {
              WHERE g.id = $3 AND g.workspace_id = $2
              ON CONFLICT (id) DO NOTHING
              RETURNING id, clean_ready, revision, original_name, size, width, height,
-                       status::text AS status, failure_reason, favorite, created_at",
+                       status::text AS status, failure_reason, favorite, downloaded_at, created_at",
         )
         .bind(photo.id)
         .bind(photo.workspace_id)
@@ -290,7 +293,7 @@ impl PhotoRepository<'_> {
 
         let existing = sqlx::query(
             "SELECT id, clean_ready, revision, workspace_id, gallery_id, original_name, size, width, height, kind,
-                    status::text AS status, failure_reason, favorite, created_at
+                    status::text AS status, failure_reason, favorite, downloaded_at, created_at
              FROM photos WHERE id = $1",
         )
         .bind(photo.id)
@@ -407,6 +410,27 @@ impl PhotoRepository<'_> {
         .bind(kind)
         .fetch_one(self.pool)
         .await?)
+    }
+
+    /// Records the first download of a ready final of the gallery at `location`. Later requests
+    /// change nothing, so the time and the event it triggers stay those of the first one.
+    pub async fn mark_downloaded(
+        &self,
+        location: PhotoLocation,
+        id: PhotoId,
+    ) -> Result<(), DatabaseError> {
+        sqlx::query(
+            "UPDATE photos SET downloaded_at = now()
+             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3
+               AND kind = 'final' AND status = 'ready' AND downloaded_at IS NULL",
+        )
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .bind(id)
+        .execute(self.pool)
+        .await?;
+
+        Ok(())
     }
 
     /// Adds `photo` to the gallery's favorites, or removes it when `favorite` is false.
@@ -674,7 +698,7 @@ mod tests {
             let row = sqlx::query(
                 "SELECT $1::uuid AS id, false AS clean_ready, 0::bigint AS revision, 'proof.jpg'::text AS original_name,
                  1024::bigint AS size, 20::integer AS width, 10::integer AS height,
-                 $2::text AS status, $3::text AS failure_reason, false AS favorite, now() AS created_at",
+                 $2::text AS status, $3::text AS failure_reason, false AS favorite, NULL::timestamptz AS downloaded_at, now() AS created_at",
             )
             .bind(Uuid::new_v4())
             .bind(status)
@@ -1962,5 +1986,58 @@ mod tests {
 
         assert_eq!(as_proof, None);
         assert_eq!(as_final, Some(1));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn only_the_first_download_of_a_ready_final_is_recorded_and_announced(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let other = gallery_location(&database, &pool).await;
+        let ready = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let proof = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 2).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        sqlx::query("UPDATE photos SET kind = 'final' WHERE id = $1")
+            .bind(ready)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let mut listener = database.listen().await.unwrap();
+
+        photos.mark_downloaded(other, ready).await.unwrap();
+        photos.mark_downloaded(location, proof).await.unwrap();
+
+        assert!(downloaded_at(&pool, ready).await.is_none());
+        assert!(downloaded_at(&pool, proof).await.is_none());
+
+        photos.mark_downloaded(location, ready).await.unwrap();
+
+        let first = downloaded_at(&pool, ready).await;
+
+        assert!(first.is_some());
+
+        photos.mark_downloaded(location, ready).await.unwrap();
+
+        assert_eq!(downloaded_at(&pool, ready).await, first);
+
+        let mut announced = 0;
+
+        while let Ok(Ok(Notification::Photo(event))) =
+            tokio::time::timeout(std::time::Duration::from_millis(300), listener.next()).await
+        {
+            assert_eq!(event.photo_id, ready);
+            announced += 1;
+        }
+
+        assert_eq!(announced, 1);
+    }
+
+    async fn downloaded_at(pool: &PgPool, id: PhotoId) -> Option<Timestamp> {
+        sqlx::query_scalar("SELECT downloaded_at FROM photos WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
     }
 }

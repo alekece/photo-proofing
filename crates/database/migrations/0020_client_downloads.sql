@@ -13,3 +13,14 @@ ALTER TABLE exports
 DROP INDEX exports_one_preparing;
 CREATE UNIQUE INDEX exports_one_preparing
     ON exports(gallery_id, kind) WHERE status ->> 'kind' = 'preparing';
+
+-- A first download is announced like any other change: ids only, on the photographer's stream.
+CREATE TRIGGER photos_notify_downloaded
+    AFTER UPDATE OF downloaded_at ON photos
+    FOR EACH ROW WHEN (OLD.downloaded_at IS NULL AND NEW.downloaded_at IS NOT NULL)
+    EXECUTE FUNCTION notify_photo_event();
+
+CREATE TRIGGER exports_notify_downloaded
+    AFTER UPDATE OF downloaded_at ON exports
+    FOR EACH ROW WHEN (OLD.downloaded_at IS NULL AND NEW.downloaded_at IS NOT NULL)
+    EXECUTE FUNCTION notify_export_event();
