@@ -19,6 +19,8 @@ const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 	updated_at: '2026-01-02T10:00:00Z',
 	photo_count: 32,
 	favorite_count: 12,
+	final_count: 0,
+	downloaded_count: 0,
 	...over
 });
 

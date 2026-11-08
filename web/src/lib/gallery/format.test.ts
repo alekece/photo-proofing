@@ -44,7 +44,9 @@ describe('gallerySummary', () => {
 		included_photos: 10,
 		expires_at: null,
 		photo_count: 32,
-		favorite_count: 12
+		favorite_count: 12,
+		final_count: 0,
+		downloaded_count: 0
 	};
 	const line = (gallery: Parameters<typeof gallerySummary>[0]) =>
 		gallerySummary(gallery, now)
@@ -59,6 +61,16 @@ describe('gallerySummary', () => {
 		expect(line({ ...base, states: ['delivered'] as never })).toBe('Final photos delivered');
 		expect(line({ ...base, states: ['delivered', 'archived'] as never })).toBe(
 			'32 photos · archived'
+		);
+	});
+
+	it('reports how many delivered finals were downloaded', () => {
+		const delivered = { ...base, states: ['delivered'] as never, final_count: 20 };
+
+		expect(line({ ...delivered, downloaded_count: 12 })).toBe('20 finals · 12 downloaded');
+		expect(line({ ...delivered, downloaded_count: 20 })).toBe('20 finals · all downloaded');
+		expect(line({ ...delivered, final_count: 1, downloaded_count: 0 })).toBe(
+			'1 final · 0 downloaded'
 		);
 	});
 

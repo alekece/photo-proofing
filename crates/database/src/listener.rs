@@ -1,4 +1,4 @@
-//! PostgreSQL `LISTEN` for the photo, favorite and export event channels.
+//! PostgreSQL `LISTEN` for the photo, favorite, export and notification event channels.
 //!
 //! PostgreSQL delivers a notification only when its transaction commits, and loses it while
 //! the listening connection is down. A reconnect, like an undecodable payload, is therefore
@@ -9,7 +9,7 @@ use sqlx::postgres::PgListener;
 
 use crate::{
     PgPool, error::DatabaseError, export::ExportEvent, favorite_events::FavoriteEvent,
-    photo_events::PhotoEvent,
+    notifications::NotificationEvent, photo_events::PhotoEvent,
 };
 
 /// The next thing a [`Listener`] has to report.
@@ -18,6 +18,7 @@ pub enum Notification {
     Photo(PhotoEvent),
     Favorites(FavoriteEvent),
     Export(ExportEvent),
+    Notification(NotificationEvent),
     /// Events may have happened without a notification: whoever shows them must refetch.
     Missed(MissedReason),
 }
@@ -28,6 +29,7 @@ impl Notification {
             PhotoEvent::CHANNEL => serde_json::from_str(payload).map(Self::Photo),
             FavoriteEvent::CHANNEL => serde_json::from_str(payload).map(Self::Favorites),
             ExportEvent::CHANNEL => serde_json::from_str(payload).map(Self::Export),
+            NotificationEvent::CHANNEL => serde_json::from_str(payload).map(Self::Notification),
             _ => return Self::Missed(MissedReason::Undecodable),
         };
 
@@ -60,6 +62,7 @@ impl Listener {
                 PhotoEvent::CHANNEL,
                 FavoriteEvent::CHANNEL,
                 ExportEvent::CHANNEL,
+                NotificationEvent::CHANNEL,
             ])
             .await?;
 

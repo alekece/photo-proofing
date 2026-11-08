@@ -3,14 +3,16 @@ import { goto } from '$app/navigation';
 import {
 	exportEventSchema,
 	favoritesEventSchema,
+	notificationEventSchema,
 	parseOrNull,
 	photoEventSchema,
 	type ExportEvent,
 	type FavoritesEvent,
+	type NotificationEvent,
 	type PhotoEvent
 } from './gallery/schemas';
 
-export type { ExportEvent, FavoritesEvent, PhotoEvent } from './gallery/schemas';
+export type { ExportEvent, FavoritesEvent, NotificationEvent, PhotoEvent } from './gallery/schemas';
 
 /** The signed-in area's live updates. A resync means events may have been missed: refetch. */
 export interface LiveEvents {
@@ -19,6 +21,8 @@ export interface LiveEvents {
 	onFavorites(handler: (event: FavoritesEvent) => void): () => void;
 	/** A selection ZIP of one of the workspace's galleries was prepared or failed. */
 	onExport(handler: (event: ExportEvent) => void): () => void;
+	/** A notification of the workspace was added or read, here or in another browser. */
+	onNotification(handler: (event: NotificationEvent) => void): () => void;
 	onResync(handler: () => void): () => void;
 	start(): void;
 	close(): void;
@@ -64,6 +68,7 @@ export function createLiveEvents({
 	const photoHandlers = new Set<(event: PhotoEvent) => void>();
 	const favoritesHandlers = new Set<(event: FavoritesEvent) => void>();
 	const exportHandlers = new Set<(event: ExportEvent) => void>();
+	const notificationHandlers = new Set<(event: NotificationEvent) => void>();
 	const resyncHandlers = new Set<() => void>();
 	let source: EventSource | null = null;
 	let reopen: ReturnType<typeof setTimeout> | undefined;
@@ -106,6 +111,15 @@ export function createLiveEvents({
 			}
 			for (const handler of exportHandlers) handler(event);
 		});
+		current.addEventListener('notification', (message) => {
+			const event = parseOrNull(notificationEventSchema, parseData(message));
+
+			if (!event) {
+				for (const handler of resyncHandlers) handler();
+				return;
+			}
+			for (const handler of notificationHandlers) handler(event);
+		});
 		current.addEventListener('error', () => {
 			if (current.readyState === CLOSED) void closed();
 		});
@@ -134,6 +148,7 @@ export function createLiveEvents({
 		onPhoto: (handler) => subscribe(photoHandlers, handler),
 		onFavorites: (handler) => subscribe(favoritesHandlers, handler),
 		onExport: (handler) => subscribe(exportHandlers, handler),
+		onNotification: (handler) => subscribe(notificationHandlers, handler),
 		onResync: (handler) => subscribe(resyncHandlers, handler),
 		start() {
 			if (active) return;

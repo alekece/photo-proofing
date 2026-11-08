@@ -16,6 +16,11 @@ use crate::runtime::RuntimeOptions;
 /// anything for jobs that are meant to be short.
 const MAX_QUEUE_MILLIS: u64 = 24 * 60 * 60 * 1000;
 
+const MAX_NOTIFICATION_RETENTION_MILLIS: u64 = 365 * 24 * 60 * 60 * 1000;
+
+/// How long a read notification is kept, from one minute up to a year.
+pub type NotificationRetention = BoundedDuration<60_000, MAX_NOTIFICATION_RETENTION_MILLIS>;
+
 /// A queue duration of at least one second, the resolution operators think in.
 pub type QueueDuration = BoundedDuration<1_000, MAX_QUEUE_MILLIS>;
 
@@ -55,6 +60,13 @@ pub struct CleanupConfig {
         default_value = "5m"
     )]
     pub sweep_interval: QueueDuration,
+    /// How long a read notification is kept before the sweep deletes it.
+    #[arg(
+        long = "cleanup-notification-retention",
+        env = "PP_CLEANUP_NOTIFICATION_RETENTION",
+        default_value = "30d"
+    )]
+    pub notification_retention: NotificationRetention,
 }
 
 /// Limits on the originals the worker renders into proof derivatives.

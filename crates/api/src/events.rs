@@ -14,6 +14,7 @@ use pp_database::{
     export::ExportEvent,
     favorite_events::FavoriteEvent,
     listener::{Listener, MissedReason, Notification},
+    notifications::NotificationEvent,
     photo_events::PhotoEvent,
 };
 use tokio::{sync::broadcast, time};
@@ -29,6 +30,8 @@ pub(crate) enum Broadcast {
     Favorites(FavoriteEvent),
     /// A selection ZIP started, finished or failed.
     Export(ExportEvent),
+    /// A workspace's notifications changed.
+    Notification(NotificationEvent),
     /// Events may have been lost: subscribers must refetch.
     Resync,
 }
@@ -39,6 +42,7 @@ impl From<Notification> for Broadcast {
             Notification::Photo(event) => Self::Photo(event),
             Notification::Favorites(event) => Self::Favorites(event),
             Notification::Export(event) => Self::Export(event),
+            Notification::Notification(event) => Self::Notification(event),
             Notification::Missed(_) => Self::Resync,
         }
     }

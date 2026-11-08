@@ -13,6 +13,7 @@ use std::{sync::Arc, time::Duration};
 use pp_database::{
     Database,
     export::ExportRepository,
+    notifications::NotificationRepository,
     photo::{PhotoLocation, PhotoRepository},
 };
 use pp_storage::{ArchiveKey, PhotoStorage};
@@ -33,6 +34,8 @@ pub struct Maintenance {
     orphan_grace: Duration,
     /// How long an export is kept after it finished.
     retention: Duration,
+    /// How long a read notification is kept.
+    notification_retention: Duration,
 }
 
 impl Maintenance {
@@ -42,6 +45,7 @@ impl Maintenance {
         interval: Duration,
         orphan_grace: Duration,
         retention: Duration,
+        notification_retention: Duration,
     ) -> Self {
         Self {
             database,
@@ -49,6 +53,7 @@ impl Maintenance {
             interval,
             orphan_grace,
             retention,
+            notification_retention,
         }
     }
 
@@ -82,6 +87,7 @@ impl Maintenance {
     /// it left is picked up by the next run.
     pub async fn run(&self) {
         self.expire_exports().await;
+        self.expire_notifications().await;
         self.sweep_photos().await;
         self.sweep_archives().await;
     }
@@ -117,6 +123,19 @@ impl Maintenance {
         }
 
         info!(exports = expired.len(), "expired exports removed");
+    }
+
+    /// Deletes notifications that were read long ago.
+    async fn expire_notifications(&self) {
+        match self
+            .database
+            .repository::<NotificationRepository>()
+            .expire(self.notification_retention)
+            .await
+        {
+            Ok(removed) => info!(removed, "read notifications expired"),
+            Err(error) => warn!(%error, "read notifications could not be expired"),
+        }
     }
 
     /// Removes old photo files that no photo row owns, whatever left them behind.
@@ -222,6 +241,7 @@ mod tests {
                 TICK,
                 orphan_grace,
                 retention,
+                Duration::from_secs(30 * 24 * 60 * 60),
             )
         }
 

@@ -28,6 +28,8 @@ const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 	updated_at: '2026-01-02T10:00:00Z',
 	photo_count: 0,
 	favorite_count: 0,
+	final_count: 0,
+	downloaded_count: 0,
 	...over
 });
 const props = (galleries: GalleryOverview[] | null, sort = 'updated') => ({

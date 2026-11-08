@@ -77,6 +77,7 @@ async fn main() -> Result<()> {
 
     let orphan_grace = cli.worker.cleanup.orphan_grace.get();
     let sweep_interval = cli.worker.cleanup.sweep_interval.get();
+    let notification_retention = cli.worker.cleanup.notification_retention.get();
     let retention = cli.export.retention.get();
     let maintenance_storage = storage.clone();
     let worker = Worker::connect(cli.worker, |database| {
@@ -123,6 +124,7 @@ async fn main() -> Result<()> {
         sweep_interval,
         orphan_grace,
         retention,
+        notification_retention,
     );
     let worker = worker.with_maintenance(maintenance);
 

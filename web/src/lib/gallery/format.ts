@@ -104,8 +104,7 @@ const photosText = (count: number) => (count === 1 ? '1 photo' : `${count} photo
 const plain = (text: string): SummaryPart[] => [{ text, over: false }];
 
 /**
- * The one line on a gallery card, as runs so the selection can be highlighted. Delivered
- * galleries stay generic until final photos and downloads are tracked (#72).
+ * The one line on a gallery card, as runs so the selection can be highlighted.
  */
 export function gallerySummary(
 	gallery: {
@@ -114,14 +113,28 @@ export function gallerySummary(
 		expires_at: string | null;
 		photo_count: number;
 		favorite_count: number;
+		final_count: number;
+		downloaded_count: number;
 	},
 	now: Date = new Date()
 ): SummaryPart[] {
 	const status = galleryStatus(gallery.states);
 	const photos = photosText(gallery.photo_count);
 
-	if (status === 'archived') return plain(`${photos} · archived`);
-	if (status === 'delivered') return plain('Final photos delivered');
+	const finalsText = gallery.final_count === 1 ? '1 final' : `${gallery.final_count} finals`;
+
+	if (status === 'archived') {
+		return plain(`${gallery.final_count > 0 ? finalsText : photos} · archived`);
+	}
+	if (status === 'delivered') {
+		const { final_count: finals, downloaded_count: downloaded } = gallery;
+
+		if (finals === 0) return plain('Final photos delivered');
+
+		return plain(
+			`${finalsText} · ${downloaded === finals ? 'all downloaded' : `${downloaded} downloaded`}`
+		);
+	}
 	if (status === 'draft') return plain(gallery.photo_count === 0 ? 'No photos yet' : photos);
 
 	const over = gallery.included_photos !== null && gallery.favorite_count > gallery.included_photos;
