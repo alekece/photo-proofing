@@ -82,9 +82,6 @@ impl WorkspaceDeletion<'_> {
     /// Deletes photos of one kind whatever their status, together with all of their processing
     /// jobs, and queues the removal of their files.
     ///
-    /// A final already published only leaves the draft: its row and files stay until a later
-    /// publication, so the delivered set keeps it, and no cleanup job names it.
-    ///
     /// Returns the ids removed, each once; ids outside this workspace, gallery and kind, or
     /// already gone, are ignored. A worker still rendering one finds its claim gone and removes
     /// whatever it writes late.
@@ -104,7 +101,7 @@ impl WorkspaceDeletion<'_> {
         let photo_ids: Vec<PhotoId> = sqlx::query_scalar(
             "SELECT id FROM photos
              WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)
-               AND kind = $4 AND removed_at IS NULL",
+               AND kind = $4",
         )
         .bind(workspace_id)
         .bind(gallery_id)
@@ -115,26 +112,11 @@ impl WorkspaceDeletion<'_> {
 
         JobRepository::delete_photo_jobs_in(&mut transaction, &photo_ids).await?;
 
-        let retained_ids: Vec<PhotoId> = sqlx::query_scalar(
-            "UPDATE photos SET removed_at = now() WHERE id IN (
-                 SELECT id FROM photos
-                 WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)
-                   AND kind = $4 AND removed_at IS NULL AND published_at IS NOT NULL
-                 ORDER BY id FOR UPDATE
-             )
-             RETURNING id",
-        )
-        .bind(workspace_id)
-        .bind(gallery_id)
-        .bind(ids)
-        .bind(kind)
-        .fetch_all(&mut *transaction)
-        .await?;
         let deleted_ids: Vec<PhotoId> = sqlx::query_scalar(
             "DELETE FROM photos WHERE id IN (
                  SELECT id FROM photos
                  WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)
-                   AND kind = $4 AND removed_at IS NULL AND published_at IS NULL
+                   AND kind = $4
                  ORDER BY id FOR UPDATE
              )
              RETURNING id",
@@ -146,7 +128,7 @@ impl WorkspaceDeletion<'_> {
         .fetch_all(&mut *transaction)
         .await?;
 
-        if deleted_ids.is_empty() && retained_ids.is_empty() {
+        if deleted_ids.is_empty() {
             return Ok(deleted_ids);
         }
 
@@ -165,6 +147,6 @@ impl WorkspaceDeletion<'_> {
 
         transaction.commit().await?;
 
-        Ok([deleted_ids, retained_ids].concat())
+        Ok(deleted_ids)
     }
 }

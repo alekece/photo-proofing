@@ -67,6 +67,11 @@ export function shareGallery(id: string, fetcher: typeof fetch = fetch): Promise
 	return galleryRequest(`/${encodeURIComponent(id)}/share`, { method: 'POST' }, fetcher);
 }
 
+/** Switches the private link to the finished photos; delivering twice changes nothing. */
+export function deliverGallery(id: string, fetcher: typeof fetch = fetch): Promise<Gallery> {
+	return galleryRequest(`/${encodeURIComponent(id)}/deliver`, { method: 'POST' }, fetcher);
+}
+
 /** Hides the gallery from its client; the gallery and its photos are kept. */
 export function archiveGallery(id: string, fetcher: typeof fetch = fetch): Promise<Gallery> {
 	return galleryRequest(`/${encodeURIComponent(id)}/archive`, { method: 'POST' }, fetcher);

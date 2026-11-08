@@ -52,7 +52,7 @@ impl PhotoRetry<'_> {
                 AND ($3::uuid IS NULL OR EXISTS(
                     SELECT 1 FROM photos
                     WHERE id = $3 AND gallery_id = $2 AND workspace_id = $1
-                      AND kind = $4 AND removed_at IS NULL))",
+                      AND kind = $4))",
         )
         .bind(workspace_id)
         .bind(gallery_id)
@@ -68,7 +68,7 @@ impl PhotoRetry<'_> {
         let failed_photo_ids: Vec<PhotoId> = sqlx::query_scalar(
             "SELECT id FROM photos
              WHERE workspace_id = $1 AND gallery_id = $2 AND status = 'failed'
-               AND kind = $4 AND removed_at IS NULL AND ($3::uuid IS NULL OR id = $3)",
+               AND kind = $4 AND ($3::uuid IS NULL OR id = $3)",
         )
         .bind(workspace_id)
         .bind(gallery_id)

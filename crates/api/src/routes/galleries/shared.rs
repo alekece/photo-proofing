@@ -3,7 +3,8 @@
 //! - `GET /` returns the title, layout and expiry of the gallery behind a private link.
 //! - `POST /open` records the client's open as the gallery's last-opened time, at most once per
 //!   throttle delay; other calls are no-ops (204).
-//! - `GET /photos` lists the photos the client may see, with their displayed size.
+//! - `GET /photos` lists the photos the client may see, with their displayed size: the ready
+//!   proofs, or the ready finals once the gallery is delivered.
 //! - `GET /photos/{photo_id}/thumbnail|preview` serves one of those photos.
 //! - `GET /favorites` lists the ids the client selected; `PUT|DELETE /favorites/{photo_id}`
 //!   selects or unselects one, idempotently, until the gallery is delivered (409).
@@ -20,7 +21,7 @@ use actix_web::{
 use pp_database::photo::PhotoId;
 use pp_database::{
     gallery::GalleryRepository,
-    photo::{PhotoRepository, Watermarked},
+    photo::{PhotoKind, PhotoRepository, Watermarked},
 };
 use pp_database::{
     gallery::SharedGallery,
@@ -248,12 +249,7 @@ async fn serve_shared_cover(
     if !state
         .database()
         .repository::<PhotoRepository>()
-        .is_ready(
-            access.0.location,
-            id,
-            access.photo_set().kind(),
-            Watermarked(false),
-        )
+        .is_ready(access.0.location, id, PhotoKind::Proof, Watermarked(false))
         .await?
     {
         return Err(ErrorResponse::not_found());
@@ -1038,13 +1034,19 @@ mod tests {
         for method in ["PUT", "DELETE"] {
             let (status, _) = call_request(&app, favorite_request(method, &token, &photo)).await;
 
-            assert_eq!(status, StatusCode::CONFLICT, "{method}");
+            assert_eq!(status, StatusCode::NOT_FOUND, "{method}");
         }
 
         let (_, favorites) = call_request(&app, client_request(&token, "/favorites")).await;
         let (_, shared) = call_request(&app, client_request(&token, "")).await;
 
-        assert_eq!(favorites, json!([photo]));
+        let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM photos WHERE favorite")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(favorites, json!([]));
+        assert_eq!(kept, 1);
         assert_eq!(shared["delivered"], true);
     }
 

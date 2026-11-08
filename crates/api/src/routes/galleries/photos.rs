@@ -2122,6 +2122,180 @@ pub(super) mod tests {
         assert_eq!(favorite.status(), StatusCode::NOT_FOUND);
     }
 
+    fn gallery_post(
+        gallery_id: &str,
+        action: &str,
+        cookie: Option<&Cookie<'static>>,
+    ) -> test::TestRequest {
+        let request = test::TestRequest::post()
+            .uri(&format!("/api/v1/galleries/{gallery_id}/{action}"))
+            .insert_header(("Origin", ORIGIN));
+
+        match cookie {
+            Some(cookie) => request.cookie(cookie.clone()),
+            None => request,
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn deliver_needs_a_session_and_a_shared_gallery_and_switches_the_link(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(
+            pool.clone(),
+            directory.path(),
+            upload_config(1024 * 1024, 1_000_000),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let foreign = Database::new(pool.clone())
+            .repository::<GalleryRepository>()
+            .create(other_workspace(&pool).await)
+            .await
+            .unwrap()
+            .id
+            .0
+            .to_string();
+
+        let (status, _) = call(&app, gallery_post(&gallery_id, "deliver", None)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let (status, _) = call(&app, gallery_post(&foreign, "deliver", Some(&cookie))).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = call(&app, gallery_post(&gallery_id, "deliver", Some(&cookie))).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        let (_, shared) = call(&app, gallery_post(&gallery_id, "share", Some(&cookie))).await;
+        let token = shared["share_token"].as_str().unwrap().to_owned();
+        let (status, delivered) =
+            call(&app, gallery_post(&gallery_id, "deliver", Some(&cookie))).await;
+        let (again, _) = call(&app, gallery_post(&gallery_id, "deliver", Some(&cookie))).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(again, StatusCode::OK);
+        assert_eq!(delivered["states"], json!(["delivered"]));
+
+        let (_, page) = call(
+            &app,
+            test::TestRequest::get().uri(&format!("/api/v1/galleries/shared/{token}")),
+        )
+        .await;
+
+        assert_eq!(page["delivered"], true);
+    }
+
+    async fn client_get<S>(app: &S, token: &str, path: &str) -> (StatusCode, Value)
+    where
+        S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
+    {
+        call_request(
+            app,
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/galleries/shared/{token}{path}"))
+                .to_request(),
+        )
+        .await
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_delivered_link_serves_only_ready_finals_and_follows_their_removal(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(
+            pool.clone(),
+            directory.path(),
+            upload_config(1024 * 1024, 1_000_000),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let proof = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        let ready = upload_final(&app, &cookie, &gallery_id, &jpeg(3, 2)).await;
+        let waiting = upload_final(&app, &cookie, &gallery_id, &jpeg(3, 2)).await;
+        let database = Database::new(pool.clone());
+
+        database
+            .repository::<TestRepository>()
+            .force_photo_status(photo_id(&ready), &PhotoStatus::Ready)
+            .await
+            .unwrap();
+        store_derivative(&pool, directory.path(), &proof, "thumbnail").await;
+        store_derivative(&pool, directory.path(), &ready, "thumbnail").await;
+        store_derivative(&pool, directory.path(), &waiting, "thumbnail").await;
+
+        let (_, shared) = call(&app, gallery_post(&gallery_id, "share", Some(&cookie))).await;
+        let token = shared["share_token"].as_str().unwrap().to_owned();
+        let listed = |body: Value| -> Vec<String> {
+            body.as_array()
+                .unwrap()
+                .iter()
+                .map(|photo| photo["id"].as_str().unwrap().to_owned())
+                .collect()
+        };
+
+        assert_eq!(
+            listed(client_get(&app, &token, "/photos").await.1),
+            [proof.as_str()]
+        );
+
+        call(&app, gallery_post(&gallery_id, "deliver", Some(&cookie))).await;
+
+        assert_eq!(
+            listed(client_get(&app, &token, "/photos").await.1),
+            [ready.as_str()]
+        );
+        assert_eq!(
+            client_get(&app, &token, &format!("/photos/{ready}/thumbnail"))
+                .await
+                .0,
+            StatusCode::OK
+        );
+
+        for hidden in [&proof, &waiting] {
+            assert_eq!(
+                client_get(&app, &token, &format!("/photos/{hidden}/thumbnail"))
+                    .await
+                    .0,
+                StatusCode::NOT_FOUND
+            );
+        }
+
+        let favorite = test::call_service(
+            &app,
+            test::TestRequest::put()
+                .uri(&format!(
+                    "/api/v1/galleries/shared/{token}/favorites/{ready}"
+                ))
+                .insert_header(("Origin", ORIGIN))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(favorite.status(), StatusCode::CONFLICT);
+
+        let removed = test::call_service(
+            &app,
+            delete_request(
+                Some(&cookie),
+                &format!("{gallery_id}/photos/{ready}?finals=true"),
+            ),
+        )
+        .await;
+
+        assert!(removed.status().is_success());
+        assert_eq!(
+            listed(client_get(&app, &token, "/photos").await.1),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            client_get(&app, &token, &format!("/photos/{ready}/thumbnail"))
+                .await
+                .0,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(client_get(&app, &token, "").await.0, StatusCode::OK);
+    }
+
     #[sqlx::test(migrations = "../database/migrations")]
     async fn finals_are_removed_singly_and_in_bulk_and_failed_ones_retried(pool: PgPool) {
         let directory = tempfile::tempdir().unwrap();

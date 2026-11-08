@@ -472,14 +472,51 @@ describe('gallery page', () => {
 			expect(await screen.findByText(/Camille & Hugo see them at the same link/)).toBeTruthy();
 		});
 
-		it('opens the Deliver dialog and explains that delivering is not available yet', async () => {
-			stubShareFlow();
+		it('delivers after confirming and shows the gallery as delivered', async () => {
+			const fetcher = vi.fn(async (url: string) =>
+				url.endsWith('/deliver')
+					? new Response(
+							JSON.stringify({
+								...base,
+								share_token: 'B'.repeat(22),
+								states: ['shared', 'delivered']
+							})
+						)
+					: new Response(JSON.stringify([photo('p1')]))
+			);
+			vi.stubGlobal('fetch', fetcher);
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22) });
 			await user.click(screen.getByRole('button', { name: 'Deliver' }));
-			expect(await screen.findByRole('dialog', { name: 'Deliver 1 photo?' })).toBeTruthy();
-			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Deliver' }));
-			expect((await screen.findByRole('alert')).textContent).toMatch(/later release/);
+			await user.click(
+				within(await screen.findByRole('dialog', { name: 'Deliver 1 photo?' })).getByRole(
+					'button',
+					{ name: 'Deliver' }
+				)
+			);
+			expect(await screen.findByText('Delivered')).toBeTruthy();
+			expect(fetcher.mock.calls.some(([url]) => url.endsWith('/g1/deliver'))).toBe(true);
+		});
+
+		it('reports a failed delivery and keeps the dialog open to try again', async () => {
+			vi.stubGlobal(
+				'fetch',
+				vi.fn(async (url: string) =>
+					url.endsWith('/deliver')
+						? new Response('{}', { status: 500 })
+						: new Response(JSON.stringify([photo('p1')]))
+				)
+			);
+			const user = userEvent.setup();
+			open({ share_token: 'B'.repeat(22) });
+			await user.click(screen.getByRole('button', { name: 'Deliver' }));
+			await user.click(
+				within(await screen.findByRole('dialog', { name: 'Deliver 1 photo?' })).getByRole(
+					'button',
+					{ name: 'Deliver' }
+				)
+			);
+			expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t deliver/);
 		});
 
 		it('reports a failed share and keeps the dialog open to try again', async () => {

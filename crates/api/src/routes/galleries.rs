@@ -8,7 +8,8 @@
 //! - `PATCH /{id}` applies a [`GalleryChanges`] changeset and returns the updated gallery.
 //! - `POST /{id}/share` creates the gallery's private link if it has none and returns the
 //!   gallery; sharing again returns the same link.
-//!
+//! - `POST /{id}/deliver` switches the link to the finished photos and returns the gallery;
+//!   delivering again changes nothing, and a gallery not shared or archived is a 409.
 //! - `POST /{id}/archive` hides the gallery from its client and returns it; archiving again
 //!   changes nothing.
 //! - `POST /{id}/restore` makes an archived gallery reachable again and returns it.
@@ -26,7 +27,7 @@ use actix_web::{
 };
 use actix_web_lab::extract::Query as LabQuery;
 use pp_database::gallery::{
-    GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
+    Delivery, GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
 };
 use pp_database::photo::Watermarked;
 use pp_database::watermark::WatermarkRepository;
@@ -84,6 +85,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(show_gallery)
             .service(update_gallery)
             .service(share_gallery)
+            .service(deliver_gallery)
             .service(archive_gallery)
             .service(restore_gallery)
             .service(delete_gallery)
@@ -223,6 +225,24 @@ async fn share_gallery(
         .ok_or_else(ErrorResponse::not_found)?;
 
     Ok(HttpResponse::Ok().no_store().json(gallery))
+}
+
+#[post("/{id}/deliver")]
+async fn deliver_gallery(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    id: Path<GalleryId>,
+) -> Result<HttpResponse, ErrorResponse> {
+    match state
+        .database()
+        .repository::<GalleryRepository>()
+        .deliver(identity.workspace_id, id.into_inner())
+        .await?
+    {
+        Delivery::Delivered(gallery) => Ok(HttpResponse::Ok().no_store().json(gallery)),
+        Delivery::NotDeliverable => Err(ErrorResponse::conflict("gallery is not shared")),
+        Delivery::NotFound => Err(ErrorResponse::not_found()),
+    }
 }
 
 #[cfg(test)]

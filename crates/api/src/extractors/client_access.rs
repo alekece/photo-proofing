@@ -18,25 +18,31 @@ pub(crate) struct ClientAccess(pub SharedAccess);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClientPhotoSet {
     Proofs,
+    Finals,
 }
 
 impl ClientPhotoSet {
     pub(crate) fn kind(self) -> PhotoKind {
         match self {
             Self::Proofs => PhotoKind::Proof,
+            Self::Finals => PhotoKind::Final,
         }
     }
 }
 
 impl ClientAccess {
     pub(crate) fn photo_set(&self) -> ClientPhotoSet {
-        ClientPhotoSet::Proofs
+        if self.0.gallery.delivered {
+            ClientPhotoSet::Finals
+        } else {
+            ClientPhotoSet::Proofs
+        }
     }
 
-    /// The files the client sees: marked when the gallery's switch is on, never chosen by the
-    /// request.
+    /// The files the client sees: proofs are marked when the gallery's switch is on, finals
+    /// never are. Never chosen by the request.
     pub(crate) fn watermarked(&self) -> Watermarked {
-        Watermarked(self.0.watermark_enabled)
+        Watermarked(self.0.watermark_enabled && self.photo_set() == ClientPhotoSet::Proofs)
     }
 }
 

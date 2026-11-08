@@ -391,8 +391,11 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("UPDATE photos SET kind = 'final', published_at = now(), removed_at = now() WHERE id = $1")
-            .bind(final_photo).execute(&pool).await.unwrap();
+        sqlx::query("UPDATE photos SET kind = 'final' WHERE id = $1")
+            .bind(final_photo)
+            .execute(&pool)
+            .await
+            .unwrap();
 
         for ids in [
             vec![foreign],

@@ -20,6 +20,7 @@
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import {
 		archiveGallery,
+		deliverGallery,
 		deleteGallery,
 		GalleryApiError,
 		restoreGallery,
@@ -177,10 +178,6 @@
 
 		return `${page.url.origin}/g/${shareToken}`;
 	}
-	/** The dialog is ready; the endpoint arrives with #71, so confirming says so for now. */
-	async function deliver(): Promise<void> {
-		throw new Error('Delivering finished photos arrives with a later release.');
-	}
 	/** Sends the photographer to sign in on a 401; otherwise rethrows with a retryable message. */
 	async function failAction(error: unknown, message: string): Promise<never> {
 		if (error instanceof GalleryApiError && error.status === 401) {
@@ -188,6 +185,18 @@
 		}
 
 		throw new Error(message, { cause: error });
+	}
+	async function deliver(): Promise<void> {
+		flush();
+
+		try {
+			const delivered = await deliverGallery(saved.id);
+
+			saved = { ...saved, states: delivered.states, updated_at: delivered.updated_at };
+			toasts.success('Delivered');
+		} catch (error) {
+			await failAction(error, 'Couldn’t deliver the gallery. Please try again.');
+		}
 	}
 	async function archive(): Promise<void> {
 		flush();
