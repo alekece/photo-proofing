@@ -16,12 +16,7 @@ use pp_core::{
     config::{DEFAULT_EXPORT_MAX_SIZE, DEFAULT_EXPORT_RETENTION, ExportConfig},
     url::Origin,
 };
-use pp_database::{
-    Database,
-    auth::AuthRepository,
-    error::DatabaseError,
-    jobs::{JobOptions, JobPayload, JobRepository},
-};
+use pp_database::{Database, auth::AuthRepository, error::DatabaseError, jobs::JobOptions};
 use pp_storage::{PhotoStorage, StorageError};
 use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -277,16 +272,6 @@ impl Api {
             config.queue,
         )?
         .with_export(&config.export);
-
-        // A failed sweep only delays the removal of leftover files, so it must not stop startup.
-        if let Err(error) = state
-            .database()
-            .repository::<JobRepository>()
-            .enqueue(JobPayload::SweepOrphans, state.job_options().max_attempts)
-            .await
-        {
-            tracing::warn!(%error, "could not queue the orphaned file sweep");
-        }
 
         Ok(Self {
             http: config.http,

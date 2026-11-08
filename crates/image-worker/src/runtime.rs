@@ -7,10 +7,14 @@
 //! - **Leases**: while a handler runs, the lease is renewed three times per lease period. If a
 //!   renewal shows the claim was taken over, the handler is dropped and nothing is recorded, so
 //!   a stale run cannot clobber the new one.
-//! - **Outcomes** go through [`JobRepository`]: completion deletes the job, a recoverable error
-//!   requeues it with backoff or fails it at the attempt cap, an unreadable payload fails it
-//!   at once. A handler that panics or a worker that dies reports nothing; the lease simply
+//! - **Outcomes** are recorded by the runtime, never by handlers. A handler returns an output
+//!   and the kind's [`Finalizer`](crate::handlers::Finalizer) saves it and deletes the job in
+//!   one transaction, which also checks that the run still owns the job. A recoverable error
+//!   requeues the job with backoff or fails it at the attempt cap, an unreadable payload fails
+//!   it at once. A handler that panics or a worker that dies reports nothing; the lease simply
 //!   expires and the job is claimed again, counting toward its attempts.
+//! - **Maintenance** ([`Worker::with_maintenance`]) runs on a timer beside the jobs and takes
+//!   a concurrency slot like one; see [`crate::maintenance`].
 //! - **Shutdown**: once the token is cancelled no new job is claimed, running jobs get
 //!   [`RuntimeOptions::shutdown_grace`] to finish, and the rest is aborted and recovered by
 //!   lease expiry.
@@ -30,6 +34,7 @@ use tracing::{Instrument, error, info, info_span, warn};
 use crate::{
     config::WorkerConfig,
     handlers::{HandlerError, HandlerRegistry},
+    maintenance::Maintenance,
 };
 
 /// How often the lease is renewed, as a fraction of the lease: two renewals may be missed
@@ -62,6 +67,7 @@ pub struct Worker {
     database: Database,
     handlers: Arc<HandlerRegistry>,
     options: RuntimeOptions,
+    maintenance: Option<Arc<Maintenance>>,
 }
 
 impl Worker {
@@ -70,7 +76,21 @@ impl Worker {
             database,
             handlers: Arc::new(handlers),
             options,
+            maintenance: None,
         }
+    }
+
+    /// The worker's database, for building what shares it.
+    pub const fn database(&self) -> &Database {
+        &self.database
+    }
+
+    /// Also runs `maintenance` on its timer.
+    #[must_use]
+    pub fn with_maintenance(mut self, maintenance: Maintenance) -> Self {
+        self.maintenance = Some(Arc::new(maintenance));
+
+        self
     }
 
     /// Connects to PostgreSQL, applies pending migrations, then builds the handlers, which may
@@ -98,6 +118,13 @@ impl Worker {
         let mut running = JoinSet::new();
 
         info!(kinds = kinds.len(), "worker polling for jobs");
+
+        if let Some(maintenance) = self.maintenance.clone() {
+            let slots = Arc::clone(&slots);
+            let shutdown = shutdown.clone();
+
+            running.spawn(async move { maintenance.run_every(slots, shutdown).await });
+        }
 
         loop {
             let permit = select! {
@@ -147,7 +174,7 @@ impl Worker {
             return;
         }
 
-        info!(jobs = running.len(), "waiting for running jobs to finish");
+        info!(tasks = running.len(), "waiting for running jobs to finish");
 
         let finished = time::timeout(self.options.shutdown_grace, async {
             while let Some(result) = running.join_next().await {
@@ -158,8 +185,8 @@ impl Worker {
 
         if finished.is_err() {
             warn!(
-                jobs = running.len(),
-                "grace period over; aborting jobs, which become claimable when their lease expires"
+                tasks = running.len(),
+                "grace period over; aborting tasks, and jobs become claimable when their lease expires"
             );
             running.abort_all();
             while running.join_next().await.is_some() {}
@@ -171,7 +198,7 @@ fn log_task_end(result: Result<(), tokio::task::JoinError>) {
     if let Err(error) = result
         && error.is_panic()
     {
-        error!(%error, "job handler panicked; its lease will expire and the job be retried");
+        error!(%error, "task panicked; a job's lease will expire and it will be retried");
     }
 }
 
@@ -194,6 +221,12 @@ async fn run_job(
             warn!("lease lost to another claim; dropping this run");
             return;
         }
+    };
+    // Finalizing is not raced against the lease: it recovers a lost claim by itself, in the
+    // transaction that would record the outcome, and must not be dropped halfway.
+    let outcome = match outcome {
+        Ok(finishing) => finishing.await,
+        Err(error) => Err(error),
     };
 
     let recorded = match outcome {
@@ -247,12 +280,13 @@ mod tests {
     use pp_core::{notifications::PhotoId, types::generate::Generate};
     use pp_database::{
         PgPool,
-        jobs::{DEFAULT_MAX_ATTEMPTS, JobCompletion, JobKind, JobPayload, JobState, ProcessPhoto},
+        jobs::{DEFAULT_MAX_ATTEMPTS, JobKind, JobPayload, JobState, ProcessPhoto},
         tests::TestRepository,
     };
     use serde_json::json;
 
     use super::*;
+    use crate::handlers::CompleteJob;
 
     const KIND: JobKind = JobKind::ProcessPhoto;
 
@@ -298,13 +332,8 @@ mod tests {
             .unwrap()
     }
 
-    /// Finishes `job` the way a successful handler does.
-    async fn finish(pool: PgPool, job: Job) -> Result<JobCompletion, HandlerError> {
-        Database::new(pool)
-            .repository::<JobRepository>()
-            .complete(&job)
-            .await
-            .map_err(|error| HandlerError::Failed(error.into()))
+    fn completing(pool: &PgPool) -> CompleteJob {
+        CompleteJob::new(Database::new(pool.clone()))
     }
 
     async fn wait_for(mut condition: impl AsyncFnMut() -> bool) {
@@ -319,14 +348,14 @@ mod tests {
     async fn runs_a_job_and_deletes_it(pool: PgPool) {
         let runs = Arc::new(AtomicUsize::new(0));
         let seen = Arc::clone(&runs);
-        let handlers = HandlerRegistry::default().register(KIND, {
-            let pool = pool.clone();
-
-            move |_: ProcessPhoto, job| {
+        let handlers = HandlerRegistry::default().register(
+            KIND,
+            move |_: ProcessPhoto| {
                 seen.fetch_add(1, Ordering::SeqCst);
-                finish(pool.clone(), job)
-            }
-        });
+                future::ready(Ok(()))
+            },
+            completing(&pool),
+        );
         enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
@@ -341,10 +370,14 @@ mod tests {
     async fn failing_job_is_retried_then_kept_as_failed(pool: PgPool) {
         let runs = Arc::new(AtomicUsize::new(0));
         let seen = Arc::clone(&runs);
-        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto, _| {
-            seen.fetch_add(1, Ordering::SeqCst);
-            future::ready(Err(HandlerError::Failed("disk full".into())))
-        });
+        let handlers = HandlerRegistry::default().register(
+            KIND,
+            move |_: ProcessPhoto| {
+                seen.fetch_add(1, Ordering::SeqCst);
+                future::ready(Err(HandlerError::Failed("disk full".into())))
+            },
+            completing(&pool),
+        );
         enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
@@ -366,9 +399,11 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn unreadable_payload_fails_without_retrying(pool: PgPool) {
-        let handlers = HandlerRegistry::default().register(KIND, |_: ProcessPhoto, _| {
-            future::ready(Err(HandlerError::Failed("never called".into())))
-        });
+        let handlers = HandlerRegistry::default().register(
+            KIND,
+            |_: ProcessPhoto| future::ready(Err(HandlerError::Failed("never called".into()))),
+            completing(&pool),
+        );
         let database = Database::new(pool.clone());
         let testing = database.repository::<TestRepository>();
         let id = testing
@@ -389,17 +424,20 @@ mod tests {
         let runs = Arc::new(AtomicUsize::new(0));
         let handlers = || {
             let seen = Arc::clone(&runs);
-            let pool = pool.clone();
 
-            HandlerRegistry::default().register(KIND, move |_: ProcessPhoto, job| {
-                seen.fetch_add(1, Ordering::SeqCst);
-                let pool = pool.clone();
+            HandlerRegistry::default().register(
+                KIND,
+                move |_: ProcessPhoto| {
+                    seen.fetch_add(1, Ordering::SeqCst);
 
-                async {
-                    time::sleep(Duration::from_millis(1800)).await;
-                    finish(pool, job).await
-                }
-            })
+                    async {
+                        time::sleep(Duration::from_millis(1800)).await;
+
+                        Ok(())
+                    }
+                },
+                completing(&pool),
+            )
         };
         enqueue(&pool, 3).await;
 
@@ -421,18 +459,21 @@ mod tests {
         let current = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
         let (c, p) = (Arc::clone(&current), Arc::clone(&peak));
-        let finisher = pool.clone();
-        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto, job| {
-            let (c, p) = (Arc::clone(&c), Arc::clone(&p));
-            let pool = finisher.clone();
+        let handlers = HandlerRegistry::default().register(
+            KIND,
+            move |_: ProcessPhoto| {
+                let (c, p) = (Arc::clone(&c), Arc::clone(&p));
 
-            async move {
-                p.fetch_max(c.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
-                time::sleep(Duration::from_millis(150)).await;
-                c.fetch_sub(1, Ordering::SeqCst);
-                finish(pool, job).await
-            }
-        });
+                async move {
+                    p.fetch_max(c.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+                    time::sleep(Duration::from_millis(150)).await;
+                    c.fetch_sub(1, Ordering::SeqCst);
+
+                    Ok(())
+                }
+            },
+            completing(&pool),
+        );
         for _ in 0..6 {
             enqueue(&pool, DEFAULT_MAX_ATTEMPTS.get()).await;
         }
@@ -447,15 +488,15 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn shutdown_waits_for_a_job_that_finishes_within_the_grace(pool: PgPool) {
-        let finisher = pool.clone();
-        let handlers = HandlerRegistry::default().register(KIND, move |_: ProcessPhoto, job| {
-            let pool = finisher.clone();
-
-            async {
+        let handlers = HandlerRegistry::default().register(
+            KIND,
+            |_: ProcessPhoto| async {
                 time::sleep(Duration::from_millis(100)).await;
-                finish(pool, job).await
-            }
-        });
+
+                Ok(())
+            },
+            completing(&pool),
+        );
         enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());
@@ -468,9 +509,11 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn shutdown_during_a_stuck_job_leaves_it_recoverable(pool: PgPool) {
-        let handlers = HandlerRegistry::default().register(KIND, |_: ProcessPhoto, _| {
-            future::pending::<Result<JobCompletion, HandlerError>>()
-        });
+        let handlers = HandlerRegistry::default().register(
+            KIND,
+            |_: ProcessPhoto| future::pending::<Result<(), HandlerError>>(),
+            completing(&pool),
+        );
         enqueue(&pool, 3).await;
 
         let (token, task) = start(&pool, handlers, options());

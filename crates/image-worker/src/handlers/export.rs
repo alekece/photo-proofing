@@ -1,6 +1,9 @@
 //! Builds the ZIP of a photographer's selection from its stored snapshot.
+//!
+//! [`ExportHandler`] writes the archive; [`ExportFinalizer`] records the outcome together with
+//! the deletion of the job.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use pp_database::{
     Database,
@@ -11,95 +14,52 @@ use pp_database::{
 use pp_storage::{ArchiveEntry, ArchiveKey, PhotoKey, PhotoStorage, StorageError, Variant};
 use tracing::{info, warn};
 
-use crate::handlers::HandlerError;
+use crate::handlers::{Finalizer, HandlerError};
 
 /// Reason shown when the photo volume is full; retrying cannot help until space is freed.
 const DISK_FULL_REASON: &str = "The server is out of disk space.";
 
-/// Deletes exports past their retention together with their files.
-#[derive(Clone)]
-pub struct ExportExpiry {
-    database: Database,
-    storage: PhotoStorage,
-    retention: Duration,
+/// What building an export produced, for [`ExportFinalizer`] to record.
+#[derive(Debug)]
+pub enum ExportOutput {
+    /// The export no longer exists, so there is nothing to record.
+    Gone,
+    /// The archive of `photos` photos was written.
+    Built {
+        id: ExportId,
+        key: ArchiveKey,
+        photos: usize,
+    },
+    /// The archive cannot be built, and retrying cannot change that.
+    Failed { id: ExportId, reason: &'static str },
 }
 
-impl ExportExpiry {
-    pub const fn new(database: Database, storage: PhotoStorage, retention: Duration) -> Self {
-        Self {
-            database,
-            storage,
-            retention,
-        }
-    }
-
-    /// Removes expired export rows and files. A failure is logged and left for the next run.
-    pub async fn run(&self) {
-        let exports = self.database.repository::<ExportRepository>();
-        let expired = match exports.expire(self.retention).await {
-            Ok(expired) => expired,
-            Err(error) => {
-                warn!(%error, "expired exports could not be deleted");
-
-                return;
-            }
-        };
-
-        for export in expired {
-            let key = ArchiveKey {
-                workspace: export.workspace_id,
-                gallery: export.gallery_id,
-                export: export.id,
-            };
-
-            if let Err(error) = self.storage.remove_archive(&key).await {
-                warn!(%error, export = %export.id.0, "expired selection ZIP could not be removed");
-            }
-        }
-    }
-
-    /// Removes archives older than `grace` that no export row claims.
-    pub async fn sweep_archives(&self, grace: Duration) -> Result<usize, StorageError> {
-        let exports = self.database.repository::<ExportRepository>();
-
-        self.storage
-            .sweep_archives(grace, async |key: ArchiveKey| {
-                // When the database cannot say, the file is kept.
-                exports.exists(key.export).await.unwrap_or(true)
-            })
-            .await
-    }
-}
-
-/// Serves `zip_export` jobs.
+/// Serves `zip_export` jobs: writes the archive of a selection.
 pub struct ExportHandler {
     database: Database,
     storage: PhotoStorage,
-    expiry: ExportExpiry,
 }
 
 impl ExportHandler {
-    pub const fn new(database: Database, storage: PhotoStorage, expiry: ExportExpiry) -> Self {
-        Self {
-            database,
-            storage,
-            expiry,
-        }
+    pub const fn new(database: Database, storage: PhotoStorage) -> Self {
+        Self { database, storage }
     }
 
-    /// Writes the ZIP, then publishes it as ready only if every snapshot photo still exists.
+    /// Writes the ZIP. The finalizer publishes it as ready only if every snapshot photo still
+    /// exists.
     ///
     /// A missing original or a full volume fails the export visibly without retries; any other
     /// storage error is retried with the job and fails the export after the last attempt.
-    pub async fn run(
-        self: Arc<Self>,
-        payload: ZipExport,
-        job: Job,
-    ) -> Result<JobCompletion, HandlerError> {
-        let exports = self.database.repository::<ExportRepository>();
+    pub async fn run(self: Arc<Self>, payload: ZipExport) -> Result<ExportOutput, HandlerError> {
         let id = payload.export_id;
-        let Some(plan) = exports.plan(id).await.map_err(HandlerError::failed)? else {
-            return self.finish(&job).await;
+        let plan = self
+            .database
+            .repository::<ExportRepository>()
+            .plan(id)
+            .await
+            .map_err(HandlerError::failed)?;
+        let Some(plan) = plan else {
+            return Ok(ExportOutput::Gone);
         };
         let key = ArchiveKey {
             workspace: plan.workspace_id,
@@ -108,26 +68,21 @@ impl ExportHandler {
         };
 
         match self.storage.build_archive(&key, Self::entries(&plan)).await {
-            Ok(()) => {}
-            Err(StorageError::NotFound) => return self.fail(&job, id, PHOTO_REMOVED_REASON).await,
-            Err(StorageError::DiskFull(_)) => return self.fail(&job, id, DISK_FULL_REASON).await,
-            Err(error) => return Err(HandlerError::failed(error)),
+            Ok(()) => Ok(ExportOutput::Built {
+                id,
+                key,
+                photos: plan.photos.len(),
+            }),
+            Err(StorageError::NotFound) => Ok(ExportOutput::Failed {
+                id,
+                reason: PHOTO_REMOVED_REASON,
+            }),
+            Err(StorageError::DiskFull(_)) => Ok(ExportOutput::Failed {
+                id,
+                reason: DISK_FULL_REASON,
+            }),
+            Err(error) => Err(HandlerError::failed(error)),
         }
-
-        let (completion, update) = exports
-            .complete(&job, id)
-            .await
-            .map_err(HandlerError::failed)?;
-
-        // A claim that is no longer ours leaves the file to the run that now owns the job.
-        if completion.is_current() && update != ExportUpdate::Saved {
-            self.discard(&key).await;
-        }
-
-        info!(export = %id.0, photos = plan.photos.len(), ?update, "export built");
-        self.expiry.run().await;
-
-        Ok(completion)
     }
 
     fn entries(plan: &ExportPlan) -> Vec<ArchiveEntry> {
@@ -144,26 +99,17 @@ impl ExportHandler {
             })
             .collect()
     }
+}
 
-    async fn fail(
-        &self,
-        job: &Job,
-        id: ExportId,
-        reason: &str,
-    ) -> Result<JobCompletion, HandlerError> {
-        self.database
-            .repository::<ExportRepository>()
-            .fail(job, id, reason)
-            .await
-            .map_err(HandlerError::failed)
-    }
+/// Records the outcome of `zip_export` jobs together with the deletion of the job.
+pub struct ExportFinalizer {
+    database: Database,
+    storage: PhotoStorage,
+}
 
-    async fn finish(&self, job: &Job) -> Result<JobCompletion, HandlerError> {
-        self.database
-            .repository::<JobRepository>()
-            .complete(job)
-            .await
-            .map_err(HandlerError::failed)
+impl ExportFinalizer {
+    pub const fn new(database: Database, storage: PhotoStorage) -> Self {
+        Self { database, storage }
     }
 
     async fn discard(&self, key: &ArchiveKey) {
@@ -173,9 +119,49 @@ impl ExportHandler {
     }
 }
 
+impl Finalizer for ExportFinalizer {
+    type Output = ExportOutput;
+
+    async fn finalize(
+        &self,
+        job: &Job,
+        output: ExportOutput,
+    ) -> Result<JobCompletion, HandlerError> {
+        let exports = self.database.repository::<ExportRepository>();
+
+        match output {
+            ExportOutput::Gone => self
+                .database
+                .repository::<JobRepository>()
+                .complete(job)
+                .await
+                .map_err(HandlerError::failed),
+            ExportOutput::Failed { id, reason } => exports
+                .fail(job, id, reason)
+                .await
+                .map_err(HandlerError::failed),
+            ExportOutput::Built { id, key, photos } => {
+                let (completion, update) = exports
+                    .complete(job, id)
+                    .await
+                    .map_err(HandlerError::failed)?;
+
+                // A claim that is no longer ours leaves the file to the run that now owns the job.
+                if completion.is_current() && update != ExportUpdate::Saved {
+                    self.discard(&key).await;
+                }
+
+                info!(export = %id.0, photos, ?update, "export built");
+
+                Ok(completion)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroU64;
+    use std::{num::NonZeroU64, time::Duration};
 
     use pp_core::{config::PhotoDir, notifications::PhotoId, types::generate::Generate};
     use pp_database::{
@@ -197,6 +183,7 @@ mod tests {
         database: Database,
         storage: PhotoStorage,
         handler: Arc<ExportHandler>,
+        finalizer: ExportFinalizer,
         location: PhotoLocation,
     }
 
@@ -218,16 +205,11 @@ mod tests {
                 .await
                 .unwrap()
                 .id;
-            let expiry = ExportExpiry::new(database.clone(), storage.clone(), DAY);
-
             Self {
                 _dir: dir,
                 pool,
-                handler: Arc::new(ExportHandler::new(
-                    database.clone(),
-                    storage.clone(),
-                    expiry,
-                )),
+                handler: Arc::new(ExportHandler::new(database.clone(), storage.clone())),
+                finalizer: ExportFinalizer::new(database.clone(), storage.clone()),
                 database,
                 storage,
                 location: PhotoLocation {
@@ -291,10 +273,12 @@ mod tests {
         }
 
         async fn run(&self, id: ExportId, job: Job) -> JobCompletion {
-            Arc::clone(&self.handler)
-                .run(ZipExport { export_id: id }, job)
+            let output = Arc::clone(&self.handler)
+                .run(ZipExport { export_id: id })
                 .await
-                .unwrap()
+                .unwrap();
+
+            self.finalizer.finalize(&job, output).await.unwrap()
         }
 
         async fn status(&self) -> ExportStatus {
@@ -415,34 +399,5 @@ mod tests {
 
         assert!(fixture.run(id, job).await.is_current());
         assert_eq!(fixture.status().await, ExportStatus::Ready);
-    }
-
-    #[sqlx::test(migrations = "../database/migrations")]
-    async fn expiry_removes_old_exports_and_their_files(pool: PgPool) {
-        let fixture = Fixture::new(pool).await;
-
-        fixture.favorite("a.jpg", true).await;
-
-        let (id, job) = fixture.request().await;
-
-        let _ = fixture.run(id, job).await;
-
-        let expiry = ExportExpiry::new(
-            fixture.database.clone(),
-            fixture.storage.clone(),
-            Duration::ZERO,
-        );
-
-        expiry.run().await;
-
-        assert!(!fixture.has_zip(id).await);
-        assert!(
-            !fixture
-                .database
-                .repository::<ExportRepository>()
-                .exists(id)
-                .await
-                .unwrap()
-        );
     }
 }

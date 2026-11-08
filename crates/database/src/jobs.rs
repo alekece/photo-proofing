@@ -8,10 +8,11 @@
 //!   so a job is never handed out twice at once. A `running` job whose lease has passed is
 //!   claimable again: that is how work interrupted by a crash is recovered.
 //! - The worker extends the lease with [`renew`](JobRepository::renew) while it works, then
-//!   calls [`complete`](JobRepository::complete) (the row is deleted; the domain row carries the
-//!   user-visible status) or [`fail`](JobRepository::fail) (requeued with backoff, or `failed`
-//!   once `max_attempts` is reached). A `failed` job stays until
-//!   [`retry`](JobRepository::retry) requeues it.
+//!   records the outcome: [`complete`](JobRepository::complete), alone or together with the
+//!   domain result as in [`complete_photo`](JobRepository::complete_photo) (the row is deleted;
+//!   the domain row carries the user-visible status), or [`fail`](JobRepository::fail)
+//!   (requeued with backoff, or `failed` once `max_attempts` is reached). A `failed` job stays
+//!   until [`retry`](JobRepository::retry) requeues it.
 //!
 //! `attempts` is incremented at claim, not at failure, so a job that kills its worker without
 //! reporting still reaches the cap: an expired lease on the final attempt marks the job
@@ -97,7 +98,6 @@ pub enum JobKind {
     ProcessPhoto,
     CleanupGallery,
     CleanupPhotos,
-    SweepOrphans,
     ZipExport,
 }
 
@@ -143,8 +143,6 @@ pub enum JobPayload {
     ProcessPhoto(ProcessPhoto),
     CleanupGallery(CleanupGallery),
     CleanupPhotos(CleanupPhotos),
-    /// Removes photo files that no photo row owns.
-    SweepOrphans,
     ZipExport(ZipExport),
 }
 
@@ -179,7 +177,6 @@ impl JobPayload {
             Self::ProcessPhoto(_) => JobKind::ProcessPhoto,
             Self::CleanupGallery(_) => JobKind::CleanupGallery,
             Self::CleanupPhotos(_) => JobKind::CleanupPhotos,
-            Self::SweepOrphans => JobKind::SweepOrphans,
             Self::ZipExport(_) => JobKind::ZipExport,
         }
     }
@@ -241,9 +238,7 @@ impl FromRow<'_, PgRow> for Job {
     }
 }
 
-/// Proof that a job was finished; only [`JobRepository::complete`] and
-/// [`JobRepository::complete_photo`] create one, so a handler cannot succeed without finishing
-/// its job.
+/// Whether finishing a job found the claim still current.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
 pub struct JobCompletion {
@@ -497,41 +492,6 @@ impl JobRepository<'_> {
     /// Deletes a finished job. The completion tells whether the claim was still current.
     pub async fn complete(&self, job: &Job) -> Result<JobCompletion, DatabaseError> {
         Self::complete_in(self.pool, job).await
-    }
-
-    /// Finishes `job` like [`complete`](Self::complete) and records the success, so
-    /// [`ran_within`](Self::ran_within) can tell a later run that it came too soon. Nothing is
-    /// recorded when the claim is no longer current.
-    pub async fn complete_recorded(&self, job: &Job) -> Result<JobCompletion, DatabaseError> {
-        let mut transaction = self.pool.begin().await?;
-        let completion = Self::complete_in(&mut *transaction, job).await?;
-
-        if completion.is_current() {
-            sqlx::query(
-                "INSERT INTO job_runs(kind, finished_at) VALUES ($1, now())
-                 ON CONFLICT (kind) DO UPDATE SET finished_at = now()",
-            )
-            .bind(job.kind().as_str())
-            .execute(&mut *transaction)
-            .await?;
-        }
-
-        transaction.commit().await?;
-
-        Ok(completion)
-    }
-
-    /// Whether a job of `kind` was recorded as completed less than `window` ago.
-    pub async fn ran_within(&self, kind: JobKind, window: Duration) -> Result<bool, DatabaseError> {
-        Ok(sqlx::query_scalar(
-            "SELECT EXISTS(
-                 SELECT 1 FROM job_runs
-                 WHERE kind = $1 AND finished_at > now() - $2 * interval '1 second')",
-        )
-        .bind(kind.as_str())
-        .bind(window.as_secs_f64())
-        .fetch_one(self.pool)
-        .await?)
     }
 
     /// Records a photo job's result and finishes the job in one transaction, so a crash can
@@ -1010,11 +970,6 @@ mod tests {
                     "workspace_id": workspace_id.0, "gallery_id": gallery_id.0,
                     "photo_ids": [photo_id.to_string()]}}),
             ),
-            (
-                JobPayload::SweepOrphans,
-                JobKind::SweepOrphans,
-                json!({"kind": "sweep_orphans"}),
-            ),
         ];
 
         for (payload, kind, stored) in cases {
@@ -1026,49 +981,6 @@ mod tests {
             );
             assert_eq!(kind.as_str().parse::<JobKind>().unwrap(), kind);
         }
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
-    async fn a_recorded_completion_counts_as_a_recent_run(pool: PgPool) {
-        let database = Database::new(pool);
-        let jobs = database.repository::<JobRepository>();
-        let window = Duration::from_secs(3600);
-
-        assert!(
-            !jobs
-                .ran_within(JobKind::SweepOrphans, window)
-                .await
-                .unwrap()
-        );
-
-        jobs.enqueue(JobPayload::SweepOrphans, NonZeroU16::new(3).unwrap())
-            .await
-            .unwrap();
-
-        let sweep = jobs
-            .claim(&[JobKind::SweepOrphans], Duration::from_secs(60))
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert!(jobs.complete_recorded(&sweep).await.unwrap().is_current());
-        assert!(
-            jobs.ran_within(JobKind::SweepOrphans, window)
-                .await
-                .unwrap()
-        );
-        assert!(
-            !jobs
-                .ran_within(JobKind::SweepOrphans, Duration::ZERO)
-                .await
-                .unwrap()
-        );
-        assert!(
-            !jobs
-                .ran_within(JobKind::CleanupGallery, window)
-                .await
-                .unwrap()
-        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -1260,6 +1172,63 @@ mod tests {
         let mut after_fields = after.as_object().unwrap().clone();
         after_fields.remove("payload");
         assert_eq!(after_fields, before_fields);
+
+        transaction.rollback().await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn dropping_job_runs_removes_queued_sweeps_and_keeps_other_jobs(pool: PgPool) {
+        let mut transaction = pool.begin().await.unwrap();
+        let schema = format!("drop_job_runs_{}", Uuid::new_v4().simple());
+
+        sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(AssertSqlSafe(format!("SET LOCAL search_path TO {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        for migration in [
+            include_str!("../migrations/0004_jobs.sql"),
+            include_str!("../migrations/0005_job_payload_enum.sql"),
+            include_str!("../migrations/0011_job_runs.sql"),
+        ] {
+            sqlx::raw_sql(migration)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        for payload in [
+            json!({"kind": "sweep_orphans"}),
+            json!({"kind": "cleanup_gallery", "payload": {"gallery": 1}}),
+        ] {
+            sqlx::query("INSERT INTO jobs (id, payload, max_attempts) VALUES ($1, $2, 5)")
+                .bind(Uuid::new_v4())
+                .bind(payload)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        sqlx::raw_sql(include_str!("../migrations/0018_drop_job_runs.sql"))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let kinds: Vec<String> = sqlx::query_scalar("SELECT payload ->> 'kind' FROM jobs")
+            .fetch_all(&mut *transaction)
+            .await
+            .unwrap();
+        let table: Option<String> = sqlx::query_scalar("SELECT to_regclass('job_runs')::text")
+            .fetch_one(&mut *transaction)
+            .await
+            .unwrap();
+
+        assert_eq!(kinds, ["cleanup_gallery"]);
+        assert_eq!(table, None);
 
         transaction.rollback().await.unwrap();
     }
