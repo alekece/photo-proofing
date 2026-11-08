@@ -867,7 +867,7 @@ describe('PhotosPanel', () => {
 
 			expect(announced()).toContain('1 selected');
 
-			await user.click(screen.getByRole('button', { name: 'Cancel selection' }));
+			await user.click(screen.getByRole('button', { name: 'Select', pressed: true }));
 
 			expect(checkbox('p1.jpg')).toBeNull();
 			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
@@ -882,6 +882,43 @@ describe('PhotosPanel', () => {
 			expect(checkbox('p2.jpg')).toBeNull();
 			expect(screen.getByRole('button', { name: 'Remove p1.jpg' })).toBeTruthy();
 			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
+		});
+
+		it('keeps Select and Upload in place and exposes select mode as pressed', async () => {
+			stubApi([photo('p1'), photo('p2')]);
+			setup();
+			const user = userEvent.setup();
+
+			const select = await screen.findByRole('button', { name: 'Select' });
+			const upload = screen.getByRole('button', { name: 'Upload' });
+
+			expect(select.getAttribute('aria-pressed')).toBe('false');
+
+			await user.click(select);
+
+			expect(screen.getByRole('button', { name: 'Select' })).toBe(select);
+			expect(screen.getByRole('button', { name: 'Upload' })).toBe(upload);
+			expect(select.getAttribute('aria-pressed')).toBe('true');
+		});
+
+		it('unselects all and stays in select mode', async () => {
+			stubApi([photo('p1'), photo('p2')]);
+			setup();
+			const user = userEvent.setup();
+
+			await enter(user);
+
+			expect(screen.getByRole('button', { name: 'Unselect all' })).toHaveProperty('disabled', true);
+
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
+
+			expect(counter()).toBe('2 selected');
+
+			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
+
+			expect(counter()).toBe('0 selected');
+			expect(checkbox('p1.jpg')).not.toBeNull();
+			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
 		});
 
 		it('select all takes only the photos shown now', async () => {

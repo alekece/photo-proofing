@@ -104,8 +104,7 @@ unwatermarked. Switching watermarking on or off only selects existing files.
 
 ### Favorites
 
-Only the client's selection, read-only. Toolbar: **Select** and **Download** (the whole selection
-as a ZIP, with a busy state while it's prepared). Hovering a photo shows a small download button
+Only the client's selection, read-only. Toolbar: **Select** and **Download all** (every favorite as a ZIP, or **Download X** for the X selected photos; hidden when there are no favorites, with a busy state while it's prepared). Hovering a photo shows a small download button
 for that photo (always visible on touch). Empty: the same striped drop-area look as the other
 empty tabs, with a heart and "No favorites yet". Opening a photo
 shows the viewer with the favorite heart and the same individual-original download action.
@@ -122,9 +121,10 @@ download mark shows which photos the client has downloaded.
 
 ### Select mode
 
-**Select** keeps the warm toolbar where it is, with no dark bar. On the left appear ✕ and
-"3 selected"; on the right **Select** becomes **Select all**, and the main button becomes
-**Delete** on Photos and Final or **Download** on Favorites. Tiles show a check; clicking toggles.
+The toolbar keeps its layout: **Select** stays in place as a pressed toggle (`aria-pressed`) and
+the buttons beside it do not change or move. A left group appears with "3 selected", **Select all**,
+**Unselect all** (disabled at 0; stays in select mode) and, on Photos and Final, **Delete**. Pressing
+**Select** again or Escape leaves select mode. Tiles show a check; clicking toggles.
 Select all only picks the current tab.
 
 All three tabs use the same striped empty-state background. Confirming a photo deletion shows

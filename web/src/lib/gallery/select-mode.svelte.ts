@@ -1,6 +1,6 @@
 import { SvelteSet } from 'svelte/reactivity';
 
-/** Select mode of one tab: which photos are ticked, and whether the toolbar is the select pill. */
+/** Select mode of one tab: which photos are ticked, and whether select mode is on. */
 export class SelectMode {
 	active = $state(false);
 	readonly ids = new SvelteSet<string>();
@@ -20,6 +20,11 @@ export class SelectMode {
 	/** Picks every id given, which the tab passes from what it shows now. */
 	selectAll(ids: Iterable<string>) {
 		for (const id of ids) this.ids.add(id);
+	}
+
+	/** Empties the selection and stays in select mode. */
+	unselectAll() {
+		this.ids.clear();
 	}
 
 	enter() {
