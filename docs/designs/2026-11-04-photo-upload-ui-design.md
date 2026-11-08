@@ -89,9 +89,10 @@ My calls (to check while reading):
   Other dashboard users share the same server slots, so the server can still be busy.
 - **Busy is not broken.** Today every 503 looks alike. The upload route now answers **429** with
   `Retry-After` when no upload slot is free, and **507** when photo storage is full; other 503s stay
-  server errors. On 429 the queue puts the file back to wait and retries after the given delay.
-  waits for that delay (see the 2026-11-08 simplification design). A busy server delays a file
-  but never fails it. On 507 that file and every
+  server errors. On 429 the queue puts the file back to wait and sends it again after the server's
+  `Retry-After`; a busy server delays a file but never fails it (see the 2026-11-08 simplification
+  design). If the limits cannot be read, the waiting files show "Upload failed" and Retry reads
+  them again. On 507 that file and every
   file still waiting in the queue show "Storage full" with Retry, so a full disk does not receive
   the rest of the batch.
 - **Answer mapping.** 201: the tile now follows the server photo. 413, 415, 422: rejected with a

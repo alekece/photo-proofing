@@ -10,7 +10,7 @@ import {
 	type PhotoEvent
 } from './gallery/schemas';
 
-export type { ExportEvent, FavoritesEvent, PhotoChange, PhotoEvent } from './gallery/schemas';
+export type { ExportEvent, FavoritesEvent, PhotoEvent } from './gallery/schemas';
 
 /** The signed-in area's live updates. A resync means events may have been missed: refetch. */
 export interface LiveEvents {
