@@ -17,7 +17,7 @@
 		gallery: GalleryOverview;
 		/** The search text to highlight in the title. */
 		query?: string;
-		/** "New selection" or "New downloads"; set once #72 reports unread activity. */
+		/** "New selection" or "New downloads" while the gallery has unread activity. */
 		news?: string;
 	} = $props();
 

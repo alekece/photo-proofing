@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { createLiveEvents, setLiveEvents } from '#lib/events.js';
+	import { NotificationCenter, setNotifications } from '#lib/gallery/notifications.svelte.js';
 	import { UploadQueue, setUploadQueue } from '#lib/gallery/uploads.svelte.js';
 	import type { LayoutProps } from './$types';
 
@@ -10,14 +11,23 @@
 	const events = createLiveEvents();
 	setLiveEvents(events);
 
+	const notifications = new NotificationCenter();
+	setNotifications(notifications);
+
 	// Uploads keep going across dashboard pages; leaving the dashboard (logout) stops them.
 	const uploads = new UploadQueue();
 	setUploadQueue(uploads);
 	onDestroy(() => uploads.clear());
 
 	onMount(() => {
+		const stop = notifications.start(events);
+
 		events.start();
-		return () => events.close();
+
+		return () => {
+			stop();
+			events.close();
+		};
 	});
 </script>
 

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { ArrowLeft, Bell, LogOut, Settings, User } from '@lucide/svelte';
+	import NotificationBell from '#lib/components/NotificationBell.svelte';
+	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
 	import Popover from '#lib/components/ui/Popover/Popover.svelte';
 	import { cn } from '#lib/utils.js';
 	import type { Snippet } from 'svelte';
@@ -16,11 +18,12 @@
 		crumb?: string;
 		/** Floats the bar over the hero banner below it instead of taking a row of its own. */
 		overlay?: boolean;
-		/** Replaces the bell, once #72 provides its data. */
+		/** Replaces the notification bell. */
 		actions?: Snippet;
 		onsignout?: () => void | Promise<void>;
 	} = $props();
 
+	const notifications = getNotifications();
 	const round = 'grid size-[2.375rem] place-items-center rounded-full';
 	const hover = $derived(overlay ? 'hover:bg-panel/15' : 'hover:bg-border/60');
 </script>
@@ -61,13 +64,11 @@
 	>
 	{#if actions}
 		{@render actions()}
+	{:else if notifications}
+		<NotificationBell center={notifications} class="{round} {hover}" />
 	{:else}
-		<button
-			type="button"
-			disabled
-			title="Notifications arrive with a later release"
-			aria-label="Notifications"
-			class="{round} opacity-70"><Bell size={18} aria-hidden="true" /></button
+		<button type="button" disabled aria-label="Notifications" class="{round} opacity-70"
+			><Bell size={18} aria-hidden="true" /></button
 		>
 	{/if}
 	<Popover

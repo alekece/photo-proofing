@@ -16,9 +16,11 @@
 	import type { GallerySort, GalleryState } from '#lib/gallery/schemas.js';
 	import { ALL_STATES, DEFAULT_STATES } from '#lib/gallery/states.js';
 	import { galleryStatus, UNTITLED_GALLERY } from '#lib/gallery/format.js';
+	import { getNotifications, notificationBadge } from '#lib/gallery/notifications.svelte.js';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+	const notifications = getNotifications();
 	let pending = $state(false);
 	let message = $state('');
 
@@ -60,6 +62,13 @@
 		matching.filter((gallery) => selected.includes(galleryStatus(gallery.states)))
 	);
 	let hiddenMatches = $derived(matching.length - visible.length);
+	let galleriesWithNews = $derived(
+		new Set(
+			(notifications?.items ?? [])
+				.filter((item) => item.read_at === null)
+				.map((item) => item.gallery_id)
+		).size
+	);
 	let greeting = $derived.by(() => {
 		const hour = new Date().getHours();
 
@@ -93,16 +102,21 @@
 </script>
 
 <svelte:head><title>Dashboard — PhotoProofing</title></svelte:head>
-<!-- The bell joins AppHeader's `actions` once #72 provides unread activity. -->
 <AppHeader onsignout={logout} />
 <main class="flex flex-1 flex-col">
 	<div
 		class="grid items-end gap-3 px-3.5 pt-[1.125rem] pb-[1.125rem] sm:grid-cols-[1fr_auto] sm:gap-6 sm:px-8 sm:pt-6 sm:pb-[1.625rem]"
 	>
 		<div>
-			<!-- The name and the news count ("Two galleries have news", the news chips) come with #72. -->
 			<h1 class="text-[1.875rem] leading-[1.05] sm:text-[2.75rem]">
-				{greeting}. <em class="text-danger">All quiet</em> for now.
+				{greeting}.
+				{#if galleriesWithNews > 0}
+					<em class="text-danger"
+						>{galleriesWithNews === 1 ? '1 gallery has' : `${galleriesWithNews} galleries have`} news.</em
+					>
+				{:else}
+					<em class="text-danger">All quiet</em> for now.
+				{/if}
 			</h1>
 		</div>
 		<Button class="justify-self-start sm:justify-self-auto" onclick={() => (dialogOpen = true)}
@@ -158,7 +172,8 @@
 	{:else}
 		<ul class="{gridClass} mb-12">
 			{#each visible as gallery (gallery.id)}
-				<GalleryCard {gallery} {query} />
+				{@const note = notifications?.unreadFor(gallery.id)}
+				<GalleryCard {gallery} {query} news={note ? notificationBadge(note) : undefined} />
 			{:else}
 				<li class="col-span-full px-0 pt-14 pb-10 text-center text-muted-foreground">
 					<h2 class="mb-1.5 text-2xl leading-[1.2] text-foreground">

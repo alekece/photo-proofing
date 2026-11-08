@@ -39,7 +39,11 @@ export const galleryOverviewSchema = v.object({
 	...gallerySchema.entries,
 	photo_count: v.pipe(finite, v.integer(), v.minValue(0)),
 	/** How many of the ready photos the client chose. */
-	favorite_count: v.pipe(finite, v.integer(), v.minValue(0))
+	favorite_count: v.pipe(finite, v.integer(), v.minValue(0)),
+	/** How many ready finished photos the gallery holds. */
+	final_count: v.pipe(finite, v.integer(), v.minValue(0)),
+	/** How many of them the client has downloaded. */
+	downloaded_count: v.pipe(finite, v.integer(), v.minValue(0))
 });
 
 /** What the private link reveals to a client; mirrors the API's `SharedGallery`. */
@@ -118,6 +122,30 @@ export const favoriteIdsSchema = v.array(v.string());
 /** A change to the selection of a gallery of the signed-in workspace; the favorites come from a refetch. */
 export const favoritesEventSchema = v.object({ gallery_id: v.string() });
 
+/** The workspace's notifications changed; the list comes from a refetch. */
+export const notificationEventSchema = v.object({ gallery_id: v.string() });
+
+/** What a client did in one gallery, as the API's `Notification` reports it. */
+export const notificationSchema = v.object({
+	id: v.string(),
+	gallery_id: v.string(),
+	title: v.nullable(v.string()),
+	hero_id: v.nullable(v.string()),
+	kind: v.picklist(['selection', 'download']),
+	/** Finals downloaded since it opened; 0 for a selection or a ZIP of already-downloaded finals. */
+	count: v.pipe(finite, v.integer(), v.minValue(0)),
+	/** The gallery's current selection. */
+	selected: v.pipe(finite, v.integer(), v.minValue(0)),
+	updated_at: v.string(),
+	/** `null` while unread. */
+	read_at: v.nullable(v.string())
+});
+
+export const notificationListSchema = v.object({
+	notifications: v.array(notificationSchema),
+	unread: v.pipe(finite, v.integer(), v.minValue(0))
+});
+
 /** A change to a selection ZIP of a gallery of the signed-in workspace; its state comes from a refetch. */
 export const exportEventSchema = v.object({ gallery_id: v.string() });
 
@@ -148,6 +176,8 @@ export type Photo = v.InferOutput<typeof photoSchema>;
 export type PhotoStatus = v.InferOutput<typeof photoStatusSchema>;
 export type UploadLimits = v.InferOutput<typeof uploadLimitsSchema>;
 export type PhotoEvent = v.InferOutput<typeof photoEventSchema>;
+export type NotificationEvent = v.InferOutput<typeof notificationEventSchema>;
+export type Notification = v.InferOutput<typeof notificationSchema>;
 export type FavoritesEvent = v.InferOutput<typeof favoritesEventSchema>;
 
 /** The value as `schema` describes it, or `null` when it does not match. */

@@ -53,6 +53,7 @@ describe('gallery editing integration', () => {
 			onPhoto: off,
 			onFavorites: off,
 			onExport: off,
+			onNotification: () => () => {},
 			onResync: off,
 			start() {},
 			close() {}

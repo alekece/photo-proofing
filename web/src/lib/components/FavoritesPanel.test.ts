@@ -51,6 +51,7 @@ function setup(
 		onPhoto: () => () => {},
 		onFavorites: (handler) => (handlers.add(handler), () => handlers.delete(handler)),
 		onExport: (handler) => (exportHandlers.add(handler), () => exportHandlers.delete(handler)),
+		onNotification: () => () => {},
 		onResync: () => () => {},
 		start() {},
 		close() {}

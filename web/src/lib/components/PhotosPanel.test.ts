@@ -45,6 +45,7 @@ function fakeEvents() {
 		onPhoto: (handler) => (photoHandlers.add(handler), () => photoHandlers.delete(handler)),
 		onFavorites: () => () => {},
 		onExport: () => () => {},
+		onNotification: () => () => {},
 		onResync: (handler) => (resyncHandlers.add(handler), () => resyncHandlers.delete(handler)),
 		start() {},
 		close() {}

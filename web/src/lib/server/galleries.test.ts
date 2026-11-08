@@ -111,11 +111,15 @@ describe('listGalleries', () => {
 		const fetcher = vi
 			.fn()
 			.mockResolvedValue(
-				new Response(JSON.stringify([{ ...row, photo_count: 3, favorite_count: 2 }]))
+				new Response(
+					JSON.stringify([
+						{ ...row, photo_count: 3, favorite_count: 2, final_count: 0, downloaded_count: 0 }
+					])
+				)
 			);
 
 		expect(await listGalleries(fetcher, null, 'oldest', [])).toMatchObject([
-			{ photo_count: 3, favorite_count: 2 }
+			{ photo_count: 3, favorite_count: 2, final_count: 0, downloaded_count: 0 }
 		]);
 
 		const missing = vi.fn().mockResolvedValue(new Response(JSON.stringify([row])));
