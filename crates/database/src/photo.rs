@@ -568,7 +568,7 @@ mod tests {
         gallery::{GalleryId, GalleryRepository},
         jobs::{DEFAULT_CLEANUP_BATCH, JobOptions},
         listener::Notification,
-        photo_events::{PhotoChange, PhotoEvent},
+        photo_events::PhotoChange,
         photo_intake::PhotoIntake,
         tests::TestRepository,
         workspace_deletion::WorkspaceDeletion,
@@ -1688,7 +1688,7 @@ mod tests {
         let database = Database::new(pool.clone());
         let location = gallery_location(&database, &pool).await;
         let id = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
-        let mut listener = database.listen::<PhotoEvent>().await.unwrap();
+        let mut listener = database.listen().await.unwrap();
 
         database
             .repository::<WorkspaceDeletion>()
@@ -1701,7 +1701,7 @@ mod tests {
             .await
             .unwrap();
 
-        let Notification::Event(event) = listener.next().await.unwrap() else {
+        let Notification::Photo(event) = listener.next().await.unwrap() else {
             panic!("expected a photo event");
         };
 
@@ -1953,7 +1953,7 @@ mod tests {
     async fn events_name_the_kind_and_report_soft_removal_as_deleted(pool: PgPool) {
         let database = Database::new(pool.clone());
         let location = gallery_location(&database, &pool).await;
-        let mut listener = database.listen::<PhotoEvent>().await.unwrap();
+        let mut listener = database.listen().await.unwrap();
         let finished = final_in(&database, location).await;
 
         publish(&pool, finished).await;
@@ -1970,7 +1970,7 @@ mod tests {
 
         let mut seen = Vec::new();
 
-        while let Ok(Ok(Notification::Event(event))) =
+        while let Ok(Ok(Notification::Photo(event))) =
             tokio::time::timeout(std::time::Duration::from_millis(500), listener.next()).await
         {
             seen.push((event.kind, event.status));

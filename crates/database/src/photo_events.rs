@@ -1,11 +1,11 @@
 //! Live photo changes, announced by PostgreSQL itself for every insert, status change and
 //! delete of a photo, whichever process made it. Read them with
-//! [`Database::listen`](crate::Database::listen)`::<PhotoEvent>()`.
+//! [`Database::listen`](crate::Database::listen)`()`.
 
 use serde::{Deserialize, Serialize};
 
 use crate::photo::PhotoId;
-use crate::{auth::WorkspaceId, gallery::GalleryId, listener::Channel, photo::PhotoKind};
+use crate::{auth::WorkspaceId, gallery::GalleryId, photo::PhotoKind};
 
 /// What happened to a photo: its new processing status, or its deletion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,8 +30,8 @@ pub struct PhotoEvent {
     pub status: PhotoChange,
 }
 
-impl Channel for PhotoEvent {
-    const NAME: &'static str = "photo_events";
+impl PhotoEvent {
+    pub(crate) const CHANNEL: &'static str = "photo_events";
 }
 
 #[cfg(test)]
@@ -96,8 +96,8 @@ mod tests {
             id
         }
 
-        fn event(&self, photo_id: PhotoId, status: PhotoChange) -> Notification<PhotoEvent> {
-            Notification::Event(PhotoEvent {
+        fn event(&self, photo_id: PhotoId, status: PhotoChange) -> Notification {
+            Notification::Photo(PhotoEvent {
                 workspace_id: self.workspace_id,
                 gallery_id: self.gallery_id,
                 photo_id,
@@ -107,14 +107,14 @@ mod tests {
         }
     }
 
-    async fn next(listener: &mut Listener<PhotoEvent>) -> Notification<PhotoEvent> {
+    async fn next(listener: &mut Listener) -> Notification {
         time::timeout(Duration::from_secs(5), listener.next())
             .await
             .expect("a notification arrives")
             .unwrap()
     }
 
-    async fn assert_silent(listener: &mut Listener<PhotoEvent>) {
+    async fn assert_silent(listener: &mut Listener) {
         let received = time::timeout(Duration::from_millis(200), listener.next()).await;
 
         assert!(received.is_err(), "unexpected {received:?}");
@@ -123,7 +123,7 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn insert_status_change_and_delete_each_notify_once(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
-        let mut listener = fixture.database.listen::<PhotoEvent>().await.unwrap();
+        let mut listener = fixture.database.listen().await.unwrap();
         let tests = fixture.database.repository::<TestRepository>();
         let id = fixture.insert_photo(&pool).await;
 
@@ -169,7 +169,7 @@ mod tests {
     async fn unchanged_status_and_rolled_back_changes_stay_silent(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
         let id = fixture.insert_photo(&pool).await;
-        let mut listener = fixture.database.listen::<PhotoEvent>().await.unwrap();
+        let mut listener = fixture.database.listen().await.unwrap();
         let mut transaction = pool.begin().await.unwrap();
 
         sqlx::query("UPDATE photos SET status = 'waiting', original_name = 'b.jpg' WHERE id = $1")
@@ -187,7 +187,7 @@ mod tests {
     async fn a_gallery_deletion_announces_each_photo(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
         let id = fixture.insert_photo(&pool).await;
-        let mut listener = fixture.database.listen::<PhotoEvent>().await.unwrap();
+        let mut listener = fixture.database.listen().await.unwrap();
 
         fixture
             .database
@@ -205,10 +205,10 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn an_undecodable_payload_is_reported_as_missed(pool: PgPool) {
         let database = Database::new(pool.clone());
-        let mut listener = database.listen::<PhotoEvent>().await.unwrap();
+        let mut listener = database.listen().await.unwrap();
 
         sqlx::query("SELECT pg_notify($1, 'not json')")
-            .bind(PhotoEvent::NAME)
+            .bind(PhotoEvent::CHANNEL)
             .execute(&pool)
             .await
             .unwrap();

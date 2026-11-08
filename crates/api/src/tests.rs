@@ -32,12 +32,9 @@ use crate::{
 pub(crate) const ORIGIN: &str = "http://localhost:5173";
 
 /// Event stream settings with a one-second keep-alive, so session checks happen quickly.
-pub(crate) fn events_config(max_streams: usize, per_workspace: usize) -> EventsConfig {
+pub(crate) fn events_config() -> EventsConfig {
     EventsConfig {
         keep_alive: "1s".parse().unwrap(),
-        stall_intervals: "3".parse().unwrap(),
-        max_streams: NonZeroUsize::new(max_streams).unwrap(),
-        max_streams_per_workspace: NonZeroUsize::new(per_workspace).unwrap(),
         capacity: NonZeroU16::new(1024).unwrap(),
         relay_backoff_start: "250ms".parse().unwrap(),
         relay_backoff_cap: "30s".parse().unwrap(),

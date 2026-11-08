@@ -19,7 +19,8 @@ recovers without missing anything.
 - Every (re)connection starts with a signal to refetch, so missed changes are recovered.
 - The stream is behind the photographer session, carries only that workspace's events, and ends on
   logout or session expiry.
-- Bounded memory per connection and in total; slow or dead clients are dropped.
+- Bounded memory: one bounded buffer shared by all streams, so a client that stops reading only
+  lags and is told to resync.
 
 ## Non-goals
 
@@ -63,11 +64,12 @@ My calls (to check while reading):
   far below NOTIFY's 8000-byte limit. NOTIFY is transactional: nothing is sent for a rolled-back
   change. A gallery deletion cascades to its photos and so notifies each of them, which is the
   right outcome for an open page.
-- **Listener.** At startup the API opens one `sqlx::postgres::PgListener` on `photo_events` and a
-  task that decodes each notification and publishes it on a `tokio::sync::broadcast` channel
-  (bounded). An undecodable notification is logged without its payload and skipped. When the
-  listener reconnects after losing its connection, the task publishes a `resync` to everyone,
-  because notifications sent meanwhile are gone.
+- **Listener.** One relay task per API process owns one `sqlx::postgres::PgListener` listening on
+  every event channel (`photo_events`, `favorite_events`, `export_events`). It decodes each
+  notification by its channel name and publishes it on a bounded `tokio::sync::broadcast`
+  channel. A notification it cannot decode becomes a `resync` for everyone, as does every
+  (re)connection, because notifications sent meanwhile are gone. If the connection cannot be
+  reopened, the task backs off and starts again.
 - **Stream route.** `GET /api/v1/events` uses `Authenticated` (read-only, never renews), then
   answers with `actix_web_lab::sse`. All actix-web-lab use stays in one module
   (`crates/api/src/routes/events.rs`), so its evolving API is contained. Each connection subscribes to
@@ -80,15 +82,16 @@ My calls (to check while reading):
     ignores `workspace_id`, which is always its own. A failed photo's reason is read from the list when the page
     needs it, so reasons never travel on the stream.
 - **Slow clients.** The broadcast channel has a fixed capacity; a connection that falls behind gets
-  `Lagged`, which it turns into one `resync` and carries on. A connection whose client stopped
-  reading is dropped by actix once its send buffer is full or the socket closes.
+  `Lagged`, which it turns into one `resync` and carries on. A client that stops reading costs
+  nothing more: actix stops polling its stream, and the shared buffer does not grow. The
+  connection is dropped when the socket closes or its session ends.
 - **Session end.** Each connection re-checks its session on a fixed interval (alongside the
   keep-alive), with the same `AuthRepository::authenticate` call as `Authenticated`, and ends the
   stream once the session is gone, expired or logged out. A logged-out tab may therefore receive
   events for at most that interval; they are ids and statuses of its own workspace only.
-- **Limits.** Configurable caps on streams per workspace and in total (`events.*` settings, with
-  defaults). Beyond them the route answers 503 and the store retries later. Keep-alive comment
-  every ~15 s, under typical proxy idle timeouts; Caddy already flushes `text/event-stream`.
+- **Limits.** No cap on open streams: the MVP has one account, and all streams share the
+  broadcast buffer. Keep-alive comment every ~15 s, under typical proxy idle timeouts; Caddy
+  already flushes `text/event-stream`.
 - **Logging.** The `/events` route logs connection open/close with the workspace id only, never
   event payloads.
 - **Web.** A dashboard layout (`routes/dashboard/+layout.svelte`) opens one `EventSource` for the
@@ -103,7 +106,7 @@ My calls (to check while reading):
 
 ## Left to the builder
 
-- Numeric defaults: channel capacity, session re-check interval, keep-alive, stream caps.
+- Numeric defaults: channel capacity, session re-check interval, keep-alive, reconnect backoff.
 - Exact trigger SQL and migration name; whether the listener task restarts itself or relies on
   `PgListener`'s own reconnect, as long as a reconnect yields a `resync`.
 - How tests drive the stream (actix test server reading the body).
@@ -113,6 +116,6 @@ My calls (to check while reading):
 Tests against PostgreSQL: a photo insert, status change and delete each produce one `photo` event
 on a connected stream of the owning workspace and none on another workspace's stream; the first
 event of every connection is `resync`; a lagging subscriber gets a `resync`; a logged-out session's
-stream ends within the re-check interval; the route needs a session and does not extend it; caps
-answer 503; a listener reconnect produces a `resync`. Web tests cover the store dispatching events
+stream ends within the re-check interval; the route needs a session and does not extend it; the
+relay holds one listener connection for all channels; a listener reconnect produces a `resync`. Web tests cover the store dispatching events
 and the refetch on `resync`.

@@ -1,13 +1,13 @@
 //! Settings of the API process, grouped by concern under [`ApiConfig`].
 
 use std::{
-    num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize, ParseIntError},
+    num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize},
     str::FromStr,
 };
 
 use clap::Args;
 use clap_config_fallback::ConfigArgs;
-use derive_more::{Display, From};
+use derive_more::Display;
 use pp_core::{
     config::{DEFAULT_MAX_PIXELS, DatabaseConfig, ExportConfig, PhotoConfig},
     time::BoundedDuration,
@@ -151,61 +151,6 @@ impl From<CookieName> for String {
     }
 }
 
-/// The stall bound is below 2 keep-alive periods, which could close a healthy idle stream.
-#[derive(Debug, Error)]
-#[error("stall intervals must be at least {}", StallIntervals::MIN)]
-pub struct StallIntervalsError;
-
-/// How many keep-alive periods a stream may go unread before it counts as stalled.
-///
-/// At least [`Self::MIN`], because a healthy idle stream is read once per period.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize)]
-#[serde(try_from = "u32", into = "u32")]
-pub struct StallIntervals(u32);
-
-impl StallIntervals {
-    const MIN: u32 = 2;
-
-    pub fn get(self) -> u32 {
-        self.0
-    }
-}
-
-impl TryFrom<u32> for StallIntervals {
-    type Error = StallIntervalsError;
-
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
-        if value < Self::MIN {
-            return Err(StallIntervalsError);
-        }
-
-        Ok(Self(value))
-    }
-}
-
-impl FromStr for StallIntervals {
-    type Err = ParseStallIntervalsError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Ok(value.parse::<u32>()?.try_into()?)
-    }
-}
-
-/// The text is not a whole number of at least [`StallIntervals::MIN`].
-#[derive(Debug, Error, From)]
-pub enum ParseStallIntervalsError {
-    #[error("invalid number: {0}")]
-    Syntax(ParseIntError),
-    #[error(transparent)]
-    Range(StallIntervalsError),
-}
-
-impl From<StallIntervals> for u32 {
-    fn from(intervals: StallIntervals) -> Self {
-        intervals.0
-    }
-}
-
 /// Persistent session inactivity policy, shared by API validation and renewal.
 #[derive(Args, ConfigArgs, Clone)]
 pub struct SessionConfig {
@@ -331,7 +276,7 @@ pub struct QueueConfig {
     pub cleanup_batch: NonZeroUsize,
 }
 
-/// Live event streams: how idle streams are kept open and how many may be open at once.
+/// Live event streams: how idle streams are kept open and how the database listener is retried.
 #[derive(Args, ConfigArgs, Clone)]
 pub struct EventsConfig {
     /// Period of keep-alive comments, also the delay before a stream notices a signed-out session.
@@ -341,28 +286,6 @@ pub struct EventsConfig {
         default_value = "15s"
     )]
     pub keep_alive: KeepAlive,
-    /// Keep-alive periods a stream may go unread before it is closed as stalled and its slot freed.
-    /// At least 2, as a healthy idle stream is read once per period.
-    #[arg(
-        long = "events-stall-intervals",
-        env = "PP_EVENTS_STALL_INTERVALS",
-        default_value = "3"
-    )]
-    pub stall_intervals: StallIntervals,
-    /// Streams open at once across all workspaces; each holds an HTTP connection.
-    #[arg(
-        long = "events-max-streams",
-        env = "PP_EVENTS_MAX_STREAMS",
-        default_value = "256"
-    )]
-    pub max_streams: NonZeroUsize,
-    /// Streams one workspace may hold, so one workspace cannot take every slot.
-    #[arg(
-        long = "events-max-streams-per-workspace",
-        env = "PP_EVENTS_MAX_STREAMS_PER_WORKSPACE",
-        default_value = "32"
-    )]
-    pub max_streams_per_workspace: NonZeroUsize,
     /// Events buffered per stream before it lags and is told to resync.
     #[arg(
         long = "events-capacity",
@@ -434,9 +357,6 @@ mod tests {
         assert_eq!(api.photo_upload.retry_after.get(), Duration::from_secs(1));
         assert_eq!(api.photo.dir.as_path(), Path::new("./data/photos"));
         assert_eq!(api.events.keep_alive.get(), Duration::from_secs(15));
-        assert_eq!(api.events.stall_intervals.get(), 3);
-        assert_eq!(api.events.max_streams.get(), 256);
-        assert_eq!(api.events.max_streams_per_workspace.get(), 32);
         assert_eq!(api.events.capacity.get(), 1024);
         assert_eq!(
             api.events.relay_backoff_start.get(),
@@ -505,27 +425,19 @@ mod tests {
     fn events_settings_are_read_from_config_and_validated() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("c.toml");
-        fs::write(
-            &path,
-            "[events]\nkeep_alive = '30s'\nstall_intervals = 5\nmax_streams = 10\nmax_streams_per_workspace = 2\n",
-        )
-        .unwrap();
+        fs::write(&path, "[events]\nkeep_alive = '30s'\ncapacity = 10\n").unwrap();
         let events = parse(&["--config", path.to_str().unwrap()])
             .unwrap()
             .api
             .events;
 
         assert_eq!(events.keep_alive.get(), Duration::from_secs(30));
-        assert_eq!(events.stall_intervals.get(), 5);
-        assert_eq!(events.max_streams.get(), 10);
-        assert_eq!(events.max_streams_per_workspace.get(), 2);
+        assert_eq!(events.capacity.get(), 10);
 
         for args in [
             ["--events-keep-alive", "0s"],
             ["--events-keep-alive", "10m"],
-            ["--events-stall-intervals", "1"],
-            ["--events-max-streams", "0"],
-            ["--events-max-streams-per-workspace", "0"],
+            ["--events-capacity", "0"],
         ] {
             assert!(parse(&args).is_err(), "{args:?}");
         }
@@ -536,11 +448,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("c.toml");
 
-        for value in [
-            "max_streams = 0",
-            "keep_alive = '0s'",
-            "stall_intervals = 1",
-        ] {
+        for value in ["capacity = 0", "keep_alive = '0s'"] {
             fs::write(&path, format!("[events]\n{value}\n")).unwrap();
 
             assert!(

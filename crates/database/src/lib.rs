@@ -19,10 +19,7 @@ pub mod workspace_deletion;
 pub use sqlx::PgPool;
 use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 
-use crate::{
-    error::DatabaseError,
-    listener::{Channel, Listener},
-};
+use crate::{error::DatabaseError, listener::Listener};
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
@@ -88,9 +85,9 @@ impl Database {
         R::open(&self.pool, options)
     }
 
-    /// Opens a [`Listener`] on `T`'s channel. Only notifications committed after this returns
-    /// are reported.
-    pub async fn listen<T: Channel>(&self) -> Result<Listener<T>, DatabaseError> {
+    /// Opens a [`Listener`] on the photo, favorite and export event channels. Only notifications
+    /// committed after this returns are reported.
+    pub async fn listen(&self) -> Result<Listener, DatabaseError> {
         Listener::open(&self.pool).await
     }
 }

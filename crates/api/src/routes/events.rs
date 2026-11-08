@@ -24,7 +24,6 @@ use tokio::{
 
 use crate::{
     api::ApiState,
-    error::ErrorResponse,
     events::{Broadcast, EventHub, Subscription},
     extractors::{
         identity::Authenticated,
@@ -62,7 +61,7 @@ impl Scope {
     }
 }
 
-/// One open stream; dropping it (the browser left) frees its hub slot.
+/// One open stream; dropping it (the browser left) logs the close.
 struct EventStream {
     subscription: Subscription,
     state: Data<ApiState>,
@@ -71,14 +70,7 @@ struct EventStream {
 }
 
 impl EventStream {
-    fn open(
-        state: Data<ApiState>,
-        hub: &EventHub,
-        scope: Scope,
-    ) -> Result<impl Responder + use<>, ErrorResponse> {
-        let subscription = hub
-            .subscribe(scope.workspace_id)
-            .ok_or_else(ErrorResponse::unavailable)?;
+    fn open(state: Data<ApiState>, hub: &EventHub, scope: Scope) -> impl Responder + use<> {
         let keep_alive = hub.keep_alive();
         let mut session_check = time::interval_at(Instant::now() + keep_alive, keep_alive);
 
@@ -86,31 +78,26 @@ impl EventStream {
         tracing::info!(workspace = %scope.workspace_id.0, "event stream opened");
 
         let events = EventStream {
-            subscription,
+            subscription: hub.subscribe(),
             state,
             scope,
             session_check,
         };
 
-        Ok(Sse::from_infallible_stream(events.into_stream(hub)).with_keep_alive(keep_alive))
+        Sse::from_infallible_stream(events.into_stream()).with_keep_alive(keep_alive)
     }
 
     /// A `resync` first, since the browser cannot know what changed before it connected.
-    fn into_stream(self, hub: &EventHub) -> impl Stream<Item = sse::Event> + use<> {
-        let lease = self.subscription.lease();
+    fn into_stream(self) -> impl Stream<Item = sse::Event> + use<> {
         let following = stream::unfold(self, |mut events| async move {
             let broadcast = events.next().await?;
 
             Some((broadcast, events))
         });
 
-        let events = Box::pin(
-            stream::once(future::ready(Broadcast::Resync))
-                .chain(following)
-                .map(sse::Event::from),
-        );
-
-        hub.watch(events, lease)
+        stream::once(future::ready(Broadcast::Resync))
+            .chain(following)
+            .map(sse::Event::from)
     }
 
     /// The next broadcast to send, or `None` once the stream must end.
@@ -168,7 +155,7 @@ pub(crate) async fn stream_events(
     token: SessionToken,
     state: Data<ApiState>,
     hub: Data<EventHub>,
-) -> Result<impl Responder, ErrorResponse> {
+) -> impl Responder {
     let workspace_id = identity.workspace_id;
     let scope = Scope {
         token: token.digest(),
@@ -245,7 +232,7 @@ mod tests {
     }
 
     fn default_hub() -> EventHub {
-        EventHub::new(&events_config(8, 8))
+        EventHub::new(&events_config())
     }
 
     fn open(cookie: &Cookie<'static>) -> test::TestRequest {
@@ -396,7 +383,7 @@ mod tests {
     async fn a_lagging_stream_is_told_to_resync(pool: PgPool) {
         let config = EventsConfig {
             capacity: NonZeroU16::new(1).unwrap(),
-            ..events_config(8, 8)
+            ..events_config()
         };
         let client = client(pool, EventHub::new(&config)).await;
         let cookie = sign_up(&client.app).await;
@@ -510,65 +497,5 @@ mod tests {
             ended.is_ok(),
             "the stream ends while its session check waits"
         );
-    }
-
-    #[sqlx::test(migrations = "../database/migrations")]
-    async fn streams_beyond_the_cap_are_refused_until_one_closes(pool: PgPool) {
-        let client = client(pool, EventHub::new(&events_config(1, 1))).await;
-        let cookie = sign_up(&client.app).await;
-        let first = test::call_service(&client.app, open(&cookie).to_request()).await;
-
-        assert_eq!(first.status(), StatusCode::OK);
-
-        let (status, _) = call(&client.app, open(&cookie)).await;
-
-        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-
-        drop(first);
-
-        let second = test::call_service(&client.app, open(&cookie).to_request()).await;
-
-        assert_eq!(second.status(), StatusCode::OK);
-    }
-
-    #[sqlx::test(migrations = "../database/migrations")]
-    async fn a_stream_the_client_stops_reading_is_closed_and_frees_its_slot(pool: PgPool) {
-        let client = client(pool, EventHub::new(&events_config(1, 1))).await;
-        let cookie = sign_up(&client.app).await;
-        let first = test::call_service(&client.app, open(&cookie).to_request()).await;
-        let mut body = first.into_body();
-
-        next_event(&mut body).await;
-
-        let deadline = time::Instant::now() + Duration::from_secs(10);
-        let mut status = StatusCode::SERVICE_UNAVAILABLE;
-
-        while status != StatusCode::OK && time::Instant::now() < deadline {
-            time::sleep(Duration::from_millis(250)).await;
-            status = test::call_service(&client.app, open(&cookie).to_request())
-                .await
-                .status();
-        }
-
-        assert_eq!(status, StatusCode::OK, "the stalled stream's slot is freed");
-        assert_eq!(next_chunk(&mut body).await, None);
-    }
-
-    #[sqlx::test(migrations = "../database/migrations")]
-    async fn a_stream_read_past_the_stall_bound_stays_open(pool: PgPool) {
-        let client = client(pool, EventHub::new(&events_config(1, 1))).await;
-        let cookie = sign_up(&client.app).await;
-        let first = test::call_service(&client.app, open(&cookie).to_request()).await;
-        let mut body = first.into_body();
-
-        next_event(&mut body).await;
-
-        for _ in 0..4 {
-            assert!(next_chunk(&mut body).await.is_some());
-        }
-
-        let (status, _) = call(&client.app, open(&cookie)).await;
-
-        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     }
 }

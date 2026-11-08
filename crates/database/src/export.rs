@@ -25,7 +25,6 @@ use crate::{
     error::DatabaseError,
     gallery::GalleryId,
     jobs::{Job, JobCompletion, JobOptions, JobRepository, ZipExport},
-    listener::Channel,
     photo::PhotoId,
 };
 
@@ -53,8 +52,8 @@ pub struct ExportEvent {
     pub gallery_id: GalleryId,
 }
 
-impl Channel for ExportEvent {
-    const NAME: &'static str = "export_events";
+impl ExportEvent {
+    pub(crate) const CHANNEL: &'static str = "export_events";
 }
 
 /// Where an export stands. Stored and serialized as `{"kind": ..}`, with the `reason` next to
