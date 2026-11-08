@@ -66,8 +66,20 @@ The product should be usable in English and French, with one simple switch.
 - New or refreshed pictures: the top bar in both languages, and a French dashboard, gallery and
   client page.
 
+## Implementation choices
+
+Chosen by @alekece on 2026-11-08 from three options (Paraglide, a home-made typed dictionary,
+svelte-i18n/typesafe-i18n).
+
+- **Paraglide JS**, SvelteKit's official i18n add-on. Texts live in `web/messages/en.json` and
+  `fr.json` and compile to typed functions; a test fails when French misses a key.
+- **The language is a workspace setting** saved through its own endpoint, so switching never touches
+  the watermark. A public endpoint returns the installation's language (none before setup), which
+  every page, the client pages and the unavailable page included, reads on the server.
+- **Switching reloads the page** in the new language, which replaces the "Saved" toast. *My call:*
+  Paraglide's texts are not reactive, and a reload is the only way to never show a mix.
+- **API error texts are not shown.** The web turns the status into a translated sentence.
+
 ## Left to the builder
 
-- How translations are stored and loaded in SvelteKit, and how the server returns the language to
-  client pages and the unavailable page.
 - The French wording of every string (reviewed by a French speaker).
