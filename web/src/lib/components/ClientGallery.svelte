@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Download, Heart } from '@lucide/svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
+	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import { UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import { Selection } from '#lib/gallery/selection.svelte.js';
 	import type { Proof, SharedGallery } from '#lib/gallery/types.js';
@@ -21,7 +22,6 @@
 		studio = null,
 		studioLogo = null,
 		signature = 'name',
-		downloadAllUrl,
 		preview = false,
 		framed = false
 	}: {
@@ -37,8 +37,6 @@
 		/** The studio's logo image URL from Settings. */
 		studioLogo?: string | null;
 		signature?: Signature;
-		/** Once delivered: the archive of every finished photo. Without it no Download all is offered. */
-		downloadAllUrl?: string;
 		/** The owner's read-only preview: marks the page and gates every write action. */
 		preview?: boolean;
 		/** Shown inside the preview's phone frame, which has a fixed height. */
@@ -68,6 +66,37 @@
 	);
 	const count = $derived(`${proofs.length} ${proofs.length === 1 ? 'photo' : 'photos'}`);
 	const title = $derived(gallery.title ?? UNTITLED_GALLERY);
+
+	const downloadAllUrl = $derived(`/api/v1/galleries/shared/${encodeURIComponent(token)}/download`);
+	let downloading = $state(false);
+
+	/** Asks for the delivery ZIP until it is ready, then lets the browser stream it. */
+	async function downloadAll() {
+		if (downloading || preview) return;
+
+		downloading = true;
+
+		try {
+			for (;;) {
+				const response = await fetch(downloadAllUrl, { method: 'POST' });
+
+				if (response.status === 200) break;
+				if (response.status !== 202) throw new Error('The download could not be prepared.');
+
+				await new Promise((resolve) => setTimeout(resolve, 1500));
+			}
+
+			const link = document.createElement('a');
+
+			link.href = downloadAllUrl;
+			link.download = '';
+			link.click();
+		} catch {
+			toasts.error("Couldn't prepare the download. Please try again.");
+		} finally {
+			downloading = false;
+		}
+	}
 
 	function viewGallery() {
 		const reduced = matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -194,14 +223,17 @@
 				<div
 					class="mt-5 flex justify-center gap-2.5 @max-[700px]:flex-col @max-[700px]:items-center"
 				>
-					{#if delivered && downloadAllUrl}
-						<a
-							href={downloadAllUrl}
-							download
-							class="{CTA} border-panel bg-panel font-bold text-foreground hover:bg-panel"
+					{#if delivered}
+						<button
+							type="button"
+							disabled={downloading}
+							onclick={downloadAll}
+							class="{CTA} border-panel bg-panel font-bold text-foreground hover:bg-panel disabled:cursor-progress disabled:opacity-80"
 						>
-							<Download size={15} aria-hidden="true" />Download all
-						</a>
+							<Download size={15} aria-hidden="true" />{downloading
+								? 'Downloading…'
+								: 'Download all'}
+						</button>
 					{/if}
 					<button
 						type="button"
@@ -222,11 +254,11 @@
 				</h2>
 				<span class="flex-1"></span>
 				{#if delivered}
-					{#if downloadAllUrl}
-						<Button size="sm" href={downloadAllUrl} download>
-							<Download size={16} aria-hidden="true" class="mr-2" />Download all
-						</Button>
-					{/if}
+					<Button size="sm" disabled={downloading} onclick={downloadAll}>
+						<Download size={16} aria-hidden="true" class="mr-2" />{downloading
+							? 'Downloading…'
+							: 'Download all'}
+					</Button>
 				{:else}
 					{#if extra > 0}
 						<span class="font-bold text-warning">{extra} extra</span>

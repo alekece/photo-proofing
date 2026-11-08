@@ -45,6 +45,24 @@ impl Generate for ExportId {
     }
 }
 
+/// Who an export is for. Each kind is replaced, expired and kept apart from the other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportKind {
+    /// The photographer's ZIP of the client's favorites, short-lived.
+    Selection,
+    /// The client's ZIP of the delivered finals, kept while the gallery is reachable.
+    Delivery,
+}
+
+impl ExportKind {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Selection => "selection",
+            Self::Delivery => "delivery",
+        }
+    }
+}
+
 /// An export's status changed. It carries no status: whoever shows it refetches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExportEvent {
@@ -109,6 +127,29 @@ pub enum ExportRequest {
     /// The originals together exceed the allowed size.
     TooLarge,
     MissingGallery,
+}
+
+/// Where the client's ZIP of the delivered finals stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeliveryZip {
+    /// The ZIP matches the finals as they are now and can be served.
+    Ready(Export),
+    /// A build is queued or running.
+    Building,
+    /// The previous build failed. It is dropped, so the next request starts a new one.
+    Failed,
+    /// The gallery has no ready finals, so there is nothing to download as a whole.
+    Empty,
+    /// The gallery is missing or not delivered.
+    Unavailable,
+}
+
+/// What [`ExportRepository::ensure_delivery`] found and did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Delivery {
+    pub zip: DeliveryZip,
+    /// Deleted delivery exports, whose files are no longer needed.
+    pub replaced: Vec<ExportId>,
 }
 
 /// A photo of the snapshot, in archive order.
@@ -200,7 +241,7 @@ impl ExportRepository<'_> {
         }
 
         let preparing: Option<Export> = sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {} FROM exports WHERE gallery_id = $1 AND status ->> 'kind' = 'preparing'",
+            "SELECT {} FROM exports WHERE gallery_id = $1 AND kind = 'selection' AND status ->> 'kind' = 'preparing'",
             Self::COLUMNS
         )))
         .bind(gallery_id)
@@ -239,7 +280,7 @@ impl ExportRepository<'_> {
 
         let ready: Option<Export> = sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM exports
-             WHERE gallery_id = $1 AND status ->> 'kind' = 'ready'
+             WHERE gallery_id = $1 AND kind = 'selection' AND status ->> 'kind' = 'ready'
                AND finished_at > now() - $2 * interval '1 second'
              ORDER BY created_at DESC LIMIT 1",
             Self::COLUMNS
@@ -262,25 +303,170 @@ impl ExportRepository<'_> {
             }
         }
 
-        let replaced_ids = Self::delete_exports_in(&mut transaction, gallery_id).await?;
+        let replaced_ids =
+            Self::delete_exports_in(&mut transaction, gallery_id, Some(ExportKind::Selection))
+                .await?;
+        let export = self
+            .insert_in(
+                &mut transaction,
+                (workspace_id, gallery_id),
+                ExportKind::Selection,
+                &favorites,
+            )
+            .await?;
+
+        transaction.commit().await?;
+
+        Ok(ExportRequest::Created {
+            export,
+            replaced: replaced_ids,
+        })
+    }
+
+    /// The delivered gallery's ZIP of its ready finals, started when none matches them.
+    ///
+    /// Freshness is read, not stored: the ZIP is current when its snapshot holds the ids of the
+    /// finals now, in order. A ZIP that no longer matches, preparing or ready, is replaced by a
+    /// new build in the same transaction; its job goes with it, so a late build is discarded.
+    pub async fn ensure_delivery(
+        &self,
+        workspace_id: WorkspaceId,
+        gallery_id: GalleryId,
+    ) -> Result<Delivery, DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
+        let delivery = self
+            .ensure_delivery_in(&mut transaction, workspace_id, gallery_id)
+            .await?;
+
+        transaction.commit().await?;
+
+        Ok(delivery)
+    }
+
+    async fn ensure_delivery_in(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        workspace_id: WorkspaceId,
+        gallery_id: GalleryId,
+    ) -> Result<Delivery, DatabaseError> {
+        let delivered: Option<GalleryId> = sqlx::query_scalar(
+            "SELECT id FROM galleries
+             WHERE id = $1 AND workspace_id = $2 AND delivered_at IS NOT NULL
+             FOR NO KEY UPDATE",
+        )
+        .bind(gallery_id)
+        .bind(workspace_id)
+        .fetch_optional(&mut **transaction)
+        .await?;
+
+        if delivered.is_none() {
+            return Ok(Delivery {
+                zip: DeliveryZip::Unavailable,
+                replaced: Vec::new(),
+            });
+        }
+
+        let finals: Vec<(PhotoId, String, i64)> = sqlx::query_as(
+            "SELECT id, original_name, size FROM photos
+             WHERE workspace_id = $1 AND gallery_id = $2 AND kind = 'final' AND status = 'ready'
+             ORDER BY created_at, id",
+        )
+        .bind(workspace_id)
+        .bind(gallery_id)
+        .fetch_all(&mut **transaction)
+        .await?;
+        let current: Option<Export> = sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {} FROM exports WHERE gallery_id = $1 AND kind = 'delivery'",
+            Self::COLUMNS
+        )))
+        .bind(gallery_id)
+        .fetch_optional(&mut **transaction)
+        .await?;
+
+        if let Some(export) = current {
+            let snapshot: Vec<PhotoId> = sqlx::query_scalar(
+                "SELECT photo_id FROM export_photos WHERE export_id = $1 ORDER BY position",
+            )
+            .bind(export.id)
+            .fetch_all(&mut **transaction)
+            .await?;
+
+            if snapshot.iter().eq(finals.iter().map(|(id, ..)| id)) {
+                let zip = match export.status {
+                    ExportStatus::Ready => Some(DeliveryZip::Ready(export)),
+                    ExportStatus::Preparing => Some(DeliveryZip::Building),
+                    ExportStatus::Failed(_) => None,
+                };
+
+                if let Some(zip) = zip {
+                    return Ok(Delivery {
+                        zip,
+                        replaced: Vec::new(),
+                    });
+                }
+
+                let replaced =
+                    Self::delete_exports_in(transaction, gallery_id, Some(ExportKind::Delivery))
+                        .await?;
+
+                return Ok(Delivery {
+                    zip: DeliveryZip::Failed,
+                    replaced,
+                });
+            }
+        }
+
+        let replaced =
+            Self::delete_exports_in(transaction, gallery_id, Some(ExportKind::Delivery)).await?;
+
+        if finals.is_empty() {
+            return Ok(Delivery {
+                zip: DeliveryZip::Empty,
+                replaced,
+            });
+        }
+
+        self.insert_in(
+            transaction,
+            (workspace_id, gallery_id),
+            ExportKind::Delivery,
+            &finals,
+        )
+        .await?;
+
+        Ok(Delivery {
+            zip: DeliveryZip::Building,
+            replaced,
+        })
+    }
+
+    /// Stores the snapshot of `photos` (id, name, size), in the given order, and queues its build.
+    async fn insert_in(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        (workspace_id, gallery_id): (WorkspaceId, GalleryId),
+        kind: ExportKind,
+        photos: &[(PhotoId, String, i64)],
+    ) -> Result<Export, DatabaseError> {
         let id = ExportId::generate();
-        let photo_count = i32::try_from(favorites.len())
-            .map_err(|_| sqlx::Error::Encode("selection is too large to count".into()))?;
+        let photo_count = i32::try_from(photos.len())
+            .map_err(|_| sqlx::Error::Encode("snapshot is too large to count".into()))?;
+        let total: i64 = photos.iter().map(|(_, _, size)| size).sum();
         let export: Export = sqlx::query_as(AssertSqlSafe(format!(
-            "INSERT INTO exports (id, workspace_id, gallery_id, photo_count, size)
-             VALUES ($1, $2, $3, $4, $5) RETURNING {}",
+            "INSERT INTO exports (id, workspace_id, gallery_id, kind, photo_count, size)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING {}",
             Self::COLUMNS
         )))
         .bind(id)
         .bind(workspace_id)
         .bind(gallery_id)
+        .bind(kind.as_str())
         .bind(photo_count)
         .bind(total)
-        .fetch_one(&mut *transaction)
+        .fetch_one(&mut **transaction)
         .await?;
-
-        let ids: Vec<PhotoId> = favorites.iter().map(|(id, ..)| *id).collect();
-        let names: Vec<&str> = favorites.iter().map(|(_, name, _)| name.as_str()).collect();
+        let ids: Vec<PhotoId> = photos.iter().map(|(id, ..)| *id).collect();
+        let names: Vec<&str> = photos.iter().map(|(_, name, _)| name.as_str()).collect();
 
         sqlx::query(
             "INSERT INTO export_photos (export_id, photo_id, original_name, position)
@@ -290,20 +476,16 @@ impl ExportRepository<'_> {
         .bind(id)
         .bind(&ids)
         .bind(&names)
-        .execute(&mut *transaction)
+        .execute(&mut **transaction)
         .await?;
         JobRepository::enqueue_in(
-            &mut transaction,
+            transaction,
             ZipExport { export_id: id },
             self.options.max_attempts,
         )
         .await?;
-        transaction.commit().await?;
 
-        Ok(ExportRequest::Created {
-            export,
-            replaced: replaced_ids,
-        })
+        Ok(export)
     }
 
     /// The gallery's newest export that has not outlived `retention`.
@@ -315,7 +497,7 @@ impl ExportRepository<'_> {
     ) -> Result<Option<Export>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM exports
-             WHERE workspace_id = $1 AND gallery_id = $2
+             WHERE workspace_id = $1 AND gallery_id = $2 AND kind = 'selection'
                AND COALESCE(finished_at, created_at) > now() - $3 * interval '1 second'
              ORDER BY created_at DESC LIMIT 1",
             Self::COLUMNS
@@ -338,7 +520,8 @@ impl ExportRepository<'_> {
     ) -> Result<Option<Export>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM exports
-             WHERE id = $1 AND workspace_id = $2 AND gallery_id = $3 AND status ->> 'kind' = 'ready'
+             WHERE id = $1 AND workspace_id = $2 AND gallery_id = $3 AND kind = 'selection'
+               AND status ->> 'kind' = 'ready'
                AND finished_at > now() - $4 * interval '1 second'",
             Self::COLUMNS
         )))
@@ -469,13 +652,42 @@ impl ExportRepository<'_> {
         Ok(failed.rows_affected() == 1)
     }
 
+    /// Records the first download of the delivery ZIP: on the export and on every final it holds
+    /// that was not downloaded yet, in one transaction. Later requests change nothing.
+    pub async fn mark_downloaded(&self, id: ExportId) -> Result<(), DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
+        let first = sqlx::query(
+            "UPDATE exports SET downloaded_at = now()
+             WHERE id = $1 AND kind = 'delivery' AND downloaded_at IS NULL",
+        )
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
+
+        if first.rows_affected() == 1 {
+            sqlx::query(
+                "UPDATE photos SET downloaded_at = now()
+                 WHERE downloaded_at IS NULL AND kind = 'final'
+                   AND id IN (SELECT photo_id FROM export_photos WHERE export_id = $1)",
+            )
+            .bind(id)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        transaction.commit().await?;
+
+        Ok(())
+    }
+
     /// Deletes the exports that have outlived `retention`, with their jobs, and returns them so
     /// their files can follow.
     pub async fn expire(&self, retention: Duration) -> Result<Vec<ExpiredExport>, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
         let expired: Vec<ExpiredExport> = sqlx::query_as(
             "SELECT id, workspace_id, gallery_id FROM exports
-             WHERE COALESCE(finished_at, created_at) <= now() - $1 * interval '1 second'
+             WHERE kind = 'selection'
+               AND COALESCE(finished_at, created_at) <= now() - $1 * interval '1 second'
              ORDER BY id FOR UPDATE",
         )
         .bind(retention.as_secs_f64())
@@ -493,15 +705,46 @@ impl ExportRepository<'_> {
         Ok(expired)
     }
 
-    /// Deletes the gallery's exports and their jobs, jobs first like every other deletion.
+    /// Deletes the delivery ZIPs of galleries the client can no longer open, archived or past
+    /// their expiry, with their jobs, and returns them so their files can follow. The next client
+    /// click after the link works again builds a new one.
+    pub async fn remove_unreachable_deliveries(&self) -> Result<Vec<ExpiredExport>, DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
+        let unreachable: Vec<ExpiredExport> = sqlx::query_as(
+            "SELECT e.id, e.workspace_id, e.gallery_id FROM exports e
+             JOIN galleries g ON g.id = e.gallery_id
+             WHERE e.kind = 'delivery'
+               AND (g.archived_at IS NOT NULL OR g.expires_at <= now())
+             ORDER BY e.id FOR UPDATE OF e",
+        )
+        .fetch_all(&mut *transaction)
+        .await?;
+        let ids: Vec<ExportId> = unreachable.iter().map(|export| export.id).collect();
+
+        Self::delete_jobs_in(&mut transaction, &ids).await?;
+        sqlx::query("DELETE FROM exports WHERE id = ANY($1)")
+            .bind(&ids)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+
+        Ok(unreachable)
+    }
+
+    /// Deletes the gallery's exports of `kind' (every kind when `None`) and their jobs, jobs
+    /// first like every other deletion.
     pub(crate) async fn delete_exports_in(
         transaction: &mut Transaction<'_, Postgres>,
         gallery_id: GalleryId,
+        kind: Option<ExportKind>,
     ) -> Result<Vec<ExportId>, DatabaseError> {
         let ids: Vec<ExportId> = sqlx::query_scalar(
-            "SELECT id FROM exports WHERE gallery_id = $1 ORDER BY id FOR UPDATE",
+            "SELECT id FROM exports
+             WHERE gallery_id = $1 AND ($2::text IS NULL OR kind = $2)
+             ORDER BY id FOR UPDATE",
         )
         .bind(gallery_id)
+        .bind(kind.map(ExportKind::as_str))
         .fetch_all(&mut **transaction)
         .await?;
 
@@ -1161,5 +1404,224 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    impl Fixture {
+        async fn final_photo(&self, name: &str) -> PhotoId {
+            let id = self.photo(name, 10, false).await;
+
+            sqlx::query("UPDATE photos SET kind = 'final' WHERE id = $1")
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .unwrap();
+
+            id
+        }
+
+        async fn deliver(&self) {
+            sqlx::query("UPDATE galleries SET delivered_at = now() WHERE id = $1")
+                .bind(self.gallery_id)
+                .execute(&self.pool)
+                .await
+                .unwrap();
+        }
+
+        async fn delivery(&self) -> Delivery {
+            self.exports()
+                .ensure_delivery(self.workspace_id, self.gallery_id)
+                .await
+                .unwrap()
+        }
+
+        async fn count(&self, kind: ExportKind) -> i64 {
+            sqlx::query_scalar("SELECT count(*) FROM exports WHERE kind = $1")
+                .bind(kind.as_str())
+                .fetch_one(&self.pool)
+                .await
+                .unwrap()
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn selection_and_delivery_exports_leave_each_other_alone(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        fixture.photo("a.jpg", 10, true).await;
+        fixture.final_photo("f.jpg").await;
+        fixture.deliver().await;
+
+        assert_eq!(fixture.delivery().await.zip, DeliveryZip::Building);
+
+        let selection = fixture.created().await;
+
+        assert_eq!(fixture.count(ExportKind::Delivery).await, 1);
+        assert_eq!(fixture.delivery().await.zip, DeliveryZip::Building);
+
+        fixture.final_photo("g.jpg").await;
+
+        let replaced = fixture.delivery().await.replaced;
+
+        assert_eq!(replaced.len(), 1);
+        assert!(fixture.exports().exists(selection.id).await.unwrap());
+        assert_eq!(fixture.count(ExportKind::Selection).await, 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn expiry_only_removes_selection_exports(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        fixture.photo("a.jpg", 10, true).await;
+        fixture.final_photo("f.jpg").await;
+        fixture.deliver().await;
+        fixture.delivery().await;
+        fixture.created().await;
+
+        let expired = fixture.exports().expire(Duration::ZERO).await.unwrap();
+
+        assert_eq!(expired.len(), 1);
+        assert_eq!(fixture.count(ExportKind::Delivery).await, 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn delivery_is_built_once_and_follows_the_finals(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        assert_eq!(fixture.delivery().await.zip, DeliveryZip::Unavailable);
+
+        fixture.deliver().await;
+
+        assert_eq!(fixture.delivery().await.zip, DeliveryZip::Empty);
+
+        let first = fixture.final_photo("f.jpg").await;
+
+        assert_eq!(fixture.delivery().await.zip, DeliveryZip::Building);
+        assert_eq!(fixture.delivery().await.zip, DeliveryZip::Building);
+        assert_eq!(fixture.count(ExportKind::Delivery).await, 1);
+
+        let job = fixture.claim().await;
+        let id: ExportId = sqlx::query_scalar("SELECT id FROM exports WHERE kind = 'delivery'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        let _ = fixture.exports().complete(&job, id).await.unwrap();
+
+        let DeliveryZip::Ready(ready) = fixture.delivery().await.zip else {
+            panic!("the finished ZIP of unchanged finals is served");
+        };
+
+        assert_eq!(ready.id, id);
+
+        sqlx::query("DELETE FROM photos WHERE id = $1")
+            .bind(first)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let delivery = fixture.delivery().await;
+
+        assert_eq!(delivery.zip, DeliveryZip::Empty);
+        assert_eq!(delivery.replaced, [id]);
+        assert_eq!(fixture.count(ExportKind::Delivery).await, 0);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_stale_build_is_replaced_and_its_late_completion_is_discarded(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        fixture.final_photo("f.jpg").await;
+        fixture.deliver().await;
+        fixture.delivery().await;
+
+        let job = fixture.claim().await;
+        let stale: ExportId = sqlx::query_scalar("SELECT id FROM exports")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        fixture.final_photo("g.jpg").await;
+
+        assert_eq!(fixture.delivery().await.replaced, [stale]);
+
+        let (_, update) = fixture.exports().complete(&job, stale).await.unwrap();
+
+        assert_eq!(update, ExportUpdate::Gone);
+        assert!(!fixture.exports().exists(stale).await.unwrap());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_failed_delivery_is_reported_once_then_started_again(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        fixture.final_photo("f.jpg").await;
+        fixture.deliver().await;
+        fixture.delivery().await;
+
+        let job = fixture.claim().await;
+        let id: ExportId = sqlx::query_scalar("SELECT id FROM exports")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        let _ = fixture.exports().fail(&job, id, "boom").await.unwrap();
+
+        let failed = fixture.delivery().await;
+
+        assert_eq!(failed.zip, DeliveryZip::Failed);
+        assert_eq!(failed.replaced, [id]);
+        assert_eq!(fixture.delivery().await.zip, DeliveryZip::Building);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_zip_download_marks_the_export_and_its_finals_once(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let first = fixture.final_photo("f.jpg").await;
+        let second = fixture.final_photo("g.jpg").await;
+        let proof = fixture.photo("p.jpg", 10, false).await;
+
+        fixture.deliver().await;
+        fixture.delivery().await;
+
+        let job = fixture.claim().await;
+        let id: ExportId = sqlx::query_scalar("SELECT id FROM exports")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        let _ = fixture.exports().complete(&job, id).await.unwrap();
+        fixture.mark_downloaded_at(second).await;
+
+        let earlier: Option<Timestamp> = fixture.downloaded_at(second).await;
+
+        fixture.exports().mark_downloaded(id).await.unwrap();
+
+        let marked = fixture.downloaded_at(first).await;
+
+        assert!(marked.is_some());
+        assert_eq!(fixture.downloaded_at(second).await, earlier);
+        assert!(fixture.downloaded_at(proof).await.is_none());
+
+        fixture.exports().mark_downloaded(id).await.unwrap();
+
+        assert_eq!(fixture.downloaded_at(first).await, marked);
+    }
+
+    impl Fixture {
+        async fn downloaded_at(&self, id: PhotoId) -> Option<Timestamp> {
+            sqlx::query_scalar("SELECT downloaded_at FROM photos WHERE id = $1")
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await
+                .unwrap()
+        }
+
+        async fn mark_downloaded_at(&self, id: PhotoId) {
+            sqlx::query("UPDATE photos SET downloaded_at = now() - interval '1 day' WHERE id = $1")
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .unwrap();
+        }
     }
 }

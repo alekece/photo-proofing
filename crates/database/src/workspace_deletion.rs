@@ -52,7 +52,7 @@ impl WorkspaceDeletion<'_> {
         .await?;
 
         JobRepository::delete_photo_jobs_in(&mut transaction, &photo_ids).await?;
-        ExportRepository::delete_exports_in(&mut transaction, id).await?;
+        ExportRepository::delete_exports_in(&mut transaction, id, None).await?;
 
         let removed_galleries =
             sqlx::query("DELETE FROM galleries WHERE id=$1 AND workspace_id=$2")

@@ -2,10 +2,16 @@ import { hasCleanPhoto, previewUrl, thumbnailUrl, type Photo } from './photos';
 import type { Proof, SharedPhoto } from './types';
 
 /** Points each photo at the same-origin client media routes behind the private link. */
-export function toProofs(token: string, photos: SharedPhoto[]): Proof[] {
+export function toProofs(token: string, photos: SharedPhoto[], delivered = false): Proof[] {
 	const base = `/api/v1/galleries/shared/${encodeURIComponent(token)}/photos`;
+	const proofs = mediaProofs(base, photos);
 
-	return mediaProofs(base, photos);
+	return delivered
+		? proofs.map((proof) => ({
+				...proof,
+				downloadUrl: `${base}/${encodeURIComponent(proof.id)}/download`
+			}))
+		: proofs;
 }
 
 function mediaProofs(base: string, photos: SharedPhoto[], watermark?: boolean): Proof[] {

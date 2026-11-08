@@ -19,7 +19,7 @@ export const load: PageServerLoad = async ({ params, fetch, setHeaders }) => {
 
 	return {
 		gallery,
-		proofs: toProofs(params.token, photos),
+		proofs: toProofs(params.token, photos, gallery.delivered),
 		favorites,
 		coverUrl: gallery.hero_id
 			? `/api/v1/galleries/shared/${encodeURIComponent(params.token)}/cover?hero=${encodeURIComponent(gallery.hero_id)}`

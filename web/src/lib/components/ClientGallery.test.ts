@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import type { Proof, SharedGallery } from '#lib/gallery/types.js';
 import ClientGallery from './ClientGallery.svelte';
 
@@ -140,7 +141,6 @@ describe('ClientGallery', () => {
 		show({
 			gallery: { ...gallery, delivered: true },
 			proofs: [{ ...proof('a'), downloadUrl: '/final/a' }],
-			downloadAllUrl: '/all.zip',
 			favorites: ['a']
 		});
 
@@ -150,8 +150,35 @@ describe('ClientGallery', () => {
 		expect(screen.getByRole('link', { name: 'Download photo 1' }).getAttribute('href')).toBe(
 			'/final/a'
 		);
-		for (const link of screen.getAllByRole('link', { name: /download all/i }))
-			expect(link.getAttribute('href')).toBe('/all.zip');
+		expect(screen.getAllByRole('button', { name: /download all/i }).length).toBeGreaterThan(0);
+	});
+
+	it('prepares the ZIP, then downloads it, and apologises when it fails', async () => {
+		const user = userEvent.setup();
+		const answers = [202, 200];
+		const fetcher = vi.fn(async () => new Response('{}', { status: answers.shift() ?? 503 }));
+
+		vi.stubGlobal('fetch', fetcher);
+		show({ token: 't', gallery: { ...gallery, delivered: true } });
+
+		await user.click(screen.getAllByRole('button', { name: /download all/i })[0]);
+
+		expect(await screen.findAllByText('Downloading…')).not.toHaveLength(0);
+		await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2), { timeout: 4000 });
+		expect(fetcher).toHaveBeenCalledWith('/api/v1/galleries/shared/t/download', {
+			method: 'POST'
+		});
+
+		await user.click(
+			await screen.findAllByRole('button', { name: /download all/i }).then((b) => b[0])
+		);
+
+		await vi.waitFor(() =>
+			expect(toasts.items.map((toast) => toast.message)).toContain(
+				"Couldn't prepare the download. Please try again."
+			)
+		);
+		vi.unstubAllGlobals();
 	});
 
 	it('filters to favorites and says when there are none', async () => {

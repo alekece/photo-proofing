@@ -29,7 +29,7 @@ use actix_web_lab::extract::Query as LabQuery;
 use pp_database::gallery::{
     Delivery, GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
 };
-use pp_database::photo::Watermarked;
+use pp_database::photo::{PhotoLocation, Watermarked};
 use pp_database::watermark::WatermarkRepository;
 use pp_database::workspace_deletion::WorkspaceDeletion;
 use pp_storage::Variant;
@@ -239,7 +239,19 @@ async fn deliver_gallery(
         .deliver(identity.workspace_id, id.into_inner())
         .await?
     {
-        Delivery::Delivered(gallery) => Ok(HttpResponse::Ok().no_store().json(gallery)),
+        Delivery::Delivered(gallery) => {
+            // A head start for the first click; the click builds it if this did not.
+            let location = PhotoLocation {
+                workspace_id: identity.workspace_id,
+                gallery_id: gallery.id,
+            };
+
+            if let Err(error) = state.ensure_delivery(location).await {
+                tracing::warn!(%error, "delivery ZIP could not be started");
+            }
+
+            Ok(HttpResponse::Ok().no_store().json(gallery))
+        }
         Delivery::NotDeliverable => Err(ErrorResponse::conflict("gallery is not shared")),
         Delivery::NotFound => Err(ErrorResponse::not_found()),
     }

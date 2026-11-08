@@ -83,6 +83,8 @@ export const photoSchema = v.object({
 	status: photoStatusSchema,
 	/** Whether the client selected the photo. */
 	favorite: v.boolean(),
+	/** When the client first downloaded this finished photo. */
+	downloaded_at: v.optional(v.nullable(v.string())),
 	created_at: v.string()
 });
 

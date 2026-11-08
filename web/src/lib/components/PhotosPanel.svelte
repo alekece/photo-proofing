@@ -579,6 +579,7 @@
 							? thumbnailUrl(galleryId, photo.id, set, photo.revision)
 							: undefined}
 						selected={selected.has(photo.id)}
+						downloaded={finals && !!photo.downloaded_at}
 						onremove={() => (confirming = photo)}
 						onretry={() => retry(photo)}
 						onopen={() => open(photo)}
