@@ -55,7 +55,7 @@ selection lock, the client delivery ZIP (#71) and watermarks. The ZIP builder is
 - **Deletion coordination.** Gallery deletion deletes the gallery's export jobs first (in id order, like
   photo jobs) and its export rows cascade, so a late build finds no row: it publishes nothing and removes
   the file it wrote. Replacing an export deletes the old row and its job in one transaction; its file is
-  removed after that commit, best effort, with the sweep as the safety net.
+  removed after that commit, best effort, with the maintenance sweep as the safety net.
 - **Exhausted attempts.** `claim` (expired lease on the last attempt), `fail` and `abandon` also mark the
   linked export failed in their own transaction, as they do for a photo, so an export never stays
   Preparing after its job gave up.
@@ -77,8 +77,8 @@ selection lock, the client delivery ZIP (#71) and watermarks. The ZIP builder is
   when the originals total more than `export-max-size` (default 2 GiB, checked from the
   snapshot sizes before anything is written); entries are written with ZIP64 so the limit is a policy,
   not a format limit. An export older than `export-retention` (default 24 h) is treated as gone
-  by the API (status 204, download 404) and the worker's startup sweep deletes its row and file, plus
-  ZIP files no row owns. There is no workspace-wide quota (followed up): disk use is bounded by one
+  by the API (status 204, download 404) and the worker's maintenance run deletes its row and file, plus
+  ZIP files no row owns ([image worker outcomes](2026-11-08-image-worker-outcomes-design.md)), independent of export builds. There is no workspace-wide quota (followed up): disk use is bounded by one
   capped export per gallery for at most the retention period, plus the concurrency of the worker.
 - **Empty selection (my call).** The button is disabled with no favorites, and the server also answers 409
   `empty_selection` for a race, creating nothing.

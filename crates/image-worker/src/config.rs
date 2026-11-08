@@ -36,7 +36,7 @@ pub struct WorkerConfig {
     pub cleanup: CleanupConfig,
 }
 
-/// How the worker removes files that no photo owns.
+/// How the worker runs its maintenance: orphan sweeps, export expiry and archive sweeps.
 #[derive(Args, ConfigArgs, Debug, Clone)]
 pub struct CleanupConfig {
     /// A file younger than this is never swept, so an upload still being finished is safe.
@@ -46,8 +46,9 @@ pub struct CleanupConfig {
         default_value = "24h"
     )]
     pub orphan_grace: QueueDuration,
-    /// A sweep requested less than this after the last successful one is skipped, so frequent
-    /// restarts do not rescan the volume each time.
+    /// Time between maintenance runs. The first run starts with the worker; a run that is late,
+    /// because it overran or waited for a free slot, skips the ticks it missed. Run one worker
+    /// to keep maintenance from running twice at once.
     #[arg(
         long = "cleanup-sweep-interval",
         env = "PP_CLEANUP_SWEEP_INTERVAL",

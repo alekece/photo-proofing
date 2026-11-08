@@ -8,11 +8,12 @@ use pp_database::jobs::JobKind;
 use pp_image_worker::{
     config::WorkerConfig,
     handlers::{
-        HandlerRegistry,
+        CompleteJob, HandlerRegistry,
         cleanup::CleanupHandler,
-        export::{ExportExpiry, ExportHandler},
-        process_photo::ProcessPhotoHandler,
+        export::{ExportFinalizer, ExportHandler},
+        process_photo::{ProcessPhotoFinalizer, ProcessPhotoHandler},
     },
+    maintenance::Maintenance,
     render::ImageRenderer,
     runtime::Worker,
 };
@@ -77,48 +78,53 @@ async fn main() -> Result<()> {
     let orphan_grace = cli.worker.cleanup.orphan_grace.get();
     let sweep_interval = cli.worker.cleanup.sweep_interval.get();
     let retention = cli.export.retention.get();
+    let maintenance_storage = storage.clone();
     let worker = Worker::connect(cli.worker, |database| {
         let process_handler = Arc::new(ProcessPhotoHandler::new(
             database.clone(),
             storage.clone(),
             renderer,
         ));
-        let expiry = ExportExpiry::new(database.clone(), storage.clone(), retention);
-        let export_handler = Arc::new(ExportHandler::new(
-            database.clone(),
-            storage.clone(),
-            expiry.clone(),
-        ));
-        let cleanup_handler = Arc::new(CleanupHandler::new(
-            database.clone(),
-            storage,
-            orphan_grace,
-            sweep_interval,
-            expiry,
-        ));
+        let process_finalizer = ProcessPhotoFinalizer::new(database.clone(), storage.clone());
+        let export_handler = Arc::new(ExportHandler::new(database.clone(), storage.clone()));
+        let export_finalizer = ExportFinalizer::new(database.clone(), storage.clone());
+        let cleanup_handler = Arc::new(CleanupHandler::new(storage));
 
         HandlerRegistry::default()
-            .register(JobKind::ProcessPhoto, move |payload, job| {
-                Arc::clone(&process_handler).run(payload, job)
-            })
-            .register(JobKind::CleanupGallery, {
-                let cleanup_handler = Arc::clone(&cleanup_handler);
+            .register(
+                JobKind::ProcessPhoto,
+                move |payload| Arc::clone(&process_handler).run(payload),
+                process_finalizer,
+            )
+            .register(
+                JobKind::CleanupGallery,
+                {
+                    let cleanup_handler = Arc::clone(&cleanup_handler);
 
-                move |payload, job| Arc::clone(&cleanup_handler).remove_gallery(payload, job)
-            })
-            .register(JobKind::CleanupPhotos, {
-                let cleanup_handler = Arc::clone(&cleanup_handler);
-
-                move |payload, job| Arc::clone(&cleanup_handler).remove_photos(payload, job)
-            })
-            .register(JobKind::ZipExport, move |payload, job| {
-                Arc::clone(&export_handler).run(payload, job)
-            })
-            .register(JobKind::SweepOrphans, move |payload, job| {
-                Arc::clone(&cleanup_handler).sweep_orphans(payload, job)
-            })
+                    move |payload| Arc::clone(&cleanup_handler).remove_gallery(payload)
+                },
+                CompleteJob::new(database.clone()),
+            )
+            .register(
+                JobKind::CleanupPhotos,
+                move |payload| Arc::clone(&cleanup_handler).remove_photos(payload),
+                CompleteJob::new(database.clone()),
+            )
+            .register(
+                JobKind::ZipExport,
+                move |payload| Arc::clone(&export_handler).run(payload),
+                export_finalizer,
+            )
     })
     .await?;
+    let maintenance = Maintenance::new(
+        worker.database().clone(),
+        maintenance_storage,
+        sweep_interval,
+        orphan_grace,
+        retention,
+    );
+    let worker = worker.with_maintenance(maintenance);
 
     worker.run(shutdown).await;
     signals.abort();

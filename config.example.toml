@@ -44,7 +44,7 @@ shutdown_grace = "30s"
 # Worker only. Files younger than this are never swept as orphans.
 [cleanup]
 orphan_grace = "24h"
-# Sweeps requested sooner than this after the last successful one are skipped.
+# Time between maintenance runs (orphan sweep, export expiry, archive sweep).
 sweep_interval = "1h"
 
 # Selection ZIPs built by the worker for the photographer's Favorites tab; read by both.

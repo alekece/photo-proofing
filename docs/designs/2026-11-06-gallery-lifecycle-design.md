@@ -52,17 +52,17 @@ File cleanup:
 - One transaction deletes the gallery (photos, jobs and favorites cascade) and inserts a gallery cleanup job naming the gallery. After commit, clients are refused at once.
 - Photo deletes (single and bulk) use the same mechanism: the transaction that removes the rows also inserts a cleanup job naming the removed photos. The API stops removing files itself.
 - The worker handles the job by removing the files of the named gallery or photos. Removing an already missing file is success, so retries and duplicates are harmless.
-- A worker still rendering a deleted photo finds its claim gone and removes what it wrote late (existing behaviour); stale jobs cannot recreate accessible content because nothing serves a file without its photo row.
+- A worker still rendering a deleted photo finds its claim gone and removes what it wrote late when it finalizes; stale jobs cannot recreate accessible content because nothing serves a file without its photo row.
 
-## Startup sweep
+## Orphan sweep
 
-- When the API starts it enqueues one sweep job. The worker skips a sweep requested less than the configured interval (default 1 hour) after the last successful one, remembered in the database so restarts do not reset it.
+- The worker sweeps on a timer (default every hour, first run when it starts) as one step of its maintenance run; see [image worker outcomes](2026-11-08-image-worker-outcomes-design.md). The API enqueues nothing.
 - The sweep removes files that have no photo row and are older than a grace period (24 hours by default, configurable). The grace period protects uploads whose file exists before its row is committed. It never deletes by a list read earlier; each file is checked against the database when considered.
-- No timer. Strays from crashes are cleaned at the next restart; the grace period and the minimum interval between sweeps are worker settings.
+- The grace period and the interval between maintenance runs are worker settings.
 
 ## Jobs
 
-- `JobPayload` gains cleanup and sweep variants next to `ProcessPhoto`. Discriminators stay inside the tagged payload JSON, so no schema change.
+- `JobPayload` gains cleanup variants next to `ProcessPhoto`. Discriminators stay inside the tagged payload JSON, so no schema change.
 - Cleanup jobs are bounded: files are removed in batches and a large gallery continues across retries.
 - The jobs table has no foreign keys to galleries or photos; payloads carry ids in JSON. A cleanup job therefore survives the cascade, and the photo-delete query that removes a photo's processing jobs matches only `ProcessPhoto` payloads, never cleanup jobs.
 - Storage is the local filesystem, laid out `<workspace>/<gallery>/<photo>-<variant>` (ADR 0003), so ids alone locate every file: a cleanup job carries workspace, gallery and, for photo deletes, photo ids. It needs no stored paths.
@@ -87,4 +87,4 @@ Tests for: archive/restore round trip and idempotence; restore keeps delivered a
 
 ## Left to the builder
 
-Job names and payload fields, batch size, how the last sweep is remembered, error codes, and web component structure.
+Job names and payload fields, batch size, error codes, and web component structure.
