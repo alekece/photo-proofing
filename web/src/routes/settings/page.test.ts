@@ -53,7 +53,7 @@ describe('Settings page', () => {
 		await user.click(pending);
 		expect(fetcher.mock.calls.filter(([url]) => url === '/api/v1/settings')).toHaveLength(1);
 		finish(Response.json(saved));
-		expect(await screen.findByRole('button', { name: /Saved/ })).toBeTruthy();
+		await vi.waitFor(() => expect(screen.queryByRole('button', { name: /Saving/ })).toBeNull());
 	});
 
 	it('keeps Save and Cancel disabled until something changes', async () => {
@@ -96,8 +96,9 @@ describe('Settings page', () => {
 		expect(screen.getByRole('radio', { name: 'None' }).getAttribute('aria-checked')).toBe('true');
 	});
 
-	it('saves, shows Saved and announces the regeneration', async () => {
+	it('saves, queues the Saved toast and announces the regeneration', async () => {
 		toasts.items = [];
+		const savedToast = vi.spyOn(toasts, 'saved');
 		const fetcher = respond(saved);
 		open();
 		const user = userEvent.setup();
@@ -105,7 +106,7 @@ describe('Settings page', () => {
 		await user.type(screen.getByLabelText('Studio name'), 'Studio X');
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
-		expect(await screen.findByRole('button', { name: /Saved/ })).toBeTruthy();
+		await vi.waitFor(() => expect(savedToast).toHaveBeenCalledOnce());
 		expect(fetcher).toHaveBeenCalledWith(
 			'/api/v1/settings',
 			expect.objectContaining({ method: 'PUT' })
@@ -139,6 +140,7 @@ describe('Settings page', () => {
 
 	it('shows the reason the server refused the settings', async () => {
 		toasts.items = [];
+		const savedToast = vi.spyOn(toasts, 'saved');
 		respond({ error: 'invalid settings', context: ['studio_name'] }, 422);
 		open();
 		const user = userEvent.setup();
@@ -149,6 +151,7 @@ describe('Settings page', () => {
 		await vi.waitFor(() =>
 			expect(toasts.items.map((toast) => toast.message)).toContain('invalid settings')
 		);
+		expect(savedToast).not.toHaveBeenCalled();
 	});
 
 	it('refuses a logo that is not a PNG or JPEG or is too large before uploading it', async () => {

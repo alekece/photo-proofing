@@ -700,6 +700,7 @@ describe('PhotosPanel', () => {
 
 	it('sets and removes the hero from the viewer', async () => {
 		const api = stubApi([photo('p1'), photo('p2')]);
+		const savedToast = vi.spyOn(toasts, 'saved');
 		const user = userEvent.setup();
 
 		setup();
@@ -711,6 +712,8 @@ describe('PhotosPanel', () => {
 		await waitFor(() =>
 			expect(within(viewer).getByRole('button', { name: 'Remove cover' })).toBeTruthy()
 		);
+		expect(savedToast).toHaveBeenCalledOnce();
+		savedToast.mockRestore();
 		expect(api.heroes()).toEqual(['p2']);
 	});
 

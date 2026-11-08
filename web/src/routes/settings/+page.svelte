@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
-	import { Check, LoaderCircle, Undo2, Upload, X } from '@lucide/svelte';
+	import { LoaderCircle, Undo2, Upload, X } from '@lucide/svelte';
 	import { authRequest } from '#lib/auth.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
@@ -22,7 +22,6 @@
 	} from '#lib/settings/settings.js';
 	import type { PageData } from './$types';
 
-	const SAVED_MS = 1600;
 	const REVERTED_MS = 1400;
 
 	let { data }: { data: PageData } = $props();
@@ -32,7 +31,7 @@
 	// svelte-ignore state_referenced_locally
 	let draft = $state<WorkspaceSettings>({ ...data.settings });
 	let dirty = $derived(settingsChanged(draft, saved));
-	let feedback = $state<'saved' | 'reverted' | null>(null);
+	let feedback = $state<'reverted' | null>(null);
 	let saving = $state(false);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let signingOut = $state(false);
@@ -51,7 +50,7 @@
 		};
 	});
 
-	function show(kind: 'saved' | 'reverted', ms: number) {
+	function show(kind: 'reverted', ms: number) {
 		feedback = kind;
 		clearTimeout(timer);
 		timer = setTimeout(() => (feedback = null), ms);
@@ -71,7 +70,7 @@
 			for (const key of Object.keys(submitted) as (keyof WorkspaceSettings)[]) {
 				if (draft[key] === submitted[key]) draft = { ...draft, [key]: saved[key] };
 			}
-			if (!dirty) show('saved', SAVED_MS);
+			toasts.saved();
 			if (watermark) toasts.success('Watermarked proofs are being regenerated');
 		} catch (error) {
 			if (error instanceof SettingsApiError && error.status === 422) {
@@ -163,15 +162,8 @@
 				>Reverted
 			</span>
 		</Button>
-		<Button
-			disabled={(!dirty && feedback !== 'saved') || saving}
-			onclick={save}
-			class="{action} {feedback === 'saved' ? 'animate-save-pop bg-ok! opacity-100!' : ''}"
-		>
-			<span
-				class="{face} {feedback === 'saved' ? '-translate-y-2 opacity-0' : ''}"
-				aria-hidden={feedback === 'saved'}
-			>
+		<Button disabled={!dirty || saving} onclick={save} class={action}>
+			<span class={face}>
 				{#if saving}
 					<LoaderCircle
 						size={16}
@@ -183,16 +175,10 @@
 					Save changes
 				{/if}
 			</span>
-			<span
-				class="{face} {feedback === 'saved' ? '' : 'translate-y-2 opacity-0'}"
-				aria-hidden={feedback !== 'saved'}
-			>
-				<Check size={16} strokeWidth={2.6} aria-hidden="true" />Saved
-			</span>
 		</Button>
 	</div>
 	<span role="status" class="sr-only">
-		{feedback === 'saved' ? 'Saved' : feedback === 'reverted' ? 'Reverted' : ''}
+		{feedback === 'reverted' ? 'Reverted' : ''}
 	</span>
 
 	<div class="mb-10 flex items-center gap-5">

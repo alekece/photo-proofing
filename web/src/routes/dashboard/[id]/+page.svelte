@@ -99,6 +99,8 @@
 				saved = { ...saved, states: result.states };
 			}
 
+			toasts.saved();
+
 			return true;
 		} catch (error) {
 			if (error instanceof GalleryApiError && error.status === 401) {
@@ -285,9 +287,7 @@
 					}}
 				/>
 				<div class="flex items-center gap-2 text-sm" role="status" aria-live="polite">
-					{#if inflight > 0}
-						<span>Saving…</span>
-					{:else if hasFailures}
+					{#if inflight === 0 && hasFailures}
 						<span>Couldn’t save</span>
 						<!-- mousedown would blur the edited field, which reverts a failed value before the click -->
 						<Button
