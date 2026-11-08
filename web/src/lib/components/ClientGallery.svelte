@@ -56,8 +56,8 @@
 	const select = $derived(
 		preview || gallery.delivered ? undefined : (id: string) => void selection.toggle(id)
 	);
-	const extra = $derived(
-		gallery.included_photos === null ? 0 : Math.max(0, selection.count - gallery.included_photos)
+	const over = $derived(
+		gallery.included_photos !== null && selection.count > gallery.included_photos
 	);
 
 	const delivered = $derived(gallery.delivered);
@@ -260,9 +260,6 @@
 							: m.favorites_download_all()}
 					</Button>
 				{:else}
-					{#if extra > 0}
-						<span class="font-bold text-warning">{m.client_extra({ count: extra })}</span>
-					{/if}
 					<div
 						role="group"
 						aria-label={m.client_show()}
@@ -283,11 +280,15 @@
 										fill="currentColor"
 										class="text-danger group-aria-pressed:text-[#ff8f75]"
 									/>
-									{#key selection.count}<span class="inline-block animate-heart-pop tabular-nums"
-											>{selection.count}</span
+									{#key selection.count}<span
+											class={[
+												'inline-block animate-heart-pop tabular-nums',
+												over &&
+													'font-extrabold text-warning group-aria-pressed:text-warning-on-dark'
+											]}>{selection.count}</span
 										>{/key}
 									{#if gallery.included_photos !== null}
-										<span class="font-medium opacity-75"
+										<span class="font-medium whitespace-nowrap opacity-75"
 											>{m.client_of_included({ count: gallery.included_photos })}</span
 										>
 									{/if}

@@ -497,7 +497,6 @@
 	"client_cover_alt": "Gallery cover",
 	"client_ready": "Your photos are ready",
 	"client_view_gallery": "View the gallery",
-	"client_extra": "{count} extra",
 	"client_show": "Show",
 	"client_of_included": "of {count}",
 	"client_all": "All",
@@ -521,5 +520,6 @@
 	"viewer_failed": "This photo could not be processed",
 	"viewer_try_again": "Try again",
 	"viewer_previous": "Previous proof",
-	"viewer_next": "Next proof"
+	"viewer_next": "Next proof",
+	"tab_locked": "Locked"
 }

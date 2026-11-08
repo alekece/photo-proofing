@@ -112,18 +112,19 @@ describe('ClientGallery', () => {
 		);
 	});
 
-	it('shows the package allowance and warns about extras in words', () => {
+	it('emphasises the selected count over the allowance without a separate extra count', () => {
 		show({ gallery: { ...gallery, included_photos: 1 }, favorites: ['p1', 'p2', 'p3'] });
 
 		expect(count()).toBe('3 of 1');
-		expect(screen.getByText('2 extra').classList.contains('font-bold')).toBe(true);
+		expect(screen.getByText('3').classList.contains('text-warning')).toBe(true);
+		expect(screen.queryByText(/extra/)).toBeNull();
 	});
 
-	it('shows no extras within the allowance', () => {
+	it('keeps the selected count plain within the allowance', () => {
 		show({ gallery: { ...gallery, included_photos: 5 }, favorites: ['p1'] });
 
 		expect(count()).toBe('1 of 5');
-		expect(screen.queryByText(/extra/)).toBeNull();
+		expect(screen.getByText('1').classList.contains('text-warning')).toBe(false);
 	});
 
 	it('shows no allowance when selection is unlimited', () => {

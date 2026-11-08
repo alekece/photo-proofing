@@ -497,7 +497,6 @@
 	"client_cover_alt": "Couverture de la galerie",
 	"client_ready": "Vos photos sont prêtes",
 	"client_view_gallery": "Voir la galerie",
-	"client_extra": "{count} en supplément",
 	"client_show": "Afficher",
 	"client_of_included": "sur {count}",
 	"client_all": "Toutes",
@@ -521,5 +520,6 @@
 	"viewer_failed": "Cette photo n’a pas pu être traitée",
 	"viewer_try_again": "Réessayer",
 	"viewer_previous": "Épreuve précédente",
-	"viewer_next": "Épreuve suivante"
+	"viewer_next": "Épreuve suivante",
+	"tab_locked": "Verrouillé"
 }
