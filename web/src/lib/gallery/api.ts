@@ -1,4 +1,5 @@
 import { gallerySchema, parseOrNull, type Gallery, type GalleryLayout } from './schemas';
+import { apiErrorMessage } from '#lib/i18n/errors.js';
 
 export type { Gallery, GalleryLayout, GalleryOverview, GallerySort } from './schemas';
 
@@ -31,17 +32,16 @@ async function galleryRequest(path: string, init: RequestInit, fetcher: typeof f
 	});
 	if (!response.ok) {
 		const data = await response.json().catch(() => ({}));
-		throw new GalleryApiError(
-			response.status,
-			typeof data.error === 'string' ? data.error : 'Unable to complete the request.',
+		const field =
 			Array.isArray(data.context) && typeof data.context[0] === 'string'
 				? data.context[0]
-				: undefined
-		);
+				: undefined;
+
+		throw new GalleryApiError(response.status, apiErrorMessage(response.status, field), field);
 	}
 	const gallery = parseOrNull(gallerySchema, await response.json().catch(() => null));
 
-	if (!gallery) throw new GalleryApiError(502, 'Unexpected response from the server.');
+	if (!gallery) throw new GalleryApiError(502, apiErrorMessage(502));
 
 	return gallery;
 }
@@ -90,6 +90,6 @@ export async function deleteGallery(id: string, fetcher: typeof fetch = fetch): 
 	});
 
 	if (!response.ok) {
-		throw new GalleryApiError(response.status, 'Unable to delete the gallery.');
+		throw new GalleryApiError(response.status, apiErrorMessage(response.status));
 	}
 }

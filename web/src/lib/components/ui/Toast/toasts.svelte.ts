@@ -1,3 +1,5 @@
+import { m } from '#lib/paraglide/messages.js';
+
 export type Toast = {
 	id: number;
 	kind: 'success' | 'error';
@@ -23,7 +25,7 @@ class Toasts {
 	/** Reports a successful save; saves closer together than `SAVED_QUIET_MS` share one toast. */
 	saved() {
 		clearTimeout(this.#savedTimer);
-		this.#savedTimer = setTimeout(() => this.success('Saved'), SAVED_QUIET_MS);
+		this.#savedTimer = setTimeout(() => this.success(m.toast_saved()), SAVED_QUIET_MS);
 	}
 
 	/** Errors stay until dismissed, so a Retry stays reachable. */

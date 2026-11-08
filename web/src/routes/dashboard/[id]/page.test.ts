@@ -641,7 +641,11 @@ describe('gallery page', () => {
 
 			await userEvent.setup().click(await screen.findByRole('button', { name: 'No expiry' }));
 
-			await waitFor(() => expect(toasts.items.map(({ message }) => message)).toContain('nope'));
+			await waitFor(() =>
+				expect(toasts.items.map(({ message }) => message)).toContain(
+					'Something went wrong. Please try again.'
+				)
+			);
 			expect(screen.getByRole('dialog')).toBeTruthy();
 		});
 
@@ -651,7 +655,11 @@ describe('gallery page', () => {
 
 			await restore();
 
-			await waitFor(() => expect(toasts.items.map(({ message }) => message)).toEqual(['nope']));
+			await waitFor(() =>
+				expect(toasts.items.map(({ message }) => message)).toEqual([
+					'Something went wrong. Please try again.'
+				])
+			);
 			expect(screen.queryByRole('dialog')).toBeNull();
 			expect(screen.getAllByRole('button', { name: 'Restore' }).length).toBeGreaterThan(0);
 		});

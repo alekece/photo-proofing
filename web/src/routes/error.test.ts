@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { axe } from 'vitest-axe';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useLocale } from '#lib/i18n/testing.js';
 
 const state = vi.hoisted(() => ({
 	page: { status: 500, error: { message: 'boom' }, url: new URL('http://localhost/') }
@@ -77,5 +78,20 @@ describe('error page', () => {
 		const { container } = show(404, '/nowhere');
 
 		expect((await axe(container)).violations).toEqual([]);
+	});
+});
+
+describe('error page in French', () => {
+	useLocale('fr');
+	beforeEach(() => document.body.replaceChildren());
+
+	it('speaks the workspace language', () => {
+		show(404, '/dashboard/abc');
+
+		expect(
+			screen.getByRole('heading', { level: 1, name: 'Nous n’avons pas trouvé cette page.' })
+		).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Retour à vos galeries' })).toBeTruthy();
+		expect(screen.queryByText(/couldn.t find/i)).toBeNull();
 	});
 });

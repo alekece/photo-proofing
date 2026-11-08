@@ -4,8 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$app/navigation', () => ({ goto: vi.fn(), refreshAll: vi.fn() }));
 vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/login') } }));
-vi.mock('#lib/auth.js', () => ({ authRequest: vi.fn() }));
-import { authRequest } from '#lib/auth.js';
+vi.mock('#lib/auth.js', async (original) => ({
+	...(await original<typeof import('#lib/auth.js')>()),
+	authRequest: vi.fn()
+}));
+import { AuthError, authRequest } from '#lib/auth.js';
+import { useLocale } from '#lib/i18n/testing.js';
 import Login from './+page.svelte';
 
 const open = (setupAvailable: boolean) =>
@@ -44,7 +48,7 @@ describe('login page', () => {
 	});
 
 	it('clears both passwords after a rejected request', async () => {
-		vi.mocked(authRequest).mockRejectedValue(new Error('nope'));
+		vi.mocked(authRequest).mockRejectedValue(new AuthError(401, 'refused'));
 		const user = userEvent.setup();
 		open(true);
 		await waitFor(() =>
@@ -56,8 +60,37 @@ describe('login page', () => {
 		await user.type(screen.getByLabelText('Confirm password'), 'same password 1234');
 		await user.click(screen.getByRole('button', { name: 'Create account' }));
 
-		expect((await screen.findByRole('alert')).textContent).toBe('nope');
+		expect((await screen.findByRole('alert')).textContent).toBe('Invalid email or password.');
 		expect((screen.getByLabelText('Password', { exact: true }) as HTMLInputElement).value).toBe('');
 		expect((screen.getByLabelText('Confirm password') as HTMLInputElement).value).toBe('');
+	});
+});
+
+describe('login page in French', () => {
+	useLocale('fr');
+
+	it('speaks the workspace language', async () => {
+		open(false);
+
+		expect(await screen.findByRole('heading', { level: 1, name: 'Connexion' })).toBeTruthy();
+		expect(screen.getByLabelText('Mot de passe')).toBeTruthy();
+		expect(screen.queryByRole('heading', { name: 'Sign in' })).toBeNull();
+	});
+
+	it('explains too many attempts', async () => {
+		vi.mocked(authRequest).mockRejectedValue(new AuthError(429, 'busy'));
+		const user = userEvent.setup();
+		open(false);
+		await waitFor(() =>
+			expect((screen.getByLabelText('E-mail') as HTMLInputElement).disabled).toBe(false)
+		);
+
+		await user.type(screen.getByLabelText('E-mail'), 'a@example.test');
+		await user.type(screen.getByLabelText('Mot de passe'), 'some password 1234');
+		await user.click(screen.getByRole('button', { name: 'Se connecter' }));
+
+		expect((await screen.findByRole('alert')).textContent).toBe(
+			'Trop de tentatives de connexion. Patientez un instant, puis réessayez.'
+		);
 	});
 });

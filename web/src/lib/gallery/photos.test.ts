@@ -152,7 +152,7 @@ describe('photo requests', () => {
 
 	it('throws a GalleryApiError with the status on failure', async () => {
 		await expect(deletePhoto('g1', 'p1', respond(404, { error: 'not found' }))).rejects.toEqual(
-			new GalleryApiError(404, 'not found')
+			new GalleryApiError(404, 'This item no longer exists.')
 		);
 		await expect(listPhotos('g1', respond(500))).rejects.toMatchObject({ status: 500 });
 	});

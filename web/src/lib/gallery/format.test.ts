@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { getLocale, overwriteGetLocale } from '#lib/paraglide/runtime.js';
+import { describe, expect, it } from 'vitest';
+import { useLocale } from '#lib/i18n/testing.js';
 import {
 	formatFullDate,
 	formatLongDate,
@@ -10,23 +10,22 @@ import {
 	highlightParts
 } from './format.js';
 
-describe('dates', () => {
-	const browserLocale = getLocale;
-	const noon = '2026-09-12T12:00:00Z';
+const noon = '2026-09-12T12:00:00Z';
 
-	afterEach(() => overwriteGetLocale(browserLocale));
+describe('dates in English', () => {
+	useLocale('en');
 
-	it('read day first in English', () => {
-		overwriteGetLocale(() => 'en');
-
+	it('read day first', () => {
 		expect(formatShortDate(noon)).toBe('12 Sep');
 		expect(formatLongDate(noon)).toBe('12 Sep 2026');
 		expect(formatFullDate(noon, 'UTC')).toBe('September 12, 2026');
 	});
+});
 
-	it('follow the French conventions in French', () => {
-		overwriteGetLocale(() => 'fr');
+describe('dates in French', () => {
+	useLocale('fr');
 
+	it('follow the French conventions', () => {
 		expect(formatShortDate(noon)).toBe('12 sept.');
 		expect(formatLongDate(noon)).toBe('12 sept. 2026');
 		expect(formatFullDate(noon, 'UTC')).toBe('12 septembre 2026');

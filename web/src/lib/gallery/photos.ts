@@ -8,6 +8,7 @@ import {
 	type Photo
 } from './schemas';
 import * as v from 'valibot';
+import { apiErrorMessage } from '#lib/i18n/errors.js';
 
 export type { Photo, PhotoStatus, UploadLimits } from './schemas';
 
@@ -43,18 +44,13 @@ function photosPath(
 	return set === 'finals' ? `${path}?finals=true` : path;
 }
 
-const unexpected = () => new GalleryApiError(502, 'Unexpected response from the server.');
+const unexpected = () => new GalleryApiError(502, apiErrorMessage(502));
 
 async function request(path: string, init: RequestInit, fetcher: typeof fetch) {
 	const response = await fetcher(path, { ...init, credentials: 'same-origin' });
 
 	if (!response.ok) {
-		const data = await response.json().catch(() => ({}));
-
-		throw new GalleryApiError(
-			response.status,
-			typeof data.error === 'string' ? data.error : 'Unable to complete the request.'
-		);
+		throw new GalleryApiError(response.status, apiErrorMessage(response.status));
 	}
 
 	return response;

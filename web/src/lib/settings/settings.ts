@@ -1,4 +1,5 @@
 import * as v from 'valibot';
+import { apiErrorMessage } from '#lib/i18n/errors.js';
 
 export const MARKS = ['name', 'logo', 'both'] as const;
 export const PATTERNS = ['repeat', 'once'] as const;
@@ -128,14 +129,12 @@ export class SettingsApi {
 
 		if (!response.ok) {
 			const data = await response.json().catch(() => ({}));
-
-			throw new SettingsApiError(
-				response.status,
-				typeof data.error === 'string' ? data.error : 'Unable to complete the request.',
+			const field =
 				Array.isArray(data.context) && typeof data.context[0] === 'string'
 					? data.context[0]
-					: undefined
-			);
+					: undefined;
+
+			throw new SettingsApiError(response.status, apiErrorMessage(response.status, field), field);
 		}
 
 		const logoReplaced = settings.logo?.startsWith('data:') ?? false;
@@ -144,7 +143,7 @@ export class SettingsApi {
 			logoReplaced ? `${LOGO_URL}?v=${Date.now()}` : (saved.logo ?? LOGO_URL)
 		);
 
-		if (!parsed) throw new SettingsApiError(502, 'Unexpected response from the server.');
+		if (!parsed) throw new SettingsApiError(502, apiErrorMessage(502));
 
 		return parsed;
 	}

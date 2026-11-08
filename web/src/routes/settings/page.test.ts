@@ -149,7 +149,9 @@ describe('Settings page', () => {
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
 		await vi.waitFor(() =>
-			expect(toasts.items.map((toast) => toast.message)).toContain('invalid settings')
+			expect(toasts.items.map((toast) => toast.message)).toContain(
+				'Enter a studio name of up to 100 characters.'
+			)
 		);
 		expect(savedToast).not.toHaveBeenCalled();
 	});

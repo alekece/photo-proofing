@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -248,8 +249,7 @@
 			await authRequest('logout');
 			await goto('/login', { refreshAll: true });
 		} catch (error) {
-			signOutError =
-				error instanceof Error ? error.message : 'Unable to sign out. Please try again.';
+			signOutError = error instanceof Error ? error.message : m.sign_out_failed();
 		}
 	}
 	function retry() {

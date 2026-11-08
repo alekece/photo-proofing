@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { navigating } from '$app/state';
@@ -87,7 +88,7 @@
 			await authRequest('logout');
 			await goto('/login', { refreshAll: true });
 		} catch (error) {
-			message = error instanceof Error ? error.message : 'Unable to sign out. Please try again.';
+			message = error instanceof Error ? error.message : m.sign_out_failed();
 		} finally {
 			pending = false;
 		}

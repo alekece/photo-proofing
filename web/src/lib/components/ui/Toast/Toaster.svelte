@@ -2,6 +2,7 @@
 	import { Check, CircleAlert, X } from '@lucide/svelte';
 	import { cubicIn } from 'svelte/easing';
 	import { fly } from 'svelte/transition';
+	import { m } from '#lib/paraglide/messages.js';
 	import { toasts } from './toasts.svelte.js';
 </script>
 
@@ -29,10 +30,10 @@
 					onclick={() => {
 						toast.retry?.();
 						toasts.dismiss(toast.id);
-					}}>Retry</button
+					}}>{m.toast_retry()}</button
 				>
 			{/if}
-			<button type="button" aria-label="Dismiss" onclick={() => toasts.dismiss(toast.id)}>
+			<button type="button" aria-label={m.toast_dismiss()} onclick={() => toasts.dismiss(toast.id)}>
 				<X size={16} aria-hidden="true" />
 			</button>
 			{#if toast.duration}

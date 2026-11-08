@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { describe, expect, it, vi } from 'vitest';
+import { useLocale } from '#lib/i18n/testing.js';
 
 vi.mock('$app/navigation', () => ({ afterNavigate: vi.fn(), goto: vi.fn() }));
 vi.mock('$app/state', () => ({ navigating: { to: null } }));
@@ -164,5 +165,21 @@ describe('AccessUnavailable', () => {
 	it('has no axe violations', async () => {
 		const { container } = render(AccessUnavailable);
 		expect((await axe(container)).violations).toEqual([]);
+	});
+});
+
+describe('AccessUnavailable in French', () => {
+	useLocale('fr');
+
+	it('speaks the workspace language', () => {
+		render(AccessUnavailable);
+
+		expect(
+			screen.getByRole('heading', { level: 1, name: 'Mise au point impossible' })
+		).toBeTruthy();
+		expect(
+			screen.getByText('Ce lien ne fonctionne plus. Demandez-en un nouveau à votre photographe.')
+		).toBeTruthy();
+		expect(screen.queryByText('Focus not locked')).toBeNull();
 	});
 });

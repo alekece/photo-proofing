@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { buttonVariants } from '#lib/components/ui/Button/Button.svelte';
 	import PageShell from '#lib/components/ui/PageShell/PageShell.svelte';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let heading: HTMLHeadingElement;
 
@@ -12,35 +13,37 @@
 	const onClientLink = $derived(path.startsWith('/g/'));
 	const exit = $derived(
 		path === '/dashboard' || path.startsWith('/dashboard/')
-			? { label: 'Back to your galleries', href: '/dashboard' }
+			? { label: m.error_page_back_to_galleries(), href: '/dashboard' }
 			: onClientLink
 				? serverFault
-					? { label: 'Try again', href: path }
+					? { label: m.error_page_try_again(), href: path }
 					: null
-				: { label: 'Go to sign in', href: '/login' }
+				: { label: m.error_page_go_to_sign_in(), href: '/login' }
 	);
 	const title = $derived(
 		notFound
-			? "We couldn't find this page."
+			? m.error_page_title_not_found()
 			: serverFault
-				? 'Something went wrong on our side.'
-				: "We can't show this page."
+				? m.error_page_title_server()
+				: m.error_page_title_client()
 	);
 	const detail = $derived(
 		notFound
 			? onClientLink
-				? 'The link may be old or mistyped. Ask your photographer for a new one.'
-				: 'The link may be old or mistyped.'
+				? m.error_page_detail_not_found_client()
+				: m.error_page_detail_not_found()
 			: serverFault
-				? 'Please try again in a moment. If it keeps happening, let your photographer know.'
-				: 'If you expected to see it, let your photographer know.'
+				? m.error_page_detail_server()
+				: m.error_page_detail_client()
 	);
 
 	onMount(() => heading.focus());
 </script>
 
 <svelte:head>
-	<title>{notFound ? 'Page not found' : 'Something went wrong'} — PhotoProofing</title>
+	<title
+		>{notFound ? m.error_page_head_not_found() : m.error_page_head_error()} — PhotoProofing</title
+	>
 </svelte:head>
 
 <PageShell width="narrow">
