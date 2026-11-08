@@ -15,7 +15,7 @@
 	import Button from '#lib/components/ui/button/button.svelte';
 	import ConfirmDialog from '#lib/components/ui/confirm-dialog/confirm-dialog.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
-	import SelectPill from '#lib/components/ui/select-pill/select-pill.svelte';
+	import SelectActions from '#lib/components/ui/select-actions/select-actions.svelte';
 	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
 	import PhotoStack from '#lib/components/ui/photo-stack/photo-stack.svelte';
 	import { getLiveEvents, type PhotoChange, type PhotoEvent } from '#lib/events.js';
@@ -637,36 +637,37 @@
 			</p>
 		{/if}
 		{#if selecting}
-			<SelectPill
+			<SelectActions
 				count={selection.length}
-				actionLabel="Delete"
-				destructive
-				actionDisabled={selection.length === 0}
-				onaction={() => (confirmingSelection = true)}
 				onselectall={selectAll}
-				onclose={finishSelecting}
+				onunselectall={() => selected.clear()}
 			>
-				{#snippet icon()}<Trash2 size={16} aria-hidden="true" />{/snippet}
-			</SelectPill>
-		{:else}
-			<Button
-				bind:ref={selectButton}
-				variant="outline"
-				size="sm"
-				class="min-h-9! gap-1.5"
-				disabled={photos.length === 0}
-				onclick={() => (selecting = true)}
-				><CircleCheck size={16} aria-hidden="true" />Select</Button
-			>
+				<Button
+					variant="destructive"
+					size="sm"
+					class="min-h-9! gap-1.5"
+					disabled={selection.length === 0}
+					onclick={() => (confirmingSelection = true)}
+					><Trash2 size={16} aria-hidden="true" />Delete</Button
+				>
+			</SelectActions>
 		{/if}
-		{#if !selecting}
-			<Button
-				bind:ref={uploadButton}
-				size="sm"
-				class="min-h-9! gap-1.5"
-				onclick={() => picker?.click()}><Upload size={16} aria-hidden="true" />Upload</Button
-			>
-		{/if}
+		<Button
+			bind:ref={selectButton}
+			variant={selecting ? 'default' : 'outline'}
+			size="sm"
+			class="min-h-9! gap-1.5"
+			aria-pressed={selecting}
+			disabled={!selecting && photos.length === 0}
+			onclick={() => (selecting ? void finishSelecting() : (selecting = true))}
+			><CircleCheck size={16} aria-hidden="true" />Select</Button
+		>
+		<Button
+			bind:ref={uploadButton}
+			size="sm"
+			class="min-h-9! gap-1.5"
+			onclick={() => picker?.click()}><Upload size={16} aria-hidden="true" />Upload</Button
+		>
 		<input
 			bind:this={picker}
 			type="file"

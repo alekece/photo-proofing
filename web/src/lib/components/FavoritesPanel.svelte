@@ -13,7 +13,7 @@
 	} from '#lib/gallery/export.js';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
-	import SelectPill from '#lib/components/ui/select-pill/select-pill.svelte';
+	import SelectActions from '#lib/components/ui/select-actions/select-actions.svelte';
 	import { getLiveEvents } from '#lib/events.js';
 	import { listPhotos, previewUrl, thumbnailUrl, type Photo } from '#lib/gallery/photos.js';
 	import { SelectMode } from '#lib/gallery/select-mode.svelte.js';
@@ -57,7 +57,6 @@
 	let viewing = $state(false);
 	let downloading = $state<string | null>(null);
 	let currentExport = $state<Export | null>(null);
-	let zipRequested = $state(false);
 	let zipRequesting = $state(false);
 	let zipError = $state<string | null>(null);
 	let zipLoads = 0;
@@ -108,7 +107,6 @@
 		if (zipRequesting || zipPreparing) return;
 
 		zipRequesting = true;
-		zipRequested = true;
 		zipError = null;
 		const current = generation;
 		const id = galleryId;
@@ -147,7 +145,6 @@
 		downloading = null;
 		viewing = false;
 		currentExport = null;
-		zipRequested = false;
 		zipRequesting = false;
 		zipError = null;
 		awaited = null;
@@ -224,44 +221,40 @@
 
 <div class="flex flex-wrap items-center justify-end gap-2">
 	{#if mode.active}
-		<SelectPill
+		<SelectActions
 			count={mode.count}
-			actionLabel="Download"
-			actionDisabled={mode.count === 0 || zipPreparing || zipRequesting}
-			actionBusy={zipPreparing || zipRequesting}
-			onaction={() => requestZip(favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id))}
 			onselectall={() => mode.selectAll(favorites.map(({ id }) => id))}
-			onclose={() => mode.leave()}
-		>
-			{#snippet icon()}<Download size={16} aria-hidden="true" />{/snippet}
-		</SelectPill>
-	{:else}
-		<Button
-			variant="outline"
-			size="sm"
-			class="min-h-9! gap-1.5"
-			disabled={favorites.length === 0}
-			onclick={() => mode.enter()}><CircleCheck size={16} aria-hidden="true" />Select</Button
-		>
-		{#if currentExport?.status.kind === 'ready' && !zipRequested}
-			<Button
-				size="sm"
-				class="min-h-9! gap-1.5"
-				href={exportUrl(galleryId, currentExport.id)}
-				download=""
-			>
-				<Download size={16} aria-hidden="true" />Download ZIP ({currentExport.photo_count})
-			</Button>
-		{/if}
+			onunselectall={() => mode.unselectAll()}
+		/>
+	{/if}
+	<Button
+		variant={mode.active ? 'default' : 'outline'}
+		size="sm"
+		class="min-h-9! gap-1.5"
+		aria-pressed={mode.active}
+		disabled={!mode.active && favorites.length === 0}
+		onclick={() => (mode.active ? mode.leave() : mode.enter())}
+		><CircleCheck size={16} aria-hidden="true" />Select</Button
+	>
+	{#if favorites.length > 0}
 		<Button
 			size="sm"
 			class="min-h-9! gap-1.5"
-			disabled={favorites.length === 0 || zipPreparing || zipRequesting}
+			disabled={zipPreparing || zipRequesting}
 			aria-busy={zipPreparing || zipRequesting}
-			onclick={() => void requestZip()}
+			onclick={() =>
+				void requestZip(
+					mode.count > 0
+						? favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id)
+						: undefined
+				)}
 		>
 			<Download size={16} aria-hidden="true" />
-			{zipPreparing || zipRequesting ? 'Downloading…' : 'Download'}
+			{zipPreparing || zipRequesting
+				? 'Downloading…'
+				: mode.count > 0
+					? `Download ${mode.count}`
+					: 'Download all'}
 		</Button>
 	{/if}
 </div>
