@@ -868,7 +868,11 @@ describe('PhotosPanel', () => {
 
 			expect(announced()).toContain('1 selected');
 
-			await user.click(screen.getByRole('button', { name: 'Select', pressed: true }));
+			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
+
+			expect(counter()).toBe('0 selected');
+
+			await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
 			expect(checkbox('p1.jpg')).toBeNull();
 			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
@@ -885,7 +889,7 @@ describe('PhotosPanel', () => {
 			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
 		});
 
-		it('keeps Select and Upload in place and exposes select mode as pressed', async () => {
+		it('swaps Select and Upload for Select all and Delete, and restores them on exit', async () => {
 			stubApi([photo('p1'), photo('p2')]);
 			setup();
 			const user = userEvent.setup();
@@ -893,23 +897,46 @@ describe('PhotosPanel', () => {
 			const select = await screen.findByRole('button', { name: 'Select' });
 			const upload = screen.getByRole('button', { name: 'Upload' });
 
-			expect(select.getAttribute('aria-pressed')).toBe('false');
-
 			await user.click(select);
+
+			expect(screen.getByRole('button', { name: 'Select all' })).toBe(select);
+			expect(screen.getByRole('button', { name: 'Delete' })).toBe(upload);
+			expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
+			expect(screen.queryByRole('button', { name: 'Upload' })).toBeNull();
+			expect(select.hasAttribute('aria-pressed')).toBe(false);
+			expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+
+			await user.keyboard('{Escape}');
 
 			expect(screen.getByRole('button', { name: 'Select' })).toBe(select);
 			expect(screen.getByRole('button', { name: 'Upload' })).toBe(upload);
-			expect(select.getAttribute('aria-pressed')).toBe('true');
+			expect(screen.queryByRole('button', { name: 'Unselect all' })).toBeNull();
+			expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
 		});
 
-		it('unselects all and stays in select mode', async () => {
+		it('uploads nothing while Delete stands in for Upload', async () => {
+			stubApi([photo('p1')]);
+			setup();
+			const user = userEvent.setup();
+			const click = vi.spyOn(HTMLInputElement.prototype, 'click');
+
+			await enter(user);
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+			expect(click).not.toHaveBeenCalled();
+			expect(screen.getByRole('dialog')).toBeTruthy();
+			click.mockRestore();
+		});
+
+		it('unselects all, then cancels to leave select mode', async () => {
 			stubApi([photo('p1'), photo('p2')]);
 			setup();
 			const user = userEvent.setup();
 
 			await enter(user);
 
-			expect(screen.getByRole('button', { name: 'Unselect all' })).toHaveProperty('disabled', true);
+			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
 
 			await user.click(screen.getByRole('button', { name: 'Select all' }));
 
@@ -920,6 +947,11 @@ describe('PhotosPanel', () => {
 			expect(counter()).toBe('0 selected');
 			expect(checkbox('p1.jpg')).not.toBeNull();
 			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
+
+			await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+			expect(checkbox('p1.jpg')).toBeNull();
+			expect(screen.getByRole('button', { name: 'Upload' })).toBeTruthy();
 		});
 
 		it('select all takes only the photos shown now', async () => {
@@ -980,7 +1012,10 @@ describe('PhotosPanel', () => {
 			await waitFor(() => expect(checkbox('p2.jpg')).toBeNull());
 			expect(api.bulk()).toEqual([['p1', 'p3']]);
 			expect(screen.getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
-			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
+			// The dialog hands focus back to the button that opened it, now Upload again.
+			await waitFor(() =>
+				expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Upload' }))
+			);
 			expect(announced()).toContain('2 photos deleted');
 		});
 

@@ -223,18 +223,17 @@
 	{#if mode.active}
 		<SelectActions
 			count={mode.count}
-			onselectall={() => mode.selectAll(favorites.map(({ id }) => id))}
 			onunselectall={() => mode.unselectAll()}
+			onleave={() => mode.leave()}
 		/>
 	{/if}
 	<Button
-		variant={mode.active ? 'default' : 'outline'}
+		variant="outline"
 		size="sm"
 		class="min-h-9! gap-1.5"
-		aria-pressed={mode.active}
 		disabled={!mode.active && favorites.length === 0}
-		onclick={() => (mode.active ? mode.leave() : mode.enter())}
-		><CircleCheck size={16} aria-hidden="true" />Select</Button
+		onclick={() => (mode.active ? mode.selectAll(favorites.map(({ id }) => id)) : mode.enter())}
+		><CircleCheck size={16} aria-hidden="true" />{mode.active ? 'Select all' : 'Select'}</Button
 	>
 	{#if favorites.length > 0}
 		<Button

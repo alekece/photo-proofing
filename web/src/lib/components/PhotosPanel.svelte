@@ -506,34 +506,30 @@
 		{#if selecting}
 			<SelectActions
 				count={selection.length}
-				onselectall={selectAll}
 				onunselectall={() => selected.clear()}
-			>
-				<Button
-					variant="destructive"
-					size="sm"
-					class="min-h-9! gap-1.5"
-					disabled={selection.length === 0}
-					onclick={() => (confirmingSelection = true)}
-					><Trash2 size={16} aria-hidden="true" />Delete</Button
-				>
-			</SelectActions>
+				onleave={() => void finishSelecting()}
+			/>
 		{/if}
 		<Button
 			bind:ref={selectButton}
-			variant={selecting ? 'default' : 'outline'}
+			variant="outline"
 			size="sm"
 			class="min-h-9! gap-1.5"
-			aria-pressed={selecting}
 			disabled={!selecting && photos.length === 0}
-			onclick={() => (selecting ? void finishSelecting() : (selecting = true))}
-			><CircleCheck size={16} aria-hidden="true" />Select</Button
+			onclick={() => (selecting ? selectAll() : (selecting = true))}
+			><CircleCheck size={16} aria-hidden="true" />{selecting ? 'Select all' : 'Select'}</Button
 		>
 		<Button
 			bind:ref={uploadButton}
+			variant={selecting ? 'destructive' : 'default'}
 			size="sm"
 			class="min-h-9! gap-1.5"
-			onclick={() => picker?.click()}><Upload size={16} aria-hidden="true" />Upload</Button
+			disabled={selecting && selection.length === 0}
+			onclick={() => (selecting ? (confirmingSelection = true) : picker?.click())}
+			>{#if selecting}<Trash2 size={16} aria-hidden="true" />Delete{:else}<Upload
+					size={16}
+					aria-hidden="true"
+				/>Upload{/if}</Button
 		>
 		<input
 			bind:this={picker}
