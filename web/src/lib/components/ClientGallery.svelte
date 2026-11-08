@@ -64,7 +64,7 @@
 	const shown = $derived(
 		onlyFavorites && !delivered ? proofs.filter(({ id }) => selection.has(id)) : proofs
 	);
-	const count = $derived(`${proofs.length} ${proofs.length === 1 ? 'photo' : 'photos'}`);
+	const count = $derived(m.summary_photos({ count: proofs.length }));
 	const title = $derived(gallery.title ?? m.gallery_untitled());
 
 	const downloadAllUrl = $derived(`/api/v1/galleries/shared/${encodeURIComponent(token)}/download`);
@@ -92,7 +92,7 @@
 			link.download = '';
 			link.click();
 		} catch {
-			toasts.error("Couldn't prepare the download. Please try again.");
+			toasts.error(m.client_download_failed());
 		} finally {
 			downloading = false;
 		}
@@ -130,10 +130,10 @@
 			class="mt-10 mb-[34px] w-full scale-[1.06] rotate-[-3deg] shadow-[0_20px_40px_-20px_#000]"
 		/>
 		<div>
-			<p class="font-serif text-[1.625rem] italic">Your photos are on their way.</p>
-			<p class="mt-1.5 text-[#bfb2a4]">Check back soon.</p>
+			<p class="font-serif text-[1.625rem] italic">{m.client_on_their_way()}</p>
+			<p class="mt-1.5 text-[#bfb2a4]">{m.client_check_back()}</p>
 		</div>
-		<p class="mt-auto pt-10 text-xs tracking-[0.06em] text-[#8d7f72]">Shared with PhotoProofing</p>
+		<p class="mt-auto pt-10 text-xs tracking-[0.06em] text-[#8d7f72]">{m.client_shared_with()}</p>
 	</main>
 {:else if proofs.length === 0 && delivered}
 	<main class="@container flex flex-1 flex-col bg-background">
@@ -143,7 +143,7 @@
 			{#if cover}
 				<img
 					src={cover}
-					alt="Gallery cover"
+					alt={m.client_cover_alt()}
 					class="absolute inset-0 -z-20 size-full object-cover object-[center_35%]"
 				/>
 				<div
@@ -174,8 +174,8 @@
 				count={6}
 			/>
 			<div>
-				<p class="font-serif text-2xl italic">Your finished photos are on their way.</p>
-				<p class="mt-1.5 text-muted-foreground">Check back soon.</p>
+				<p class="font-serif text-2xl italic">{m.client_finals_on_their_way()}</p>
+				<p class="mt-1.5 text-muted-foreground">{m.client_check_back()}</p>
 			</div>
 		</div>
 	</main>
@@ -191,7 +191,7 @@
 			{#if cover}
 				<img
 					src={cover}
-					alt="Gallery cover"
+					alt={m.client_cover_alt()}
 					class="absolute inset-0 -z-20 size-full object-cover object-[center_35%]"
 				/>
 				<div
@@ -209,7 +209,7 @@
 			/>
 			<div class="mt-auto animate-photo-in px-6 pb-[34px]">
 				{#if delivered}
-					<p class="font-serif text-lg italic">Your photos are ready</p>
+					<p class="font-serif text-lg italic">{m.client_ready()}</p>
 				{/if}
 				<h1
 					class="mb-3 font-serif text-[4rem] leading-none wrap-anywhere @max-[700px]:text-[2.5rem]"
@@ -231,8 +231,8 @@
 							class="{CTA} border-panel bg-panel font-bold text-foreground hover:bg-panel disabled:cursor-progress disabled:opacity-80"
 						>
 							<Download size={15} aria-hidden="true" />{downloading
-								? 'Downloading…'
-								: 'Download all'}
+								? m.favorites_downloading()
+								: m.favorites_download_all()}
 						</button>
 					{/if}
 					<button
@@ -240,7 +240,7 @@
 						class="{CTA} border-panel/55 hover:bg-panel/15"
 						onclick={viewGallery}
 					>
-						View the gallery
+						{m.client_view_gallery()}
 					</button>
 				</div>
 			</div>
@@ -256,23 +256,23 @@
 				{#if delivered}
 					<Button size="sm" disabled={downloading} onclick={downloadAll}>
 						<Download size={16} aria-hidden="true" class="mr-2" />{downloading
-							? 'Downloading…'
-							: 'Download all'}
+							? m.favorites_downloading()
+							: m.favorites_download_all()}
 					</Button>
 				{:else}
 					{#if extra > 0}
-						<span class="font-bold text-warning">{extra} extra</span>
+						<span class="font-bold text-warning">{m.client_extra({ count: extra })}</span>
 					{/if}
 					<div
 						role="group"
-						aria-label="Show"
+						aria-label={m.client_show()}
 						class="flex rounded-full border border-border bg-panel p-[3px]"
 					>
 						{#each [false, true] as only (only)}
 							<button
 								type="button"
 								aria-pressed={onlyFavorites === only}
-								aria-label={only ? 'Favorites' : undefined}
+								aria-label={only ? m.tab_favorites() : undefined}
 								onclick={() => (onlyFavorites = only)}
 								class="group inline-flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-[5px] text-[0.8125rem] font-semibold text-muted-foreground focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-foreground aria-pressed:text-panel"
 							>
@@ -287,10 +287,12 @@
 											>{selection.count}</span
 										>{/key}
 									{#if gallery.included_photos !== null}
-										<span class="font-medium opacity-75">of {gallery.included_photos}</span>
+										<span class="font-medium opacity-75"
+											>{m.client_of_included({ count: gallery.included_photos })}</span
+										>
 									{/if}
 								{:else}
-									All
+									{m.client_all()}
 								{/if}
 							</button>
 						{/each}
@@ -302,7 +304,7 @@
 			{/if}
 			{#if shown.length === 0}
 				<p class="py-[50px] text-center text-muted-foreground">
-					{proofs.length === 0 ? 'Your photos are on their way.' : 'No favorites yet'}
+					{proofs.length === 0 ? m.client_on_their_way() : m.favorites_empty()}
 				</p>
 			{:else}
 				<ProofGrid

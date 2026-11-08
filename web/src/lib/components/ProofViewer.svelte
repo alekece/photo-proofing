@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { ChevronLeft, ChevronRight, Download, Heart, LoaderCircle, X } from '@lucide/svelte';
 	import { onMount, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
@@ -124,7 +125,7 @@
 					!onselect && 'cursor-not-allowed opacity-50 hover:bg-white/8'
 				)}
 	>
-		{isSelected(proof.id) ? 'Favorite' : 'Add to favorites'}
+		{isSelected(proof.id) ? m.viewer_favorite() : m.viewer_add_favorite()}
 	</FavoriteButton>
 {/snippet}
 
@@ -132,7 +133,7 @@
 <Dialog
 	{onclose}
 	{onkeydown}
-	label="Proof viewer"
+	label={m.viewer_label()}
 	aria-modal="true"
 	class={cn(
 		'm-0 h-dvh max-h-dvh w-screen max-w-screen animate-photo-in overflow-hidden border-0 bg-dark p-0 text-[0.875rem] font-medium text-[#efe6da] open:grid',
@@ -152,13 +153,13 @@
 				<span class="font-mono text-[0.8125rem] whitespace-nowrap text-[#a8998a]">{proof.alt}</span>
 			{/if}
 			<span aria-live="polite" class="whitespace-nowrap text-[#a8998a] tabular-nums"
-				>{index + 1} of {proofs.length}</span
+				>{m.viewer_position({ position: index + 1, total: proofs.length })}</span
 			>
 			<span class="flex-1"></span>
 			{#if favoriteCount !== undefined}
 				<span class="flex items-center gap-1.5 font-semibold text-panel">
 					<Heart size={17} aria-hidden="true" fill="currentColor" class="text-[#e4573b]" />
-					<span class="sr-only">Favorites:</span>{favoriteCount}
+					<span class="sr-only">{m.viewer_favorites()}</span>{favoriteCount}
 				</span>
 			{/if}
 			{#if client && wide.current && status === 'ready' && (onselect || readonly) && !proof.downloadUrl}
@@ -169,7 +170,7 @@
 				type="button"
 				bind:this={closeButton}
 				onclick={close}
-				aria-label="Close viewer"
+				aria-label={m.viewer_close()}
 				class="inline-grid size-10 cursor-pointer place-items-center rounded-full bg-white/8 text-[#efe6da] transition-colors hover:bg-white/14 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
 			>
 				<X size={20} aria-hidden="true" />
@@ -190,7 +191,7 @@
 							<a
 								href={proof.downloadUrl}
 								download
-								aria-label="Download this photo"
+								aria-label={m.viewer_download()}
 								class="{overlay} bg-panel text-foreground shadow-[0_6px_18px_rgb(0_0_0/0.25)]"
 							>
 								<Download size={20} aria-hidden="true" />
@@ -198,7 +199,7 @@
 						{:else if !client && readonly && isSelected(proof.id)}
 							<span
 								role="img"
-								aria-label="Marked as a favorite by the client"
+								aria-label={m.viewer_marked()}
 								class="{overlay} bg-panel text-danger"
 							>
 								<Heart size={20} aria-hidden="true" fill="currentColor" />
@@ -209,7 +210,7 @@
 			{:else if status === 'processing'}
 				<p role="status" class="flex items-center gap-3 font-serif text-lg text-[#a8998a] italic">
 					<LoaderCircle size={20} class="animate-spin-slow" aria-hidden="true" />
-					Processing…
+					{m.viewer_processing()}
 				</p>
 			{:else}
 				<div
@@ -217,10 +218,10 @@
 				>
 					<div>
 						<p role="alert" class="mb-3 text-[0.9375rem] font-semibold text-warning-on-dark">
-							This photo could not be processed
+							{m.viewer_failed()}
 						</p>
 						{#if onretry}
-							<ViewerButton onclick={() => onretry(proof.id)}>Try again</ViewerButton>
+							<ViewerButton onclick={() => onretry(proof.id)}>{m.viewer_try_again()}</ViewerButton>
 						{/if}
 					</div>
 				</div>
@@ -230,14 +231,14 @@
 				class="{arrow} left-5"
 				aria-disabled={index === 0}
 				onclick={() => go(index - 1)}
-				aria-label="Previous proof"><ChevronLeft size={22} aria-hidden="true" /></button
+				aria-label={m.viewer_previous()}><ChevronLeft size={22} aria-hidden="true" /></button
 			>
 			<button
 				type="button"
 				class="{arrow} right-5"
 				aria-disabled={index === proofs.length - 1}
 				onclick={() => go(index + 1)}
-				aria-label="Next proof"><ChevronRight size={22} aria-hidden="true" /></button
+				aria-label={m.viewer_next()}><ChevronRight size={22} aria-hidden="true" /></button
 			>
 		</div>
 		<div class="flex items-center justify-center gap-3">
@@ -248,7 +249,7 @@
 						download
 						class="{pill} bg-panel pr-[22px] pl-[22px] text-foreground"
 					>
-						<Download size={20} aria-hidden="true" />Download
+						<Download size={20} aria-hidden="true" />{m.action_download()}
 					</a>
 				{:else if onselect || readonly}
 					{@render heartPill(true)}

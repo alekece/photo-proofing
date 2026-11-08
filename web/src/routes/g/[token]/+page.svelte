@@ -39,7 +39,7 @@
 
 <svelte:head>
 	<title
-		>{data.gallery ? (data.gallery.title ?? m.gallery_untitled()) : 'Gallery unavailable'}</title
+		>{data.gallery ? (data.gallery.title ?? m.gallery_untitled()) : m.client_unavailable()}</title
 	>
 	<meta name="referrer" content="no-referrer" />
 	<meta name="robots" content="noindex" />

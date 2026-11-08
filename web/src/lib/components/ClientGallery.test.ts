@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import type { Proof, SharedGallery } from '#lib/gallery/types.js';
+import { useLocale } from '#lib/i18n/testing.js';
 import ClientGallery from './ClientGallery.svelte';
 
 const gallery: SharedGallery = {
@@ -175,7 +176,7 @@ describe('ClientGallery', () => {
 
 		await vi.waitFor(() =>
 			expect(toasts.items.map((toast) => toast.message)).toContain(
-				"Couldn't prepare the download. Please try again."
+				'Couldn’t prepare the download. Please try again.'
 			)
 		);
 		vi.unstubAllGlobals();
@@ -269,5 +270,34 @@ describe('ClientGallery', () => {
 		expect(screen.getByRole('img', { name: 'Gallery cover' }).getAttribute('src')).toBe(
 			'/clean-cover/b'
 		);
+	});
+});
+
+describe('ClientGallery in French', () => {
+	useLocale('fr');
+
+	it('shows the proofing gallery in French', async () => {
+		show({ gallery: { ...gallery, included_photos: 2 } });
+
+		expect(screen.getByRole('button', { name: 'Voir la galerie' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Favoris' })).toBeTruthy();
+		expect(screen.getByText('sur 2')).toBeTruthy();
+		expect(screen.getAllByRole('button', { name: /^Mettre l’épreuve 1 en favori/ })).toBeTruthy();
+		expect(screen.queryByText('View the gallery')).toBeNull();
+
+		await userEvent
+			.setup()
+			.click(screen.getByRole('button', { name: /^Ouvrir l’épreuve 1 sur 3/ }));
+
+		expect(screen.getByRole('button', { name: 'Fermer la visionneuse' })).toBeTruthy();
+		expect(screen.getByText('1 sur 3')).toBeTruthy();
+	});
+
+	it('shows the delivered page in French', () => {
+		show({ gallery: { ...gallery, delivered: true } });
+
+		expect(screen.getByText('Vos photos sont prêtes')).toBeTruthy();
+		expect(screen.getAllByRole('button', { name: /Tout télécharger/ }).length).toBeGreaterThan(0);
+		expect(screen.queryByText('Your photos are ready')).toBeNull();
 	});
 });
