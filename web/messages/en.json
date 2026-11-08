@@ -111,8 +111,8 @@
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
 			"match": {
-				"countPlural=one": "{finals} · {count} downloaded",
-				"countPlural=*": "{finals} · {count} downloaded"
+				"countPlural=one": "{finals} · {count} downloaded",
+				"countPlural=*": "{finals} · {count} downloaded"
 			}
 		}
 	],
@@ -122,8 +122,8 @@
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
 			"match": {
-				"countPlural=one": " selected",
-				"countPlural=*": " selected"
+				"countPlural=one": " selected",
+				"countPlural=*": " selected"
 			}
 		}
 	],

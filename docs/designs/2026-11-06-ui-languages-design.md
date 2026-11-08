@@ -78,7 +78,11 @@ svelte-i18n/typesafe-i18n).
   every page, the client pages and the unavailable page included, reads on the server.
 - **Switching reloads the page** in the new language, which replaces the "Saved" toast. *My call:*
   Paraglide's texts are not reactive, and a reload is the only way to never show a mix.
-- **API error texts are not shown.** The web turns the status into a translated sentence.
+- **API error texts are not shown.** The web turns the status into a translated sentence. Two
+  exceptions stay English for now: the reason an export ZIP failed, which the API sends as free
+  text, and the internal 503 messages, which the error page replaces with its own copy.
+- **Plurals** always use a `*` catch-all variant, so French counts never fall through.
+- **Counts stay with their word** on gallery cards through a non-breaking space.
 
 ## Left to the builder
 

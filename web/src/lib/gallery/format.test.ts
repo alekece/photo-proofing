@@ -88,7 +88,7 @@ describe('gallerySummary', () => {
 		expect(line({ ...base, states: ['draft'] as never })).toBe('32 photos');
 		expect(line({ ...base, states: ['draft'] as never, photo_count: 1 })).toBe('1 photo');
 		expect(line({ ...base, states: ['draft'] as never, photo_count: 0 })).toBe('No photos yet');
-		expect(line(base)).toBe('32 photos · 12 selected');
+		expect(line(base)).toBe('32 photos · 12\u00a0selected');
 		expect(line({ ...base, states: ['delivered'] as never })).toBe('Final photos delivered');
 		expect(line({ ...base, states: ['delivered', 'archived'] as never })).toBe(
 			'32 photos · archived'
@@ -98,10 +98,10 @@ describe('gallerySummary', () => {
 	it('reports how many delivered finals were downloaded', () => {
 		const delivered = { ...base, states: ['delivered'] as never, final_count: 20 };
 
-		expect(line({ ...delivered, downloaded_count: 12 })).toBe('20 finals · 12 downloaded');
+		expect(line({ ...delivered, downloaded_count: 12 })).toBe('20 finals · 12\u00a0downloaded');
 		expect(line({ ...delivered, downloaded_count: 20 })).toBe('20 finals · all downloaded');
 		expect(line({ ...delivered, final_count: 1, downloaded_count: 0 })).toBe(
-			'1 final · 0 downloaded'
+			'1 final · 0\u00a0downloaded'
 		);
 	});
 
@@ -121,7 +121,7 @@ describe('gallerySummary', () => {
 		const expired = { ...base, states: ['shared', 'expired'] as never };
 
 		expect(line({ ...expired, expires_at: '2026-11-07T12:00:00Z' })).toBe(
-			'32 photos · 12 selected · expired 3 days ago'
+			'32 photos · 12\u00a0selected · expired 3 days ago'
 		);
 		expect(line({ ...expired, expires_at: '2026-11-09T12:00:00Z' })).toContain('expired yesterday');
 		expect(line({ ...expired, expires_at: '2026-11-10T08:00:00Z' })).toContain('expired today');
@@ -148,13 +148,13 @@ describe('gallerySummary in French', () => {
 			.join('');
 
 	it('agrees with the counts', () => {
-		expect(line(base)).toBe('32 photos · 12 sélectionnées');
-		expect(line({ ...base, favorite_count: 1 })).toBe('32 photos · 1 sélectionnée');
+		expect(line(base)).toBe('32 photos · 12\u00a0sélectionnées');
+		expect(line({ ...base, favorite_count: 1 })).toBe('32 photos · 1\u00a0sélectionnée');
 		expect(
 			line({ ...base, states: ['delivered'] as never, final_count: 20, downloaded_count: 1 })
-		).toBe('20 photos finales · 1 téléchargée');
+		).toBe('20 photos finales · 1\u00a0téléchargée');
 		expect(
 			line({ ...base, states: ['shared', 'expired'] as never, expires_at: '2026-11-07T12:00:00Z' })
-		).toBe('32 photos · 12 sélectionnées · expirée il y a 3 jours');
+		).toBe('32 photos · 12\u00a0sélectionnées · expirée il y a 3 jours');
 	});
 });
