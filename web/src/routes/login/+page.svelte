@@ -52,7 +52,7 @@
 </script>
 
 <svelte:head><title>{title} — PhotoProofing</title></svelte:head>
-<PageShell width="narrow" class="flex min-h-screen flex-col justify-center px-6 py-12">
+<PageShell width="narrow" class="flex w-full flex-1 flex-col justify-center px-6 py-12">
 	<div class="text-center">
 		<p class="brand mb-6 text-2xl">PhotoProofing</p>
 		<h1 class="text-2xl">{title}</h1>
