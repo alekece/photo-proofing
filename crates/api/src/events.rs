@@ -357,7 +357,7 @@ impl Drop for StreamSlot {
 
 #[cfg(test)]
 mod tests {
-    use pp_core::notifications::PhotoId;
+    use pp_database::photo::PhotoId;
     use pp_database::{
         gallery::GalleryRepository, photo::PhotoKind, photo_events::PhotoChange,
         tests::TestRepository,

@@ -244,7 +244,8 @@ mod tests {
         sync::atomic::{AtomicUsize, Ordering},
     };
 
-    use pp_core::{notifications::PhotoId, types::generate::Generate};
+    use pp_core::types::generate::Generate;
+    use pp_database::photo::PhotoId;
     use pp_database::{
         PgPool,
         jobs::{DEFAULT_MAX_ATTEMPTS, JobCompletion, JobKind, JobPayload, JobState, ProcessPhoto},

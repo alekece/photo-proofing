@@ -189,7 +189,7 @@ mod tests {
         http::StatusCode,
         test,
     };
-    use pp_core::notifications::PhotoId;
+    use pp_database::photo::PhotoId;
     use pp_database::{
         Database,
         favorite_events::FavoriteEvent,

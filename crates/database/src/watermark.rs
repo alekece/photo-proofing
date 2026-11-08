@@ -9,13 +9,13 @@
 
 use std::num::NonZeroU16;
 
-use pp_core::notifications::PhotoId;
 use serde::{Deserialize, Serialize};
 use sqlx::{
     AssertSqlSafe, FromRow, PgConnection, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow,
 };
 use thiserror::Error;
 
+use crate::photo::PhotoId;
 use crate::{
     Repository,
     auth::WorkspaceId,

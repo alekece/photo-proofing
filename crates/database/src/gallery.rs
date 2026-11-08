@@ -10,17 +10,19 @@
 use std::{num::NonZeroUsize, time::Duration};
 
 use derive_more::Display;
-use pp_core::{
-    notifications::PhotoId,
-    types::{generate::Generate, timestamp::Timestamp},
-};
+use pp_core::types::{generate::Generate, timestamp::Timestamp};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{AssertSqlSafe, FromRow, PgExecutor, PgPool, Row, Type, postgres::PgRow};
 use thiserror::Error;
 use uuid::Uuid;
 
 pub use self::share::{ShareToken, SharedAccess, SharedGallery};
-use crate::{Repository, auth::WorkspaceId, error::DatabaseError, photo::PhotoLocation};
+use crate::{
+    Repository,
+    auth::WorkspaceId,
+    error::DatabaseError,
+    photo::{PhotoId, PhotoLocation},
+};
 
 mod share;
 

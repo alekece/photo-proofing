@@ -18,7 +18,8 @@ use actix_web::{
     web::{self, Data, JsonBody, Path as WebPath, Query, ServiceConfig},
 };
 use futures_util::future::LocalBoxFuture;
-use pp_core::{notifications::PhotoId, types::generate::Generate};
+use pp_core::types::generate::Generate;
+use pp_database::photo::PhotoId;
 use pp_database::{
     gallery::{GalleryId, GalleryRepository},
     photo::{NewPhoto, PhotoKind, PhotoLocation, PhotoRepository, Watermarked},
@@ -453,7 +454,8 @@ pub(super) mod tests {
     };
     use futures_util::stream;
     use libvips::ops::{black, jpegsave_buffer};
-    use pp_core::{notifications::PhotoId, types::generate::Generate};
+    use pp_core::types::generate::Generate;
+    use pp_database::photo::PhotoId;
     use pp_database::{
         Database,
         gallery::{GalleryId, GalleryRepository},

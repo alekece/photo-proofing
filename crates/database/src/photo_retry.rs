@@ -1,8 +1,8 @@
 //! Requeues photos whose processing failed for good.
 
-use pp_core::notifications::PhotoId;
 use sqlx::PgPool;
 
+use crate::photo::PhotoId;
 use crate::{
     Repository,
     auth::WorkspaceId,

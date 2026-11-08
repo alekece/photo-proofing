@@ -169,11 +169,11 @@ mod tests {
         num::{NonZeroU32, NonZeroU64},
     };
 
-    use pp_core::notifications::PhotoId;
     use sqlx::PgPool;
     use uuid::Uuid;
 
     use super::*;
+    use crate::photo::PhotoId;
     use crate::{
         Database,
         auth::WorkspaceId,

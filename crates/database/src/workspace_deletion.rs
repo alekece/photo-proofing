@@ -1,8 +1,8 @@
 //! Deletes galleries and photos together with the jobs that remove their files.
 
-use pp_core::notifications::PhotoId;
 use sqlx::PgPool;
 
+use crate::photo::PhotoId;
 use crate::{
     Repository,
     auth::WorkspaceId,

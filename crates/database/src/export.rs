@@ -12,10 +12,7 @@
 
 use std::{num::NonZeroU64, time::Duration};
 
-use pp_core::{
-    notifications::PhotoId,
-    types::{generate::Generate, timestamp::Timestamp},
-};
+use pp_core::types::{generate::Generate, timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     AssertSqlSafe, FromRow, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow, types::Json,
@@ -29,6 +26,7 @@ use crate::{
     gallery::GalleryId,
     jobs::{Job, JobCompletion, JobOptions, JobRepository, ZipExport},
     listener::Channel,
+    photo::PhotoId,
 };
 
 /// Reason shown when the worker gives up on an export after its last attempt.

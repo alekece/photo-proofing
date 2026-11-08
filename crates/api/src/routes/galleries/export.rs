@@ -15,7 +15,8 @@ use actix_web::{
     post,
     web::{Bytes, Data, Path as WebPath, ServiceConfig},
 };
-use pp_core::{notifications::PhotoId, types::timestamp::Timestamp};
+use pp_core::types::timestamp::Timestamp;
+use pp_database::photo::PhotoId;
 use pp_database::{
     export::{Export, ExportId, ExportRepository, ExportRequest, ExportStatus},
     gallery::GalleryId,
@@ -210,7 +211,8 @@ mod tests {
         http::{Method, StatusCode},
         test,
     };
-    use pp_core::{config::PhotoDir, notifications::PhotoId, types::generate::Generate};
+    use pp_core::{config::PhotoDir, types::generate::Generate};
+    use pp_database::photo::PhotoId;
     use pp_database::photo::PhotoLocation;
     use pp_database::{auth::WorkspaceId, gallery::GalleryId};
     use pp_storage::{ArchiveEntry, PhotoKey, PhotoStorage, Variant};

@@ -177,7 +177,8 @@ impl ExportHandler {
 mod tests {
     use std::num::NonZeroU64;
 
-    use pp_core::{config::PhotoDir, notifications::PhotoId, types::generate::Generate};
+    use pp_core::{config::PhotoDir, types::generate::Generate};
+    use pp_database::photo::PhotoId;
     use pp_database::{
         PgPool,
         export::{ExportRequest, ExportStatus},

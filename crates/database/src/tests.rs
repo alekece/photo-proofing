@@ -4,12 +4,12 @@
 
 use std::time::Duration;
 
-use pp_core::notifications::PhotoId;
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, Transaction};
 use time::OffsetDateTime;
 use tokio::time::sleep;
 
+use crate::photo::PhotoId;
 use crate::{
     Repository,
     auth::WorkspaceId,

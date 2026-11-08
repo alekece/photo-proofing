@@ -2,9 +2,9 @@
 //! delete of a photo, whichever process made it. Read them with
 //! [`Database::listen`](crate::Database::listen)`::<PhotoEvent>()`.
 
-use pp_core::notifications::PhotoId;
 use serde::{Deserialize, Serialize};
 
+use crate::photo::PhotoId;
 use crate::{auth::WorkspaceId, gallery::GalleryId, listener::Channel, photo::PhotoKind};
 
 /// What happened to a photo: its new processing status, or its deletion.

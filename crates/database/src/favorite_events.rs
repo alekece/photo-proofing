@@ -22,12 +22,12 @@ impl Channel for FavoriteEvent {
 mod tests {
     use std::time::Duration;
 
-    use pp_core::notifications::PhotoId;
     use sqlx::PgPool;
     use tokio::time;
     use uuid::Uuid;
 
     use super::*;
+    use crate::photo::PhotoId;
     use crate::{
         Database,
         gallery::GalleryRepository,

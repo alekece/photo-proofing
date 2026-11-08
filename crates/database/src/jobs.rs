@@ -30,7 +30,7 @@ use std::{
     time::Duration,
 };
 
-use pp_core::{notifications::PhotoId, types::generate::Generate};
+use pp_core::types::generate::Generate;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Error as JsonError, Value};
 use sqlx::{
@@ -39,6 +39,7 @@ use sqlx::{
 use strum::{EnumString, IntoStaticStr};
 use uuid::Uuid;
 
+use crate::photo::PhotoId;
 use crate::{
     Repository,
     auth::WorkspaceId,

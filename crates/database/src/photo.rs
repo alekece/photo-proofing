@@ -6,13 +6,30 @@
 
 use std::num::{NonZeroU32, NonZeroU64};
 
-use pp_core::{notifications::PhotoId, types::timestamp::Timestamp};
+use derive_more::{Display, From};
+use pp_core::types::{generate::Generate, timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     AssertSqlSafe, FromRow, PgExecutor, PgPool, Postgres, Row, Transaction, postgres::PgRow,
 };
+use uuid::Uuid;
 
 use crate::{Repository, auth::WorkspaceId, error::DatabaseError, gallery::GalleryId};
+
+/// Identifies a photo.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+#[derive(sqlx::Type)]
+#[sqlx(transparent)]
+pub struct PhotoId(Uuid);
+
+impl Generate for PhotoId {
+    fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
 
 /// Reason shown when the worker gives up on a photo after its last attempt.
 pub const PROCESSING_FAILED_REASON: &str = "Processing failed after several attempts.";
@@ -540,7 +557,6 @@ impl PhotoRepository<'_> {
 mod tests {
     use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 
-    use pp_core::notifications::PhotoId;
     use sqlx::PgPool;
     use time::OffsetDateTime;
     use uuid::Uuid;

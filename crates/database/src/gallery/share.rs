@@ -3,15 +3,12 @@
 use std::num::NonZeroUsize;
 
 use derive_more::{Deref, FromStr};
-use pp_core::{
-    notifications::PhotoId,
-    types::{timestamp::Timestamp, token::Token},
-};
+use pp_core::types::{timestamp::Timestamp, token::Token};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row, Type, postgres::PgRow};
 
 use super::{Gallery, GalleryLayout};
-use crate::photo::PhotoLocation;
+use crate::photo::{PhotoId, PhotoLocation};
 
 /// The unguessable value that makes up a gallery's private link.
 ///
