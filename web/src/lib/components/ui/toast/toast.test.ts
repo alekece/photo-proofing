@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import Toaster from './toaster.svelte';
-import { toasts } from './toasts.svelte.js';
+import { SAVED_QUIET_MS, toasts } from './toasts.svelte.js';
 
 describe('Toaster', () => {
 	beforeEach(() => {
@@ -53,5 +53,20 @@ describe('Toaster', () => {
 
 		expect(retry).toHaveBeenCalledOnce();
 		expect(screen.queryByRole('alert')).toBeNull();
+	});
+
+	it('shows one Saved toast after a quiet period, however many saves came before', async () => {
+		render(Toaster);
+
+		toasts.saved();
+		await vi.advanceTimersByTimeAsync(SAVED_QUIET_MS - 1);
+		toasts.saved();
+		await vi.advanceTimersByTimeAsync(SAVED_QUIET_MS - 1);
+
+		expect(toasts.items).toEqual([]);
+
+		await vi.advanceTimersByTimeAsync(1);
+
+		expect(toasts.items.map((toast) => toast.message)).toEqual(['Saved']);
 	});
 });
