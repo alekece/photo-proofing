@@ -119,9 +119,9 @@ My calls (to check while reading):
   are removed, a missing file being fine and any other storage error logged (#73's sweep is the
   backstop). Delete and retry lock a photo's jobs before the photo (retry reads the failed ids
   once and locks exactly those jobs), so neither deadlocks the other. Deleting a running job
-  makes the worker lose its lease; from its first final file write, publication and the
-  deleted-photo cleanup run detached from that cancellation, so `complete_photo` reports
-  `Missing` and the worker removes what it wrote, partial publication included. The `photos`
+  makes the worker lose its lease; the runtime finalizes the job after the handler (see
+  [image worker outcomes](2026-11-08-image-worker-outcomes-design.md)): the finalizer locks the job and photo, finds the photo `Missing` and
+  removes what was written, partial publication included. The `photos`
   trigger from #80 announces the deletion to every open page.
 - **Cancelling an upload.** ✕ on an uploading tile aborts the request without confirmation. If
   the server already answered 201, the queue deletes the new photo. If the abort races a commit the
