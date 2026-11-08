@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { Check } from '@lucide/svelte';
+	import ClickPop from '#lib/components/ClickPop.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
 	import Input from '#lib/components/ui/input/input.svelte';
 
@@ -9,6 +10,7 @@
 	let { link, label = 'Client link' }: { link: string; label?: string } = $props();
 
 	let copied = $state(false);
+	let popping = $state(false);
 	let failed = $state(false);
 	let input = $state<HTMLInputElement | null>(null);
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -21,6 +23,7 @@
 			await navigator.clipboard.writeText(link);
 			failed = false;
 			copied = true;
+			popping = true;
 			timer = setTimeout(() => (copied = false), COPIED_MS);
 		} catch {
 			copied = false;
@@ -42,14 +45,19 @@
 		/>
 		<Button size="sm" class="min-h-9! min-w-28 gap-1.5" onclick={copyLink}>
 			{#if copied}
-				<Check size={16} aria-hidden="true" class="animate-copied-pop text-ok-on-dark" />
+				<span class="text-ok-on-dark">
+					<ClickPop active={popping} onend={() => (popping = false)}>
+						<Check size={16} aria-hidden="true" />
+					</ClickPop>
+				</span>
 				Copied
 			{:else}
 				Copy
 			{/if}
 		</Button>
 	</div>
-	<p class="text-xs empty:hidden" role="status">
+	<!-- The button already shows "Copied"; only the announcement is hidden visually. -->
+	<p class={failed ? 'text-xs' : 'sr-only'} role="status">
 		{copied ? 'Copied' : failed ? 'Couldn’t copy automatically. Please copy it manually.' : ''}
 	</p>
 </div>
