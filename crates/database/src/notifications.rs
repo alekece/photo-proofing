@@ -16,7 +16,7 @@ use crate::{
     Repository, auth::WorkspaceId, error::DatabaseError, gallery::GalleryId, photo::PhotoId,
 };
 
-/// The most notifications the bell lists.
+/// The most read notifications the bell lists.
 pub const LIST_LIMIT: i64 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
@@ -104,7 +104,7 @@ impl<'db> Repository<'db> for NotificationRepository<'db> {
 }
 
 impl NotificationRepository<'_> {
-    /// The workspace's newest [`LIST_LIMIT`] notifications, unread first.
+    /// Every unread notification of the workspace, then its newest [`LIST_LIMIT`] read ones.
     pub async fn list(&self, workspace_id: WorkspaceId) -> Result<NotificationList, DatabaseError> {
         let notifications = sqlx::query_as(
             "SELECT n.id, n.gallery_id, g.title, g.hero_id, n.kind, n.count::bigint AS count, n.updated_at, n.read_at,
@@ -113,8 +113,11 @@ impl NotificationRepository<'_> {
                        AND p.favorite) AS selected
              FROM notifications n JOIN galleries g ON g.id = n.gallery_id
              WHERE n.workspace_id = $1
-             ORDER BY (n.read_at IS NOT NULL), n.updated_at DESC
-             LIMIT $2",
+               AND (n.read_at IS NULL OR n.id IN (
+                   SELECT id FROM notifications
+                   WHERE workspace_id = $1 AND read_at IS NOT NULL
+                   ORDER BY updated_at DESC LIMIT $2))
+             ORDER BY (n.read_at IS NOT NULL), n.updated_at DESC",
         )
         .bind(workspace_id)
         .bind(LIST_LIMIT)
@@ -452,6 +455,34 @@ mod tests {
             .unwrap();
 
         assert!(fixture.list().await.notifications.is_empty());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn every_unread_notification_is_listed_beyond_the_read_cap(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+        let galleries = LIST_LIMIT + 5;
+
+        for _ in 0..galleries {
+            let gallery_id = fixture
+                .database
+                .repository::<GalleryRepository>()
+                .create(fixture.workspace_id)
+                .await
+                .unwrap()
+                .id;
+
+            sqlx::query("SELECT record_notification($1, $2, 'selection', 0)")
+                .bind(fixture.workspace_id)
+                .bind(gallery_id)
+                .execute(&fixture.pool)
+                .await
+                .unwrap();
+        }
+
+        let list = fixture.list().await;
+
+        assert_eq!(i64::try_from(list.unread).unwrap(), galleries);
+        assert_eq!(i64::try_from(list.notifications.len()).unwrap(), galleries);
     }
 
     #[sqlx::test(migrations = "./migrations")]

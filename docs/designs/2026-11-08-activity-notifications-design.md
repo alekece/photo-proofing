@@ -60,7 +60,7 @@ client saved a file. Showing the "news chips" under the greeting (only its "N ga
   `Origin` check. Opening the panel or the gallery reads nothing; the row click reads then navigates.
   Races hold because the upsert and the read both lock the unread row: activity that commits first is
   included in the read, activity after it finds no unread row and starts a new one.
-- **Listing.** `GET /api/v1/notifications` returns the newest 20 rows of the workspace (read and unread),
+- **Listing.** `GET /api/v1/notifications` returns every unread row of the workspace plus its newest 20 read rows,
   each with gallery id, title, hero id, kind, count, the live selected count, `read_at` and `updated_at`,
   plus the total unread. The sweep deletes read rows older than 30 days (**my call**); the cap and the
   retention are constants, not settings.
