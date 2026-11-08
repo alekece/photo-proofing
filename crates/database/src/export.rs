@@ -1505,7 +1505,7 @@ mod tests {
             .await
             .unwrap();
 
-        fixture.exports().complete(&job, id).await.unwrap();
+        let _ = fixture.exports().complete(&job, id).await.unwrap();
 
         let DeliveryZip::Ready(ready) = fixture.delivery().await.zip else {
             panic!("the finished ZIP of unchanged finals is served");
@@ -1564,7 +1564,7 @@ mod tests {
             .await
             .unwrap();
 
-        fixture.exports().fail(&job, id, "boom").await.unwrap();
+        let _ = fixture.exports().fail(&job, id, "boom").await.unwrap();
 
         let failed = fixture.delivery().await;
 
@@ -1589,7 +1589,7 @@ mod tests {
             .await
             .unwrap();
 
-        fixture.exports().complete(&job, id).await.unwrap();
+        let _ = fixture.exports().complete(&job, id).await.unwrap();
         fixture.mark_downloaded_at(second).await;
 
         let earlier: Option<Timestamp> = fixture.downloaded_at(second).await;

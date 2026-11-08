@@ -34,26 +34,26 @@ stream (the client page polls); watermarks; splitting an oversized set into seve
 
 ## Decisions
 
-- **Freshness without a counter (my call).** A delivery ZIP is *current* when its stored hash (the #220 hash
-  of ordered ids and sizes) equals the hash of the gallery's ready finals now. A stale ZIP is never served.
-  No revision column.
+- **Freshness without a counter (my call).** A delivery ZIP is *current* when its included photo ids, in
+  order, equal the ids of the gallery's ready finals now, checked on read when the client asks. A stale ZIP
+  is never served. No revision column and no hash.
 - **Download all (maintainer).** There is no "Preparing" state. The client clicks **Download all**; the
   button shows "Downloading…" and the browser download starts as soon as a current ZIP exists: at once if
-  it does, after the build otherwise. The click asks the server for the current ZIP, which creates a build
-  if none is current (the eager builds below are only a warm-up); the page polls quietly meanwhile and
-  starts the download once, when ready. If the build fails, a toast says "Couldn't prepare the download.
+  it does, after the build otherwise. The click `POST`s `/shared/{token}/download`, which creates a build
+  if none is current and answers JSON (200 ready, 202 building, 503 failed); the page polls that quietly
+  and, once ready, starts the download once with `GET /shared/{token}/download`, which streams the file.
+  Splitting the two keeps a large ZIP out of a script's memory. If the build fails, a toast says "Couldn't prepare the download.
   Please try again." and the button is usable again.
-- **When builds start.** At deliver (same transaction as the deliver update), and whenever a final becomes
-  ready or is removed on a delivered gallery. The existing one-in-flight rule coalesces bursts. On
-  completion the build recomputes the hash and discards its file if the set moved again.
+- **When builds start.** Lazily, at the client's click, plus a warm-up right after deliver. Finals that
+  change later trigger nothing: the next click finds the ZIP stale and replaces it. A late completion of a
+  replaced build finds its row gone and is dropped.
 - **Empty set.** No ZIP is built; the delivery export may hold
   zero photos only if the builder needs a row, otherwise none is created (builder's call).
 - **Kind-scoped export rules.** The "one preparing per gallery" index, the replace-previous step, `latest`
   and `ready` become per kind, so a photographer's selection ZIP never deletes the client's delivery ZIP.
 - **Lifetime and stale ZIPs.** Selection ZIPs keep their 15 minutes. A delivery ZIP has no age limit. It is
   replaced, never accumulated: requesting a new build for a gallery deletes the previous delivery export
-  (row and job, in one transaction, file removed after the commit), as the selection flow already does. A
-  completed build whose hash is no longer current is discarded. The maintenance sweep is the safety net
+  (row and job, in one transaction, file removed after the commit), as the selection flow already does. The maintenance sweep is the safety net
   and removes (a) the delivery ZIPs of expired or archived galleries, files and rows, jobs first, and (b)
   ZIP files no row owns, as it already does; the 15-minute rule skips delivery ZIPs. Extending the expiry
   or restoring the gallery needs no extra code: the next client click finds no current ZIP and builds one.
@@ -70,7 +70,7 @@ stream (the client page polls); watermarks; splitting an oversized set into seve
   delivered set: finals only, ready only, same gallery; proofs, drafts, originals of proofs and other
   galleries are 404; expired, archived and deleted links are the same generic 404. Responses are
   `Cache-Control: private, no-store`, `nosniff`, with a safe attachment filename. The ZIP route serves only
-  a current ready delivery ZIP, otherwise 404/`preparing`.
+  a current ready delivery ZIP, otherwise 409 (building or failed) or 404.
 - **Client page.** A download control per photo and a "Download all" as described above. No download-all
   control when the delivered set is empty.
 - **Failures (my call).** A failed delivery build retries through the queue; on final failure the client
