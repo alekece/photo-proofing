@@ -20,13 +20,8 @@
 //! `/galleries/shared/` paths.
 
 use actix_web::{
-    HttpResponse,
-    body::SizedStream,
-    delete, get,
-    http::{
-        StatusCode,
-        header::{self, ContentDisposition, DispositionParam, DispositionType},
-    },
+    HttpResponse, delete, get,
+    http::StatusCode,
     post, put,
     web::{Data, Path, ServiceConfig},
 };
@@ -40,10 +35,9 @@ use pp_database::{
     gallery::SharedGallery,
     watermark::{CoverSignature, WatermarkRepository},
 };
-use pp_storage::{ArchiveKey, PhotoKey, StorageError, Variant};
+use pp_storage::{ArchiveKey, PhotoKey, Variant};
 use serde::Serialize;
 use serde_json::json;
-use tokio_util::io::ReaderStream;
 
 use super::DerivativePhoto;
 
@@ -53,7 +47,7 @@ use crate::{
     api::ApiState,
     error::ErrorResponse,
     extractors::client_access::{ClientAccess, ClientPhotoSet},
-    response::{ImageFile, ResponseBuilderExt},
+    response::{Attachment, ImageFile, ResponseBuilderExt},
 };
 
 /// Registers the client routes inside the `/api/v1/galleries` scope.
@@ -262,7 +256,7 @@ async fn download_shared_photo(
     state: Data<ApiState>,
     access: ClientAccess,
     path: Path<(String, PhotoId)>,
-) -> Result<HttpResponse, ErrorResponse> {
+) -> Result<Attachment, ErrorResponse> {
     let (_, photo_id) = path.into_inner();
     let location = access.0.location;
     let photos = state.database().repository::<PhotoRepository>();
@@ -292,26 +286,12 @@ async fn download_shared_photo(
             Variant::Original,
         ))
         .await?;
-    let length = file
-        .metadata()
-        .await
-        .map_err(|error| ErrorResponse::from(StorageError::from(error)))?
-        .len();
-
-    let disposition = ContentDisposition {
-        disposition: DispositionType::Attachment,
-        parameters: vec![DispositionParam::Filename(photo.download_name())],
-    };
+    let attachment =
+        Attachment::new("application/octet-stream", photo.download_name(), file).await?;
 
     photos.mark_downloaded(location, photo_id).await?;
 
-    Ok(HttpResponse::Ok()
-        .content_type("application/octet-stream")
-        .insert_header(disposition)
-        .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
-        .insert_header((header::CACHE_CONTROL, "private, no-store"))
-        .no_referrer()
-        .body(SizedStream::new(length, ReaderStream::new(file))))
+    Ok(attachment)
 }
 
 #[post("/shared/{token}/download")]
@@ -340,7 +320,7 @@ async fn prepare_shared_zip(
 async fn download_shared_zip(
     state: Data<ApiState>,
     access: ClientAccess,
-) -> Result<HttpResponse, ErrorResponse> {
+) -> Result<Attachment, ErrorResponse> {
     let location = access.0.location;
 
     if access.photo_set() != ClientPhotoSet::Finals {
@@ -362,11 +342,7 @@ async fn download_shared_zip(
             export: export.id,
         })
         .await?;
-    let length = file
-        .metadata()
-        .await
-        .map_err(|error| ErrorResponse::from(StorageError::from(error)))?
-        .len();
+    let attachment = Attachment::zip(DOWNLOAD_NAME, file).await?;
 
     state
         .database()
@@ -374,16 +350,7 @@ async fn download_shared_zip(
         .mark_downloaded(export.id)
         .await?;
 
-    Ok(HttpResponse::Ok()
-        .content_type("application/zip")
-        .insert_header(ContentDisposition {
-            disposition: DispositionType::Attachment,
-            parameters: vec![DispositionParam::Filename(DOWNLOAD_NAME.to_owned())],
-        })
-        .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
-        .insert_header((header::CACHE_CONTROL, "private, no-store"))
-        .no_referrer()
-        .body(SizedStream::new(length, ReaderStream::new(file))))
+    Ok(attachment)
 }
 
 #[get("/shared/{token}/cover")]

@@ -8,11 +8,7 @@
 //! events.
 
 use actix_web::{
-    HttpResponse,
-    body::SizedStream,
-    get,
-    http::header::{self, ContentDisposition, DispositionParam, DispositionType},
-    post,
+    HttpResponse, get, post,
     web::{Bytes, Data, Path as WebPath, ServiceConfig},
 };
 use pp_core::types::timestamp::Timestamp;
@@ -23,11 +19,12 @@ use pp_database::{
 };
 use pp_storage::{ArchiveKey, StorageError};
 use serde::{Deserialize, Serialize};
-use tokio_util::io::ReaderStream;
 
 use crate::{
-    api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
-    response::ResponseBuilderExt,
+    api::ApiState,
+    error::ErrorResponse,
+    extractors::identity::Authenticated,
+    response::{Attachment, ResponseBuilderExt},
 };
 
 /// The name the browser saves the ZIP under, the same for every gallery.
@@ -164,7 +161,7 @@ async fn download_export(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     path: WebPath<(GalleryId, ExportId)>,
-) -> Result<HttpResponse, ErrorResponse> {
+) -> Result<Attachment, ErrorResponse> {
     let (gallery_id, export_id) = path.into_inner();
     let ready = state
         .database()
@@ -191,22 +188,7 @@ async fn download_export(
         Err(StorageError::NotFound) => return Err(ErrorResponse::not_found()),
         Err(error) => return Err(error.into()),
     };
-    let length = file
-        .metadata()
-        .await
-        .map_err(|error| ErrorResponse::from(StorageError::from(error)))?
-        .len();
-
-    Ok(HttpResponse::Ok()
-        .content_type("application/zip")
-        .insert_header(ContentDisposition {
-            disposition: DispositionType::Attachment,
-            parameters: vec![DispositionParam::Filename(DOWNLOAD_NAME.to_owned())],
-        })
-        .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
-        .insert_header((header::CACHE_CONTROL, "private, no-store"))
-        .no_referrer()
-        .body(SizedStream::new(length, ReaderStream::new(file))))
+    Attachment::zip(DOWNLOAD_NAME, file).await
 }
 
 #[cfg(test)]
