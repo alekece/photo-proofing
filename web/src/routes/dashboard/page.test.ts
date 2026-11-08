@@ -72,7 +72,7 @@ describe('dashboard', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('closes the grid with a card that creates a gallery, and totals in the footer', async () => {
+	it('closes the grid with a card that creates a gallery, and totals below it', async () => {
 		render(Dashboard, { props: props([gallery(), gallery({ id: 'g2', title: 'Portraits' })]) });
 		const user = userEvent.setup();
 
@@ -81,7 +81,7 @@ describe('dashboard', () => {
 		expect(screen.getByRole('dialog', { name: 'New gallery' })).toBeTruthy();
 	});
 
-	it('sums the photos of the galleries that are not archived in the footer', () => {
+	it('sums the photos of the galleries that are not archived', () => {
 		render(Dashboard, {
 			props: props([
 				gallery({ id: 'a', photo_count: 32 }),

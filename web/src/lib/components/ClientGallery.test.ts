@@ -184,13 +184,11 @@ describe('ClientGallery', () => {
 		expect(screen.getByRole('button', { name: 'Add to favorites' })).toBeTruthy();
 	});
 
-	it('signs the cover and footer with the studio', () => {
+	it('signs the cover with the studio and leaves the footer to the app layout', () => {
 		show({ studio: 'Studio Lune' });
 
 		expect(screen.getAllByText('Studio Lune')).toHaveLength(1);
-		expect(screen.getByRole('contentinfo').textContent).toContain(
-			'Studio Lune · PhotoProofing'.toUpperCase()
-		);
+		expect(screen.queryByRole('contentinfo')).toBeNull();
 	});
 
 	it('shows the favorites count in the viewer', async () => {

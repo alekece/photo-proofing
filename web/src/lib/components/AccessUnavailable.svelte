@@ -18,7 +18,7 @@
 </script>
 
 <main
-	class="flex min-h-dvh flex-col items-center justify-center gap-[34px] bg-dark px-6 py-10 text-[#efe6da]"
+	class="flex flex-1 flex-col items-center justify-center gap-[34px] bg-dark px-6 py-10 text-[#efe6da]"
 >
 	<div
 		role="img"

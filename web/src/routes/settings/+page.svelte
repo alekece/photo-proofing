@@ -5,7 +5,6 @@
 	import { authRequest } from '#lib/auth.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
-	import BuildInfo from '#lib/components/BuildInfo.svelte';
 	import CoverSignaturePicker from '#lib/components/CoverSignaturePicker.svelte';
 	import WatermarkEditor from '#lib/components/WatermarkEditor.svelte';
 	import Button from '#lib/components/ui/button/button.svelte';
@@ -237,5 +236,4 @@
 		logo={draft.logo}
 		cover={data.cover}
 	/>
-	<BuildInfo />
 </PageShell>
