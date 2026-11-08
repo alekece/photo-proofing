@@ -418,6 +418,30 @@ impl JobRepository<'_> {
         Ok(id)
     }
 
+    /// Deletes the processing jobs of `photo_ids` in the caller's transaction, whatever their
+    /// state.
+    ///
+    /// Jobs are locked in id order: the worker locks a job then its photo, so neither it nor an
+    /// overlapping delete deadlocks with this one. Callers delete jobs before their photos.
+    pub async fn delete_photo_jobs_in(
+        transaction: &mut Transaction<'_, Postgres>,
+        photo_ids: &[PhotoId],
+    ) -> Result<(), DatabaseError> {
+        sqlx::query(
+            "DELETE FROM jobs WHERE id IN (
+                 SELECT id FROM jobs
+                 WHERE payload->>'kind' = 'process_photo'
+                   AND payload->'payload'->>'photo_id' = ANY($1::uuid[]::text[])
+                 ORDER BY id FOR UPDATE
+             )",
+        )
+        .bind(photo_ids)
+        .execute(&mut **transaction)
+        .await?;
+
+        Ok(())
+    }
+
     /// Claims the oldest due job among `kinds`, leasing it for `lease`.
     ///
     /// Jobs of other kinds stay queued, so a worker without a handler for a kind never touches
@@ -873,6 +897,27 @@ mod tests {
             .unwrap();
 
         assert_eq!(count_after_rollback, 0);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn deleting_photo_jobs_leaves_other_jobs(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let doomed = photo_job(&database, &pool, 3).await;
+        let kept = photo_job(&database, &pool, 3).await;
+        let mut transaction = pool.begin().await.unwrap();
+
+        JobRepository::delete_photo_jobs_in(&mut transaction, &[doomed])
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+
+        let remaining: Vec<String> =
+            sqlx::query_scalar("SELECT payload->'payload'->>'photo_id' FROM jobs")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+
+        assert_eq!(remaining, [kept.to_string()]);
     }
 
     fn process_photo() -> JobPayload {
