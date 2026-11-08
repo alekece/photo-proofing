@@ -1,6 +1,6 @@
 # Copy-link control
 
-Issue: #240. Look and motion follow `docs/designs/ui/DESIGN.md` (green `ok`, `prefers-reduced-motion`).
+Issues: #240, #267, #268. Look and motion follow `docs/designs/ui/DESIGN.md` (green `ok`, `prefers-reduced-motion`).
 
 ## Intent
 
@@ -12,7 +12,8 @@ The client link field invites editing and Copy gives no visible confirmation. Ma
 - The button sits right of the field, labelled **Copy**; after a successful copy it shows a green lucide check and **Copied** for 3 s, then returns to **Copy**.
 - Repeated clicks restart the 3 s delay; the change is announced through a `role="status"` region.
 - On failure the existing fallback stays: the link is selected and a "copy it manually" message shows; no confirmation.
-- The check pops in (450 ms, the same easing as Settings "Saved"); reduced motion makes it instant via the global rule.
+- The only visible confirmation is the button's green check and **Copied**; the `role="status"` region is screen-reader-only on success (a visible copy duplicated the label below the button) and visible only for the manual-copy failure message.
+- The check scales up slightly with a ripple, through `ClickPop.svelte`, the same mechanism the favorite heart uses (same scale keyframes and a ring ripple). Reduced motion makes it instant via the global rule; the check and **Copied** stay visible.
 
 ## Controls covered
 

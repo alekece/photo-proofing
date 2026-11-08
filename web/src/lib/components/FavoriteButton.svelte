@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Heart } from '@lucide/svelte';
+	import ClickPop from '#lib/components/ClickPop.svelte';
 	import type { Snippet } from 'svelte';
 
 	let {
@@ -41,11 +42,8 @@
 	{disabled}
 	onclick={click}
 >
-	<span
-		class="inline-grid {popping && selected ? 'animate-heart-pop' : ''}"
-		onanimationend={() => (popping = false)}
-	>
+	<ClickPop active={popping && selected} onend={() => (popping = false)}>
 		<Heart aria-hidden="true" {size} fill={selected ? 'currentColor' : 'none'} />
-	</span>
+	</ClickPop>
 	{@render children?.()}
 </button>
