@@ -71,5 +71,176 @@
 	"api_error_busy": "Too many requests. Please wait a moment and try again.",
 	"api_error_unavailable": "The service is temporarily unavailable. Please try again in a moment.",
 	"api_error_storage_full": "Photo storage is full. Free some space and try again.",
-	"api_error_unexpected": "Unexpected response from the server."
+	"api_error_unexpected": "Unexpected response from the server.",
+	"common_cancel": "Cancel",
+	"gallery_untitled": "Untitled gallery",
+	"state_draft": "Draft",
+	"state_shared": "Shared",
+	"state_delivered": "Delivered",
+	"state_expired": "Expired",
+	"state_archived": "Archived",
+	"time_just_now": "just now",
+	"time_minutes_ago": "{count} min ago",
+	"time_hours_ago": "{count} h ago",
+	"time_days_ago": "{count} d ago",
+	"summary_photos": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} photo",
+				"countPlural=*": "{count} photos"
+			}
+		}
+	],
+	"summary_finals": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} final",
+				"countPlural=*": "{count} finals"
+			}
+		}
+	],
+	"summary_archived": "{items} · archived",
+	"summary_finals_delivered": "Final photos delivered",
+	"summary_all_downloaded": "{finals} · all downloaded",
+	"summary_some_downloaded": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{finals} · {count} downloaded",
+				"countPlural=*": "{finals} · {count} downloaded"
+			}
+		}
+	],
+	"summary_no_photos": "No photos yet",
+	"summary_selected": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": " selected",
+				"countPlural=*": " selected"
+			}
+		}
+	],
+	"summary_expired": "expired",
+	"summary_expired_today": "expired today",
+	"summary_expired_yesterday": "expired yesterday",
+	"summary_expired_days_ago": "expired {days} days ago",
+	"notification_selected": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} selected",
+				"countPlural=*": "{count} selected"
+			}
+		}
+	],
+	"notification_zip": "Downloaded as a ZIP",
+	"notification_downloads": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} new download",
+				"countPlural=*": "{count} new downloads"
+			}
+		}
+	],
+	"notification_badge_selection": "New selection",
+	"notification_badge_downloads": "New downloads",
+	"notifications_unread": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Notifications, {count} unread",
+				"countPlural=*": "Notifications, {count} unread"
+			}
+		}
+	],
+	"notifications_mark_all_read": "Mark all as read",
+	"notifications_none": "Nothing new.",
+	"expiry_open_until": "Open until",
+	"expiry_today": "expires today",
+	"expiry_days_left": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} day left",
+				"countPlural=*": "{count} days left"
+			}
+		}
+	],
+	"filter_status": "Status",
+	"filter_none": "None",
+	"filter_all": "All statuses",
+	"filter_select_all": "Select all",
+	"filter_reset": "Reset",
+	"sort_updated": "Recently updated",
+	"sort_created": "Newest created",
+	"sort_oldest": "Oldest created",
+	"sort_title": "Title A–Z",
+	"sort_by": "Sort by",
+	"new_gallery_title": "New gallery",
+	"new_gallery_field": "Title",
+	"new_gallery_placeholder": "e.g. Martin wedding",
+	"new_gallery_title_required": "Enter a title for the gallery.",
+	"new_gallery_title_too_long": "Titles can be up to {max} characters.",
+	"new_gallery_failed": "Couldn’t create the gallery. Please try again.",
+	"new_gallery_creating": "Creating…",
+	"new_gallery_create": "Create",
+	"dashboard_head": "Dashboard",
+	"dashboard_morning": "Good morning",
+	"dashboard_afternoon": "Good afternoon",
+	"dashboard_evening": "Good evening",
+	"dashboard_news": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} gallery has news.",
+				"countPlural=*": "{count} galleries have news."
+			}
+		}
+	],
+	"dashboard_quiet": "All quiet",
+	"dashboard_quiet_rest": "for now.",
+	"dashboard_new_gallery": "+ New gallery",
+	"dashboard_search": "Search galleries",
+	"dashboard_loading": "Loading galleries…",
+	"dashboard_load_failed": "Couldn’t load your galleries. Please reload the page to try again.",
+	"dashboard_no_match": "No gallery called “{query}”",
+	"dashboard_no_status_match": "No galleries with these statuses",
+	"dashboard_hidden_matches": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} match is hidden in unselected statuses.",
+				"countPlural=*": "{count} matches are hidden in unselected statuses."
+			}
+		}
+	],
+	"dashboard_check_spelling": "Check the spelling, or try part of the client’s name.",
+	"dashboard_clear_filters": "Clear search and status",
+	"dashboard_next_client_line1": "Who’s in front of",
+	"dashboard_next_client_line2": "your lens next?",
+	"dashboard_total_galleries": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} gallery",
+				"countPlural=*": "{count} galleries"
+			}
+		}
+	],
+	"dashboard_empty": "Nothing in frame yet."
 }

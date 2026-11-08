@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { Bell } from '@lucide/svelte';
 	import Popover from '#lib/components/ui/Popover/Popover.svelte';
 	import { previewUrl } from '#lib/gallery/photos.js';
@@ -7,7 +8,6 @@
 		timeAgo,
 		type NotificationCenter
 	} from '#lib/gallery/notifications.svelte.js';
-	import { UNTITLED_GALLERY } from '#lib/gallery/format.js';
 
 	let { center, class: className }: { center: NotificationCenter; class?: string } = $props();
 
@@ -22,7 +22,9 @@
 
 <Popover
 	bind:open
-	label={center.unread > 0 ? `Notifications, ${center.unread} unread` : 'Notifications'}
+	label={center.unread > 0
+		? m.notifications_unread({ count: center.unread })
+		: m.header_notifications()}
 	align="end"
 	class="relative {className}"
 	panelClass="w-[min(22rem,calc(100vw-1.5rem))] text-foreground"
@@ -38,16 +40,16 @@
 		{/if}
 	{/snippet}
 	<div class="flex items-center justify-between px-3 py-2">
-		<span class="text-sm font-semibold">Notifications</span>
+		<span class="text-sm font-semibold">{m.header_notifications()}</span>
 		<button
 			type="button"
 			disabled={center.unread === 0}
 			class="min-h-9 cursor-pointer text-sm text-muted-foreground underline disabled:cursor-default disabled:no-underline disabled:opacity-50"
-			onclick={() => void center.markAllRead()}>Mark all as read</button
+			onclick={() => void center.markAllRead()}>{m.notifications_mark_all_read()}</button
 		>
 	</div>
 	{#if unread.length === 0}
-		<p class="px-3 pb-3 text-sm text-muted-foreground">Nothing new.</p>
+		<p class="px-3 pb-3 text-sm text-muted-foreground">{m.notifications_none()}</p>
 	{:else}
 		<ul class="max-h-96 overflow-y-auto">
 			{#each unread as item (item.id)}
@@ -68,7 +70,7 @@
 						{/if}
 						<span class="min-w-0 flex-1">
 							<span class="block truncate text-sm font-semibold"
-								>{item.title ?? UNTITLED_GALLERY}</span
+								>{item.title ?? m.gallery_untitled()}</span
 							>
 							<span class="block truncate text-xs text-muted-foreground"
 								>{notificationText(item)} · {timeAgo(item.updated_at)}</span

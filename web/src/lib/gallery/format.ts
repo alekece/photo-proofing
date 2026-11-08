@@ -1,7 +1,5 @@
+import { m } from '#lib/paraglide/messages.js';
 import { getLocale } from '#lib/paraglide/runtime.js';
-
-/** Shown wherever a gallery has no title; the server stores `null`. */
-export const UNTITLED_GALLERY = 'Untitled gallery';
 
 /** Longest gallery title the API accepts, in characters. */
 export const TITLE_MAX = 255;
@@ -12,9 +10,9 @@ const pad = (value: number) => String(value).padStart(2, '0');
 export function formatEdited(iso: string, now: Date = new Date()): string {
 	const date = new Date(iso);
 	const minutes = Math.floor((now.getTime() - date.getTime()) / 60_000);
-	if (minutes < 1) return 'just now';
-	if (minutes < 60) return `${minutes} min ago`;
-	if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} h ago`;
+	if (minutes < 1) return m.time_just_now();
+	if (minutes < 60) return m.time_minutes_ago({ count: minutes });
+	if (minutes < 24 * 60) return m.time_hours_ago({ count: Math.floor(minutes / 60) });
 	return formatLongDate(iso);
 }
 
@@ -101,17 +99,15 @@ export interface SummaryPart {
 }
 
 function expiredAgo(iso: string | null, now: Date): string {
-	if (iso === null) return 'expired';
+	if (iso === null) return m.summary_expired();
 
 	const days = Math.floor((now.getTime() - new Date(iso).getTime()) / DAY_MS);
 
-	if (days < 1) return 'expired today';
-	if (days === 1) return 'expired yesterday';
+	if (days < 1) return m.summary_expired_today();
+	if (days === 1) return m.summary_expired_yesterday();
 
-	return `expired ${days} days ago`;
+	return m.summary_expired_days_ago({ days });
 }
-
-const photosText = (count: number) => (count === 1 ? '1 photo' : `${count} photos`);
 
 const plain = (text: string): SummaryPart[] => [{ text, over: false }];
 
@@ -131,29 +127,32 @@ export function gallerySummary(
 	now: Date = new Date()
 ): SummaryPart[] {
 	const status = galleryStatus(gallery.states);
-	const photos = photosText(gallery.photo_count);
-
-	const finalsText = gallery.final_count === 1 ? '1 final' : `${gallery.final_count} finals`;
+	const photos = m.summary_photos({ count: gallery.photo_count });
+	const finalsText = m.summary_finals({ count: gallery.final_count });
 
 	if (status === 'archived') {
-		return plain(`${gallery.final_count > 0 ? finalsText : photos} · archived`);
+		return plain(m.summary_archived({ items: gallery.final_count > 0 ? finalsText : photos }));
 	}
 	if (status === 'delivered') {
 		const { final_count: finals, downloaded_count: downloaded } = gallery;
 
-		if (finals === 0) return plain('Final photos delivered');
+		if (finals === 0) return plain(m.summary_finals_delivered());
 
 		return plain(
-			`${finalsText} · ${downloaded === finals ? 'all downloaded' : `${downloaded} downloaded`}`
+			downloaded === finals
+				? m.summary_all_downloaded({ finals: finalsText })
+				: m.summary_some_downloaded({ finals: finalsText, count: downloaded })
 		);
 	}
-	if (status === 'draft') return plain(gallery.photo_count === 0 ? 'No photos yet' : photos);
+	if (status === 'draft') {
+		return plain(gallery.photo_count === 0 ? m.summary_no_photos() : photos);
+	}
 
 	const over = gallery.included_photos !== null && gallery.favorite_count > gallery.included_photos;
 	const selected: SummaryPart[] = [
 		{ text: `${photos} · `, over: false },
 		{ text: String(gallery.favorite_count), over },
-		{ text: ' selected', over: false }
+		{ text: m.summary_selected({ count: gallery.favorite_count }), over: false }
 	];
 
 	if (status === 'expired') {

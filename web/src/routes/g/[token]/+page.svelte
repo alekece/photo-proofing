@@ -1,8 +1,8 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import AccessUnavailable from '#lib/components/AccessUnavailable.svelte';
 	import ClientGallery from '#lib/components/ClientGallery.svelte';
-	import { UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import { recordOpened } from '#lib/gallery/opened.js';
 	import type { Proof, SharedGallery } from '#lib/gallery/types.js';
 
@@ -38,7 +38,9 @@
 </script>
 
 <svelte:head>
-	<title>{data.gallery ? (data.gallery.title ?? UNTITLED_GALLERY) : 'Gallery unavailable'}</title>
+	<title
+		>{data.gallery ? (data.gallery.title ?? m.gallery_untitled()) : 'Gallery unavailable'}</title
+	>
 	<meta name="referrer" content="no-referrer" />
 	<meta name="robots" content="noindex" />
 </svelte:head>

@@ -1,14 +1,15 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { ArrowUpDown, Check, ChevronDown } from '@lucide/svelte';
 	import Popover from '#lib/components/ui/Popover/Popover.svelte';
 	import { menuButton } from '#lib/components/ui/Popover/menu.js';
 	import type { GallerySort } from '#lib/gallery/schemas.js';
 
-	const SORTS: [GallerySort, string][] = [
-		['updated', 'Recently updated'],
-		['created', 'Newest created'],
-		['oldest', 'Oldest created'],
-		['title', 'Title A–Z']
+	const SORTS: [GallerySort, () => string][] = [
+		['updated', m.sort_updated],
+		['created', m.sort_created],
+		['oldest', m.sort_oldest],
+		['title', m.sort_title]
 	];
 
 	let {
@@ -22,7 +23,7 @@
 	} = $props();
 
 	let open = $state(false);
-	let label = $derived(SORTS.find(([sort]) => sort === value)?.[1]);
+	let label = $derived(SORTS.find(([sort]) => sort === value)?.[1]());
 </script>
 
 <Popover
@@ -38,7 +39,7 @@
 		<span class="max-sm:grow max-sm:text-left">{label}</span>
 		<ChevronDown size={12} aria-hidden="true" />
 	{/snippet}
-	<div role="radiogroup" aria-label="Sort by" class="grid">
+	<div role="radiogroup" aria-label={m.sort_by()} class="grid">
 		{#each SORTS as [sort, name] (sort)}
 			<button
 				type="button"
@@ -53,7 +54,7 @@
 				<span class="grid w-4 place-items-center {sort === value ? '' : 'invisible'}">
 					<Check size={14} aria-hidden="true" />
 				</span>
-				{name}
+				{name()}
 			</button>
 		{/each}
 	</div>

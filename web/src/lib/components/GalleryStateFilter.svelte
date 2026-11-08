@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { ChevronDown, ListFilter } from '@lucide/svelte';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
 	import Popover from '#lib/components/ui/Popover/Popover.svelte';
@@ -22,13 +23,13 @@
 	let isDefault = $derived(sameStates(selected, DEFAULT_STATES));
 	let summary = $derived(
 		isDefault
-			? 'Status'
+			? m.filter_status()
 			: selected.length === 0
-				? 'None'
+				? m.filter_none()
 				: selected.length === ALL_STATES.length
-					? 'All statuses'
+					? m.filter_all()
 					: ALL_STATES.filter((state) => selected.includes(state))
-							.map((state) => STATE_LABELS[state])
+							.map((state) => STATE_LABELS[state]())
 							.join(', ')
 	);
 
@@ -65,7 +66,7 @@
 						onchange={(event) => toggle(state, event.currentTarget.checked)}
 					/>
 					<span aria-hidden="true" class="size-[7px] rounded-full {statusDots[state]}"></span>
-					<span class="grow">{STATE_LABELS[state]}</span>
+					<span class="grow">{STATE_LABELS[state]()}</span>
 					<span class="text-xs text-muted-foreground">{counts[state]}</span>
 				</label>
 			</li>
@@ -79,14 +80,14 @@
 			class="cursor-pointer text-danger"
 			onclick={() => onchange([...ALL_STATES])}
 		>
-			Select all
+			{m.filter_select_all()}
 		</button>
 		<button
 			type="button"
 			class="cursor-pointer text-danger"
 			onclick={() => onchange([...DEFAULT_STATES])}
 		>
-			Reset
+			{m.filter_reset()}
 		</button>
 	</div>
 </Popover>

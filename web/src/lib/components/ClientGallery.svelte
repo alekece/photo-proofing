@@ -1,8 +1,8 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { Download, Heart } from '@lucide/svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
-	import { UNTITLED_GALLERY } from '#lib/gallery/format.js';
 	import { Selection } from '#lib/gallery/selection.svelte.js';
 	import type { Proof, SharedGallery } from '#lib/gallery/types.js';
 	import type { Signature } from '#lib/settings/settings.js';
@@ -65,7 +65,7 @@
 		onlyFavorites && !delivered ? proofs.filter(({ id }) => selection.has(id)) : proofs
 	);
 	const count = $derived(`${proofs.length} ${proofs.length === 1 ? 'photo' : 'photos'}`);
-	const title = $derived(gallery.title ?? UNTITLED_GALLERY);
+	const title = $derived(gallery.title ?? m.gallery_untitled());
 
 	const downloadAllUrl = $derived(`/api/v1/galleries/shared/${encodeURIComponent(token)}/download`);
 	let downloading = $state(false);

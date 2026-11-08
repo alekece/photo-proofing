@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { NotificationCenter } from '#lib/gallery/notifications.svelte.js';
 import NotificationBell from './NotificationBell.svelte';
+import { useLocale } from '#lib/i18n/testing.js';
 
 const row = (over = {}) => ({
 	id: 'n1',
@@ -74,5 +75,19 @@ describe('NotificationBell', () => {
 		expect(
 			(screen.getByRole('button', { name: 'Mark all as read' }) as HTMLButtonElement).disabled
 		).toBe(true);
+	});
+});
+
+describe('NotificationBell in French', () => {
+	useLocale('fr');
+
+	it('names the unread count and the news in French', async () => {
+		const { center } = setup([row()]);
+		await center.refresh();
+		render(NotificationBell, { center });
+
+		await userEvent.click(screen.getByRole('button', { name: 'Notifications, 1 non lue' }));
+
+		expect(screen.getByText(/13 sélectionnées/)).toBeTruthy();
 	});
 });

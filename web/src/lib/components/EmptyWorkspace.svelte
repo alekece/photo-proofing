@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	// Two strips of blank frames; each repeats once so the slow roll loops without a jump.
 	const strips = [1, 10].map((from) =>
 		Array.from({ length: 18 }, (_, index) => {
@@ -35,7 +36,7 @@
 		</p>
 	</div>
 	<h2 class="mt-[22px] font-serif text-[1.3125rem] leading-[1.2] italic sm:text-[1.625rem]">
-		Nothing in frame yet.
+		{m.dashboard_empty()}
 	</h2>
 </section>
 

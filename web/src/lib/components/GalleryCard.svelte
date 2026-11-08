@@ -1,12 +1,8 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
 	import type { GalleryOverview } from '#lib/gallery/api.js';
-	import {
-		galleryStatus,
-		gallerySummary,
-		highlightParts,
-		UNTITLED_GALLERY
-	} from '#lib/gallery/format.js';
+	import { galleryStatus, gallerySummary, highlightParts } from '#lib/gallery/format.js';
 	import { previewUrl } from '#lib/gallery/photos.js';
 
 	let {
@@ -22,7 +18,7 @@
 	} = $props();
 
 	let status = $derived(galleryStatus(gallery.states));
-	let title = $derived(gallery.title ?? UNTITLED_GALLERY);
+	let title = $derived(gallery.title ?? m.gallery_untitled());
 	let faded = $derived(status === 'expired' || status === 'archived');
 </script>
 

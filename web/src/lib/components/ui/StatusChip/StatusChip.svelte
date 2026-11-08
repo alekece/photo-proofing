@@ -12,16 +12,9 @@
 </script>
 
 <script lang="ts">
+	import { STATE_LABELS } from '#lib/gallery/states.js';
 	import { cn } from '#lib/utils.js';
 	import type { HTMLAttributes } from 'svelte/elements';
-
-	const labels: Record<GalleryStatus, string> = {
-		draft: 'Draft',
-		shared: 'Shared',
-		delivered: 'Delivered',
-		expired: 'Expired',
-		archived: 'Archived'
-	};
 
 	const tones: Record<GalleryStatus, string> = {
 		draft: 'border-border-strong text-muted-foreground',
@@ -63,5 +56,5 @@
 			aria-hidden="true"
 			class={cn('size-[7px] rounded-full', cover ? 'bg-current' : statusDots[status])}
 		></span>{/if}
-	{labels[status]}
+	{STATE_LABELS[status]()}
 </span>

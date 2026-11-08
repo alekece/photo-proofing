@@ -30,7 +30,7 @@
 		type GalleryChanges
 	} from '#lib/gallery/api.js';
 	import { goingToRetry } from '#lib/gallery/focus.js';
-	import { TITLE_MAX, UNTITLED_GALLERY } from '#lib/gallery/format.js';
+	import { TITLE_MAX } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
 
 	const DEBOUNCE = 600;
@@ -257,9 +257,9 @@
 	}
 </script>
 
-<svelte:head><title>{saved.title ?? UNTITLED_GALLERY} — PhotoProofing</title></svelte:head>
+<svelte:head><title>{saved.title ?? m.gallery_untitled()} — PhotoProofing</title></svelte:head>
 <div class="relative">
-	<AppHeader overlay crumb={saved.title ?? UNTITLED_GALLERY} onsignout={logout} />
+	<AppHeader overlay crumb={saved.title ?? m.gallery_untitled()} onsignout={logout} />
 	{#if signOutError}<p
 			role="alert"
 			class="absolute inset-x-0 top-16 z-20 text-center text-warning-on-dark"
@@ -284,7 +284,7 @@
 					id="title"
 					class="mt-2 mb-1.5 min-h-0 flex-1 rounded-none border-0 border-b border-transparent bg-transparent p-0 font-serif text-[2rem] leading-none text-panel placeholder:text-panel/70 hover:border-dotted hover:border-panel/50 focus:border-solid focus:border-panel sm:text-[2.875rem]"
 					bind:value={title}
-					placeholder={UNTITLED_GALLERY}
+					placeholder={m.gallery_untitled()}
 					maxlength={TITLE_MAX}
 					oninput={editTitle}
 					onblur={(event) => leaveTitle(event)}
@@ -361,7 +361,7 @@
 	<PublishDialog
 		kind={publishing}
 		galleryId={saved.id}
-		title={saved.title ?? UNTITLED_GALLERY}
+		title={saved.title ?? m.gallery_untitled()}
 		expiresAt={saved.expires_at}
 		uploading={queue?.inFlight(saved.id) ?? 0}
 		onconfirm={publishing === 'share' ? share : deliver}

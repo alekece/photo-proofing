@@ -3,7 +3,7 @@ import en from '../../../messages/en.json';
 import fr from '../../../messages/fr.json';
 
 /** Keys whose French reads the same as the English, on purpose. */
-const SAME_IN_BOTH: string[] = ['header_notifications'];
+const SAME_IN_BOTH: string[] = ['header_notifications', 'summary_photos'];
 
 const texts = (catalogue: Record<string, unknown>) =>
 	Object.fromEntries(Object.entries(catalogue).filter(([key]) => key !== '$schema'));

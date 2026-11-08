@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import Button from '#lib/components/ui/Button/Button.svelte';
@@ -32,12 +33,12 @@
 		const trimmed = title.trim();
 
 		if (trimmed === '') {
-			error = 'Enter a title for the gallery.';
+			error = m.new_gallery_title_required();
 
 			return;
 		}
 		if (trimmed.length > TITLE_MAX) {
-			error = `Titles can be up to ${TITLE_MAX} characters.`;
+			error = m.new_gallery_title_too_long({ max: TITLE_MAX });
 
 			return;
 		}
@@ -58,7 +59,7 @@
 				return;
 			}
 
-			error = 'Couldn’t create the gallery. Please try again.';
+			error = m.new_gallery_failed();
 		} finally {
 			creating = false;
 		}
@@ -72,14 +73,14 @@
 >
 	{#snippet children(close)}
 		<form onsubmit={submit} class="grid gap-4" aria-busy={creating}>
-			<h2 id="new-gallery-title" class="text-xl">New gallery</h2>
+			<h2 id="new-gallery-title" class="text-xl">{m.new_gallery_title()}</h2>
 			<div class="grid gap-2">
-				<Label for="new-gallery-field" class="font-normal">Title</Label>
+				<Label for="new-gallery-field" class="font-normal">{m.new_gallery_field()}</Label>
 				<Input
 					bind:ref={field}
 					id="new-gallery-field"
 					bind:value={title}
-					placeholder="e.g. Martin wedding"
+					placeholder={m.new_gallery_placeholder()}
 					aria-describedby={error ? 'new-gallery-error' : undefined}
 					aria-invalid={error ? true : undefined}
 					disabled={creating}
@@ -89,8 +90,10 @@
 				{/if}
 			</div>
 			<div class="flex justify-end gap-2">
-				<Button variant="outline" onclick={close} disabled={creating}>Cancel</Button>
-				<Button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create'}</Button>
+				<Button variant="outline" onclick={close} disabled={creating}>{m.common_cancel()}</Button>
+				<Button type="submit" disabled={creating}
+					>{creating ? m.new_gallery_creating() : m.new_gallery_create()}</Button
+				>
 			</div>
 		</form>
 	{/snippet}

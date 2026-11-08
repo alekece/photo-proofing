@@ -71,5 +71,176 @@
 	"api_error_busy": "Trop de demandes. Patientez un instant, puis réessayez.",
 	"api_error_unavailable": "Le service est momentanément indisponible. Réessayez dans un instant.",
 	"api_error_storage_full": "Le stockage des photos est plein. Libérez de l’espace et réessayez.",
-	"api_error_unexpected": "Réponse inattendue du serveur."
+	"api_error_unexpected": "Réponse inattendue du serveur.",
+	"common_cancel": "Annuler",
+	"gallery_untitled": "Galerie sans titre",
+	"state_draft": "Brouillon",
+	"state_shared": "Partagée",
+	"state_delivered": "Livrée",
+	"state_expired": "Expirée",
+	"state_archived": "Archivée",
+	"time_just_now": "à l’instant",
+	"time_minutes_ago": "il y a {count} min",
+	"time_hours_ago": "il y a {count} h",
+	"time_days_ago": "il y a {count} j",
+	"summary_photos": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} photo",
+				"countPlural=*": "{count} photos"
+			}
+		}
+	],
+	"summary_finals": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} photo finale",
+				"countPlural=*": "{count} photos finales"
+			}
+		}
+	],
+	"summary_archived": "{items} · archivée",
+	"summary_finals_delivered": "Photos finales livrées",
+	"summary_all_downloaded": "{finals} · toutes téléchargées",
+	"summary_some_downloaded": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{finals} · {count} téléchargée",
+				"countPlural=*": "{finals} · {count} téléchargées"
+			}
+		}
+	],
+	"summary_no_photos": "Pas encore de photos",
+	"summary_selected": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": " sélectionnée",
+				"countPlural=*": " sélectionnées"
+			}
+		}
+	],
+	"summary_expired": "expirée",
+	"summary_expired_today": "expirée aujourd’hui",
+	"summary_expired_yesterday": "expirée hier",
+	"summary_expired_days_ago": "expirée il y a {days} jours",
+	"notification_selected": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} sélectionnée",
+				"countPlural=*": "{count} sélectionnées"
+			}
+		}
+	],
+	"notification_zip": "Téléchargée en ZIP",
+	"notification_downloads": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} nouveau téléchargement",
+				"countPlural=*": "{count} nouveaux téléchargements"
+			}
+		}
+	],
+	"notification_badge_selection": "Nouvelle sélection",
+	"notification_badge_downloads": "Nouveaux téléchargements",
+	"notifications_unread": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Notifications, {count} non lue",
+				"countPlural=*": "Notifications, {count} non lues"
+			}
+		}
+	],
+	"notifications_mark_all_read": "Tout marquer comme lu",
+	"notifications_none": "Rien de nouveau.",
+	"expiry_open_until": "Ouverte jusqu’au",
+	"expiry_today": "expire aujourd’hui",
+	"expiry_days_left": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} jour restant",
+				"countPlural=*": "{count} jours restants"
+			}
+		}
+	],
+	"filter_status": "Statut",
+	"filter_none": "Aucun",
+	"filter_all": "Tous les statuts",
+	"filter_select_all": "Tout sélectionner",
+	"filter_reset": "Réinitialiser",
+	"sort_updated": "Modifiées récemment",
+	"sort_created": "Créées récemment",
+	"sort_oldest": "Plus anciennes",
+	"sort_title": "Titre de A à Z",
+	"sort_by": "Trier par",
+	"new_gallery_title": "Nouvelle galerie",
+	"new_gallery_field": "Titre",
+	"new_gallery_placeholder": "p. ex. Mariage Martin",
+	"new_gallery_title_required": "Saisissez un titre pour la galerie.",
+	"new_gallery_title_too_long": "Les titres comptent au maximum {max} caractères.",
+	"new_gallery_failed": "Impossible de créer la galerie. Veuillez réessayer.",
+	"new_gallery_creating": "Création…",
+	"new_gallery_create": "Créer",
+	"dashboard_head": "Tableau de bord",
+	"dashboard_morning": "Bonjour",
+	"dashboard_afternoon": "Bon après-midi",
+	"dashboard_evening": "Bonsoir",
+	"dashboard_news": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} galerie a du nouveau.",
+				"countPlural=*": "{count} galeries ont du nouveau."
+			}
+		}
+	],
+	"dashboard_quiet": "Tout est calme",
+	"dashboard_quiet_rest": "pour l’instant.",
+	"dashboard_new_gallery": "+ Nouvelle galerie",
+	"dashboard_search": "Rechercher une galerie",
+	"dashboard_loading": "Chargement des galeries…",
+	"dashboard_load_failed": "Impossible de charger vos galeries. Rechargez la page pour réessayer.",
+	"dashboard_no_match": "Aucune galerie nommée « {query} »",
+	"dashboard_no_status_match": "Aucune galerie avec ces statuts",
+	"dashboard_hidden_matches": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} résultat est masqué dans des statuts non sélectionnés.",
+				"countPlural=*": "{count} résultats sont masqués dans des statuts non sélectionnés."
+			}
+		}
+	],
+	"dashboard_check_spelling": "Vérifiez l’orthographe ou essayez une partie du nom du client.",
+	"dashboard_clear_filters": "Effacer la recherche et les statuts",
+	"dashboard_next_client_line1": "Qui sera devant",
+	"dashboard_next_client_line2": "votre objectif ?",
+	"dashboard_total_galleries": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} galerie",
+				"countPlural=*": "{count} galeries"
+			}
+		}
+	],
+	"dashboard_empty": "Rien dans le cadre pour l’instant."
 }

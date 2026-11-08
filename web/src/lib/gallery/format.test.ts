@@ -128,3 +128,33 @@ describe('gallerySummary', () => {
 		expect(line(expired)).toMatch(/ · expired$/);
 	});
 });
+
+describe('gallerySummary in French', () => {
+	useLocale('fr');
+
+	const now = new Date('2026-11-10T12:00:00Z');
+	const base = {
+		states: ['shared'] as never,
+		included_photos: 10,
+		expires_at: null,
+		photo_count: 32,
+		favorite_count: 12,
+		final_count: 0,
+		downloaded_count: 0
+	};
+	const line = (gallery: Parameters<typeof gallerySummary>[0]) =>
+		gallerySummary(gallery, now)
+			.map(({ text }) => text)
+			.join('');
+
+	it('agrees with the counts', () => {
+		expect(line(base)).toBe('32 photos · 12 sélectionnées');
+		expect(line({ ...base, favorite_count: 1 })).toBe('32 photos · 1 sélectionnée');
+		expect(
+			line({ ...base, states: ['delivered'] as never, final_count: 20, downloaded_count: 1 })
+		).toBe('20 photos finales · 1 téléchargée');
+		expect(
+			line({ ...base, states: ['shared', 'expired'] as never, expires_at: '2026-11-07T12:00:00Z' })
+		).toBe('32 photos · 12 sélectionnées · expirée il y a 3 jours');
+	});
+});
