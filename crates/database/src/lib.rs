@@ -7,6 +7,7 @@ pub mod favorite_events;
 pub mod gallery;
 pub mod jobs;
 pub mod listener;
+pub mod notifications;
 pub mod photo;
 pub mod photo_events;
 pub mod photo_intake;

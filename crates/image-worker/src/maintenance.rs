@@ -13,6 +13,7 @@ use std::{sync::Arc, time::Duration};
 use pp_database::{
     Database,
     export::ExportRepository,
+    notifications::NotificationRepository,
     photo::{PhotoLocation, PhotoRepository},
 };
 use pp_storage::{ArchiveKey, PhotoStorage};
@@ -23,6 +24,9 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
+
+/// How long a read notification is kept.
+const READ_NOTIFICATION_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// The maintenance steps and how often they run.
 pub struct Maintenance {
@@ -82,6 +86,7 @@ impl Maintenance {
     /// it left is picked up by the next run.
     pub async fn run(&self) {
         self.expire_exports().await;
+        self.expire_notifications().await;
         self.sweep_photos().await;
         self.sweep_archives().await;
     }
@@ -117,6 +122,19 @@ impl Maintenance {
         }
 
         info!(exports = expired.len(), "expired exports removed");
+    }
+
+    /// Deletes notifications that were read long ago.
+    async fn expire_notifications(&self) {
+        match self
+            .database
+            .repository::<NotificationRepository>()
+            .expire(READ_NOTIFICATION_RETENTION)
+            .await
+        {
+            Ok(removed) => info!(removed, "read notifications expired"),
+            Err(error) => warn!(%error, "read notifications could not be expired"),
+        }
     }
 
     /// Removes old photo files that no photo row owns, whatever left them behind.

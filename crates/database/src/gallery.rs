@@ -213,6 +213,10 @@ pub struct GalleryOverview {
     pub photo_count: usize,
     /// How many of the ready photos are favorites.
     pub favorite_count: usize,
+    /// How many ready finished photos the gallery holds.
+    pub final_count: usize,
+    /// How many of them the client has downloaded.
+    pub downloaded_count: usize,
 }
 
 impl FromRow<'_, PgRow> for GalleryOverview {
@@ -226,6 +230,8 @@ impl FromRow<'_, PgRow> for GalleryOverview {
             gallery: Gallery::from_row(row)?,
             photo_count: count("photo_count")?,
             favorite_count: count("favorite_count")?,
+            final_count: count("final_count")?,
+            downloaded_count: count("downloaded_count")?,
         })
     }
 }
@@ -390,13 +396,17 @@ impl GalleryRepository<'_> {
         };
 
         Ok(sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {}, totals.photo_count, totals.favorite_count
+            "SELECT {}, totals.photo_count, totals.favorite_count,
+                    totals.final_count, totals.downloaded_count
              FROM galleries
              CROSS JOIN LATERAL (
-                 SELECT count(*) AS photo_count, count(*) FILTER (WHERE favorite) AS favorite_count
+                 SELECT count(*) FILTER (WHERE kind = 'proof') AS photo_count,
+                        count(*) FILTER (WHERE kind = 'proof' AND favorite) AS favorite_count,
+                        count(*) FILTER (WHERE kind = 'final') AS final_count,
+                        count(*) FILTER (WHERE kind = 'final' AND downloaded_at IS NOT NULL)
+                            AS downloaded_count
                  FROM photos
                  WHERE photos.gallery_id = galleries.id AND photos.status = 'ready'
-                   AND photos.kind = 'proof'
              ) AS totals
              WHERE workspace_id=$1{filter} ORDER BY {}",
             Self::COLUMNS,
@@ -1319,6 +1329,44 @@ mod tests {
         assert_eq!(counts[&empty.id], (0, 0));
         assert_eq!(counts[&busy.id], (3, 2));
         assert_eq!(counts[&other.id], (1, 0));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn list_counts_the_ready_finals_and_their_downloads(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let gallery = store.create(workspace).await.unwrap();
+
+        for (status, downloaded) in [("ready", true), ("ready", false), ("processing", true)] {
+            sqlx::query(
+                "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height,
+                                     kind, status, downloaded_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'a.jpg', 1, 1, 1, 'final', $3::photo_status,
+                         CASE WHEN $4 THEN now() END)",
+            )
+            .bind(workspace)
+            .bind(gallery.id)
+            .bind(status)
+            .bind(downloaded)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let overview = &store
+            .list(workspace, GallerySort::Title, &[])
+            .await
+            .unwrap()[0];
+
+        assert_eq!(
+            (
+                overview.photo_count,
+                overview.final_count,
+                overview.downloaded_count
+            ),
+            (0, 2, 1)
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
