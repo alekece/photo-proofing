@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ConfirmDialog from '#lib/components/ui/confirm-dialog/confirm-dialog.svelte';
+	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 
 	let { onconfirm, onclose }: { onconfirm: () => void | Promise<void>; onclose: () => void } =
 		$props();

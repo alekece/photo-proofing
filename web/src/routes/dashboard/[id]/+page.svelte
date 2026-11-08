@@ -14,10 +14,10 @@
 	import GalleryTabs from '#lib/components/GalleryTabs.svelte';
 	import RestoreExpiredDialog from '#lib/components/RestoreExpiredDialog.svelte';
 	import PublishDialog from '#lib/components/PublishDialog.svelte';
-	import Button from '#lib/components/ui/button/button.svelte';
-	import Input from '#lib/components/ui/input/input.svelte';
-	import Label from '#lib/components/ui/label/label.svelte';
-	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
+	import Button from '#lib/components/ui/Button/Button.svelte';
+	import Input from '#lib/components/ui/Input/Input.svelte';
+	import Label from '#lib/components/ui/Label/Label.svelte';
+	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import {
 		archiveGallery,
 		deleteGallery,

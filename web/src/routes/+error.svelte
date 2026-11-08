@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { buttonVariants } from '#lib/components/ui/button/button.svelte';
-	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
+	import { buttonVariants } from '#lib/components/ui/Button/Button.svelte';
+	import PageShell from '#lib/components/ui/PageShell/PageShell.svelte';
 
 	let heading: HTMLHeadingElement;
 

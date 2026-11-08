@@ -9,7 +9,7 @@ vi.mock('#lib/gallery/photos.js', async (importOriginal) => ({
 	...(await importOriginal<typeof import('#lib/gallery/photos.js')>()),
 	BULK_DELETE_LIMIT: 2
 }));
-import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
+import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import { goto } from '$app/navigation';
 import type { LiveEvents, PhotoEvent } from '#lib/events.js';
 import type { Photo, PhotoStatus, UploadOutcome } from '#lib/gallery/photos.js';

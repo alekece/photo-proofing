@@ -7,10 +7,10 @@
 	import AppHeader from '#lib/components/AppHeader.svelte';
 	import CoverSignaturePicker from '#lib/components/CoverSignaturePicker.svelte';
 	import WatermarkEditor from '#lib/components/WatermarkEditor.svelte';
-	import Button from '#lib/components/ui/button/button.svelte';
-	import Input from '#lib/components/ui/input/input.svelte';
-	import PageShell from '#lib/components/ui/page-shell/page-shell.svelte';
-	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
+	import Button from '#lib/components/ui/Button/Button.svelte';
+	import Input from '#lib/components/ui/Input/Input.svelte';
+	import PageShell from '#lib/components/ui/PageShell/PageShell.svelte';
+	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import {
 		LOGO_MAX_BYTES,
 		LOGO_TYPES,

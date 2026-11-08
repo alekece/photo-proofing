@@ -12,12 +12,12 @@
 	} from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
 	import ViewerButton from '#lib/components/ViewerButton.svelte';
-	import Button from '#lib/components/ui/button/button.svelte';
-	import ConfirmDialog from '#lib/components/ui/confirm-dialog/confirm-dialog.svelte';
-	import EmptyState from '#lib/components/ui/empty-state/empty-state.svelte';
-	import SelectActions from '#lib/components/ui/select-actions/select-actions.svelte';
-	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
-	import PhotoStack from '#lib/components/ui/photo-stack/photo-stack.svelte';
+	import Button from '#lib/components/ui/Button/Button.svelte';
+	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
+	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
+	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
+	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
 	import { getLiveEvents, type PhotoEvent } from '#lib/events.js';
 	import { GalleryApiError, updateGallery } from '#lib/gallery/api.js';
 	import {

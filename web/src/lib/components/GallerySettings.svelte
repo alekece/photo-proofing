@@ -4,13 +4,13 @@
 	import LayoutRowsIcon from '#lib/components/icons/LayoutRowsIcon.svelte';
 	import LayoutStaggeredIcon from '#lib/components/icons/LayoutStaggeredIcon.svelte';
 	import ShareLink from '#lib/components/ShareLink.svelte';
-	import Button from '#lib/components/ui/button/button.svelte';
-	import Card from '#lib/components/ui/card/card.svelte';
-	import IconButtonGroup from '#lib/components/ui/icon-button-group/icon-button-group.svelte';
-	import Input from '#lib/components/ui/input/input.svelte';
-	import Label from '#lib/components/ui/label/label.svelte';
-	import Switch from '#lib/components/ui/switch/switch.svelte';
-	import { toasts } from '#lib/components/ui/toast/toasts.svelte.js';
+	import Button from '#lib/components/ui/Button/Button.svelte';
+	import Card from '#lib/components/ui/Card/Card.svelte';
+	import IconButtonGroup from '#lib/components/ui/IconButtonGroup/IconButtonGroup.svelte';
+	import Input from '#lib/components/ui/Input/Input.svelte';
+	import Label from '#lib/components/ui/Label/Label.svelte';
+	import Switch from '#lib/components/ui/Switch/Switch.svelte';
+	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import type { Gallery, GalleryChanges, GalleryLayout } from '#lib/gallery/api.js';
 	import { endOfLocalDay, toLocalDate } from '#lib/gallery/format.js';
 

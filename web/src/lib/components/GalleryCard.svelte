@@ -1,5 +1,5 @@
 <script lang="ts">
-	import StatusChip from '#lib/components/ui/status-chip/status-chip.svelte';
+	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
 	import type { GalleryOverview } from '#lib/gallery/api.js';
 	import {
 		galleryStatus,

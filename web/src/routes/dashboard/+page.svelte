@@ -9,7 +9,7 @@
 	import EmptyWorkspace from '#lib/components/EmptyWorkspace.svelte';
 	import GalleryCard from '#lib/components/GalleryCard.svelte';
 	import NewGalleryDialog from '#lib/components/NewGalleryDialog.svelte';
-	import Button from '#lib/components/ui/button/button.svelte';
+	import Button from '#lib/components/ui/Button/Button.svelte';
 	import { Plus, Search } from '@lucide/svelte';
 	import GalleryStateFilter from '#lib/components/GalleryStateFilter.svelte';
 	import GallerySortMenu from '#lib/components/GallerySortMenu.svelte';

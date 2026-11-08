@@ -2,7 +2,7 @@
 	import { ChevronLeft, ChevronRight, Download, Heart, LoaderCircle, X } from '@lucide/svelte';
 	import { onMount, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import Dialog from '#lib/components/ui/dialog/dialog.svelte';
+	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import { cn } from '#lib/utils.js';
 	import type { Proof } from '../gallery/types';
 	import FavoriteButton from './FavoriteButton.svelte';

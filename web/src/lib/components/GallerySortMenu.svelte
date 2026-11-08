@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ArrowUpDown, Check, ChevronDown } from '@lucide/svelte';
-	import Popover from '#lib/components/ui/popover/popover.svelte';
-	import { menuButton } from '#lib/components/ui/popover/menu.js';
+	import Popover from '#lib/components/ui/Popover/Popover.svelte';
+	import { menuButton } from '#lib/components/ui/Popover/menu.js';
 	import type { GallerySort } from '#lib/gallery/schemas.js';
 
 	const SORTS: [GallerySort, string][] = [

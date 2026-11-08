@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import ConfirmDialog from '#lib/components/ui/confirm-dialog/confirm-dialog.svelte';
-	import Button from '#lib/components/ui/button/button.svelte';
+	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
+	import Button from '#lib/components/ui/Button/Button.svelte';
 	import CopyLink from '#lib/components/CopyLink.svelte';
-	import PhotoStack from '#lib/components/ui/photo-stack/photo-stack.svelte';
+	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
 	import { formatLongDate } from '#lib/gallery/format.js';
 	import { listPhotos, type Photo } from '#lib/gallery/photos.js';
 
