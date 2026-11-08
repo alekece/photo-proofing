@@ -76,7 +76,7 @@ selection lock, the client delivery ZIP (#71) and watermarks. The ZIP builder is
   it. At most one retained export per gallery, replaced by the next request. A request is refused (413)
   when the originals total more than `export-max-size` (default 2 GiB, checked from the
   snapshot sizes before anything is written); entries are written with ZIP64 so the limit is a policy,
-  not a format limit. An export older than `export-retention` (default 24 h) is treated as gone
+  not a format limit. An export older than `export-retention` (default 15 min) is treated as gone
   by the API (status 204, download 404) and the worker's maintenance run deletes its row and file, plus
   ZIP files no row owns ([image worker outcomes](2026-11-08-image-worker-outcomes-design.md)), independent of export builds. There is no workspace-wide quota (followed up): disk use is bounded by one
   capped export per gallery for at most the retention period, plus the concurrency of the worker.

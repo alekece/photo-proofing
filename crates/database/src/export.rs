@@ -101,6 +101,9 @@ pub enum ExportRequest {
     },
     /// The gallery already has an export being prepared; it is returned instead.
     InProgress(Export),
+    /// The gallery's ready export already holds exactly this selection; it is returned and
+    /// nothing is queued.
+    Reused(Export),
     EmptySelection,
     InvalidSelection,
     /// The originals together exceed the allowed size.
@@ -167,8 +170,9 @@ impl ExportRepository<'_> {
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
         max_size: NonZeroU64,
+        retention: Duration,
     ) -> Result<ExportRequest, DatabaseError> {
-        self.request_selected(workspace_id, gallery_id, max_size, None)
+        self.request_selected(workspace_id, gallery_id, max_size, retention, None)
             .await
     }
 
@@ -179,6 +183,7 @@ impl ExportRepository<'_> {
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
         max_size: NonZeroU64,
+        retention: Duration,
         selected: Option<&[PhotoId]>,
     ) -> Result<ExportRequest, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
@@ -230,6 +235,31 @@ impl ExportRepository<'_> {
 
         if u64::try_from(total).map_or(true, |total| total > max_size.get()) {
             return Ok(ExportRequest::TooLarge);
+        }
+
+        let ready: Option<Export> = sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {} FROM exports
+             WHERE gallery_id = $1 AND status ->> 'kind' = 'ready'
+               AND finished_at > now() - $2 * interval '1 second'
+             ORDER BY created_at DESC LIMIT 1",
+            Self::COLUMNS
+        )))
+        .bind(gallery_id)
+        .bind(retention.as_secs_f64())
+        .fetch_optional(&mut *transaction)
+        .await?;
+
+        if let Some(export) = ready {
+            let snapshot: Vec<PhotoId> = sqlx::query_scalar(
+                "SELECT photo_id FROM export_photos WHERE export_id = $1 ORDER BY position",
+            )
+            .bind(export.id)
+            .fetch_all(&mut *transaction)
+            .await?;
+
+            if snapshot.iter().eq(favorites.iter().map(|(id, ..)| id)) {
+                return Ok(ExportRequest::Reused(export));
+            }
         }
 
         let replaced_ids = Self::delete_exports_in(&mut transaction, gallery_id).await?;
@@ -576,7 +606,7 @@ mod tests {
 
         async fn request(&self) -> ExportRequest {
             self.exports()
-                .request(self.workspace_id, self.gallery_id, MAX)
+                .request(self.workspace_id, self.gallery_id, MAX, DAY)
                 .await
                 .unwrap()
         }
@@ -684,12 +714,13 @@ mod tests {
                 fixture.workspace_id,
                 fixture.gallery_id,
                 NonZeroU64::new(19).unwrap(),
+                DAY,
             )
             .await
             .unwrap();
         let other_workspace = fixture
             .exports()
-            .request(WorkspaceId::generate(), fixture.gallery_id, MAX)
+            .request(WorkspaceId::generate(), fixture.gallery_id, MAX, DAY)
             .await
             .unwrap();
 
@@ -717,6 +748,8 @@ mod tests {
 
         let _ = fixture.exports().complete(&job, old.id).await.unwrap();
 
+        fixture.photo("b.jpg", 10, true).await;
+
         let ExportRequest::Created { export, replaced } = fixture.request().await else {
             panic!("expected a new export");
         };
@@ -724,6 +757,135 @@ mod tests {
         assert_eq!(replaced, [old.id]);
         assert_ne!(export.id, old.id);
         assert!(!fixture.exports().exists(old.id).await.unwrap());
+    }
+
+    impl Fixture {
+        async fn ready(&self) -> Export {
+            let export = self.created().await;
+            let job = self.claim().await;
+
+            let _ = self.exports().complete(&job, export.id).await.unwrap();
+
+            export
+        }
+
+        async fn request_subset(&self, ids: &[PhotoId]) -> ExportRequest {
+            self.exports()
+                .request_selected(self.workspace_id, self.gallery_id, MAX, DAY, Some(ids))
+                .await
+                .unwrap()
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn an_unchanged_selection_reuses_the_ready_export(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        fixture.photo("a.jpg", 10, true).await;
+
+        let export = fixture.ready().await;
+        let ExportRequest::Reused(reused) = fixture.request().await else {
+            panic!("expected the ready export to be reused");
+        };
+
+        assert_eq!(reused.id, export.id);
+        assert_eq!(reused.status, ExportStatus::Ready);
+        assert_eq!(
+            fixture
+                .database
+                .repository::<TestRepository>()
+                .count_jobs(None)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_changed_selection_is_not_reused(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        fixture.photo("a.jpg", 10, true).await;
+        fixture.ready().await;
+        fixture.photo("b.jpg", 10, true).await;
+
+        assert!(matches!(
+            fixture.request().await,
+            ExportRequest::Created { .. }
+        ));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_removed_favorite_is_not_reused(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        fixture.photo("a.jpg", 10, true).await;
+
+        let second = fixture.photo("b.jpg", 10, true).await;
+
+        fixture.ready().await;
+        sqlx::query("UPDATE photos SET favorite = false WHERE id = $1")
+            .bind(second)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            fixture.request().await,
+            ExportRequest::Created { .. }
+        ));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn an_expired_export_is_not_reused(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        fixture.photo("a.jpg", 10, true).await;
+
+        let export = fixture.ready().await;
+
+        sqlx::query("UPDATE exports SET finished_at = now() - interval '2 days'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            fixture.request().await,
+            ExportRequest::Created { .. }
+        ));
+
+        assert!(!fixture.exports().exists(export.id).await.unwrap());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn an_identical_subset_is_reused_and_another_subset_replaces_it(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let first = fixture.photo("a.jpg", 10, true).await;
+        let second = fixture.photo("b.jpg", 10, true).await;
+
+        assert!(matches!(
+            fixture.request_subset(&[first]).await,
+            ExportRequest::Created { .. }
+        ));
+
+        let job = fixture.claim().await;
+        let export = fixture
+            .exports()
+            .latest(fixture.workspace_id, fixture.gallery_id, DAY)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let _ = fixture.exports().complete(&job, export.id).await.unwrap();
+
+        let ExportRequest::Reused(reused) = fixture.request_subset(&[first]).await else {
+            panic!("expected the same subset to be reused");
+        };
+
+        assert_eq!(reused.id, export.id);
+        assert!(matches!(
+            fixture.request_subset(&[second]).await,
+            ExportRequest::Created { .. }
+        ));
     }
 
     #[sqlx::test(migrations = "./migrations")]

@@ -23,7 +23,7 @@ pub const DEFAULT_MAX_PIXELS: NonZeroU64 = NonZeroU64::new(100_000_000).unwrap()
 pub const DEFAULT_EXPORT_MAX_SIZE: NonZeroU64 = NonZeroU64::new(2 << 30).unwrap();
 
 /// Default time a finished selection ZIP stays available.
-pub const DEFAULT_EXPORT_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
+pub const DEFAULT_EXPORT_RETENTION: Duration = Duration::from_secs(15 * 60);
 
 /// Longest configurable ZIP retention: 30 days.
 const MAX_EXPORT_RETENTION_MILLIS: u64 = 30 * 24 * 60 * 60 * 1000;
@@ -142,7 +142,7 @@ pub struct ExportConfig {
     #[arg(
         long = "export-retention",
         env = "PP_EXPORT_RETENTION",
-        default_value = "24h"
+        default_value = "15m"
     )]
     pub retention: ExportRetention,
 }
