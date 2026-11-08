@@ -13,7 +13,7 @@ use pp_database::{
         Job, JobCompletion, JobRepository, PhotoResult, PhotoUpdate, ProcessPhoto, Publication,
     },
     photo::{PhotoLocation, PhotoRepository},
-    watermark::{WatermarkRepository, WatermarkStamp},
+    settings::{SettingsRepository, WatermarkStamp},
 };
 use pp_storage::{PhotoKey, PhotoStorage, StagedPhoto, Variant};
 use tokio::{io::AsyncReadExt, task};
@@ -94,7 +94,7 @@ impl ProcessPhotoHandler {
         // another job, and publication checks the stamp, so no outdated proof is ever shown.
         let Some(proof) = self
             .database
-            .repository::<WatermarkRepository>()
+            .repository::<SettingsRepository>()
             .proof_watermark(id)
             .await
             .map_err(HandlerError::failed)?
@@ -303,8 +303,8 @@ mod tests {
         jobs::{Backoff, JobKind, JobPayload},
         photo::{NewPhoto, PhotoDimensions, PhotoKind, PhotoStatus},
         photo_intake::PhotoIntake,
+        settings::{LogoChange, SettingsUpdate, WorkspaceSettings},
         tests::TestRepository,
-        watermark::{LogoChange, SettingsUpdate, WorkspaceSettings},
     };
     use tempfile::TempDir;
     use tokio::time::{sleep, timeout};
@@ -425,7 +425,7 @@ mod tests {
         async fn stamp(&self) -> WatermarkStamp {
             self.handler
                 .database
-                .repository::<WatermarkRepository>()
+                .repository::<SettingsRepository>()
                 .proof_watermark(self.id)
                 .await
                 .unwrap()
@@ -557,7 +557,7 @@ mod tests {
         fixture
             .handler
             .database
-            .repository::<WatermarkRepository>()
+            .repository::<SettingsRepository>()
             .save(
                 fixture.location.workspace_id,
                 SettingsUpdate {

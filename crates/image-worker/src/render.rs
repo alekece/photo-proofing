@@ -12,7 +12,7 @@ use libvips::{
     VipsApp, VipsImage,
     ops::{self, ForeignKeep, Interpretation, JpegsaveBufferOptions},
 };
-use pp_database::watermark::Watermark;
+use pp_database::settings::Watermark;
 use thiserror::Error;
 
 use crate::watermark::WatermarkPainter;
@@ -345,9 +345,9 @@ pub(crate) mod tests {
     #[test]
     fn proof_render_keeps_clean_and_marked_pairs_separate() {
         let renderer = ImageRenderer::new(UNBOUNDED).unwrap();
-        let watermark = pp_database::watermark::WorkspaceSettings {
+        let watermark = pp_database::settings::WorkspaceSettings {
             studio_name: "Studio".to_owned(),
-            ..pp_database::watermark::WorkspaceSettings::default()
+            ..pp_database::settings::WorkspaceSettings::default()
         }
         .watermark()
         .unwrap();

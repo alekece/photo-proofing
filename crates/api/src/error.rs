@@ -12,7 +12,7 @@ use actix_web::{
     http::{StatusCode, header::RETRY_AFTER},
 };
 use pp_database::{
-    error::DatabaseError, gallery::GalleryError, photo::FavoriteChange, watermark::SettingsError,
+    error::DatabaseError, gallery::GalleryError, photo::FavoriteChange, settings::SettingsError,
 };
 use pp_storage::StorageError;
 use serde::{Deserialize, Serialize};

@@ -12,7 +12,7 @@ use libvips::{
         ExtractBandOptions, Interpretation, WrapOptions,
     },
 };
-use pp_database::watermark::{GridCell, Watermark, WatermarkPlacement};
+use pp_database::settings::{GridCell, Watermark, WatermarkPlacement};
 
 use crate::render::RenderError;
 
@@ -286,7 +286,7 @@ impl<'a> WatermarkPainter<'a> {
 #[cfg(test)]
 mod tests {
     use libvips::ops::{avg, black, jpegsave_buffer, pngsave_buffer};
-    use pp_database::watermark::SizeStep;
+    use pp_database::settings::SizeStep;
 
     use super::*;
     use crate::render::tests::init_libvips;

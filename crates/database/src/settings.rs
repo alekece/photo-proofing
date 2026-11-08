@@ -313,12 +313,12 @@ pub struct ProofWatermark {
 }
 
 /// Data access for the workspace settings; see the module docs.
-pub struct WatermarkRepository<'db> {
+pub struct SettingsRepository<'db> {
     pool: &'db PgPool,
     jobs: JobOptions,
 }
 
-impl<'db> Repository<'db> for WatermarkRepository<'db> {
+impl<'db> Repository<'db> for SettingsRepository<'db> {
     type Options = JobOptions;
 
     fn open(pool: &'db PgPool, jobs: Self::Options) -> Self {
@@ -326,7 +326,7 @@ impl<'db> Repository<'db> for WatermarkRepository<'db> {
     }
 }
 
-impl WatermarkRepository<'_> {
+impl SettingsRepository<'_> {
     /// The settings columns for a workspace that may have no row yet, defaulted like the table.
     const SETTINGS_OR_DEFAULTS: &'static str = "COALESCE(s.studio_name, '') AS studio_name,
         COALESCE(s.mark, 'name') AS mark, COALESCE(s.pattern, 'repeat') AS pattern,
@@ -612,8 +612,8 @@ mod tests {
             }
         }
 
-        fn watermarks(&self) -> WatermarkRepository<'_> {
-            self.database.repository::<WatermarkRepository>()
+        fn watermarks(&self) -> SettingsRepository<'_> {
+            self.database.repository::<SettingsRepository>()
         }
 
         async fn gallery(&self, watermarked: bool) -> GalleryId {
@@ -786,7 +786,7 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn installation_language_is_none_before_setup_then_the_workspace_language(pool: PgPool) {
         let database = Database::new(pool.clone());
-        let watermarks = database.repository::<WatermarkRepository>();
+        let watermarks = database.repository::<SettingsRepository>();
 
         assert_eq!(watermarks.installation_language().await.unwrap(), None);
 
@@ -1211,7 +1211,7 @@ mod tests {
 
             async move {
                 database
-                    .repository::<WatermarkRepository>()
+                    .repository::<SettingsRepository>()
                     .save(workspace, update("After"))
                     .await
                     .unwrap();
@@ -1320,7 +1320,7 @@ mod tests {
 
             async move {
                 database
-                    .repository::<WatermarkRepository>()
+                    .repository::<SettingsRepository>()
                     .save(workspace, update("After"))
                     .await
                     .unwrap();
@@ -1351,7 +1351,7 @@ mod tests {
                 );
 
                 database
-                    .repository::<WatermarkRepository>()
+                    .repository::<SettingsRepository>()
                     .proof_watermark(failed)
                     .await
                     .unwrap()
@@ -1446,7 +1446,7 @@ mod tests {
 
             async move {
                 database
-                    .repository::<WatermarkRepository>()
+                    .repository::<SettingsRepository>()
                     .save(workspace, update("After"))
                     .await
                     .unwrap();
@@ -1478,7 +1478,7 @@ mod tests {
                         .unwrap()
                 );
                 database
-                    .repository::<WatermarkRepository>()
+                    .repository::<SettingsRepository>()
                     .proof_watermark(upload)
                     .await
                     .unwrap()

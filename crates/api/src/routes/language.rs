@@ -2,7 +2,7 @@
 //! can follow it. `null` until setup created the workspace.
 
 use actix_web::{HttpResponse, get, web::Data};
-use pp_database::watermark::WatermarkRepository;
+use pp_database::settings::SettingsRepository;
 use serde::{Deserialize, Serialize};
 
 use crate::{api::ApiState, error::ErrorResponse, response::ResponseBuilderExt};
@@ -19,7 +19,7 @@ pub(crate) struct LanguageBody<L> {
 pub async fn show_language(state: Data<ApiState>) -> Result<HttpResponse, ErrorResponse> {
     let language = state
         .database()
-        .repository::<WatermarkRepository>()
+        .repository::<SettingsRepository>()
         .installation_language()
         .await?;
 

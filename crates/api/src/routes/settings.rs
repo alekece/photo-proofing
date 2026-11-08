@@ -17,9 +17,9 @@ use actix_web::{
     web::{self, Data, Json, JsonConfig, ServiceConfig},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use pp_database::watermark::{
-    CoverSignature, GridCell, Language, LogoChange, SettingsUpdate, SizeStep, WatermarkMark,
-    WatermarkPattern, WatermarkRepository, WorkspaceSettings,
+use pp_database::settings::{
+    CoverSignature, GridCell, Language, LogoChange, SettingsRepository, SettingsUpdate, SizeStep,
+    WatermarkMark, WatermarkPattern, WorkspaceSettings,
 };
 use serde::{Deserialize, Serialize};
 
@@ -128,7 +128,7 @@ async fn save_language(
 
     state
         .database()
-        .repository::<WatermarkRepository>()
+        .repository::<SettingsRepository>()
         .save_language(identity.workspace_id, language)
         .await?;
 
@@ -144,7 +144,7 @@ async fn show_settings(
 ) -> Result<HttpResponse, ErrorResponse> {
     let settings = state
         .database()
-        .repository::<WatermarkRepository>()
+        .repository::<SettingsRepository>()
         .settings(identity.workspace_id)
         .await?;
 
@@ -162,7 +162,7 @@ async fn save_settings(
     let update = request.into_inner().into_update().await?;
     let settings = state
         .database()
-        .repository_with::<WatermarkRepository>(state.job_options())
+        .repository_with::<SettingsRepository>(state.job_options())
         .save(identity.workspace_id, update)
         .await?;
 
@@ -178,7 +178,7 @@ async fn show_logo(
 ) -> Result<HttpResponse, ErrorResponse> {
     let logo = state
         .database()
-        .repository::<WatermarkRepository>()
+        .repository::<SettingsRepository>()
         .settings(identity.workspace_id)
         .await?
         .logo

@@ -48,7 +48,7 @@ use crate::{
     export::{ExportId, ExportRepository},
     gallery::GalleryId,
     photo::{PROCESSING_FAILED_REASON, PhotoRepository},
-    watermark::WatermarkStamp,
+    settings::WatermarkStamp,
 };
 
 /// Longest `last_error` kept, in characters; the full error belongs in the logs.
