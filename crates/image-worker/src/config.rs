@@ -52,7 +52,7 @@ pub struct CleanupConfig {
     #[arg(
         long = "cleanup-sweep-interval",
         env = "PP_CLEANUP_SWEEP_INTERVAL",
-        default_value = "1h"
+        default_value = "5m"
     )]
     pub sweep_interval: QueueDuration,
 }

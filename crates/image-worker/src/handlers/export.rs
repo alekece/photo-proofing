@@ -256,6 +256,7 @@ mod tests {
                     self.location.workspace_id,
                     self.location.gallery_id,
                     NonZeroU64::new(1 << 30).unwrap(),
+                    Duration::from_secs(86_400),
                 )
                 .await
                 .unwrap()

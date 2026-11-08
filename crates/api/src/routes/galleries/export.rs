@@ -96,6 +96,7 @@ async fn request_export(
             identity.workspace_id,
             gallery_id,
             state.export_max_size(),
+            state.export_retention(),
             selection
                 .as_ref()
                 .map(|selection| selection.photo_ids.as_slice()),
@@ -120,6 +121,9 @@ async fn request_export(
                 .no_store()
                 .json(ExportResponse::from(export)))
         }
+        ExportRequest::Reused(export) => Ok(HttpResponse::Ok()
+            .no_store()
+            .json(ExportResponse::from(export))),
         ExportRequest::InProgress(_) => {
             Err(ErrorResponse::conflict("a ZIP is already being prepared"))
         }
@@ -479,6 +483,31 @@ mod tests {
             .cookie(cookie);
 
         assert_eq!(call(&app, shown).await.0, StatusCode::NO_CONTENT);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn an_unchanged_selection_answers_with_its_ready_export(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+
+        favorite(&pool, &gallery_id, "a.jpg").await;
+
+        let (status, export) = call(&app, post(&gallery_id, &cookie)).await;
+
+        assert_eq!(status, StatusCode::ACCEPTED);
+
+        sqlx::query("UPDATE exports SET status = '{\"kind\": \"ready\"}', finished_at = now()")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (status, again) = call(&app, post(&gallery_id, &cookie)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(again["id"], export["id"]);
+        assert_eq!(again["status"]["kind"], "ready");
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

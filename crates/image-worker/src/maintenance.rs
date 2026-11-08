@@ -156,11 +156,12 @@ impl Maintenance {
 mod tests {
     use std::num::NonZeroU64;
 
-    use pp_core::{config::PhotoDir, notifications::PhotoId, types::generate::Generate};
+    use pp_core::{config::PhotoDir, types::generate::Generate};
     use pp_database::{
         PgPool,
         export::{ExportId, ExportRequest},
         gallery::GalleryRepository,
+        photo::PhotoId,
         tests::TestRepository,
     };
     use pp_storage::{PhotoKey, StorageError, Variant};
@@ -253,6 +254,7 @@ mod tests {
                     self.location.workspace_id,
                     self.location.gallery_id,
                     NonZeroU64::new(1 << 30).unwrap(),
+                    Duration::from_secs(86_400),
                 )
                 .await
                 .unwrap()
