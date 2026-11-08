@@ -107,7 +107,6 @@ describe('Settings page', () => {
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
 		await vi.waitFor(() => expect(savedToast).toHaveBeenCalledOnce());
-		expect(screen.queryByText('Saved')).toBeNull();
 		expect(fetcher).toHaveBeenCalledWith(
 			'/api/v1/settings',
 			expect.objectContaining({ method: 'PUT' })
@@ -141,6 +140,7 @@ describe('Settings page', () => {
 
 	it('shows the reason the server refused the settings', async () => {
 		toasts.items = [];
+		const savedToast = vi.spyOn(toasts, 'saved');
 		respond({ error: 'invalid settings', context: ['studio_name'] }, 422);
 		open();
 		const user = userEvent.setup();
@@ -151,6 +151,7 @@ describe('Settings page', () => {
 		await vi.waitFor(() =>
 			expect(toasts.items.map((toast) => toast.message)).toContain('invalid settings')
 		);
+		expect(savedToast).not.toHaveBeenCalled();
 	});
 
 	it('refuses a logo that is not a PNG or JPEG or is too large before uploading it', async () => {

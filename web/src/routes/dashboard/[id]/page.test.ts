@@ -81,7 +81,23 @@ describe('gallery page', () => {
 		);
 	});
 
-	it('sends only the changed field without a success toast', async () => {
+	it('queues the debounced Saved toast only for successful saves', async () => {
+		const savedToast = vi.spyOn(toasts, 'saved');
+		const user = userEvent.setup();
+
+		stubApi(500);
+		open();
+		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
+		await waitFor(() => expect(toasts.items.map(({ kind }) => kind)).toEqual(['error']));
+		expect(savedToast).not.toHaveBeenCalled();
+
+		stubApi();
+		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
+		await waitFor(() => expect(savedToast).toHaveBeenCalledOnce());
+		savedToast.mockRestore();
+	});
+
+	it('sends only the changed field without an immediate success toast', async () => {
 		const patches = stubApi();
 		open();
 		await userEvent.setup().click(screen.getByRole('button', { name: 'Staggered columns' }));

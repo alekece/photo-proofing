@@ -71,7 +71,7 @@
 			for (const key of Object.keys(submitted) as (keyof WorkspaceSettings)[]) {
 				if (draft[key] === submitted[key]) draft = { ...draft, [key]: saved[key] };
 			}
-			if (!dirty) toasts.saved();
+			toasts.saved();
 			if (watermark) toasts.success('Watermarked proofs are being regenerated');
 		} catch (error) {
 			if (error instanceof SettingsApiError && error.status === 422) {
