@@ -6,7 +6,7 @@
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
 	import { previewUrl } from '#lib/gallery/photos.js';
-	import { galleryStatus } from '#lib/gallery/format.js';
+	import { formatLongDate, formatShortDate, galleryStatus } from '#lib/gallery/format.js';
 	import type { Gallery } from '#lib/gallery/api.js';
 
 	/**
@@ -40,16 +40,8 @@
 	const shared = $derived(gallery.share_token !== null);
 	const delivered = $derived(gallery.states.includes('delivered'));
 	const archived = $derived(status === 'archived');
-	const created = $derived(
-		new Date(gallery.created_at).toLocaleDateString('en', { day: 'numeric', month: 'short' })
-	);
-	const createdLong = $derived(
-		new Date(gallery.created_at).toLocaleDateString('en', {
-			day: 'numeric',
-			month: 'short',
-			year: 'numeric'
-		})
-	);
+	const created = $derived(formatShortDate(gallery.created_at));
+	const createdLong = $derived(formatLongDate(gallery.created_at));
 	const meta = $derived(
 		photoCount === 0 && !shared
 			? `Created ${created} · no photos yet`

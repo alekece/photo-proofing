@@ -5,3 +5,5 @@ build
 pnpm-lock.yaml
 playwright-report
 test-results
+src/lib/paraglide
+project.inlang/cache

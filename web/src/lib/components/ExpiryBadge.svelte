@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { formatFullDate } from '#lib/gallery/format.js';
 
 	let { expiresAt, now = new Date() }: { expiresAt: string; now?: Date } = $props();
 
@@ -10,9 +11,7 @@
 
 	const expiry = $derived(new Date(expiresAt));
 	const days = $derived(Math.ceil((expiry.getTime() - now.getTime()) / 86_400_000));
-	const formatted = $derived(
-		new Intl.DateTimeFormat('en', { dateStyle: 'long', timeZone }).format(expiry)
-	);
+	const formatted = $derived(formatFullDate(expiresAt, timeZone));
 	const remaining = $derived(
 		days <= 0 ? 'expires today' : days === 1 ? '1 day left' : `${days} days left`
 	);

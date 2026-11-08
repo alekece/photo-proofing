@@ -5,20 +5,23 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build",
+		"build": "pnpm paraglide && vite build",
 		"preview": "vite preview",
-		"prepare": "svelte-kit sync || echo ''",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+		"prepare": "(pnpm paraglide || echo '') && (svelte-kit sync || echo '')",
+		"check": "pnpm paraglide && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"format": "prettier --write .",
 		"lint": "eslint . --max-warnings 0",
 		"format:check": "prettier --check .",
-		"test": "vitest run",
+		"test": "pnpm paraglide && vitest run",
 		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm build",
-		"test:auth": "playwright test"
+		"test:auth": "playwright test",
+		"paraglide": "paraglide-js compile --project ./project.inlang --silent"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
+		"@inlang/paraglide-js": "3.2.1",
+		"@inlang/plugin-message-format": "4.5.0",
 		"@playwright/test": "^1.64.1",
 		"@sveltejs/adapter-node": "^6.0.1",
 		"@sveltejs/kit": "^3.0.0",

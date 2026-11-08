@@ -1,3 +1,5 @@
+import { getLocale } from '#lib/paraglide/runtime.js';
+
 /** Shown wherever a gallery has no title; the server stores `null`. */
 export const UNTITLED_GALLERY = 'Untitled gallery';
 
@@ -13,7 +15,7 @@ export function formatEdited(iso: string, now: Date = new Date()): string {
 	if (minutes < 1) return 'just now';
 	if (minutes < 60) return `${minutes} min ago`;
 	if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} h ago`;
-	return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+	return formatLongDate(iso);
 }
 
 /** `YYYY-MM-DD` of an instant in the browser's time zone, as `<input type=date>` expects. */
@@ -22,16 +24,26 @@ export function toLocalDate(iso: string): string {
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/** "7 Sep": the day first, with an English month so it reads the same in every locale. */
+/** The regional format of each app language; English keeps the US month names. */
+const DATE_LOCALES = { en: 'en-US', fr: 'fr-FR' } as const;
+
+/** "7 Sep" or "7 sept.": the day first in both languages. */
 export function formatShortDate(iso: string): string {
 	const date = new Date(iso);
 
-	return `${date.getDate()} ${date.toLocaleString('en-US', { month: 'short' })}`;
+	return `${date.getDate()} ${date.toLocaleString(DATE_LOCALES[getLocale()], { month: 'short' })}`;
 }
 
 /** "7 Sep 2026": like `formatShortDate`, with the year. */
 export function formatLongDate(iso: string): string {
 	return `${formatShortDate(iso)} ${new Date(iso).getFullYear()}`;
+}
+
+/** "September 7, 2026" or "7 septembre 2026", in `timeZone` or the browser's. */
+export function formatFullDate(iso: string, timeZone?: string): string {
+	return new Intl.DateTimeFormat(DATE_LOCALES[getLocale()], { dateStyle: 'long', timeZone }).format(
+		new Date(iso)
+	);
 }
 
 /** 23:59:59 of the chosen day in the browser's time zone, as an RFC 3339 instant. */

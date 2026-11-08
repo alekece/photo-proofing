@@ -1,5 +1,37 @@
-import { describe, expect, it } from 'vitest';
-import { galleryInitials, gallerySummary, galleryStatus, highlightParts } from './format.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { getLocale, overwriteGetLocale } from '#lib/paraglide/runtime.js';
+import {
+	formatFullDate,
+	formatLongDate,
+	formatShortDate,
+	galleryInitials,
+	gallerySummary,
+	galleryStatus,
+	highlightParts
+} from './format.js';
+
+describe('dates', () => {
+	const browserLocale = getLocale;
+	const noon = '2026-09-12T12:00:00Z';
+
+	afterEach(() => overwriteGetLocale(browserLocale));
+
+	it('read day first in English', () => {
+		overwriteGetLocale(() => 'en');
+
+		expect(formatShortDate(noon)).toBe('12 Sep');
+		expect(formatLongDate(noon)).toBe('12 Sep 2026');
+		expect(formatFullDate(noon, 'UTC')).toBe('September 12, 2026');
+	});
+
+	it('follow the French conventions in French', () => {
+		overwriteGetLocale(() => 'fr');
+
+		expect(formatShortDate(noon)).toBe('12 sept.');
+		expect(formatLongDate(noon)).toBe('12 sept. 2026');
+		expect(formatFullDate(noon, 'UTC')).toBe('12 septembre 2026');
+	});
+});
 
 describe('galleryStatus', () => {
 	it('lets archived and expired win over the progress state', () => {
