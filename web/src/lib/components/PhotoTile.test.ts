@@ -138,3 +138,33 @@ describe('PhotoTile states', () => {
 		expect(screen.getByRole('img', { name: 'Downloaded by the client' })).toBeTruthy();
 	});
 });
+
+describe('PhotoTile upload states', () => {
+	const cases = [
+		['waiting-upload', 'Waiting'],
+		['uploading', 'Uploading'],
+		['waiting-process', 'Waiting'],
+		['processing', 'Processing']
+	] as const;
+
+	it.each(cases)('shows the %s label as a status above the progress bar', (state, label) => {
+		const { container } = render(PhotoTile, { name: 'a.jpg', state });
+		const text = screen.getByText(label);
+		const bar = container.querySelector('.bar')!.parentElement!;
+
+		expect(text.parentElement!.className).toContain('text-xs');
+		expect(text.className).toContain('font-semibold');
+		expect(
+			text.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING,
+			'the bar follows the label'
+		).toBeTruthy();
+		expect(text.parentElement!.className).toContain('pb-5');
+	});
+
+	it('shows a failed upload in the same type style, without a progress bar', () => {
+		const { container } = render(PhotoTile, { name: 'a.jpg', state: 'upload-failed' });
+
+		expect(screen.getByText('Upload failed').className).toContain('font-semibold');
+		expect(container.querySelector('.bar')).toBeNull();
+	});
+});

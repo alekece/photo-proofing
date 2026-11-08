@@ -19,6 +19,9 @@
 		grid: ''
 	} as const;
 
+	/** Type style of every status label on a tile. */
+	const STATUS_TEXT = 'text-xs font-semibold';
+
 	const LABELS: Record<Exclude<TileState, 'ready'>, string> = {
 		'waiting-upload': 'Waiting',
 		uploading: 'Uploading',
@@ -116,12 +119,20 @@
 	{:else}
 		<div
 			class={[
-				'absolute inset-0 flex flex-col items-center justify-center gap-1 p-2 text-center text-xs',
-				failed ? 'bg-danger/10 text-danger' : 'text-placeholder-foreground'
+				'absolute inset-0 flex flex-col items-center p-2 text-center',
+				STATUS_TEXT,
+				failed ? 'justify-center gap-1 bg-danger/10 text-danger' : 'text-placeholder-foreground',
+				busy && 'pb-5'
 			]}
 		>
-			<span class={failed ? 'sr-only' : 'max-w-full truncate'} title={name}>{name}</span>
-			<span class={failed ? 'font-semibold' : ''}>{LABELS[state]}</span>
+			{#if busy}
+				<span class="grid min-h-0 w-full flex-1 place-items-center">
+					<span class="max-w-full truncate font-normal" title={name}>{name}</span>
+				</span>
+			{:else}
+				<span class="sr-only">{name}</span>
+			{/if}
+			<span class="font-semibold">{LABELS[state]}</span>
 			{#if failed && error && error !== LABELS[state]}<span class="line-clamp-1">{error}</span>{/if}
 			{#if !onselect && onretry && (state === 'upload-failed' || state === 'process-failed')}
 				<button
@@ -141,7 +152,7 @@
 
 	{#if cleanReady && thumbnailUrl && state !== 'ready' && !onselect}
 		<div
-			class="absolute inset-x-1.5 bottom-1.5 flex items-center justify-between gap-2 rounded bg-panel/95 px-2 py-1 text-xs text-foreground"
+			class="absolute inset-x-1.5 bottom-1.5 flex items-center justify-between gap-2 rounded bg-panel/95 px-2 py-1 text-xs font-semibold text-foreground"
 		>
 			<span>{LABELS[state]}</span>
 			{#if failed && onretry}
