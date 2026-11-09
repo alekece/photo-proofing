@@ -152,7 +152,7 @@ describe('gallerySummary in French', () => {
 		expect(line({ ...base, favorite_count: 1 })).toBe('32 photos · 1\u00a0sélectionnée');
 		expect(
 			line({ ...base, states: ['delivered'] as never, final_count: 20, downloaded_count: 1 })
-		).toBe('20 photos finales · 1\u00a0téléchargée');
+		).toBe('20 photos retouchées · 1\u00a0téléchargée');
 		expect(
 			line({ ...base, states: ['shared', 'expired'] as never, expires_at: '2026-11-07T12:00:00Z' })
 		).toBe('32 photos · 12\u00a0sélectionnées · expirée il y a 3 jours');
