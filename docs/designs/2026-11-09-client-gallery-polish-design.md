@@ -9,7 +9,7 @@ The client gallery says the same thing twice. The hero already shows the title, 
 ## Goals
 
 - The expiry line reads "Open until <date>" and nothing else.
-- The title and "Download all" appear once, in the hero.
+- The title and "Download all" are shown once at a time: in the hero while it is on screen, and in the sticky bar only after the hero has scrolled out of view.
 
 ## Non-goals
 
@@ -17,19 +17,19 @@ The client gallery says the same thing twice. The hero already shows the title, 
 
 ## Approaches
 
-1. **Hide the sticky bar's duplicates, keep the bar (chosen).** Drop the title (`h2`) from the bar. When delivered, drop its download button too, and since the bar is then empty, do not render it. When not delivered, the bar keeps the All / Favorites switch.
-2. **Remove the hero's download button instead (rejected).** The hero is the first thing the client sees, and the issue keeps it there.
+1. **Remove the sticky bar's title and download (rejected).** A long delivered gallery would lose its quick download once the hero is scrolled away.
+2. **Keep the sticky bar, show its title and download only when the hero is out of view (chosen, maintainer's call).** No repetition while the hero is visible, and the shortcuts are there when the client scrolls down.
 
 ## Decisions
 
-- **Expiry:** `ExpiryBadge` shows `expiry_open_until` plus the date only. Remove `remaining` and the `expiry_today` / `expiry_days_left` messages (both languages) once nothing uses them.
-- **Sticky bar:** remove the `h2` and the delivered "Download all" button. Render the bar only when not delivered, where it holds the filter switch alone. *My call:* a delivered gallery has no favorites switch to show, so no bar rather than an empty one. A delivered client therefore loses the sticky download while scrolling a long gallery; the hero button is one scroll up. Say so in review if you want it back as an icon-only button.
+- **Expiry:** `ExpiryBadge` shows `expiry_open_until` plus the date only. The "N days left" / "expires today" suffix reads as pressure on the client, so it goes everywhere `ExpiryBadge` is used (client gallery and its preview only). Remove `remaining` and the `expiry_today` / `expiry_days_left` messages once unused. *My call:* no gentler "last days" notice for now; it can be added later if photographers ask.
+- **Sticky bar:** the hero's visibility is observed with an `IntersectionObserver` on the hero `header`. While the hero is visible, the bar holds only the All / Favorites switch (not delivered) and is not rendered at all when delivered. Once the hero is out of view, the bar also shows the title and, when delivered, "Download all". The change is animated softly and honours reduced motion. *My call:* the observer is skipped where unsupported, showing the bar's full content.
 - Existing messages stay if another view uses them.
 
 ## Testing
 
 - `ExpiryBadge.test.ts`: only "Open until <date>".
-- `ClientGallery.test.ts`: delivered has one "Download all" and one title; not delivered shows the filter without a repeated title.
+- `ClientGallery.test.ts`: with the hero visible there is one title and one "Download all"; once the hero is out of view the bar shows the title and the download (the observer is stubbed).
 
 ## Left to the builder
 
