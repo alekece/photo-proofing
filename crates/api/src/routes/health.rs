@@ -10,13 +10,19 @@ enum HealthStatus {
 #[derive(Serialize)]
 struct Health {
     status: HealthStatus,
+    /// Commit the image was built from; `null` for local builds.
+    commit: Option<String>,
 }
 
-/// Unauthenticated liveness probe; reveals nothing about configuration or dependencies.
+/// Unauthenticated liveness probe; besides the public build commit, it reveals nothing about
+/// configuration or dependencies.
 #[get("/health")]
 pub async fn report_health() -> impl Responder {
     HttpResponse::Ok().json(Health {
         status: HealthStatus::Ok,
+        commit: std::env::var("PP_BUILD_SHA")
+            .ok()
+            .filter(|sha| !sha.is_empty()),
     })
 }
 
@@ -39,7 +45,8 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(res).await;
 
-        assert_eq!(body, serde_json::json!({"status": "ok"}));
+        assert_eq!(body["status"], "ok");
+        assert!(body.get("commit").is_some());
     }
 
     #[actix_web::test]

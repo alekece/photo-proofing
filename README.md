@@ -33,7 +33,9 @@ The photographer's Settings footer identifies the loaded frontend build and can
 copy its full commit SHA. Deployment embeds the web image's revision at build
 time; local builds say Development build unless `PP_BUILD_SHA` is set to a full
 lowercase 40-character commit SHA when running `pnpm --dir web build`. Changing
-runtime environment variables does not change an already-built frontend.
+runtime environment variables does not change an already-built frontend. The
+API image carries the same commit and reports it as `commit` from
+`/api/v1/health` (`null` for local builds).
 
 For local development:
 
