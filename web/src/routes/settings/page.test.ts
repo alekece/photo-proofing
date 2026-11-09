@@ -18,6 +18,7 @@ const saved = {
 	position: 8,
 	size: 2,
 	signature: 'name',
+	proof_quality: 'medium',
 	has_logo: false
 };
 
@@ -150,6 +151,31 @@ describe('Settings page', () => {
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
 		expect(toasts.items).toEqual([]);
+	});
+
+	it('saves the proof quality and announces that every proof is regenerated', async () => {
+		toasts.items = [];
+		const fetcher = respond({ ...saved, proof_quality: 'high' });
+
+		open();
+		const user = userEvent.setup();
+
+		expect(screen.getByRole('radio', { name: /Medium/ }).getAttribute('aria-checked')).toBe('true');
+		await user.click(screen.getByRole('radio', { name: /High/ }));
+		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+		await vi.waitFor(() =>
+			expect(toasts.items.map((toast) => toast.message)).toContain(
+				'Thumbnails and previews are being regenerated'
+			)
+		);
+		expect(
+			JSON.parse(
+				(fetcher.mock.calls as unknown as [string, RequestInit][]).find(
+					([url]) => url === '/api/v1/settings'
+				)![1].body as string
+			)
+		).toMatchObject({ proof_quality: 'high' });
 	});
 
 	it('shows the reason the server refused the settings', async () => {

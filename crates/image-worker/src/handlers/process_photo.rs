@@ -107,19 +107,19 @@ impl ProcessPhotoHandler {
         let rendered = task::spawn_blocking(move || {
             if stamp.revision().is_none() {
                 renderer
-                    .render(&original, None)
+                    .render(&original, proof.quality, None)
                     .map(|watermarked| RenderedProof {
                         clean: None,
                         watermarked,
                     })
             } else {
-                let render = if proof.clean_ready {
+                let render = if proof.clean_current {
                     ProofRender::Watermarked
                 } else {
                     ProofRender::All
                 };
 
-                renderer.render_proof(&original, proof.watermark.as_ref(), render)
+                renderer.render_proof(&original, proof.quality, proof.watermark.as_ref(), render)
             }
         })
         .await
@@ -303,7 +303,7 @@ mod tests {
         jobs::{Backoff, JobKind, JobPayload},
         photo::{NewPhoto, PhotoDimensions, PhotoKind, PhotoStatus},
         photo_intake::PhotoIntake,
-        settings::{LogoChange, SettingsUpdate, WorkspaceSettings},
+        settings::{LogoChange, ProofQuality, SettingsUpdate, WorkspaceSettings},
         tests::TestRepository,
     };
     use tempfile::TempDir;
@@ -411,7 +411,12 @@ mod tests {
             let rendered = self
                 .handler
                 .renderer
-                .render_proof(&self.original, None, ProofRender::All)
+                .render_proof(
+                    &self.original,
+                    ProofQuality::default(),
+                    None,
+                    ProofRender::All,
+                )
                 .unwrap();
 
             PhotoOutput::Rendered(
@@ -567,6 +572,7 @@ mod tests {
                     position: defaults.position,
                     size: defaults.size,
                     signature: defaults.signature,
+                    proof_quality: defaults.proof_quality,
                     logo: LogoChange::Keep,
                 },
             )

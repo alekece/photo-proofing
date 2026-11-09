@@ -7,6 +7,7 @@
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
 	import ClickRipple from '#lib/components/ClickRipple.svelte';
+	import ProofQualityPicker from '#lib/components/ProofQualityPicker.svelte';
 	import CoverSignaturePicker from '#lib/components/CoverSignaturePicker.svelte';
 	import SaveButton, { type SaveStatus } from '#lib/components/SaveButton.svelte';
 	import WatermarkEditor from '#lib/components/WatermarkEditor.svelte';
@@ -18,6 +19,7 @@
 		LOGO_TYPES,
 		SettingsApi,
 		SettingsApiError,
+		qualityChanged,
 		settingsChanged,
 		watermarkChanged,
 		type WorkspaceSettings
@@ -79,13 +81,15 @@
 		try {
 			const submitted = { ...draft };
 			const watermark = watermarkChanged(submitted, saved);
+			const quality = qualityChanged(submitted, saved);
 
 			saved = await api.save(submitted, saved);
 			for (const key of Object.keys(submitted) as (keyof WorkspaceSettings)[]) {
 				if (draft[key] === submitted[key]) draft = { ...draft, [key]: saved[key] };
 			}
 			confirmSaved();
-			if (watermark) toasts.success(m.studio_regenerating());
+			if (quality) toasts.success(m.studio_quality_regenerating());
+			else if (watermark) toasts.success(m.studio_regenerating());
 		} catch (error) {
 			if (error instanceof SettingsApiError && (error.status === 422 || error.status === 413)) {
 				toasts.error(error.message);
@@ -231,4 +235,8 @@
 		logo={draft.logo}
 		cover={data.cover}
 	/>
+
+	<h2 class="mt-10 mb-2 text-[1.875rem] leading-[1.15]">{m.quality_label()}</h2>
+	<p class="mb-4 text-muted-foreground">{m.quality_hint()}</p>
+	<ProofQualityPicker bind:value={draft.proofQuality} />
 </PageShell>

@@ -586,6 +586,10 @@ impl PhotoRepository<'_> {
                      THEN COALESCE((SELECT watermark_revision FROM workspace_settings
                                     WHERE workspace_id = photos.workspace_id), 0)
                      ELSE watermark_revision END,
+                 clean_quality = CASE WHEN $2 = 'ready' AND kind = 'proof'
+                     THEN COALESCE((SELECT proof_quality FROM workspace_settings
+                                    WHERE workspace_id = photos.workspace_id), 'medium')
+                     ELSE clean_quality END,
                  revision = revision + CASE WHEN $2 = 'ready' THEN 1 ELSE 0 END
              WHERE id = $1 AND status IN ('waiting', 'processing')",
         )

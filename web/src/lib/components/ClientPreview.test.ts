@@ -38,6 +38,7 @@ const stub = (photos: unknown[]) => {
 								position: 8,
 								size: 2,
 								signature: 'name',
+								proof_quality: 'medium',
 								has_logo: false
 							}
 						: String(url).includes('?watermark=')
@@ -105,6 +106,7 @@ describe('ClientPreview', () => {
 									position: 8,
 									size: 2,
 									signature: 'both',
+									proof_quality: 'medium',
 									has_logo: true
 								}
 							: []
