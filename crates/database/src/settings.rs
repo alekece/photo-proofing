@@ -178,15 +178,17 @@ impl From<GridCell> for u8 {
     }
 }
 
-/// How large the watermark is: 0 (small) to 4 (large).
+/// How large the watermark or the cover signature is: 0 (small) to 9 (large).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "u8", into = "u8")]
 pub struct SizeStep(u8);
 
 impl SizeStep {
-    pub const LARGEST: Self = Self(4);
+    pub const LARGEST: Self = Self(9);
+    /// The step that matches the original fixed look.
+    pub const DEFAULT: Self = Self(4);
 
-    /// The step, 0 to 4.
+    /// The step, 0 to 9.
     pub const fn get(self) -> u8 {
         self.0
     }
@@ -240,6 +242,7 @@ pub struct WorkspaceSettings {
     pub position: GridCell,
     pub size: SizeStep,
     pub signature: CoverSignature,
+    pub signature_size: SizeStep,
     pub proof_quality: ProofQuality,
     /// Normalised PNG bytes.
     pub logo: Option<Vec<u8>>,
@@ -252,8 +255,9 @@ impl Default for WorkspaceSettings {
             mark: WatermarkMark::Name,
             pattern: WatermarkPattern::Repeat,
             position: GridCell::BOTTOM_RIGHT,
-            size: SizeStep(2),
+            size: SizeStep::DEFAULT,
             signature: CoverSignature::Name,
+            signature_size: SizeStep::DEFAULT,
             proof_quality: ProofQuality::default(),
             logo: None,
         }
@@ -301,6 +305,8 @@ impl FromRow<'_, PgRow> for WorkspaceSettings {
             size: SizeStep::try_from(narrow("size")?)
                 .map_err(|error| sqlx::Error::Decode(error.into()))?,
             signature: row.try_get("signature")?,
+            signature_size: SizeStep::try_from(narrow("signature_size")?)
+                .map_err(|error| sqlx::Error::Decode(error.into()))?,
             proof_quality: row.try_get("proof_quality")?,
             logo: row.try_get("logo")?,
         })
@@ -325,6 +331,7 @@ pub struct SettingsUpdate {
     pub position: GridCell,
     pub size: SizeStep,
     pub signature: CoverSignature,
+    pub signature_size: SizeStep,
     pub proof_quality: ProofQuality,
     pub logo: LogoChange,
 }
@@ -378,8 +385,9 @@ impl SettingsRepository<'_> {
     /// The settings columns for a workspace that may have no row yet, defaulted like the table.
     const SETTINGS_OR_DEFAULTS: &'static str = "COALESCE(s.studio_name, '') AS studio_name,
         COALESCE(s.mark, 'name') AS mark, COALESCE(s.pattern, 'repeat') AS pattern,
-        COALESCE(s.position, 8::smallint) AS position, COALESCE(s.size, 2::smallint) AS size,
+        COALESCE(s.position, 8::smallint) AS position, COALESCE(s.size, 4::smallint) AS size,
         COALESCE(s.signature, 'name') AS signature,
+        COALESCE(s.signature_size, 4::smallint) AS signature_size,
         COALESCE(s.proof_quality, 'medium') AS proof_quality, s.logo AS logo";
 
     /// The workspace's settings, or the defaults when none were saved.
@@ -433,7 +441,8 @@ impl SettingsRepository<'_> {
         .await?;
 
         let current: WorkspaceSettings = sqlx::query_as(
-            "SELECT studio_name, mark, pattern, position, size, signature, proof_quality, logo
+            "SELECT studio_name, mark, pattern, position, size, signature, signature_size,
+                    proof_quality, logo
              FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
         )
         .bind(workspace_id)
@@ -456,6 +465,7 @@ impl SettingsRepository<'_> {
             position: update.position,
             size: update.size,
             signature: update.signature,
+            signature_size: update.signature_size,
             proof_quality: update.proof_quality,
             logo,
         };
@@ -465,7 +475,7 @@ impl SettingsRepository<'_> {
         sqlx::query(
             "UPDATE workspace_settings SET
                  studio_name = $2, mark = $3, pattern = $4, position = $5, size = $6,
-                 signature = $7, logo = $8, proof_quality = $10,
+                 signature = $7, logo = $8, proof_quality = $10, signature_size = $11,
                  watermark_revision = watermark_revision + $9, updated_at = now()
              WHERE workspace_id = $1",
         )
@@ -479,6 +489,7 @@ impl SettingsRepository<'_> {
         .bind(&saved.logo)
         .bind(i64::from(changed))
         .bind(saved.proof_quality)
+        .bind(i16::from(saved.signature_size.get()))
         .execute(&mut *transaction)
         .await?;
 
@@ -783,6 +794,7 @@ mod tests {
             position: GridCell::BOTTOM_RIGHT,
             size: SizeStep(2),
             signature: CoverSignature::Name,
+            signature_size: SizeStep::DEFAULT,
             proof_quality: ProofQuality::Medium,
             logo: LogoChange::Keep,
         }
@@ -882,6 +894,7 @@ mod tests {
                 position: GridCell::try_from(4).unwrap(),
                 size: SizeStep(4),
                 signature: CoverSignature::None,
+                signature_size: SizeStep(7),
                 logo: LogoChange::Replace(PNG.to_vec()),
                 ..update("  Studio Lumière ")
             })
@@ -1078,10 +1091,11 @@ mod tests {
 
         let photo = fixture.photo(gallery, PhotoStatus::Ready).await;
 
-        // The cover signature, an unused logo and the position of a repeated mark are not drawn.
+        // The cover signature and its size, an unused logo and the position of a repeated mark are not drawn.
         fixture
             .save(SettingsUpdate {
                 signature: CoverSignature::None,
+                signature_size: SizeStep(9),
                 position: GridCell::try_from(0).unwrap(),
                 logo: LogoChange::Replace(PNG.to_vec()),
                 ..update("Studio")
@@ -1101,6 +1115,43 @@ mod tests {
             .unwrap();
 
         assert_eq!(fixture.status(photo).await, PhotoStatus::Waiting);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn ten_size_steps_keep_saved_watermarks_as_large_as_before(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+
+        fixture
+            .save(SettingsUpdate {
+                size: SizeStep(3),
+                ..update("Studio")
+            })
+            .await
+            .unwrap();
+
+        let mut transaction = fixture.pool.begin().await.unwrap();
+
+        sqlx::raw_sql(
+            "ALTER TABLE workspace_settings DROP COLUMN signature_size,
+                 DROP CONSTRAINT workspace_settings_size_range;
+             ALTER TABLE workspace_settings ADD CONSTRAINT workspace_settings_size_range
+                 CHECK (size BETWEEN 0 AND 4);",
+        )
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!("../migrations/0026_ten_size_steps.sql"))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let (size, signature_size): (i16, i16) =
+            sqlx::query_as("SELECT size, signature_size FROM workspace_settings")
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap();
+
+        assert_eq!((size, signature_size), (6, 4));
     }
 
     #[sqlx::test(migrations = "./migrations")]

@@ -18,6 +18,7 @@ const saved = {
 	position: 8,
 	size: 2,
 	signature: 'name',
+	signature_size: 4,
 	proof_quality: 'medium',
 	has_logo: false
 };
@@ -96,14 +97,14 @@ describe('Settings page', () => {
 		await user.type(name, 'Studio X');
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 		await user.type(name, ' II');
-		await user.click(screen.getByRole('radio', { name: 'None' }));
+		await user.click(screen.getByRole('button', { name: 'None' }));
 		finish(Response.json(saved));
 
 		await vi.waitFor(() =>
 			expect(screen.getByRole('button', { name: 'Save changes' })).toHaveProperty('disabled', false)
 		);
 		expect(name).toHaveProperty('value', 'Studio X II');
-		expect(screen.getByRole('radio', { name: 'None' }).getAttribute('aria-checked')).toBe('true');
+		expect(screen.getByRole('button', { name: 'None' }).getAttribute('aria-pressed')).toBe('true');
 	});
 
 	it('saves, confirms on the button without a toast and announces the regeneration', async () => {
@@ -147,7 +148,7 @@ describe('Settings page', () => {
 		open();
 		const user = userEvent.setup();
 
-		await user.click(screen.getByRole('radio', { name: 'None' }));
+		await user.click(screen.getByRole('button', { name: 'None' }));
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
 		expect(toasts.items).toEqual([]);
@@ -239,9 +240,9 @@ describe('Settings page', () => {
 	it('disables logo options and the position grid until they apply', async () => {
 		open();
 
-		expect(screen.getByRole('radio', { name: 'Logo' }).hasAttribute('disabled')).toBe(true);
-		expect(screen.getByRole('radio', { name: 'Both' }).hasAttribute('disabled')).toBe(true);
-		expect(screen.getByRole('button', { name: 'Logo' }).hasAttribute('disabled')).toBe(true);
+		for (const name of ['Logo', 'Both'])
+			for (const button of screen.getAllByRole('button', { name }))
+				expect(button.hasAttribute('disabled')).toBe(true);
 		expect(screen.getByRole('button', { name: 'Position 1' }).closest('fieldset')?.disabled).toBe(
 			true
 		);

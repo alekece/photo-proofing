@@ -5,7 +5,11 @@ export const MARKS = ['name', 'logo', 'both'] as const;
 export const PATTERNS = ['repeat', 'once'] as const;
 export const SIGNATURES = ['name', 'logo', 'both', 'none'] as const;
 export const QUALITIES = ['low', 'medium', 'high'] as const;
-export const SIZE_STEPS = 5;
+export const SIZE_STEPS = 10;
+/** The size step that matches the original fixed look. */
+export const DEFAULT_SIZE = 4;
+/** Cover signature scale per size step; the default step is the original size. */
+const SIGNATURE_SCALES = [0.5, 0.6, 0.7, 0.85, 1, 1.2, 1.45, 1.75, 2.1, 2.5];
 
 export type Mark = (typeof MARKS)[number];
 export type Pattern = (typeof PATTERNS)[number];
@@ -24,6 +28,8 @@ export type WorkspaceSettings = {
 	/** Step from 0 (small) to `SIZE_STEPS - 1` (large). */
 	size: number;
 	signature: Signature;
+	/** Step from 0 (small) to `SIZE_STEPS - 1` (large) of the cover signature. */
+	signatureSize: number;
 	/** How sharp thumbnails and previews are; changing it regenerates all of them. */
 	proofQuality: Quality;
 };
@@ -34,8 +40,9 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
 	mark: 'name',
 	pattern: 'repeat',
 	position: 8,
-	size: 2,
+	size: DEFAULT_SIZE,
 	signature: 'name',
+	signatureSize: DEFAULT_SIZE,
 	proofQuality: 'medium'
 };
 
@@ -57,7 +64,12 @@ export function qualityChanged(a: WorkspaceSettings, b: WorkspaceSettings) {
 }
 
 export function settingsChanged(a: WorkspaceSettings, b: WorkspaceSettings) {
-	return watermarkChanged(a, b) || qualityChanged(a, b) || a.signature !== b.signature;
+	return (
+		watermarkChanged(a, b) ||
+		qualityChanged(a, b) ||
+		a.signature !== b.signature ||
+		a.signatureSize !== b.signatureSize
+	);
 }
 
 /** Where the saved logo is served; the query makes the browser refetch after a replacement. */
@@ -74,6 +86,7 @@ const settingsResponseSchema = v.object({
 	position: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(8)),
 	size: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(SIZE_STEPS - 1)),
 	signature: v.picklist(SIGNATURES),
+	signature_size: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(SIZE_STEPS - 1)),
 	proof_quality: v.picklist(QUALITIES),
 	has_logo: v.boolean()
 });
@@ -94,8 +107,14 @@ export function parseSettings(body: unknown, logoUrl: string = LOGO_URL): Worksp
 		position: settings.position,
 		size: settings.size,
 		signature: settings.signature,
+		signatureSize: settings.signature_size,
 		proofQuality: settings.proof_quality
 	};
+}
+
+/** How much larger than the original look a cover signature of this size step is drawn. */
+export function signatureScale(step: number) {
+	return SIGNATURE_SCALES[Math.min(Math.max(Math.trunc(step), 0), SIZE_STEPS - 1)];
 }
 
 export class SettingsApiError extends Error {
@@ -134,6 +153,7 @@ export class SettingsApi {
 				position: settings.position,
 				size: settings.size,
 				signature: settings.signature,
+				signature_size: settings.signatureSize,
 				proof_quality: settings.proofQuality,
 				logo: logoChange(settings.logo, saved.logo)
 			})

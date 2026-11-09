@@ -1,11 +1,12 @@
 <script lang="ts">
-	import type { Signature } from '#lib/settings/settings.js';
+	import { DEFAULT_SIZE, signatureScale, type Signature } from '#lib/settings/settings.js';
 
 	/** The studio's mark and name as printed on a cover, per the Settings signature choice. */
 	let {
 		studio = null,
 		logo = null,
 		signature = 'name',
+		size = DEFAULT_SIZE,
 		stacked = false,
 		class: className = ''
 	}: {
@@ -13,6 +14,8 @@
 		/** Image URL of the studio logo. */
 		logo?: string | null;
 		signature?: Signature;
+		/** Size step from Settings; the default step is the original size. */
+		size?: number;
 		/** Logo above the name, as on the empty "photos on their way" page. */
 		stacked?: boolean;
 		class?: string;
@@ -30,16 +33,23 @@
 {#if showLogo || showName}
 	<div
 		data-testid="studio-signature"
+		style="--signature-scale:{signatureScale(size)}"
 		class="flex items-center justify-center gap-2.5 {stacked || signature === 'both'
 			? 'flex-col gap-2'
 			: ''} {className}"
 	>
 		{#if showLogo}
-			<img src={logo} alt="" class={stacked ? 'size-11' : 'size-[2.2em]'} />
+			<img
+				src={logo}
+				alt=""
+				class={stacked
+					? 'size-[calc(2.75rem*var(--signature-scale))]'
+					: 'size-[calc(2.2em*var(--signature-scale))]'}
+			/>
 		{/if}
 		{#if showName}
 			<span
-				class="text-[0.62em] font-semibold tracking-[0.22em] whitespace-nowrap uppercase not-italic"
+				class="text-[calc(0.62em*var(--signature-scale))] font-semibold tracking-[0.22em] whitespace-nowrap uppercase not-italic"
 				>{name}</span
 			>
 		{/if}

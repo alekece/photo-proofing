@@ -5,7 +5,7 @@
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import { Selection } from '#lib/gallery/selection.svelte.js';
 	import type { Proof, SharedGallery } from '#lib/gallery/types.js';
-	import type { Signature } from '#lib/settings/settings.js';
+	import { DEFAULT_SIZE, type Signature } from '#lib/settings/settings.js';
 	import CoverBackdrop from './CoverBackdrop.svelte';
 	import ExpiryBadge from './ExpiryBadge.svelte';
 	import FilmStrip from './FilmStrip.svelte';
@@ -22,6 +22,7 @@
 		studio = null,
 		studioLogo = null,
 		signature = 'name',
+		signatureSize = DEFAULT_SIZE,
 		preview = false,
 		framed = false
 	}: {
@@ -37,6 +38,8 @@
 		/** The studio's logo image URL from Settings. */
 		studioLogo?: string | null;
 		signature?: Signature;
+		/** Size step of the signature, from Settings. */
+		signatureSize?: number;
 		/** The owner's read-only preview: marks the page and gates every write action. */
 		preview?: boolean;
 		/** Shown inside the preview's phone frame, which has a fixed height. */
@@ -143,6 +146,7 @@
 			{studio}
 			logo={studioLogo}
 			{signature}
+			size={signatureSize}
 			stacked
 			class="text-[2.75rem] opacity-95 @max-[700px]:text-4xl"
 		/>
@@ -185,6 +189,7 @@
 				{studio}
 				logo={studioLogo}
 				{signature}
+				size={signatureSize}
 				class="absolute inset-x-0 top-[22px] font-serif text-[1.1875rem] italic"
 			/>
 			<h1 class="font-serif text-[2.75rem] leading-none wrap-anywhere">{title}</h1>
@@ -234,6 +239,7 @@
 				{studio}
 				logo={studioLogo}
 				{signature}
+				size={signatureSize}
 				class="px-5 pt-7 font-serif text-[1.1875rem] italic @max-[700px]:text-[0.9375rem]"
 			/>
 			<div class="mt-auto animate-photo-in px-6 pb-[34px]">

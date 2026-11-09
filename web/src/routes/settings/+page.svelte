@@ -8,7 +8,7 @@
 	import AppHeader from '#lib/components/AppHeader.svelte';
 	import ClickRipple from '#lib/components/ClickRipple.svelte';
 	import ProofQualityPicker from '#lib/components/ProofQualityPicker.svelte';
-	import CoverSignaturePicker from '#lib/components/CoverSignaturePicker.svelte';
+	import SignatureEditor from '#lib/components/SignatureEditor.svelte';
 	import SaveButton, { type SaveStatus } from '#lib/components/SaveButton.svelte';
 	import WatermarkEditor from '#lib/components/WatermarkEditor.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
@@ -229,12 +229,7 @@
 	<WatermarkEditor bind:settings={draft} />
 
 	<h2 class="mb-4 text-[1.875rem] leading-[1.15]">{m.signature_label()}</h2>
-	<CoverSignaturePicker
-		bind:value={draft.signature}
-		studioName={draft.studioName}
-		logo={draft.logo}
-		cover={data.cover}
-	/>
+	<SignatureEditor bind:settings={draft} />
 
 	<h2 class="mt-10 mb-2 text-[1.875rem] leading-[1.15]">{m.quality_label()}</h2>
 	<p class="mb-4 text-muted-foreground">{m.quality_hint()}</p>

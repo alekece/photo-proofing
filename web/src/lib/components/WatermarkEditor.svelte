@@ -1,31 +1,16 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import {
-		SIZE_STEPS,
-		type Mark,
-		type Pattern,
-		type WorkspaceSettings
-	} from '#lib/settings/settings.js';
+	import type { Mark, Pattern, WorkspaceSettings } from '#lib/settings/settings.js';
+	import MarkLogo from './MarkLogo.svelte';
+	import SamplePhoto from './SamplePhoto.svelte';
+	import SizeSlider from './SizeSlider.svelte';
+	import { TOOLBAR, TOOLBAR_GLYPH, TOOLBAR_ITEM } from './settings-toolbar.js';
 
 	let { settings = $bindable() }: { settings: WorkspaceSettings } = $props();
 
-	// Two rows of three static sample tiles like a contact sheet: relative width and a light or
-	// dark gradient, so the mark is judged on both. No photo is loaded, so every workspace sees
-	// the same preview.
-	const SHEET = [
-		[
-			{ ratio: 1.5, fill: 'from-[#f1e3cf] to-[#b8c6cc]' },
-			{ ratio: 0.67, fill: 'from-[#3b4a52] to-[#1c2327]' },
-			{ ratio: 1.5, fill: 'from-[#c9d9c4] to-[#7d9a80]' }
-		],
-		[
-			{ ratio: 0.67, fill: 'from-[#1f2830] to-[#4d3b46]' },
-			{ ratio: 1.5, fill: 'from-[#f4d8c0] to-[#d79a86]' },
-			{ ratio: 0.75, fill: 'from-[#e9edf0] to-[#9aa7b4]' }
-		]
-	];
-	// Watermark text size, as a share of the tile width, per size step.
-	const SCALES = [1.4, 1.9, 2.5, 3.2, 4];
+	// Watermark text size, as a share of the preview width, per size step; the even steps are the
+	// original five.
+	const SCALES = [1.4, 1.6, 1.9, 2.2, 2.5, 2.85, 3.2, 3.6, 4, 4.8];
 	const ALIGN = ['start', 'center', 'end'];
 	const noLogo = $derived(settings.logo === null);
 	const marks: { id: Mark; label: string }[] = [
@@ -42,29 +27,8 @@
 	const showName = $derived(settings.mark !== 'logo' || noLogo);
 	const name = $derived(settings.studioName.trim() || m.watermark_your_studio());
 	const repeat = $derived(settings.pattern === 'repeat');
-	const scale = $derived(SCALES[Math.min(settings.size, SIZE_STEPS - 1)]);
-	const item =
-		'grid h-[2.625rem] min-w-[2.625rem] cursor-pointer place-items-center rounded-xl px-1.5 sm:h-12 sm:min-w-[3.25rem] sm:px-2.5 transition-colors hover:bg-[#f3ede5] aria-pressed:bg-foreground aria-pressed:text-inverse disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent';
-	const glyph = 'inline-flex items-center gap-1 font-serif text-xl italic';
+	const scale = $derived(SCALES[Math.min(settings.size, SCALES.length - 1)]);
 </script>
-
-{#snippet logo(size: string)}
-	{#if settings.logo}
-		<img src={settings.logo} alt="" class="{size} object-contain" />
-	{:else}
-		<svg viewBox="0 0 48 48" aria-hidden="true" class={size}>
-			<circle cx="24" cy="24" r="22" fill="none" stroke="currentColor" stroke-width="1.6" />
-			<path
-				d="M15 31c3-9 6-14 9-14s4 5 5 9 2 5 4 5"
-				fill="none"
-				stroke="currentColor"
-				stroke-width="1.6"
-				stroke-linecap="round"
-			/>
-			<circle cx="31" cy="15" r="1.8" fill="currentColor" />
-		</svg>
-	{/if}
-{/snippet}
 
 {#snippet stamp()}
 	<span
@@ -75,11 +39,7 @@
 	</span>
 {/snippet}
 
-<div
-	class="mb-[1.125rem] flex flex-wrap items-center gap-x-1.5 gap-y-2 rounded-[1.25rem] border border-border bg-input p-2 shadow-[0_14px_30px_-18px_rgb(60_40_20/0.5)]"
-	role="toolbar"
-	aria-label={m.watermark_label()}
->
+<div class={TOOLBAR} role="toolbar" aria-label={m.watermark_label()}>
 	<div
 		role="group"
 		aria-label={m.watermark_mark()}
@@ -92,11 +52,11 @@
 				aria-label={label}
 				aria-pressed={settings.mark === id}
 				disabled={noLogo && id !== 'name'}
-				class={item}
+				class={TOOLBAR_ITEM}
 				onclick={() => (settings.mark = id)}
 			>
-				<span class={glyph}>
-					{#if id !== 'name'}{@render logo('size-6')}{/if}
+				<span class={TOOLBAR_GLYPH}>
+					{#if id !== 'name'}<MarkLogo logo={settings.logo} class="size-6" />{/if}
 					{#if id !== 'logo'}Aa{/if}
 				</span>
 			</button>
@@ -113,7 +73,7 @@
 				title={label}
 				aria-label={label}
 				aria-pressed={settings.pattern === id}
-				class={item}
+				class={TOOLBAR_ITEM}
 				onclick={() => (settings.pattern = id)}
 			>
 				<svg viewBox="0 0 30 22" aria-hidden="true" class="h-[1.375rem] w-[1.875rem]">
@@ -157,60 +117,28 @@
 			{/each}
 		</fieldset>
 	</div>
-	<div
-		class="flex min-w-[12.5rem] flex-1 items-center border-l border-border px-2 max-sm:basis-full max-sm:border-l-0"
-	>
-		<div class="flex w-full items-center gap-3 px-2">
-			<span
-				aria-hidden="true"
-				class="font-serif text-[0.8125rem] leading-none text-muted-foreground">A</span
-			>
-			<input
-				type="range"
-				min="0"
-				max={SIZE_STEPS - 1}
-				step="1"
-				aria-label={m.watermark_size()}
-				bind:value={settings.size}
-				class="h-7 flex-1 accent-foreground"
-			/>
-			<span aria-hidden="true" class="font-serif text-2xl leading-none text-muted-foreground"
-				>A</span
-			>
-		</div>
-	</div>
+	<SizeSlider bind:value={settings.size} label={m.watermark_size()} />
 </div>
-<div class="mb-14 flex flex-col gap-2" role="img" aria-label={m.watermark_preview()}>
-	{#each SHEET as row, r (r)}
-		<div class="flex h-[clamp(6.875rem,22vw,15.625rem)] gap-2">
-			{#each row as { ratio, fill }, c (c)}
-				<div
-					class="[container-type:inline-size] relative h-full overflow-hidden rounded bg-linear-to-br {fill}"
-					style="flex:{ratio}"
-				>
-					{#if repeat}
-						<div
-							class="absolute -inset-[40%] grid -rotate-[24deg] grid-cols-[repeat(4,max-content)] content-center justify-center gap-x-[4em] gap-y-[3.2em] opacity-[0.42]"
-							style="font-size:{scale}cqw"
-						>
-							{#each Array.from({ length: 40 }, (_, i) => i) as tile (tile)}
-								<span class={tile % 8 >= 4 ? '-translate-x-1/2' : ''}>{@render stamp()}</span>
-							{/each}
-						</div>
-					{:else}
-						<div class="absolute inset-0 grid p-[5cqw]" style="font-size:{scale}cqw">
-							<div
-								class="opacity-80"
-								style="align-self:{ALIGN[Math.floor(settings.position / 3)]};justify-self:{ALIGN[
-									settings.position % 3
-								]}"
-							>
-								{@render stamp()}
-							</div>
-						</div>
-					{/if}
-				</div>
+<SamplePhoto label={m.watermark_preview()}>
+	{#if repeat}
+		<div
+			class="absolute -inset-[40%] grid -rotate-[24deg] grid-cols-[repeat(4,max-content)] content-center justify-center gap-x-[4em] gap-y-[3.2em] opacity-[0.42]"
+			style="font-size:{scale}cqw"
+		>
+			{#each Array.from({ length: 40 }, (_, i) => i) as tile (tile)}
+				<span class={tile % 8 >= 4 ? '-translate-x-1/2' : ''}>{@render stamp()}</span>
 			{/each}
 		</div>
-	{/each}
-</div>
+	{:else}
+		<div class="absolute inset-0 grid p-[5cqw]" style="font-size:{scale}cqw">
+			<div
+				class="opacity-80"
+				style="align-self:{ALIGN[Math.floor(settings.position / 3)]};justify-self:{ALIGN[
+					settings.position % 3
+				]}"
+			>
+				{@render stamp()}
+			</div>
+		</div>
+	{/if}
+</SamplePhoto>

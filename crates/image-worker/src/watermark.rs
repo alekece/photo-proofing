@@ -17,7 +17,7 @@ use pp_database::settings::{GridCell, Watermark, WatermarkPlacement};
 use crate::render::RenderError;
 
 /// Width of the mark as a share of the photo's width, per size step, in percent.
-const WIDTH_SHARES: [i32; 5] = [10, 16, 24, 34, 48];
+const WIDTH_SHARES: [i32; 10] = [10, 13, 16, 20, 24, 29, 34, 41, 48, 58];
 /// The smallest mark width, so a tiny thumbnail still shows something.
 const MIN_MARK_WIDTH: i32 = 24;
 /// Rendering size of the studio name, in 1/1024 points, before it is scaled to the mark width.
@@ -503,7 +503,7 @@ mod tests {
         let mut large = small.clone();
 
         small.size = SizeStep::try_from(0).unwrap();
-        large.size = SizeStep::try_from(4).unwrap();
+        large.size = SizeStep::try_from(9).unwrap();
 
         assert!(brightness(&painted(&large), 4) > brightness(&painted(&small), 4));
     }

@@ -166,6 +166,7 @@
 							studio={settings?.studioName}
 							studioLogo={settings?.logo}
 							signature={settings?.signature}
+							signatureSize={settings?.signatureSize}
 							preview
 							framed={view === 'phone'}
 						/>

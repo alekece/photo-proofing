@@ -572,6 +572,7 @@ mod tests {
                     position: defaults.position,
                     size: defaults.size,
                     signature: defaults.signature,
+                    signature_size: defaults.signature_size,
                     proof_quality: defaults.proof_quality,
                     logo: LogoChange::Keep,
                 },
