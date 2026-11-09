@@ -36,39 +36,38 @@ empty one.
 
 ## Approaches
 
-- **Chosen: GitOps through a deploy branch.** After publishing images, the CD
-  workflow commits the image tag to a `deploy/staging` branch. Dockhand syncs the
-  branch on a schedule. Git records every deploy; rollback is a revert; the server
-  only reads from GitHub. Chosen by the user after comparing it with the others.
-- Not chosen: set the tag in Dockhand through its API from a server-side timer.
-  The manual does not document it, the API token has full access, and the deploy
-  history would live outside Git.
-- Not chosen: a moving image tag such as `:staging`. The publication design
-  already rejects it; images can briefly mismatch and it does not identify a commit.
-- Not chosen: GitHub calls a Dockhand webhook. It needs inbound access to the
-  private server. The webhook stays available if a tunnel is ever accepted.
-- Not chosen: keep Ansible and use Dockhand only as a dashboard. The user wants
-  Dockhand to own deployment.
+- **Chosen: moving `:staging` image tag with Dockhand auto-update.** After
+  verifying the three `sha-` images, CD also tags them `:staging`. The Dockhand
+  stack follows the Compose file on `main` and uses the `:staging` images;
+  Dockhand's scheduled auto-update recreates a container when its tag's digest
+  changes. No bot commits, no extra branch, no inbound access. Chosen by the
+  user as the idiomatic Dockhand pattern. **Gate:** a trial must first show that
+  auto-update works correctly on containers belonging to a Compose stack
+  (it may recreate them outside the Compose definition). If it does not, use the
+  fallback below.
+- Fallback: a `deploy/staging` branch written by CD with a
+  `PP_IMAGE_TAG=sha-<commit>` env file, which Dockhand syncs. It keeps exact
+  pinning and a Git audit trail at the cost of one bot commit per release.
+- Not chosen: set the tag through Dockhand's API from a server-side timer
+  (undocumented, full-access token).
+- Not chosen: GitHub calls a Dockhand webhook (needs inbound access).
+- Not chosen: keep Ansible with Dockhand as a dashboard only.
+
+This revises the publication design's rule against moving image aliases for the
+staging consumer only. The `:staging` tag is moved only after every `sha-` image
+is verified; the three tags are pushed back to back, so skew between services is
+seconds on a staging system. The Git tag `staging` and the `sha-` tags remain
+the immutable record, and images keep their revision label and embedded build SHA.
 
 ## Design
 
-### Deploy branch
+### Image tags
 
-`deploy/staging` is an orphan branch updated only by the CD workflow. It holds the
-deployment bundle for one commit: the Compose definition, proxy configuration and
-an env file setting `PP_IMAGE_TAG=sha-<commit>`. Building the bundle from the
-tested commit keeps Compose and images consistent.
-
-The bundle contains variable references only, never values: no secrets,
-hostnames, addresses or volume names. Dockhand's stack redeploys when files in its
-compose directory change, so each release commit triggers one reconciliation and
-Compose recreates only containers whose configuration changed.
-
-The new CD step runs last, after all three images are verified and the `staging`
-tag is advanced. It uses the workflow's own `GITHUB_TOKEN`, is serialized with the
-existing concurrency group and never moves the branch to an older commit,
-mirroring the tag rule. Pushes to this branch must not trigger CI or CD. The
-existing `staging` tag stays as the published-artifact pointer.
+The CD step runs last, after all three images are verified and the `staging` Git
+tag advances. It points `:staging` on `pp-api`, `pp-image-worker` and `pp-web`
+at the commit's `sha-` image, and never moves it to an older commit (same
+ordering rule as the Git tag, serialized by the existing concurrency group).
+Rollback means re-tagging `:staging` or pinning a `sha-` tag in Dockhand.
 
 ### Dockhand and the Git stack
 
@@ -77,7 +76,8 @@ authentication enabled. It has Docker socket access, so its UI must never be
 exposed publicly. A read-only deploy credential for the repository is stored in
 Dockhand's Git settings, never in the repository.
 
-The `pp-staging` stack tracks `deploy/staging` with scheduled sync. It keeps the
+The `pp-staging` stack tracks the Compose file on `main` with scheduled sync and
+auto-update enabled for its application containers. It keeps the
 Compose project name `pp-staging` and the existing external volumes, so
 Compose adopts the running installation rather than creating a new one. Dockhand
 must manage the Docker daemon where staging runs today (the root daemon).
@@ -97,11 +97,17 @@ must manage the Docker daemon where staging runs today (the root daemon).
 
 | Playbook behavior | After |
 |---|---|
-| Resolve `staging` tag via `gh` | CD writes the tag to the deploy branch |
-| Pull, then reconcile | Dockhand sync and Compose |
+| Resolve `staging` tag via `gh` | Dockhand auto-update follows the `:staging` image tag |
+| Pull, then reconcile | Dockhand sync, auto-update and Compose |
 | Validate TOML, HTTPS origin, RFC1918 binding, four volumes | Dropped from automation; Compose still fails on missing required variables and missing external volumes. Origin and binding checks move to the README checklist. |
 | Config and proxy checksum labels reload services on change | Lost; after editing the TOML or Caddy file, redeploy the stack from Dockhand. |
 | Export the public Caddy CA | Manual `docker cp` of the public certificate, documented. |
+
+### Compose file
+
+The repository Compose files reference `:staging` images, with the values
+described below supplied as variables, never committed. Whether Dockhand deploys
+the two Compose files or CD/the repo provides one is left to the builder.
 
 ### Version visibility
 
@@ -145,9 +151,9 @@ migrations are not reversible, as before.
 
 ## Verification
 
-- A CD run on `main` publishes images, then advances the deploy branch; an older
+- A CD run on `main` publishes images, then moves `:staging` on all three; an older
   run finishing late does not regress it.
-- Pushes to the deploy branch do not start CI or CD.
-- Staging redeploys from the branch alone, with no inbound access.
+- The auto-update trial passes before implementation proceeds.
+- Staging redeploys from the registry alone, with no inbound access.
 - No secret or installation detail appears in Git or logs.
 - CI no longer references the removed playbook.
