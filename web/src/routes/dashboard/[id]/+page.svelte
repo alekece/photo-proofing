@@ -256,17 +256,18 @@
 <svelte:head><title>{saved.title ?? m.gallery_untitled()} — PhotoProofing</title></svelte:head>
 <div class="relative">
 	<AppHeader overlay onsignout={logout} />
-	<a
-		href="/dashboard"
-		class="absolute top-[3.75rem] left-[1.125rem] z-20 text-sm text-panel/90 underline-offset-2 hover:underline sm:left-8"
-		>{m.header_back_to_galleries()}</a
+	<div
+		class="absolute inset-x-0 top-[3.75rem] z-20 flex flex-col items-start gap-2 px-[1.125rem] sm:px-8"
 	>
-	{#if signOutError}<p
-			role="alert"
-			class="absolute inset-x-0 top-16 z-20 text-center text-warning-on-dark"
+		<a
+			href="/dashboard"
+			class="rounded-full bg-panel/15 px-3 py-1 text-sm text-panel backdrop-blur-sm hover:underline"
+			>{m.header_back_to_galleries()}</a
 		>
-			{signOutError}
-		</p>{/if}
+		{#if signOutError}<p role="alert" class="self-stretch text-center text-warning-on-dark">
+				{signOutError}
+			</p>{/if}
+	</div>
 
 	<GalleryHeader
 		{heroRevision}
