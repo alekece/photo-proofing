@@ -149,11 +149,11 @@ export const notificationListSchema = v.object({
 /** A change to a selection ZIP of a gallery of the signed-in workspace; its state comes from a refetch. */
 export const exportEventSchema = v.object({ gallery_id: v.string() });
 
-/** Mirrors the API's `ExportStatus`: the failure reason travels with the `failed` kind. */
+/** Mirrors the API's export status: a failure carries an error `code` the UI translates. */
 export const exportStatusSchema = v.variant('kind', [
 	v.object({ kind: v.literal('preparing') }),
 	v.object({ kind: v.literal('ready') }),
-	v.object({ kind: v.literal('failed'), reason: v.string() })
+	v.object({ kind: v.literal('failed'), code: v.string() })
 ]);
 
 export const exportSchema = v.object({

@@ -1,4 +1,4 @@
-import { apiErrorMessage } from '#lib/i18n/errors.js';
+import { apiErrorMessage, readResponseErrorCode } from '#lib/i18n/errors.js';
 export interface Identity {
 	account_id: string;
 	workspace_id: string;
@@ -31,7 +31,9 @@ export async function authRequest(
 		body: input ? JSON.stringify(input) : undefined
 	});
 	if (!response.ok) {
-		throw new AuthError(response.status, apiErrorMessage(response.status));
+		const code = await readResponseErrorCode(response);
+
+		throw new AuthError(response.status, apiErrorMessage(response.status, code));
 	}
 }
 

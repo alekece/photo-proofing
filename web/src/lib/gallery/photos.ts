@@ -9,7 +9,7 @@ import {
 	type Photo
 } from './schemas';
 import * as v from 'valibot';
-import { apiErrorMessage } from '#lib/i18n/errors.js';
+import { apiErrorMessage, readResponseErrorCode } from '#lib/i18n/errors.js';
 
 export type { Photo, PhotoStatus, UploadLimits } from './schemas';
 
@@ -51,7 +51,9 @@ async function request(path: string, init: RequestInit, fetcher: typeof fetch) {
 	const response = await fetcher(path, { ...init, credentials: 'same-origin' });
 
 	if (!response.ok) {
-		throw new GalleryApiError(response.status, apiErrorMessage(response.status));
+		const code = await readResponseErrorCode(response);
+
+		throw new GalleryApiError(response.status, apiErrorMessage(response.status, code), code);
 	}
 
 	return response;

@@ -1,5 +1,5 @@
 import { gallerySchema, parseOrNull, type Gallery, type GalleryLayout } from './schemas';
-import { apiErrorMessage } from '#lib/i18n/errors.js';
+import { apiErrorMessage, readResponseErrorCode } from '#lib/i18n/errors.js';
 
 export type { Gallery, GalleryLayout, GalleryOverview, GallerySort } from './schemas';
 
@@ -17,8 +17,8 @@ export class GalleryApiError extends Error {
 	constructor(
 		public status: number,
 		message: string,
-		/** The setting a 422 is about (`context[0]` of the error body). */
-		public field?: string
+		/** The API's error `code`, when it sent one. */
+		public code?: string
 	) {
 		super(message);
 	}
@@ -31,13 +31,9 @@ async function galleryRequest(path: string, init: RequestInit, fetcher: typeof f
 		headers: { 'Content-Type': 'application/json' }
 	});
 	if (!response.ok) {
-		const data = await response.json().catch(() => ({}));
-		const field =
-			Array.isArray(data.context) && typeof data.context[0] === 'string'
-				? data.context[0]
-				: undefined;
+		const code = await readResponseErrorCode(response);
 
-		throw new GalleryApiError(response.status, apiErrorMessage(response.status, field), field);
+		throw new GalleryApiError(response.status, apiErrorMessage(response.status, code), code);
 	}
 	const gallery = parseOrNull(gallerySchema, await response.json().catch(() => null));
 
@@ -90,6 +86,8 @@ export async function deleteGallery(id: string, fetcher: typeof fetch = fetch): 
 	});
 
 	if (!response.ok) {
-		throw new GalleryApiError(response.status, apiErrorMessage(response.status));
+		const code = await readResponseErrorCode(response);
+
+		throw new GalleryApiError(response.status, apiErrorMessage(response.status, code), code);
 	}
 }

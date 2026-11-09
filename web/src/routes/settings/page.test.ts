@@ -142,7 +142,7 @@ describe('Settings page', () => {
 	it('shows the reason the server refused the settings', async () => {
 		toasts.items = [];
 		const savedToast = vi.spyOn(toasts, 'saved');
-		respond({ error: 'invalid settings', context: ['studio_name'] }, 422);
+		respond({ code: 'invalid_studio_name' }, 422);
 		open();
 		const user = userEvent.setup();
 

@@ -25,14 +25,14 @@ const photo = (id: string, favorite: boolean): Photo => ({
 
 interface Zip {
 	id: string;
-	status: { kind: 'preparing' } | { kind: 'ready' } | { kind: 'failed'; reason: string };
+	status: { kind: 'preparing' } | { kind: 'ready' } | { kind: 'failed'; code: string };
 	photo_count: number;
 	created_at: string;
 }
 
-const zip = (status: Zip['status']['kind'], id = 'e1', reason = 'The ZIP failed.'): Zip => ({
+const zip = (status: Zip['status']['kind'], id = 'e1', code = 'export_failed'): Zip => ({
 	id,
-	status: status === 'failed' ? { kind: status, reason } : { kind: status },
+	status: status === 'failed' ? { kind: status, code } : { kind: status },
 	photo_count: 1,
 	created_at: '2026-11-07T10:00:00Z'
 });
@@ -316,20 +316,20 @@ describe('FavoritesPanel', () => {
 	});
 
 	it('shows why a ZIP failed and allows another try', async () => {
-		setup([photo('p1', true)], undefined, zip('failed', 'e1', 'The server is out of disk space.'));
+		setup([photo('p1', true)], undefined, zip('failed', 'e1', 'storage_full'));
 
-		expect((await screen.findByRole('alert')).textContent).toContain('out of disk space');
+		expect((await screen.findByRole('alert')).textContent).toContain('storage is full');
 		expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty('disabled', false);
 	});
 
-	it('shows the server’s reason when the request is refused', async () => {
+	it('shows the translated reason when the request is refused', async () => {
 		const user = userEvent.setup();
 
 		setup(
 			[photo('p1', true)],
 			undefined,
 			null,
-			new Response(JSON.stringify({ error: 'the selection is too large' }), { status: 413 })
+			new Response(JSON.stringify({ code: 'selection_too_large' }), { status: 413 })
 		);
 		await screen.findByAltText('p1.jpg');
 		await user.click(screen.getByRole('button', { name: 'Download all' }));

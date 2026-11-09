@@ -16,6 +16,7 @@
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { getLiveEvents } from '#lib/events.js';
+	import { apiErrorMessage } from '#lib/i18n/errors.js';
 	import { listPhotos, previewUrl, thumbnailUrl, type Photo } from '#lib/gallery/photos.js';
 	import { SelectMode } from '#lib/gallery/select-mode.svelte.js';
 	import type { Proof } from '#lib/gallery/types.js';
@@ -129,7 +130,7 @@
 	}
 
 	const exportFailure = $derived(
-		currentExport?.status.kind === 'failed' ? currentExport.status.reason : null
+		currentExport?.status.kind === 'failed' ? apiErrorMessage(409, currentExport.status.code) : null
 	);
 	const zipPreparing = $derived(currentExport?.status.kind === 'preparing');
 

@@ -83,7 +83,7 @@ it('refetches a replaced logo and reports a refusal with its setting', async () 
 
 	const refused = new SettingsApi(
 		vi.fn().mockResolvedValue(
-			new Response(JSON.stringify({ error: 'invalid settings', context: ['logo'] }), {
+			new Response(JSON.stringify({ code: 'logo_required' }), {
 				status: 422
 			})
 		)
@@ -91,7 +91,7 @@ it('refetches a replaced logo and reports a refusal with its setting', async () 
 
 	await expect(refused.save(DEFAULT_SETTINGS, DEFAULT_SETTINGS)).rejects.toMatchObject({
 		status: 422,
-		field: 'logo'
+		code: 'logo_required'
 	});
 	await expect(refused.save(DEFAULT_SETTINGS, DEFAULT_SETTINGS)).rejects.toBeInstanceOf(
 		SettingsApiError
