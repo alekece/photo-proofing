@@ -105,8 +105,8 @@ pub struct Photo {
     #[serde(flatten)]
     pub dimensions: PhotoDimensions,
     pub status: PhotoStatus,
-    /// Whether the client has picked it.
-    pub favorite: bool,
+    /// When the client picked it as a favorite; empty when it is not one.
+    pub favorited_at: Option<Timestamp>,
     /// When the client first downloaded a final; always empty for proofs.
     pub downloaded_at: Option<Timestamp>,
     pub created_at: Timestamp,
@@ -162,7 +162,7 @@ impl FromRow<'_, PgRow> for Photo {
             size,
             dimensions,
             status,
-            favorite: row.try_get("favorite")?,
+            favorited_at: row.try_get("favorited_at")?,
             downloaded_at: row.try_get("downloaded_at")?,
             created_at: row.try_get("created_at")?,
         })
@@ -264,7 +264,7 @@ impl<'db> Repository<'db> for PhotoRepository<'db> {
 }
 
 impl PhotoRepository<'_> {
-    const COLUMNS: &'static str = "id, clean_ready, revision, original_name, size, width, height, status::text AS status, failure_reason, favorite, downloaded_at, created_at";
+    const COLUMNS: &'static str = "id, clean_ready, revision, original_name, size, width, height, status::text AS status, failure_reason, favorited_at, downloaded_at, created_at";
 
     /// Inserts only photo metadata in the caller's transaction.
     ///
@@ -295,7 +295,7 @@ impl PhotoRepository<'_> {
              WHERE g.id = $3 AND g.workspace_id = $2
              ON CONFLICT (id) DO NOTHING
              RETURNING id, clean_ready, revision, original_name, size, width, height,
-                       status::text AS status, failure_reason, favorite, downloaded_at, created_at",
+                       status::text AS status, failure_reason, favorited_at, downloaded_at, created_at",
         )
         .bind(photo.id)
         .bind(photo.workspace_id)
@@ -314,7 +314,7 @@ impl PhotoRepository<'_> {
 
         let existing = sqlx::query(
             "SELECT id, clean_ready, revision, workspace_id, gallery_id, original_name, size, width, height, kind,
-                    status::text AS status, failure_reason, favorite, downloaded_at, created_at
+                    status::text AS status, failure_reason, favorited_at, downloaded_at, created_at
              FROM photos WHERE id = $1",
         )
         .bind(photo.id)
@@ -476,9 +476,9 @@ impl PhotoRepository<'_> {
                  FOR SHARE OF g
              ),
              changed AS (
-                 UPDATE photos SET favorite = $4
+                 UPDATE photos SET favorited_at = CASE WHEN $4 THEN now() END
                  WHERE id IN (SELECT id FROM target WHERE NOT delivered)
-                   AND favorite IS DISTINCT FROM $4
+                   AND (favorited_at IS NOT NULL) IS DISTINCT FROM $4
              )
              SELECT delivered FROM target",
             variant.ready_condition()
@@ -506,7 +506,7 @@ impl PhotoRepository<'_> {
     ) -> Result<Vec<PhotoId>, DatabaseError> {
         Ok(sqlx::query_scalar(
             "SELECT id FROM photos
-             WHERE workspace_id = $1 AND gallery_id = $2 AND favorite AND kind = $3
+             WHERE workspace_id = $1 AND gallery_id = $2 AND favorited_at IS NOT NULL AND kind = $3
              ORDER BY created_at, id",
         )
         .bind(location.workspace_id)
@@ -719,7 +719,7 @@ mod tests {
             let row = sqlx::query(
                 "SELECT $1::uuid AS id, false AS clean_ready, 0::bigint AS revision, 'proof.jpg'::text AS original_name,
                  1024::bigint AS size, 20::integer AS width, 10::integer AS height,
-                 $2::text AS status, $3::text AS failure_reason, false AS favorite, NULL::timestamptz AS downloaded_at, now() AS created_at",
+                 $2::text AS status, $3::text AS failure_reason, NULL::timestamptz AS favorited_at, NULL::timestamptz AS downloaded_at, now() AS created_at",
             )
             .bind(Uuid::new_v4())
             .bind(status)
@@ -994,6 +994,143 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
+    async fn a_favorite_keeps_the_date_it_was_picked_until_it_is_cleared(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let id = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        assert!(favorited_at(&pool, id).await.is_none());
+
+        photos
+            .set_favorite(location, id, true, PhotoKind::Proof, Watermarked(false))
+            .await
+            .unwrap();
+
+        let picked = favorited_at(&pool, id).await;
+
+        assert!(picked.is_some());
+
+        photos
+            .set_favorite(location, id, true, PhotoKind::Proof, Watermarked(false))
+            .await
+            .unwrap();
+
+        assert_eq!(favorited_at(&pool, id).await, picked);
+
+        photos
+            .set_favorite(location, id, false, PhotoKind::Proof, Watermarked(false))
+            .await
+            .unwrap();
+
+        assert!(favorited_at(&pool, id).await.is_none());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn migration_converts_favorites_to_dates_without_announcing_them(pool: PgPool) {
+        let mut transaction = pool.begin().await.unwrap();
+        let schema = format!("favorite_dates_migration_{}", Uuid::new_v4().simple());
+
+        sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(AssertSqlSafe(format!("SET LOCAL search_path TO {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        for migration in [
+            include_str!("../migrations/0001_accounts_sessions.sql"),
+            include_str!("../migrations/0002_galleries.sql"),
+            include_str!("../migrations/0003_share_tokens.sql"),
+            include_str!("../migrations/0004_jobs.sql"),
+            include_str!("../migrations/0005_job_payload_enum.sql"),
+            include_str!("../migrations/0006_photos.sql"),
+            include_str!("../migrations/0007_photo_events.sql"),
+            include_str!("../migrations/0008_gallery_states.sql"),
+            include_str!("../migrations/0009_gallery_hero.sql"),
+            include_str!("../migrations/0010_photo_favorites.sql"),
+            include_str!("../migrations/0011_job_runs.sql"),
+            include_str!("../migrations/0012_gallery_last_opened.sql"),
+            include_str!("../migrations/0013_finals_draft.sql"),
+            include_str!("../migrations/0014_exports.sql"),
+            include_str!("../migrations/0015_workspace_watermark.sql"),
+            include_str!("../migrations/0016_photo_render_revision.sql"),
+            include_str!("../migrations/0017_proof_variants.sql"),
+            include_str!("../migrations/0018_drop_job_runs.sql"),
+            include_str!("../migrations/0019_deliver_step.sql"),
+            include_str!("../migrations/0020_client_downloads.sql"),
+            include_str!("../migrations/0021_notifications.sql"),
+            include_str!("../migrations/0022_workspace_language.sql"),
+            include_str!("../migrations/0023_export_failure_codes.sql"),
+        ] {
+            sqlx::raw_sql(migration)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        let workspace = Uuid::new_v4();
+        let gallery = Uuid::new_v4();
+        let favorite = Uuid::new_v4();
+        let other = Uuid::new_v4();
+
+        sqlx::query("INSERT INTO workspaces(id) VALUES ($1)")
+            .bind(workspace)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO galleries(id, workspace_id) VALUES ($1, $2)")
+            .bind(gallery)
+            .bind(workspace)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height,
+                                 status, favorite, created_at)
+             VALUES ($1, $3, $4, 'a.jpg', 1, 1, 1, 'ready', true, '2026-10-31 10:00:00+00'),
+                    ($2, $3, $4, 'b.jpg', 1, 1, 1, 'ready', false, '2026-10-31 11:00:00+00')",
+        )
+        .bind(favorite)
+        .bind(other)
+        .bind(workspace)
+        .bind(gallery)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+
+        let notifications_before: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications")
+            .fetch_one(&mut *transaction)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(include_str!("../migrations/0024_photo_favorite_dates.sql"))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let dates: Vec<(Uuid, Option<Timestamp>, Timestamp)> =
+            sqlx::query_as("SELECT id, favorited_at, created_at FROM photos ORDER BY created_at")
+                .fetch_all(&mut *transaction)
+                .await
+                .unwrap();
+        let notifications_after: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications")
+            .fetch_one(&mut *transaction)
+            .await
+            .unwrap();
+
+        assert_eq!(dates[0].0, favorite);
+        assert_eq!(dates[0].1, Some(dates[0].2));
+        assert_eq!(dates[1].0, other);
+        assert!(dates[1].1.is_none());
+        assert_eq!(notifications_after, notifications_before);
+
+        transaction.rollback().await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
     async fn favorites_reject_unready_foreign_and_unknown_photos(pool: PgPool) {
         let database = Database::new(pool.clone());
         let location = gallery_location(&database, &pool).await;
@@ -1176,7 +1313,7 @@ mod tests {
         assert_eq!(
             listed
                 .iter()
-                .map(|photo| (photo.id, photo.favorite))
+                .map(|photo| (photo.id, photo.favorited_at.is_some()))
                 .collect::<Vec<_>>(),
             [(chosen, true), (spare, false)]
         );
@@ -2052,6 +2189,14 @@ mod tests {
         }
 
         assert_eq!(announced, 1);
+    }
+
+    async fn favorited_at(pool: &PgPool, id: PhotoId) -> Option<Timestamp> {
+        sqlx::query_scalar("SELECT favorited_at FROM photos WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
     }
 
     async fn downloaded_at(pool: &PgPool, id: PhotoId) -> Option<Timestamp> {

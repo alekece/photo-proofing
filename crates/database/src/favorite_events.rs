@@ -100,12 +100,14 @@ mod tests {
         }
 
         async fn set_favorite(&self, pool: &PgPool, favorite: bool) {
-            sqlx::query("UPDATE photos SET favorite = $2 WHERE id = $1")
-                .bind(self.photo_id)
-                .bind(favorite)
-                .execute(pool)
-                .await
-                .unwrap();
+            sqlx::query(
+                "UPDATE photos SET favorited_at = CASE WHEN $2 THEN now() END WHERE id = $1",
+            )
+            .bind(self.photo_id)
+            .bind(favorite)
+            .execute(pool)
+            .await
+            .unwrap();
         }
     }
 

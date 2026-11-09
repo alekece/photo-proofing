@@ -263,7 +263,7 @@ impl ExportRepository<'_> {
 
         let favorites: Vec<(PhotoId, String, i64)> = sqlx::query_as(
             "SELECT id, original_name, size FROM photos
-             WHERE workspace_id = $1 AND gallery_id = $2 AND favorite AND kind = 'proof'
+             WHERE workspace_id = $1 AND gallery_id = $2 AND favorited_at IS NOT NULL AND kind = 'proof'
                AND ($3::uuid[] IS NULL OR id = ANY($3))
              ORDER BY created_at, id",
         )
@@ -841,8 +841,8 @@ mod tests {
 
             sqlx::query(
                 "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width,
-                                     height, status, favorite)
-                 VALUES ($1, $2, $3, $4, $5, 2, 2, 'ready', $6)",
+                                     height, status, favorited_at)
+                 VALUES ($1, $2, $3, $4, $5, 2, 2, 'ready', CASE WHEN $6 THEN now() END)",
             )
             .bind(id)
             .bind(self.workspace_id)
@@ -919,7 +919,7 @@ mod tests {
         let kept = fixture.photo("a.jpg", 10, true).await;
         let export = fixture.created().await;
 
-        sqlx::query("UPDATE photos SET favorite = false")
+        sqlx::query("UPDATE photos SET favorited_at = NULL")
             .execute(&pool)
             .await
             .unwrap();
@@ -1076,7 +1076,7 @@ mod tests {
         let second = fixture.photo("b.jpg", 10, true).await;
 
         fixture.ready().await;
-        sqlx::query("UPDATE photos SET favorite = false WHERE id = $1")
+        sqlx::query("UPDATE photos SET favorited_at = NULL WHERE id = $1")
             .bind(second)
             .execute(&pool)
             .await

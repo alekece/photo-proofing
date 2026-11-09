@@ -401,7 +401,7 @@ impl GalleryRepository<'_> {
              FROM galleries
              CROSS JOIN LATERAL (
                  SELECT count(*) FILTER (WHERE kind = 'proof') AS photo_count,
-                        count(*) FILTER (WHERE kind = 'proof' AND favorite) AS favorite_count,
+                        count(*) FILTER (WHERE kind = 'proof' AND favorited_at IS NOT NULL) AS favorite_count,
                         count(*) FILTER (WHERE kind = 'final') AS final_count,
                         count(*) FILTER (WHERE kind = 'final' AND downloaded_at IS NOT NULL)
                             AS downloaded_count

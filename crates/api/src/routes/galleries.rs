@@ -376,7 +376,7 @@ mod tests {
         photo_in(&app, &pool, &cookie, &first, Progress::Ready).await;
         photo_in(&app, &pool, &cookie, &first, Progress::Processing).await;
 
-        sqlx::query("UPDATE photos SET favorite = true WHERE id = $1::uuid")
+        sqlx::query("UPDATE photos SET favorited_at = now() WHERE id = $1::uuid")
             .bind(&chosen)
             .execute(&pool)
             .await

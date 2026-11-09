@@ -120,8 +120,8 @@ mod tests {
 
         sqlx::query(
             "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height,
-                                 status, favorite)
-             SELECT gen_random_uuid(), workspace_id, id, 'a.jpg', 1, 1, 1, 'ready', false
+                                 status, favorited_at)
+             SELECT gen_random_uuid(), workspace_id, id, 'a.jpg', 1, 1, 1, 'ready', NULL
              FROM galleries",
         )
         .execute(&pool)
