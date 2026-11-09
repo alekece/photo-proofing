@@ -121,11 +121,11 @@ download mark shows which photos the client has downloaded.
 
 ### Select mode
 
-Select mode reuses the toolbar's own buttons: **Select** becomes **Select all** and, on Photos and
-Final, **Upload** becomes **Delete** (disabled at 0); on Favorites, **Download** keeps its
-selection-aware label. The only addition is a left group with "3 selected" and **Unselect all**, which
-reads **Cancel** at 0 selected and then leaves select mode. Escape also leaves it; the buttons return
-to normal. Tiles show a check; clicking toggles.
+Select mode replaces the toolbar with one sticky, accent-tinted bar: an icon-only **✕** (Exit
+selection) on the left, "3 selected", a tri-state **Select all** checkbox (clicking it when all are
+selected unselects all) and, on the right, **Delete** on Photos and Final or **Download** on
+Favorites (both disabled at 0; Upload is hidden). On small screens it collapses to `[✕] 3 selected`
+with icon-only actions. **✕** and Escape leave select mode. Tiles show a check; clicking toggles.
 Select all only picks the current tab.
 
 All three tabs use the same striped empty-state background. Confirming a photo deletion shows
@@ -143,8 +143,8 @@ Deliver counts and warns about finals only; proofs do not contribute to that dia
 
 | Dialog | Normal | Something missing |
 |---|---|---|
-| Share | "Share 48 photos?" "This creates a private link. Anyone with it can see the proofs and pick favorites until 12 Sep." **Not yet** / **Share** | "Share with no photos?" warning "Clients see an empty gallery until you upload." **Share anyway** |
-| Deliver | "Deliver 20 photos?" "Camille & Hugo see them at the same link and can download them. Favorites are locked from now on." **Not yet** / **Deliver** | "Deliver with no photos?" **Deliver anyway** |
+| Share | "Share 48 photos?" "This creates a private link. Anyone with it can see the proofs and pick favorites until 12 Sep." **Cancel** / **Share** | "Share with no photos?" warning "Clients see an empty gallery until you upload." **Share anyway** |
+| Deliver | "Deliver 20 photos?" "Camille & Hugo see them at the same link and can download them. Favorites are locked from now on." **Cancel** / **Deliver** | "Deliver with no photos?" **Deliver anyway** |
 | Delete photos | Stack of the photos, count; mentions client favorites only if one is a favorite | — |
 
 Photos still uploading or failed are mentioned as a warning line ("2 are still uploading and 1

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import type { Snippet } from 'svelte';
-	import { LoaderCircle } from '@lucide/svelte';
+	import { LoaderCircle, X } from '@lucide/svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 
@@ -29,7 +29,7 @@
 	let {
 		title,
 		confirmLabel,
-		cancelLabel = m.dialog_not_yet(),
+		cancelLabel = m.common_cancel(),
 		destructive = false,
 		busy = false,
 		onconfirm,
@@ -72,13 +72,20 @@
 >
 	{#snippet children(close)}
 		<div
-			class="grid gap-4 {visual && !(done && result)
+			class="relative grid gap-4 {visual && !(done && result)
 				? 'sm:grid-cols-[6rem_1fr] sm:gap-x-[1.125rem]'
 				: ''}"
 			aria-busy={pending}
 		>
 			{@render visual?.(done)}
 			{#if done && result}
+				<Button
+					variant="ghost"
+					size="sm"
+					class="absolute -top-3 -right-3 min-h-9! px-2.5!"
+					aria-label={m.action_close()}
+					onclick={close}><X size={18} aria-hidden="true" /></Button
+				>
 				<h2 id="{id}-title" class="text-center text-xl">{result.title}</h2>
 				{@render result.body(close)}
 			{:else}

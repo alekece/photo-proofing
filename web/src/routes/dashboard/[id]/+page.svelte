@@ -101,8 +101,6 @@
 				saved = { ...saved, states: result.states };
 			}
 
-			toasts.saved();
-
 			return true;
 		} catch (error) {
 			if (error instanceof GalleryApiError && error.status === 401) {

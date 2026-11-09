@@ -145,6 +145,6 @@
 	</p>
 	{#if link}<CopyLink {link} />{/if}
 	<div class="flex justify-center">
-		<Button variant="ghost" onclick={close}>{m.action_done()}</Button>
+		<Button onclick={close}>{m.action_done()}</Button>
 	</div>
 {/snippet}
