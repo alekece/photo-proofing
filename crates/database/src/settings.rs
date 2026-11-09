@@ -184,7 +184,8 @@ impl From<GridCell> for u8 {
 pub struct SizeStep(u8);
 
 impl SizeStep {
-    pub const LARGEST: Self = Self(9);
+    pub const MIN: Self = Self(0);
+    pub const MAX: Self = Self(9);
 
     /// The step, 0 to 9.
     pub const fn get(self) -> u8 {
@@ -203,7 +204,7 @@ impl TryFrom<u8> for SizeStep {
     type Error = SettingsError;
 
     fn try_from(step: u8) -> Result<Self, Self::Error> {
-        if step > Self::LARGEST.0 {
+        if step > Self::MAX.0 {
             return Err(SettingsError::SizeStep(step));
         }
 
