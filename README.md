@@ -101,7 +101,7 @@ Staging is moving from the Ansible playbook below to [Dockhand](https://dockhand
 cutover is accepted, the playbook remains the working deployment; do not run both.
 
 After CI succeeds on `main`, CD also points the `:staging` image tags at that commit.
-Dockhand tracks [deploy/dockhand/compose.yml](deploy/dockhand/compose.yml) on `main` as
+Dockhand tracks [deploy/compose.yml](deploy/compose.yml) on `main` as
 the Git stack `pp-staging` and auto-updates the application containers when a `:staging`
 tag moves. Failed updates stay failed and unhealthy; nothing rolls back automatically.
 
