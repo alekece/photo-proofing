@@ -72,12 +72,16 @@ impl ExportEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportFailure {
-    /// The worker gave up after its last attempt.
-    AttemptsExhausted,
     /// A photo of the selection was deleted before its file was added.
+    #[serde(alias = "A selected photo was removed. Try again.")]
     PhotoRemoved,
     /// The server had no disk space left for the file.
+    #[serde(alias = "The server is out of disk space.")]
     DiskFull,
+    /// The worker gave up after its last attempt. Also what any unrecognized stored text reads
+    /// as, so a row written by an older worker never makes an export unreadable.
+    #[serde(other)]
+    AttemptsExhausted,
 }
 
 /// Where an export stands. Stored and serialized as `{"kind": ..}`, with the `reason` next to
@@ -1214,6 +1218,24 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn a_row_written_by_an_older_worker_still_reads() {
+        for (reason, failure) in [
+            ("The server is out of disk space.", ExportFailure::DiskFull),
+            (
+                "A selected photo was removed. Try again.",
+                ExportFailure::PhotoRemoved,
+            ),
+            ("anything else", ExportFailure::AttemptsExhausted),
+            ("disk_full", ExportFailure::DiskFull),
+        ] {
+            let status: ExportStatus =
+                serde_json::from_value(json!({"kind": "failed", "reason": reason})).unwrap();
+
+            assert_eq!(status, ExportStatus::Failed(failure), "{reason}");
+        }
     }
 
     #[sqlx::test(migrations = "./migrations")]
