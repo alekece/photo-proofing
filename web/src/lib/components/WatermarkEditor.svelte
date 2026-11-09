@@ -7,19 +7,22 @@
 		type WorkspaceSettings
 	} from '#lib/settings/settings.js';
 
-	let {
-		settings = $bindable(),
-		samples = []
-	}: {
-		settings: WorkspaceSettings;
-		/** Proof preview URLs shown under the toolbar; empty falls back to plain tiles. */
-		samples?: string[];
-	} = $props();
+	let { settings = $bindable() }: { settings: WorkspaceSettings } = $props();
 
-	// Relative width of each sample tile, two rows of three like a contact sheet.
+	// Two rows of three static sample tiles like a contact sheet: relative width and a light or
+	// dark gradient, so the mark is judged on both. No photo is loaded, so every workspace sees
+	// the same preview.
 	const SHEET = [
-		[1.5, 0.67, 1.5],
-		[0.67, 1.5, 0.75]
+		[
+			{ ratio: 1.5, fill: 'from-[#f1e3cf] to-[#b8c6cc]' },
+			{ ratio: 0.67, fill: 'from-[#3b4a52] to-[#1c2327]' },
+			{ ratio: 1.5, fill: 'from-[#c9d9c4] to-[#7d9a80]' }
+		],
+		[
+			{ ratio: 0.67, fill: 'from-[#1f2830] to-[#4d3b46]' },
+			{ ratio: 1.5, fill: 'from-[#f4d8c0] to-[#d79a86]' },
+			{ ratio: 0.75, fill: 'from-[#e9edf0] to-[#9aa7b4]' }
+		]
 	];
 	// Watermark text size, as a share of the tile width, per size step.
 	const SCALES = [1.4, 1.9, 2.5, 3.2, 4];
@@ -180,15 +183,11 @@
 <div class="mb-14 flex flex-col gap-2" role="img" aria-label={m.watermark_preview()}>
 	{#each SHEET as row, r (r)}
 		<div class="flex h-[clamp(6.875rem,22vw,15.625rem)] gap-2">
-			{#each row as ratio, c (c)}
-				{@const sample = samples.length ? samples[(r * 3 + c) % samples.length] : null}
+			{#each row as { ratio, fill }, c (c)}
 				<div
-					class="[container-type:inline-size] relative h-full overflow-hidden rounded bg-[#222] {sample
-						? ''
-						: 'bg-placeholder-tile'}"
+					class="[container-type:inline-size] relative h-full overflow-hidden rounded bg-linear-to-br {fill}"
 					style="flex:{ratio}"
 				>
-					{#if sample}<img src={sample} alt="" class="block size-full object-cover" />{/if}
 					{#if repeat}
 						<div
 							class="absolute -inset-[40%] grid -rotate-[24deg] grid-cols-[repeat(4,max-content)] content-center justify-center gap-x-[4em] gap-y-[3.2em] opacity-[0.42]"
