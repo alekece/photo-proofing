@@ -1146,7 +1146,7 @@ mod tests {
         .execute(&mut *transaction)
         .await
         .unwrap();
-        sqlx::raw_sql(include_str!("../migrations/0026_ten_size_steps.sql"))
+        sqlx::raw_sql(include_str!("../migrations/0027_ten_size_steps.sql"))
             .execute(&mut *transaction)
             .await
             .unwrap();
