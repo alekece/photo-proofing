@@ -22,31 +22,31 @@ The API already records when a client last opened the shared gallery, but the ph
 ## Constraints
 
 - Agreed with the maintainer: both a label and a notification; every open counts, with the existing one-minute throttle; reuse the notification model as a new kind.
-- The unread row is unique per gallery, and a kind change restarts it (`record_notification`). A frequent, low-value open must not wipe a more useful unread "selection" or "download" row.
+- The unread row is unique per gallery, and a kind change restarts it (`record_notification`); `opened` follows the same rule as `selection` and `download`.
 - Every user-visible string is a Paraglide message in `web/messages/en.json` and `fr.json`.
 - `docs/SPECIFICATIONS.md` does not mention opens, so it needs a requirements change (see Decisions), which needs maintainer approval.
 
 ## Approaches
 
-1. **Count opens on the unread row (chosen).** Same trigger-and-upsert machinery as downloads: each recorded open adds 1 to an unread `opened` row, so the text can say "opened 3 times". Costs: one more kind to handle in SQL, Rust and the front.
+1. **Count opens on the unread row (chosen).** Same trigger-and-upsert machinery as downloads: each recorded open adds 1 to an unread `opened` row, so the text can say "opened 3 times". Costs: one more kind to handle in SQL, Rust and the front. Opens follow the existing rules unchanged, so an open on an unread row of another kind switches it to `opened` and restarts the count, as a download already does.
 2. **One row, no count (rejected).** A flat "Opened the gallery" that only bumps `updated_at`. Simplest text, but ignores the model's habit of counting repeats and hides whether the client came back.
 3. **Compare `last_opened_at` with a read marker, no notification row (rejected).** No table change, but the bell, card badge and "N galleries have news" would need a second source, and #72 already rejected derived read state for races.
 
 ## Decisions
 
-- **Kind.** A new `opened` notification kind. Migration `0025_notification_opened.sql` (builder takes the next free number): drop and re-add `notifications_kind_known` with `'opened'`, add the `opened` variant to the Rust `NotificationKind` and the front `picklist`.
+- **Kind.** A new, independent `opened` notification kind. Migration `0025_notification_opened.sql` (builder takes the next free number): drop and re-add `notifications_kind_known` with `'opened'`, add the `opened` variant to the Rust `NotificationKind` and the front `picklist`.
 - **Writing.** A trigger `AFTER UPDATE OF last_opened_at ON galleries WHEN (NEW.last_opened_at IS DISTINCT FROM OLD.last_opened_at)` calls `record_notification(workspace_id, id, 'opened', 1)`. Because `record_opened` only updates past the throttle, every recorded open (including the first) adds 1 and reloads inside a minute add nothing. Any future writer is covered too.
-- **Coalescing, *my call*.** `record_notification` is replaced (`CREATE OR REPLACE`) so an `opened` row never replaces another unread kind: the upsert gets `WHERE notifications.kind = EXCLUDED.kind OR EXCLUDED.kind <> 'opened'`, so an open arriving on an unread selection or download row changes nothing and announces nothing. Selection or download activity arriving on an unread `opened` row switches it to that kind and restarts the count, as it does today. The bell therefore always shows the most informative activity, and a client who selects photos is never reported as merely "opened".
+- **Coalescing.** `opened` is an independent kind. It coalesces only with its own unread row (count + 1), exactly like `selection` and `download`; `record_notification` does not change, so an open always shows in the bell.
 - **Texts.** Bell row: `The client opened the gallery` / `The client opened the gallery 3 times` (count > 1), French `Le client a ouvert la galerie` / `… 3 fois`. Card badge: `Opened` / `Ouverte`. Time ago comes from `updated_at` as usual.
 - **Hero label.** In `GalleryHeader`, append to the existing meta line, only for a shared gallery (an unshared gallery has no client to open it, so "Not opened yet" would mislead): `Last opened {date}` / `Not opened yet`, French `Dernière ouverture {date}` / `Pas encore ouverte`. The date uses `formatDateTime` (present since #296, localized, browser time zone). It must wrap cleanly on a phone.
 - **Card.** Only the badge from the notification (no date, no extra line). It follows from the existing unread-notification badge, so a new message and one `notificationBadge` / `notificationText` branch is all it needs.
 - **API and schema.** The gallery JSON already carries `last_opened_at` (Rust `Gallery`, covered by the shared-route test). The front `gallerySchema` does not parse it yet: add `last_opened_at: v.nullable(v.string())`, optional like other late-added fields, and update fixtures. The notifications endpoint needs no new field; `kind` gains a value.
-- **Docs.** README no longer says the UI does not show it. With approval, add to the "Client activity indicators" FR: "The gallery page shows when the client last opened the shared gallery, or that it has not been opened yet." and to "Grouped notifications": "A client opening the gallery adds to the gallery's unread notification only when it has no unread selection or download activity." This is a requirements change that waits for the maintainer.
+- **Docs.** README no longer says the UI does not show it. With approval, add to the "Client activity indicators" FR: "The gallery page shows when the client last opened the shared gallery, or that it has not been opened yet." and to "Grouped notifications": "The top bar also reports when a client opens the gallery." This is a requirements change that waits for the maintainer.
 
 ## Testing
 
 - **Migration regression test** in `crates/database` using the transaction-scoped schema pattern (see `gallery.rs`, `jobs.rs`): up to the previous migration, insert an existing `selection` row, apply the new one, then assert `INSERT ... kind 'opened'` is accepted, an unknown kind is still rejected, and existing rows are intact.
-- **Notification tests** (extend `notifications.rs`): first open creates an unread `opened` row with count 1; a second open after the throttle makes it 2; an open inside the throttle changes nothing; an open on an unread selection or download row leaves kind, count and `updated_at` alone; selection after `opened` switches the kind; an open after a read starts a new row; archived or expired galleries create nothing.
+- **Notification tests** (extend `notifications.rs`): first open creates an unread `opened` row with count 1; a second open after the throttle makes it 2; an open inside the throttle changes nothing; an open on an unread selection row switches it to `opened` with count 1 and a selection on an unread `opened` row switches it back, like the other kinds; an open after a read starts a new row; archived or expired galleries create nothing.
 - **API test:** the notifications list returns kind `opened` after the open route.
 - **Front tests:** schemas parse the new kind and `last_opened_at`; `notificationText` and badge for count 1 and 3 in both languages; `GalleryHeader` shows `Last opened` once opened, `Not opened yet` when shared and unopened, and nothing when unshared.
 - Run the `crates/` checks and `pnpm --dir web verify`.
@@ -58,4 +58,3 @@ The migration number, trigger and function names, exact message keys, spacing an
 ## Open questions
 
 - May the PRD sentences above be added?
-- Is "no repeat counting when a selection or download is already unread" acceptable, or should an open always show?
