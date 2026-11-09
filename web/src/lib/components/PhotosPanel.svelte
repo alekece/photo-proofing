@@ -413,7 +413,14 @@
 
 	function onkeydown(event: KeyboardEvent) {
 		// The confirmation dialog owns the keyboard; its Escape closes only the dialog.
-		if (!selecting || confirmingSelection || event.defaultPrevented || typing(event.target)) {
+		if (
+			!selecting ||
+			confirming ||
+			confirmingSelection ||
+			viewing ||
+			event.defaultPrevented ||
+			typing(event.target)
+		) {
 			return;
 		}
 
@@ -497,43 +504,36 @@
 	ondragleave={() => (dragging = false)}
 	{ondrop}
 >
-	<div class="flex flex-wrap items-center justify-end gap-2">
+	<div
+		class={[
+			'flex flex-wrap items-center justify-end gap-2',
+			selecting && !updatingWatermarks && 'hidden'
+		]}
+	>
 		{#if updatingWatermarks}
 			<p class="mr-auto flex items-center gap-2 text-sm text-muted-foreground">
 				<LoaderCircle size={16} class="animate-spin-slow" aria-hidden="true" />
 				{m.photos_updating_watermarks()}
 			</p>
 		{/if}
-		{#if selecting}
-			<SelectActions
-				count={selection.length}
-				onunselectall={() => selected.clear()}
-				onleave={() => void finishSelecting()}
-			/>
+		{#if !selecting}
+			<Button
+				bind:ref={selectButton}
+				variant="outline"
+				size="sm"
+				class="min-h-9! gap-1.5"
+				disabled={photos.length === 0}
+				onclick={() => (selecting = true)}
+				><CircleCheck size={16} aria-hidden="true" />{m.action_select()}</Button
+			>
+			<Button
+				bind:ref={uploadButton}
+				size="sm"
+				class="min-h-9! gap-1.5"
+				onclick={() => picker?.click()}
+				><Upload size={16} aria-hidden="true" />{m.action_upload()}</Button
+			>
 		{/if}
-		<Button
-			bind:ref={selectButton}
-			variant="outline"
-			size="sm"
-			class="min-h-9! gap-1.5"
-			disabled={!selecting && photos.length === 0}
-			onclick={() => (selecting ? selectAll() : (selecting = true))}
-			><CircleCheck size={16} aria-hidden="true" />{selecting
-				? m.action_select_all()
-				: m.action_select()}</Button
-		>
-		<Button
-			bind:ref={uploadButton}
-			variant={selecting ? 'destructive' : 'default'}
-			size="sm"
-			class="min-h-9! gap-1.5"
-			disabled={selecting && selection.length === 0}
-			onclick={() => (selecting ? (confirmingSelection = true) : picker?.click())}
-			>{#if selecting}<Trash2 size={16} aria-hidden="true" />{m.action_delete()}{:else}<Upload
-					size={16}
-					aria-hidden="true"
-				/>{m.action_upload()}{/if}</Button
-		>
 		<input
 			bind:this={picker}
 			type="file"
@@ -544,6 +544,29 @@
 			onchange={onpick}
 		/>
 	</div>
+
+	{#if selecting}
+		<SelectActions
+			count={selection.length}
+			total={photos.length}
+			onselectall={selectAll}
+			onunselectall={() => selected.clear()}
+			onexit={() => void finishSelecting()}
+		>
+			{#snippet actions()}
+				<Button
+					variant="destructive"
+					size="sm"
+					class="min-h-9! gap-1.5"
+					disabled={selection.length === 0}
+					onclick={() => (confirmingSelection = true)}
+					><Trash2 size={16} aria-hidden="true" /><span class="max-sm:sr-only"
+						>{m.action_delete()}</span
+					></Button
+				>
+			{/snippet}
+		</SelectActions>
+	{/if}
 
 	{#if alert}
 		<p role="alert" class="text-sm text-danger">{alert}</p>
@@ -612,7 +635,6 @@
 		<EmptyState>
 			<ImagePlus size={32} aria-hidden="true" />
 			<h3>{finals ? m.photos_drop_finals() : m.photos_drop()}</h3>
-			<Button size="sm" onclick={() => picker?.click()}>{m.action_upload()}</Button>
 		</EmptyState>
 	{/if}
 </section>

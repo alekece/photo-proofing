@@ -211,52 +211,56 @@
 	}
 
 	function onkeydown(event: KeyboardEvent) {
-		if (mode.active && event.key === 'Escape' && !event.defaultPrevented) mode.leave();
+		if (mode.active && !viewing && event.key === 'Escape' && !event.defaultPrevented) mode.leave();
 	}
 </script>
 
 <svelte:window {onkeydown} />
 
-<div class="flex flex-wrap items-center justify-end gap-2">
-	{#if mode.active}
-		<SelectActions
-			count={mode.count}
-			onunselectall={() => mode.unselectAll()}
-			onleave={() => mode.leave()}
-		/>
-	{/if}
+{#snippet downloadButton()}
 	<Button
-		variant="outline"
 		size="sm"
 		class="min-h-9! gap-1.5"
-		disabled={!mode.active && favorites.length === 0}
-		onclick={() => (mode.active ? mode.selectAll(favorites.map(({ id }) => id)) : mode.enter())}
-		><CircleCheck size={16} aria-hidden="true" />{mode.active
-			? m.action_select_all()
-			: m.action_select()}</Button
+		disabled={zipPreparing || zipRequesting || (mode.active && mode.count === 0)}
+		aria-busy={zipPreparing || zipRequesting}
+		onclick={() =>
+			void requestZip(
+				mode.count > 0 ? favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id) : undefined
+			)}
 	>
-	{#if favorites.length > 0}
-		<Button
-			size="sm"
-			class="min-h-9! gap-1.5"
-			disabled={zipPreparing || zipRequesting}
-			aria-busy={zipPreparing || zipRequesting}
-			onclick={() =>
-				void requestZip(
-					mode.count > 0
-						? favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id)
-						: undefined
-				)}
-		>
-			<Download size={16} aria-hidden="true" />
+		<Download size={16} aria-hidden="true" />
+		<span class={[mode.active && 'max-sm:sr-only']}>
 			{zipPreparing || zipRequesting
 				? m.favorites_downloading()
 				: mode.count > 0
 					? m.favorites_download_count({ count: mode.count })
 					: m.favorites_download_all()}
-		</Button>
-	{/if}
-</div>
+		</span>
+	</Button>
+{/snippet}
+
+{#if !mode.active}
+	<div class="flex flex-wrap items-center justify-end gap-2">
+		<Button
+			variant="outline"
+			size="sm"
+			class="min-h-9! gap-1.5"
+			disabled={favorites.length === 0}
+			onclick={() => mode.enter()}
+			><CircleCheck size={16} aria-hidden="true" />{m.action_select()}</Button
+		>
+		{#if favorites.length > 0}{@render downloadButton()}{/if}
+	</div>
+{:else}
+	<SelectActions
+		count={mode.count}
+		total={favorites.length}
+		onselectall={() => mode.selectAll(favorites.map(({ id }) => id))}
+		onunselectall={() => mode.unselectAll()}
+		onexit={() => mode.leave()}
+		actions={downloadButton}
+	/>
+{/if}
 
 {#if zipError || exportFailure}
 	<p role="alert" class="text-right text-sm text-danger">
