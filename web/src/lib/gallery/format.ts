@@ -44,6 +44,15 @@ export function formatFullDate(iso: string, timeZone?: string): string {
 	);
 }
 
+/** "Nov 9, 2026, 2:38 PM" or "9 nov. 2026, 14:38", in `timeZone` or the browser's. */
+export function formatDateTime(iso: string, timeZone?: string): string {
+	return new Intl.DateTimeFormat(DATE_LOCALES[getLocale()], {
+		dateStyle: 'medium',
+		timeStyle: 'short',
+		timeZone
+	}).format(new Date(iso));
+}
+
 /** 23:59:59 of the chosen day in the browser's time zone, as an RFC 3339 instant. */
 export function endOfLocalDay(day: string): string {
 	const [year, month, date] = day.split('-').map(Number);

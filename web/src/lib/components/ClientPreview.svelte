@@ -53,7 +53,7 @@
 
 				proofs = toClientPreviewProofs(id, visible, watermarked);
 				settings = studio;
-				favorites = photos.filter(({ favorite }) => favorite).map(({ id }) => id);
+				favorites = photos.filter(({ favorited_at }) => favorited_at).map(({ id }) => id);
 			})
 			.catch(() => active && (failed = true))
 			.finally(() => active && (loaded = true));

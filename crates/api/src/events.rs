@@ -269,7 +269,7 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        sqlx::query("UPDATE photos SET favorite = true")
+        sqlx::query("UPDATE photos SET favorited_at = now()")
             .execute(&pool)
             .await
             .unwrap();

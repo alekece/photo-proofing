@@ -132,10 +132,27 @@ describe('PhotoTile states', () => {
 		expect(ondownload).toHaveBeenCalledOnce();
 	});
 
-	it('marks a photo the client has downloaded', () => {
-		render(PhotoTile, { ...base, downloaded: true });
+	it('dates a photo the client has downloaded or favorited', async () => {
+		const view = render(PhotoTile, {
+			...base,
+			caption: { kind: 'downloaded', at: '2026-11-09T12:00:00Z' }
+		});
 
-		expect(screen.getByRole('img', { name: 'Downloaded by the client' })).toBeTruthy();
+		expect(screen.getByText(/^Downloaded Nov 9, 2026/)).toBeTruthy();
+
+		await view.rerender({ ...base, caption: { kind: 'favorited', at: '2026-11-09T12:00:00Z' } });
+
+		expect(screen.getByText(/^Favorited Nov 9, 2026/)).toBeTruthy();
+	});
+
+	it('shows no date until the photo is ready', () => {
+		render(PhotoTile, {
+			...base,
+			state: 'processing',
+			caption: { kind: 'favorited', at: '2026-11-09T12:00:00Z' }
+		});
+
+		expect(screen.queryByText(/Favorited/)).toBeNull();
 	});
 });
 

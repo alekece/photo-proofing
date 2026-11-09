@@ -605,7 +605,9 @@
 							? thumbnailUrl(galleryId, photo.id, set, photo.revision)
 							: undefined}
 						selected={selected.has(photo.id)}
-						downloaded={finals && !!photo.downloaded_at}
+						caption={finals && photo.downloaded_at
+							? { kind: 'downloaded', at: photo.downloaded_at }
+							: undefined}
 						onremove={() => (confirming = photo)}
 						onretry={() => retry(photo)}
 						onopen={() => open(photo)}
@@ -656,7 +658,7 @@
 			<p class="text-sm text-muted-foreground">
 				{finals ? m.photos_delete_one_body_finals() : m.photos_delete_one_body()}
 			</p>
-			{#if !finals && photo.favorite}
+			{#if !finals && photo.favorited_at}
 				<p class="text-sm font-bold text-warning">
 					{m.photos_delete_one_favorite()}
 				</p>
@@ -668,7 +670,7 @@
 {#if confirmingSelection}
 	{@const confirmed = deletingSelection ?? selection}
 	{@const count = confirmed.length}
-	{@const favoriteCount = confirmed.filter(({ favorite }) => favorite).length}
+	{@const favoriteCount = confirmed.filter(({ favorited_at }) => favorited_at).length}
 	<ConfirmDialog
 		title={m.photos_delete_many({ count })}
 		confirmLabel={m.action_delete()}

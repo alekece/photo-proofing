@@ -19,7 +19,7 @@ const photo = (id: string, favorite: boolean): Photo => ({
 	width: 300,
 	height: 200,
 	status: 'ready',
-	favorite,
+	favorited_at: favorite ? '2026-11-05T14:38:00Z' : null,
 	created_at: '2026-11-04T10:00:00Z'
 });
 
@@ -119,6 +119,12 @@ describe('FavoritesPanel', () => {
 		expect(await screen.findByAltText('p1.jpg')).toBeTruthy();
 		expect(screen.getByAltText('p3.jpg')).toBeTruthy();
 		expect(screen.queryByAltText('p2.jpg')).toBeNull();
+	});
+
+	it('dates each favorite', async () => {
+		setup([{ ...photo('p1', true), favorited_at: '2026-11-09T12:00:00Z' }]);
+
+		expect(await screen.findByText(/^Favorited Nov 9, 2026/)).toBeTruthy();
 	});
 
 	it('shows the empty state without favorites', async () => {

@@ -40,7 +40,7 @@ describe('toOwnerProofs', () => {
 			height: 200,
 			status: status as Photo['status'],
 			clean_ready: true,
-			favorite: false,
+			favorited_at: null,
 			created_at: ''
 		}));
 
@@ -55,7 +55,7 @@ describe('toOwnerProofs', () => {
 			width: 300,
 			height: 200,
 			status: 'ready' as const,
-			favorite: false,
+			favorited_at: null,
 			created_at: '2026-01-01T10:00:00Z'
 		};
 		const first = toOwnerProofs('g1', [{ ...original, revision: 1 }]);
@@ -85,7 +85,7 @@ describe('toOwnerProofs', () => {
 		width: 300,
 		height: 200,
 		status,
-		favorite: false,
+		favorited_at: null,
 		created_at: '2026-01-01T10:00:00Z'
 	});
 

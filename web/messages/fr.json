@@ -369,7 +369,8 @@
 	"tile_select": "Sélectionner {name}",
 	"tile_remove": "Retirer {name}",
 	"tile_download": "Télécharger {name}",
-	"tile_downloaded": "Téléchargée par le client",
+	"tile_favorited_at": "Mise en favori le {date}",
+	"tile_downloaded_at": "Téléchargée le {date}",
 	"cover_set": "Mettre en couverture",
 	"cover_remove": "Retirer la couverture",
 	"photos_failed_upload": [

@@ -71,7 +71,7 @@
 
 			if (current !== loads) return;
 
-			favorites = photos.filter(({ favorite }) => favorite);
+			favorites = photos.filter(({ favorited_at }) => favorited_at);
 			failed = false;
 		} catch {
 			if (current === loads) failed = true;
@@ -288,6 +288,7 @@
 					state="ready"
 					ratio={layout === 'masonry' ? photo.width / photo.height : 3 / 2}
 					thumbnailUrl={thumbnailUrl(galleryId, photo.id, 'photos', photo.revision)}
+					caption={photo.favorited_at ? { kind: 'favorited', at: photo.favorited_at } : undefined}
 					selected={mode.has(photo.id)}
 					onselect={mode.active ? () => mode.toggle(photo.id) : undefined}
 					onopen={() => {

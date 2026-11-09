@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
 import {
+	formatDateTime,
 	formatFullDate,
 	formatLongDate,
 	formatShortDate,
@@ -19,6 +20,7 @@ describe('dates in English', () => {
 		expect(formatShortDate(noon)).toBe('12 Sep');
 		expect(formatLongDate(noon)).toBe('12 Sep 2026');
 		expect(formatFullDate(noon, 'UTC')).toBe('September 12, 2026');
+		expect(formatDateTime('2026-11-09T14:38:00Z', 'UTC')).toBe('Nov 9, 2026, 2:38 PM');
 	});
 });
 
@@ -29,6 +31,7 @@ describe('dates in French', () => {
 		expect(formatShortDate(noon)).toBe('12 sept.');
 		expect(formatLongDate(noon)).toBe('12 sept. 2026');
 		expect(formatFullDate(noon, 'UTC')).toBe('12 septembre 2026');
+		expect(formatDateTime('2026-11-09T14:38:00Z', 'UTC')).toBe('9 nov. 2026, 14:38');
 	});
 });
 
