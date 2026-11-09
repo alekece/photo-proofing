@@ -164,6 +164,17 @@
 			}
 		}
 	],
+	"notification_opened": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "The client opened the gallery",
+				"countPlural=*": "The client opened the gallery {count} times"
+			}
+		}
+	],
+	"notification_badge_opened": "Opened",
 	"notification_badge_selection": "New selection",
 	"notification_badge_downloads": "New downloads",
 	"notifications_unread": [
@@ -258,6 +269,8 @@
 	"action_close": "Close",
 	"header_meta_empty": "Created {created} · no photos yet",
 	"header_meta_created": "created {created}",
+	"header_meta_opened": "Last opened {date}",
+	"header_meta_not_opened": "Not opened yet",
 	"step_done": "done",
 	"step_progress": "Gallery progress",
 	"step_add_proofs": "Add your proofs",

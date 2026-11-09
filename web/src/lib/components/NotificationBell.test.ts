@@ -45,6 +45,20 @@ describe('NotificationBell', () => {
 		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toEqual([]);
 	});
 
+	it('says the client opened the gallery, with the number of opens', async () => {
+		const { center } = setup([
+			row({ kind: 'opened', count: 1 }),
+			row({ id: 'n2', kind: 'opened', count: 3 })
+		]);
+		await center.refresh();
+		render(NotificationBell, { center });
+
+		await userEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+
+		expect(screen.getByText(/^The client opened the gallery ·/)).toBeTruthy();
+		expect(screen.getByText(/^The client opened the gallery 3 times ·/)).toBeTruthy();
+	});
+
 	it('marks a row read when it is followed', async () => {
 		const { center, fetcher } = setup([row({ kind: 'download', count: 2 })]);
 		await center.refresh();
@@ -89,5 +103,15 @@ describe('NotificationBell in French', () => {
 		await userEvent.click(screen.getByRole('button', { name: 'Notifications, 1 non lue' }));
 
 		expect(screen.getByText(/13 sélectionnées/)).toBeTruthy();
+	});
+
+	it('says the client opened the gallery in French', async () => {
+		const { center } = setup([row({ kind: 'opened', count: 2 })]);
+		await center.refresh();
+		render(NotificationBell, { center });
+
+		await userEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+
+		expect(screen.getByText(/^Le client a ouvert la galerie 2 fois ·/)).toBeTruthy();
 	});
 });

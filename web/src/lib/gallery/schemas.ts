@@ -28,6 +28,8 @@ export const gallerySchema = v.object({
 	hero_id: v.nullable(v.string()),
 	/** The private client link's token once shared; the link never changes afterwards. */
 	share_token: v.nullable(v.string()),
+	/** When a client last opened the shared gallery; `null` until the first open. */
+	last_opened_at: v.nullable(v.string()),
 	/** The progress state first, then `archived` and `expired` when they apply. */
 	states: v.array(galleryStateSchema),
 	created_at: v.string(),
@@ -131,8 +133,8 @@ export const notificationSchema = v.object({
 	gallery_id: v.string(),
 	title: v.nullable(v.string()),
 	hero_id: v.nullable(v.string()),
-	kind: v.picklist(['selection', 'download']),
-	/** Finals downloaded since it opened; 0 for a selection or a ZIP of already-downloaded finals. */
+	kind: v.picklist(['selection', 'download', 'opened']),
+	/** Finals downloaded, or client opens, since it opened; 0 for a selection or a ZIP of already-downloaded finals. */
 	count: v.pipe(finite, v.integer(), v.minValue(0)),
 	/** The gallery's current selection. */
 	selected: v.pipe(finite, v.integer(), v.minValue(0)),
