@@ -234,6 +234,14 @@ pub struct UploadConfig {
         default_value_t = DEFAULT_MAX_PIXELS
     )]
     pub max_pixels: NonZeroU64,
+    /// Largest studio logo upload, in bytes. It is shrunk to a small PNG, so this only bounds
+    /// what is read from the request.
+    #[arg(
+        long = "logo-upload-max-size",
+        env = "PP_LOGO_UPLOAD_MAX_SIZE",
+        default_value = "20971520"
+    )]
+    pub logo_max_size: NonZeroU64,
     #[arg(
         long = "photo-upload-concurrency",
         env = "PP_PHOTO_UPLOAD_CONCURRENCY",
@@ -353,6 +361,7 @@ mod tests {
         assert_eq!(api.limiter.max_peers.get(), 1024);
         assert_eq!(api.photo_upload.max_size.get(), 64 * 1024 * 1024);
         assert_eq!(api.photo_upload.max_pixels.get(), 100_000_000);
+        assert_eq!(api.photo_upload.logo_max_size.get(), 20 * 1024 * 1024);
         assert_eq!(api.photo_upload.concurrency.get(), 4);
         assert_eq!(api.photo_upload.retry_after.get(), Duration::from_secs(1));
         assert_eq!(api.photo.dir.as_path(), Path::new("./data/photos"));
@@ -464,7 +473,7 @@ mod tests {
         let path = dir.path().join("c.toml");
         fs::write(
             &path,
-            "[photo_upload]\nmax_size = 1234\nmax_pixels = 5678\nconcurrency = 2\nretry_after = '5s'\n",
+            "[photo_upload]\nmax_size = 1234\nmax_pixels = 5678\nlogo_max_size = 99\nconcurrency = 2\nretry_after = '5s'\n",
         )
         .unwrap();
         let args = ["--config", path.to_str().unwrap()];
@@ -472,6 +481,7 @@ mod tests {
 
         assert_eq!(config.max_size.get(), 1234);
         assert_eq!(config.max_pixels.get(), 5678);
+        assert_eq!(config.logo_max_size.get(), 99);
         assert_eq!(config.concurrency.get(), 2);
         assert_eq!(config.retry_after.get(), Duration::from_secs(5));
 

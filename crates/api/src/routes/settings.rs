@@ -11,10 +11,12 @@
 //! - `GET /logo` returns the saved logo as a PNG, or a 404.
 
 use actix_web::{
-    HttpResponse, get,
+    HttpResponse,
+    error::JsonPayloadError,
+    get,
     http::header::{self, ContentType},
     put,
-    web::{self, Data, Json, JsonConfig, ServiceConfig},
+    web::{self, Data, Json, Payload, ServiceConfig},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use pp_database::settings::{
@@ -28,8 +30,8 @@ use crate::{
     response::ResponseBuilderExt, routes::language::LanguageBody, upload::logo::LogoNormaliser,
 };
 
-/// Room for a base64 logo at its size limit and the other settings.
-const BODY_LIMIT: usize = LogoNormaliser::MAX_BYTES * 4 / 3 + 4096;
+/// Room for the settings other than the logo in a request body.
+const BODY_MARGIN: u64 = 4096;
 
 #[derive(Serialize)]
 struct SettingsView {
@@ -77,7 +79,23 @@ struct SettingsRequest {
 }
 
 impl SettingsRequest {
-    async fn into_update(self) -> Result<SettingsUpdate, ErrorResponse> {
+    /// Reads the JSON body, which may carry a base64 logo at the configured byte cap.
+    async fn read(payload: Payload, logo_max_size: u64) -> Result<Self, ErrorResponse> {
+        let limit = usize::try_from(logo_max_size * 4 / 3 + BODY_MARGIN).unwrap_or(usize::MAX);
+        let body = payload
+            .to_bytes_limited(limit)
+            .await
+            .map_err(|_| ErrorResponse::payload_too_large())?
+            .map_err(|_| ErrorResponse::bad_request())?;
+
+        serde_json::from_slice(&body)
+            .map_err(|error| ErrorResponse::from(JsonPayloadError::Deserialize(error)))
+    }
+
+    async fn into_update(
+        self,
+        normaliser: &LogoNormaliser,
+    ) -> Result<SettingsUpdate, ErrorResponse> {
         let logo = match self.logo.unwrap_or(LogoRequest::Keep) {
             LogoRequest::Keep => LogoChange::Keep,
             LogoRequest::Remove => LogoChange::Remove,
@@ -86,7 +104,7 @@ impl SettingsRequest {
                     .decode(image_base64)
                     .map_err(|_| ErrorResponse::invalid_logo())?;
 
-                LogoChange::Replace(LogoNormaliser::normalise(upload).await?)
+                LogoChange::Replace(normaliser.normalise(upload).await?)
             }
         };
 
@@ -106,11 +124,6 @@ impl SettingsRequest {
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(
         web::scope("/settings")
-            .app_data(
-                JsonConfig::default()
-                    .limit(BODY_LIMIT)
-                    .error_handler(|error, _| ErrorResponse::from(error).into()),
-            )
             .service(show_settings)
             .service(save_settings)
             .service(save_language)
@@ -157,9 +170,13 @@ async fn show_settings(
 async fn save_settings(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    request: Json<SettingsRequest>,
+    payload: Payload,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let update = request.into_inner().into_update().await?;
+    let upload_config = state.upload_config();
+    let request = SettingsRequest::read(payload, upload_config.logo_max_size.get()).await?;
+    let update = request
+        .into_update(&LogoNormaliser::from(upload_config))
+        .await?;
     let settings = state
         .database()
         .repository_with::<SettingsRepository>(state.job_options())
