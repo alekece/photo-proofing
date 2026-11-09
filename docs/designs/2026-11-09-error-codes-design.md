@@ -1,6 +1,6 @@
 # Translatable API errors
 
-Status: draft, awaiting approval by @alekece. Issue: #285.
+Status: approved by @alekece on 2026-11-09. Issue: #285.
 
 ## Intent
 
