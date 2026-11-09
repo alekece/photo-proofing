@@ -4,32 +4,53 @@ import { describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import SelectActions from './SelectActions.svelte';
 
-function setup(count = 3) {
-	const handlers = { onunselectall: vi.fn(), onleave: vi.fn() };
-	const view = render(SelectActions, { count, ...handlers });
+function setup(count = 1, total = 3) {
+	const handlers = { onselectall: vi.fn(), onunselectall: vi.fn(), onexit: vi.fn() };
+	const view = render(SelectActions, { count, total, ...handlers });
 
 	return { ...view, ...handlers };
 }
 
+const selectAll = () => screen.getByRole('checkbox', { name: 'Select all' }) as HTMLInputElement;
+
 describe('SelectActions', () => {
-	it('shows the count and unselects all', async () => {
-		const { container, onunselectall, onleave } = setup();
+	it('shows the count and exits from the icon button', async () => {
+		const { container, onexit } = setup(3);
 
 		expect(screen.getByText('3 selected')).toBeTruthy();
 
-		await userEvent.click(screen.getByRole('button', { name: 'Unselect all' }));
+		await userEvent.click(screen.getByRole('button', { name: 'Exit selection' }));
 
-		expect(onunselectall).toHaveBeenCalledOnce();
-		expect(onleave).not.toHaveBeenCalled();
+		expect(onexit).toHaveBeenCalledOnce();
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('leaves select mode from Cancel when nothing is selected', async () => {
-		const { onunselectall, onleave } = setup(0);
+	it.each([
+		[0, false, false],
+		[1, false, true],
+		[3, true, false]
+	])('with %i of 3 selected, checked is %s and indeterminate is %s', (count, checked, mixed) => {
+		setup(count);
 
-		await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(selectAll().checked).toBe(checked);
+		expect(selectAll().indeterminate).toBe(mixed);
+	});
 
-		expect(onleave).toHaveBeenCalledOnce();
-		expect(onunselectall).not.toHaveBeenCalled();
+	it('selects all unless everything is selected, then unselects all', async () => {
+		const first = setup(1);
+
+		await userEvent.click(selectAll());
+
+		expect(first.onselectall).toHaveBeenCalledOnce();
+		expect(first.onunselectall).not.toHaveBeenCalled();
+
+		first.unmount();
+
+		const second = setup(3);
+
+		await userEvent.click(selectAll());
+
+		expect(second.onunselectall).toHaveBeenCalledOnce();
+		expect(second.onselectall).not.toHaveBeenCalled();
 	});
 });

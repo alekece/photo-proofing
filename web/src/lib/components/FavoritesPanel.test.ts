@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/svelte';
+import { act, render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -219,7 +219,7 @@ describe('FavoritesPanel', () => {
 		expect(ondownload).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'p2' })]);
 
 		await user.click(screen.getByRole('button', { name: 'Select' }));
-		await user.click(screen.getByRole('button', { name: 'Select all' }));
+		await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 
 		expect(screen.getByText('2 selected')).toBeTruthy();
 
@@ -271,45 +271,45 @@ describe('FavoritesPanel', () => {
 		expect(startDownload).not.toHaveBeenCalled();
 	});
 
-	it('swaps Select for Select all and restores it on exit, keeping Download', async () => {
+	it('shows the bar with Download only while selecting, and restores the toolbar on exit', async () => {
 		setup([photo('p1', true), photo('p2', true)]);
 		const user = userEvent.setup();
 		await screen.findByAltText('p1.jpg');
-		const select = screen.getByRole('button', { name: 'Select' });
-		const download = screen.getByRole('button', { name: 'Download all' });
 
-		expect(screen.queryByRole('button', { name: 'Unselect all' })).toBeNull();
+		expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
 
-		await user.click(select);
+		await user.click(screen.getByRole('button', { name: 'Select' }));
 
-		expect(screen.getByRole('button', { name: 'Select all' })).toBe(select);
-		expect(screen.getByRole('button', { name: 'Download all' })).toBe(download);
+		const bar = document.querySelector<HTMLElement>('[data-slot="select-actions"]')!;
+
+		expect(within(bar).getByRole('checkbox', { name: 'Select all' })).toBeTruthy();
+		expect(within(bar).getByRole('button', { name: 'Download all' })).toHaveProperty(
+			'disabled',
+			true
+		);
 		expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
-		expect(select.hasAttribute('aria-pressed')).toBe(false);
-		expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
 
 		await user.keyboard('{Escape}');
 
-		expect(screen.getByRole('button', { name: 'Select' })).toBe(select);
-		expect(screen.queryByRole('button', { name: 'Unselect all' })).toBeNull();
-		expect(screen.queryByText('0 selected')).toBeNull();
+		expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
+		expect(screen.getByRole('button', { name: 'Select' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty('disabled', false);
 	});
 
-	it('unselects everything, then cancels to leave select mode', async () => {
+	it('unselects everything from the checkbox, then exits from the bar', async () => {
 		setup([photo('p1', true), photo('p2', true)]);
 		const user = userEvent.setup();
 		await screen.findByAltText('p1.jpg');
 		await user.click(screen.getByRole('button', { name: 'Select' }));
-		await user.click(screen.getByRole('button', { name: 'Select all' }));
+		await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 
 		expect(screen.getByRole('button', { name: 'Download 2' })).toBeTruthy();
 
-		await user.click(screen.getByRole('button', { name: 'Unselect all' }));
+		await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 
 		expect(screen.getByText('0 selected')).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Download all' })).toBeTruthy();
 
-		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+		await user.click(screen.getByRole('button', { name: 'Exit selection' }));
 
 		expect(screen.queryByText('0 selected')).toBeNull();
 		expect(screen.getByRole('button', { name: 'Select' })).toBeTruthy();

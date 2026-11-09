@@ -258,7 +258,10 @@ describe('PhotosPanel', () => {
 		stubApi([]);
 		setup();
 
-		expect(await screen.findByText('Drop the shoot here')).toBeTruthy();
+		const zone = (await screen.findByText('Drop the shoot here')).parentElement!;
+
+		expect(within(zone).queryByRole('button')).toBeNull();
+		expect(screen.getAllByRole('button', { name: 'Upload' })).toHaveLength(1);
 	});
 
 	it('shows a tile for each dropped or picked file at once', async () => {
@@ -578,7 +581,7 @@ describe('PhotosPanel', () => {
 
 		setup();
 		await user.click(await screen.findByRole('button', { name: 'Select' }));
-		await user.click(screen.getByRole('button', { name: 'Select all' }));
+		await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 		await user.click(screen.getByRole('button', { name: 'Delete' }));
 
 		expect(
@@ -869,11 +872,15 @@ describe('PhotosPanel', () => {
 
 			expect(announced()).toContain('1 selected');
 
-			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
+			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+
+			expect(counter()).toBe('2 selected');
+
+			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 
 			expect(counter()).toBe('0 selected');
 
-			await user.click(screen.getByRole('button', { name: 'Cancel' }));
+			await user.click(screen.getByRole('button', { name: 'Exit selection' }));
 
 			expect(checkbox('p1.jpg')).toBeNull();
 			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
@@ -890,39 +897,39 @@ describe('PhotosPanel', () => {
 			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
 		});
 
-		it('swaps Select and Upload for Select all and Delete, and restores them on exit', async () => {
+		it('shows the bar with Delete only while selecting, and restores the toolbar on exit', async () => {
 			stubApi([photo('p1'), photo('p2')]);
 			setup();
 			const user = userEvent.setup();
 
 			const select = await screen.findByRole('button', { name: 'Select' });
-			const upload = screen.getByRole('button', { name: 'Upload' });
+
+			expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
+			expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
 
 			await user.click(select);
 
-			expect(screen.getByRole('button', { name: 'Select all' })).toBe(select);
-			expect(screen.getByRole('button', { name: 'Delete' })).toBe(upload);
+			expect(document.querySelector('[data-slot="select-actions"]')).not.toBeNull();
+			expect(screen.getByRole('checkbox', { name: 'Select all' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
 			expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
 			expect(screen.queryByRole('button', { name: 'Upload' })).toBeNull();
-			expect(select.hasAttribute('aria-pressed')).toBe(false);
-			expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
 
 			await user.keyboard('{Escape}');
 
-			expect(screen.getByRole('button', { name: 'Select' })).toBe(select);
-			expect(screen.getByRole('button', { name: 'Upload' })).toBe(upload);
-			expect(screen.queryByRole('button', { name: 'Unselect all' })).toBeNull();
-			expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+			expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
+			expect(screen.getByRole('button', { name: 'Select' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Upload' })).toBeTruthy();
 		});
 
-		it('uploads nothing while Delete stands in for Upload', async () => {
+		it('uploads nothing when Delete is pressed', async () => {
 			stubApi([photo('p1')]);
 			setup();
 			const user = userEvent.setup();
 			const click = vi.spyOn(HTMLInputElement.prototype, 'click');
 
 			await enter(user);
-			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 
 			expect(click).not.toHaveBeenCalled();
@@ -930,26 +937,30 @@ describe('PhotosPanel', () => {
 			click.mockRestore();
 		});
 
-		it('unselects all, then cancels to leave select mode', async () => {
+		it('toggles every photo from the tri-state checkbox, then exits from the bar', async () => {
 			stubApi([photo('p1'), photo('p2')]);
 			setup();
 			const user = userEvent.setup();
 
 			await enter(user);
 
-			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
+			const all = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Select all' });
 
-			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await user.click(checkbox('p1.jpg')!);
+
+			expect(all.indeterminate).toBe(true);
+
+			await user.click(all);
 
 			expect(counter()).toBe('2 selected');
+			expect(all.checked).toBe(true);
 
-			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
+			await user.click(all);
 
 			expect(counter()).toBe('0 selected');
-			expect(checkbox('p1.jpg')).not.toBeNull();
 			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
 
-			await user.click(screen.getByRole('button', { name: 'Cancel' }));
+			await user.click(screen.getByRole('button', { name: 'Exit selection' }));
 
 			expect(checkbox('p1.jpg')).toBeNull();
 			expect(screen.getByRole('button', { name: 'Upload' })).toBeTruthy();
@@ -962,7 +973,7 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 
 			expect(counter()).toBe('2 selected');
 
@@ -1013,9 +1024,9 @@ describe('PhotosPanel', () => {
 			await waitFor(() => expect(checkbox('p2.jpg')).toBeNull());
 			expect(api.bulk()).toEqual([['p1', 'p3']]);
 			expect(screen.getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
-			// The dialog hands focus back to the button that opened it, now Upload again.
+			// The Delete that opened the dialog left with the bar, so focus lands on Select.
 			await waitFor(() =>
-				expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Upload' }))
+				expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Select' }))
 			);
 			expect(announced()).toContain('2 photos deleted');
 		});
@@ -1028,7 +1039,7 @@ describe('PhotosPanel', () => {
 			setup();
 			const user = userEvent.setup();
 			await enter(user);
-			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 			expect(screen.getByRole('button', { name: 'Deleting…' })).toHaveProperty('disabled', true);
@@ -1070,7 +1081,7 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 			await confirmDeletion(user);
 			await waitFor(() => expect(api.bulk()).toHaveLength(1));
 			await view.rerender({ galleryId: 'g2' });
@@ -1100,7 +1111,7 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 			await confirmDeletion(user);
 			await waitFor(() => expect(api.bulk()).toHaveLength(1));
 			view.unmount();
@@ -1127,7 +1138,7 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 			await confirmDeletion(user);
 			await waitFor(() => expect(api.bulk()).toHaveLength(1));
 			await view.rerender({ galleryId: 'g2' });
@@ -1181,7 +1192,7 @@ describe('PhotosPanel', () => {
 
 			setup();
 			await enter(user);
-			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 
@@ -1220,7 +1231,7 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(screen.getByRole('button', { name: 'Select all' }));
+			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 			server.pop();
 			emit({ photo_id: 'p2', status: 'deleted' });
 

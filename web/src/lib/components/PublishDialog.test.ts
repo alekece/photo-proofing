@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
 import { thumbnailUrl, type Photo } from '#lib/gallery/photos.js';
@@ -42,6 +43,46 @@ describe('PublishDialog photo set', () => {
 			const src = baseElement.querySelector('[data-slot="photo-stack"] img')?.getAttribute('src');
 			expect(src).toBe(thumbnailUrl('g1', 'p1', set));
 		});
+	});
+});
+
+describe('PublishDialog dismissal', () => {
+	const props = {
+		kind: 'share',
+		galleryId: 'g1',
+		title: 'Wedding',
+		load: async () => [{ id: 'p1', status: 'ready' } as Photo],
+		onconfirm: async () => {}
+	} as const;
+
+	it('dismisses with Cancel by default', async () => {
+		const onclose = vi.fn();
+		render(PublishDialog, { ...props, onclose });
+
+		await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+		expect(screen.queryByRole('button', { name: 'Not yet' })).toBeNull();
+		expect(onclose).toHaveBeenCalled();
+	});
+
+	it('closes the success dialog with Done or the corner Close', async () => {
+		const first = vi.fn();
+		const view = render(PublishDialog, { ...props, onclose: first });
+
+		await userEvent.click(await screen.findByRole('button', { name: 'Share' }));
+		await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+
+		expect(first).toHaveBeenCalled();
+
+		view.unmount();
+
+		const second = vi.fn();
+		render(PublishDialog, { ...props, onclose: second });
+
+		await userEvent.click(await screen.findByRole('button', { name: 'Share' }));
+		await userEvent.click(await screen.findByRole('button', { name: 'Close' }));
+
+		expect(second).toHaveBeenCalled();
 	});
 });
 

@@ -89,7 +89,7 @@ describe('gallery page', () => {
 		);
 	});
 
-	it('queues the debounced Saved toast only for successful saves', async () => {
+	it('shows no Saved toast after a save, only the error toast on failure', async () => {
 		const savedToast = vi.spyOn(toasts, 'saved');
 		const user = userEvent.setup();
 
@@ -97,11 +97,13 @@ describe('gallery page', () => {
 		open();
 		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
 		await waitFor(() => expect(toasts.items.map(({ kind }) => kind)).toEqual(['error']));
-		expect(savedToast).not.toHaveBeenCalled();
 
 		stubApi();
 		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
-		await waitFor(() => expect(savedToast).toHaveBeenCalledOnce());
+		await waitFor(() => expect(screen.queryByText('Saving…')).toBeNull());
+
+		expect(savedToast).not.toHaveBeenCalled();
+		expect(toasts.items.map(({ kind }) => kind)).toEqual(['error']);
 		savedToast.mockRestore();
 	});
 
@@ -431,7 +433,7 @@ describe('gallery page', () => {
 			const user = userEvent.setup();
 			open();
 			await user.click(screen.getByRole('button', { name: 'Share' }));
-			await user.click(await screen.findByRole('button', { name: 'Not yet' }));
+			await user.click(await screen.findByRole('button', { name: 'Cancel' }));
 			expect(shares()).toHaveLength(0);
 			expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
 		});

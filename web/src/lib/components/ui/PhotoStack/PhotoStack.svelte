@@ -16,7 +16,7 @@
 
 <div
 	data-slot="photo-stack"
-	class="relative grid size-24 flex-none place-items-center"
+	class={['relative grid size-24 flex-none place-items-center', done && 'justify-self-center']}
 	aria-hidden="true"
 >
 	<div class="contents" class:fly={done}>
