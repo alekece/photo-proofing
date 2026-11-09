@@ -186,14 +186,25 @@ describe('ClientGallery', () => {
 	});
 
 	describe('sticky bar', () => {
-		let report: (isIntersecting: boolean) => void;
+		let report: (intersectionRatio: number) => void;
+		let resize: (height: number) => void;
 
 		beforeEach(() => {
 			vi.stubGlobal(
 				'IntersectionObserver',
 				class {
-					constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
-						report = (isIntersecting) => callback([{ isIntersecting }]);
+					constructor(callback: (entries: { intersectionRatio: number }[]) => void) {
+						report = (intersectionRatio) => callback([{ intersectionRatio }]);
+					}
+					observe() {}
+					disconnect() {}
+				}
+			);
+			vi.stubGlobal(
+				'ResizeObserver',
+				class {
+					constructor(callback: (entries: { contentRect: { height: number } }[]) => void) {
+						resize = (height) => callback([{ contentRect: { height } }]);
 					}
 					observe() {}
 					disconnect() {}
@@ -212,10 +223,10 @@ describe('ClientGallery', () => {
 			expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
 		});
 
-		it('shows the title and download once the hero scrolls out of view', async () => {
+		it('shows the title and download out of view', async () => {
 			delivered();
 			await tick();
-			report(false);
+			report(0);
 			await tick();
 
 			expect(screen.getByRole('heading', { level: 2 }).textContent?.trim()).toBe('Wedding');
@@ -228,7 +239,41 @@ describe('ClientGallery', () => {
 
 			expect(screen.queryByRole('button', { name: /^Favorites/ })).toBeNull();
 
-			report(false);
+			report(0);
+			await tick();
+
+			expect(favoritesToggle()).toBeTruthy();
+		});
+
+		it('appears as soon as the hero starts to scroll away', async () => {
+			show();
+			await tick();
+			report(0.9);
+			await tick();
+
+			expect(favoritesToggle()).toBeTruthy();
+		});
+
+		it('stays under the Favorites filter so the client can get back to All', async () => {
+			const user = userEvent.setup();
+			show({ favorites: ['p2'] });
+			await tick();
+			report(0);
+			await tick();
+			await user.click(favoritesToggle());
+
+			// A short selection leaves nothing to scroll, so the hero is back in full view.
+			report(1);
+			await tick();
+			await user.click(screen.getByRole('button', { name: 'All' }));
+
+			expect(screen.getAllByRole('button', { name: /^Open proof/ })).toHaveLength(3);
+		});
+
+		it('stays when the page is too short to scroll', async () => {
+			show();
+			await tick();
+			resize(100);
 			await tick();
 
 			expect(favoritesToggle()).toBeTruthy();
