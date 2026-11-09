@@ -12,9 +12,13 @@ describe('ExpiryBadge', () => {
 	it('shows the day the photographer picked in a time zone behind UTC', () => {
 		process.env.TZ = 'America/New_York';
 		const { container } = render(ExpiryBadge, {
-			expiresAt: endOfLocalDay('2026-10-31'),
-			now: new Date('2026-10-01T00:00:00Z')
+			expiresAt: endOfLocalDay('2026-10-31')
 		});
 		expect(container.textContent).toMatch(/October 31, 2026/);
+	});
+
+	it('says only when the gallery is open until, with no countdown', () => {
+		const { container } = render(ExpiryBadge, { expiresAt: endOfLocalDay('2026-10-31') });
+		expect(container.textContent?.trim()).toBe('Open until October 31, 2026');
 	});
 });

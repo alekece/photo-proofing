@@ -183,17 +183,6 @@
 	"notifications_mark_all_read": "Mark all as read",
 	"notifications_none": "Nothing new.",
 	"expiry_open_until": "Open until",
-	"expiry_today": "expires today",
-	"expiry_days_left": [
-		{
-			"declarations": ["input count", "local countPlural = count: plural"],
-			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "{count} day left",
-				"countPlural=*": "{count} days left"
-			}
-		}
-	],
 	"filter_status": "Status",
 	"filter_none": "None",
 	"filter_all": "All statuses",
