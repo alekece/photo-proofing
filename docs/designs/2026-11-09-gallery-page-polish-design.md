@@ -17,7 +17,7 @@ Five rough edges on the photographer's gallery page: a redundant "Saved" toast, 
   - accent-tinted background; on small screens it collapses to `[✕] N selected` with icon-only actions.
 - The drop zone on Photos and Finals no longer has an upload button (the toolbar one stays; the zone keeps drag and drop).
 - Confirmation dialogs dismiss with "Cancel" / "Annuler".
-- In the "Shared" success dialog the green check lines up with its text and "Done" is a real button.
+- In the "Shared" success dialog the green check lines up with its text, "Done" is a real button, and a ✕ sits in the top-right corner.
 
 ## Non-goals
 
@@ -37,7 +37,7 @@ Five rough edges on the photographer's gallery page: a redundant "Saved" toast, 
 - **Drop zone:** remove the button in the empty drop zone and its hidden file input handler only if nothing else uses it; the toolbar upload button keeps opening the picker. *My call:* an empty gallery keeps the toolbar button as the click path, so the zone text stays "Drop photos here" without a "browse" hint.
 - **ConfirmDialog:** the default `cancelLabel` becomes `m.common_cancel()`; the `dialog_not_yet` message is removed from both languages.
 - **Saved toast:** remove `toasts.saved()` on the gallery page; the existing "Not saved" retry line and error toast stay.
-- **Shared dialog:** align the check icon with the heading line, and render the `result` action as the primary `Button` instead of ghost text. *My call:* a real button over a corner ✕, because this dialog's only job is to be acknowledged.
+- **Shared dialog:** align the check icon with the heading line, and render the `result` action as the primary `Button` instead of ghost text. Both a real "Done" button and a corner ✕ (labelled "Close"), as the maintainer asked.
 
 ## Testing
 
