@@ -594,7 +594,7 @@ mod tests {
         assert_eq!(fixture.file(Variant::Original).unwrap(), fixture.original);
         assert_eq!(
             dimensions(&fixture.file(Variant::Thumbnail).unwrap()),
-            (400, 267)
+            (600, 400)
         );
         assert_eq!(
             dimensions(&fixture.file(Variant::Preview).unwrap()),

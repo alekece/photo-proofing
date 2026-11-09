@@ -18,11 +18,11 @@ use thiserror::Error;
 use crate::watermark::WatermarkPainter;
 
 /// Long edge of the gallery grid thumbnail.
-const THUMBNAIL_EDGE: u32 = 400;
+const THUMBNAIL_EDGE: u32 = 800;
 /// Long edge of the full-screen preview: sharp on laptops and phones, too small to print.
-const PREVIEW_EDGE: u32 = 1600;
+const PREVIEW_EDGE: u32 = 2000;
 /// JPEG output quality.
-const JPEG_QUALITY: i32 = 75;
+const JPEG_QUALITY: i32 = 82;
 /// JPEG decoder downscale factors, largest first.
 const JPEG_SHRINKS: [u32; 3] = [8, 4, 2];
 /// Metadata field holding an embedded ICC profile.
@@ -357,7 +357,7 @@ pub(crate) mod tests {
             .unwrap();
         let clean = result.clean.unwrap();
 
-        assert_eq!(size(&clean.thumbnail), (400, 267));
+        assert_eq!(size(&clean.thumbnail), (600, 400));
         assert_eq!(size(&clean.preview), (600, 400));
         assert_ne!(clean.thumbnail, result.watermarked.thumbnail);
         assert_ne!(clean.preview, result.watermarked.preview);
@@ -390,10 +390,10 @@ pub(crate) mod tests {
 
         assert_eq!(size(&small.thumbnail), (300, 200));
         assert_eq!(size(&small.preview), (300, 200));
-        assert_eq!(size(&large.thumbnail), (400, 200));
-        assert_eq!(size(&large.preview), (1600, 800));
-        assert_eq!(size(&portrait.thumbnail), (200, 400));
-        assert_eq!(size(&portrait.preview), (800, 1600));
+        assert_eq!(size(&large.thumbnail), (800, 400));
+        assert_eq!(size(&large.preview), (2000, 1000));
+        assert_eq!(size(&portrait.thumbnail), (400, 800));
+        assert_eq!(size(&portrait.preview), (1000, 2000));
     }
 
     #[test]
