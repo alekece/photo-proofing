@@ -160,7 +160,7 @@ describe('gallery page', () => {
 		stubApi(500);
 		const user = userEvent.setup();
 		open();
-		const toggle = screen.getByRole('switch', { name: 'Watermark proofs' });
+		const toggle = screen.getByRole('switch', { name: 'Enable watermarks' });
 		await user.click(toggle);
 		await waitFor(() => expect(toasts.items.map(({ kind }) => kind)).toEqual(['error']));
 		expect(toggle.getAttribute('aria-checked')).toBe('false');
@@ -172,7 +172,7 @@ describe('gallery page', () => {
 		const user = userEvent.setup();
 		open();
 		await user.type(screen.getByLabelText('Gallery title'), ' II');
-		await user.click(screen.getByRole('switch', { name: 'Watermark proofs' }));
+		await user.click(screen.getByRole('switch', { name: 'Enable watermarks' }));
 		await waitFor(() => expect(patches()).toHaveLength(2));
 		expect(await screen.findByText('Couldn’t save')).toBeTruthy();
 		stubApi();
@@ -227,7 +227,7 @@ describe('gallery page', () => {
 		const pending = deferApi();
 		const user = userEvent.setup();
 		open();
-		const toggle = screen.getByRole('switch', { name: 'Watermark proofs' });
+		const toggle = screen.getByRole('switch', { name: 'Enable watermarks' });
 		await user.click(toggle);
 		await user.click(toggle);
 		await waitFor(() => expect(pending).toHaveLength(2));
@@ -277,7 +277,7 @@ describe('gallery page', () => {
 	it('redirects to sign-in when the session expired', async () => {
 		stubApi(401);
 		open();
-		await userEvent.setup().click(screen.getByRole('switch', { name: 'Watermark proofs' }));
+		await userEvent.setup().click(screen.getByRole('switch', { name: 'Enable watermarks' }));
 		await waitFor(() => expect(goto).toHaveBeenCalledWith('/login?expired=1', expect.anything()));
 	});
 

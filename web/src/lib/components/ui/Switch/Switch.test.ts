@@ -20,6 +20,15 @@ describe('Switch', () => {
 		expect(onchange).toHaveBeenCalledWith(true);
 	});
 
+	it('keeps the knob inside the track when on', () => {
+		render(Switch, { 'aria-label': 'Watermark proofs', checked: true });
+
+		const knob = screen.getByRole('switch').firstElementChild!;
+
+		expect(knob.className).toContain('translate-x-[1.1875rem]');
+		expect(knob.className).not.toContain('translate-x-[1.375rem]');
+	});
+
 	it('has no axe violations', async () => {
 		const { container } = render(Switch, { 'aria-label': 'Watermark proofs', checked: true });
 

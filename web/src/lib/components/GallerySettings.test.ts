@@ -68,7 +68,7 @@ describe('GallerySettings', () => {
 		const { onsave, user } = setup();
 
 		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
-		await user.click(screen.getByRole('switch', { name: 'Watermark proofs' }));
+		await user.click(screen.getByRole('switch', { name: 'Enable watermarks' }));
 
 		expect(onsave).toHaveBeenNthCalledWith(1, { layout: 'masonry' });
 		expect(onsave).toHaveBeenNthCalledWith(2, { watermark_enabled: true });
@@ -76,7 +76,7 @@ describe('GallerySettings', () => {
 
 	it('puts a refused setting back', async () => {
 		const { user } = setup({}, false);
-		const toggle = screen.getByRole('switch', { name: 'Watermark proofs' });
+		const toggle = screen.getByRole('switch', { name: 'Enable watermarks' });
 
 		await user.click(toggle);
 
@@ -86,10 +86,10 @@ describe('GallerySettings', () => {
 	it('does not flash a success ring after autosaving', async () => {
 		const { user } = setup();
 
-		await user.click(screen.getByRole('switch', { name: 'Watermark proofs' }));
+		await user.click(screen.getByRole('switch', { name: 'Enable watermarks' }));
 
 		await vi.waitFor(() =>
-			expect(screen.getByRole('switch', { name: 'Watermark proofs' }).className).not.toContain(
+			expect(screen.getByRole('switch', { name: 'Enable watermarks' }).className).not.toContain(
 				'ring-ok'
 			)
 		);

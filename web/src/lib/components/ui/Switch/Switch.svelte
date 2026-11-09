@@ -28,7 +28,7 @@
 >
 	<span
 		class="pointer-events-none size-4 rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.2)] transition-transform duration-200 ease-pop {checked
-			? 'translate-x-[1.375rem]'
+			? 'translate-x-[1.1875rem]'
 			: 'translate-x-[0.1875rem]'}"
 	></span>
 </button>
