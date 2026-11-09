@@ -103,6 +103,15 @@ must manage the Docker daemon where staging runs today (the root daemon).
 | Config and proxy checksum labels reload services on change | Lost; after editing the TOML or Caddy file, redeploy the stack from Dockhand. |
 | Export the public Caddy CA | Manual `docker cp` of the public certificate, documented. |
 
+### Failures stay visible
+
+Staging exists to expose broken changes quickly, so a bad build must show as
+broken, never be masked by an older version. Dockhand's auto-update is configured
+without automatic rollback and without scan-based blocking for these images; a
+failing release leaves unhealthy containers on the dashboard, and the
+version monitor reports the mismatch. Recovery is a deliberate action: fix
+forward, or re-tag `:staging` or pin a `sha-` tag.
+
 ### Compose file
 
 The repository Compose files reference `:staging` images, with the values
@@ -153,6 +162,7 @@ migrations are not reversible, as before.
 
 - A CD run on `main` publishes images, then moves `:staging` on all three; an older
   run finishing late does not regress it.
+- A deliberately broken image leaves staging unhealthy, not rolled back.
 - The auto-update trial passes before implementation proceeds.
 - Staging redeploys from the registry alone, with no inbound access.
 - No secret or installation detail appears in Git or logs.
