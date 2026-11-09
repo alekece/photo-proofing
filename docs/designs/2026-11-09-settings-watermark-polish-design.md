@@ -10,7 +10,7 @@ Fix a handful of rough edges on the studio Settings page and in the watermark it
 
 - The watermark switch knob has the same margin from the track edge when on as when off.
 - French: "Activer les filigranes" (switch) and "Paramètres du filigrane" (studio heading).
-- The preview uses fixed sample tiles drawn in CSS/SVG, identical for every workspace, and the settings loader stops listing galleries.
+- The watermark preview uses fixed sample tiles drawn in CSS/SVG, identical for every workspace, instead of the owner's cover photos.
 - Rendered repeated watermarks follow the preview's pattern: rows tilted about -24°, every other row shifted by half a step.
 - Logo upload takes any dimensions; it is still stored as a metadata-free PNG of at most 512 px. The 4 MP cap becomes a ~100 MP decompression-bomb cap, and the 1 MiB cap becomes an operator setting (default 20 MiB).
 - Save shows its own lifecycle (Save, "Saving…", "Saved" with a green check and ripple, Save); no "Saved" toast. Cancel plays the same ripple, then returns to disabled, and the revert is announced.
@@ -18,7 +18,7 @@ Fix a handful of rough edges on the studio Settings page and in the watermark it
 
 ## Non-goals
 
-- The cover signature and the watermark editor changes of #293, which builds on this and lands after it.
+- The cover-signature preview and the watermark editor changes of #293, which builds on this and lands after it. #293 reworks both previews (two identical toolbars, one above each preview), so the cover preview keeps its behaviour today.
 - Pixel-exact equality between the CSS preview and the rendered proof (see below).
 - Any new watermark option, or changes to the single-mark placement.
 
@@ -52,7 +52,7 @@ Today `repeated()` tiles axis-aligned staggered rows; the preview rotates the wh
 
 - **Switch:** `ui/Switch` on-position offset goes from `1.375rem` to `1.1875rem`; check the Switch test for the old value.
 - **Messages:** `settings_watermark` (fr) becomes "Activer les filigranes", `studio_watermark` (fr) becomes "Paramètres du filigrane". Add `studio_saving` and `studio_saved` (both languages); `studio_reverted` stays for the announcement only, and `toast_saved` is removed if nothing else uses it.
-- **Loader:** `settings/+page.server.ts` drops `listGalleries`, `previewUrl`, `samples` and `cover`; it returns `idleTimeoutMs` and `settings`. `WatermarkEditor` loses its `samples` and `cover` inputs and renders the fixed tiles; the page test no longer needs gallery fixtures. *My call:* the cover-signature preview, which today uses `cover`, shows a fixed sample tile with a placeholder title (a message) so it too is identical for every workspace; #293 reworks it.
+- **Loader:** `settings/+page.server.ts` drops `samples` and the `previewUrl` import; the watermark preview no longer reads any gallery data. The cover-signature preview is untouched, so the loader keeps the minimal lookup it needs, the first gallery with a cover photo as `cover` (image and title), and still tolerates a list outage. #293 removes that lookup with the cover preview. `WatermarkEditor` loses its `samples` input and renders the fixed tiles; `cover` stays. The page test keeps gallery fixtures only for the cover preview.
 - **Save button:** `SaveButton.svelte` props are `status`, `disabled` and `onclick`. Idle shows "Save"; saving shows "Saving…", disabled; saved shows a green check and "Saved" with the ripple, for about 1.6 s, then the page sets `idle`. Failures keep surfacing through the existing error toast, and status returns to `idle`. Announcements go through one visually hidden `aria-live="polite"` region, not the label swap. *My call:* the ripple is a shared piece extracted from `ClickPop` (the `click-ripple` keyframes already exist) rather than a second animation.
 - **Cancel:** after a revert the button plays the same ripple (no sliding label, no `animate-revert-spin`, which is deleted from `app.css`), then returns to disabled; the live region announces "Reverted" (`studio_reverted`).
 - **Reduced motion:** the existing `prefers-reduced-motion` block in `app.css` already makes animations instant; the ripple adds nothing that needs more, but the state must still change (check and label appear, ripple does not show).
@@ -65,7 +65,7 @@ Today `repeated()` tiles axis-aligned staggered rows; the preview rotates the wh
 
 - `watermark.rs`: painting a repeated mark on a black photo lights pixels on many distinct rows, and within one lattice row the marks' vertical positions differ (so they are not all on one horizontal line, which the old axis-aligned tiling would fail). Existing repeat and single-placement tests keep passing.
 - `logo.rs`: a large image above 4 MP (and under the cap) is accepted and stored at most 512 px, metadata-free; an image over the pixel cap and an upload over the byte cap are rejected; the cap comes from the parameter. `config.rs` default test covers 20 MiB.
-- Web: Switch knob offset; French labels; `SaveButton` states, ripple, live region and reduced motion; settings page shows no "Saved" toast, Cancel ripples then disables and announces; the loader no longer calls the galleries API; the editor renders the static tiles with no images.
+- Web: Switch knob offset; French labels; `SaveButton` states, ripple, live region and reduced motion; settings page shows no "Saved" toast, Cancel ripples then disables and announces; the loader no longer calls the galleries API; the editor renders the static tiles with no images, while the cover preview still shows the owner's cover.
 
 ## Left to the builder
 
