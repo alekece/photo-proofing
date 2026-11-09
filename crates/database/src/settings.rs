@@ -185,12 +185,17 @@ pub struct SizeStep(u8);
 
 impl SizeStep {
     pub const LARGEST: Self = Self(9);
-    /// The step that matches the original fixed look.
-    pub const DEFAULT: Self = Self(4);
 
     /// The step, 0 to 9.
     pub const fn get(self) -> u8 {
         self.0
+    }
+}
+
+impl Default for SizeStep {
+    /// The step that matches the original fixed look.
+    fn default() -> Self {
+        Self(4)
     }
 }
 
@@ -255,9 +260,9 @@ impl Default for WorkspaceSettings {
             mark: WatermarkMark::Name,
             pattern: WatermarkPattern::Repeat,
             position: GridCell::BOTTOM_RIGHT,
-            size: SizeStep::DEFAULT,
+            size: SizeStep::default(),
             signature: CoverSignature::Name,
-            signature_size: SizeStep::DEFAULT,
+            signature_size: SizeStep::default(),
             proof_quality: ProofQuality::default(),
             logo: None,
         }
@@ -794,7 +799,7 @@ mod tests {
             position: GridCell::BOTTOM_RIGHT,
             size: SizeStep(2),
             signature: CoverSignature::Name,
-            signature_size: SizeStep::DEFAULT,
+            signature_size: SizeStep::default(),
             proof_quality: ProofQuality::Medium,
             logo: LogoChange::Keep,
         }
