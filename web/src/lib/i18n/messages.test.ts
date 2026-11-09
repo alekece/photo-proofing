@@ -49,4 +49,12 @@ describe('French counts', () => {
 			'2 photos sur 3 supprimées. Réessayez.'
 		);
 	});
+
+	it('say "retouchées", not "finales", for the delivered photos', () => {
+		const stale = Object.entries(texts(fr)).filter(([, text]) =>
+			/finale/i.test(JSON.stringify(text))
+		);
+
+		expect(stale).toEqual([]);
+	});
 });

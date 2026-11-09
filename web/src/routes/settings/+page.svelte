@@ -2,7 +2,7 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
-	import { LoaderCircle, Undo2, Upload, X } from '@lucide/svelte';
+	import { ArrowLeft, LoaderCircle, Undo2, Upload, X } from '@lucide/svelte';
 	import { authRequest } from '#lib/auth.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
@@ -134,10 +134,15 @@
 </script>
 
 <svelte:head><title>{m.header_settings()} — PhotoProofing</title></svelte:head>
-<AppHeader crumb={m.header_settings()} onsignout={logout} />
+<AppHeader onsignout={logout} />
 <PageShell
 	class="max-w-[75rem] gap-0 px-3.5 pt-5 pb-[3.75rem] sm:px-[clamp(1.25rem,5vw,3.5rem)] sm:pt-9"
 >
+	<a
+		href="/dashboard"
+		class="mb-4 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground underline-offset-2 hover:underline"
+		><ArrowLeft class="size-4" aria-hidden="true" />{m.header_back_to_galleries()}</a
+	>
 	{#if message}<p role="alert" class="mb-4 text-danger">{message}</p>{/if}
 	<div class="mb-7 flex flex-wrap items-center gap-3">
 		<h1 class="m-0 flex-1 text-4xl leading-[1.1] max-sm:basis-full sm:text-[3.25rem]">

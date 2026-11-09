@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
+	import { ArrowLeft } from '@lucide/svelte';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { getUploadQueue } from '#lib/gallery/uploads.svelte.js';
@@ -255,13 +256,19 @@
 
 <svelte:head><title>{saved.title ?? m.gallery_untitled()} — PhotoProofing</title></svelte:head>
 <div class="relative">
-	<AppHeader overlay crumb={saved.title ?? m.gallery_untitled()} onsignout={logout} />
-	{#if signOutError}<p
-			role="alert"
-			class="absolute inset-x-0 top-16 z-20 text-center text-warning-on-dark"
+	<AppHeader overlay onsignout={logout} />
+	<div
+		class="absolute inset-x-0 top-[3.75rem] z-20 flex flex-col items-start gap-2 px-[1.125rem] sm:px-8"
+	>
+		<a
+			href="/dashboard"
+			class="inline-flex items-center gap-1.5 rounded-full bg-panel/15 px-3 py-1 text-sm text-panel backdrop-blur-sm hover:underline"
+			><ArrowLeft class="size-4" aria-hidden="true" />{m.header_back_to_galleries()}</a
 		>
-			{signOutError}
-		</p>{/if}
+		{#if signOutError}<p role="alert" class="self-stretch text-center text-warning-on-dark">
+				{signOutError}
+			</p>{/if}
+	</div>
 
 	<GalleryHeader
 		{heroRevision}
