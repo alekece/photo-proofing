@@ -11,20 +11,11 @@ const bell = createRawSnippet(() => ({
 }));
 
 describe('AppHeader', () => {
-	it('shows the brand and no back link by default', () => {
+	it('shows the brand linking to the dashboard', () => {
 		render(AppHeader);
 
 		expect(screen.getByText('PhotoProofing')).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'PhotoProofing' }).getAttribute('href')).toBe(
-			'/dashboard'
-		);
-		expect(screen.queryByRole('link', { name: 'Back' })).toBeNull();
-	});
-
-	it('shows the back link when given', () => {
-		render(AppHeader, { back: { href: '/dashboard', label: 'All galleries' } });
-
-		expect(screen.getByRole('link', { name: /All galleries/ }).getAttribute('href')).toBe(
 			'/dashboard'
 		);
 	});
@@ -57,9 +48,7 @@ describe('AppHeader', () => {
 	});
 
 	it('has no axe violations', async () => {
-		const { container } = render(AppHeader, {
-			back: { href: '/dashboard', label: 'All galleries' }
-		});
+		const { container } = render(AppHeader);
 
 		expect((await axe(container)).violations).toEqual([]);
 	});

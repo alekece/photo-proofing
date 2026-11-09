@@ -255,7 +255,12 @@
 
 <svelte:head><title>{saved.title ?? m.gallery_untitled()} — PhotoProofing</title></svelte:head>
 <div class="relative">
-	<AppHeader overlay crumb={saved.title ?? m.gallery_untitled()} onsignout={logout} />
+	<AppHeader overlay onsignout={logout} />
+	<a
+		href="/dashboard"
+		class="absolute top-[3.75rem] left-[1.125rem] z-20 text-sm text-panel/90 underline-offset-2 hover:underline sm:left-8"
+		>{m.header_back_to_galleries()}</a
+	>
 	{#if signOutError}<p
 			role="alert"
 			class="absolute inset-x-0 top-16 z-20 text-center text-warning-on-dark"

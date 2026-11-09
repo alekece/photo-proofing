@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowLeft, Bell, LogOut, Settings, User } from '@lucide/svelte';
+	import { Bell, LogOut, Settings, User } from '@lucide/svelte';
 	import LanguageMenu from '#lib/components/LanguageMenu.svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import NotificationBell from '#lib/components/NotificationBell.svelte';
@@ -9,15 +9,10 @@
 	import type { Snippet } from 'svelte';
 
 	let {
-		back,
-		crumb,
 		overlay = false,
 		actions,
 		onsignout
 	}: {
-		back?: { href: string; label: string };
-		/** The page's own name beside the brand, e.g. the gallery title. */
-		crumb?: string;
 		/** Floats the bar over the hero banner below it instead of taking a row of its own. */
 		overlay?: boolean;
 		/** Replaces the notification bell. */
@@ -39,23 +34,6 @@
 	)}
 >
 	<a href="/dashboard" class="brand text-lg whitespace-nowrap sm:text-[1.3125rem]">PhotoProofing</a>
-	{#if crumb}
-		<span
-			class={cn(
-				'hidden min-w-0 truncate text-sm sm:block',
-				overlay ? 'text-panel/80' : 'text-muted-foreground'
-			)}>{crumb}</span
-		>
-	{/if}
-	{#if back}
-		<a
-			href={back.href}
-			class="inline-flex items-center gap-1 text-sm text-muted-foreground underline"
-		>
-			<ArrowLeft size={14} aria-hidden="true" />
-			{back.label}
-		</a>
-	{/if}
 	<span class="flex-1"></span>
 	<LanguageMenu class="{round} {hover}" />
 	{#if actions}

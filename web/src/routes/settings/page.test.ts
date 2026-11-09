@@ -36,6 +36,14 @@ function open() {
 }
 
 describe('Settings page', () => {
+	it('links back to the galleries', () => {
+		open();
+
+		expect(screen.getByRole('link', { name: '← Back to galleries' }).getAttribute('href')).toBe(
+			'/dashboard'
+		);
+	});
+
 	it('shows Saving and prevents another submission while saving', async () => {
 		let finish!: (response: Response) => void;
 		const fetcher = vi.fn((url: string) =>

@@ -59,6 +59,14 @@ afterEach(() => {
 });
 
 describe('gallery page', () => {
+	it('links back to the galleries', () => {
+		open();
+
+		expect(screen.getByRole('link', { name: '← Back to galleries' }).getAttribute('href')).toBe(
+			'/dashboard'
+		);
+	});
+
 	it('previews an unshared gallery and returns focus to Preview when closed', async () => {
 		vi.stubGlobal('fetch', async () => new Response('[]'));
 		const user = userEvent.setup();
