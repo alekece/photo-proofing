@@ -94,13 +94,36 @@ all three images published and advances only forward. The production web image
 listens on port `3000`; `PP_API_INTERNAL_URL` is required (the API's internal URL) and
 route `/api/*` requests to the API.
 
+### Dashboard staging deployment
+
+Staging is moving from the Ansible playbook below to a deployment dashboard
+([design](docs/designs/2026-11-09-staging-dashboard-deployment-design.md)). Until the
+cutover is accepted, the playbook remains the working deployment; do not run both.
+
+After CI succeeds on `main`, CD also points the `:staging` image tags at that commit.
+The dashboard tracks [deploy/compose.yml](deploy/compose.yml) on `main` as
+the Git stack `pp-staging` and auto-updates the application containers when a `:staging`
+tag moves. Failed updates stay failed and unhealthy; nothing rolls back automatically.
+
+Dashboard setup (private LAN/VPN only, authentication enabled; it has Docker socket access):
+
+- Manage the Docker daemon where staging runs and keep the project name `pp-staging`.
+- Bind the dashboard's secret-manager integration to the stack with a read-only service token for the
+  staging config. The secret manager supplies `POSTGRES_PASSWORD` and a URL-encoded `PP_DATABASE_URL`.
+- Set `PP_APP_ORIGIN`, `PP_STAGING_HOST`, `PP_BIND_ADDRESS` and the four existing volume
+  names (`PP_POSTGRES_VOLUME`, `PP_PHOTO_VOLUME`, `PP_CADDY_DATA_VOLUME`,
+  `PP_CADDY_CONFIG_VOLUME`) as stack variables in the dashboard, never in Git.
+- The server-owned `/etc/pp/config.toml` is unchanged. Redeploy the stack after editing it.
+- The dashboard's Git stack must sync the compose file only; enable auto-update on the API,
+  worker and web containers, and leave vulnerability-scan blocking off for them.
+
 ### LAN staging deployment
 
 [deploy/staging.yml](deploy/staging.yml) uses Ansible's maintained
 `community.docker` Compose modules to pull and reconcile one published commit.
 Run it locally on the server from a checkout containing these deployment assets.
 Prerequisites: Python 3.12+, Docker Compose 2.24.4+, working Docker access, GitHub
-CLI access to the repository, an operator-selected Doppler project/config, and sudo
+CLI access to the repository, an operator-selected secret-manager project/config, and sudo
 for `/etc/pp`.
 Private GHCR images also require authorized Docker registry credentials; never
 paste tokens into commands or logs or change visibility to bypass authentication.
@@ -118,7 +141,7 @@ ansible-galaxy collection install -r deploy/requirements.yml
 Use the single root [config.example.toml](config.example.toml) as the reference
 for server-owned `/etc/pp/config.toml`. Preserve its existing values on upgrades.
 For containers set `host = "0.0.0.0"`, `port = 8080`, and
-`photo.dir = "/var/lib/pp/photos"`. Omit `[database]`: Doppler supplies the password
+`photo.dir = "/var/lib/pp/photos"`. Omit `[database]`: the secret manager supplies the password
 and Ansible derives the URL. Set `session.secure_cookie = true` and
 `auth.app_origin = "https://proofing.example"` (replace this reserved example with
 your HTTPS hostname without a port, path or trailing slash). Proxy and frontend origins derive from this
@@ -147,18 +170,16 @@ page creates the owner account. Do that before enabling LAN access.
 Deploy manually, with the virtual environment active:
 
 ```sh
-doppler run --project "$DOPPLER_PROJECT" --config "$DOPPLER_CONFIG" \
-  --only-secrets POSTGRES_PASSWORD --no-fallback -- \
-  ansible-playbook -i localhost, deploy/staging.yml -e @/etc/pp/staging.yml
+ansible-playbook -i localhost, deploy/staging.yml -e @/etc/pp/staging.yml
 ```
 
-Set `DOPPLER_PROJECT` and `DOPPLER_CONFIG` privately on the server before running.
+Run the command under your secret manager so that only `POSTGRES_PASSWORD` is injected into its environment; keep the project and config values private on the server.
 Add `--ask-become-pass` if sudo requires a password. If the system's locale is
 unavailable, set `LC_ALL=C.UTF-8` for Ansible. Tasks handling credentials or
 installation metadata use `no_log`; do not enable fact caching or verbose/debug
-logging with real settings. Doppler protects stored secrets, not their runtime
+logging with real settings. The secret manager protects stored secrets, not their runtime
 environment from root/Docker admins.
-Ansible does not create accounts or manage their credentials in Doppler.
+Ansible does not create accounts or manage their credentials in the secret manager.
 
 The deployment bundle is installed under `/srv/apps/pp-staging`. Public Caddy CA
 export: `/etc/pp/staging-root.crt`; install it into each client's trust store.

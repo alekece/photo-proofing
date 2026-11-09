@@ -17,7 +17,7 @@ services:
     environment: !override
       POSTGRES_USER: pp
       POSTGRES_DB: pp
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Doppler must supply POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?the secret manager must supply POSTGRES_PASSWORD}
 
   api:
     <<: *runtime

@@ -59,7 +59,7 @@
           - pp_config.photo.dir == '/var/lib/pp/photos'
           - "'database' not in pp_config"
           - pp_password | length > 0
-        fail_msg: Use non-secret container TOML settings, HTTPS with secure cookies, and inject POSTGRES_PASSWORD with Doppler.
+        fail_msg: Use non-secret container TOML settings, HTTPS with secure cookies, and inject POSTGRES_PASSWORD with the secret manager.
       no_log: true
 
     - name: Verify the selected data volumes already exist
