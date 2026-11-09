@@ -62,6 +62,8 @@ dir = "./data/photos"
 # Positive integer upload limits: bytes, pixels, and simultaneous requests.
 max_size = 67108864
 max_pixels = 100000000
+# Largest logo upload in bytes (PP_LOGO_UPLOAD_MAX_SIZE); logos may have any dimensions.
+logo_max_size = 20971520
 concurrency = 4
 # Wait announced to an upload refused because every slot is taken (1s to 1m).
 retry_after = "1s"

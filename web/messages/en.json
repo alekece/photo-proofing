@@ -467,7 +467,6 @@
 	"studio_regenerating": "Watermarked proofs are being regenerated",
 	"studio_save_failed": "Unable to save the settings.",
 	"studio_logo_type": "The logo must be a PNG or JPEG image.",
-	"studio_logo_size": "The logo must be under 1 MB.",
 	"studio_reverted": "Reverted",
 	"studio_saving": "Saving…",
 	"studio_saved": "Saved",

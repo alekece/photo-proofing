@@ -15,7 +15,6 @@
 	import PageShell from '#lib/components/ui/PageShell/PageShell.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import {
-		LOGO_MAX_BYTES,
 		LOGO_TYPES,
 		SettingsApi,
 		SettingsApiError,
@@ -88,7 +87,7 @@
 			confirmSaved();
 			if (watermark) toasts.success(m.studio_regenerating());
 		} catch (error) {
-			if (error instanceof SettingsApiError && error.status === 422) {
+			if (error instanceof SettingsApiError && (error.status === 422 || error.status === 413)) {
 				toasts.error(error.message);
 			} else {
 				toasts.error(m.studio_save_failed(), () => void save());
@@ -111,7 +110,6 @@
 		input.value = '';
 		if (!file) return;
 		if (!LOGO_TYPES.includes(file.type)) return void toasts.error(m.studio_logo_type());
-		if (file.size > LOGO_MAX_BYTES) return void toasts.error(m.studio_logo_size());
 
 		const reader = new FileReader();
 

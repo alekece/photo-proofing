@@ -81,7 +81,8 @@ struct SettingsRequest {
 impl SettingsRequest {
     /// Reads the JSON body, which may carry a base64 logo at the configured byte cap.
     async fn read(payload: Payload, logo_max_size: u64) -> Result<Self, ErrorResponse> {
-        let limit = usize::try_from(logo_max_size * 4 / 3 + BODY_MARGIN).unwrap_or(usize::MAX);
+        let limit = usize::try_from(logo_max_size.saturating_mul(4) / 3 + BODY_MARGIN)
+            .unwrap_or(usize::MAX);
         let body = payload
             .to_bytes_limited(limit)
             .await

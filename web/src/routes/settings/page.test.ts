@@ -170,23 +170,25 @@ describe('Settings page', () => {
 		expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
 	});
 
-	it('refuses a logo that is not a PNG or JPEG or is too large before uploading it', async () => {
+	it('refuses a logo that is not a PNG or JPEG before uploading it and leaves its size to the server', async () => {
 		toasts.items = [];
 		const { container } = open();
 		const user = userEvent.setup({ applyAccept: false });
 		const input = container.querySelector('input[type=file]') as HTMLInputElement;
 
 		await user.upload(input, new File(['x'], 'logo.gif', { type: 'image/gif' }));
-		await user.upload(
-			input,
-			new File([new Uint8Array(1024 * 1024 + 1)], 'big.png', { type: 'image/png' })
-		);
 
 		expect(toasts.items.map((toast) => toast.message)).toEqual([
-			'The logo must be a PNG or JPEG image.',
-			'The logo must be under 1 MB.'
+			'The logo must be a PNG or JPEG image.'
 		]);
 		expect(screen.queryByAltText('Studio logo')).toBeNull();
+
+		await user.upload(
+			input,
+			new File([new Uint8Array(2 * 1024 * 1024)], 'big.png', { type: 'image/png' })
+		);
+
+		expect(await screen.findByAltText('Studio logo')).toBeTruthy();
 	});
 
 	it('reverts every unsaved change on Cancel', async () => {
