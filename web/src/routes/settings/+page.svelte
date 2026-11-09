@@ -2,11 +2,13 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
-	import { ArrowLeft, LoaderCircle, Undo2, Upload, X } from '@lucide/svelte';
+	import { ArrowLeft, Undo2, Upload, X } from '@lucide/svelte';
 	import { authRequest } from '#lib/auth.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
+	import ClickRipple from '#lib/components/ClickRipple.svelte';
 	import CoverSignaturePicker from '#lib/components/CoverSignaturePicker.svelte';
+	import SaveButton, { type SaveStatus } from '#lib/components/SaveButton.svelte';
 	import WatermarkEditor from '#lib/components/WatermarkEditor.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
@@ -24,6 +26,7 @@
 	import type { PageData } from './$types';
 
 	const REVERTED_MS = 1400;
+	const SAVED_MS = 1600;
 
 	let { data }: { data: PageData } = $props();
 	const api = new SettingsApi();
@@ -33,8 +36,11 @@
 	let draft = $state<WorkspaceSettings>({ ...data.settings });
 	let dirty = $derived(settingsChanged(draft, saved));
 	let feedback = $state<'reverted' | null>(null);
-	let saving = $state(false);
+	let status = $state<SaveStatus>('idle');
+	// A new edit ends the confirmation early so Save is offered again at once.
+	let shown = $derived<SaveStatus>(status === 'saved' && dirty ? 'idle' : status);
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	let savedTimer: ReturnType<typeof setTimeout> | undefined;
 	let signingOut = $state(false);
 	let message = $state('');
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
@@ -48,6 +54,7 @@
 		return () => {
 			stop();
 			clearTimeout(timer);
+			clearTimeout(savedTimer);
 		};
 	});
 
@@ -57,11 +64,18 @@
 		timer = setTimeout(() => (feedback = null), ms);
 	}
 
-	async function save() {
-		if (!dirty || saving) return;
+	function confirmSaved() {
+		status = 'saved';
+		clearTimeout(savedTimer);
+		savedTimer = setTimeout(() => (status = 'idle'), SAVED_MS);
+	}
 
-		saving = true;
+	async function save() {
+		if (!dirty || status === 'saving') return;
+
+		status = 'saving';
 		clearTimeout(timer);
+		clearTimeout(savedTimer);
 		feedback = null;
 		try {
 			const submitted = { ...draft };
@@ -71,7 +85,7 @@
 			for (const key of Object.keys(submitted) as (keyof WorkspaceSettings)[]) {
 				if (draft[key] === submitted[key]) draft = { ...draft, [key]: saved[key] };
 			}
-			toasts.saved();
+			confirmSaved();
 			if (watermark) toasts.success(m.studio_regenerating());
 		} catch (error) {
 			if (error instanceof SettingsApiError && error.status === 422) {
@@ -79,8 +93,7 @@
 			} else {
 				toasts.error(m.studio_save_failed(), () => void save());
 			}
-		} finally {
-			saving = false;
+			status = 'idle';
 		}
 	}
 
@@ -150,7 +163,7 @@
 		</h1>
 		<Button
 			variant="outline"
-			disabled={!dirty || saving}
+			disabled={!dirty || status === 'saving'}
 			onclick={cancel}
 			class="{action} border-[1.5px]! border-border! bg-input! {feedback === 'reverted'
 				? 'border-[#d8cab7]! bg-[#efe7dc]! opacity-100!'
@@ -164,25 +177,16 @@
 				class="{face} {feedback === 'reverted' ? '' : 'translate-y-2 opacity-0'}"
 				aria-hidden={feedback !== 'reverted'}
 			>
-				<span class="inline-flex {feedback === 'reverted' ? 'animate-revert-spin' : ''}"
-					><Undo2 size={16} strokeWidth={2.4} aria-hidden="true" /></span
-				>{m.studio_reverted()}
+				<Undo2 size={16} strokeWidth={2.4} aria-hidden="true" />{m.studio_reverted()}
 			</span>
+			{#if feedback === 'reverted'}<ClickRipple class="rounded-[inherit]" />{/if}
 		</Button>
-		<Button disabled={!dirty || saving} onclick={save} class={action}>
-			<span class={face}>
-				{#if saving}
-					<LoaderCircle
-						size={16}
-						class="animate-spin motion-reduce:animate-none"
-						aria-hidden="true"
-					/>
-					{m.studio_saving()}
-				{:else}
-					{m.studio_save()}
-				{/if}
-			</span>
-		</Button>
+		<SaveButton
+			status={shown}
+			disabled={!dirty || status === 'saving'}
+			onclick={save}
+			class={action}
+		/>
 	</div>
 	<span role="status" class="sr-only">
 		{feedback === 'reverted' ? m.studio_reverted() : ''}
@@ -220,7 +224,7 @@
 	</div>
 
 	<h2 class="mb-4 text-[1.875rem] leading-[1.15]">{m.studio_watermark()}</h2>
-	<WatermarkEditor bind:settings={draft} samples={data.samples} />
+	<WatermarkEditor bind:settings={draft} />
 
 	<h2 class="mb-4 text-[1.875rem] leading-[1.15]">{m.signature_label()}</h2>
 	<CoverSignaturePicker
