@@ -252,7 +252,7 @@ async fn deliver_gallery(
 
             Ok(HttpResponse::Ok().no_store().json(gallery))
         }
-        Delivery::NotDeliverable => Err(ErrorResponse::conflict("gallery is not shared")),
+        Delivery::NotDeliverable => Err(ErrorResponse::gallery_not_shared()),
         Delivery::NotFound => Err(ErrorResponse::not_found()),
     }
 }
@@ -588,27 +588,26 @@ mod tests {
         let long = "x".repeat(256);
 
         for (body, field) in [
-            (json!({"title": long}), Some("title")),
-            (json!({"included_photos": 0}), None),
+            (json!({"title": long}), "invalid_title"),
+            (json!({"included_photos": 0}), "invalid_request_body"),
             (
                 json!({"included_photos": u64::MAX}),
-                Some("included_photos"),
+                "invalid_included_photos",
             ),
-            (json!({"layout": null}), None),
-            (json!({"watermark_enabled": null}), None),
-            (json!({"layout": "carousel"}), None),
-            (json!({"unknown": 1}), None),
-            (json!({"expires_at": "tomorrow"}), None),
-            (json!({"expires_at": "9999-12-31T23:59:59-01:00"}), None),
+            (json!({"layout": null}), "invalid_request_body"),
+            (json!({"watermark_enabled": null}), "invalid_request_body"),
+            (json!({"layout": "carousel"}), "invalid_request_body"),
+            (json!({"unknown": 1}), "invalid_request_body"),
+            (json!({"expires_at": "tomorrow"}), "invalid_request_body"),
+            (
+                json!({"expires_at": "9999-12-31T23:59:59-01:00"}),
+                "invalid_request_body",
+            ),
         ] {
             let (status, error) = call(&app, patch(&id, &cookie, body.clone())).await;
 
             assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-            assert_eq!(
-                error["context"].get(0).and_then(Value::as_str),
-                field,
-                "{body}"
-            );
+            assert_eq!(error["code"], field, "{body}");
         }
 
         let (status, _) = call(

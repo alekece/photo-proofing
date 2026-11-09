@@ -14,7 +14,7 @@ use actix_web::{
 use pp_core::types::timestamp::Timestamp;
 use pp_database::photo::PhotoId;
 use pp_database::{
-    export::{Export, ExportId, ExportRepository, ExportRequest, ExportStatus},
+    export::{Export, ExportId, ExportRepository, ExportRequest},
     gallery::GalleryId,
 };
 use pp_storage::{ArchiveKey, StorageError};
@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::ApiState,
-    error::ErrorResponse,
+    error::{ErrorResponse, ExportStatusResponse},
     extractors::identity::Authenticated,
     response::{Attachment, ResponseBuilderExt},
 };
@@ -40,7 +40,7 @@ struct ExportSelection {
 #[derive(Debug, Serialize)]
 struct ExportResponse {
     id: ExportId,
-    status: ExportStatus,
+    status: ExportStatusResponse,
     photo_count: u32,
     created_at: Timestamp,
 }
@@ -49,7 +49,7 @@ impl From<Export> for ExportResponse {
     fn from(export: Export) -> Self {
         Self {
             id: export.id,
-            status: export.status,
+            status: export.status.into(),
             photo_count: export.photo_count,
             created_at: export.created_at,
         }
@@ -121,9 +121,7 @@ async fn request_export(
         ExportRequest::Reused(export) => Ok(HttpResponse::Ok()
             .no_store()
             .json(ExportResponse::from(export))),
-        ExportRequest::InProgress(_) => {
-            Err(ErrorResponse::conflict("a ZIP is already being prepared"))
-        }
+        ExportRequest::InProgress(_) => Err(ErrorResponse::zip_in_progress()),
         ExportRequest::InvalidSelection => Err(ErrorResponse::bad_request()),
         ExportRequest::EmptySelection => Err(ErrorResponse::empty_selection()),
         ExportRequest::TooLarge => Err(ErrorResponse::selection_too_large()),
@@ -452,7 +450,7 @@ mod tests {
         assert_eq!(first["status"]["kind"], "preparing");
         assert_eq!(first["photo_count"], 1);
         assert_eq!(again, StatusCode::CONFLICT);
-        assert_eq!(second["error"], "a ZIP is already being prepared");
+        assert_eq!(second["code"], "zip_in_progress");
         assert_eq!(shown_status, StatusCode::OK);
         assert_eq!(latest["id"], first["id"]);
     }

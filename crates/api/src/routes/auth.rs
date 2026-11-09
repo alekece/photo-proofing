@@ -34,13 +34,14 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::ApiState,
     credentials::{Password, PasswordHash},
+    error::{ErrorCode, ErrorResponse},
     extractors::session_token::{SessionToken, TokenHash},
     middlewares::failed_attempts::FailedAttempts,
     response::ResponseBuilderExt,
 };
 
 /// A safe, client-facing failure: each variant has a fixed message that never echoes input
-/// or internal details. Rendered as `{"error": message}` with `Cache-Control: no-store`.
+/// or internal details. Rendered as an [`ErrorResponse`] with `Cache-Control: no-store`.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AuthError {
     #[error("authentication service unavailable")]
@@ -57,6 +58,19 @@ pub(crate) enum AuthError {
     SetupClosed,
 }
 
+impl AuthError {
+    pub(crate) fn code(&self) -> ErrorCode {
+        match self {
+            Self::Unavailable => ErrorCode::Unavailable,
+            Self::Limited => ErrorCode::TooManyAttempts,
+            Self::Unauthorized => ErrorCode::Unauthorized,
+            Self::ForbiddenOrigin => ErrorCode::ForbiddenOrigin,
+            Self::InvalidLogin => ErrorCode::InvalidLogin,
+            Self::SetupClosed => ErrorCode::SetupClosed,
+        }
+    }
+}
+
 impl ResponseError for AuthError {
     fn status_code(&self) -> StatusCode {
         match self {
@@ -69,9 +83,7 @@ impl ResponseError for AuthError {
     }
 
     fn error_response(&self) -> HttpResponse {
-        HttpResponse::build(self.status_code())
-            .no_store()
-            .json(serde_json::json!({"error": self.to_string()}))
+        ErrorResponse::new(self.status_code(), self.code(), self.to_string()).error_response()
     }
 }
 

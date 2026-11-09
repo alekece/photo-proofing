@@ -80,6 +80,7 @@ Frozen: a unit test asserts the serialized list, so renaming a variant fails CI.
 | `selection_too_large` | 413 | Selection too large for one ZIP |
 | `unsupported_media_type` | 415 | Wrong content type |
 | `bad_request` | 400 | Malformed request |
+| `invalid_request_body` | 422 | Well-formed JSON with a value the API refuses |
 | `invalid_image` | 422 | Not a valid JPEG |
 | `dimensions_too_large` | 422 | Image dimensions over the limit |
 | `invalid_logo` | 422 | Logo image invalid |
