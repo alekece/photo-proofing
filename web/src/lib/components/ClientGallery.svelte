@@ -51,19 +51,24 @@
 	let grid = $state<HTMLElement>();
 	let hero = $state<HTMLElement>();
 	// Server and first client render agree on a hidden bar, so hydration matches.
-	let heroVisible = $state(true);
+	let heroAtRest = $state(true);
 
 	$effect(() => {
 		if (!hero) return;
 
 		// Without an observer the bar stays available instead of never appearing.
 		if (typeof IntersectionObserver === 'undefined') {
-			heroVisible = false;
+			heroAtRest = false;
 
 			return;
 		}
 
-		const observer = new IntersectionObserver(([entry]) => (heroVisible = entry.isIntersecting));
+		// The hero only counts as at rest while (almost) all of it is in view, so the bar
+		// appears as soon as scrolling starts.
+		const observer = new IntersectionObserver(
+			([entry]) => (heroAtRest = entry.intersectionRatio >= 0.99),
+			{ threshold: [0.99, 1] }
+		);
 
 		observer.observe(hero);
 
@@ -84,6 +89,9 @@
 	const shown = $derived(
 		onlyFavorites && !delivered ? proofs.filter(({ id }) => selection.has(id)) : proofs
 	);
+	// Never hide the bar when it is the only way back to the full gallery. The hero fills the
+	// screen, so an unfiltered page with photos always scrolls and hides nothing the client needs.
+	const barHidden = $derived(heroAtRest && !(onlyFavorites && !delivered));
 	const count = $derived(m.summary_photos({ count: proofs.length }));
 	const title = $derived(gallery.title ?? m.gallery_untitled());
 
@@ -271,13 +279,13 @@
 			<div
 				class={[
 					'sticky top-0 z-10 grid transition-[grid-template-rows,opacity] duration-300 motion-reduce:transition-none',
-					heroVisible ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
+					barHidden ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
 				]}
 			>
 				<div class="min-h-0 overflow-hidden">
 					<div
-						inert={heroVisible}
-						aria-hidden={heroVisible}
+						inert={barHidden}
+						aria-hidden={barHidden}
 						class="flex items-center gap-3.5 border-b border-border bg-[rgb(244_239_232/0.96)] px-7 py-3 text-sm font-medium backdrop-blur-[10px] @max-[700px]:px-3.5 @max-[700px]:py-2.5"
 					>
 						<h2 class="min-w-0 truncate font-serif text-[1.25rem] @max-[700px]:text-[1.0625rem]">
