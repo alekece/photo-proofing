@@ -12,17 +12,11 @@ use libvips::{
     VipsApp, VipsImage,
     ops::{self, ForeignKeep, Interpretation, JpegsaveBufferOptions},
 };
-use pp_database::settings::Watermark;
+use pp_database::settings::{ProofQuality, Watermark};
 use thiserror::Error;
 
 use crate::watermark::WatermarkPainter;
 
-/// Long edge of the gallery grid thumbnail.
-const THUMBNAIL_EDGE: u32 = 800;
-/// Long edge of the full-screen preview: sharp on laptops and phones, too small to print.
-const PREVIEW_EDGE: u32 = 2000;
-/// JPEG output quality.
-const JPEG_QUALITY: i32 = 82;
 /// JPEG decoder downscale factors, largest first.
 const JPEG_SHRINKS: [u32; 3] = [8, 4, 2];
 /// Metadata field holding an embedded ICC profile.
@@ -99,13 +93,14 @@ impl ImageRenderer {
     pub fn render(
         &self,
         original: &[u8],
+        quality: ProofQuality,
         watermark: Option<&Watermark>,
     ) -> Result<RenderedPhoto, RenderError> {
-        let image = self.prepare(original)?;
+        let image = self.prepare(original, quality)?;
 
         Ok(RenderedPhoto {
-            thumbnail: Self::fit(&image, THUMBNAIL_EDGE, watermark)?,
-            preview: Self::fit(&image, PREVIEW_EDGE, watermark)?,
+            thumbnail: Self::fit(&image, quality.thumbnail_edge(), quality, watermark)?,
+            preview: Self::fit(&image, quality.preview_edge(), quality, watermark)?,
         })
     }
 
@@ -114,12 +109,14 @@ impl ImageRenderer {
     pub fn render_proof(
         &self,
         original: &[u8],
+        quality: ProofQuality,
         watermark: Option<&Watermark>,
         render: ProofRender,
     ) -> Result<RenderedProof, RenderError> {
-        let image = self.prepare(original)?;
-        let thumbnail = Self::fit_pair(&image, THUMBNAIL_EDGE, watermark, render)?;
-        let preview = Self::fit_pair(&image, PREVIEW_EDGE, watermark, render)?;
+        let image = self.prepare(original, quality)?;
+        let thumbnail =
+            Self::fit_pair(&image, quality.thumbnail_edge(), quality, watermark, render)?;
+        let preview = Self::fit_pair(&image, quality.preview_edge(), quality, watermark, render)?;
         let clean = thumbnail
             .0
             .zip(preview.0)
@@ -134,7 +131,7 @@ impl ImageRenderer {
         })
     }
 
-    fn prepare(&self, original: &[u8]) -> Result<VipsImage, RenderError> {
+    fn prepare(&self, original: &[u8], quality: ProofQuality) -> Result<VipsImage, RenderError> {
         // Loading is lazy: this reads the header only.
         let header =
             VipsImage::new_from_buffer(original, "").map_err(|_| RenderError::Unreadable)?;
@@ -155,7 +152,7 @@ impl ImageRenderer {
         let long_edge = width.max(height);
         let shrink = JPEG_SHRINKS
             .into_iter()
-            .find(|shrink| long_edge / shrink >= PREVIEW_EDGE)
+            .find(|shrink| long_edge / shrink >= quality.preview_edge())
             .unwrap_or(1);
         // The typed `jpegload_buffer_with_opts` passes the output-only `flags` argument as an input,
         // which crashes libvips 8.15, so the loader takes an option string.
@@ -180,6 +177,7 @@ impl ImageRenderer {
     fn fit(
         image: &VipsImage,
         edge: u32,
+        quality: ProofQuality,
         watermark: Option<&Watermark>,
     ) -> Result<Vec<u8>, RenderError> {
         let fitted = Self::resize(image, edge)?;
@@ -189,28 +187,31 @@ impl ImageRenderer {
             None => fitted,
         };
 
-        Self::encode(&fitted)
+        Self::encode(quality, &fitted)
     }
 
     fn fit_pair(
         image: &VipsImage,
         edge: u32,
+        quality: ProofQuality,
         watermark: Option<&Watermark>,
         render: ProofRender,
     ) -> Result<(Option<Vec<u8>>, Vec<u8>), RenderError> {
         let fitted = Self::resize(image, edge)?;
 
         let clean = if render == ProofRender::All {
-            Some(Self::encode(&fitted)?)
+            Some(Self::encode(quality, &fitted)?)
         } else {
             None
         };
 
         let marked = match watermark {
-            Some(watermark) => Self::encode(&WatermarkPainter::new(watermark).paint(&fitted)?)?,
+            Some(watermark) => {
+                Self::encode(quality, &WatermarkPainter::new(watermark).paint(&fitted)?)?
+            }
             None => match &clean {
                 Some(clean) => clean.clone(),
-                None => Self::encode(&fitted)?,
+                None => Self::encode(quality, &fitted)?,
             },
         };
 
@@ -232,13 +233,13 @@ impl ImageRenderer {
         Ok(fitted)
     }
 
-    fn encode(fitted: &VipsImage) -> Result<Vec<u8>, RenderError> {
+    fn encode(quality: ProofQuality, fitted: &VipsImage) -> Result<Vec<u8>, RenderError> {
         // No `keep` flag drops EXIF, XMP and IPTC; the binding always sends a null `profile`, which
         // would write the image's ICC profile back, so `"none"` says to embed none.
         ops::jpegsave_buffer_with_opts(
             fitted,
             &JpegsaveBufferOptions {
-                q: JPEG_QUALITY,
+                q: quality.jpeg_quality(),
                 keep: ForeignKeep::None,
                 profile: Some("none".to_owned()),
                 ..JpegsaveBufferOptions::default()
@@ -339,7 +340,7 @@ pub(crate) mod tests {
     fn render(original: &[u8], max_pixels: NonZeroU64) -> Result<RenderedPhoto, RenderError> {
         ImageRenderer::new(max_pixels)
             .unwrap()
-            .render(original, None)
+            .render(original, ProofQuality::Medium, None)
     }
 
     #[test]
@@ -353,7 +354,12 @@ pub(crate) mod tests {
         .unwrap();
         let source = jpeg(600, 400);
         let result = renderer
-            .render_proof(&source, Some(&watermark), ProofRender::All)
+            .render_proof(
+                &source,
+                ProofQuality::Medium,
+                Some(&watermark),
+                ProofRender::All,
+            )
             .unwrap();
         let clean = result.clean.unwrap();
 
@@ -365,7 +371,12 @@ pub(crate) mod tests {
         assert_clean(&result.watermarked.preview);
 
         let marked_only = renderer
-            .render_proof(&source, Some(&watermark), ProofRender::Watermarked)
+            .render_proof(
+                &source,
+                ProofQuality::Medium,
+                Some(&watermark),
+                ProofRender::Watermarked,
+            )
             .unwrap();
 
         assert!(marked_only.clean.is_none());
@@ -376,7 +387,7 @@ pub(crate) mod tests {
     fn unconfigured_watermark_produces_identical_pairs() {
         let result = ImageRenderer::new(UNBOUNDED)
             .unwrap()
-            .render_proof(&jpeg(100, 80), None, ProofRender::All)
+            .render_proof(&jpeg(100, 80), ProofQuality::Medium, None, ProofRender::All)
             .unwrap();
 
         assert_eq!(result.clean.unwrap(), result.watermarked);
@@ -394,6 +405,23 @@ pub(crate) mod tests {
         assert_eq!(size(&large.preview), (2000, 1000));
         assert_eq!(size(&portrait.thumbnail), (400, 800));
         assert_eq!(size(&portrait.preview), (1000, 2000));
+    }
+
+    #[test]
+    fn each_quality_level_sets_its_own_sizes() {
+        let renderer = ImageRenderer::new(UNBOUNDED).unwrap();
+        let source = jpeg(5000, 2500);
+
+        for (quality, thumbnail, preview) in [
+            (ProofQuality::Low, 640, 1600),
+            (ProofQuality::Medium, 800, 2000),
+            (ProofQuality::High, 1000, 2400),
+        ] {
+            let rendered = renderer.render(&source, quality, None).unwrap();
+
+            assert_eq!(size(&rendered.thumbnail).0, thumbnail);
+            assert_eq!(size(&rendered.preview).0, preview);
+        }
     }
 
     #[test]

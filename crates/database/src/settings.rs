@@ -1,7 +1,7 @@
 //! Workspace watermark settings and preparation of marked proof copies.
 //!
 //! The *watermark* is what is actually drawn on a proof: [`Watermark`]. Changing the effective
-//! watermark requeues proofs in every gallery. A gallery switch only
+//! watermark, or the proof quality, requeues proofs in every gallery. A gallery switch only
 //! chooses the served pair. Clean readiness survives marked-only regeneration, while client
 //! marked access requires the current workspace revision.
 //! A render proves it used the current settings with a [`WatermarkStamp`]; see
@@ -105,6 +105,47 @@ pub enum Language {
     Fr,
 }
 
+/// How sharp, and how heavy, thumbnails and previews of proofs are.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "proof_quality", rename_all = "snake_case")]
+pub enum ProofQuality {
+    Low,
+    #[default]
+    Medium,
+    High,
+}
+
+impl ProofQuality {
+    /// Longest side of the gallery grid thumbnail, in pixels.
+    pub const fn thumbnail_edge(self) -> u32 {
+        match self {
+            Self::Low => 640,
+            Self::Medium => 800,
+            Self::High => 1000,
+        }
+    }
+
+    /// Longest side of the full-screen preview, in pixels: sharp on laptops and phones, too
+    /// small to print.
+    pub const fn preview_edge(self) -> u32 {
+        match self {
+            Self::Low => 1600,
+            Self::Medium => 2000,
+            Self::High => 2400,
+        }
+    }
+
+    /// JPEG output quality.
+    pub const fn jpeg_quality(self) -> i32 {
+        match self {
+            Self::Low => 75,
+            Self::Medium => 82,
+            Self::High => 88,
+        }
+    }
+}
+
 /// A cell of the 3 × 3 position grid, 0 (top left) to 8 (bottom right).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "u8", into = "u8")]
@@ -199,6 +240,7 @@ pub struct WorkspaceSettings {
     pub position: GridCell,
     pub size: SizeStep,
     pub signature: CoverSignature,
+    pub proof_quality: ProofQuality,
     /// Normalised PNG bytes.
     pub logo: Option<Vec<u8>>,
 }
@@ -212,6 +254,7 @@ impl Default for WorkspaceSettings {
             position: GridCell::BOTTOM_RIGHT,
             size: SizeStep(2),
             signature: CoverSignature::Name,
+            proof_quality: ProofQuality::default(),
             logo: None,
         }
     }
@@ -258,6 +301,7 @@ impl FromRow<'_, PgRow> for WorkspaceSettings {
             size: SizeStep::try_from(narrow("size")?)
                 .map_err(|error| sqlx::Error::Decode(error.into()))?,
             signature: row.try_get("signature")?,
+            proof_quality: row.try_get("proof_quality")?,
             logo: row.try_get("logo")?,
         })
     }
@@ -281,6 +325,7 @@ pub struct SettingsUpdate {
     pub position: GridCell,
     pub size: SizeStep,
     pub signature: CoverSignature,
+    pub proof_quality: ProofQuality,
     pub logo: LogoChange,
 }
 
@@ -307,7 +352,10 @@ impl WatermarkStamp {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProofWatermark {
     pub stamp: WatermarkStamp,
-    pub clean_ready: bool,
+    /// The quality to render at: the workspace's for proofs, the default for finals.
+    pub quality: ProofQuality,
+    /// Whether the clean files exist at that quality, so only the marked ones need rendering.
+    pub clean_current: bool,
     /// `None` for finals or when nothing is saved to draw.
     pub watermark: Option<Watermark>,
 }
@@ -331,7 +379,8 @@ impl SettingsRepository<'_> {
     const SETTINGS_OR_DEFAULTS: &'static str = "COALESCE(s.studio_name, '') AS studio_name,
         COALESCE(s.mark, 'name') AS mark, COALESCE(s.pattern, 'repeat') AS pattern,
         COALESCE(s.position, 8::smallint) AS position, COALESCE(s.size, 2::smallint) AS size,
-        COALESCE(s.signature, 'name') AS signature, s.logo AS logo";
+        COALESCE(s.signature, 'name') AS signature,
+        COALESCE(s.proof_quality, 'medium') AS proof_quality, s.logo AS logo";
 
     /// The workspace's settings, or the defaults when none were saved.
     pub async fn settings(
@@ -384,7 +433,7 @@ impl SettingsRepository<'_> {
         .await?;
 
         let current: WorkspaceSettings = sqlx::query_as(
-            "SELECT studio_name, mark, pattern, position, size, signature, logo
+            "SELECT studio_name, mark, pattern, position, size, signature, proof_quality, logo
              FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
         )
         .bind(workspace_id)
@@ -407,14 +456,16 @@ impl SettingsRepository<'_> {
             position: update.position,
             size: update.size,
             signature: update.signature,
+            proof_quality: update.proof_quality,
             logo,
         };
-        let changed = saved.watermark() != current.watermark();
+        let changed = saved.watermark() != current.watermark()
+            || saved.proof_quality != current.proof_quality;
 
         sqlx::query(
             "UPDATE workspace_settings SET
                  studio_name = $2, mark = $3, pattern = $4, position = $5, size = $6,
-                 signature = $7, logo = $8,
+                 signature = $7, logo = $8, proof_quality = $10,
                  watermark_revision = watermark_revision + $9, updated_at = now()
              WHERE workspace_id = $1",
         )
@@ -427,6 +478,7 @@ impl SettingsRepository<'_> {
         .bind(saved.signature)
         .bind(&saved.logo)
         .bind(i64::from(changed))
+        .bind(saved.proof_quality)
         .execute(&mut *transaction)
         .await?;
 
@@ -500,7 +552,10 @@ impl SettingsRepository<'_> {
         photo: PhotoId,
     ) -> Result<Option<ProofWatermark>, DatabaseError> {
         let row = sqlx::query(AssertSqlSafe(format!(
-            "SELECT p.kind = 'proof' AS enabled, p.clean_ready, {stamp} AS stamp, {settings}
+            "SELECT p.kind = 'proof' AS enabled,
+                    p.clean_ready AND p.clean_quality = COALESCE(s.proof_quality, 'medium')
+                        AS clean_current,
+                    {stamp} AS stamp, {settings}
              FROM photos p
              JOIN galleries g ON g.id = p.gallery_id
              LEFT JOIN workspace_settings s ON s.workspace_id = p.workspace_id
@@ -520,7 +575,14 @@ impl SettingsRepository<'_> {
 
             Ok(ProofWatermark {
                 stamp,
-                clean_ready: row.try_get("clean_ready")?,
+                quality: if enabled {
+                    settings.proof_quality
+                } else {
+                    ProofQuality::default()
+                },
+                clean_current: row
+                    .try_get::<Option<bool>, _>("clean_current")?
+                    .unwrap_or(false),
                 watermark,
             })
         })
@@ -721,6 +783,7 @@ mod tests {
             position: GridCell::BOTTOM_RIGHT,
             size: SizeStep(2),
             signature: CoverSignature::Name,
+            proof_quality: ProofQuality::Medium,
             logo: LogoChange::Keep,
         }
     }
@@ -945,6 +1008,43 @@ mod tests {
         assert_eq!(fixture.jobs(failed).await, 0);
         assert_eq!(fixture.status(unmarked).await, PhotoStatus::Waiting);
         assert_eq!(fixture.jobs(unmarked).await, 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_new_proof_quality_regenerates_every_gallery_and_finals_keep_the_default(
+        pool: PgPool,
+    ) {
+        let fixture = Fixture::new(pool).await;
+        let on = fixture.gallery(true).await;
+        let off = fixture.gallery(false).await;
+        let marked = fixture.photo(on, PhotoStatus::Ready).await;
+        let unmarked = fixture.photo(off, PhotoStatus::Ready).await;
+        let finished = fixture
+            .photo_of_kind(on, PhotoKind::Final, PhotoStatus::Ready)
+            .await;
+
+        fixture
+            .save(SettingsUpdate {
+                proof_quality: ProofQuality::High,
+                ..update("Studio")
+            })
+            .await
+            .unwrap();
+
+        for id in [marked, unmarked] {
+            assert_eq!(fixture.status(id).await, PhotoStatus::Waiting);
+            assert_eq!(fixture.jobs(id).await, 1);
+        }
+
+        assert_eq!(fixture.jobs(finished).await, 0);
+        assert_eq!(
+            fixture.proof(marked).await.unwrap().quality,
+            ProofQuality::High
+        );
+        assert_eq!(
+            fixture.proof(finished).await.unwrap().quality,
+            ProofQuality::Medium
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]

@@ -8,6 +8,7 @@ const body = {
 	position: 8,
 	size: 2,
 	signature: 'name',
+	proof_quality: 'medium',
 	has_logo: false
 };
 

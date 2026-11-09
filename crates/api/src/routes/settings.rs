@@ -20,8 +20,8 @@ use actix_web::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use pp_database::settings::{
-    CoverSignature, GridCell, Language, LogoChange, SettingsRepository, SettingsUpdate, SizeStep,
-    WatermarkMark, WatermarkPattern, WorkspaceSettings,
+    CoverSignature, GridCell, Language, LogoChange, ProofQuality, SettingsRepository,
+    SettingsUpdate, SizeStep, WatermarkMark, WatermarkPattern, WorkspaceSettings,
 };
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +41,7 @@ struct SettingsView {
     position: GridCell,
     size: SizeStep,
     signature: CoverSignature,
+    proof_quality: ProofQuality,
     has_logo: bool,
 }
 
@@ -53,6 +54,7 @@ impl From<WorkspaceSettings> for SettingsView {
             position: settings.position,
             size: settings.size,
             signature: settings.signature,
+            proof_quality: settings.proof_quality,
             has_logo: settings.logo.is_some(),
         }
     }
@@ -75,6 +77,7 @@ struct SettingsRequest {
     position: GridCell,
     size: SizeStep,
     signature: CoverSignature,
+    proof_quality: ProofQuality,
     logo: Option<LogoRequest>,
 }
 
@@ -116,6 +119,7 @@ impl SettingsRequest {
             position: self.position,
             size: self.size,
             signature: self.signature,
+            proof_quality: self.proof_quality,
             logo,
         })
     }
@@ -234,6 +238,7 @@ mod tests {
             "position": 8,
             "size": 2,
             "signature": "name",
+            "proof_quality": "medium",
         });
 
         body.as_object_mut()
@@ -369,6 +374,31 @@ mod tests {
         .await;
 
         assert_eq!(removed["has_logo"], false);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn the_proof_quality_round_trips_and_unknown_levels_are_refused(pool: PgPool) {
+        signed_in_app!(pool, app, cookie);
+
+        let (_, saved) = call(
+            &app,
+            request(test::TestRequest::put(), &cookie)
+                .set_json(body(json!({"proof_quality": "high"}))),
+        )
+        .await;
+        let (_, read) = call(&app, request(test::TestRequest::get(), &cookie)).await;
+
+        assert_eq!(saved["proof_quality"], "high");
+        assert_eq!(read["proof_quality"], "high");
+
+        let (status, _) = call(
+            &app,
+            request(test::TestRequest::put(), &cookie)
+                .set_json(body(json!({"proof_quality": "ultra"}))),
+        )
+        .await;
+
+        assert!(status.is_client_error());
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

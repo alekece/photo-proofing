@@ -25,6 +25,7 @@ const body = {
 	position: 4,
 	size: 3,
 	signature: 'logo',
+	proof_quality: 'high',
 	has_logo: true
 };
 
@@ -36,8 +37,10 @@ it('maps the API settings and rejects a malformed body', () => {
 		pattern: 'once',
 		position: 4,
 		size: 3,
-		signature: 'logo'
+		signature: 'logo',
+		proofQuality: 'high'
 	});
+	expect(parseSettings({ ...body, proof_quality: 'ultra' })).toBeNull();
 	expect(parseSettings({ ...body, position: 9 })).toBeNull();
 	expect(parseSettings({ ...body, mark: 'x' })).toBeNull();
 	expect(parseSettings(null)).toBeNull();
