@@ -39,7 +39,7 @@ describe('Settings page', () => {
 	it('links back to the galleries', () => {
 		open();
 
-		expect(screen.getByRole('link', { name: '← Back to galleries' }).getAttribute('href')).toBe(
+		expect(screen.getByRole('link', { name: 'Back to galleries' }).getAttribute('href')).toBe(
 			'/dashboard'
 		);
 	});

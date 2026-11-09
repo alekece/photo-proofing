@@ -2,7 +2,7 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
-	import { LoaderCircle, Undo2, Upload, X } from '@lucide/svelte';
+	import { ArrowLeft, LoaderCircle, Undo2, Upload, X } from '@lucide/svelte';
 	import { authRequest } from '#lib/auth.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
@@ -140,8 +140,8 @@
 >
 	<a
 		href="/dashboard"
-		class="mb-4 inline-flex w-fit items-center text-sm text-muted-foreground underline-offset-2 hover:underline"
-		>{m.header_back_to_galleries()}</a
+		class="mb-4 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground underline-offset-2 hover:underline"
+		><ArrowLeft class="size-4" aria-hidden="true" />{m.header_back_to_galleries()}</a
 	>
 	{#if message}<p role="alert" class="mb-4 text-danger">{message}</p>{/if}
 	<div class="mb-7 flex flex-wrap items-center gap-3">

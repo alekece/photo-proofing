@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
+	import { ArrowLeft } from '@lucide/svelte';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { getUploadQueue } from '#lib/gallery/uploads.svelte.js';
@@ -261,8 +262,8 @@
 	>
 		<a
 			href="/dashboard"
-			class="rounded-full bg-panel/15 px-3 py-1 text-sm text-panel backdrop-blur-sm hover:underline"
-			>{m.header_back_to_galleries()}</a
+			class="inline-flex items-center gap-1.5 rounded-full bg-panel/15 px-3 py-1 text-sm text-panel backdrop-blur-sm hover:underline"
+			><ArrowLeft class="size-4" aria-hidden="true" />{m.header_back_to_galleries()}</a
 		>
 		{#if signOutError}<p role="alert" class="self-stretch text-center text-warning-on-dark">
 				{signOutError}
