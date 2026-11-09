@@ -165,7 +165,10 @@
 	/** Creates the client link and returns it for the dialog to offer. */
 	async function share() {
 		try {
-			shareToken = (await shareGallery(saved.id)).share_token;
+			const shared = await shareGallery(saved.id);
+
+			shareToken = shared.share_token;
+			saved = { ...saved, states: shared.states, updated_at: shared.updated_at };
 		} catch (error) {
 			if (error instanceof GalleryApiError && error.status === 401) {
 				await goto('/login?expired=1', { refreshAll: true });

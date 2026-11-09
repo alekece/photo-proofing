@@ -389,7 +389,9 @@ describe('gallery page', () => {
 		const stubShareFlow = (photos: unknown[] = [photo('p1')]) => {
 			const fetcher = vi.fn(async (url: string) => {
 				if (url.endsWith('/share')) {
-					return new Response(JSON.stringify({ ...base, share_token: 'C'.repeat(22) }));
+					return new Response(
+						JSON.stringify({ ...base, share_token: 'C'.repeat(22), states: ['shared'] })
+					);
 				}
 				if (url.endsWith('/photos') || url.endsWith('/photos?finals=true'))
 					return new Response(JSON.stringify(photos));
@@ -424,7 +426,7 @@ describe('gallery page', () => {
 
 			await user.click(screen.getByRole('button', { name: 'Done' }));
 			expect(screen.getByLabelText('Client link')).toBeTruthy();
-			expect(screen.getAllByText('Shared').length).toBeGreaterThan(0);
+			expect(screen.getByText('Shared')).toBeTruthy();
 			expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
 		});
 
@@ -466,7 +468,7 @@ describe('gallery page', () => {
 		});
 
 		it('starts from the link row and an enabled Deliver when already shared', () => {
-			open({ share_token: 'B'.repeat(22) });
+			open({ share_token: 'B'.repeat(22), states: ['shared'] });
 			expect(screen.getByText('Shared')).toBeTruthy();
 			expect(screen.getByLabelText('Client link')).toBeTruthy();
 			expect((screen.getByRole('button', { name: 'Deliver' }) as HTMLButtonElement).disabled).toBe(
@@ -489,7 +491,7 @@ describe('gallery page', () => {
 							JSON.stringify({
 								...base,
 								share_token: 'B'.repeat(22),
-								states: ['shared', 'delivered']
+								states: ['delivered']
 							})
 						)
 					: new Response(JSON.stringify([photo('p1')]))

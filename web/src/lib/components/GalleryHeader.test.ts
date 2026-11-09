@@ -86,6 +86,17 @@ describe('GalleryHeader', () => {
 		expect(ondeliver).toHaveBeenCalledOnce();
 	});
 
+	it('shows the status only in the badge, not in the meta line or the steps', () => {
+		setup({ share_token: 'T'.repeat(22), states: ['delivered'] }, { photos: 3 });
+
+		expect(screen.getByText('Delivered')).toBeTruthy();
+		expect(screen.getAllByText('done', { selector: '.sr-only' }).length).toBeGreaterThan(0);
+		expect(screen.queryByText(/delivered|shared/i, { selector: 'p' })).toBeNull();
+		expect(
+			screen.queryByText(/^(Shared|Delivered)$/, { selector: '[data-slot="step-fact"]' })
+		).toBeNull();
+	});
+
 	it('has no main action once delivered', () => {
 		setup({ share_token: 'T'.repeat(22), states: ['delivered'] }, { photos: 3 });
 

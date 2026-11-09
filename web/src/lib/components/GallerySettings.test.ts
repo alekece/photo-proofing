@@ -118,6 +118,12 @@ describe('GallerySettings', () => {
 		expect(onsave).toHaveBeenCalledWith({ included_photos: 5 });
 	});
 
+	it('disables the included photos once the gallery is delivered', () => {
+		setup({ included_photos: 3, states: ['delivered'] });
+
+		expect((screen.getByLabelText('Included photos') as HTMLInputElement).disabled).toBe(true);
+	});
+
 	it('reverts an invalid included count with an error toast', async () => {
 		const { onsave, user } = setup({ included_photos: 3 });
 		const input = screen.getByLabelText('Included photos') as HTMLInputElement;
