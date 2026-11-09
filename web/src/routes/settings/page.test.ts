@@ -105,9 +105,8 @@ describe('Settings page', () => {
 		expect(screen.getByRole('radio', { name: 'None' }).getAttribute('aria-checked')).toBe('true');
 	});
 
-	it('saves, queues the Saved toast and announces the regeneration', async () => {
+	it('saves, confirms on the button without a toast and announces the regeneration', async () => {
 		toasts.items = [];
-		const savedToast = vi.spyOn(toasts, 'saved');
 		const fetcher = respond(saved);
 		open();
 		const user = userEvent.setup();
@@ -115,7 +114,13 @@ describe('Settings page', () => {
 		await user.type(screen.getByLabelText('Studio name'), 'Studio X');
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
-		await vi.waitFor(() => expect(savedToast).toHaveBeenCalledOnce());
+		await vi.waitFor(() =>
+			expect(
+				screen.getAllByRole('status').some((live) => live.textContent?.trim() === 'Saved')
+			).toBe(true)
+		);
+		expect(screen.getByTestId('click-ripple')).toBeTruthy();
+		expect(toasts.items.map((toast) => toast.message)).not.toContain('Saved');
 		expect(fetcher).toHaveBeenCalledWith(
 			'/api/v1/settings',
 			expect.objectContaining({ method: 'PUT' })
@@ -149,7 +154,6 @@ describe('Settings page', () => {
 
 	it('shows the reason the server refused the settings', async () => {
 		toasts.items = [];
-		const savedToast = vi.spyOn(toasts, 'saved');
 		respond({ code: 'invalid_studio_name' }, 422);
 		open();
 		const user = userEvent.setup();
@@ -162,26 +166,29 @@ describe('Settings page', () => {
 				'Enter a studio name of up to 100 characters.'
 			)
 		);
-		expect(savedToast).not.toHaveBeenCalled();
+		expect(screen.queryByTestId('click-ripple')).toBeNull();
+		expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
 	});
 
-	it('refuses a logo that is not a PNG or JPEG or is too large before uploading it', async () => {
+	it('refuses a logo that is not a PNG or JPEG before uploading it and leaves its size to the server', async () => {
 		toasts.items = [];
 		const { container } = open();
 		const user = userEvent.setup({ applyAccept: false });
 		const input = container.querySelector('input[type=file]') as HTMLInputElement;
 
 		await user.upload(input, new File(['x'], 'logo.gif', { type: 'image/gif' }));
-		await user.upload(
-			input,
-			new File([new Uint8Array(1024 * 1024 + 1)], 'big.png', { type: 'image/png' })
-		);
 
 		expect(toasts.items.map((toast) => toast.message)).toEqual([
-			'The logo must be a PNG or JPEG image.',
-			'The logo must be under 1 MB.'
+			'The logo must be a PNG or JPEG image.'
 		]);
 		expect(screen.queryByAltText('Studio logo')).toBeNull();
+
+		await user.upload(
+			input,
+			new File([new Uint8Array(2 * 1024 * 1024)], 'big.png', { type: 'image/png' })
+		);
+
+		expect(await screen.findByAltText('Studio logo')).toBeTruthy();
 	});
 
 	it('reverts every unsaved change on Cancel', async () => {
@@ -193,7 +200,14 @@ describe('Settings page', () => {
 		await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
 		expect(name.value).toBe('');
-		expect(await screen.findByRole('button', { name: /Reverted/ })).toBeTruthy();
+
+		const reverted = await screen.findByRole('button', { name: /Reverted/ });
+
+		expect(reverted).toHaveProperty('disabled', true);
+		expect(screen.getByTestId('click-ripple')).toBeTruthy();
+		expect(screen.getAllByRole('status').some((live) => live.textContent === 'Reverted')).toBe(
+			true
+		);
 	});
 
 	it('disables logo options and the position grid until they apply', async () => {

@@ -6,10 +6,10 @@
 use std::fmt::Debug;
 
 use libvips::{
-    VipsImage,
+    VipsImage, VipsInterpolate,
     ops::{
         self, Align, ArrayjoinOptions, BandFormat, BlendMode, Composite2Options, CopyOptions,
-        ExtractBandOptions, Interpretation, WrapOptions,
+        ExtractBandOptions, Interpretation, RotateOptions,
     },
 };
 use pp_database::settings::{GridCell, Watermark, WatermarkPlacement};
@@ -34,6 +34,9 @@ const SHADOW_OPACITY: f64 = 0.55;
 const EDGE_MARGIN: f64 = 0.03;
 /// Space between repeated marks, relative to the mark's size.
 const REPEAT_GAP: (f64, f64) = (0.6, 1.2);
+/// How far repeated marks are turned, in degrees clockwise: the same slant as the Settings
+/// preview.
+const REPEAT_ANGLE: f64 = -24.0;
 
 /// Paints one watermark onto photos.
 pub struct WatermarkPainter<'a> {
@@ -66,11 +69,7 @@ impl<'a> WatermarkPainter<'a> {
                     },
                 )
             }
-            WatermarkPlacement::Repeat => {
-                let overlay = Self::repeated(&mark, width, height)?;
-
-                ops::composite2(image, &overlay, BlendMode::Over)
-            }
+            WatermarkPlacement::Repeat => Self::paint_repeated(image, &mark),
         }
         .map_err(Self::fault)?;
 
@@ -252,34 +251,88 @@ impl<'a> WatermarkPainter<'a> {
         )
     }
 
-    /// An overlay of `width` × `height` covered with `mark`, every other row shifted by half a
-    /// step.
-    fn repeated(mark: &VipsImage, width: i32, height: i32) -> Result<VipsImage, RenderError> {
-        let step_x = (f64::from(mark.get_width()) * (1.0 + REPEAT_GAP.0)).round() as i32;
-        let step_y = (f64::from(mark.get_height()) * (1.0 + REPEAT_GAP.1)).round() as i32;
-        let cell = ops::embed(mark, 0, 0, step_x, step_y).map_err(Self::fault)?;
-        let shifted = ops::wrap_with_opts(
-            &cell,
-            &WrapOptions {
-                x: step_x / 2,
-                y: 0,
+    /// `image` with `mark` copied over it on a staggered lattice turned by [`REPEAT_ANGLE`] about
+    /// the photo's centre. The mark is turned once, so its edges are resampled a single time and
+    /// stay sharp, instead of resampling a photo-sized overlay.
+    fn paint_repeated(image: &VipsImage, mark: &VipsImage) -> libvips::Result<VipsImage> {
+        let (width, height) = (image.get_width(), image.get_height());
+        let turned = Self::turned(mark)?;
+        let (turned_width, turned_height) = (turned.get_width(), turned.get_height());
+        let step_x = f64::from(mark.get_width()) * (1.0 + REPEAT_GAP.0);
+        let step_y = f64::from(mark.get_height()) * (1.0 + REPEAT_GAP.1);
+        let (centre_x, centre_y) = (f64::from(width) / 2.0, f64::from(height) / 2.0);
+        let (sin, cos) = REPEAT_ANGLE.to_radians().sin_cos();
+        // Half the diagonal reaches every corner from the centre, whatever the angle.
+        let reach = centre_x.hypot(centre_y);
+        let columns = (reach / step_x).ceil() as i32 + 1;
+        let rows = (reach / step_y).ceil() as i32 + 1;
+        // `VipsImage::clone` copies the handle without taking a reference, so take a real one.
+        let mut painted = ops::copy(image)?;
+
+        for row in -rows..=rows {
+            // Every other row is shifted by half a step.
+            let shift = if row.rem_euclid(2) == 1 { 0.5 } else { 0.0 };
+
+            for column in -columns..=columns {
+                let x = (f64::from(column) + shift) * step_x;
+                let y = f64::from(row) * step_y;
+                let left = (centre_x + x * cos - y * sin).round() as i32 - turned_width / 2;
+                let top = (centre_y + x * sin + y * cos).round() as i32 - turned_height / 2;
+                let visible = left < width
+                    && top < height
+                    && left + turned_width > 0
+                    && top + turned_height > 0;
+
+                if visible {
+                    painted = ops::composite2_with_opts(
+                        &painted,
+                        &turned,
+                        BlendMode::Over,
+                        &Composite2Options {
+                            x: left,
+                            y: top,
+                            ..Composite2Options::default()
+                        },
+                    )?;
+                }
+            }
+        }
+
+        Ok(painted)
+    }
+
+    /// `mark` turned by [`REPEAT_ANGLE`] on a transparent background, with a bicubic filter and
+    /// premultiplied alpha so the edges get no dark fringe. Every option is spelled out because
+    /// dropping `RotateOptions::default()` releases libvips' shared nearest-neighbour filter.
+    fn turned(mark: &VipsImage) -> libvips::Result<VipsImage> {
+        let premultiplied = ops::premultiply(mark)?;
+        let turned = ops::rotate_with_opts(
+            &premultiplied,
+            REPEAT_ANGLE,
+            &RotateOptions {
+                interpolate: VipsInterpolate::new_from_name("bicubic")?,
+                background: vec![0.0, 0.0, 0.0, 0.0],
+                odx: 0.0,
+                ody: 0.0,
+                idx: 0.0,
+                idy: 0.0,
+            },
+        )?;
+        let straight = ops::cast(&ops::unpremultiply(&turned)?, BandFormat::Uchar)?;
+
+        ops::copy_with_opts(
+            &straight,
+            &CopyOptions {
+                width: straight.get_width(),
+                height: straight.get_height(),
+                bands: straight.get_bands(),
+                format: BandFormat::Uchar,
+                interpretation: Interpretation::Srgb,
+                xres: 1.0,
+                yres: 1.0,
+                ..CopyOptions::default()
             },
         )
-        .map_err(Self::fault)?;
-        let period = ops::arrayjoin_with_opts(
-            &mut [cell, shifted],
-            &ArrayjoinOptions {
-                across: 1,
-                hspacing: step_x,
-                vspacing: step_y,
-                ..ArrayjoinOptions::default()
-            },
-        )
-        .map_err(Self::fault)?;
-        let period = Self::as_srgb(&period)?;
-        let tiled = ops::replicate(&period, width / step_x + 1, height / (2 * step_y) + 1)
-            .map_err(Self::fault)?;
-        ops::extract_area(&tiled, 0, 0, width, height).map_err(Self::fault)
     }
 }
 
@@ -391,6 +444,36 @@ mod tests {
             "{:?}",
             cells(&image)
         );
+    }
+
+    /// Which rows of the `width`-pixel-wide strip of `image` starting at column `left` hold a lit
+    /// pixel.
+    fn lit_rows(image: &VipsImage, left: i32, width: i32) -> Vec<bool> {
+        let strip = ops::extract_area(image, left, 0, width, image.get_height()).unwrap();
+        let pixels = strip.image_write_to_memory();
+
+        pixels
+            .chunks(width as usize * 3)
+            .map(|row| row.iter().any(|&value| value > 128))
+            .collect()
+    }
+
+    #[test]
+    fn a_repeated_name_runs_along_the_diagonal_of_the_preview() {
+        let image = painted(&watermark(
+            Some("Studio"),
+            false,
+            WatermarkPlacement::Repeat,
+        ));
+        let left = lit_rows(&image, 0, 120);
+        let right = lit_rows(&image, WIDTH - 120, 120);
+        let both = left.iter().zip(&right).filter(|(l, r)| **l && **r).count();
+        let either = left.iter().zip(&right).filter(|(l, r)| **l || **r).count();
+        let overlap = both as f64 / either as f64;
+
+        // Axis-aligned rows would light the very same pixel rows on both sides.
+        assert!(left.iter().filter(|lit| **lit).count() > 40);
+        assert!(overlap < 0.7, "marks share {overlap} of their rows");
     }
 
     #[test]

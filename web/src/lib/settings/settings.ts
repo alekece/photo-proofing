@@ -54,7 +54,6 @@ export function settingsChanged(a: WorkspaceSettings, b: WorkspaceSettings) {
 export const LOGO_URL = '/api/v1/settings/logo';
 
 /** What the API accepts, mirrored here to refuse a logo before uploading it. */
-export const LOGO_MAX_BYTES = 1024 * 1024;
 /** The image types accepted for a logo. */
 export const LOGO_TYPES = ['image/png', 'image/jpeg'];
 

@@ -29,7 +29,6 @@
 	--animate-hero-in: photo-in 500ms ease-out;
 	--animate-leak: leak 16s ease-in-out infinite alternate;
 	--animate-spin-slow: spin 900ms linear infinite;
-	--animate-revert-spin: revert-spin 500ms ease-out;
 	--color-input: #fff;
 	--color-inverse: #fff;
 	--color-warning: oklch(47.3% 0.137 46.201);
@@ -182,11 +181,6 @@ h2,
 	}
 	100% {
 		transform: scale(1);
-	}
-}
-@keyframes revert-spin {
-	from {
-		transform: rotate(360deg);
 	}
 }
 @keyframes click-ripple {

@@ -15,15 +15,18 @@ export const load: PageServerLoad = async ({ fetch, request, setHeaders }) => {
 
 	const settings = await getSettings(fetch, request.headers.get('cookie'));
 
-	// The previews borrow the owner's own cover photos; a list outage just leaves plain tiles.
+	// Only the cover-signature preview still borrows the owner's first cover photo; #293 reworks
+	// it and drops this lookup. A list outage just leaves a plain tile.
 	const galleries = await listGalleries(fetch, request.headers.get('cookie'), 'updated', []).catch(
 		() => []
 	);
-	const covered = galleries.filter((gallery) => gallery.hero_id !== null);
-	const samples = covered.map((gallery) => previewUrl(gallery.id, gallery.hero_id!));
-	const cover = covered.length
-		? { image: samples[0], title: covered[0].title ?? m.gallery_untitled() }
+	const first = galleries.find((gallery) => gallery.hero_id !== null);
+	const cover = first
+		? {
+				image: previewUrl(first.id, first.hero_id!),
+				title: first.title ?? m.gallery_untitled()
+			}
 		: null;
 
-	return { idleTimeoutMs: status.idle_timeout_ms, settings, samples, cover };
+	return { idleTimeoutMs: status.idle_timeout_ms, settings, cover };
 };

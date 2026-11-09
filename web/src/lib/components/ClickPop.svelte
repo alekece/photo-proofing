@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import ClickRipple from '#lib/components/ClickRipple.svelte';
 
 	let {
 		active,
@@ -19,12 +20,5 @@
 	data-active={active || undefined}
 >
 	{@render children()}
-	{#if active}
-		<span
-			onanimationend={() => onend?.()}
-			aria-hidden="true"
-			data-testid="click-ripple"
-			class="pointer-events-none absolute inset-0 animate-click-ripple rounded-full border-2 border-current"
-		></span>
-	{/if}
+	{#if active}<ClickRipple onend={() => onend?.()} />{/if}
 </span>
