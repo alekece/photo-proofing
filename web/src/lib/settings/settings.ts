@@ -1,5 +1,5 @@
 import * as v from 'valibot';
-import { apiErrorMessage } from '#lib/i18n/errors.js';
+import { apiErrorMessage, readResponseErrorCode } from '#lib/i18n/errors.js';
 
 export const MARKS = ['name', 'logo', 'both'] as const;
 export const PATTERNS = ['repeat', 'once'] as const;
@@ -91,8 +91,8 @@ export class SettingsApiError extends Error {
 	constructor(
 		public status: number,
 		message: string,
-		/** The setting a 422 is about (`context[0]` of the error body). */
-		public field?: string
+		/** The API's error `code`, when it sent one. */
+		public code?: string
 	) {
 		super(message);
 	}
@@ -128,13 +128,9 @@ export class SettingsApi {
 		});
 
 		if (!response.ok) {
-			const data = await response.json().catch(() => ({}));
-			const field =
-				Array.isArray(data.context) && typeof data.context[0] === 'string'
-					? data.context[0]
-					: undefined;
+			const code = await readResponseErrorCode(response);
 
-			throw new SettingsApiError(response.status, apiErrorMessage(response.status, field), field);
+			throw new SettingsApiError(response.status, apiErrorMessage(response.status, code), code);
 		}
 
 		const logoReplaced = settings.logo?.startsWith('data:') ?? false;

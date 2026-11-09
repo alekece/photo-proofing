@@ -34,14 +34,15 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::ApiState,
     credentials::{Password, PasswordHash},
+    error::ErrorResponse,
     extractors::session_token::{SessionToken, TokenHash},
     middlewares::failed_attempts::FailedAttempts,
     response::ResponseBuilderExt,
 };
 
 /// A safe, client-facing failure: each variant has a fixed message that never echoes input
-/// or internal details. Rendered as `{"error": message}` with `Cache-Control: no-store`.
-#[derive(Debug, thiserror::Error)]
+/// or internal details. Rendered as an [`ErrorResponse`] with `Cache-Control: no-store`.
+#[derive(Debug, Clone, Copy, thiserror::Error)]
 pub(crate) enum AuthError {
     #[error("authentication service unavailable")]
     Unavailable,
@@ -69,9 +70,7 @@ impl ResponseError for AuthError {
     }
 
     fn error_response(&self) -> HttpResponse {
-        HttpResponse::build(self.status_code())
-            .no_store()
-            .json(serde_json::json!({"error": self.to_string()}))
+        ErrorResponse::from(*self).error_response()
     }
 }
 

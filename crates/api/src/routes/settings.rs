@@ -357,14 +357,17 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn invalid_settings_are_refused_with_their_field(pool: PgPool) {
+    async fn invalid_settings_are_refused_with_their_code(pool: PgPool) {
         signed_in_app!(pool, app, cookie);
 
-        for (extra, field) in [
-            (json!({"studio_name": " "}), "studio_name"),
-            (json!({"studio_name": "x".repeat(101)}), "studio_name"),
-            (json!({"mark": "logo"}), "logo"),
-            (json!({"signature": "both"}), "logo"),
+        for (extra, code) in [
+            (json!({"studio_name": " "}), "invalid_studio_name"),
+            (
+                json!({"studio_name": "x".repeat(101)}),
+                "invalid_studio_name",
+            ),
+            (json!({"mark": "logo"}), "logo_required"),
+            (json!({"signature": "both"}), "logo_required"),
         ] {
             let (status, error) = call(
                 &app,
@@ -373,7 +376,7 @@ mod tests {
             .await;
 
             assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-            assert_eq!(error["context"][0], field);
+            assert_eq!(error["code"], code);
         }
 
         for extra in [
@@ -400,7 +403,7 @@ mod tests {
         .await;
 
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(error["error"], "invalid logo image");
+        assert_eq!(error["code"], "invalid_logo");
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

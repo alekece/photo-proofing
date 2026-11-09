@@ -1083,7 +1083,7 @@ pub(super) mod tests {
         let (status, body) = call_request(&app, request).await;
 
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(body["error"], "not found");
+        assert_eq!(body["code"], "not_found");
     }
 
     /// How far a test photo got through processing.

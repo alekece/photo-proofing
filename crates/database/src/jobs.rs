@@ -784,7 +784,7 @@ impl JobRepository<'_> {
             ExportRepository::mark_failed_in(
                 transaction,
                 ExportId(export_id),
-                crate::export::EXPORT_FAILED_REASON,
+                crate::export::ExportFailure::AttemptsExhausted,
             )
             .await?;
         }

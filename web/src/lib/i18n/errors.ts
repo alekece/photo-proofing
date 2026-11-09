@@ -1,12 +1,37 @@
 import { m } from '#lib/paraglide/messages.js';
 
-const INVALID_FIELDS: Record<string, () => string> = {
-	title: m.api_error_invalid_title,
-	included_photos: m.api_error_invalid_included_photos,
-	studio_name: m.api_error_invalid_studio_name,
-	logo: m.api_error_invalid_logo,
-	position: m.api_error_invalid_position,
-	size: m.api_error_invalid_size
+const CODES: Record<string, () => string> = {
+	unauthorized: m.api_error_unauthorized,
+	invalid_login: m.api_error_invalid_login,
+	forbidden_origin: m.api_error_forbidden,
+	not_found: m.api_error_not_found,
+	setup_closed: m.api_error_setup_closed,
+	gallery_delivered: m.api_error_gallery_delivered,
+	gallery_not_shared: m.api_error_gallery_not_shared,
+	selection_empty: m.api_error_selection_empty,
+	zip_not_ready: m.api_error_zip_not_ready,
+	zip_in_progress: m.api_error_zip_in_progress,
+	request_timeout: m.api_error_request_timeout,
+	payload_too_large: m.api_error_too_large,
+	selection_too_large: m.api_error_selection_too_large,
+	unsupported_media_type: m.api_error_unsupported,
+	invalid_image: m.api_error_invalid_image,
+	dimensions_too_large: m.api_error_dimensions_too_large,
+	invalid_logo: m.api_error_invalid_logo,
+	logo_too_large: m.api_error_logo_too_large,
+	logo_required: m.api_error_logo_required,
+	invalid_title: m.api_error_invalid_title,
+	invalid_included_photos: m.api_error_invalid_included_photos,
+	invalid_studio_name: m.api_error_invalid_studio_name,
+	invalid_position: m.api_error_invalid_position,
+	invalid_size: m.api_error_invalid_size,
+	invalid_request_body: m.api_error_invalid,
+	too_many_attempts: m.api_error_too_many_attempts,
+	busy: m.api_error_busy,
+	storage_full: m.api_error_storage_full,
+	unavailable: m.api_error_unavailable,
+	photo_removed: m.api_error_photo_removed,
+	export_failed: m.api_error_export_failed
 };
 
 const STATUSES: Record<number, () => string> = {
@@ -23,13 +48,25 @@ const STATUSES: Record<number, () => string> = {
 	507: m.api_error_storage_full
 };
 
+/** The `code` of an error body, if it has one. */
+export function readErrorCode(data: unknown): string | undefined {
+	const code = (data as { code?: unknown } | null)?.code;
+
+	return typeof code === 'string' ? code : undefined;
+}
+
+/** The `code` of a refused response's JSON body, if it has one. */
+export async function readResponseErrorCode(response: Response): Promise<string | undefined> {
+	return readErrorCode(await response.json().catch(() => null));
+}
+
 /**
- * The sentence shown for a refused API call, in the workspace language. The API's own `error`
- * text is English and meant for logs, so only the status and the refused `field` are used.
+ * The sentence shown for a refused API call, in the workspace language. A code the web knows
+ * wins; an unknown or missing one falls back to the status.
  */
-export function apiErrorMessage(status: number, field?: string): string {
+export function apiErrorMessage(status: number, code?: string): string {
 	const message =
-		(status === 422 && field !== undefined ? INVALID_FIELDS[field] : undefined) ??
+		(code !== undefined && Object.hasOwn(CODES, code) ? CODES[code] : undefined) ??
 		STATUSES[status] ??
 		m.api_error_generic;
 

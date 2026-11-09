@@ -330,7 +330,7 @@ async fn download_shared_zip(
     let export = match state.ensure_delivery(location).await? {
         DeliveryZip::Ready(export) => export,
         DeliveryZip::Building | DeliveryZip::Failed => {
-            return Err(ErrorResponse::conflict("the ZIP is not ready"));
+            return Err(ErrorResponse::zip_not_ready());
         }
         DeliveryZip::Empty | DeliveryZip::Unavailable => return Err(ErrorResponse::not_found()),
     };

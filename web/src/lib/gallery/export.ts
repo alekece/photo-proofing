@@ -1,6 +1,6 @@
 import { GalleryApiError } from './api';
 import { parseOrNull, exportSchema, type Export } from './schemas';
-import { apiErrorMessage } from '#lib/i18n/errors.js';
+import { apiErrorMessage, readResponseErrorCode } from '#lib/i18n/errors.js';
 
 export type { Export } from './schemas';
 
@@ -26,7 +26,9 @@ async function call(
 	});
 
 	if (!response.ok) {
-		throw new GalleryApiError(response.status, apiErrorMessage(response.status));
+		const code = await readResponseErrorCode(response);
+
+		throw new GalleryApiError(response.status, apiErrorMessage(response.status, code), code);
 	}
 
 	return response;
