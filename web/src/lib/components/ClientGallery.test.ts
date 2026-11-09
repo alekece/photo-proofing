@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
+import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import type { Proof, SharedGallery } from '#lib/gallery/types.js';
@@ -182,6 +183,56 @@ describe('ClientGallery', () => {
 			)
 		);
 		vi.unstubAllGlobals();
+	});
+
+	describe('sticky bar', () => {
+		let report: (isIntersecting: boolean) => void;
+
+		beforeEach(() => {
+			vi.stubGlobal(
+				'IntersectionObserver',
+				class {
+					constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
+						report = (isIntersecting) => callback([{ isIntersecting }]);
+					}
+					observe() {}
+					disconnect() {}
+				}
+			);
+		});
+
+		const delivered = () => show({ gallery: { ...gallery, delivered: true } });
+
+		it('is absent while the hero is visible, so the title and download appear once', async () => {
+			delivered();
+			await tick();
+
+			expect(screen.getAllByRole('heading', { name: 'Wedding' })).toHaveLength(1);
+			expect(screen.getAllByRole('button', { name: /download all/i })).toHaveLength(1);
+			expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
+		});
+
+		it('shows the title and download once the hero scrolls out of view', async () => {
+			delivered();
+			await tick();
+			report(false);
+			await tick();
+
+			expect(screen.getByRole('heading', { level: 2 }).textContent?.trim()).toBe('Wedding');
+			expect(screen.getAllByRole('button', { name: /download all/i })).toHaveLength(2);
+		});
+
+		it('shows the All / Favorites switch only once the hero is out of view', async () => {
+			show();
+			await tick();
+
+			expect(screen.queryByRole('button', { name: /^Favorites/ })).toBeNull();
+
+			report(false);
+			await tick();
+
+			expect(favoritesToggle()).toBeTruthy();
+		});
 	});
 
 	it('filters to favorites and says when there are none', async () => {
