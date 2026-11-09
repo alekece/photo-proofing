@@ -1,38 +1,15 @@
 <script lang="ts">
-	import { tick } from 'svelte';
-	import { Copy } from '@lucide/svelte';
 	import { buildVersion, displayVersion } from '#lib/build.js';
 	import { legalNotices as defaultNotices, type LegalNotice } from '#lib/footer.js';
-	import Button from '#lib/components/ui/Button/Button.svelte';
 	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		version = buildVersion,
-		copyable = true,
 		legalNotices = defaultNotices
 	}: {
 		version?: string;
-		/** Photographer pages offer copying the full version; the client gallery only shows it. */
-		copyable?: boolean;
 		legalNotices?: LegalNotice[];
 	} = $props();
-	let status = $state('');
-	let manual = $state(false);
-	let input = $state<HTMLInputElement | null>(null);
-
-	async function copy() {
-		try {
-			await navigator.clipboard.writeText(version);
-			manual = false;
-			status = m.footer_copied();
-		} catch {
-			manual = true;
-			status = m.footer_copy_failed();
-			await tick();
-			input?.focus();
-			input?.select();
-		}
-	}
 </script>
 
 <footer
@@ -49,28 +26,11 @@
 			</nav>
 		{/if}
 		{#if version}
-			<span class="flex items-center gap-1">
-				<span class="font-mono" title={version}
-					>{m.footer_build({ version: displayVersion(version) })}</span
-				>
-				{#if copyable}
-					<Button variant="ghost" size="sm" aria-label={m.footer_copy_build()} onclick={copy}>
-						<Copy size={14} aria-hidden="true" />
-					</Button>
-				{/if}
-			</span>
+			<span class="font-mono" title={version}
+				>{m.footer_build({ version: displayVersion(version) })}</span
+			>
 		{:else}
 			<span>{m.footer_development_build()}</span>
 		{/if}
 	</div>
-	{#if manual}
-		<input
-			bind:this={input}
-			readonly
-			value={version}
-			aria-label={m.footer_full_build()}
-			class="w-full max-w-sm rounded border border-border bg-input p-2 font-mono"
-		/>
-	{/if}
-	<p role="status" class="empty:hidden">{status}</p>
 </footer>
