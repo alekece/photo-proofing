@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use pp_database::{
     Database,
-    export::{ExportId, ExportPlan, ExportRepository, ExportUpdate, PHOTO_REMOVED_REASON},
+    export::{ExportFailure, ExportId, ExportPlan, ExportRepository, ExportUpdate},
     jobs::{Job, JobCompletion, JobRepository, ZipExport},
     photo::PhotoLocation,
 };
@@ -15,9 +15,6 @@ use pp_storage::{ArchiveEntry, ArchiveKey, PhotoKey, PhotoStorage, StorageError,
 use tracing::{info, warn};
 
 use crate::handlers::{Finalizer, HandlerError};
-
-/// Reason shown when the photo volume is full; retrying cannot help until space is freed.
-const DISK_FULL_REASON: &str = "The server is out of disk space.";
 
 /// What building an export produced, for [`ExportFinalizer`] to record.
 #[derive(Debug)]
@@ -31,7 +28,10 @@ pub enum ExportOutput {
         photos: usize,
     },
     /// The archive cannot be built, and retrying cannot change that.
-    Failed { id: ExportId, reason: &'static str },
+    Failed {
+        id: ExportId,
+        failure: ExportFailure,
+    },
 }
 
 /// Serves `zip_export` jobs: writes the archive of a selection.
@@ -75,11 +75,11 @@ impl ExportHandler {
             }),
             Err(StorageError::NotFound) => Ok(ExportOutput::Failed {
                 id,
-                reason: PHOTO_REMOVED_REASON,
+                failure: ExportFailure::PhotoRemoved,
             }),
             Err(StorageError::DiskFull(_)) => Ok(ExportOutput::Failed {
                 id,
-                reason: DISK_FULL_REASON,
+                failure: ExportFailure::DiskFull,
             }),
             Err(error) => Err(HandlerError::failed(error)),
         }
@@ -136,8 +136,8 @@ impl Finalizer for ExportFinalizer {
                 .complete(job)
                 .await
                 .map_err(HandlerError::failed),
-            ExportOutput::Failed { id, reason } => exports
-                .fail(job, id, reason)
+            ExportOutput::Failed { id, failure } => exports
+                .fail(job, id, failure)
                 .await
                 .map_err(HandlerError::failed),
             ExportOutput::Built { id, key, photos } => {
@@ -334,7 +334,7 @@ mod tests {
         assert!(fixture.run(id, job).await.is_current());
         assert_eq!(
             fixture.status().await,
-            ExportStatus::Failed(PHOTO_REMOVED_REASON.to_owned())
+            ExportStatus::Failed(ExportFailure::PhotoRemoved)
         );
         assert!(!fixture.has_zip(id).await);
         assert_eq!(
@@ -363,7 +363,7 @@ mod tests {
         assert!(fixture.run(id, job).await.is_current());
         assert_eq!(
             fixture.status().await,
-            ExportStatus::Failed(PHOTO_REMOVED_REASON.to_owned())
+            ExportStatus::Failed(ExportFailure::PhotoRemoved)
         );
         assert!(!fixture.has_zip(id).await);
     }

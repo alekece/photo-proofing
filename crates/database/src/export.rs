@@ -28,12 +28,6 @@ use crate::{
     photo::PhotoId,
 };
 
-/// Reason shown when the worker gives up on an export after its last attempt.
-pub const EXPORT_FAILED_REASON: &str = "The ZIP could not be prepared after several attempts.";
-
-/// Reason shown when a photo of the selection was deleted before its file was added.
-pub const PHOTO_REMOVED_REASON: &str = "A selected photo was removed. Try again.";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(transparent)]
 #[sqlx(transparent)]
@@ -74,6 +68,18 @@ impl ExportEvent {
     pub(crate) const CHANNEL: &'static str = "export_events";
 }
 
+/// Why an export failed. Stored as a snake_case code; the API decides how it is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportFailure {
+    /// The worker gave up after its last attempt.
+    AttemptsExhausted,
+    /// A photo of the selection was deleted before its file was added.
+    PhotoRemoved,
+    /// The server had no disk space left for the file.
+    DiskFull,
+}
+
 /// Where an export stands. Stored and serialized as `{"kind": ..}`, with the `reason` next to
 /// the kind when it failed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,8 +87,7 @@ impl ExportEvent {
 pub enum ExportStatus {
     Preparing,
     Ready,
-    /// The reason is safe to show.
-    Failed(String),
+    Failed(ExportFailure),
 }
 
 /// One export as the photographer sees it.
@@ -577,7 +582,7 @@ impl ExportRepository<'_> {
     ///
     /// Nothing changes when the claim is no longer current. The export becomes ready only if
     /// every photo of its snapshot still exists; otherwise it fails with
-    /// [`PHOTO_REMOVED_REASON`], never leaving a ready export that may be missing a photo.
+    /// [`ExportFailure::PhotoRemoved`], never leaving a ready export that may be missing a photo.
     pub async fn complete(
         &self,
         job: &Job,
@@ -604,7 +609,7 @@ impl ExportRepository<'_> {
         .await?;
         let update = if marked_ready.rows_affected() == 1 {
             ExportUpdate::Saved
-        } else if Self::mark_failed_in(&mut transaction, id, PHOTO_REMOVED_REASON).await? {
+        } else if Self::mark_failed_in(&mut transaction, id, ExportFailure::PhotoRemoved).await? {
             ExportUpdate::PhotoRemoved
         } else {
             ExportUpdate::Gone
@@ -615,18 +620,18 @@ impl ExportRepository<'_> {
         Ok((completion, update))
     }
 
-    /// Fails the export with `reason` and completes the job, for errors a retry cannot fix.
+    /// Fails the export with `failure` and completes the job, for errors a retry cannot fix.
     pub async fn fail(
         &self,
         job: &Job,
         id: ExportId,
-        reason: &str,
+        failure: ExportFailure,
     ) -> Result<JobCompletion, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
         let completion = JobRepository::complete_in(&mut *transaction, job).await?;
 
         if completion.is_current() {
-            Self::mark_failed_in(&mut transaction, id, reason).await?;
+            Self::mark_failed_in(&mut transaction, id, failure).await?;
         }
 
         transaction.commit().await?;
@@ -638,14 +643,14 @@ impl ExportRepository<'_> {
     pub(crate) async fn mark_failed_in(
         transaction: &mut Transaction<'_, Postgres>,
         id: ExportId,
-        reason: &str,
+        failure: ExportFailure,
     ) -> Result<bool, DatabaseError> {
         let failed = sqlx::query(
             "UPDATE exports SET status = $2, finished_at = now()
              WHERE id = $1 AND status ->> 'kind' = 'preparing'",
         )
         .bind(id)
-        .bind(Json(ExportStatus::Failed(reason.to_owned())))
+        .bind(Json(ExportStatus::Failed(failure)))
         .execute(&mut **transaction)
         .await?;
 
@@ -782,6 +787,7 @@ impl ExportRepository<'_> {
 mod tests {
     use std::num::NonZeroU64;
 
+    use serde_json::{Value, json};
     use sqlx::PgPool;
 
     use super::*;
@@ -1156,7 +1162,7 @@ mod tests {
         assert_eq!(update, ExportUpdate::PhotoRemoved);
         assert_eq!(
             latest.status,
-            ExportStatus::Failed(PHOTO_REMOVED_REASON.to_owned())
+            ExportStatus::Failed(ExportFailure::PhotoRemoved)
         );
     }
 
@@ -1211,7 +1217,51 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn a_failed_job_fails_the_export_with_its_reason(pool: PgPool) {
+    async fn failure_migration_turns_legacy_sentences_into_codes(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        fixture.photo("a.jpg", 10, true).await;
+
+        let export = fixture.created().await;
+        let cases = [
+            ("A selected photo was removed. Try again.", "photo_removed"),
+            ("The server is out of disk space.", "disk_full"),
+            (
+                "The ZIP could not be prepared after several attempts.",
+                "attempts_exhausted",
+            ),
+            ("boom", "attempts_exhausted"),
+            ("photo_removed", "photo_removed"),
+        ];
+
+        for (legacy, code) in cases {
+            sqlx::query("UPDATE exports SET status = $2, finished_at = now() WHERE id = $1")
+                .bind(export.id)
+                .bind(json!({"kind": "failed", "reason": legacy}))
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::raw_sql(include_str!("../migrations/0023_export_failure_codes.sql"))
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            let status: Value = sqlx::query_scalar("SELECT status FROM exports WHERE id = $1")
+                .bind(export.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+            assert_eq!(
+                status,
+                json!({"kind": "failed", "reason": code}),
+                "{legacy}"
+            );
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_failed_job_fails_the_export_with_its_failure(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
 
         fixture.photo("a.jpg", 10, true).await;
@@ -1221,7 +1271,7 @@ mod tests {
 
         let _ = fixture
             .exports()
-            .fail(&job, export.id, "The server is out of disk space.")
+            .fail(&job, export.id, ExportFailure::DiskFull)
             .await
             .unwrap();
 
@@ -1232,10 +1282,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(
-            latest.status,
-            ExportStatus::Failed("The server is out of disk space.".to_owned())
-        );
+        assert_eq!(latest.status, ExportStatus::Failed(ExportFailure::DiskFull));
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -1273,7 +1320,7 @@ mod tests {
         assert_eq!(export.id, latest.id);
         assert_eq!(
             latest.status,
-            ExportStatus::Failed(EXPORT_FAILED_REASON.to_owned())
+            ExportStatus::Failed(ExportFailure::AttemptsExhausted)
         );
     }
 
@@ -1311,7 +1358,7 @@ mod tests {
 
         assert_eq!(
             latest.status,
-            ExportStatus::Failed(EXPORT_FAILED_REASON.to_owned())
+            ExportStatus::Failed(ExportFailure::AttemptsExhausted)
         );
     }
 
@@ -1564,7 +1611,11 @@ mod tests {
             .await
             .unwrap();
 
-        let _ = fixture.exports().fail(&job, id, "boom").await.unwrap();
+        let _ = fixture
+            .exports()
+            .fail(&job, id, ExportFailure::AttemptsExhausted)
+            .await
+            .unwrap();
 
         let failed = fixture.delivery().await;
 
