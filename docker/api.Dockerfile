@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl libvips42t
 COPY --from=build /pp-api /usr/local/bin/pp-api
 # A fresh named volume copies this directory's ownership, so `pp` can write to it.
 USER pp
+ARG PP_BUILD_SHA
+ENV PP_BUILD_SHA=$PP_BUILD_SHA
 ENV PP_PHOTO_DIR=/var/lib/pp/photos
 ENV PP_HOST=0.0.0.0 PP_PORT=8080
 EXPOSE 8080
