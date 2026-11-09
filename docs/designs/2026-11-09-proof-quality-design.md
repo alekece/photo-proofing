@@ -1,0 +1,49 @@
+# Proof quality setting
+
+Issue: [#312](https://github.com/alekece/photo-proofing/issues/312). Builds on [#304](https://github.com/alekece/photo-proofing/issues/304), which raised the fixed thumbnail and preview sizes. The levels below were chosen by the maintainer; decisions marked *my call* are the author's and open to change in review.
+
+## Intent
+
+The photographer picks how sharp, and how heavy, the proofs are: Low, Medium or High, in Settings. The choice applies to thumbnails and previews of proofs in every gallery.
+
+## Goals
+
+- A **Proof quality** control in Settings with three levels:
+
+  | Level | Thumbnail long edge | Preview long edge | JPEG quality |
+  | --- | --- | --- | --- |
+  | Low | 640 px | 1600 px | 75 |
+  | Medium (default) | 800 px | 2000 px | 82 |
+  | High | 1000 px | 2400 px | 88 |
+
+- Changing the level regenerates every existing proof of the workspace, thumbnails and previews, clean and watermarked, in all galleries, including disabled ones. New uploads use the current level.
+- While regenerating, galleries keep working as they do for a watermark change: proofs show processing feedback, nothing outdated is shown to a client as final, and failures can be retried.
+
+## Non-goals
+
+- Custom dimensions or a free quality slider.
+- Different levels per gallery.
+- Changing originals, finals or exports.
+- A progress bar for the regeneration beyond the existing processing and failure states.
+
+## Approach
+
+- **Setting.** `workspace_settings` gets a `proof_quality` column (`low`, `medium`, `high`, default `medium`). It is part of the existing settings API (`GET` and `PUT /api/v1/settings`), validated as an enum, and saved like the other fields. The settings model gets a `ProofQuality` type that owns the three rows of the table above, so the sizes and quality live in one place.
+- **Renderer.** `ImageRenderer::render` and `render_proof` take the quality instead of reading constants. The worker reads it with the watermark when it starts a photo, in the same read, so a render never mixes two settings.
+- **Regeneration.** *My call:* reuse the watermark mechanism. A level change bumps `watermark_revision`, clears `clean_ready` for the workspace's proofs, and queues one job per proof through the existing regeneration. Clearing `clean_ready` makes the worker render both clean and marked files. The old clean files stay in place until replaced, so photographer views keep working while it runs. A save that does not change the level does nothing.
+- **Settings screen.** One control with the three levels and a short hint for each (smaller files, balanced, sharper). Changing it warns that proofs will be regenerated and how long it can take on large galleries. English and French messages.
+
+## Cost
+
+Per photo, roughly: Low 90-130 KB thumbnail and 300-450 KB preview, Medium 150-220 KB and 600-900 KB, High 250-350 KB and 1.0-1.4 MB. Storage grows with the level, per proof and per watermarked copy. Regenerating a large workspace occupies the worker for a while; proofs stay visible but are marked as processing.
+
+## Documentation
+
+`docs/SPECIFICATIONS.md` currently says the MVP has no quality-preset controls. It changes with this work, with the maintainer's approval: a three-level proof quality setting is in the MVP, and custom dimensions and per-gallery levels stay out. The README settings description is updated.
+
+## Tests
+
+- Database: saving a new level bumps the revision and queues regeneration for every proof, including disabled galleries; saving the same level does not.
+- Worker: each level produces the documented dimensions and a smaller file at Low than at High; a level change re-renders the clean and the marked copies.
+- API: the setting round-trips and rejects unknown values.
+- Web: the control saves the chosen level, shows the regeneration warning, and has both languages.
