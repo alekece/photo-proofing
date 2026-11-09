@@ -62,6 +62,7 @@ export const sharedGallerySchema = v.object({
 	hero_id: v.nullable(v.string()),
 	studio_name: v.optional(v.string()),
 	signature: v.optional(v.picklist(['name', 'logo', 'both', 'none'])),
+	signature_size: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(9))),
 	has_logo: v.optional(v.boolean())
 });
 

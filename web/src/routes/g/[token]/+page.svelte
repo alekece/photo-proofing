@@ -60,6 +60,7 @@
 				? `/api/v1/galleries/shared/${encodeURIComponent(params.token)}/logo`
 				: null}
 			signature={data.gallery.signature}
+			signatureSize={data.gallery.signature_size}
 		/>
 	</div>
 {:else}

@@ -14,7 +14,7 @@ it('tells a watermark change from a signature-only change', () => {
 
 	expect(settingsChanged(signature, DEFAULT_SETTINGS)).toBe(true);
 	expect(watermarkChanged(signature, DEFAULT_SETTINGS)).toBe(false);
-	expect(watermarkChanged({ ...DEFAULT_SETTINGS, size: 4 }, DEFAULT_SETTINGS)).toBe(true);
+	expect(watermarkChanged({ ...DEFAULT_SETTINGS, size: 5 }, DEFAULT_SETTINGS)).toBe(true);
 	expect(settingsChanged({ ...DEFAULT_SETTINGS }, DEFAULT_SETTINGS)).toBe(false);
 });
 
@@ -25,6 +25,7 @@ const body = {
 	position: 4,
 	size: 3,
 	signature: 'logo',
+	signature_size: 4,
 	proof_quality: 'high',
 	has_logo: true
 };
@@ -38,6 +39,7 @@ it('maps the API settings and rejects a malformed body', () => {
 		position: 4,
 		size: 3,
 		signature: 'logo',
+		signatureSize: 4,
 		proofQuality: 'high'
 	});
 	expect(parseSettings({ ...body, proof_quality: 'ultra' })).toBeNull();

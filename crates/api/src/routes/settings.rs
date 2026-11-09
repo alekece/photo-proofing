@@ -41,6 +41,7 @@ struct SettingsView {
     position: GridCell,
     size: SizeStep,
     signature: CoverSignature,
+    signature_size: SizeStep,
     proof_quality: ProofQuality,
     has_logo: bool,
 }
@@ -54,6 +55,7 @@ impl From<WorkspaceSettings> for SettingsView {
             position: settings.position,
             size: settings.size,
             signature: settings.signature,
+            signature_size: settings.signature_size,
             proof_quality: settings.proof_quality,
             has_logo: settings.logo.is_some(),
         }
@@ -77,6 +79,7 @@ struct SettingsRequest {
     position: GridCell,
     size: SizeStep,
     signature: CoverSignature,
+    signature_size: SizeStep,
     proof_quality: ProofQuality,
     logo: Option<LogoRequest>,
 }
@@ -119,6 +122,7 @@ impl SettingsRequest {
             position: self.position,
             size: self.size,
             signature: self.signature,
+            signature_size: self.signature_size,
             proof_quality: self.proof_quality,
             logo,
         })
@@ -238,6 +242,7 @@ mod tests {
             "position": 8,
             "size": 2,
             "signature": "name",
+            "signature_size": 4,
             "proof_quality": "medium",
         });
 
@@ -426,7 +431,8 @@ mod tests {
 
         for extra in [
             json!({"position": 9}),
-            json!({"size": 5}),
+            json!({"size": 10}),
+            json!({"signature_size": 10}),
             json!({"mark": "other"}),
             json!({"unknown": 1}),
         ] {

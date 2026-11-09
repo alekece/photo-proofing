@@ -33,7 +33,7 @@ use pp_database::{
 };
 use pp_database::{
     gallery::SharedGallery,
-    settings::{CoverSignature, SettingsRepository},
+    settings::{CoverSignature, SettingsRepository, SizeStep},
 };
 use pp_storage::{ArchiveKey, PhotoKey, Variant};
 use serde::Serialize;
@@ -90,6 +90,7 @@ async fn show_shared_gallery(
                 String::new()
             },
             signature: settings.signature,
+            signature_size: settings.signature_size,
             has_logo: settings.logo.is_some()
                 && matches!(
                     settings.signature,
@@ -104,6 +105,7 @@ struct SharedGalleryView {
     gallery: SharedGallery,
     studio_name: String,
     signature: CoverSignature,
+    signature_size: SizeStep,
     has_logo: bool,
 }
 
@@ -467,6 +469,7 @@ mod tests {
                 "hero_id": null,
                 "studio_name": "",
                 "signature": "name",
+                "signature_size": 4,
                 "has_logo": false
             })
         );
@@ -496,6 +499,7 @@ mod tests {
         let body: Value = test::read_body_json(response).await;
         assert_eq!(body["studio_name"], "Studio");
         assert_eq!(body["signature"], "both");
+        assert_eq!(body["signature_size"], 4);
         assert_eq!(body["has_logo"], true);
         for (link, expected) in [
             (&token, StatusCode::OK),
