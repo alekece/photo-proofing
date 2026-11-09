@@ -28,14 +28,14 @@ The API already records when a client last opened the shared gallery, but the ph
 
 ## Approaches
 
-1. **Count opens on the unread row (chosen).** Same trigger-and-upsert machinery as downloads: each recorded open adds 1 to an unread `open` row, so the text can say "opened 3 times". Costs: one more kind to handle in SQL, Rust and the front. Opens follow the existing rules unchanged, so an open on an unread row of another kind switches it to `opened` and restarts the count, as a download already does.
+1. **Count opens on the unread row (chosen).** Same trigger-and-upsert machinery as downloads: each recorded open adds 1 to an unread `open` row, so the text can say "opened 3 times". Costs: one more kind to handle in SQL, Rust and the front. Opens follow the existing rules unchanged, so an open on an unread row of another kind switches it to `open` and restarts the count, as a download already does.
 2. **One row, no count (rejected).** A flat "Opened the gallery" that only bumps `updated_at`. Simplest text, but ignores the model's habit of counting repeats and hides whether the client came back.
 3. **Compare `last_opened_at` with a read marker, no notification row (rejected).** No table change, but the bell, card badge and "N galleries have news" would need a second source, and #72 already rejected derived read state for races.
 
 ## Decisions
 
-- **Kind.** A new, independent `open` notification kind. Migration `0026_notification_opened.sql`: drop and re-add `notifications_kind_known` with `'opened'`, add the `open` variant to the Rust `NotificationKind` and the front `picklist`.
-- **Writing.** A trigger `AFTER UPDATE OF last_opened_at ON galleries WHEN (NEW.last_opened_at IS NOT NULL AND (OLD.last_opened_at IS NULL OR NEW.last_opened_at > OLD.last_opened_at))` calls `record_notification(workspace_id, id, 'opened', 1)`. Because `record_opened` only updates past the throttle, every recorded open (including the first) adds 1 and reloads inside a minute add nothing. Any future writer is covered too.
+- **Kind.** A new, independent `open` notification kind. Migration `0026_notification_opened.sql`: drop and re-add `notifications_kind_known` with `'open'`, add the `open` variant to the Rust `NotificationKind` and the front `picklist`.
+- **Writing.** A trigger `AFTER UPDATE OF last_opened_at ON galleries WHEN (NEW.last_opened_at IS NOT NULL AND (OLD.last_opened_at IS NULL OR NEW.last_opened_at > OLD.last_opened_at))` calls `record_notification(workspace_id, id, 'open', 1)`. Because `record_opened` only updates past the throttle, every recorded open (including the first) adds 1 and reloads inside a minute add nothing. Any future writer is covered too.
 - **Coalescing.** `open` is an independent kind. It coalesces only with its own unread row (count + 1), exactly like `selection` and `download`; `record_notification` does not change, so an open always shows in the bell.
 - **Texts.** Bell row: `The client opened the gallery` / `The client opened the gallery 3 times` (count > 1), French `Le client a ouvert la galerie` / `… 3 fois`. Card badge: `Opened` / `Ouverte`. Time ago comes from `updated_at` as usual.
 - **Hero label.** In `GalleryHeader`, append to the existing meta line, only for a shared gallery (an unshared gallery has no client to open it, so "Not opened yet" would mislead): `Last opened {date}` / `Not opened yet`, French `Dernière ouverture {date}` / `Pas encore ouverte`. The date uses `formatDateTime` (present since #296, localized, browser time zone). It must wrap cleanly on a phone.
