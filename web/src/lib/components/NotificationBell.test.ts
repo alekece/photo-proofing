@@ -47,8 +47,8 @@ describe('NotificationBell', () => {
 
 	it('says the client opened the gallery, with the number of opens', async () => {
 		const { center } = setup([
-			row({ kind: 'opened', count: 1 }),
-			row({ id: 'n2', kind: 'opened', count: 3 })
+			row({ kind: 'open', count: 1 }),
+			row({ id: 'n2', kind: 'open', count: 3 })
 		]);
 		await center.refresh();
 		render(NotificationBell, { center });
@@ -106,7 +106,7 @@ describe('NotificationBell in French', () => {
 	});
 
 	it('says the client opened the gallery in French', async () => {
-		const { center } = setup([row({ kind: 'opened', count: 2 })]);
+		const { center } = setup([row({ kind: 'open', count: 2 })]);
 		await center.refresh();
 		render(NotificationBell, { center });
 

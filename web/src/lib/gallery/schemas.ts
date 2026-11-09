@@ -133,7 +133,7 @@ export const notificationSchema = v.object({
 	gallery_id: v.string(),
 	title: v.nullable(v.string()),
 	hero_id: v.nullable(v.string()),
-	kind: v.picklist(['selection', 'download', 'opened']),
+	kind: v.picklist(['selection', 'download', 'open']),
 	/** Finals downloaded, or client opens, since it opened; 0 for a selection or a ZIP of already-downloaded finals. */
 	count: v.pipe(finite, v.integer(), v.minValue(0)),
 	/** The gallery's current selection. */

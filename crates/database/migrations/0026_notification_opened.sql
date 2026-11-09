@@ -3,12 +3,12 @@
 -- column. Only a later open fires it, so moving the date back changes nothing.
 ALTER TABLE notifications DROP CONSTRAINT notifications_kind_known;
 ALTER TABLE notifications ADD CONSTRAINT notifications_kind_known
-    CHECK (kind IN ('selection', 'download', 'opened'));
+    CHECK (kind IN ('selection', 'download', 'open'));
 
 CREATE FUNCTION notify_gallery_opened() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    PERFORM record_notification(NEW.workspace_id, NEW.id, 'opened', 1);
+    PERFORM record_notification(NEW.workspace_id, NEW.id, 'open', 1);
 
     RETURN NULL;
 END;

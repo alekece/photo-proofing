@@ -43,7 +43,7 @@ impl NotificationEvent {
 pub enum NotificationKind {
     Selection,
     Download,
-    Opened,
+    Open,
 }
 
 /// A notification with what the bell shows of its gallery.
@@ -565,7 +565,7 @@ mod tests {
 
         assert_eq!(list.unread, 1);
         assert_eq!(list.notifications.len(), 1);
-        assert_eq!(list.notifications[0].kind, NotificationKind::Opened);
+        assert_eq!(list.notifications[0].kind, NotificationKind::Open);
         assert_eq!(list.notifications[0].count, 2);
     }
 
@@ -617,7 +617,7 @@ mod tests {
         assert_eq!(list.notifications.len(), 1);
         assert_eq!(
             (list.notifications[0].kind, list.notifications[0].count),
-            (NotificationKind::Opened, 1)
+            (NotificationKind::Open, 1)
         );
 
         fixture.favorite(photo, false).await;
@@ -700,7 +700,7 @@ mod tests {
         .unwrap();
 
         let opened = "INSERT INTO notifications (workspace_id, gallery_id, kind)
-                      VALUES ($1, $2, 'opened')";
+                      VALUES ($1, $2, 'open')";
 
         sqlx::query("SAVEPOINT before_migration")
             .execute(&mut *transaction)
@@ -739,7 +739,7 @@ mod tests {
                 .await
                 .unwrap();
 
-        assert_eq!(kinds, ["selection", "opened"]);
+        assert_eq!(kinds, ["selection", "open"]);
 
         sqlx::query("SAVEPOINT after_migration")
             .execute(&mut *transaction)

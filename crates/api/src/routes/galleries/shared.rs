@@ -630,7 +630,7 @@ mod tests {
         .await;
 
         assert_eq!(notifications["unread"], 1);
-        assert_eq!(notifications["notifications"][0]["kind"], "opened");
+        assert_eq!(notifications["notifications"][0]["kind"], "open");
         assert_eq!(notifications["notifications"][0]["count"], 1);
 
         let (_, client) = call(&app, get(token)).await;
