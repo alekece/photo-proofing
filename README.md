@@ -94,6 +94,29 @@ all three images published and advances only forward. The production web image
 listens on port `3000`; `PP_API_INTERNAL_URL` is required (the API's internal URL) and
 route `/api/*` requests to the API.
 
+### Dockhand staging deployment
+
+Staging is moving from the Ansible playbook below to [Dockhand](https://dockhand.pro)
+([design](docs/designs/2026-11-09-dockhand-staging-deployment-design.md)). Until the
+cutover is accepted, the playbook remains the working deployment; do not run both.
+
+After CI succeeds on `main`, CD also points the `:staging` image tags at that commit.
+Dockhand tracks [deploy/dockhand/compose.yml](deploy/dockhand/compose.yml) on `main` as
+the Git stack `pp-staging` and auto-updates the application containers when a `:staging`
+tag moves. Failed updates stay failed and unhealthy; nothing rolls back automatically.
+
+Dockhand setup (private LAN/VPN only, authentication enabled; it has Docker socket access):
+
+- Manage the Docker daemon where staging runs and keep the project name `pp-staging`.
+- Bind Dockhand's Doppler provider to the stack with a read-only service token for the
+  staging config. Doppler supplies `POSTGRES_PASSWORD` and a URL-encoded `PP_DATABASE_URL`.
+- Set `PP_APP_ORIGIN`, `PP_STAGING_HOST`, `PP_BIND_ADDRESS` and the four existing volume
+  names (`PP_POSTGRES_VOLUME`, `PP_PHOTO_VOLUME`, `PP_CADDY_DATA_VOLUME`,
+  `PP_CADDY_CONFIG_VOLUME`) as stack variables in Dockhand, never in Git.
+- The server-owned `/etc/pp/config.toml` is unchanged. Redeploy the stack after editing it.
+- Dockhand's Git stack must sync the compose file only; enable auto-update on the API,
+  worker and web containers, and leave vulnerability-scan blocking off for them.
+
 ### LAN staging deployment
 
 [deploy/staging.yml](deploy/staging.yml) uses Ansible's maintained

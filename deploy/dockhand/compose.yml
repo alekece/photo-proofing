@@ -1,0 +1,139 @@
+# Staging stack for Dockhand. Deploy it as the Git stack `pp-staging`, which
+# tracks this file on `main`. Dockhand's auto-update follows the `:staging`
+# image tags published by CD. Values and secrets come from the stack
+# environment and Dockhand's Doppler provider, never from Git.
+# See docs/designs/2026-11-09-dockhand-staging-deployment-design.md.
+name: pp-staging
+
+x-runtime: &runtime
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-app-config: &app-config
+  PP_CONFIG: /etc/pp/config.toml
+  PP_DATABASE_URL: ${PP_DATABASE_URL:?Doppler must supply the URL-encoded database URL}
+
+x-config-mount: &config-mount
+  type: bind
+  source: /etc/pp/config.toml
+  target: /etc/pp/config.toml
+  read_only: true
+  bind:
+    create_host_path: false
+
+services:
+  postgres:
+    <<: *runtime
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pp
+      POSTGRES_DB: pp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Doppler must supply POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pp -d pp"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    <<: *runtime
+    image: ghcr.io/alekece/pp-api:staging
+    environment: *app-config
+    volumes:
+      - photo-data:/var/lib/pp/photos
+      - *config-mount
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    <<: *runtime
+    image: ghcr.io/alekece/pp-image-worker:staging
+    environment: *app-config
+    volumes:
+      - photo-data:/var/lib/pp/photos
+      - *config-mount
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    <<: *runtime
+    image: ghcr.io/alekece/pp-web:staging
+    environment:
+      PP_API_INTERNAL_URL: http://api:8080
+      ORIGIN: ${PP_APP_ORIGIN:?Set the HTTPS origin from auth.app_origin}
+    depends_on:
+      api:
+        condition: service_healthy
+
+  proxy:
+    <<: *runtime
+    image: caddy:2-alpine
+    environment:
+      PP_STAGING_HOST: ${PP_STAGING_HOST:?Set the HTTPS hostname from auth.app_origin}
+    ports:
+      - "${PP_BIND_ADDRESS:?Select a loopback or LAN address}:443:443"
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/proxy-health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+
+configs:
+  caddyfile:
+    content: |
+      {
+      	admin off
+      	auto_https disable_redirects
+      }
+
+      https://{$$PP_STAGING_HOST} {
+      	tls internal
+      	handle /api/* {
+      		reverse_proxy api:8080
+      	}
+      	handle {
+      		reverse_proxy web:3000
+      	}
+      }
+
+      http://:8081 {
+      	handle /proxy-health {
+      		respond "ok" 200
+      	}
+      	handle {
+      		respond 404
+      	}
+      }
+
+volumes:
+  postgres-data:
+    external: true
+    name: ${PP_POSTGRES_VOLUME:?Select the existing database volume}
+  photo-data:
+    external: true
+    name: ${PP_PHOTO_VOLUME:?Select the existing photo volume}
+  caddy-data:
+    external: true
+    name: ${PP_CADDY_DATA_VOLUME:?Select the existing Caddy data volume}
+  caddy-config:
+    external: true
+    name: ${PP_CADDY_CONFIG_VOLUME:?Select the existing Caddy config volume}

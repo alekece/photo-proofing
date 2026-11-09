@@ -158,3 +158,20 @@ jobs:
             git tag staging "$CANDIDATE"
             git push origin refs/tags/staging:refs/tags/staging
           fi
+      - name: Move staging image tags
+        env:
+          CANDIDATE: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          # Only the newest commit may move the tags; the Git tag is the ordering authority.
+          if [ "$(git rev-parse 'refs/tags/staging^{commit}')" != "$CANDIDATE" ]; then
+            echo "staging points to a newer commit; leaving image tags unchanged"
+            exit 0
+          fi
+
+          for image in pp-api pp-image-worker pp-web; do
+            docker buildx imagetools create \
+              --tag "ghcr.io/alekece/$image:staging" \
+              "ghcr.io/alekece/$image:sha-$CANDIDATE"
+          done
