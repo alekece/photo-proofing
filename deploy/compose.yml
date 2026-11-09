@@ -1,8 +1,8 @@
-# Staging stack for Dockhand. Deploy it as the Git stack `pp-staging`, which
-# tracks this file on `main`. Dockhand's auto-update follows the `:staging`
+# Staging stack for the dashboard. Deploy it as the Git stack `pp-staging`, which
+# tracks this file on `main`. The dashboard's auto-update follows the `:staging`
 # image tags published by CD. Values and secrets come from the stack
-# environment and Dockhand's Doppler provider, never from Git.
-# See docs/designs/2026-11-09-dockhand-staging-deployment-design.md.
+# environment and the dashboard's secret-manager integration, never from Git.
+# See docs/designs/2026-11-09-staging-dashboard-deployment-design.md.
 name: pp-staging
 
 x-runtime: &runtime
@@ -15,7 +15,7 @@ x-runtime: &runtime
 
 x-app-config: &app-config
   PP_CONFIG: /etc/pp/config.toml
-  PP_DATABASE_URL: ${PP_DATABASE_URL:?Doppler must supply the URL-encoded database URL}
+  PP_DATABASE_URL: ${PP_DATABASE_URL:?the secret manager must supply the URL-encoded database URL}
 
 x-config-mount: &config-mount
   type: bind
@@ -32,7 +32,7 @@ services:
     environment:
       POSTGRES_USER: pp
       POSTGRES_DB: pp
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Doppler must supply POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?the secret manager must supply POSTGRES_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:

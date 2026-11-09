@@ -78,7 +78,7 @@ jobs:
       - run: ansible-playbook -i localhost, deploy/staging.yml --syntax-check
       - run: ansible-playbook -i localhost, deploy/verify.yml
       - run: docker run --rm --entrypoint caddy -e PP_STAGING_HOST=proofing.example -v "$PWD/docker/Caddyfile.staging:/etc/caddy/Caddyfile:ro" caddy:2-alpine validate --config /etc/caddy/Caddyfile --adapter caddyfile
-      - name: Validate the Dockhand stack with synthetic values
+      - name: Validate the dashboard stack with synthetic values
         env:
           POSTGRES_PASSWORD: synthetic
           PP_DATABASE_URL: postgres://pp:synthetic@postgres:5432/pp

@@ -22,7 +22,7 @@ from a server-only check.
 - Chosen by the user: Ansible manages server configuration and uses the maintained
   `community.docker.docker_compose_v2` module to reconcile the existing Compose
   stack. Docker Compose consumes the `staging` pointer and immutable images.
-  Doppler supplies secrets and Caddy supplies internal HTTPS.
+  The secret manager supplies secrets and Caddy supplies internal HTTPS.
 - Replaced: the custom Python launcher. It works but adds bespoke deployment
   orchestration and tests to maintain.
 - Not selected: documented Compose commands alone. They require less tooling but
@@ -83,17 +83,17 @@ rule to documentation, PR/issue text and shared logs. Suppress installation
 metadata in ordinary Ansible output and configuration diffs; verbose/debug
 logging and fact caching must not be used with real settings.
 
-Select an explicit Doppler project and staging config. Inject only the necessary
+Select an explicit secret-manager project and staging config. Inject only the necessary
 database secrets at runtime; fail if unavailable. Generate a correctly URL-encoded
-database URL inside the secret-bearing process if Doppler does not already supply
+database URL inside the secret-bearing process if the secret manager does not already supply
 one. Never print secret values, resolved Compose configuration, container
 environments, or unfiltered diagnostics that might contain credentials.
 
 Do not store passwords in TOML, Compose files, source control, or plaintext
-deployment artifacts. Doppler does not conceal runtime secrets from root or
+deployment artifacts. The secret manager does not conceal runtime secrets from root or
 Docker administrators. Do not overwrite existing data or credentials.
 
-Run Ansible locally on the server under `doppler run`, injecting only
+Run Ansible locally on the server under the secret manager, injecting only
 `POSTGRES_PASSWORD` from an operator-selected project/config. Sensitive tasks use `no_log`
 and do not cache facts or write secret-bearing environment files. Use standard
 Ansible tasks, filters and maintained modules, not a Python/shell wrapper or
@@ -109,7 +109,7 @@ services are running, HTTPS succeeds using the Caddy root certificate, API healt
 returns the expected response, and login is reachable without insecure TLS
 bypasses. Recreate containers without removing volumes and verify persistence.
 
-Do not seed an account or manage account credentials in deployment or Doppler.
+Do not seed an account or manage account credentials in deployment or the secret manager.
 Fresh installations retain the first-time setup page for testing. Existing
 accounts are preserved; deployment is not a database-reset operation.
 The owner completes setup before enabling LAN access.
@@ -124,7 +124,7 @@ database migrations; no automatic database rollback is promised.
 For an existing installation, preserve its origin and binding during migration. Do not
 recreate or reset the account, rotate credentials, or change router settings.
 
-The operator selects Doppler project/config privately, injecting only
+The operator selects the secret manager project/config privately, injecting only
 `POSTGRES_PASSWORD`. Keep the deployment bundle separate from application checkouts.
 Move the managed deployment bundle to
 `/srv/apps/pp-staging` as part of the migration; application code comes from
