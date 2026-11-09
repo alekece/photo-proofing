@@ -3,19 +3,16 @@
 	import { onMount } from 'svelte';
 	import { formatFullDate } from '#lib/gallery/format.js';
 
-	let { expiresAt, now = new Date() }: { expiresAt: string; now?: Date } = $props();
+	let { expiresAt }: { expiresAt: string } = $props();
 
 	// Expiry is the end of a day in the photographer's time zone. The server cannot know the
 	// viewer's zone, so it renders UTC and the browser switches to its own after mount.
 	let timeZone = $state<string | undefined>('UTC');
 	onMount(() => (timeZone = undefined));
 
-	const expiry = $derived(new Date(expiresAt));
-	const days = $derived(Math.ceil((expiry.getTime() - now.getTime()) / 86_400_000));
 	const formatted = $derived(formatFullDate(expiresAt, timeZone));
-	const remaining = $derived(days <= 0 ? m.expiry_today() : m.expiry_days_left({ count: days }));
 </script>
 
-<p class={days <= 7 ? 'text-[0.9rem] font-semibold' : 'text-[0.9rem] opacity-85'}>
-	{m.expiry_open_until()} <time datetime={expiresAt}>{formatted}</time> ({remaining})
+<p class="text-[0.9rem] opacity-85">
+	{m.expiry_open_until()} <time datetime={expiresAt}>{formatted}</time>
 </p>

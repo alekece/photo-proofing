@@ -183,17 +183,6 @@
 	"notifications_mark_all_read": "Tout marquer comme lu",
 	"notifications_none": "Rien de nouveau.",
 	"expiry_open_until": "Ouverte jusqu’au",
-	"expiry_today": "expire aujourd’hui",
-	"expiry_days_left": [
-		{
-			"declarations": ["input count", "local countPlural = count: plural"],
-			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "{count} jour restant",
-				"countPlural=*": "{count} jours restants"
-			}
-		}
-	],
 	"filter_status": "Statut",
 	"filter_none": "Aucun",
 	"filter_all": "Tous les statuts",
