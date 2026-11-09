@@ -741,6 +741,22 @@ mod tests {
 
         assert_eq!(kinds, ["selection", "opened"]);
 
+        sqlx::query("SAVEPOINT after_migration")
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let unknown = sqlx::query(
+            "INSERT INTO notifications (workspace_id, gallery_id, kind)
+             VALUES ($1, $2, 'unknown')",
+        )
+        .bind(workspace)
+        .bind(gallery)
+        .execute(&mut *transaction)
+        .await;
+
+        assert!(unknown.is_err(), "other kinds stay rejected");
+
         transaction.rollback().await.unwrap();
     }
 }

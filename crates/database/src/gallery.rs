@@ -1616,6 +1616,13 @@ mod tests {
                 None
             );
         }
+
+        let notifications: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(notifications, 0, "an unavailable link records no open");
     }
 
     #[sqlx::test(migrations = "./migrations")]
