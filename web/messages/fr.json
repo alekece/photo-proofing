@@ -347,7 +347,7 @@
 	"common_name": "Nom",
 	"signature_both": "Les deux",
 	"signature_none": "Aucune",
-	"quality_label": "Qualité des épreuves",
+	"quality_label": "Qualité des photos",
 	"quality_hint": "Un changement régénère toutes les miniatures et tous les aperçus, dans toutes les galeries.",
 	"quality_low": "Basse",
 	"quality_low_detail": "Fichiers les plus légers, chargement rapide",
