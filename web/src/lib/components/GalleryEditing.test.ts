@@ -31,7 +31,7 @@ describe('gallery editing integration', () => {
 			width: 300,
 			height: 200,
 			status: 'ready',
-			favorite: true,
+			favorited_at: '2026-11-05T10:00:00Z',
 			created_at: gallery.created_at,
 			revision: 1
 		};

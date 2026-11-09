@@ -35,7 +35,8 @@
 </script>
 
 <script lang="ts">
-	import { Download, LoaderCircle, RotateCw, Star, X } from '@lucide/svelte';
+	import { Download, Heart, LoaderCircle, RotateCw, Star, X } from '@lucide/svelte';
+	import { formatDateTime } from '#lib/gallery/format.js';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
 
 	let {
@@ -49,7 +50,7 @@
 		onremove,
 		ondownload,
 		downloadBusy = false,
-		downloaded = false,
+		caption,
 		onretry,
 		onopen,
 		onselect,
@@ -71,8 +72,8 @@
 		ondownload?: () => void;
 		/** A download is being checked; show progress and prevent another click. */
 		downloadBusy?: boolean;
-		/** Marks a delivered photo the client has downloaded. */
-		downloaded?: boolean;
+		/** When the client favorited or downloaded the photo, shown over its bottom-left corner. */
+		caption?: { kind: 'favorited' | 'downloaded'; at: string };
 		onretry?: () => void;
 		onopen?: () => void;
 		/** Puts the tile in select mode: clicking it toggles `selected`; no remove, retry or open. */
@@ -221,14 +222,22 @@
 				{/if}
 			</button>
 		{/if}
-		{#if downloaded}
-			<span
-				class="absolute bottom-1.5 left-1.5 grid size-6 place-items-center rounded-full bg-panel/90 text-foreground"
-				role="img"
-				aria-label={m.tile_downloaded()}
-				title={m.tile_downloaded()}><Download size={14} aria-hidden="true" /></span
+	{/if}
+
+	{#if caption && state === 'ready'}
+		{@const date = formatDateTime(caption.at)}
+		{@const Icon = caption.kind === 'favorited' ? Heart : Download}
+		<p
+			class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/60 to-transparent pt-6 pr-11 pb-1.5 pl-2 text-xs font-semibold text-white"
+		>
+			<span class="sr-only"
+				>{caption.kind === 'favorited'
+					? m.tile_favorited_at({ date })
+					: m.tile_downloaded_at({ date })}</span
 			>
-		{/if}
+			<Icon size={12} class="shrink-0" aria-hidden="true" />
+			<time datetime={caption.at} class="truncate" aria-hidden="true">{date}</time>
+		</p>
 	{/if}
 </svelte:element>
 

@@ -383,7 +383,7 @@ describe('gallery page', () => {
 			width: 1,
 			height: 1,
 			status,
-			favorite: false,
+			favorited_at: null,
 			created_at: '2026-01-01T10:00:00Z'
 		});
 		const stubShareFlow = (photos: unknown[] = [photo('p1')]) => {

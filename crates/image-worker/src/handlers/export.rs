@@ -226,8 +226,8 @@ mod tests {
 
             sqlx::query(
                 "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width,
-                                     height, status, favorite)
-                 VALUES ($1, $2, $3, $4, 5, 2, 2, 'ready', true)",
+                                     height, status, favorited_at)
+                 VALUES ($1, $2, $3, $4, 5, 2, 2, 'ready', now())",
             )
             .bind(id)
             .bind(self.location.workspace_id)

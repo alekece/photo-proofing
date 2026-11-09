@@ -368,7 +368,8 @@
 	"tile_select": "Select {name}",
 	"tile_remove": "Remove {name}",
 	"tile_download": "Download {name}",
-	"tile_downloaded": "Downloaded by the client",
+	"tile_favorited_at": "Favorited {date}",
+	"tile_downloaded_at": "Downloaded {date}",
 	"cover_set": "Set as cover",
 	"cover_remove": "Remove cover",
 	"photos_failed_upload": [

@@ -21,7 +21,7 @@ function photo(id: string): Photo {
 		width: 2,
 		height: 1,
 		status: 'waiting',
-		favorite: false,
+		favorited_at: null,
 		created_at: '2026-11-04T10:00:00Z'
 	};
 }

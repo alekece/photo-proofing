@@ -25,7 +25,7 @@ function photo(id: string, status: PhotoStatus = 'ready'): Photo {
 		height: 200,
 		status,
 		clean_ready: status === 'ready',
-		favorite: false,
+		favorited_at: null,
 		created_at: '2026-11-04T10:00:00Z'
 	};
 }
@@ -547,8 +547,8 @@ describe('PhotosPanel', () => {
 
 	it('says a favorite is the client’s choice before deleting it, and keeps the others', async () => {
 		const api = stubApi([
-			{ ...photo('p1'), favorite: true },
-			{ ...photo('p2'), favorite: true }
+			{ ...photo('p1'), favorited_at: '2026-11-05T10:00:00Z' },
+			{ ...photo('p2'), favorited_at: '2026-11-05T10:00:00Z' }
 		]);
 		const user = userEvent.setup();
 
@@ -576,7 +576,11 @@ describe('PhotosPanel', () => {
 	});
 
 	it('counts the favorites in a bulk deletion', async () => {
-		stubApi([{ ...photo('p1'), favorite: true }, photo('p2'), { ...photo('p3'), favorite: true }]);
+		stubApi([
+			{ ...photo('p1'), favorited_at: '2026-11-05T10:00:00Z' },
+			photo('p2'),
+			{ ...photo('p3'), favorited_at: '2026-11-05T10:00:00Z' }
+		]);
 		const user = userEvent.setup();
 
 		setup();
@@ -1306,6 +1310,16 @@ describe('PhotosPanel', () => {
 				expect(api.calls('DELETE')).toEqual(['/api/v1/galleries/g1/photos/f1?finals=true'])
 			);
 			expect(api.lists()).toBe(2);
+		});
+
+		it('dates only the finals the client downloaded', async () => {
+			stubApi([{ ...photo('f1'), downloaded_at: '2026-11-09T12:00:00Z' }, photo('f2')]);
+			setup(undefined, null, false, 'finals');
+
+			await screen.findByRole('button', { name: 'Open f1.jpg' });
+
+			expect(within(tile('f1.jpg')).getByText(/^Downloaded Nov 9, 2026/)).toBeTruthy();
+			expect(within(tile('f2.jpg')).queryByText(/^Downloaded/)).toBeNull();
 		});
 
 		it('ignores events about proofs and shows only finals changes', async () => {

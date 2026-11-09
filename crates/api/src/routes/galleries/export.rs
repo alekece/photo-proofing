@@ -214,8 +214,8 @@ mod tests {
 
         sqlx::query(
             "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height,
-                                 status, favorite)
-             SELECT $1, workspace_id, id, $3, 5, 2, 2, 'ready', true FROM galleries WHERE id = $2",
+                                 status, favorited_at)
+             SELECT $1, workspace_id, id, $3, 5, 2, 2, 'ready', now() FROM galleries WHERE id = $2",
         )
         .bind(id)
         .bind(Uuid::parse_str(gallery_id).unwrap())
@@ -370,7 +370,7 @@ mod tests {
         let nonfavorite = favorite(&pool, &gallery_id, "not-selected.jpg").await;
         let final_photo = favorite(&pool, &gallery_id, "final.jpg").await;
 
-        sqlx::query("UPDATE photos SET favorite = false WHERE id = $1")
+        sqlx::query("UPDATE photos SET favorited_at = NULL WHERE id = $1")
             .bind(nonfavorite)
             .execute(&pool)
             .await

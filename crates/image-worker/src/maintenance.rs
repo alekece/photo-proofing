@@ -263,8 +263,8 @@ mod tests {
         async fn export(&self, pool: &PgPool) -> ArchiveKey {
             sqlx::query(
                 "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width,
-                                     height, status, favorite)
-                 VALUES ($1, $2, $3, 'a.jpg', 5, 2, 2, 'ready', true)",
+                                     height, status, favorited_at)
+                 VALUES ($1, $2, $3, 'a.jpg', 5, 2, 2, 'ready', now())",
             )
             .bind(PhotoId::generate())
             .bind(self.location.workspace_id)

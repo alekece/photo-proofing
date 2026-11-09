@@ -33,7 +33,7 @@ const photo = {
 	width: 4,
 	height: 3,
 	status: 'ready',
-	favorite: false,
+	favorited_at: null,
 	created_at: '2026-11-05T10:00:00Z'
 };
 

@@ -110,7 +110,7 @@ impl NotificationRepository<'_> {
             "SELECT n.id, n.gallery_id, g.title, g.hero_id, n.kind, n.count::bigint AS count, n.updated_at, n.read_at,
                     (SELECT count(*) FROM photos p
                      WHERE p.gallery_id = g.id AND p.status = 'ready' AND p.kind = 'proof'
-                       AND p.favorite) AS selected
+                       AND p.favorited_at IS NOT NULL) AS selected
              FROM notifications n JOIN galleries g ON g.id = n.gallery_id
              WHERE n.workspace_id = $1
                AND (n.read_at IS NULL OR n.id IN (
@@ -239,12 +239,14 @@ mod tests {
         }
 
         async fn favorite(&self, id: PhotoId, favorite: bool) {
-            sqlx::query("UPDATE photos SET favorite = $2 WHERE id = $1")
-                .bind(id)
-                .bind(favorite)
-                .execute(&self.pool)
-                .await
-                .unwrap();
+            sqlx::query(
+                "UPDATE photos SET favorited_at = CASE WHEN $2 THEN now() END WHERE id = $1",
+            )
+            .bind(id)
+            .bind(favorite)
+            .execute(&self.pool)
+            .await
+            .unwrap();
         }
 
         async fn download(&self, id: PhotoId) {

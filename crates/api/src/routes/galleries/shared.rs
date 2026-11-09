@@ -1158,10 +1158,11 @@ mod tests {
         let (_, favorites) = call_request(&app, client_request(&token, "/favorites")).await;
         let (_, shared) = call_request(&app, client_request(&token, "")).await;
 
-        let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM photos WHERE favorite")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let kept: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM photos WHERE favorited_at IS NOT NULL")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         assert_eq!(favorites, json!([]));
         assert_eq!(kept, 1);
