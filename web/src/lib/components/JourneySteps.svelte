@@ -6,8 +6,8 @@
 		id: string;
 		label: string;
 		done: boolean;
-		/** What the step stands at: a count, a date, or what to do next. */
-		fact: string;
+		/** What the step stands at: a count, a date, or what to do next. Omitted once it only repeats the status. */
+		fact?: string;
 		/** Makes the fact bold and warm, e.g. a selection over the allowance. */
 		accent?: boolean;
 	};
@@ -53,9 +53,12 @@
 				</span>
 				<span class="flex flex-col">
 					<strong class="text-[0.84375rem] font-semibold text-panel">{label}</strong>
-					<span class={accent ? 'font-extrabold text-warning-on-dark' : ''} data-slot="step-fact"
-						>{fact}</span
-					>
+					{#if done}<span class="sr-only">{m.step_done()}</span>{/if}
+					{#if fact}
+						<span class={accent ? 'font-extrabold text-warning-on-dark' : ''} data-slot="step-fact"
+							>{fact}</span
+						>
+					{/if}
 				</span>
 			</li>
 		{/each}
@@ -71,13 +74,13 @@
 							: 'bg-panel/30'}"
 					aria-current={index === current ? 'step' : undefined}
 				>
-					<span class="sr-only">{label}{done ? ' (done)' : ''}</span>
+					<span class="sr-only">{label}{done ? ` (${m.step_done()})` : ''}</span>
 				</li>
 			{/each}
 		</ol>
 		<span aria-hidden="true" class="min-w-0 truncate"
 			><b class="font-semibold text-panel">{focus?.label}</b>
-			<span class="opacity-80">· {focus?.fact}</span></span
+			{#if focus?.fact}<span class="opacity-80">· {focus.fact}</span>{/if}</span
 		>
 	</div>
 </nav>

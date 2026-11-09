@@ -54,6 +54,7 @@
 	let popped = $state<string | null>(null);
 
 	const archived = $derived(gallery.states.includes('archived'));
+	const delivered = $derived(gallery.states.includes('delivered'));
 	const cards: { id: string; label: string; icon: Component<{ size?: number }> }[] = [
 		{ id: 'link', label: m.copy_link_label(), icon: Link },
 		{ id: 'access', label: m.settings_access(), icon: Calendar },
@@ -182,6 +183,7 @@
 				placeholder="∞"
 				class="min-h-0 w-[4.5rem] rounded-lg px-2 py-[0.3125rem] text-right text-sm font-semibold"
 				bind:value={included}
+				disabled={delivered}
 				oninput={() => schedule('included_photos', () => saveIncluded(false))}
 				onblur={() => {
 					cancel('included_photos');

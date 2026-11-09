@@ -48,11 +48,7 @@
 			? m.header_meta_empty({ created })
 			: [
 					photoCount === null ? '' : m.summary_photos({ count: photoCount }),
-					delivered
-						? m.header_meta_delivered()
-						: shared
-							? m.header_meta_shared()
-							: m.header_meta_created({ created })
+					m.header_meta_created({ created })
 				]
 					.filter(Boolean)
 					.join(' · ')
@@ -70,7 +66,7 @@
 			id: 'share',
 			label: m.action_share(),
 			done: shared,
-			fact: shared ? m.state_shared() : m.step_copy_link()
+			fact: shared ? undefined : m.step_copy_link()
 		},
 		{
 			id: 'collect',
@@ -83,7 +79,7 @@
 			id: 'deliver',
 			label: m.action_deliver(),
 			done: delivered,
-			fact: delivered ? m.state_delivered() : m.step_upload_finals()
+			fact: delivered ? undefined : m.step_upload_finals()
 		}
 	]);
 </script>
