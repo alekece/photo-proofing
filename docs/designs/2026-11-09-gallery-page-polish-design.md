@@ -13,7 +13,7 @@ Five rough edges on the photographer's gallery page: a redundant "Saved" toast, 
   - icon-only ✕ on the left, labelled "Exit selection", clears the selection and leaves select mode; Esc does the same;
   - live "N selected" count;
   - a tri-state "Select all" checkbox (unchecked, indeterminate, checked); clicking it when everything is selected unselects all;
-  - the existing actions on the right, destructive ones disabled at 0 selected;
+  - only the actions that make sense for a selection on the right: Delete on Photos and Finals, Download on Favorites; both disabled at 0 selected. Upload is hidden while selecting;
   - accent-tinted background; on small screens it collapses to `[✕] N selected` with icon-only actions.
 - The drop zone on Photos and Finals no longer has an upload button (the toolbar one stays; the zone keeps drag and drop).
 - Confirmation dialogs dismiss with "Cancel" / "Annuler".
@@ -31,6 +31,7 @@ Five rough edges on the photographer's gallery page: a redundant "Saved" toast, 
 
 ## Decisions
 
+- **Actions:** *My call:* Delete (destructive style) on Photos and Finals, Download on Favorites; selecting for upload makes no sense, so the toolbar's Upload button is hidden in select mode instead of turning into Delete.
 - **Component:** `ui/SelectActions` becomes the bar (count, tri-state checkbox using the existing `ui/Checkbox`, ✕ button, an actions snippet). `PhotosPanel` and `FavoritesPanel` render it as the sticky first row of the grid in select mode and drop their own "Select all" button; "Select" in normal mode stays.
 - **Esc:** handled by the panel while selecting; it must not fire while a dialog or the viewer is open. *My call.*
 - **Messages:** add `selection_exit` and `selection_select_all`; the existing `action_unselect_all` is removed if unused. The count is localized (it is a hard-coded English "selected" today).
