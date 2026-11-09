@@ -95,7 +95,7 @@ impl From<ExportStatus> for ExportStatusResponse {
 }
 
 #[derive(Debug, Error, Serialize)]
-#[error("{}", .context.first().map_or("", String::as_str))]
+#[error("{}", .context.first().map_or_else(|| format!("{:?}", .code), Clone::clone))]
 pub(crate) struct ErrorResponse {
     #[serde(skip)]
     status: StatusCode,
@@ -109,49 +109,41 @@ pub(crate) struct ErrorResponse {
 }
 
 impl ErrorResponse {
-    pub fn new(status: StatusCode, code: ErrorCode, message: impl Into<String>) -> Self {
+    pub fn new(status: StatusCode, code: ErrorCode) -> Self {
         Self {
             status,
             code,
-            context: vec![message.into()],
+            context: Vec::new(),
             retry_after: None,
         }
     }
 
+    /// Adds an English detail for debug builds; call it again to add more.
+    #[must_use]
+    pub fn with_context(mut self, message: impl Into<String>) -> Self {
+        self.context.push(message.into());
+
+        self
+    }
+
     pub fn not_found() -> Self {
-        Self::new(StatusCode::NOT_FOUND, ErrorCode::NotFound, "not found")
+        Self::new(StatusCode::NOT_FOUND, ErrorCode::NotFound)
     }
 
     pub fn gallery_delivered() -> Self {
-        Self::new(
-            StatusCode::CONFLICT,
-            ErrorCode::GalleryDelivered,
-            "gallery already delivered",
-        )
+        Self::new(StatusCode::CONFLICT, ErrorCode::GalleryDelivered)
     }
 
     pub fn gallery_not_shared() -> Self {
-        Self::new(
-            StatusCode::CONFLICT,
-            ErrorCode::GalleryNotShared,
-            "gallery is not shared",
-        )
+        Self::new(StatusCode::CONFLICT, ErrorCode::GalleryNotShared)
     }
 
     pub fn zip_not_ready() -> Self {
-        Self::new(
-            StatusCode::CONFLICT,
-            ErrorCode::ZipNotReady,
-            "the ZIP is not ready",
-        )
+        Self::new(StatusCode::CONFLICT, ErrorCode::ZipNotReady)
     }
 
     pub fn zip_in_progress() -> Self {
-        Self::new(
-            StatusCode::CONFLICT,
-            ErrorCode::ZipInProgress,
-            "a ZIP is already being prepared",
-        )
+        Self::new(StatusCode::CONFLICT, ErrorCode::ZipInProgress)
     }
 
     /// Succeeds only when the change was applied; a photo outside the gallery is a 404 and a
@@ -165,111 +157,68 @@ impl ErrorResponse {
     }
 
     pub fn unavailable() -> Self {
-        Self::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            ErrorCode::Unavailable,
-            "service unavailable",
-        )
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, ErrorCode::Unavailable)
     }
 
     pub fn bad_request() -> Self {
-        Self::new(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadRequest,
-            "invalid request",
-        )
+        Self::new(StatusCode::BAD_REQUEST, ErrorCode::BadRequest)
     }
 
     pub fn request_timeout() -> Self {
-        Self::new(
-            StatusCode::REQUEST_TIMEOUT,
-            ErrorCode::RequestTimeout,
-            "request body timed out",
-        )
+        Self::new(StatusCode::REQUEST_TIMEOUT, ErrorCode::RequestTimeout)
     }
 
     pub fn unsupported_media_type() -> Self {
         Self::new(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             ErrorCode::UnsupportedMediaType,
-            "expected an image/jpeg request body",
         )
+        .with_context("expected an image/jpeg request body")
     }
 
     pub fn payload_too_large() -> Self {
-        Self::new(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            ErrorCode::PayloadTooLarge,
-            "request body too large",
-        )
+        Self::new(StatusCode::PAYLOAD_TOO_LARGE, ErrorCode::PayloadTooLarge)
     }
 
     pub fn empty_selection() -> Self {
-        Self::new(
-            StatusCode::CONFLICT,
-            ErrorCode::SelectionEmpty,
-            "the selection is empty",
-        )
+        Self::new(StatusCode::CONFLICT, ErrorCode::SelectionEmpty)
     }
 
     pub fn selection_too_large() -> Self {
-        Self::new(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            ErrorCode::SelectionTooLarge,
-            "the selection is too large to download as one ZIP",
-        )
+        Self::new(StatusCode::PAYLOAD_TOO_LARGE, ErrorCode::SelectionTooLarge)
+            .with_context("the selection is too large to download as one ZIP")
     }
 
     pub fn invalid_image() -> Self {
-        Self::new(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            ErrorCode::InvalidImage,
-            "invalid JPEG image",
-        )
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, ErrorCode::InvalidImage)
     }
 
     pub fn dimensions_too_large() -> Self {
         Self::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             ErrorCode::DimensionsTooLarge,
-            "image dimensions exceed the configured limit",
         )
+        .with_context("image dimensions exceed the configured limit")
     }
 
     pub fn invalid_logo() -> Self {
-        Self::new(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            ErrorCode::InvalidLogo,
-            "invalid logo image",
-        )
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, ErrorCode::InvalidLogo)
     }
 
     pub fn logo_too_large() -> Self {
-        Self::new(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            ErrorCode::LogoTooLarge,
-            "logo is too large",
-        )
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, ErrorCode::LogoTooLarge)
     }
 
     /// The server is busy: the client may retry after `retry_after`, sent in whole seconds.
     pub fn busy(retry_after: Duration) -> Self {
         Self {
             retry_after: Some(retry_after),
-            ..Self::new(
-                StatusCode::TOO_MANY_REQUESTS,
-                ErrorCode::Busy,
-                "server busy, retry later",
-            )
+            ..Self::new(StatusCode::TOO_MANY_REQUESTS, ErrorCode::Busy)
         }
     }
 
     pub fn storage_full() -> Self {
-        Self::new(
-            StatusCode::INSUFFICIENT_STORAGE,
-            ErrorCode::StorageFull,
-            "photo storage is full",
-        )
+        Self::new(StatusCode::INSUFFICIENT_STORAGE, ErrorCode::StorageFull)
     }
 }
 
@@ -304,7 +253,7 @@ impl From<AuthError> for ErrorResponse {
             AuthError::SetupClosed => ErrorCode::SetupClosed,
         };
 
-        Self::new(error.status_code(), code, error.to_string())
+        Self::new(error.status_code(), code).with_context(error.to_string())
     }
 }
 
@@ -319,7 +268,7 @@ impl From<GalleryError> for ErrorResponse {
             GallerySetting::IncludedPhotos => ErrorCode::InvalidIncludedPhotos,
         };
 
-        Self::new(StatusCode::UNPROCESSABLE_ENTITY, code, error.to_string())
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, code).with_context(error.to_string())
     }
 }
 
@@ -335,7 +284,7 @@ impl From<SettingsError> for ErrorResponse {
             SettingsError::Database(_) => return Self::unavailable(),
         };
 
-        Self::new(StatusCode::UNPROCESSABLE_ENTITY, code, error.to_string())
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, code).with_context(error.to_string())
     }
 }
 
@@ -366,15 +315,15 @@ impl From<JsonPayloadError> for ErrorResponse {
             JsonPayloadError::ContentType => Self::new(
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 ErrorCode::UnsupportedMediaType,
-                "expected a JSON request body",
-            ),
+            )
+            .with_context("expected a JSON request body"),
             // Well-formed JSON with an unknown key, a null for a required field or a value
             // outside its type or validation.
             JsonPayloadError::Deserialize(error) if error.is_data() => Self::new(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 ErrorCode::InvalidRequestBody,
-                "invalid request body",
-            ),
+            )
+            .with_context(error.to_string()),
             _ => Self::bad_request(),
         }
     }
@@ -408,9 +357,9 @@ mod tests {
         )));
 
         assert_eq!(full.status_code(), StatusCode::INSUFFICIENT_STORAGE);
-        assert_eq!(full.to_string(), "photo storage is full");
+        assert_eq!(full.code, ErrorCode::StorageFull);
         assert_eq!(failed.status_code(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(failed.to_string(), "service unavailable");
+        assert_eq!(failed.code, ErrorCode::Unavailable);
         assert!(!serde_json::to_string(&failed).unwrap().contains("/private"));
     }
 

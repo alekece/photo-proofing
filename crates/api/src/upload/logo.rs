@@ -179,7 +179,10 @@ mod tests {
         ] {
             let error = LogoNormaliser::normalise(bytes).await.unwrap_err();
 
-            assert_eq!(error.to_string(), "invalid logo image");
+            assert_eq!(
+                serde_json::to_value(&error).unwrap()["code"],
+                "invalid_logo"
+            );
         }
     }
 
@@ -191,7 +194,10 @@ mod tests {
 
         let error = LogoNormaliser::normalise(bytes).await.unwrap_err();
 
-        assert_eq!(error.to_string(), "invalid logo image");
+        assert_eq!(
+            serde_json::to_value(&error).unwrap()["code"],
+            "invalid_logo"
+        );
     }
 
     #[tokio::test]
@@ -205,7 +211,13 @@ mod tests {
 
         let size = LogoNormaliser::normalise(bytes).await.unwrap_err();
 
-        assert_eq!(pixels.to_string(), "logo is too large");
-        assert_eq!(size.to_string(), "logo is too large");
+        assert_eq!(
+            serde_json::to_value(&pixels).unwrap()["code"],
+            "logo_too_large"
+        );
+        assert_eq!(
+            serde_json::to_value(&size).unwrap()["code"],
+            "logo_too_large"
+        );
     }
 }
