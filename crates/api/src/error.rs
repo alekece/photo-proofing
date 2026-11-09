@@ -19,7 +19,7 @@ use pp_database::{
     settings::SettingsError,
 };
 use pp_storage::StorageError;
-use serde::{Serialize, Serializer, ser::SerializeStruct};
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::{response::ResponseBuilderExt, routes::auth::AuthError};
@@ -94,31 +94,18 @@ impl From<ExportStatus> for ExportStatusResponse {
     }
 }
 
-#[derive(Debug, Error)]
-#[error("{message}")]
+#[derive(Debug, Error, Serialize)]
+#[error("{}", .context.first().map_or("", String::as_str))]
 pub(crate) struct ErrorResponse {
+    #[serde(skip)]
     status: StatusCode,
     code: ErrorCode,
-    /// English detail for debug builds only; never sent in release builds.
-    message: String,
+    /// English detail for debug builds only; release builds never send it.
+    #[cfg_attr(not(debug_assertions), serde(skip))]
+    context: Vec<String>,
     /// Sent as `Retry-After` when the client should simply try again later.
+    #[serde(skip)]
     retry_after: Option<Duration>,
-}
-
-impl Serialize for ErrorResponse {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let with_context = cfg!(debug_assertions);
-        let mut body =
-            serializer.serialize_struct("ErrorResponse", 1 + usize::from(with_context))?;
-
-        body.serialize_field("code", &self.code)?;
-
-        if with_context {
-            body.serialize_field("context", &[&self.message])?;
-        }
-
-        body.end()
-    }
 }
 
 impl ErrorResponse {
@@ -126,7 +113,7 @@ impl ErrorResponse {
         Self {
             status,
             code,
-            message: message.into(),
+            context: vec![message.into()],
             retry_after: None,
         }
     }
@@ -308,7 +295,16 @@ impl ResponseError for ErrorResponse {
 
 impl From<AuthError> for ErrorResponse {
     fn from(error: AuthError) -> Self {
-        Self::new(error.status_code(), error.code(), error.to_string())
+        let code = match error {
+            AuthError::Unavailable => ErrorCode::Unavailable,
+            AuthError::Limited => ErrorCode::TooManyAttempts,
+            AuthError::Unauthorized => ErrorCode::Unauthorized,
+            AuthError::ForbiddenOrigin => ErrorCode::ForbiddenOrigin,
+            AuthError::InvalidLogin => ErrorCode::InvalidLogin,
+            AuthError::SetupClosed => ErrorCode::SetupClosed,
+        };
+
+        Self::new(error.status_code(), code, error.to_string())
     }
 }
 
