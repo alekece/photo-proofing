@@ -1,5 +1,7 @@
 # LAN staging deployment
 
+Superseded by [Dashboard staging deployment](2026-11-09-staging-dashboard-deployment-design.md); the Ansible deployment described here has been removed.
+
 Status: Revised design approved by the user. This revision replaces the custom
 deployment launcher with Ansible and standardizes names on `pp`.
 
