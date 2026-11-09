@@ -24,6 +24,7 @@ const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 	watermark_enabled: false,
 	hero_id: null,
 	share_token: null,
+	last_opened_at: null,
 	states: ['draft'],
 	created_at: '2026-01-01T10:00:00Z',
 	updated_at: '2026-01-02T10:00:00Z',

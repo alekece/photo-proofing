@@ -7,7 +7,12 @@
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
 	import { previewUrl } from '#lib/gallery/photos.js';
-	import { formatLongDate, formatShortDate, galleryStatus } from '#lib/gallery/format.js';
+	import {
+		formatDateTime,
+		formatLongDate,
+		formatShortDate,
+		galleryStatus
+	} from '#lib/gallery/format.js';
 	import type { Gallery } from '#lib/gallery/api.js';
 
 	/**
@@ -43,12 +48,18 @@
 	const archived = $derived(status === 'archived');
 	const created = $derived(formatShortDate(gallery.created_at));
 	const createdLong = $derived(formatLongDate(gallery.created_at));
+	const lastOpened = $derived(
+		gallery.last_opened_at === null
+			? m.header_meta_not_opened()
+			: m.header_meta_opened({ date: formatDateTime(gallery.last_opened_at) })
+	);
 	const meta = $derived(
 		photoCount === 0 && !shared
 			? m.header_meta_empty({ created })
 			: [
 					photoCount === null ? '' : m.summary_photos({ count: photoCount }),
-					m.header_meta_created({ created })
+					m.header_meta_created({ created }),
+					shared ? lastOpened : ''
 				]
 					.filter(Boolean)
 					.join(' · ')

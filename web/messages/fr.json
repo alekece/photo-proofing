@@ -164,6 +164,17 @@
 			}
 		}
 	],
+	"notification_opened": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Le client a ouvert la galerie",
+				"countPlural=*": "Le client a ouvert la galerie {count} fois"
+			}
+		}
+	],
+	"notification_badge_opened": "Ouverte",
 	"notification_badge_selection": "Nouvelle sélection",
 	"notification_badge_downloads": "Nouveaux téléchargements",
 	"notifications_unread": [
@@ -258,6 +269,8 @@
 	"action_close": "Fermer",
 	"header_meta_empty": "Créée le {created} · pas encore de photo",
 	"header_meta_created": "créée le {created}",
+	"header_meta_opened": "Dernière ouverture le {date}",
+	"header_meta_not_opened": "Pas encore ouverte",
 	"step_done": "terminée",
 	"step_progress": "Avancement de la galerie",
 	"step_add_proofs": "Ajoutez vos épreuves",

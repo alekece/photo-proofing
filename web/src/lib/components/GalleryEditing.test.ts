@@ -20,6 +20,7 @@ describe('gallery editing integration', () => {
 			watermark_enabled: false,
 			hero_id: null,
 			share_token: 'token',
+			last_opened_at: null,
 			states: ['shared'],
 			created_at: '2026-01-01T00:00:00Z',
 			updated_at: '2026-01-01T00:00:00Z'

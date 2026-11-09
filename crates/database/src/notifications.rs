@@ -1,9 +1,10 @@
 //! The photographer's notifications about client activity.
 //!
-//! Database triggers keep at most one unread notification per gallery: a selection change or the
-//! first download of a final adds to it, and activity after it was read opens a new one (see
-//! migration `0021_notifications.sql`). Reading is workspace-wide and persistent. A change is
-//! announced on [`NotificationEvent`]'s channel.
+//! Database triggers keep at most one unread notification per gallery: a selection change, the
+//! first download of a final or a recorded client open adds to it, and activity after it was read
+//! opens a new one (see migrations `0021_notifications.sql` and `0026_notification_opened.sql`).
+//! Reading is workspace-wide and persistent. A change is announced on [`NotificationEvent`]'s
+//! channel.
 
 use std::time::Duration;
 
@@ -42,6 +43,7 @@ impl NotificationEvent {
 pub enum NotificationKind {
     Selection,
     Download,
+    Open,
 }
 
 /// A notification with what the bell shows of its gallery.
@@ -52,8 +54,8 @@ pub struct Notification {
     pub title: Option<String>,
     pub hero_id: Option<PhotoId>,
     pub kind: NotificationKind,
-    /// Finals downloaded since the notification opened; 0 for a selection or a ZIP of photos
-    /// that were already downloaded.
+    /// Finals downloaded, or client opens, since the notification opened; 0 for a selection or a
+    /// ZIP of photos that were already downloaded.
     pub count: usize,
     /// The gallery's current selection, so the text never goes stale.
     pub selected: usize,
@@ -181,6 +183,8 @@ impl NotificationRepository<'_> {
 
 #[cfg(test)]
 mod tests {
+    use sqlx::AssertSqlSafe;
+
     use super::*;
     use crate::{
         Database, export::ExportRepository, gallery::GalleryRepository, tests::TestRepository,
@@ -257,6 +261,14 @@ mod tests {
             .execute(&self.pool)
             .await
             .unwrap();
+        }
+
+        async fn open(&self) {
+            sqlx::query("UPDATE galleries SET last_opened_at = now() WHERE id = $1")
+                .bind(self.gallery_id)
+                .execute(&self.pool)
+                .await
+                .unwrap();
         }
 
         /// The next notification event; the listener also reports other channels.
@@ -540,5 +552,211 @@ mod tests {
             .unwrap();
 
         assert_eq!(Fixture::heard(&mut listener).await, event);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn opens_accumulate_on_one_unread_notification(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+
+        fixture.open().await;
+        fixture.open().await;
+
+        let list = fixture.list().await;
+
+        assert_eq!(list.unread, 1);
+        assert_eq!(list.notifications.len(), 1);
+        assert_eq!(list.notifications[0].kind, NotificationKind::Open);
+        assert_eq!(list.notifications[0].count, 2);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn aging_the_open_date_records_nothing(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+
+        fixture.open().await;
+        sqlx::query("UPDATE galleries SET last_opened_at = now() - interval '1 hour'")
+            .execute(&fixture.pool)
+            .await
+            .unwrap();
+
+        assert_eq!(fixture.list().await.notifications[0].count, 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn an_open_after_a_read_opens_a_new_notification(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+
+        fixture.open().await;
+
+        let id = fixture.list().await.notifications[0].id;
+
+        fixture
+            .notifications()
+            .mark_read(fixture.workspace_id, id)
+            .await
+            .unwrap();
+        fixture.open().await;
+
+        let list = fixture.list().await;
+
+        assert_eq!(list.unread, 1);
+        assert_eq!(list.notifications.len(), 2);
+        assert_eq!(list.notifications[0].count, 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn opened_switches_kind_like_the_others(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+        let photo = fixture.photo("proof").await;
+
+        fixture.favorite(photo, true).await;
+        fixture.open().await;
+
+        let list = fixture.list().await;
+
+        assert_eq!(list.notifications.len(), 1);
+        assert_eq!(
+            (list.notifications[0].kind, list.notifications[0].count),
+            (NotificationKind::Open, 1)
+        );
+
+        fixture.favorite(photo, false).await;
+
+        assert_eq!(
+            fixture.list().await.notifications[0].kind,
+            NotificationKind::Selection
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn migration_accepts_the_opened_kind_and_keeps_existing_rows(pool: PgPool) {
+        let mut transaction = pool.begin().await.unwrap();
+        let schema = format!("notification_opened_migration_{}", Uuid::new_v4().simple());
+
+        sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(AssertSqlSafe(format!("SET LOCAL search_path TO {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        for migration in [
+            include_str!("../migrations/0001_accounts_sessions.sql"),
+            include_str!("../migrations/0002_galleries.sql"),
+            include_str!("../migrations/0003_share_tokens.sql"),
+            include_str!("../migrations/0004_jobs.sql"),
+            include_str!("../migrations/0005_job_payload_enum.sql"),
+            include_str!("../migrations/0006_photos.sql"),
+            include_str!("../migrations/0007_photo_events.sql"),
+            include_str!("../migrations/0008_gallery_states.sql"),
+            include_str!("../migrations/0009_gallery_hero.sql"),
+            include_str!("../migrations/0010_photo_favorites.sql"),
+            include_str!("../migrations/0011_job_runs.sql"),
+            include_str!("../migrations/0012_gallery_last_opened.sql"),
+            include_str!("../migrations/0013_finals_draft.sql"),
+            include_str!("../migrations/0014_exports.sql"),
+            include_str!("../migrations/0015_workspace_watermark.sql"),
+            include_str!("../migrations/0016_photo_render_revision.sql"),
+            include_str!("../migrations/0017_proof_variants.sql"),
+            include_str!("../migrations/0018_drop_job_runs.sql"),
+            include_str!("../migrations/0019_deliver_step.sql"),
+            include_str!("../migrations/0020_client_downloads.sql"),
+            include_str!("../migrations/0021_notifications.sql"),
+            include_str!("../migrations/0022_workspace_language.sql"),
+            include_str!("../migrations/0023_export_failure_codes.sql"),
+            include_str!("../migrations/0024_photo_favorite_dates.sql"),
+            include_str!("../migrations/0025_proof_quality.sql"),
+        ] {
+            sqlx::raw_sql(migration)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        let workspace = Uuid::new_v4();
+        let gallery = Uuid::new_v4();
+
+        sqlx::query("INSERT INTO workspaces(id) VALUES ($1)")
+            .bind(workspace)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO galleries(id, workspace_id) VALUES ($1, $2)")
+            .bind(gallery)
+            .bind(workspace)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO notifications (workspace_id, gallery_id, kind, read_at)
+             VALUES ($1, $2, 'selection', now())",
+        )
+        .bind(workspace)
+        .bind(gallery)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+
+        let opened = "INSERT INTO notifications (workspace_id, gallery_id, kind)
+                      VALUES ($1, $2, 'open')";
+
+        sqlx::query("SAVEPOINT before_migration")
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let rejected = sqlx::query(opened)
+            .bind(workspace)
+            .bind(gallery)
+            .execute(&mut *transaction)
+            .await;
+
+        assert!(
+            rejected.is_err(),
+            "the kind is unknown before the migration"
+        );
+
+        sqlx::query("ROLLBACK TO SAVEPOINT before_migration")
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!("../migrations/0026_notification_opened.sql"))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(opened)
+            .bind(workspace)
+            .bind(gallery)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let kinds: Vec<String> =
+            sqlx::query_scalar("SELECT kind FROM notifications ORDER BY (read_at IS NULL)")
+                .fetch_all(&mut *transaction)
+                .await
+                .unwrap();
+
+        assert_eq!(kinds, ["selection", "open"]);
+
+        sqlx::query("SAVEPOINT after_migration")
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let unknown = sqlx::query(
+            "INSERT INTO notifications (workspace_id, gallery_id, kind)
+             VALUES ($1, $2, 'unknown')",
+        )
+        .bind(workspace)
+        .bind(gallery)
+        .execute(&mut *transaction)
+        .await;
+
+        assert!(unknown.is_err(), "other kinds stay rejected");
+
+        transaction.rollback().await.unwrap();
     }
 }

@@ -18,6 +18,7 @@ const base: Gallery = {
 	watermark_enabled: false,
 	hero_id: null,
 	share_token: null,
+	last_opened_at: null,
 	states: ['draft'],
 	created_at: '2026-06-12T10:00:00Z',
 	updated_at: '2026-06-12T10:00:00Z'
@@ -86,6 +87,24 @@ describe('GalleryHeader', () => {
 		expect(ondeliver).toHaveBeenCalledOnce();
 	});
 
+	it('shows when the client last opened a shared gallery, or that it has not', () => {
+		const shared = { share_token: 'T'.repeat(22), states: ['shared' as const] };
+		const { unmount } = setup(shared, { photos: 3 });
+
+		expect(screen.getByText(/ · Not opened yet$/)).toBeTruthy();
+
+		unmount();
+		setup({ ...shared, last_opened_at: '2026-11-09T14:38:00Z' }, { photos: 3 });
+
+		expect(screen.getByText(/ · Last opened \w{3} \d{1,2}, 2026/)).toBeTruthy();
+	});
+
+	it('shows nothing about opens before the gallery is shared', () => {
+		setup({}, { photos: 3 });
+
+		expect(screen.queryByText(/opened/i)).toBeNull();
+	});
+
 	it('shows the status only in the badge, not in the meta line or the steps', () => {
 		setup({ share_token: 'T'.repeat(22), states: ['delivered'] }, { photos: 3 });
 
@@ -137,6 +156,15 @@ describe('GalleryHeader', () => {
 
 describe('GalleryHeader in French', () => {
 	useLocale('fr');
+
+	it('words the last open in French', () => {
+		setup(
+			{ share_token: 'T'.repeat(22), states: ['shared'], last_opened_at: '2026-11-09T14:38:00Z' },
+			{ photos: 3 }
+		);
+
+		expect(screen.getByText(/ · Dernière ouverture le \d{1,2} nov\. 2026/)).toBeTruthy();
+	});
 
 	it('shows the actions and the next step in French', () => {
 		setup();
