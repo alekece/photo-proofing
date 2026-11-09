@@ -235,6 +235,14 @@ describe('ClientGallery', () => {
 		});
 	});
 
+	it('keeps the bar available when there is no IntersectionObserver', async () => {
+		vi.stubGlobal('IntersectionObserver', undefined);
+		show();
+		await tick();
+
+		expect(favoritesToggle()).toBeTruthy();
+	});
+
 	it('filters to favorites and says when there are none', async () => {
 		const user = userEvent.setup();
 		show({ favorites: ['p2'] });

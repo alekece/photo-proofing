@@ -50,11 +50,18 @@
 	let onlyFavorites = $state(false);
 	let grid = $state<HTMLElement>();
 	let hero = $state<HTMLElement>();
-	// Without an observer the bar stays available instead of never appearing.
-	let heroVisible = $state(typeof IntersectionObserver !== 'undefined');
+	// Server and first client render agree on a hidden bar, so hydration matches.
+	let heroVisible = $state(true);
 
 	$effect(() => {
-		if (!hero || typeof IntersectionObserver === 'undefined') return;
+		if (!hero) return;
+
+		// Without an observer the bar stays available instead of never appearing.
+		if (typeof IntersectionObserver === 'undefined') {
+			heroVisible = false;
+
+			return;
+		}
 
 		const observer = new IntersectionObserver(([entry]) => (heroVisible = entry.isIntersecting));
 
@@ -260,66 +267,70 @@
 			</div>
 		</header>
 		<div bind:this={grid}>
-			<!-- Zero height, so the hidden bar leaves no gap above the grid. -->
-			<div class="sticky top-0 z-10 h-0">
-				<div
-					inert={heroVisible}
-					aria-hidden={heroVisible}
-					class={[
-						'flex items-center gap-3.5 border-b border-border bg-[rgb(244_239_232/0.96)] px-7 py-3 text-sm font-medium backdrop-blur-[10px] transition-[transform,opacity] duration-300 motion-reduce:transition-none @max-[700px]:px-3.5 @max-[700px]:py-2.5',
-						heroVisible && 'pointer-events-none -translate-y-full opacity-0'
-					]}
-				>
-					<h2 class="min-w-0 truncate font-serif text-[1.25rem] @max-[700px]:text-[1.0625rem]">
-						{title}
-					</h2>
-					<span class="flex-1"></span>
-					{#if delivered}
-						<Button size="sm" disabled={downloading} onclick={downloadAll}>
-							<Download size={16} aria-hidden="true" class="mr-2" />{downloading
-								? m.favorites_downloading()
-								: m.favorites_download_all()}
-						</Button>
-					{:else}
-						<div
-							role="group"
-							aria-label={m.client_show()}
-							class="flex rounded-full border border-border bg-panel p-[3px]"
-						>
-							{#each [false, true] as only (only)}
-								<button
-									type="button"
-									aria-pressed={onlyFavorites === only}
-									onclick={() => (onlyFavorites = only)}
-									class="group inline-flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-[5px] text-[0.8125rem] font-semibold text-muted-foreground focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-foreground aria-pressed:text-panel"
-								>
-									{#if only}
-										<span class="sr-only">{m.tab_favorites()}</span>
-										<Heart
-											size={14}
-											aria-hidden="true"
-											fill="currentColor"
-											class="text-danger group-aria-pressed:text-[#ff8f75]"
-										/>
-										{#key selection.count}<span
-												class={[
-													'inline-block animate-heart-pop tabular-nums',
-													over &&
-														'font-extrabold text-warning group-aria-pressed:text-warning-on-dark'
-												]}>{selection.count}</span
-											>{/key}
-										{#if gallery.included_photos !== null}
-											<span class="font-medium whitespace-nowrap opacity-75"
-												>{m.client_of_included({ count: gallery.included_photos })}</span
-											>
+			<!-- The row collapses to zero height while hidden, so there is no gap, and expands in flow so the bar never covers photos. -->
+			<div
+				class={[
+					'sticky top-0 z-10 grid transition-[grid-template-rows,opacity] duration-300 motion-reduce:transition-none',
+					heroVisible ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
+				]}
+			>
+				<div class="min-h-0 overflow-hidden">
+					<div
+						inert={heroVisible}
+						aria-hidden={heroVisible}
+						class="flex items-center gap-3.5 border-b border-border bg-[rgb(244_239_232/0.96)] px-7 py-3 text-sm font-medium backdrop-blur-[10px] @max-[700px]:px-3.5 @max-[700px]:py-2.5"
+					>
+						<h2 class="min-w-0 truncate font-serif text-[1.25rem] @max-[700px]:text-[1.0625rem]">
+							{title}
+						</h2>
+						<span class="flex-1"></span>
+						{#if delivered}
+							<Button size="sm" disabled={downloading} onclick={downloadAll}>
+								<Download size={16} aria-hidden="true" class="mr-2" />{downloading
+									? m.favorites_downloading()
+									: m.favorites_download_all()}
+							</Button>
+						{:else}
+							<div
+								role="group"
+								aria-label={m.client_show()}
+								class="flex rounded-full border border-border bg-panel p-[3px]"
+							>
+								{#each [false, true] as only (only)}
+									<button
+										type="button"
+										aria-pressed={onlyFavorites === only}
+										onclick={() => (onlyFavorites = only)}
+										class="group inline-flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-[5px] text-[0.8125rem] font-semibold text-muted-foreground focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-foreground aria-pressed:text-panel"
+									>
+										{#if only}
+											<span class="sr-only">{m.tab_favorites()}</span>
+											<Heart
+												size={14}
+												aria-hidden="true"
+												fill="currentColor"
+												class="text-danger group-aria-pressed:text-[#ff8f75]"
+											/>
+											{#key selection.count}<span
+													class={[
+														'inline-block animate-heart-pop tabular-nums',
+														over &&
+															'font-extrabold text-warning group-aria-pressed:text-warning-on-dark'
+													]}>{selection.count}</span
+												>{/key}
+											{#if gallery.included_photos !== null}
+												<span class="font-medium whitespace-nowrap opacity-75"
+													>{m.client_of_included({ count: gallery.included_photos })}</span
+												>
+											{/if}
+										{:else}
+											{m.client_all()}
 										{/if}
-									{:else}
-										{m.client_all()}
-									{/if}
-								</button>
-							{/each}
-						</div>
-					{/if}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
 				</div>
 			</div>
 			{#if selection.error}
