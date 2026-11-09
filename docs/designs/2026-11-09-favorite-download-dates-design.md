@@ -18,11 +18,12 @@ The photographer sees that a photo is a favorite or was downloaded, but not when
 - A history of favorite toggles; the date is the latest time the photo became a favorite.
 - Showing dates to the client (the shared gallery only needs favorite ids).
 - Notification or activity-count changes.
+- Thumbnail quality. The maintainer finds thumbnails too low quality; that is a separate follow-up, not part of #296.
 
 ## Constraints
 
 - A client favoriting a photo that is already a favorite must not move its date or emit an event; unfavoriting clears the date.
-- Captions must fit the smallest tiles (two columns on a phone, about 170 px wide).
+- The caption must stay legible and clear of the tile controls, including on the smallest tiles (two columns on a phone, about 170 px wide); tiles may be enlarged if needed.
 - Every user-visible string is a Paraglide message in both `web/messages/en.json` and `fr.json`.
 - `docs/SPECIFICATIONS.md` says nothing about dates today (FR "Client activity indicators" only covers counts), so it needs one added sentence; see Decisions. Product wording needs maintainer approval.
 
@@ -34,9 +35,9 @@ The photographer sees that a photo is a favorite or was downloaded, but not when
 
 ### Where the caption lives
 
-- **A. Overlay pill on the photo (rejected).** The bottom corners already hold the downloaded icon and the hover download button; a ~20-character caption would collide with them and cover the picture on 170 px tiles.
-- **B. A short date only on the tile, full text in a tooltip (rejected).** Drops the year and time the issue requires, and hover does not exist on touch.
-- **C. A caption row under the photo (chosen).** Icon plus localized date and time in small muted text, below the image inside the grid item. It never covers the photo or the buttons, wraps to two lines if needed, and masonry columns already tolerate varying heights.
+- **A. Overlay on the photo, bottom-left, on a subtle scrim (chosen by the maintainer).** The date reads as part of the tile and adds no height. Tiles may grow to make room, so width is not a hard constraint.
+- **B. A caption row under the photo (rejected).** Never covers the picture, but separates the date from the photo and the maintainer prefers the overlay.
+- **C. A short date only, full text in a tooltip (kept as fallback, see Open point).** Drops the year and time, and hover does not exist on touch.
 
 ## Decisions
 
@@ -48,17 +49,23 @@ The photographer sees that a photo is a favorite or was downloaded, but not when
 - **Other SQL:** `favorites`, the export snapshot, the gallery favorite count and notifications' `selected` switch from `favorite` to `favorited_at IS NOT NULL`; the `COLUMNS` lists and the `false AS favorite` placeholder row become `favorited_at`. Worker and test fixtures that insert a `favorite` value follow.
 - **Front schema:** `photoSchema` swaps `favorite: boolean` for `favorited_at: nullable string` (optional like `downloaded_at`); `FavoritesPanel` filters on it being non-null.
 - **Formatting:** add `formatDateTime(iso)` to `web/src/lib/gallery/format.ts`, using `Intl.DateTimeFormat(DATE_LOCALES[getLocale()], { dateStyle: 'medium', timeStyle: 'short' })` in the browser's time zone, like the other helpers there.
-- **Tile:** `PhotoTile` gets an optional `caption` prop (`{ kind: 'favorited' | 'downloaded', at: string }`); `PhotosPanel` passes the download date on Finals, `FavoritesPanel` the favorite date. The row shows a lucide `Heart` or `Download` icon (decorative) and the date. The existing round downloaded badge on the photo is removed on Finals, since the caption now carries the icon. *My call.*
-- **Messages:** add `tile_favorited_at` ("Favorited {date}") and `tile_downloaded_at` ("Downloaded {date}") as the accessible label of the row, in en and fr; the visible text stays the bare date. `tile_downloaded` is removed if unused.
+- **Tile:** `PhotoTile` gets an optional `caption` prop (`{ kind: 'favorited' | 'downloaded', at: string }`); `PhotosPanel` passes the download date on Finals, `FavoritesPanel` the favorite date. The caption is overlaid at the bottom-left: a lucide `Heart` or `Download` icon (decorative) plus the date, light text on a subtle bottom gradient scrim so it stays legible on any photo. The scrim and text ignore pointer events, so the photo stays clickable.
+- **No collisions:** the existing controls are the select checkbox (top-left), the delete or hero-star button (top-right), the hover/touch download button (bottom-right, 32 px) and, for unfinished photos only, a progress bar or status label along the bottom edge. The caption shows on ready photos only, stays left of the download button (it truncates before reaching it, leaving about 40 px on the right) and uses no top corner.
+- **Finals badge:** the separate round "downloaded" badge (bottom-left) is removed on Finals; the overlay caption's icon replaces it in the same corner, so there is one indicator, not two. *My call.*
+- **Thumbnails:** the maintainer finds thumbnails too low quality. That is out of scope here; file a follow-up issue.
 - **Spec:** with approval, add to "Client activity indicators": "Photo tiles show when the client favorited a photo and when they first downloaded a finished photo." This is a requirements change, so it waits for the maintainer.
 
 ## Testing
 
 - **Migration regression test** in `crates/database`, using the transaction-scoped schema pattern (`CREATE SCHEMA`, `SET LOCAL search_path`, rolled back; see the tests in `gallery.rs` around line 784 and `jobs.rs` around 1168): build the schema up to `0023`, insert favorite and non-favorite photos, apply `0024`, then check that `favorited_at` equals `created_at` for former favorites and is NULL otherwise, that `favorite` is gone, and that the backfill emitted no notification.
 - **Repository tests** (extend the existing favorite tests): setting sets the date; a repeat keeps the first date; clearing sets NULL; events fire on flips only, including no event on re-favoriting.
-- **Front tests:** `format.ts` test for both locales; `PhotoTile` renders the caption with its accessible label; `PhotosPanel` shows the download date on Finals only for downloaded photos; `FavoritesPanel` shows the favorite date; schema tests and fixtures move to `favorited_at`.
+- **Front tests:** `format.ts` test for both locales; `PhotoTile` renders the overlay caption with its accessible label and not on unfinished photos; `PhotosPanel` shows the download date on Finals only for downloaded photos; `FavoritesPanel` shows the favorite date; schema tests and fixtures move to `favorited_at`.
 - Run the `crates/` and `pnpm --dir web verify` checks.
+
+## Open point
+
+Whether the full date (year and time) fits on a real tile. The builder checks it on real tiles (phone and desktop, English and French) and picks, in this order: enlarge the tiles, shorten the format (for example drop the year for the current year), or show only the icon with the full date as the tooltip (`title`) and accessible name. Record the choice in the PR.
 
 ## Left to the builder
 
-Exact caption type size, colour and spacing within `docs/designs/ui/DESIGN.md`, the select-mode ring behaviour with the caption row, and the order of the migration's statements as long as the backfill emits no events.
+Exact caption type size, scrim strength and spacing within `docs/designs/ui/DESIGN.md`, and the order of the migration's statements as long as the backfill emits no events.
