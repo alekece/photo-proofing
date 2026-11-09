@@ -187,7 +187,6 @@ describe('ClientGallery', () => {
 
 	describe('sticky bar', () => {
 		let report: (intersectionRatio: number) => void;
-		let resize: (height: number) => void;
 
 		beforeEach(() => {
 			vi.stubGlobal(
@@ -195,16 +194,6 @@ describe('ClientGallery', () => {
 				class {
 					constructor(callback: (entries: { intersectionRatio: number }[]) => void) {
 						report = (intersectionRatio) => callback([{ intersectionRatio }]);
-					}
-					observe() {}
-					disconnect() {}
-				}
-			);
-			vi.stubGlobal(
-				'ResizeObserver',
-				class {
-					constructor(callback: (entries: { contentRect: { height: number } }[]) => void) {
-						resize = (height) => callback([{ contentRect: { height } }]);
 					}
 					observe() {}
 					disconnect() {}
@@ -268,15 +257,6 @@ describe('ClientGallery', () => {
 			await user.click(screen.getByRole('button', { name: 'All' }));
 
 			expect(screen.getAllByRole('button', { name: /^Open proof/ })).toHaveLength(3);
-		});
-
-		it('stays when the page is too short to scroll', async () => {
-			show();
-			await tick();
-			resize(100);
-			await tick();
-
-			expect(favoritesToggle()).toBeTruthy();
 		});
 	});
 

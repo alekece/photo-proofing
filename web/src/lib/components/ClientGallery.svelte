@@ -50,12 +50,8 @@
 	let onlyFavorites = $state(false);
 	let grid = $state<HTMLElement>();
 	let hero = $state<HTMLElement>();
-	let page = $state<HTMLElement>();
-	let barRow = $state<HTMLElement>();
-	let viewportHeight = $state(0);
 	// Server and first client render agree on a hidden bar, so hydration matches.
 	let heroAtRest = $state(true);
-	let scrollable = $state(true);
 
 	$effect(() => {
 		if (!hero) return;
@@ -79,21 +75,6 @@
 		return () => observer.disconnect();
 	});
 
-	$effect(() => {
-		if (!page || typeof ResizeObserver === 'undefined') return;
-
-		const observer = new ResizeObserver(([entry]) => {
-			// The bar's own height is left out, or showing it could make the page look scrollable.
-			const barHeight = barRow?.offsetHeight ?? 0;
-
-			scrollable = entry.contentRect.height - barHeight > viewportHeight;
-		});
-
-		observer.observe(page);
-
-		return () => observer.disconnect();
-	});
-
 	// The page is loaded once per link, so the initial values are read once on purpose.
 	// svelte-ignore state_referenced_locally
 	const selection = new Selection({ token, initial: favorites });
@@ -108,8 +89,9 @@
 	const shown = $derived(
 		onlyFavorites && !delivered ? proofs.filter(({ id }) => selection.has(id)) : proofs
 	);
-	// Never hide the bar when it is the only way back to the full gallery.
-	const barHidden = $derived(heroAtRest && scrollable && !(onlyFavorites && !delivered));
+	// Never hide the bar when it is the only way back to the full gallery. The hero fills the
+	// screen, so an unfiltered page with photos always scrolls and hides nothing the client needs.
+	const barHidden = $derived(heroAtRest && !(onlyFavorites && !delivered));
 	const count = $derived(m.summary_photos({ count: proofs.length }));
 	const title = $derived(gallery.title ?? m.gallery_untitled());
 
@@ -151,8 +133,6 @@
 	}
 	let cover = $derived(coverUrl);
 </script>
-
-<svelte:window bind:innerHeight={viewportHeight} />
 
 <!-- Container queries stand in for the prototype's 700px media rule, so the phone preview narrows too. -->
 {#if proofs.length === 0 && !delivered && !cover}
@@ -228,7 +208,7 @@
 		</div>
 	</main>
 {:else}
-	<main bind:this={page} class="@container bg-background">
+	<main class="@container bg-background">
 		<header
 			bind:this={hero}
 			class="relative isolate flex min-h-[max(520px,100dvh)] flex-col overflow-hidden bg-[#2b2420] text-center text-panel @max-[700px]:min-h-[max(480px,100svh)] {framed
@@ -297,7 +277,6 @@
 		<div bind:this={grid}>
 			<!-- The row collapses to zero height while hidden, so there is no gap, and expands in flow so the bar never covers photos. -->
 			<div
-				bind:this={barRow}
 				class={[
 					'sticky top-0 z-10 grid transition-[grid-template-rows,opacity] duration-300 motion-reduce:transition-none',
 					barHidden ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
