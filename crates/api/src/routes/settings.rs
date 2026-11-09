@@ -79,10 +79,10 @@ struct SettingsRequest {
 }
 
 impl SettingsRequest {
-    /// Reads the JSON body, which may carry a base64 logo at the configured byte cap.
-    async fn read(payload: Payload, logo_max_size: u64) -> Result<Self, ErrorResponse> {
-        let limit = usize::try_from(logo_max_size.saturating_mul(4) / 3 + BODY_MARGIN)
-            .unwrap_or(usize::MAX);
+    /// Reads the JSON body, which may carry a base64 logo at the byte cap.
+    async fn read(payload: Payload) -> Result<Self, ErrorResponse> {
+        let limit =
+            usize::try_from(LogoNormaliser::MAX_SIZE * 4 / 3 + BODY_MARGIN).unwrap_or(usize::MAX);
         let body = payload
             .to_bytes_limited(limit)
             .await
@@ -173,11 +173,8 @@ async fn save_settings(
     Authenticated(identity): Authenticated,
     payload: Payload,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let upload_config = state.upload_config();
-    let request = SettingsRequest::read(payload, upload_config.logo_max_size.get()).await?;
-    let update = request
-        .into_update(&LogoNormaliser::from(upload_config))
-        .await?;
+    let request = SettingsRequest::read(payload).await?;
+    let update = request.into_update(&LogoNormaliser::default()).await?;
     let settings = state
         .database()
         .repository_with::<SettingsRepository>(state.job_options())

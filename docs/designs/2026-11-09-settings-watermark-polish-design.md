@@ -1,6 +1,6 @@
 # Settings and watermark polish
 
-Issue: [#297](https://github.com/alekece/photo-proofing/issues/297). The logo limit change (any dimensions, about 100 MP safety cap, about 20 MiB configurable byte cap) is already approved by the maintainer. Decisions marked *my call* are the author's and open to change in review.
+Issue: [#297](https://github.com/alekece/photo-proofing/issues/297). The logo limit change (any dimensions, about 100 MP safety cap, fixed ~20 MiB byte cap) is already approved by the maintainer. Decisions marked *my call* are the author's and open to change in review.
 
 ## Intent
 
@@ -12,7 +12,7 @@ Fix a handful of rough edges on the studio Settings page and in the watermark it
 - French: "Activer les filigranes" (switch) and "Paramètres du filigrane" (studio heading).
 - The watermark preview uses fixed sample tiles drawn in CSS/SVG, identical for every workspace, instead of the owner's cover photos.
 - Rendered repeated watermarks follow the preview's pattern: rows tilted about -24°, every other row shifted by half a step.
-- Logo upload takes any dimensions; it is still stored as a metadata-free PNG of at most 512 px. The 4 MP cap becomes a ~100 MP decompression-bomb cap, and the 1 MiB cap becomes an operator setting (default 20 MiB).
+- Logo upload takes any dimensions; it is still stored as a metadata-free PNG of at most 512 px. The 4 MP cap becomes a ~100 MP decompression-bomb cap, and the 1 MiB cap becomes a fixed 20 MiB constant (not an operator setting, for now).
 - Save shows its own lifecycle (Save, "Saving…", "Saved" with a green check and ripple, Save); no "Saved" toast. Cancel plays the same ripple, then returns to disabled, and the revert is announced.
 - Motion respects reduced-motion.
 
@@ -26,7 +26,7 @@ Fix a handful of rough edges on the studio Settings page and in the watermark it
 
 - All text is a Paraglide message in `en.json` and `fr.json`.
 - Proofs are rendered by `image-worker` with libvips; the web preview is only an illustration.
-- `docs/SPECIFICATIONS.md` FR-07 changes: the logo sentence ("at most 1 MiB and 4 megapixels") becomes any dimensions, a decompression-bomb cap and an operator-configurable byte cap. The README gets the new setting.
+- `docs/SPECIFICATIONS.md` FR-07 changes: the logo sentence ("at most 1 MiB and 4 megapixels") becomes any dimensions, a decompression-bomb cap and a fixed ~20 MiB byte cap. No README setting is added.
 
 ## Approaches
 
@@ -57,14 +57,14 @@ Today `repeated()` tiles axis-aligned staggered rows; the preview rotates the wh
 - **Cancel:** after a revert the button plays the same ripple (no sliding label, no `animate-revert-spin`, which is deleted from `app.css`), then returns to disabled; the live region announces "Reverted" (`studio_reverted`).
 - **Reduced motion:** the existing `prefers-reduced-motion` block in `app.css` already makes animations instant; the ripple adds nothing that needs more, but the state must still change (check and label appear, ripple does not show).
 - **Rotation in the worker:** `WatermarkPainter` gets `const REPEAT_ANGLE: f64 = -24.0` (degrees, same as the preview) beside `REPEAT_GAP`. `repeated()` is replaced by a function returning copy positions on the rotated staggered lattice (step from the rotated mark's un-rotated size and `REPEAT_GAP`, rows half-shifted), starting beyond the photo's edges so corners are covered, and `paint` composites all copies in one call. Rotate with bicubic interpolation on premultiplied alpha, so edges do not get dark fringes. The rotated mark keeps its transparent padding so shadows are not clipped. The preview's gaps are in `em`, so the lattice matches it in angle and stagger, not to the pixel.
-- **Logo limits:** a new `UploadConfig` field `logo_max_size` (`--logo-upload-max-size`, `PP_LOGO_UPLOAD_MAX_SIZE`, default 20 MiB, `NonZeroU64`, next to `PP_PHOTO_UPLOAD_MAX_SIZE`). `LogoNormaliser` takes the cap as a parameter instead of `MAX_BYTES`, and `routes/settings.rs` derives its JSON body limit from it (base64 adds a third) instead of the constant. The pixel cap stays a constant, `DEFAULT_MAX_PIXELS` (100 MP, the same as photos), not an operator setting. *My call:* one fewer knob; the worker's cap is the same number.
+- **Logo limits:** `LogoNormaliser` gets a named constant `MAX_SIZE` (20 MiB) next to the pixel cap, `DEFAULT_MAX_PIXELS` (100 MP, the same as photos); neither is an operator setting, so no config field, flag or environment variable is added. `routes/settings.rs` derives its JSON body limit from `MAX_SIZE` (base64 adds a third). The client no longer checks the byte size; the server's `logo_too_large` / `payload_too_large` answers are shown.
 - **Shrink on load:** read the header (libvips is lazy), reject above the pixel cap, then shrink while loading with `thumbnail_buffer` limited to 512 px (JPEG shrinks in the decoder; PNG is read sequentially), so a 100 MP logo never sits fully decoded in memory. Orientation, sRGB, alpha and "no metadata" behave as today. Cases that failed before on size now succeed or fail as `logo_too_large` only past the new caps.
-- **Docs:** update FR-07 in `docs/SPECIFICATIONS.md` and the README upload bounds list with `PP_LOGO_UPLOAD_MAX_SIZE`.
+- **Docs:** update FR-07 in `docs/SPECIFICATIONS.md`.
 
 ## Testing
 
 - `watermark.rs`: painting a repeated mark on a black photo lights pixels on many distinct rows, and within one lattice row the marks' vertical positions differ (so they are not all on one horizontal line, which the old axis-aligned tiling would fail). Existing repeat and single-placement tests keep passing.
-- `logo.rs`: a large image above 4 MP (and under the cap) is accepted and stored at most 512 px, metadata-free; an image over the pixel cap and an upload over the byte cap are rejected; the cap comes from the parameter. `config.rs` default test covers 20 MiB.
+- `logo.rs`: a large image above 4 MP (and under the cap) is accepted and stored at most 512 px, metadata-free; an image over the pixel cap and an upload over the byte cap are rejected.
 - Web: Switch knob offset; French labels; `SaveButton` states, ripple, live region and reduced motion; settings page shows no "Saved" toast, Cancel ripples then disables and announces; the loader no longer calls the galleries API; the editor renders the static tiles with no images, while the cover preview still shows the owner's cover.
 
 ## Left to the builder

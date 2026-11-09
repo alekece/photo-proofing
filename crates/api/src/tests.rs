@@ -52,7 +52,6 @@ pub(crate) fn upload_config(max_size: u64, max_pixels: u64) -> UploadConfig {
     UploadConfig {
         max_size: NonZeroU64::new(max_size).unwrap(),
         max_pixels: NonZeroU64::new(max_pixels).unwrap(),
-        logo_max_size: NonZeroU64::new(1024 * 1024).unwrap(),
         concurrency: NonZeroUsize::new(4).unwrap(),
         retry_after: "1s".parse().unwrap(),
         body_idle_timeout: "30s".parse().unwrap(),

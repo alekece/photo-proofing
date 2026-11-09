@@ -10,7 +10,7 @@ use libvips::{
 };
 use pp_core::config::DEFAULT_MAX_PIXELS;
 
-use crate::{config::UploadConfig, error::ErrorResponse};
+use crate::error::ErrorResponse;
 
 /// An image format accepted for the logo, recognised by its signature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,22 +34,25 @@ impl LogoFormat {
     }
 }
 
-/// Checks an uploaded logo against the operator's byte cap and the pixel safety cap.
+/// Checks an uploaded logo against the byte cap and the pixel safety cap.
 pub(crate) struct LogoNormaliser {
     max_size: u64,
     max_pixels: u64,
 }
 
-impl From<&UploadConfig> for LogoNormaliser {
-    fn from(config: &UploadConfig) -> Self {
+impl Default for LogoNormaliser {
+    fn default() -> Self {
         Self {
-            max_size: config.logo_max_size.get(),
+            max_size: Self::MAX_SIZE,
             max_pixels: DEFAULT_MAX_PIXELS.get(),
         }
     }
 }
 
 impl LogoNormaliser {
+    /// Largest logo upload, in bytes. It is shrunk to a small PNG, so this only bounds what is
+    /// read from the request.
+    pub(crate) const MAX_SIZE: u64 = 20 * 1024 * 1024;
     /// Long edge of the stored logo.
     pub(crate) const MAX_EDGE: i32 = 512;
 

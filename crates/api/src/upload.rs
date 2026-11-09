@@ -204,7 +204,6 @@ mod tests {
             UploadConfig {
                 max_size: NonZeroU64::new(1024).unwrap(),
                 max_pixels: NonZeroU64::new(2048).unwrap(),
-                logo_max_size: NonZeroU64::new(1024 * 1024).unwrap(),
                 concurrency: NonZeroUsize::new(1).unwrap(),
                 retry_after: "1s".parse().unwrap(),
                 body_idle_timeout: "30s".parse().unwrap(),
