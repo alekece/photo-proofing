@@ -1,7 +1,7 @@
 # Dashboard staging deployment
 
-Status: Approved by the user, including the moving `:staging` tag. The auto-update
-trial remains a gate before cutover.
+Status: Implemented. Staging runs from the dashboard and the Ansible deployment is
+removed. Auto-update is still to be confirmed by the first release after cutover.
 
 Related: [#288](https://github.com/alekece/photo-proofing/issues/288). Replaces the
 Ansible deployment described in

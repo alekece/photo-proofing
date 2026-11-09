@@ -58,9 +58,6 @@ jobs:
             staging:
               - "deploy/**"
               - "config.example.toml"
-              - "docker-compose.yml"
-              - "compose.staging.yml"
-              - "docker/Caddyfile.staging"
               - ".github/workflows/ci.yml"
 
   deployment-checks:
@@ -70,14 +67,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python3 -m pip install -r deploy/requirements.txt
-      - run: ansible-galaxy collection install -r deploy/requirements.yml
-      - run: ansible-playbook -i localhost, deploy/staging.yml --syntax-check
-      - run: ansible-playbook -i localhost, deploy/verify.yml
-      - run: docker run --rm --entrypoint caddy -e PP_STAGING_HOST=proofing.example -v "$PWD/docker/Caddyfile.staging:/etc/caddy/Caddyfile:ro" caddy:2-alpine validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Validate the dashboard stack with synthetic values
         env:
           POSTGRES_PASSWORD: synthetic
