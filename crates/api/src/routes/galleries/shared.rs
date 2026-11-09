@@ -469,6 +469,7 @@ mod tests {
                 "hero_id": null,
                 "studio_name": "",
                 "signature": "name",
+                "signature_size": 4,
                 "has_logo": false
             })
         );
