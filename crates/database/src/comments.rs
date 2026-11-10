@@ -38,7 +38,7 @@ impl TryFrom<String> for CommentBody {
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let value = value.trim();
 
-        if !(1..=MAX_BODY_CHARS).contains(&value.chars().count()) {
+        if !(1..=MAX_BODY_CHARS).contains(&value.chars().count()) || value.contains('\0') {
             return Err(CommentBodyError);
         }
 

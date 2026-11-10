@@ -78,7 +78,7 @@ async fn read_one(
 
 #[cfg(test)]
 mod tests {
-    use actix_web::{App, http::StatusCode, test};
+    use actix_web::{App, http::StatusCode, test, web::Data};
     use sqlx::PgPool;
 
     use crate::{
@@ -102,7 +102,7 @@ mod tests {
         let (state, _directory) = app_state(pool.clone()).await;
         let app = test::init_service(
             App::new()
-                .app_data(actix_web::web::Data::new(state))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;
@@ -139,7 +139,7 @@ mod tests {
         let (state, _directory) = app_state(pool.clone()).await;
         let app = test::init_service(
             App::new()
-                .app_data(actix_web::web::Data::new(state))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;

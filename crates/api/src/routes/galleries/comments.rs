@@ -24,16 +24,12 @@ use crate::{
     response::ResponseBuilderExt,
 };
 
-pub(super) struct CommentRoutes;
-
-impl CommentRoutes {
-    pub fn configure(cfg: &mut ServiceConfig) {
-        cfg.service(counts)
-            .service(thread)
-            .service(add)
-            .service(edit)
-            .service(remove);
-    }
+pub fn configure(cfg: &mut ServiceConfig) {
+    cfg.service(counts)
+        .service(thread)
+        .service(add)
+        .service(edit)
+        .service(remove);
 }
 
 struct CommentAccess {
@@ -155,9 +151,8 @@ async fn add(
     state: Data<ApiState>,
     access: CommentAccess,
     path: Path<PhotoPath>,
-    input: Result<Json<CommentInput>, actix_web::Error>,
+    input: Json<CommentInput>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let input = input.map_err(|_| ErrorResponse::bad_request())?;
     access.pace(&state)?;
     let comment = state
         .database()
@@ -185,9 +180,8 @@ async fn edit(
     state: Data<ApiState>,
     access: CommentAccess,
     path: Path<CommentPath>,
-    input: Result<Json<CommentInput>, actix_web::Error>,
+    input: Json<CommentInput>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let input = input.map_err(|_| ErrorResponse::bad_request())?;
     access.pace(&state)?;
     let comment = state
         .database()
@@ -487,7 +481,12 @@ mod tests {
         let client = format!("/api/v1/galleries/shared/{token}");
         let path = format!("{owner}/photos/{photo}/comments");
 
-        for body in ["".to_owned(), " ".to_owned(), "x".repeat(1001)] {
+        for body in [
+            "".to_owned(),
+            " ".to_owned(),
+            "x".repeat(1001),
+            "a\0b".to_owned(),
+        ] {
             assert_eq!(
                 call(
                     &app,
@@ -495,7 +494,7 @@ mod tests {
                 )
                 .await
                 .0,
-                StatusCode::BAD_REQUEST
+                StatusCode::UNPROCESSABLE_ENTITY
             );
         }
 

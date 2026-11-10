@@ -84,7 +84,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(create_gallery)
             .service(list_galleries)
             .configure(shared::configure)
-            .configure(comments::CommentRoutes::configure)
+            .configure(comments::configure)
             .service(show_gallery)
             .service(update_gallery)
             .service(share_gallery)

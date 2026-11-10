@@ -33,8 +33,9 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     comment_limiter::CommentLimiter,
     config::{
-        ApiConfig, AuthConfig, CommentsConfig, CookieDuration, CookieName, HttpConfig,
-        LimiterConfig, QueueConfig, SessionConfig, UploadConfig,
+        ApiConfig, AuthConfig, CommentsConfig, CookieDuration, CookieName,
+        DEFAULT_COMMENT_INTERVAL, DEFAULT_COMMENT_LIMIT, HttpConfig, LimiterConfig, QueueConfig,
+        SessionConfig, UploadConfig,
     },
     credentials::{HashError, PasswordHash},
     error::ErrorResponse,
@@ -130,10 +131,8 @@ impl ApiState {
             export_retention: DEFAULT_EXPORT_RETENTION,
             failed_attempts: AttemptLimiter::new(limiter),
             dummy_hash: PasswordHash::generate()?,
-            comment_limiter: CommentLimiter::new(Duration::from_secs(2)),
-            // The literal default is nonzero.
-            #[allow(clippy::unwrap_used)]
-            comment_limit: NonZeroU16::new(100).unwrap(),
+            comment_limiter: CommentLimiter::new(DEFAULT_COMMENT_INTERVAL),
+            comment_limit: DEFAULT_COMMENT_LIMIT,
         })
     }
 

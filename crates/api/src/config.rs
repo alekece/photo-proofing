@@ -3,6 +3,7 @@
 use std::{
     num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize},
     str::FromStr,
+    time::Duration,
 };
 
 use clap::Args;
@@ -224,6 +225,12 @@ pub struct LimiterConfig {
     )]
     pub max_peers: NonZeroUsize,
 }
+
+/// Default shortest pause between two client comment changes in one gallery.
+pub const DEFAULT_COMMENT_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Default cap on the comments of one photo.
+pub const DEFAULT_COMMENT_LIMIT: NonZeroU16 = NonZeroU16::new(100).unwrap();
 
 /// Client comment abuse controls; photographer replies are exempt.
 #[derive(Args, ConfigArgs, Clone)]

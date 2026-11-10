@@ -161,11 +161,15 @@
 							draft = '';
 						}}>{m.common_cancel()}</ViewerButton
 					>{/if}
-				<button
+				<ViewerButton
 					type="submit"
 					disabled={pending || loading || !valid}
-					class="min-h-11 cursor-pointer rounded-full bg-panel px-5 py-2 text-sm font-semibold text-foreground hover:bg-panel/90 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus disabled:cursor-default disabled:opacity-50"
-					>{pending ? m.comments_saving() : editing ? m.comments_save() : m.comments_send()}</button
+					class="bg-panel text-foreground hover:bg-panel/90"
+					>{pending
+						? m.comments_saving()
+						: editing
+							? m.comments_save()
+							: m.comments_send()}</ViewerButton
 				>
 			</div>
 		</div>
