@@ -769,6 +769,9 @@
 					>
 				</ViewerButton>
 			{/if}
+		{/snippet}
+		{#snippet trailing(proof)}
+			{@const photo = current(proof.id)}
 			{#if photo}
 				<ViewerButton
 					tone="warn"
