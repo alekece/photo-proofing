@@ -23,6 +23,8 @@
 	--animate-dialog-in: dialog-in 220ms var(--ease-pop);
 	--animate-toast-in: toast-in 250ms var(--ease-pop);
 	--animate-photo-in: photo-in 250ms ease-out;
+	--animate-tile-in: photo-in 350ms ease-in-out;
+	--animate-shimmer: shimmer 1.6s ease-in-out infinite;
 	--animate-heart-pop: heart-pop 320ms var(--ease-pop);
 	--animate-click-ripple: click-ripple 450ms ease-out forwards;
 	--animate-sweep: sweep 1.4s ease-in-out infinite;
@@ -157,6 +159,14 @@ h2,
 	from {
 		opacity: 0;
 		transform: translateY(1rem);
+	}
+}
+@keyframes shimmer {
+	from {
+		background-position: 100% 0;
+	}
+	to {
+		background-position: -100% 0;
 	}
 }
 @keyframes photo-in {

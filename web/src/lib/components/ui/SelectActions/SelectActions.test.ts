@@ -11,7 +11,7 @@ function setup(count = 1, total = 3) {
 	return { ...view, ...handlers };
 }
 
-const selectAll = () => screen.getByRole('checkbox', { name: 'Select all' }) as HTMLInputElement;
+const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
 
 describe('SelectActions', () => {
 	it('shows the count and exits from the icon button', async () => {
@@ -19,38 +19,40 @@ describe('SelectActions', () => {
 
 		expect(screen.getByText('3 selected')).toBeTruthy();
 
-		await userEvent.click(screen.getByRole('button', { name: 'Exit selection' }));
+		await userEvent.click(button('Exit selection'));
 
 		expect(onexit).toHaveBeenCalledOnce();
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it.each([
-		[0, false, false],
-		[1, false, true],
-		[3, true, false]
-	])('with %i of 3 selected, checked is %s and indeterminate is %s', (count, checked, mixed) => {
-		setup(count);
+	it('offers Select all and Unselect all as buttons, not a checkbox', async () => {
+		const { onselectall, onunselectall } = setup(1);
 
-		expect(selectAll().checked).toBe(checked);
-		expect(selectAll().indeterminate).toBe(mixed);
+		expect(screen.queryByRole('checkbox')).toBeNull();
+
+		await userEvent.click(button('Select all'));
+		await userEvent.click(button('Unselect all'));
+
+		expect(onselectall).toHaveBeenCalledOnce();
+		expect(onunselectall).toHaveBeenCalledOnce();
 	});
 
-	it('selects all unless everything is selected, then unselects all', async () => {
-		const first = setup(1);
+	it('puts both buttons in the right-hand action group', () => {
+		const { container } = setup(1);
+		const group = container.querySelector('.ml-auto')!;
 
-		await userEvent.click(selectAll());
+		expect(group.contains(button('Select all'))).toBe(true);
+		expect(group.contains(button('Unselect all'))).toBe(true);
+	});
 
-		expect(first.onselectall).toHaveBeenCalledOnce();
-		expect(first.onunselectall).not.toHaveBeenCalled();
+	it.each([
+		[0, false, true],
+		[1, false, false],
+		[3, true, false]
+	])('with %i of 3 selected, Select all disabled is %s and Unselect all %s', (count, all, none) => {
+		setup(count);
 
-		first.unmount();
-
-		const second = setup(3);
-
-		await userEvent.click(selectAll());
-
-		expect(second.onunselectall).toHaveBeenCalledOnce();
-		expect(second.onselectall).not.toHaveBeenCalled();
+		expect(button('Select all').disabled).toBe(all);
+		expect(button('Unselect all').disabled).toBe(none);
 	});
 });

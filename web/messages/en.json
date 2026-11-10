@@ -273,6 +273,7 @@
 	"action_upload": "Upload",
 	"action_select": "Select",
 	"action_select_all": "Select all",
+	"action_unselect_all": "Unselect all",
 	"action_retry": "Retry",
 	"action_done": "Done",
 	"action_close": "Close",

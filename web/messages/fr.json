@@ -273,6 +273,7 @@
 	"action_upload": "Importer",
 	"action_select": "Sélectionner",
 	"action_select_all": "Tout sélectionner",
+	"action_unselect_all": "Tout désélectionner",
 	"action_retry": "Réessayer",
 	"action_done": "Terminé",
 	"action_close": "Fermer",
