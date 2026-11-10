@@ -174,6 +174,7 @@
 			<Label for="expiry" class="shrink-0 text-muted-foreground">{m.expiry_open_until()}</Label>
 			<DatePicker
 				id="expiry"
+				placeholder="–"
 				rootClass="w-40 min-w-0"
 				class="min-h-0 w-full rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
 				value={expiryDay || null}
@@ -188,6 +189,7 @@
 			<Label for="included" class="text-muted-foreground">{m.settings_included()}</Label>
 			<Input
 				id="included"
+				placeholder="–"
 				type="number"
 				min="1"
 				step="1"
@@ -234,6 +236,7 @@
 			<Label for="shoot-date" class="shrink-0 text-muted-foreground">{m.shoot_date_label()}</Label>
 			<DatePicker
 				id="shoot-date"
+				placeholder="–"
 				rootClass="w-40 min-w-0"
 				class="min-h-0 w-full rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
 				value={shootDate}

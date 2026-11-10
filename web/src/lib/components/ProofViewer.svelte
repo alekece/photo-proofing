@@ -27,6 +27,7 @@
 		favoriteCount,
 		readonly = false,
 		actions,
+		trailing,
 		thread,
 		commentCount,
 		onclose,
@@ -48,6 +49,8 @@
 		readonly?: boolean;
 		/** The photo's actions in the top bar, which depend on where the viewer was opened from. */
 		actions?: Snippet<[Proof]>;
+		/** Actions that follow the comments button, such as the destructive ones. */
+		trailing?: Snippet<[Proof]>;
 		thread?: Snippet<[Proof]>;
 		commentCount?: (id: string) => number;
 		onclose: () => void;
@@ -224,6 +227,7 @@
 			{/if}
 			{@render actions?.(proof)}
 			{#if thread}
+				{@const count = commentCount?.(proof.id) ?? 0}
 				<button
 					type="button"
 					bind:this={commentsButton}
@@ -232,17 +236,25 @@
 					onclick={() => (threadOpen = !threadOpen)}
 					class="inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-white/8 px-3 text-panel hover:bg-white/14 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
 				>
-					{#if threadOpen}
-						<MessageSquareOff size={18} aria-hidden="true" /><span class="max-[700px]:hidden"
-							>{m.comments_hide()}</span
-						>
-					{:else}
-						<MessageSquare size={18} aria-hidden="true" /><span class="max-[700px]:hidden"
-							>{m.comments_title()}</span
-						>
-					{/if}{commentCount?.(proof.id) ?? 0}
+					<span class="relative mr-2 inline-grid">
+						{#if threadOpen}
+							<MessageSquareOff size={18} aria-hidden="true" />
+						{:else}
+							<MessageSquare size={18} aria-hidden="true" />
+						{/if}
+						{#if count > 0}
+							<span
+								class="absolute -top-2 -right-2.5 grid h-4 min-w-4 place-items-center rounded-full bg-[#e4573b] px-1 text-[0.6875rem] leading-none font-semibold text-white tabular-nums"
+								>{count}</span
+							>
+						{/if}
+					</span>
+					<span class="max-[700px]:hidden"
+						>{threadOpen ? m.comments_hide() : m.comments_title()}</span
+					>
 				</button>
 			{/if}
+			{@render trailing?.(proof)}
 			<button
 				type="button"
 				bind:this={closeButton}

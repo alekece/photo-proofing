@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { CommentsClient } from '#lib/gallery/comments.js';
@@ -88,7 +88,7 @@ describe('CommentThread', () => {
 		await user.click(screen.getByRole('button', { name: 'Save' }));
 		expect(await screen.findByText('Changed')).toBeTruthy();
 		await user.click(screen.getByRole('button', { name: 'Delete' }));
-		await user.click(screen.getByRole('button', { name: 'Delete comment' }));
+		await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 		expect(await screen.findByText('Comment deleted')).toBeTruthy();
 	});
 

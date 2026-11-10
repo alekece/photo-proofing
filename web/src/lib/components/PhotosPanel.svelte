@@ -3,15 +3,8 @@
 	import { CommentsClient } from '#lib/gallery/comments.js';
 	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
 	import CommentThread from './CommentThread.svelte';
-	import {
-		CircleCheck,
-		ImagePlus,
-		LoaderCircle,
-		MessageSquare,
-		Star,
-		Trash2,
-		Upload
-	} from '@lucide/svelte';
+	import PhotoFilterMenu, { type PhotoFilter } from './PhotoFilterMenu.svelte';
+	import { CircleCheck, ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -24,7 +17,6 @@
 	} from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
 	import ViewerButton from '#lib/components/ViewerButton.svelte';
-	import SegmentedControl from '#lib/components/ui/SegmentedControl/SegmentedControl.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
@@ -81,9 +73,13 @@
 	$effect(() => comments?.start(events, galleryId));
 
 	let photos = $state<Photo[]>([]);
-	let commentedOnly = $state(false);
+	let filter = $state<PhotoFilter>('all');
+	const counts = $derived<Record<PhotoFilter, number>>({
+		all: photos.length,
+		commented: comments ? photos.filter(({ id }) => comments.count(id) > 0).length : 0
+	});
 	const visible = $derived(
-		commentedOnly && comments ? photos.filter(({ id }) => comments.count(id) > 0) : photos
+		!comments || filter === 'all' ? photos : photos.filter(({ id }) => comments.count(id) > 0)
 	);
 	let loaded = $state(false);
 	let alert = $state('');
@@ -539,15 +535,7 @@
 		{/if}
 		{#if !selecting}
 			{#if comments}
-				<SegmentedControl
-					label={m.common_photos()}
-					value={commentedOnly ? 'commented' : 'all'}
-					items={[
-						{ id: 'all', label: m.photos_filter_all() },
-						{ id: 'commented', label: m.photos_filter_commented(), icon: MessageSquare }
-					]}
-					onchange={(id) => (commentedOnly = id === 'commented')}
-				/>
+				<PhotoFilterMenu value={filter} {counts} onchange={(next) => (filter = next)} />
 			{/if}
 			<Button
 				bind:ref={selectButton}
@@ -666,8 +654,10 @@
 				</li>
 			{/each}
 		</ul>
-		{#if commentedOnly && visible.length === 0}
-			<p class="py-10 text-center text-muted-foreground">{m.photos_filter_commented_empty()}</p>
+		{#if filter !== 'all' && comments && visible.length === 0}
+			<p class="py-10 text-center text-muted-foreground">
+				{m.photos_filter_commented_empty()}
+			</p>
 		{/if}
 	{:else if loaded}
 		<EmptyState>
@@ -779,6 +769,9 @@
 					>
 				</ViewerButton>
 			{/if}
+		{/snippet}
+		{#snippet trailing(proof)}
+			{@const photo = current(proof.id)}
 			{#if photo}
 				<ViewerButton
 					tone="warn"

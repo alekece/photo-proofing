@@ -233,23 +233,26 @@ describe('PhotosPanel', () => {
 
 	it('filters proofs to the commented ones', async () => {
 		const user = userEvent.setup();
+		const favorite = { ...photo('p3'), favorited_at: '2026-11-05T14:38:00Z' };
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async (url: string) => {
 				if (url.endsWith('/comments')) return Response.json([{ photo_id: 'p2', count: 2 }]);
-				return Response.json([photo('p1'), photo('p2')]);
+				return Response.json([photo('p1'), photo('p2'), favorite]);
 			})
 		);
 		render(PhotosPanelHarness, {
 			props: { galleryId: 'g1', queue: new UploadQueue(), events: fakeEvents().events }
 		});
 		await screen.findByRole('button', { name: 'Open p1.jpg' });
-		await user.click(screen.getByRole('button', { name: 'Commented' }));
+		await user.click(screen.getByRole('button', { name: 'Filter' }));
+		await user.click(screen.getByRole('radio', { name: /Commented/ }));
 
 		expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull();
 		expect(screen.getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
 
-		await user.click(screen.getByRole('button', { name: 'All' }));
+		await user.click(screen.getByRole('button', { name: 'Commented' }));
+		await user.click(screen.getByRole('radio', { name: /All/ }));
 
 		expect(screen.getByRole('button', { name: 'Open p1.jpg' })).toBeTruthy();
 	});
@@ -270,7 +273,7 @@ describe('PhotosPanel', () => {
 		});
 		await user.click(await screen.findByRole('button', { name: 'Open f1.jpg' }));
 		expect(screen.queryByRole('button', { name: 'Comments' })).toBeNull();
-		expect(screen.queryByRole('button', { name: 'Commented' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Filter' })).toBeNull();
 		expect(fetcher.mock.calls.every((args) => !String(args[0]).endsWith('/comments'))).toBe(true);
 	});
 	it('keeps deletion confirmation busy until the real photo request finishes', async () => {
