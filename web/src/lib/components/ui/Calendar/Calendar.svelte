@@ -33,6 +33,7 @@
 
 <CalendarPrimitive.Root
 	type="single"
+	preventDeselect
 	{value}
 	{onValueChange}
 	{minValue}

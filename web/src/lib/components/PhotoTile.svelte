@@ -94,9 +94,9 @@
 	let loaded = $state(false);
 	const fade = $derived(loaded ? 'animate-tile-in' : 'opacity-0');
 
-	/** A cached image can finish before its load listener is attached. */
+	/** A cached or broken image can finish before its listeners are attached. */
 	function seen(image: HTMLImageElement) {
-		if (image.complete && image.naturalWidth > 0) loaded = true;
+		if (image.complete) loaded = true;
 	}
 </script>
 
@@ -134,6 +134,7 @@
 				? 'scale-[0.94] rounded'
 				: ''}"
 			onload={() => (loaded = true)}
+			onerror={() => (loaded = true)}
 			{@attach seen}
 		/>
 	{:else if status === 'ready' || (cleanReady && thumbnailUrl)}
@@ -149,6 +150,7 @@
 				loading="lazy"
 				class="size-full object-cover {fade}"
 				onload={() => (loaded = true)}
+				onerror={() => (loaded = true)}
 				{@attach seen}
 			/>
 		</button>

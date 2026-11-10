@@ -243,4 +243,13 @@ describe('PhotoTile loading polish', () => {
 		expect(icon.getAttribute('width')).toBe('16');
 		expect(icon.getAttribute('class')).toContain(color);
 	});
+
+	it('shows a thumbnail that failed to load instead of hiding it', async () => {
+		render(PhotoTile, base);
+		const img = screen.getByRole('img');
+
+		await fireEvent.error(img);
+
+		expect(img.className).not.toContain('opacity-0');
+	});
 });

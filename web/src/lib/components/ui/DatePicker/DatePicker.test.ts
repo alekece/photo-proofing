@@ -29,6 +29,19 @@ describe('DatePicker', () => {
 		expect(screen.getByRole('button').textContent).toContain('June 14, 2026');
 	});
 
+	it('keeps the date and closes when the picked day is clicked again', async () => {
+		const user = userEvent.setup();
+		const onchange = vi.fn();
+		render(DatePicker, { id: 'when', value: '2026-06-14', onchange });
+
+		await user.click(screen.getByRole('button'));
+		await user.click(day('14'));
+
+		expect(onchange).not.toHaveBeenCalled();
+		expect(screen.queryByRole('grid')).toBeNull();
+		expect(screen.getByRole('button').textContent).toContain('June 14, 2026');
+	});
+
 	it('emits the picked day as YYYY-MM-DD and closes', async () => {
 		const user = userEvent.setup();
 		const onchange = vi.fn();

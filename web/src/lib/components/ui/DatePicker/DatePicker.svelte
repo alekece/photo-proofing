@@ -38,10 +38,9 @@
 	const minValue = $derived(min ? parseDate(min) : undefined);
 
 	function pick(day: DateValue | undefined) {
-		if (!day) return;
-
 		open = false;
-		onchange(day.toString());
+
+		if (day && day.toString() !== value) onchange(day.toString());
 	}
 
 	function clear() {
