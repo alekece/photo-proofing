@@ -3,9 +3,8 @@
 	import type { CommentsClient } from '#lib/gallery/comments.js';
 	import type { Comment } from '#lib/gallery/schemas.js';
 	import { formatDateTime } from '#lib/gallery/format.js';
-	import { Check, Pencil, Trash2, X } from '@lucide/svelte';
+	import { Check, LoaderCircle, Pencil, SendHorizontal, Trash2, X } from '@lucide/svelte';
 	import ConfirmDialog from './ui/ConfirmDialog/ConfirmDialog.svelte';
-	import ViewerButton from './ViewerButton.svelte';
 
 	let {
 		client,
@@ -126,29 +125,16 @@
 		{#if loaded && !loading && comments.length === 0}<p class="text-sm text-panel/75">
 				{m.comments_empty()}
 			</p>{/if}
-		<ol class="space-y-5">
+		<ol class="space-y-4">
 			{#each comments as comment (comment.id)}
-				<li class="group relative border-b border-panel/15 pb-4">
-					<div
-						class="mb-1 flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-panel/75 {comment.author ===
-							viewer && !comment.deleted_at
-							? 'pr-16'
-							: ''}"
-					>
-						<strong class="font-semibold text-panel"
-							>{comment.author === viewer
-								? m.comments_you()
-								: comment.author === 'client'
-									? m.comments_client()
-									: m.comments_photographer()}</strong
-						>
-						<time datetime={comment.created_at}>{formatDateTime(comment.created_at)}</time>
-						{#if comment.edited_at && !comment.deleted_at}<span>{m.comments_edited()}</span>{/if}
-					</div>
-					{#if editing === comment.id}
+				{@const mine = comment.author === viewer}
+				{@const editable = mine && !comment.deleted_at}
+				{@const isEditing = editing === comment.id}
+				<li class="group flex flex-col gap-1 {mine ? 'items-end' : 'items-start'}">
+					{#if isEditing}
 						<form
 							id="{id}-edit"
-							class="grid gap-2"
+							class="grid w-full gap-2"
 							onsubmit={(event) => {
 								event.preventDefault();
 								void saveEdit();
@@ -159,72 +145,88 @@
 								bind:value={editDraft}
 								disabled={pending}
 								rows="3"
-								class="max-h-40 min-h-20 w-full resize-none rounded-md border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
+								class="max-h-40 min-h-20 w-full resize-none rounded-2xl border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
 							></textarea>
 						</form>
 					{:else}
 						<p
-							class="wrap-anywhere whitespace-pre-wrap {comment.deleted_at
-								? 'text-panel/65'
+							class="max-w-[85%] rounded-2xl px-3.5 py-2 wrap-anywhere whitespace-pre-wrap {mine
+								? 'rounded-br-md bg-panel text-foreground'
+								: 'rounded-bl-md bg-white/10 text-panel'} {comment.deleted_at
+								? 'italic opacity-65'
 								: ''} {comment.deleted_at && comment.body !== null ? 'line-through' : ''}"
 						>
 							{comment.body ?? m.comments_deleted()}
 						</p>
 					{/if}
-					{#if comment.author === viewer && !comment.deleted_at}
-						{@const isEditing = editing === comment.id}
-						<div
-							class="absolute top-0 right-0 grid [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100 {isEditing
-								? 'opacity-100!'
-								: ''}"
+					<div
+						class="relative flex min-h-7 flex-wrap items-center gap-x-2 text-xs text-panel/75 {mine
+							? 'justify-end'
+							: ''}"
+					>
+						<strong class="font-semibold text-panel"
+							>{mine
+								? m.comments_you()
+								: comment.author === 'client'
+									? m.comments_client()
+									: m.comments_photographer()}</strong
 						>
+						<time datetime={comment.created_at}>{formatDateTime(comment.created_at)}</time>
+						{#if comment.edited_at && !comment.deleted_at}<span>{m.comments_edited()}</span>{/if}
+						{#if editable}
 							<div
-								class="{swap} {isEditing ? hidden : ''}"
-								aria-hidden={isEditing}
-								inert={isEditing}
+								class="absolute top-0 right-full mr-1 grid [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100 {isEditing
+									? 'opacity-100!'
+									: ''}"
 							>
-								<button
-									type="button"
-									disabled={pending}
-									aria-label={m.comments_edit()}
-									class={iconButton}
-									onclick={() => {
-										editing = comment.id;
-										editDraft = comment.body ?? '';
-									}}><Pencil size={14} aria-hidden="true" /></button
+								<div
+									class="{swap} {isEditing ? hidden : ''}"
+									aria-hidden={isEditing}
+									inert={isEditing}
 								>
-								<button
-									type="button"
-									disabled={pending}
-									aria-label={m.comments_delete()}
-									class="{iconButton} hover:text-warning-on-dark"
-									onclick={() => (deleting = comment.id)}
-									><Trash2 size={14} aria-hidden="true" /></button
+									<button
+										type="button"
+										disabled={pending}
+										aria-label={m.comments_edit()}
+										class={iconButton}
+										onclick={() => {
+											editing = comment.id;
+											editDraft = comment.body ?? '';
+										}}><Pencil size={14} aria-hidden="true" /></button
+									>
+									<button
+										type="button"
+										disabled={pending}
+										aria-label={m.comments_delete()}
+										class="{iconButton} hover:text-warning-on-dark"
+										onclick={() => (deleting = comment.id)}
+										><Trash2 size={14} aria-hidden="true" /></button
+									>
+								</div>
+								<div
+									class="{swap} {isEditing ? '' : hidden}"
+									aria-hidden={!isEditing}
+									inert={!isEditing}
 								>
+									<button
+										type="button"
+										disabled={pending}
+										aria-label={m.common_cancel()}
+										class={iconButton}
+										onclick={() => (editing = null)}><X size={14} aria-hidden="true" /></button
+									>
+									<button
+										type="submit"
+										form="{id}-edit"
+										disabled={pending || !editValid}
+										aria-label={m.comments_save()}
+										class="{iconButton} hover:text-ok-on-dark"
+										><Check size={14} aria-hidden="true" /></button
+									>
+								</div>
 							</div>
-							<div
-								class="{swap} {isEditing ? '' : hidden}"
-								aria-hidden={!isEditing}
-								inert={!isEditing}
-							>
-								<button
-									type="button"
-									disabled={pending}
-									aria-label={m.common_cancel()}
-									class={iconButton}
-									onclick={() => (editing = null)}><X size={14} aria-hidden="true" /></button
-								>
-								<button
-									type="submit"
-									form="{id}-edit"
-									disabled={pending || !editValid}
-									aria-label={m.comments_save()}
-									class="{iconButton} hover:text-ok-on-dark"
-									><Check size={14} aria-hidden="true" /></button
-								>
-							</div>
-						</div>
-					{/if}
+						{/if}
+					</div>
 				</li>
 			{/each}
 		</ol>
@@ -237,25 +239,30 @@
 			void send();
 		}}
 	>
-		<label for="{id}-body" class="text-sm"
+		<label for="{id}-body" class="sr-only"
 			>{viewer === 'client' ? m.comments_add() : m.comments_reply()}</label
 		>
-		<textarea
-			id="{id}-body"
-			bind:value={draft}
-			disabled={pending || !loaded}
-			rows="3"
-			class="max-h-40 min-h-20 w-full resize-none rounded-md border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
-		></textarea>
-		<div class="flex flex-wrap items-center justify-end gap-2">
-			<div class="flex gap-2">
-				<ViewerButton
-					type="submit"
-					disabled={pending || !loaded || !valid}
-					class="min-w-32 bg-panel text-foreground hover:bg-panel/90"
-					>{pending && !editing ? m.comments_saving() : m.comments_send()}</ViewerButton
-				>
-			</div>
+		<div class="relative">
+			<textarea
+				id="{id}-body"
+				bind:value={draft}
+				disabled={pending || !loaded}
+				rows="2"
+				placeholder={viewer === 'client' ? m.comments_add() : m.comments_reply()}
+				class="max-h-40 min-h-16 w-full resize-none rounded-3xl border border-panel/30 bg-dark py-3 pr-14 pl-4 text-base text-panel placeholder:text-panel/55 focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
+			></textarea>
+			<button
+				type="submit"
+				disabled={pending || !loaded || !valid}
+				aria-label={pending && !editing ? m.comments_saving() : m.comments_send()}
+				class="absolute right-2 bottom-2 inline-grid size-10 cursor-pointer place-items-center rounded-full bg-panel text-foreground transition-opacity hover:bg-panel/90 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus disabled:cursor-default disabled:opacity-30"
+			>
+				{#if pending && !editing}
+					<LoaderCircle size={18} aria-hidden="true" class="animate-spin-slow" />
+				{:else}
+					<SendHorizontal size={18} aria-hidden="true" />
+				{/if}
+			</button>
 		</div>
 	</form>
 </section>
