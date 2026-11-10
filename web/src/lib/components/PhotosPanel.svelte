@@ -606,7 +606,6 @@
 				>
 					<PhotoTile
 						name={photo.original_name}
-						commentCount={comments?.count(photo.id) ?? 0}
 						{state}
 						cleanReady={!finals && hasCleanPhoto(photo)}
 						ratio={layout === 'masonry' ? photo.width / photo.height : 3 / 2}

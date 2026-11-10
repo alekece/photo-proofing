@@ -292,7 +292,6 @@
 			<li class={ITEM_CLASSES[layout]}>
 				<PhotoTile
 					name={photo.original_name}
-					commentCount={comments.count(photo.id)}
 					state="ready"
 					ratio={layout === 'masonry' ? photo.width / photo.height : 3 / 2}
 					thumbnailUrl={thumbnailUrl(galleryId, photo.id, 'photos', photo.revision)}
