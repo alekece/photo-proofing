@@ -241,7 +241,8 @@ impl CommentRepository<'_> {
         Ok(CommentChange::Applied(comment))
     }
 
-    async fn comment_photo(
+    /// Finds the photo of comment `id` in this gallery, if `author` wrote it.
+    async fn photo_of_authored(
         &self,
         location: PhotoLocation,
         id: CommentId,
@@ -268,7 +269,7 @@ impl CommentRepository<'_> {
         author: CommentAuthor,
         body: &CommentBody,
     ) -> Result<CommentChange<Comment>, DatabaseError> {
-        let Some(photo) = self.comment_photo(location, id, author).await? else {
+        let Some(photo) = self.photo_of_authored(location, id, author).await? else {
             return Ok(CommentChange::NotFound);
         };
 
@@ -305,7 +306,7 @@ impl CommentRepository<'_> {
         id: CommentId,
         author: CommentAuthor,
     ) -> Result<CommentChange<()>, DatabaseError> {
-        let Some(photo) = self.comment_photo(location, id, author).await? else {
+        let Some(photo) = self.photo_of_authored(location, id, author).await? else {
             return Ok(CommentChange::NotFound);
         };
 
