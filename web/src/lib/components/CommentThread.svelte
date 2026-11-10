@@ -131,51 +131,14 @@
 				{@const editable = mine && !comment.deleted_at}
 				{@const isEditing = editing === comment.id}
 				<li class="group flex flex-col gap-1 {mine ? 'items-end' : 'items-start'}">
-					{#if isEditing}
-						<form
-							id="{id}-edit"
-							class="grid w-full gap-2"
-							onsubmit={(event) => {
-								event.preventDefault();
-								void saveEdit();
-							}}
-						>
-							<textarea
-								aria-label={m.comments_edit()}
-								bind:value={editDraft}
-								disabled={pending}
-								rows="3"
-								class="max-h-40 min-h-20 w-full resize-none rounded-2xl border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
-							></textarea>
-						</form>
-					{:else}
-						<p
-							class="max-w-[85%] rounded-2xl px-3.5 py-2 wrap-anywhere whitespace-pre-wrap {mine
-								? 'rounded-br-md bg-panel text-foreground'
-								: 'rounded-bl-md bg-white/10 text-panel'} {comment.deleted_at
-								? 'italic opacity-65'
-								: ''} {comment.deleted_at && comment.body !== null ? 'line-through' : ''}"
-						>
-							{comment.body ?? m.comments_deleted()}
-						</p>
-					{/if}
-					<div
-						class="relative flex min-h-7 flex-wrap items-center gap-x-2 text-xs text-panel/75 {mine
-							? 'justify-end'
-							: ''}"
-					>
-						<strong class="font-semibold text-panel"
-							>{mine
-								? m.comments_you()
-								: comment.author === 'client'
-									? m.comments_client()
-									: m.comments_photographer()}</strong
-						>
+					<div class="flex gap-x-2 text-xs text-panel/75">
 						<time datetime={comment.created_at}>{formatDateTime(comment.created_at)}</time>
 						{#if comment.edited_at && !comment.deleted_at}<span>{m.comments_edited()}</span>{/if}
+					</div>
+					<div class="flex w-full min-w-0 items-center gap-1 {mine ? 'justify-end' : ''}">
 						{#if editable}
 							<div
-								class="absolute top-0 right-full mr-1 grid [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100 {isEditing
+								class="grid shrink-0 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100 {isEditing
 									? 'opacity-100!'
 									: ''}"
 							>
@@ -226,7 +189,42 @@
 								</div>
 							</div>
 						{/if}
+						{#if isEditing}
+							<form
+								id="{id}-edit"
+								class="grid min-w-0 flex-1 gap-2"
+								onsubmit={(event) => {
+									event.preventDefault();
+									void saveEdit();
+								}}
+							>
+								<textarea
+									aria-label={m.comments_edit()}
+									bind:value={editDraft}
+									disabled={pending}
+									rows="3"
+									class="max-h-40 min-h-20 w-full resize-none rounded-2xl border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
+								></textarea>
+							</form>
+						{:else}
+							<p
+								class="max-w-[85%] rounded-2xl px-3.5 py-2 wrap-anywhere whitespace-pre-wrap {mine
+									? 'rounded-br-md bg-panel text-foreground'
+									: 'rounded-bl-md bg-white/10 text-panel'} {comment.deleted_at
+									? 'italic opacity-65'
+									: ''} {comment.deleted_at && comment.body !== null ? 'line-through' : ''}"
+							>
+								{comment.body ?? m.comments_deleted()}
+							</p>
+						{/if}
 					</div>
+					<strong class="text-xs font-semibold text-panel"
+						>{mine
+							? m.comments_you()
+							: comment.author === 'client'
+								? m.comments_client()
+								: m.comments_photographer()}</strong
+					>
 				</li>
 			{/each}
 		</ol>
