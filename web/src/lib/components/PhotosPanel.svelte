@@ -3,7 +3,6 @@
 	import { CommentsClient } from '#lib/gallery/comments.js';
 	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
 	import CommentThread from './CommentThread.svelte';
-	import PhotoFilterMenu, { type PhotoFilter } from './PhotoFilterMenu.svelte';
 	import { CircleCheck, ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack } from 'svelte';
@@ -73,14 +72,6 @@
 	$effect(() => comments?.start(events, galleryId));
 
 	let photos = $state<Photo[]>([]);
-	let filter = $state<PhotoFilter>('all');
-	const counts = $derived<Record<PhotoFilter, number>>({
-		all: photos.length,
-		commented: comments ? photos.filter(({ id }) => comments.count(id) > 0).length : 0
-	});
-	const visible = $derived(
-		!comments || filter === 'all' ? photos : photos.filter(({ id }) => comments.count(id) > 0)
-	);
 	let loaded = $state(false);
 	let alert = $state('');
 	let confirming = $state<Photo | null>(null);
@@ -412,7 +403,7 @@
 
 	/** Selects the server photos shown now; later arrivals stay unselected. */
 	function selectAll() {
-		for (const { id } of visible) selected.add(id);
+		for (const { id } of photos) selected.add(id);
 	}
 
 	/** Whether the key belongs to a field being typed in; tile checkboxes keep the shortcuts. */
@@ -534,9 +525,6 @@
 			</p>
 		{/if}
 		{#if !selecting}
-			{#if comments}
-				<PhotoFilterMenu value={filter} {counts} onchange={(next) => (filter = next)} />
-			{/if}
 			<Button
 				bind:ref={selectButton}
 				variant="outline"
@@ -568,7 +556,7 @@
 	{#if selecting}
 		<SelectActions
 			count={selection.length}
-			total={visible.length}
+			total={photos.length}
 			onselectall={selectAll}
 			onunselectall={() => selected.clear()}
 			onexit={() => void finishSelecting()}
@@ -601,7 +589,7 @@
 			aria-label={finals ? m.photos_list_finals() : m.common_photos()}
 			class={GRID_CLASSES[layout]}
 		>
-			{#each visible as photo (photo.id)}
+			{#each photos as photo (photo.id)}
 				{@const state = tileState(photo.status)}
 				<li
 					class={ITEM_CLASSES[layout]}
@@ -654,11 +642,6 @@
 				</li>
 			{/each}
 		</ul>
-		{#if filter !== 'all' && comments && visible.length === 0}
-			<p class="py-10 text-center text-muted-foreground">
-				{m.photos_filter_commented_empty()}
-			</p>
-		{/if}
 	{:else if loaded}
 		<EmptyState>
 			<ImagePlus size={32} aria-hidden="true" />

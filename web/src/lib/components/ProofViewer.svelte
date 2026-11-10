@@ -234,7 +234,11 @@
 					aria-label={m.comments_title()}
 					aria-expanded={threadOpen}
 					onclick={() => (threadOpen = !threadOpen)}
-					class="inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-white/8 px-3 text-panel hover:bg-white/14 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
+					aria-pressed={threadOpen}
+					class={cn(
+						'inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus',
+						threadOpen ? 'bg-panel text-foreground' : 'bg-white/8 text-panel hover:bg-white/14'
+					)}
 				>
 					<span class="relative mr-2 inline-grid">
 						{#if threadOpen}
@@ -327,7 +331,7 @@
 		</div>
 		{#if threadOpen && thread}
 			<aside
-				class="min-h-0 overflow-hidden border-panel/20 bg-dark py-4 pr-6 pl-4 max-[700px]:row-start-3 max-[700px]:border-t min-[701px]:col-start-2 min-[701px]:row-span-2 min-[701px]:row-start-2 min-[701px]:border-l"
+				class="min-h-0 overflow-hidden border-panel/20 bg-dark py-4 pr-6 pl-8 max-[700px]:row-start-3 max-[700px]:border-t min-[701px]:col-start-2 min-[701px]:row-span-2 min-[701px]:row-start-2"
 			>
 				{@render thread(proof)}
 			</aside>
@@ -375,7 +379,6 @@
 			grid-column: 2;
 			grid-row: 2;
 			border-top: 0;
-			border-left: 1px solid rgb(255 255 255 / 20%);
 		}
 
 		:global(dialog.comments-open) .viewer-footer {

@@ -30,6 +30,7 @@
 	let error = $state('');
 	let draft = $state('');
 	let composer = $state<HTMLTextAreaElement>();
+	let editor = $state<HTMLTextAreaElement>();
 	let editing = $state<string | null>(null);
 	let editDraft = $state('');
 	let deleting = $state<string | null>(null);
@@ -41,6 +42,13 @@
 		if (!composer) return;
 		composer.style.height = 'auto';
 		composer.style.height = `${composer.scrollHeight}px`;
+	});
+
+	$effect(() => {
+		void editDraft;
+		if (!editor) return;
+		editor.style.height = 'auto';
+		editor.style.height = `${editor.scrollHeight}px`;
 	});
 
 	$effect(() => {
@@ -185,7 +193,7 @@
 										type="button"
 										disabled={pending}
 										aria-label={m.common_cancel()}
-										class={iconButton}
+										class="{iconButton} hover:!text-warning-on-dark"
 										onclick={() => (editing = null)}><X size={14} aria-hidden="true" /></button
 									>
 									<button
@@ -193,7 +201,7 @@
 										form="{id}-edit"
 										disabled={pending || !editValid}
 										aria-label={m.comments_save()}
-										class="{iconButton} hover:text-ok-on-dark"
+										class="{iconButton} hover:!text-ok-on-dark"
 										><Check size={14} aria-hidden="true" /></button
 									>
 								</div>
@@ -204,7 +212,7 @@
 						{#if isEditing}
 							<form
 								id="{id}-edit"
-								class="grid min-w-0 flex-1 gap-2"
+								class="grid w-[90%] min-w-0 gap-2"
 								onsubmit={(event) => {
 									event.preventDefault();
 									void saveEdit();
@@ -212,17 +220,18 @@
 							>
 								<textarea
 									aria-label={m.comments_edit()}
+									bind:this={editor}
 									bind:value={editDraft}
 									disabled={pending}
-									rows="3"
-									class="max-h-40 min-h-20 w-full resize-none [scrollbar-width:none] rounded-2xl border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:border-panel focus-visible:outline-none disabled:opacity-50 [&::-webkit-scrollbar]:hidden"
+									rows="1"
+									class="max-h-40 min-h-11 w-full resize-none [scrollbar-width:none] rounded-3xl border border-panel/30 bg-dark px-4 py-2.5 text-base leading-6 text-panel focus-visible:border-panel focus-visible:outline-none disabled:opacity-50 [&::-webkit-scrollbar]:hidden"
 								></textarea>
 							</form>
 						{:else}
 							<p
 								class="w-[90%] rounded-2xl px-3.5 py-2 wrap-anywhere whitespace-pre-wrap {mine
-									? 'rounded-br-md bg-panel text-foreground'
-									: 'rounded-bl-md bg-white/10 text-panel'} {comment.deleted_at
+									? 'rounded-br-md bg-[#d9ccbc] text-foreground'
+									: 'rounded-bl-md bg-white/10 text-[#efe6da]'} {comment.deleted_at
 									? 'italic opacity-65'
 									: ''} {comment.deleted_at && comment.body !== null ? 'line-through' : ''}"
 							>

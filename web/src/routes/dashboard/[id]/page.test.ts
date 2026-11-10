@@ -16,6 +16,9 @@ vi.mock('#lib/components/PhotosPanel.svelte', async () => ({
 vi.mock('#lib/components/FavoritesPanel.svelte', async () => ({
 	default: (await import('#lib/components/FavoritesPanelStub.test.svelte')).default
 }));
+vi.mock('#lib/components/CommentsPanel.svelte', async () => ({
+	default: (await import('#lib/components/CommentsPanelStub.test.svelte')).default
+}));
 vi.mock('#lib/gallery/notifications.svelte.js', async (importOriginal) => ({
 	...(await importOriginal<object>()),
 	getNotifications: vi.fn()
@@ -787,11 +790,11 @@ describe('gallery page', () => {
 	});
 
 	describe('tabs', () => {
-		it('offers Photos, Favorites and Finals with Photos selected', async () => {
+		it('offers Photos, Favorites, Comments and Finals with Photos selected', async () => {
 			vi.stubGlobal('fetch', async () => new Response('[]'));
 			open();
 			const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent?.trim());
-			expect(tabs).toEqual(['Photos', 'Favorites', 'Final']);
+			expect(tabs).toEqual(['Photos', 'Favorites', 'Comments', 'Final']);
 			expect(screen.getByRole('tab', { name: 'Photos' }).getAttribute('aria-selected')).toBe(
 				'true'
 			);
