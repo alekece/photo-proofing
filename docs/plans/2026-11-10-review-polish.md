@@ -185,10 +185,10 @@
 ### Task 9: No success toasts; result and delete dialog copy
 
 **Files:**
-- Modify: `routes/dashboard/[id]/+page.svelte:197,209,232`, `routes/settings/+page.svelte:91-92`, `PublishDialog.svelte` (`resultBody`), `DeleteGalleryDialog.svelte` (`cancelLabel`), messages (remove `state_delivered`/`state_archived`/`gallery_restored`/`studio_regenerating`/`studio_quality_regenerating`/`delete_keep` if no longer used)
-- Test: `routes/dashboard/[id]/page.test.ts`, `routes/settings/page.test.ts`, `PublishDialog.test.ts`, `GalleryDialogs.test.ts`
+- Modify: `routes/dashboard/[id]/+page.svelte:197,209,232`, `routes/settings/+page.svelte:91-92`, `PublishDialog.svelte` (`resultBody`), `DeleteGalleryDialog.svelte` (`cancelLabel`), `ClientGallery.svelte:247` (drop the `client_ready` line), messages (remove `client_ready`, `state_delivered`/`state_archived`/`gallery_restored`/`studio_regenerating`/`studio_quality_regenerating`/`delete_keep` if no longer used)
+- Test: `routes/dashboard/[id]/page.test.ts`, `routes/settings/page.test.ts`, `PublishDialog.test.ts`, `GalleryDialogs.test.ts`, `ClientGallery.test.ts`
 
-- [ ] **Step 1: Update/write failing tests:** deliver, archive, restore and settings save show no toast; failures still show an error toast; publish result has no link input and no Copy button for share and deliver; delete dialog's secondary button reads "Cancel" (`fr`: "Annuler").
+- [ ] **Step 1: Update/write failing tests:** deliver, archive, restore and settings save show no toast; failures still show an error toast; publish result has no link input and no Copy button for share and deliver; delete dialog's secondary button reads "Cancel" (`fr`: "Annuler"); the delivered client cover no longer shows "Your photos are ready".
 - [ ] **Step 2: Run** → FAIL.
 - [ ] **Step 3: Implement** the removals; leave `toasts.success` in `toasts.svelte.ts` only if still used, otherwise delete it with its test.
 - [ ] **Step 4: Run** `pnpm --dir web verify` and `grep -rn "toasts.success" web/src --include=*.svelte` → none.
@@ -199,6 +199,8 @@
 **Files:**
 - Modify: `PhotoTile.svelte` (`GRID_CLASSES.masonry`, placeholder, image fade-in), `web/src/app.css` (shimmer keyframes/token), `ui/SelectActions/SelectActions.svelte`, `PhotosPanel.svelte:549-568`, `FavoritesPanel.svelte:255`
 - Test: `PhotoTile.test.ts`, `ui/SelectActions/SelectActions.test.ts`, `PhotosPanel.test.ts`
+
+- Also: in `PhotoTile.svelte` (`cleanReady && thumbnailUrl && state !== 'ready'` block), replace the `bg-panel/95` status block with the upload style (label above the thin animated bar); keep Retry on failure. Test: a reprocessing tile shows the label and the bar, not the block.
 
 - [ ] **Step 1: Reproduce masonry** in the browser (dev server, same gallery in grid then masonry at ≥1280 px). Record the cause in the commit message.
 - [ ] **Step 2: Write failing tests:**

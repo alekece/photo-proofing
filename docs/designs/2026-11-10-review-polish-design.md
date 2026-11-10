@@ -140,6 +140,17 @@ in one pass so the app feels finished and consistent.
   the photo panel's existing "updating" status.
 - Error toasts stay unchanged.
 
+### Reprocessing status
+
+- While a ready photo is reprocessed after a settings change (watermark, quality), its tile keeps
+  the old thumbnail and replaces the solid status block with the upload style: the status label
+  above the thin animated progress bar at the bottom of the tile. Failures keep their Retry action.
+
+### Client delivered cover
+
+- Remove the "Your photos are ready" line above the title on the client's delivered gallery cover;
+  the download actions already say the photos are ready.
+
 ### Delete dialog
 
 - The cancel button uses the shared `common_cancel` label (Cancel / Annuler) instead of
