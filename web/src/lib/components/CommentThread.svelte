@@ -218,7 +218,7 @@
 							</form>
 						{:else}
 							<p
-								class="max-w-[94%] rounded-2xl px-3.5 py-2 wrap-anywhere whitespace-pre-wrap {mine
+								class="w-full rounded-2xl px-3.5 py-2 wrap-anywhere whitespace-pre-wrap {mine
 									? 'rounded-br-md bg-panel text-foreground'
 									: 'rounded-bl-md bg-white/10 text-panel'} {comment.deleted_at
 									? 'italic opacity-65'

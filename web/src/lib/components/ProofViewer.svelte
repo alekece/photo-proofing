@@ -236,7 +236,7 @@
 					onclick={() => (threadOpen = !threadOpen)}
 					class="inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-white/8 px-3 text-panel hover:bg-white/14 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
 				>
-					<span class="relative inline-grid">
+					<span class="relative mr-2 inline-grid">
 						{#if threadOpen}
 							<MessageSquareOff size={18} aria-hidden="true" />
 						{:else}
