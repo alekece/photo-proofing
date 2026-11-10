@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,6 +36,26 @@ describe('NewGalleryDialog', () => {
 		await waitFor(() => expect(goto).toHaveBeenCalledWith('/dashboard/new-id'));
 		expect(create).toHaveBeenCalledOnce();
 		expect(update).toHaveBeenCalledWith('new-id', { title: 'Martin wedding' });
+	});
+
+	it('saves the picked shoot date with the title in one update', async () => {
+		const { update, user } = setup();
+
+		await user.type(titleField(), 'Martin wedding');
+		await user.click(screen.getByLabelText('Shoot date'));
+		await user.click(
+			within(screen.getByRole('grid')).getByText('14', {
+				selector: '[data-bits-day]:not([data-outside-month])'
+			})
+		);
+		await submit(user);
+
+		await waitFor(() => expect(goto).toHaveBeenCalledWith('/dashboard/new-id'));
+		expect(update).toHaveBeenCalledOnce();
+		expect(update.mock.calls[0][1]).toEqual({
+			title: 'Martin wedding',
+			shoot_date: expect.stringMatching(/^\d{4}-\d{2}-14$/)
+		});
 	});
 
 	it('rejects a whitespace-only title', async () => {

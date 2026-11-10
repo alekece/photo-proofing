@@ -19,6 +19,7 @@ const base: Gallery = {
 	hero_id: null,
 	share_token: null,
 	last_opened_at: null,
+	shoot_date: null,
 	states: ['draft'],
 	created_at: '2026-06-12T10:00:00Z',
 	updated_at: '2026-06-12T10:00:00Z'

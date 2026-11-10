@@ -8,6 +8,7 @@ export interface GalleryChanges {
 	title?: string | null;
 	layout?: GalleryLayout;
 	expires_at?: string | null;
+	shoot_date?: string | null;
 	included_photos?: number | null;
 	watermark_enabled?: boolean;
 	hero_id?: string | null;

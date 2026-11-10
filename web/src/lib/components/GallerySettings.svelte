@@ -47,6 +47,8 @@
 	// svelte-ignore state_referenced_locally
 	let expiryDay = $state(gallery.expires_at ? toLocalDate(gallery.expires_at) : '');
 	// svelte-ignore state_referenced_locally
+	let shootDate = $state(gallery.shoot_date);
+	// svelte-ignore state_referenced_locally
 	let included = $state<number | null>(gallery.included_photos);
 	// svelte-ignore state_referenced_locally
 	let layout = $state<GalleryLayout>(gallery.layout);
@@ -86,6 +88,13 @@
 		layout = value as GalleryLayout;
 		void commit({ layout }, () => (layout = previous));
 	}
+	function setShootDate(day: string | null) {
+		const previous = shootDate;
+
+		shootDate = day;
+		void commit({ shoot_date: day }, () => (shootDate = previous));
+	}
+
 	function setExpiry() {
 		void commit(
 			{ expires_at: expiryDay ? endOfLocalDay(expiryDay) : null },
@@ -222,6 +231,17 @@
 		>
 			{m.settings_gallery()}
 		</h2>
+		<div class="{row} mb-3">
+			<Label for="shoot-date" class="text-muted-foreground">{m.shoot_date_label()}</Label>
+			<DatePicker
+				id="shoot-date"
+				class="min-h-0 w-auto rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
+				value={shootDate}
+				placeholder={m.shoot_date_placeholder()}
+				clearable
+				onchange={setShootDate}
+			/>
+		</div>
 		<div class="flex gap-2 [&>*]:min-h-9! [&>*]:flex-1">
 			{#if archived}
 				<Button variant="outline" size="sm" onclick={onrestore}>

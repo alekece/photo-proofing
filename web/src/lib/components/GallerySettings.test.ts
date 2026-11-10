@@ -11,6 +11,7 @@ import GallerySettings from './GallerySettings.svelte';
 const gallery = {
 	layout: 'grid',
 	expires_at: null,
+	shoot_date: null,
 	included_photos: null,
 	watermark_enabled: false,
 	states: ['draft']
@@ -116,6 +117,18 @@ describe('GallerySettings', () => {
 		await user.click(screen.getByRole('button', { name: 'Clear' }));
 
 		expect(onsave).toHaveBeenLastCalledWith({ expires_at: null });
+	});
+
+	it('shows the shoot date and clears it with null', async () => {
+		const { onsave, user } = setup({ shoot_date: '2026-06-14' });
+		const trigger = screen.getByLabelText('Shoot date');
+
+		expect(trigger.textContent).toContain('June 14, 2026');
+
+		await user.click(trigger);
+		await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+		expect(onsave).toHaveBeenCalledWith({ shoot_date: null });
 	});
 
 	it('debounces included photos through the page and saves on leaving', async () => {
