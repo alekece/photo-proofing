@@ -65,6 +65,16 @@ describe('PublishDialog dismissal', () => {
 		expect(onclose).toHaveBeenCalled();
 	});
 
+	it('ends on Done without offering the link to copy', async () => {
+		render(PublishDialog, { ...props, onclose: () => {} });
+
+		await userEvent.click(await screen.findByRole('button', { name: 'Share' }));
+		await screen.findByRole('button', { name: 'Done' });
+
+		expect(screen.queryByRole('textbox')).toBeNull();
+		expect(screen.queryByRole('button', { name: /copy/i })).toBeNull();
+	});
+
 	it('closes the success dialog with Done or the corner Close', async () => {
 		const first = vi.fn();
 		const view = render(PublishDialog, { ...props, onclose: first });

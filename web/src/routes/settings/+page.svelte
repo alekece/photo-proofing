@@ -20,9 +20,7 @@
 		LOGO_TYPES,
 		SettingsApi,
 		SettingsApiError,
-		qualityChanged,
 		settingsChanged,
-		watermarkChanged,
 		type WorkspaceSettings
 	} from '#lib/settings/settings.js';
 	import type { PageData } from './$types';
@@ -83,16 +81,12 @@
 		feedback = null;
 		try {
 			const submitted = { ...draft };
-			const watermark = watermarkChanged(submitted, saved);
-			const quality = qualityChanged(submitted, saved);
 
 			saved = await api.save(submitted, saved);
 			for (const key of Object.keys(submitted) as (keyof WorkspaceSettings)[]) {
 				if (draft[key] === submitted[key]) draft = { ...draft, [key]: saved[key] };
 			}
 			confirmSaved();
-			if (quality) toasts.success(m.studio_quality_regenerating());
-			else if (watermark) toasts.success(m.studio_regenerating());
 		} catch (error) {
 			if (error instanceof SettingsApiError && (error.status === 422 || error.status === 413)) {
 				toasts.error(error.message);

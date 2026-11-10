@@ -171,7 +171,7 @@
 			title = saved.title ?? '';
 		} else saveTitle();
 	}
-	/** Creates the client link and returns it for the dialog to offer. */
+	/** Creates the client link; the share card then offers it. */
 	async function share() {
 		try {
 			const shared = await shareGallery(saved.id);
@@ -185,8 +185,6 @@
 
 			throw new Error(m.gallery_share_failed(), { cause: error });
 		}
-
-		return `${page.url.origin}/g/${shareToken}`;
 	}
 	/** Sends the photographer to sign in on a 401; otherwise rethrows with a retryable message. */
 	async function failAction(error: unknown, message: string): Promise<never> {
@@ -203,7 +201,6 @@
 			const delivered = await deliverGallery(saved.id);
 
 			saved = { ...saved, states: delivered.states, updated_at: delivered.updated_at };
-			toasts.success(m.state_delivered());
 		} catch (error) {
 			await failAction(error, m.gallery_deliver_failed());
 		}
@@ -215,7 +212,6 @@
 			const archived = await archiveGallery(saved.id);
 
 			saved = { ...saved, states: archived.states, updated_at: archived.updated_at };
-			toasts.success(m.state_archived());
 		} catch (error) {
 			await failAction(error, m.gallery_archive_failed());
 		}
@@ -238,7 +234,6 @@
 			const restored = await restoreGallery(saved.id);
 
 			saved = { ...saved, states: restored.states, updated_at: restored.updated_at };
-			toasts.success(m.gallery_restored());
 			expiredSince = restored.states.includes('expired') ? restored.expires_at : null;
 		} catch (error) {
 			if (error instanceof GalleryApiError && error.status === 401) {

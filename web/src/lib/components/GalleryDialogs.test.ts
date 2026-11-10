@@ -41,7 +41,7 @@ describe('Delete gallery dialog', () => {
 		finish();
 	});
 
-	it('offers Keep it and Delete, and keeps the dialog open when deleting fails', async () => {
+	it('offers Cancel and Delete, and keeps the dialog open when deleting fails', async () => {
 		const onconfirm = vi.fn().mockRejectedValue(new Error('Couldn’t delete.'));
 		const user = userEvent.setup();
 		render(DeleteGalleryDialog, {
@@ -52,7 +52,7 @@ describe('Delete gallery dialog', () => {
 		});
 
 		expect(screen.getByRole('dialog', { name: 'Delete this gallery?' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Keep it' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
 
 		await user.click(screen.getByRole('button', { name: 'Delete' }));
 		expect((await screen.findByRole('alert')).textContent).toBe('Couldn’t delete.');
@@ -70,12 +70,12 @@ describe('Delete gallery dialog', () => {
 		});
 		const user = userEvent.setup();
 		await user.click(await screen.findByRole('button', { name: 'Delete' }));
-		expect(screen.getByRole('button', { name: 'Keep it' })).toHaveProperty('disabled', true);
+		expect(screen.getByRole('button', { name: 'Cancel' })).toHaveProperty('disabled', true);
 		await user.keyboard('{Escape}');
 		await fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }));
 		expect(onclose).not.toHaveBeenCalled();
 		reject(new Error('Deletion failed.'));
 		expect((await screen.findByRole('alert')).textContent).toBe('Deletion failed.');
-		expect(screen.getByRole('button', { name: 'Keep it' })).toHaveProperty('disabled', false);
+		expect(screen.getByRole('button', { name: 'Cancel' })).toHaveProperty('disabled', false);
 	});
 });

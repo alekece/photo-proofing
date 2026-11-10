@@ -4,7 +4,6 @@
 	import { onMount } from 'svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
-	import CopyLink from '#lib/components/CopyLink.svelte';
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
 	import { formatLongDate } from '#lib/gallery/format.js';
 	import { listPhotos, type Photo } from '#lib/gallery/photos.js';
@@ -12,7 +11,6 @@
 	/**
 	 * Share and Deliver never refuse: when photos are missing, uploading or failed they warn and
 	 * the button says "anyway". Deliver checks only finished photos.
-	 * `onconfirm` may resolve with the client link to offer after sharing.
 	 */
 	type Props = {
 		kind: 'share' | 'deliver';
@@ -24,7 +22,7 @@
 		/** Files of this gallery still on their way to becoming photos. */
 		uploading?: number;
 		load?: typeof listPhotos;
-		onconfirm: () => Promise<string | void>;
+		onconfirm: () => Promise<void>;
 		onclose: () => void;
 	};
 
@@ -41,7 +39,6 @@
 
 	let photos = $state<Photo[] | null>(null);
 	let checkFailed = $state(false);
-	let link = $state('');
 
 	let ready = $derived(photos?.filter(({ status }) => status === 'ready') ?? []);
 	let uploading = $derived(
@@ -94,9 +91,7 @@
 			? m.action_share()
 			: m.action_deliver()}
 	busy={photos === null}
-	onconfirm={async () => {
-		link = (await onconfirm()) ?? '';
-	}}
+	{onconfirm}
 	{onclose}
 	result={{
 		title: sharing ? m.publish_shared_title() : m.publish_delivered_title(),
@@ -143,7 +138,6 @@
 	<p class="text-center text-sm text-muted-foreground">
 		{sharing ? m.publish_send_link() : m.publish_can_download()}
 	</p>
-	{#if link}<CopyLink {link} />{/if}
 	<div class="flex justify-center">
 		<Button onclick={close}>{m.action_done()}</Button>
 	</div>

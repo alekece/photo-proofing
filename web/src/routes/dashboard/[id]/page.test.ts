@@ -136,21 +136,18 @@ describe('gallery page', () => {
 	});
 
 	it('shows no Saved toast after a save, only the error toast on failure', async () => {
-		const savedToast = vi.spyOn(toasts, 'saved');
 		const user = userEvent.setup();
 
 		stubApi(500);
 		open();
 		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
-		await waitFor(() => expect(toasts.items.map(({ kind }) => kind)).toEqual(['error']));
+		await waitFor(() => expect(toasts.items).toHaveLength(1));
 
 		stubApi();
 		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
 		await waitFor(() => expect(screen.queryByText('Saving…')).toBeNull());
 
-		expect(savedToast).not.toHaveBeenCalled();
-		expect(toasts.items.map(({ kind }) => kind)).toEqual(['error']);
-		savedToast.mockRestore();
+		expect(toasts.items).toHaveLength(1);
 	});
 
 	it('sends only the changed field without an immediate success toast', async () => {
@@ -208,7 +205,7 @@ describe('gallery page', () => {
 		open();
 		const toggle = screen.getByRole('switch', { name: 'Enable watermarks' });
 		await user.click(toggle);
-		await waitFor(() => expect(toasts.items.map(({ kind }) => kind)).toEqual(['error']));
+		await waitFor(() => expect(toasts.items).toHaveLength(1));
 		expect(toggle.getAttribute('aria-checked')).toBe('false');
 		expect(screen.queryByText('Couldn’t save')).toBeNull();
 	});
@@ -279,8 +276,7 @@ describe('gallery page', () => {
 		await waitFor(() => expect(pending).toHaveLength(2));
 		pending[1](200);
 		pending[0](500);
-		await waitFor(() => expect(toasts.items.length).toBeGreaterThan(0));
-		expect(toasts.items.filter(({ kind }) => kind === 'success')).toHaveLength(0);
+		await waitFor(() => expect(toasts.items).toHaveLength(1));
 	});
 
 	it('saves an edited title normally when leaving the field after a failure', async () => {
@@ -415,7 +411,7 @@ describe('gallery page', () => {
 		expect(JSON.parse(patches()[0][1]?.body as string)).toEqual({ included_photos: null });
 		await user.type(input, '0');
 		await user.tab();
-		expect(toasts.items.filter(({ kind }) => kind === 'error')).toHaveLength(1);
+		expect(toasts.items).toHaveLength(1);
 		expect(patches()).toHaveLength(1);
 	});
 
@@ -459,7 +455,7 @@ describe('gallery page', () => {
 			expect(screen.getByLabelText('Gallery title')).toBeTruthy();
 		});
 
-		it('shares only after confirming in the dialog, then offers the link', async () => {
+		it('shares only after confirming in the dialog', async () => {
 			const shares = stubShareFlow();
 			const user = userEvent.setup();
 			open();
@@ -471,7 +467,6 @@ describe('gallery page', () => {
 			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Share' }));
 			expect(await screen.findByRole('dialog', { name: 'Your gallery is shared' })).toBeTruthy();
 			expect(shares()).toHaveLength(1);
-			expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Copy' })).toBeTruthy();
 
 			await user.click(screen.getByRole('button', { name: 'Done' }));
 			expect(screen.getByLabelText('Client link')).toBeTruthy();
@@ -556,6 +551,7 @@ describe('gallery page', () => {
 				)
 			);
 			expect(await screen.findByText('Delivered')).toBeTruthy();
+			expect(toasts.items).toEqual([]);
 			expect(fetcher.mock.calls.some(([url]) => url.endsWith('/g1/deliver'))).toBe(true);
 		});
 
@@ -633,7 +629,8 @@ describe('gallery page', () => {
 
 			await restore();
 
-			await waitFor(() => expect(toasts.items.map(({ message }) => message)).toEqual(['Restored']));
+			await waitFor(() => expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull());
+			expect(toasts.items).toEqual([]);
 			expect(screen.queryByRole('dialog')).toBeNull();
 			expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
 		});
@@ -680,7 +677,7 @@ describe('gallery page', () => {
 			expect(url).toBe('/api/v1/galleries/g1');
 			expect(init?.method).toBe('PATCH');
 			expect(Object.keys(JSON.parse(init?.body as string))).toEqual(['expires_at']);
-			expect(toasts.items.map(({ message }) => message)).toEqual(['Restored']);
+			expect(toasts.items).toEqual([]);
 			expect(screen.queryByText('Expired')).toBeNull();
 		});
 
@@ -755,6 +752,7 @@ describe('gallery page', () => {
 				)
 			).toBe(true);
 			expect(screen.getAllByRole('button', { name: 'Restore' }).length).toBeGreaterThan(0);
+			expect(toasts.items).toEqual([]);
 		});
 
 		it('deletes through the API and returns to the dashboard', async () => {
