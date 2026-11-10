@@ -4,6 +4,7 @@
 
 	/** A button that opens a small panel; it closes on Escape (focus returns to the button) or a press outside. */
 	let {
+		id,
 		open = $bindable(false),
 		disabled = false,
 		label,
@@ -12,8 +13,11 @@
 		rootClass,
 		panelClass,
 		trigger,
-		children
+		children,
+		'aria-describedby': ariaDescribedby
 	}: {
+		/** The button's id, so a `<label for>` names it. */
+		id?: string;
 		open?: boolean;
 		disabled?: boolean;
 		/** Accessible name for a button that shows only an icon. */
@@ -24,6 +28,7 @@
 		panelClass?: string;
 		trigger: Snippet;
 		children: Snippet;
+		'aria-describedby'?: string;
 	} = $props();
 
 	let root = $state<HTMLElement | null>(null);
@@ -57,10 +62,12 @@
 >
 	<button
 		bind:this={button}
+		{id}
 		type="button"
 		aria-haspopup="true"
 		aria-expanded={open}
 		aria-label={label}
+		aria-describedby={ariaDescribedby}
 		{disabled}
 		class={className}
 		onclick={() => (open = !open)}

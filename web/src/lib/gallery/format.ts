@@ -25,6 +25,11 @@ export function toLocalDate(iso: string): string {
 /** The regional format of each app language; English keeps the US month names. */
 const DATE_LOCALES = { en: 'en-US', fr: 'fr-FR' } as const;
 
+/** The regional format of the app language, for components that format dates themselves. */
+export function dateLocale(): string {
+	return DATE_LOCALES[getLocale()];
+}
+
 /** "7 Sep" or "7 sept.": the day first in both languages. */
 export function formatShortDate(iso: string): string {
 	const date = new Date(iso);
