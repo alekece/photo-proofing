@@ -1,6 +1,7 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
 	"comments_title": "Comments",
+	"comments_hide": "Hide comments",
 	"comments_count": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -117,7 +118,6 @@
 	"api_error_export_failed": "The ZIP could not be prepared. Try again.",
 	"common_cancel": "Cancel",
 	"shoot_date_label": "Shoot date",
-	"shoot_date_placeholder": "Optional",
 	"details_shot": "Shot",
 	"details_created": "Created",
 	"details_last_opened": "Last opened",

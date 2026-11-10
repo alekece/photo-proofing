@@ -7,6 +7,7 @@
 		Heart,
 		LoaderCircle,
 		MessageSquare,
+		MessageSquareOff,
 		X
 	} from '@lucide/svelte';
 	import { onMount, type Snippet } from 'svelte';
@@ -177,7 +178,7 @@
 	label={m.viewer_label()}
 	aria-modal="true"
 	class={cn(
-		'm-0 h-dvh max-h-dvh w-screen max-w-screen animate-photo-in overflow-hidden border-0 bg-dark p-0 text-[0.875rem] font-medium text-[#efe6da] open:grid',
+		'proof-viewer m-0 h-dvh max-h-dvh w-screen max-w-screen animate-photo-in overflow-hidden border-0 bg-dark p-0 text-[0.875rem] font-medium text-[#efe6da] open:grid',
 		client
 			? 'grid-rows-[60px_1fr_44px] max-[700px]:grid-rows-[56px_1fr_104px]'
 			: 'grid-rows-[60px_1fr_44px] max-[700px]:grid-rows-[56px_1fr_20px]',
@@ -229,9 +230,15 @@
 					onclick={() => (threadOpen = !threadOpen)}
 					class="inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-white/8 px-3 text-panel hover:bg-white/14 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
 				>
-					<MessageSquare size={18} aria-hidden="true" /><span class="max-[700px]:hidden"
-						>{m.comments_title()}</span
-					>{commentCount?.(proof.id) ?? 0}
+					{#if threadOpen}
+						<MessageSquareOff size={18} aria-hidden="true" /><span class="max-[700px]:hidden"
+							>{m.comments_hide()}</span
+						>
+					{:else}
+						<MessageSquare size={18} aria-hidden="true" /><span class="max-[700px]:hidden"
+							>{m.comments_title()}</span
+						>
+					{/if}{commentCount?.(proof.id) ?? 0}
 				</button>
 			{/if}
 			<button
@@ -308,7 +315,7 @@
 			<aside
 				class="min-h-0 overflow-hidden border-panel/20 bg-dark py-4 pr-6 pl-4 max-[700px]:row-start-3 max-[700px]:border-t min-[701px]:col-start-2 min-[701px]:row-span-2 min-[701px]:row-start-2 min-[701px]:border-l"
 			>
-				{#key proof.id}{@render thread(proof)}{/key}
+				{@render thread(proof)}
 			</aside>
 		{/if}
 		<div class="viewer-footer flex items-center justify-center gap-3">
@@ -330,6 +337,11 @@
 </Dialog>
 
 <style>
+	/* A modal dialog leaves the page scrollable behind it, and its scrollbar would show over the photo. */
+	:global(html:has(dialog.proof-viewer[open])) {
+		overflow: hidden;
+	}
+
 	@media (min-width: 560px) and (max-width: 700px) and (max-height: 500px) {
 		:global(dialog.comments-open) {
 			grid-template-columns: minmax(0, 1fr) minmax(280px, 45%);

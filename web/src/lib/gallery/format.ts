@@ -43,8 +43,12 @@ export function formatLongDate(iso: string): string {
 }
 
 /** "September 7, 2026" or "7 septembre 2026", in `timeZone` or the browser's. */
-export function formatFullDate(iso: string, timeZone?: string): string {
-	return new Intl.DateTimeFormat(DATE_LOCALES[getLocale()], { dateStyle: 'long', timeZone }).format(
+export function formatFullDate(
+	iso: string,
+	timeZone?: string,
+	dateStyle: 'long' | 'medium' = 'long'
+): string {
+	return new Intl.DateTimeFormat(DATE_LOCALES[getLocale()], { dateStyle, timeZone }).format(
 		new Date(iso)
 	);
 }

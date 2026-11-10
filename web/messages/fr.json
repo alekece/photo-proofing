@@ -1,6 +1,7 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
 	"comments_title": "Commentaires",
+	"comments_hide": "Masquer les commentaires",
 	"comments_count": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -120,7 +121,6 @@
 	"api_error_export_failed": "Le ZIP n’a pas pu être préparé. Réessayez.",
 	"common_cancel": "Annuler",
 	"shoot_date_label": "Date de la séance",
-	"shoot_date_placeholder": "Facultatif",
 	"details_shot": "Séance",
 	"details_created": "Créée",
 	"details_last_opened": "Dernière ouverture",

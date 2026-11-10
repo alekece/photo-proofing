@@ -12,7 +12,6 @@ function setup(count = 1, total = 3) {
 }
 
 const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
-const checkbox = () => screen.getByRole('checkbox', { name: 'Select all' }) as HTMLInputElement;
 
 describe('SelectActions', () => {
 	it('shows the count and exits from the icon button', async () => {
@@ -26,27 +25,22 @@ describe('SelectActions', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('toggles everything from one tri-state checkbox, not buttons', async () => {
+	it('selects everything, or clears once everything is selected', async () => {
 		const { onselectall, onunselectall, rerender } = setup(1);
 
-		expect(screen.queryByRole('button', { name: 'Select all' })).toBeNull();
-
-		await userEvent.click(checkbox());
+		await userEvent.click(button('Select all'));
 		expect(onselectall).toHaveBeenCalledOnce();
 
 		await rerender({ count: 3, total: 3 });
-		await userEvent.click(checkbox());
+		expect(screen.queryByRole('button', { name: 'Select all' })).toBeNull();
+
+		await userEvent.click(button('Unselect all'));
 		expect(onunselectall).toHaveBeenCalledOnce();
 	});
 
-	it.each([
-		[0, false, false],
-		[1, false, true],
-		[3, true, false]
-	])('with %i of 3 selected, checked is %s and indeterminate %s', (count, checked, mixed) => {
-		setup(count);
+	it('cannot select anything when there is nothing to select', () => {
+		setup(0, 0);
 
-		expect(checkbox().checked).toBe(checked);
-		expect(checkbox().indeterminate).toBe(mixed);
+		expect(button('Select all').disabled).toBe(true);
 	});
 });

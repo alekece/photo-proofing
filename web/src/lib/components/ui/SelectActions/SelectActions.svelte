@@ -3,13 +3,12 @@
 	import type { Snippet } from 'svelte';
 	import { X } from '@lucide/svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
-	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
 
 	/**
-	 * The contextual bar of select mode: exit, a tri-state "select all" checkbox and the count on the
-	 * left; the actions that fit a selection on the right. The checkbox is indeterminate while only
-	 * some items are selected; toggling it selects everything or clears the selection. The bar sticks
-	 * to the top of the page while a long gallery scrolls.
+	 * The contextual bar of select mode: exit, a select-all toggle button and the count on the left;
+	 * the actions that fit a selection on the right. The button selects everything, or clears the
+	 * selection once everything is selected. The bar sticks to the top of the page while a long
+	 * gallery scrolls.
 	 */
 	let {
 		count,
@@ -29,7 +28,6 @@
 	} = $props();
 
 	const all = $derived(total > 0 && count >= total);
-	const some = $derived(count > 0 && !all);
 
 	function toggle() {
 		if (all) onunselectall();
@@ -48,14 +46,9 @@
 		aria-label={m.selection_exit()}
 		onclick={onexit}><X size={18} aria-hidden="true" /></Button
 	>
-	<Checkbox
-		aria-label={m.action_select_all()}
-		class="size-4"
-		checked={all}
-		indeterminate={some}
-		disabled={total === 0}
-		onchange={toggle}
-	/>
+	<Button variant="outline" size="sm" class="min-h-9! px-3!" disabled={total === 0} onclick={toggle}
+		>{all ? m.action_unselect_all() : m.action_select_all()}</Button
+	>
 	<strong class="text-sm font-semibold">{m.notification_selected({ count })}</strong>
 	<div class="ml-auto flex flex-wrap items-center justify-end gap-2">
 		{@render actions?.()}

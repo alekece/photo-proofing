@@ -170,11 +170,13 @@
 			<ButtonFace shown={!reverted}>{m.common_cancel()}</ButtonFace>
 			<ButtonFace shown={reverted}>
 				{#snippet icon()}
-					<Undo2 size={16} strokeWidth={2.4} aria-hidden="true" />
+					<span class="relative inline-grid">
+						<Undo2 size={16} strokeWidth={2.4} aria-hidden="true" />
+						{#if reverted}<ClickRipple />{/if}
+					</span>
 				{/snippet}
 				{m.studio_reverted()}
 			</ButtonFace>
-			{#if reverted}<ClickRipple class="rounded-[inherit]" />{/if}
 		</Button>
 		<SaveButton
 			status={shown}

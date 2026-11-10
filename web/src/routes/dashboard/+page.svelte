@@ -176,8 +176,10 @@
 	{:else}
 		<ul class="{gridClass} mb-12">
 			{#each visible as gallery (gallery.id)}
-				{@const note = notifications?.unreadFor(gallery.id)}
-				<GalleryCard {gallery} {query} news={note ? notificationBadge(note) : undefined} />
+				{@const news = [
+					...new Set(notifications?.unreadFor(gallery.id).map((note) => notificationBadge(note)))
+				]}
+				<GalleryCard {gallery} {query} {news} />
 			{:else}
 				<li class="col-span-full px-0 pt-14 pb-10 text-center text-muted-foreground">
 					<h2 class="mb-1.5 text-2xl leading-[1.2] text-foreground">

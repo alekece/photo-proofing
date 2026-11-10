@@ -27,6 +27,7 @@
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
+	import Switch from '#lib/components/ui/Switch/Switch.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
@@ -538,14 +539,10 @@
 		{/if}
 		{#if !selecting}
 			{#if comments}
-				<Button
-					variant="outline"
-					size="sm"
-					class="min-h-9! gap-1.5 {commentedOnly ? 'bg-foreground! text-panel!' : ''}"
-					aria-pressed={commentedOnly}
-					onclick={() => (commentedOnly = !commentedOnly)}
-					><MessageSquare size={16} aria-hidden="true" />{m.photos_filter_commented()}</Button
-				>
+				<label class="flex min-h-9 cursor-pointer items-center gap-2 text-sm font-semibold">
+					<Switch bind:checked={commentedOnly} />
+					<MessageSquare size={16} aria-hidden="true" />{m.photos_filter_commented()}
+				</label>
 			{/if}
 			<Button
 				bind:ref={selectButton}

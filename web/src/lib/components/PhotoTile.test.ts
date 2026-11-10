@@ -98,6 +98,19 @@ describe('PhotoTile states', () => {
 		expect(onremove).toHaveBeenCalledOnce();
 	});
 
+	it('ripples the select circle only when a photo becomes selected', async () => {
+		const user = userEvent.setup();
+		const onselect = vi.fn();
+		const view = render(PhotoTile, { ...base, onselect });
+		const circle = screen.getByRole('checkbox', { name: /select a\.jpg/i });
+
+		await user.click(circle);
+		await view.rerender({ ...base, onselect, selected: true });
+
+		expect(screen.getAllByTestId('click-ripple')).toHaveLength(1);
+		expect(circle.parentElement?.contains(screen.getByTestId('click-ripple'))).toBe(true);
+	});
+
 	it('offers no Retry on a failed tile in select mode', () => {
 		render(PhotoTile, {
 			name: 'a.jpg',

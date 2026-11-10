@@ -62,7 +62,7 @@
 	{#snippet trigger()}
 		<CalendarDays size={16} class="shrink-0 text-muted-foreground" aria-hidden="true" />
 		<span class={cn('truncate', !value && 'text-muted-foreground')}>
-			{value ? formatFullDate(value, 'UTC') : placeholder}
+			{value ? formatFullDate(value, 'UTC', 'medium') : placeholder}
 		</span>
 	{/snippet}
 	<Calendar

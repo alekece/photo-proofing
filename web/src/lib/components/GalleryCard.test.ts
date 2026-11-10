@@ -84,11 +84,16 @@ describe('GalleryCard', () => {
 	});
 
 	it('shows the untitled name muted, and a news badge when given', () => {
-		render(GalleryCard, { gallery: gallery({ title: null }), query: '', news: 'New selection' });
+		render(GalleryCard, {
+			gallery: gallery({ title: null }),
+			query: '',
+			news: ['New selection', 'New downloads']
+		});
 
 		expect(screen.getByRole('heading', { name: 'Untitled gallery' }).className).toMatch(
 			/opacity-70/
 		);
 		expect(screen.getByText('New selection')).toBeTruthy();
+		expect(screen.getByText('New downloads')).toBeTruthy();
 	});
 });

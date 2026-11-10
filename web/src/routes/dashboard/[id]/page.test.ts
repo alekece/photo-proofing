@@ -397,7 +397,7 @@ describe('gallery page', () => {
 	it('shows the stored expiry as a local date', () => {
 		const stored = new Date(2030, 5, 15, 23, 59, 59).toISOString();
 		open({ expires_at: stored });
-		expect(screen.getByLabelText('Open until').textContent).toContain('June 15, 2030');
+		expect(screen.getByLabelText('Open until').textContent).toContain('Jun 15, 2030');
 	});
 
 	it('sends null when included photos is cleared and rejects zero', async () => {

@@ -100,7 +100,6 @@
 					id="new-gallery-shoot-date"
 					class="w-full"
 					value={shootDate}
-					placeholder={m.shoot_date_placeholder()}
 					clearable
 					onchange={(day) => (shootDate = day)}
 				/>

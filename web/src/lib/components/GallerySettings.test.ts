@@ -100,7 +100,7 @@ describe('GallerySettings', () => {
 		const { onsave, user } = setup({ expires_at: new Date(2030, 5, 15, 23, 59, 59).toISOString() });
 		const trigger = screen.getByLabelText('Open until');
 
-		expect(trigger.textContent).toContain('June 15, 2030');
+		expect(trigger.textContent).toContain('Jun 15, 2030');
 
 		await user.click(trigger);
 		await user.click(
@@ -123,7 +123,7 @@ describe('GallerySettings', () => {
 		const { onsave, user } = setup({ shoot_date: '2026-06-14' });
 		const trigger = screen.getByLabelText('Shoot date');
 
-		expect(trigger.textContent).toContain('June 14, 2026');
+		expect(trigger.textContent).toContain('Jun 14, 2026');
 
 		await user.click(trigger);
 		await user.click(screen.getByRole('button', { name: 'Clear' }));

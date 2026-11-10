@@ -318,16 +318,25 @@ impl CommentRepository<'_> {
             _ => return Ok(CommentChange::NotFound),
         }
 
-        let changed = sqlx::query(
-            "UPDATE photo_comments SET deleted_at = coalesce(deleted_at, now())
-             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4",
-        )
-        .bind(location.workspace_id)
-        .bind(location.gallery_id)
-        .bind(id)
-        .bind(author)
-        .execute(&mut *tx)
-        .await?;
+        // The client's deleted comment stays as a tombstone for the photographer; the
+        // photographer's own comment is removed for good.
+        let query = match author {
+            CommentAuthor::Client => {
+                "UPDATE photo_comments SET deleted_at = coalesce(deleted_at, now())
+                 WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4"
+            }
+            CommentAuthor::Photographer => {
+                "DELETE FROM photo_comments
+                 WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4"
+            }
+        };
+        let changed = sqlx::query(query)
+            .bind(location.workspace_id)
+            .bind(location.gallery_id)
+            .bind(id)
+            .bind(author)
+            .execute(&mut *tx)
+            .await?;
 
         tx.commit().await?;
 
@@ -630,6 +639,36 @@ mod tests {
             .unwrap(),
             CommentChange::NotFound
         );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn deleting_a_photographer_comment_removes_it_for_good(pool: PgPool) {
+        let f = Fixture::new(&pool).await;
+        let comment = f.add(CommentAuthor::Photographer).await;
+        let repo = f.database.repository::<CommentRepository>();
+
+        assert_eq!(
+            repo.delete(f.location, comment.id, CommentAuthor::Photographer)
+                .await
+                .unwrap(),
+            CommentChange::Applied(())
+        );
+        assert_eq!(
+            repo.delete(f.location, comment.id, CommentAuthor::Photographer)
+                .await
+                .unwrap(),
+            CommentChange::NotFound
+        );
+
+        for viewer in [CommentAuthor::Client, CommentAuthor::Photographer] {
+            assert!(
+                repo.thread(f.location, f.proof, viewer)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .is_empty()
+            );
+        }
     }
 
     #[sqlx::test(migrations = "./migrations")]
