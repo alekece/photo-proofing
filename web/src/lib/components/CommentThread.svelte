@@ -139,7 +139,9 @@
 				{@const editable = mine && !comment.deleted_at}
 				{@const isEditing = editing === comment.id}
 				<li class="group flex flex-col gap-1 {mine ? 'items-end' : 'items-start'}">
-					<div class="flex min-h-7 w-full items-center justify-between gap-2 text-xs text-panel/75">
+					<div
+						class="flex min-h-7 w-[90%] items-center justify-between gap-2 text-xs text-panel/75"
+					>
 						<span class="flex gap-x-2">
 							<time datetime={comment.created_at}>{formatDateTime(comment.created_at)}</time>
 							{#if comment.edited_at && !comment.deleted_at}<span>{m.comments_edited()}</span>{/if}
@@ -218,7 +220,7 @@
 							</form>
 						{:else}
 							<p
-								class="w-full rounded-2xl px-3.5 py-2 wrap-anywhere whitespace-pre-wrap {mine
+								class="w-[90%] rounded-2xl px-3.5 py-2 wrap-anywhere whitespace-pre-wrap {mine
 									? 'rounded-br-md bg-panel text-foreground'
 									: 'rounded-bl-md bg-white/10 text-panel'} {comment.deleted_at
 									? 'italic opacity-65'
