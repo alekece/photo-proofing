@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { Bell, BellOff } from '@lucide/svelte';
+	import { Bell } from '@lucide/svelte';
+	import emptyIllustration from '#lib/assets/empty-notifications.webp';
 	import Popover from '#lib/components/ui/Popover/Popover.svelte';
 	import { previewUrl } from '#lib/gallery/photos.js';
 	import {
@@ -50,10 +51,7 @@
 	</div>
 	{#if unread.length === 0}
 		<div class="flex flex-col items-center gap-1 px-6 pt-4 pb-6 text-center">
-			<span
-				class="mb-2 grid size-12 place-items-center rounded-full bg-border/60 text-muted-foreground"
-				><BellOff size={22} aria-hidden="true" /></span
-			>
+			<img src={emptyIllustration} alt="" width="128" height="128" class="size-32" />
 			<p class="text-sm font-semibold">{m.notifications_none()}</p>
 			<p class="text-xs text-muted-foreground">{m.notifications_none_hint()}</p>
 		</div>
