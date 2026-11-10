@@ -20,7 +20,8 @@ While choosing favorites, clients want to say something about one photo: "how wo
 - Telling the client about a reply. In this version clients see replies the next time they open the link. Client email/phone and sending are separate later work; this design only avoids blocking it.
 - Comments on finished photos. The data allows it; no API or UI path does in this version.
 - Client names, accounts or per-person identity. Several people share one client, as for favorites.
-- Editing or deleting comments, attachments, reactions, read receipts. *My call:* keep the first version small; a deletion rule can follow once real use shows the need.
+- Bold, links or other formatting. Comments are plain text with line breaks. *My call:* formatting needs an editor and sanitizing for little gain.
+- Attachments, reactions, read receipts.
 
 ## Approaches
 
@@ -34,22 +35,23 @@ While choosing favorites, clients want to say something about one photo: "how wo
 - **Who may write:**
   - *Client:* only on a **proof** photo of a gallery that is shared, not delivered, not expired and not archived. Same 404 as the other client routes otherwise; a non-proof or foreign photo is also a 404. *My call:* delivered galleries show clients finals only, so proofs are out of their reach anyway; the server enforces it too.
   - *Photographer:* replies on proof photos of her own galleries at any time, including after delivery. *My call:* it is harmless and lets her close a conversation.
+- **Edit and delete:** an author can edit (typos) or delete a comment. An edited comment shows "edited" and keeps its place in the thread. *My call:* the client has no identity, so anyone using the link can edit or delete client comments, exactly as anyone can change favorites; the photographer edits and deletes only her own replies. Editing and deleting follow the same availability rules as writing, so they stop once the gallery is delivered, expired or archived. Storage gains `updated_at`; a deleted comment is removed, not hidden.
 - **Text:** plain text, trimmed, 1 to 1000 characters. Empty is rejected. Shown as text, never as HTML. *My call:* a fixed limit, not a setting.
 - **Client routes:** `GET` and `POST` on the shared gallery's photo comments, using the existing `ClientAccess` extractor and the usual `no-store` / `no-referrer` headers. A gallery read also returns a comment count per photo for the badge.
 - **Photographer routes:** `GET` the thread, `POST` a reply, behind the existing session auth, scoped to her workspace.
 - **Live updates:** like favorites, an insert announces ids only on a database channel, and open browsers refetch. *My call:* reuse the existing event stream and add a comment event rather than a new mechanism.
-- **Bell:** a new `comment` notification kind through `record_notification`, so unread activity still accumulates per gallery. A client comment records it; a photographer reply does not. The count shows how many new client comments.
-- **Viewer UI:** `ProofViewer` gets a comments panel with the thread and a text box (client: "add a comment"; photographer: "reply"). The photo grid shows a badge with the comment count. Visual details follow the existing design system in `docs/designs/ui`. Strings go through the existing i18n.
+- **Bell:** a new `comment` notification kind through `record_notification`, so unread activity still accumulates per gallery. A new client comment records it; edits, deletes and photographer replies do not. The count shows how many new client comments.
+- **Viewer UI:** the photo stays the star, so the thread is closed by default. The viewer's top bar gets a small comments button with the count; clicking it opens the thread as a side panel on wide screens and a bottom sheet on phones, and clicking again (or Escape) closes it. Moving to another photo keeps it closed. It holds the thread and a text box (client: "add a comment"; photographer: "reply"). The photo grid shows a small badge with the count. Visual details follow the existing design system in `docs/designs/ui`. Strings go through the existing i18n.
 - **Spec:** `docs/SPECIFICATIONS.md` gains a short "Photo comments" requirement and an acceptance criterion. This needs the maintainer's explicit approval as a product change; it is part of this PR.
 - **Email later:** the "she replied" email will send from the same insert of a `photographer` comment, once galleries store a client email. Nothing for it is built now.
 
 ## Testing
 
 - Database: a client comment records one `comment` notification per gallery and accumulates; photographer replies do not; deleting a photo removes its comments; a migration test checks the table's constraints (author values, body length).
-- API: client can post and read on a proof of a shared gallery; rejected on finals, unshared, delivered, expired, archived, unknown or other galleries' photos; empty and over-long bodies rejected; photographer can read and reply, only in her workspace; counts appear in the gallery reads.
-- Web: the client viewer posts and shows the thread; the photographer viewer shows it and replies; the badge shows the count; the panel is absent on finals.
+- API: client can post, edit, delete and read on a proof of a shared gallery; rejected on finals, unshared, delivered, expired, archived, unknown or other galleries' photos; empty and over-long bodies rejected; photographer can read and reply, only in her workspace; counts appear in the gallery reads.
+- Web: the client viewer posts and shows the thread; the photographer viewer shows it and replies; the badge shows the count; the thread is closed until the button is used; the panel is absent on finals.
 
 ## Limitations
 
-- Anyone with the link can comment, as anyone can pick favorites. There is no way to tell people apart or remove a comment in this version.
+- Anyone with the link can comment, edit or delete client comments, as anyone can pick favorites. There is no way to tell people apart.
 - Clients only see replies when they come back. The first version has no push or email.
