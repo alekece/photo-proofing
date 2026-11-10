@@ -439,7 +439,7 @@ mod tests {
         for body in [
             "".to_owned(),
             " ".to_owned(),
-            "x".repeat(1001),
+            "x".repeat(501),
             "a\0b".to_owned(),
         ] {
             assert_eq!(

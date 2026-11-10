@@ -16,10 +16,10 @@ use crate::{
     photo::{PhotoId, PhotoLocation},
 };
 
-pub const MAX_BODY_CHARS: usize = 1000;
+pub const MAX_BODY_CHARS: usize = 500;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("comment must contain between 1 and 1000 characters")]
+#[error("comment must contain between 1 and 500 characters")]
 pub struct CommentBodyError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn bodies_are_trimmed_and_bounded() {
-        for body in ["".to_owned(), " \n ".to_owned(), "x".repeat(1001)] {
+        for body in ["".to_owned(), " \n ".to_owned(), "x".repeat(501)] {
             assert!(CommentBody::try_from(body).is_err());
         }
 
@@ -436,12 +436,12 @@ mod tests {
             "hi"
         );
         assert_eq!(
-            CommentBody::try_from("é".repeat(1000))
+            CommentBody::try_from("é".repeat(500))
                 .unwrap()
                 .as_str()
                 .chars()
                 .count(),
-            1000
+            500
         );
     }
 

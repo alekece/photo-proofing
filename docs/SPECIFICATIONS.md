@@ -77,7 +77,7 @@ Before the first share, the photographer's Favorites tab remains visible but dis
 
 ### FR-08a
 
-**Photo comments.** Clients and the photographer share a plain-text conversation per proof photo, independent of favorites. Comments are trimmed, 1–1000 characters, with line breaks but no rich formatting. Anyone using the private link may edit or delete client comments; the photographer may edit or delete only her own replies. Edits keep only the latest text and show an edited marker. Deletion leaves a placeholder for clients and retains the latest text, struck through, for the photographer until the photo or gallery is deleted.
+**Photo comments.** Clients and the photographer share a plain-text conversation per proof photo, independent of favorites. Comments are trimmed, 1–500 characters, with line breaks but no rich formatting. Anyone using the private link may edit or delete client comments; the photographer may edit or delete only her own replies. Edits keep only the latest text and show an edited marker. Deletion leaves a placeholder for clients and retains the latest text, struck through, for the photographer until the photo or gallery is deleted.
 
 Client comment access requires an available shared gallery and ends on delivery, expiry or archive. The photographer retains access to proof threads, including after delivery. Comments are not enabled on finished photos in this version. Clients see replies on reopening the thread or reloading, with no live stream, email or phone notification. New client comments reach the photographer's grouped bell activity and refresh open threads through the existing event stream; edits, deletions and photographer replies do not create notifications.
 

@@ -5,7 +5,7 @@ CREATE TABLE photo_comments (
     gallery_id uuid NOT NULL REFERENCES galleries(id) ON DELETE CASCADE,
     photo_id uuid NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
     author text NOT NULL CONSTRAINT photo_comments_author_known CHECK (author IN ('client', 'photographer')),
-    body text NOT NULL CONSTRAINT photo_comments_body_length CHECK (char_length(body) BETWEEN 1 AND 1000),
+    body text NOT NULL CONSTRAINT photo_comments_body_length CHECK (char_length(body) BETWEEN 1 AND 500),
     created_at timestamptz NOT NULL DEFAULT now(),
     edited_at timestamptz,
     deleted_at timestamptz

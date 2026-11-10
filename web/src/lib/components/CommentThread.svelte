@@ -29,7 +29,7 @@
 	let editing = $state<string | null>(null);
 	let deleting = $state<string | null>(null);
 	const length = $derived([...draft].length);
-	const valid = $derived(draft.trim().length > 0 && length <= 1000);
+	const valid = $derived(draft.trim().length > 0 && length <= 500);
 
 	$effect(() => {
 		const current = photoId;

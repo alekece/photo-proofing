@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Comment text: plain text, trimmed, 1 to 1000 characters (`MAX_BODY_CHARS = 1000`), a fixed constant, shown as text never HTML.
+- Comment text: plain text, trimmed, 1 to 500 characters (`MAX_BODY_CHARS = 500`), a fixed constant, shown as text never HTML.
 - Authors are exactly `client` and `photographer`. Comments are keyed by photo, not by photo kind, but every route accepts **proof** photos only.
 - Client routes reuse `ClientAccess`. **Every** client comment route (read and write) answers 409 `gallery_delivered` once the gallery is delivered; unknown, unready-link, foreign or non-proof photos are the usual 404. No new error code.
 - Deleting marks `deleted_at` and keeps the text. A client is **never** sent the text of a deleted comment (`body: null`); the photographer is. Deleted comments are excluded from counts and from notifications. Edits keep only the latest text and set `edited_at`.
@@ -25,7 +25,7 @@
 ## Review Focus
 
 - Client `GET` of a thread containing a deleted comment must not leak its text (Task 3).
-- Whitespace-only, empty and 1001-character bodies are rejected; exactly 1000 characters is accepted (Task 1).
+- Whitespace-only, empty and 501-character bodies are rejected; exactly 500 characters is accepted (Task 1).
 - Client cannot edit or delete a photographer reply, nor the photographer a client comment, nor anything in another gallery or workspace (Tasks 1, 3).
 - A client write inside the interval gets 429 with `Retry-After`, and the same call after the interval succeeds; a different gallery is unaffected; the photographer is never limited (Task 3).
 - The 101st comment on one photo is refused for a client (409 `thread_full`) but accepted from the photographer (Task 1).
@@ -42,7 +42,7 @@
 
 **Interfaces:**
 - Produces, in `pp_database::comments`:
-  - `pub const MAX_BODY_CHARS: usize = 1000;`
+  - `pub const MAX_BODY_CHARS: usize = 500;`
   - `pub struct CommentId(pub Uuid)` (same derives as `NotificationId`).
   - `pub enum CommentAuthor { Client, Photographer }`, serde and sqlx `snake_case` text.
   - `pub struct CommentBody` with `TryFrom<String>` (trims, enforces 1..=`MAX_BODY_CHARS` chars, error `CommentBodyError` via `thiserror`) and `Deserialize` through it; `as_str()`.
@@ -60,7 +60,7 @@
 
 - [ ] **Step 1: Write the failing tests** in `comments.rs` `mod tests` (`#[sqlx::test]`, fixture like `favorite_events.rs`: workspace, gallery, one proof photo, one final photo via `TestRepository`). Names and assertions:
   - `a_client_comment_appears_in_the_thread_and_counts`: `add` then `thread` returns one comment with `author == Client`, `body == Some("Nice")`, `edited_at == None`; `counts` returns `[CommentCount { photo_id, count: 1 }]`.
-  - `bodies_are_trimmed_and_bounded`: `CommentBody::try_from` rejects `""`, `"  \n "` and a 1001-char string, accepts exactly 1000 chars and trims `" hi "` to `"hi"`.
+  - `bodies_are_trimmed_and_bounded`: `CommentBody::try_from` rejects `""`, `"  \n "` and a 501-char string, accepts exactly 500 chars and trims `" hi "` to `"hi"`.
   - `only_proofs_take_comments`: `add` on the final photo, on a photo of another gallery and on a random id each give `NotFound`; `thread` gives `None`.
   - `a_delivered_gallery_refuses_clients_but_not_the_photographer`: after setting `delivered_at`, `add`, `edit` and `delete` as `Client` give `Delivered`; `add` as `Photographer` is `Applied`.
   - `authors_only_change_their_own_comments`: a `Photographer` `edit`/`delete` of a client comment and a `Client` one of a photographer reply give `NotFound`; any client may edit any client comment, which sets `edited_at`.
@@ -69,7 +69,7 @@
   - `a_full_thread_refuses_clients_only`: with `client_limit = 3`, three client `add`s apply and the fourth is `Full`; a deleted comment still counts; a `Photographer` `add` is `Applied`.
   - `only_a_new_client_comment_notifies`: with `NotificationRepository::list`, a client `add` gives one unread `Comment` notification with `count == 1` and a second `add` makes it 2; photographer `add`, `edit` and `delete` leave the count unchanged.
 - [ ] **Step 2: Run** `cargo test -p pp-database comments` (needs the test database as for other `#[sqlx::test]` tests; see README). Expected: compile failure, then FAIL.
-- [ ] **Step 3: Write the migration.** Table `photo_comments(id uuid PK DEFAULT gen_random_uuid(), workspace_id uuid NOT NULL REFERENCES workspaces(id), gallery_id uuid NOT NULL REFERENCES galleries(id) ON DELETE CASCADE, photo_id uuid NOT NULL REFERENCES photos(id) ON DELETE CASCADE, author text NOT NULL CONSTRAINT photo_comments_author_known CHECK (author IN ('client','photographer')), body text NOT NULL CONSTRAINT photo_comments_body_length CHECK (char_length(body) BETWEEN 1 AND 1000), created_at timestamptz NOT NULL DEFAULT now(), edited_at timestamptz, deleted_at timestamptz)`, index on `(photo_id, created_at, id)`. Replace `notifications_kind_known` with the check including `'comment'` (as `0026_notification_opened.sql` does). Add trigger `photo_comments_record` `AFTER INSERT ... WHEN (NEW.author = 'client')` calling a new `notify_comment_activity()` that runs `record_notification(NEW.workspace_id, NEW.gallery_id, 'comment', 1)`. Comment the migration like its neighbours.
+- [ ] **Step 3: Write the migration.** Table `photo_comments(id uuid PK DEFAULT gen_random_uuid(), workspace_id uuid NOT NULL REFERENCES workspaces(id), gallery_id uuid NOT NULL REFERENCES galleries(id) ON DELETE CASCADE, photo_id uuid NOT NULL REFERENCES photos(id) ON DELETE CASCADE, author text NOT NULL CONSTRAINT photo_comments_author_known CHECK (author IN ('client','photographer')), body text NOT NULL CONSTRAINT photo_comments_body_length CHECK (char_length(body) BETWEEN 1 AND 500), created_at timestamptz NOT NULL DEFAULT now(), edited_at timestamptz, deleted_at timestamptz)`, index on `(photo_id, created_at, id)`. Replace `notifications_kind_known` with the check including `'comment'` (as `0026_notification_opened.sql` does). Add trigger `photo_comments_record` `AFTER INSERT ... WHEN (NEW.author = 'client')` calling a new `notify_comment_activity()` that runs `record_notification(NEW.workspace_id, NEW.gallery_id, 'comment', 1)`. Comment the migration like its neighbours.
 - [ ] **Step 4: Implement `comments.rs` and `NotificationKind::Comment`.** Each write is one SQL statement or one transaction following `set_favorite`'s style: lock the gallery row `FOR SHARE`, check the photo is a proof of `location`, and decide `Delivered` from `galleries.delivered_at`. `edit` and `delete` match on `id`, `workspace_id`, `gallery_id` and `author`; `delete` uses `COALESCE(deleted_at, now())` so repeats keep the first time. `thread` blanks the body in SQL for client viewers (`CASE WHEN deleted_at IS NOT NULL THEN NULL ELSE body END`), so the text never reaches the API process.
 - [ ] **Step 5: Run** `cargo test -p pp-database` and `cargo clippy -p pp-database --all-targets`. Expected: PASS, no warnings.
 - [ ] **Step 6: Commit** `feat: store comments on proof photos (#321)`.
@@ -115,7 +115,7 @@
   - `a_deleted_comment_never_leaks_its_text_to_the_client`: after DELETE, client GET returns `body: null` and `deleted_at` set; the photographer GET returns the original `body`.
   - `a_client_cannot_touch_a_reply_nor_the_photographer_a_client_comment`: PATCH and DELETE across authors give 404.
   - `delivered_galleries_close_every_client_comment_route`: all five client routes give 409 `gallery_delivered`; the photographer can still POST a reply (201).
-  - `comments_refuse_bad_bodies_finals_and_unavailable_links`: empty and 1001-char bodies give 400; a final photo, a foreign photo, an unknown, malformed, unshared and expired token give the usual 404; a photographer request for another workspace's gallery gives 404; unauthenticated photographer calls give 401.
+  - `comments_refuse_bad_bodies_finals_and_unavailable_links`: empty and 501-char bodies give 422; a final photo, a foreign photo, an unknown, malformed, unshared and expired token give the usual 404; a photographer request for another workspace's gallery gives 404; unauthenticated photographer calls give 401.
   - `client_writes_are_paced_per_gallery`: with `min_interval` 2 s, a second client write right after the first gives 429 with a `Retry-After` header; a write in another gallery succeeds; after the interval (use a short configured interval such as 1 s and wait, or the limiter's own unit test with an injected clock-free `Duration`) it succeeds; photographer replies in a row all succeed.
   - `a_full_thread_refuses_client_posts`: with `max_per_photo = 2`, the third client post gives 409 `thread_full`; the photographer's reply still gives 201.
   - `a_client_comment_reaches_the_bell`: after a client POST, `GET /api/v1/notifications` lists one `comment` notification.
@@ -137,7 +137,7 @@
 - Produces:
   - `commentSchema` / `type Comment = { id: string; photo_id: string; author: 'client' | 'photographer'; body: string | null; created_at: string; edited_at: string | null; deleted_at: string | null }` and `commentCountsSchema` (array of `{ photo_id, count }`).
   - `class CommentsClient { constructor(base: string, fetcher?: typeof fetch); counts(): Promise<Map<string, number>>; thread(photoId: string): Promise<Comment[]>; add(photoId: string, body: string): Promise<Comment>; edit(commentId: string, body: string): Promise<Comment>; remove(commentId: string): Promise<void> }`. `base` is `/api/v1/galleries/shared/{token}` or `/api/v1/galleries/{id}`; paths are those of Task 3. Failures throw `GalleryApiError` like `api.ts` (reuse `apiErrorMessage`).
-  - `CommentThread.svelte` props: `client: CommentsClient`, `photoId: string`, `viewer: 'client' | 'photographer'`, `onchange?: () => void`. It loads the thread, lists comments oldest first, shows "edited" and the author ("You" for the viewer's own side, "Client"/"Photographer" for the other), a deleted client-side comment as "Comment deleted", a photographer-side deleted comment as struck-through text, offers edit and delete only on comments the viewer may change (client: any client comment; photographer: her own), and has a textarea (max 1000 chars, line breaks kept) with a send button disabled while empty. Errors show the API message in an `role="alert"` line.
+  - `CommentThread.svelte` props: `client: CommentsClient`, `photoId: string`, `viewer: 'client' | 'photographer'`, `onchange?: () => void`. It loads the thread, lists comments oldest first, shows "edited" and the author ("You" for the viewer's own side, "Client"/"Photographer" for the other), a deleted client-side comment as "Comment deleted", a photographer-side deleted comment as struck-through text, offers edit and delete only on comments the viewer may change (client: any client comment; photographer: her own), and has a textarea (max 500 chars, line breaks kept) with a send button disabled while empty. Errors show the API message in an `role="alert"` line.
   - `ProofViewer` new optional props `thread?: Snippet<[Proof]>` and `commentCount?: (id: string) => number`. When `thread` is given, the top bar shows a comments button (icon `MessageSquare`, count) with `aria-expanded`; it toggles a panel (side panel at `min-width: 701px`, bottom sheet below) rendered with `{@render thread(proof)}`. The panel starts closed, closes when `proof.id` changes, and Escape closes it before it closes the viewer.
 
 - [ ] **Step 1: Write the failing tests.**

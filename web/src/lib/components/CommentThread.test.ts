@@ -31,7 +31,7 @@ describe('CommentThread', () => {
 			onchange
 		});
 		expect(await screen.findByText('Nice')).toBeTruthy();
-		expect(screen.queryByText(/^\d+\/1000$/)).toBeNull();
+		expect(screen.queryByText(/^\d+\/500$/)).toBeNull();
 		expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
 		expect(screen.getByRole('button', { name: 'Send' }).hasAttribute('disabled')).toBe(true);
 		await user.type(screen.getByRole('textbox'), 'Beautiful');
