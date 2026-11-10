@@ -29,11 +29,19 @@
 	let pending = $state(false);
 	let error = $state('');
 	let draft = $state('');
+	let composer = $state<HTMLTextAreaElement>();
 	let editing = $state<string | null>(null);
 	let editDraft = $state('');
 	let deleting = $state<string | null>(null);
 	const valid = $derived(draft.trim().length > 0 && [...draft].length <= 500);
 	const editValid = $derived(editDraft.trim().length > 0 && [...editDraft].length <= 500);
+
+	$effect(() => {
+		void draft;
+		if (!composer) return;
+		composer.style.height = 'auto';
+		composer.style.height = `${composer.scrollHeight}px`;
+	});
 
 	$effect(() => {
 		const current = photoId;
@@ -131,11 +139,11 @@
 				{@const editable = mine && !comment.deleted_at}
 				{@const isEditing = editing === comment.id}
 				<li class="group flex flex-col gap-1 {mine ? 'items-end' : 'items-start'}">
-					<div class="flex gap-x-2 text-xs text-panel/75">
-						<time datetime={comment.created_at}>{formatDateTime(comment.created_at)}</time>
-						{#if comment.edited_at && !comment.deleted_at}<span>{m.comments_edited()}</span>{/if}
-					</div>
-					<div class="flex w-full min-w-0 items-center gap-1 {mine ? 'justify-end' : ''}">
+					<div class="flex min-h-7 w-full items-center justify-between gap-2 text-xs text-panel/75">
+						<span class="flex gap-x-2">
+							<time datetime={comment.created_at}>{formatDateTime(comment.created_at)}</time>
+							{#if comment.edited_at && !comment.deleted_at}<span>{m.comments_edited()}</span>{/if}
+						</span>
 						{#if editable}
 							<div
 								class="grid shrink-0 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100 {isEditing
@@ -189,6 +197,8 @@
 								</div>
 							</div>
 						{/if}
+					</div>
+					<div class="flex w-full min-w-0 items-center gap-1 {mine ? 'justify-end' : ''}">
 						{#if isEditing}
 							<form
 								id="{id}-edit"
@@ -203,12 +213,12 @@
 									bind:value={editDraft}
 									disabled={pending}
 									rows="3"
-									class="max-h-40 min-h-20 w-full resize-none rounded-2xl border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
+									class="max-h-40 min-h-20 w-full resize-none [scrollbar-width:none] rounded-2xl border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:border-panel focus-visible:outline-none disabled:opacity-50 [&::-webkit-scrollbar]:hidden"
 								></textarea>
 							</form>
 						{:else}
 							<p
-								class="max-w-[85%] rounded-2xl px-3.5 py-2 wrap-anywhere whitespace-pre-wrap {mine
+								class="max-w-[94%] rounded-2xl px-3.5 py-2 wrap-anywhere whitespace-pre-wrap {mine
 									? 'rounded-br-md bg-panel text-foreground'
 									: 'rounded-bl-md bg-white/10 text-panel'} {comment.deleted_at
 									? 'italic opacity-65'
@@ -240,20 +250,21 @@
 		<label for="{id}-body" class="sr-only"
 			>{viewer === 'client' ? m.comments_add() : m.comments_reply()}</label
 		>
-		<div class="relative">
+		<div class="flex items-end gap-2">
 			<textarea
 				id="{id}-body"
+				bind:this={composer}
 				bind:value={draft}
 				disabled={pending || !loaded}
-				rows="2"
+				rows="1"
 				placeholder={viewer === 'client' ? m.comments_add() : m.comments_reply()}
-				class="max-h-40 min-h-16 w-full resize-none rounded-3xl border border-panel/30 bg-dark py-3 pr-14 pl-4 text-base text-panel placeholder:text-panel/55 focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
+				class="max-h-40 min-h-11 min-w-0 flex-1 resize-none [scrollbar-width:none] rounded-3xl border border-panel/30 bg-dark px-4 py-2.5 text-base leading-6 text-panel placeholder:text-panel/55 focus-visible:border-panel focus-visible:outline-none disabled:opacity-50 [&::-webkit-scrollbar]:hidden"
 			></textarea>
 			<button
 				type="submit"
 				disabled={pending || !loaded || !valid}
 				aria-label={pending && !editing ? m.comments_saving() : m.comments_send()}
-				class="absolute right-2 bottom-2 inline-grid size-10 cursor-pointer place-items-center rounded-full bg-panel text-foreground transition-opacity hover:bg-panel/90 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus disabled:cursor-default disabled:opacity-30"
+				class="inline-grid size-11 shrink-0 cursor-pointer place-items-center rounded-full bg-panel text-foreground transition-colors hover:bg-panel/90 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus disabled:cursor-default disabled:bg-white/10 disabled:text-panel/40 disabled:hover:bg-white/10"
 			>
 				{#if pending && !editing}
 					<LoaderCircle size={18} aria-hidden="true" class="animate-spin-slow" />
