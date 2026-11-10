@@ -91,6 +91,21 @@
 		'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100';
 	const busy = $derived(!failed && status !== 'ready');
 
+	const captions = {
+		favorited: {
+			icon: Heart,
+			color: 'text-danger',
+			fill: 'currentColor',
+			label: m.tile_favorited_at
+		},
+		downloaded: {
+			icon: Download,
+			color: 'text-ok-on-dark',
+			fill: 'none',
+			label: m.tile_downloaded_at
+		}
+	};
+
 	let loaded = $state(false);
 	const fade = $derived(loaded ? 'animate-tile-in' : 'opacity-0');
 
@@ -252,21 +267,12 @@
 
 	{#if caption && status === 'ready'}
 		{@const date = formatDateTime(caption.at)}
-		{@const Icon = caption.kind === 'favorited' ? Heart : Download}
+		{@const look = captions[caption.kind]}
 		<p
 			class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/60 to-transparent pt-6 pr-11 pb-1.5 pl-2 text-xs font-semibold text-white"
 		>
-			<span class="sr-only"
-				>{caption.kind === 'favorited'
-					? m.tile_favorited_at({ date })
-					: m.tile_downloaded_at({ date })}</span
-			>
-			<Icon
-				size={16}
-				class="shrink-0 {caption.kind === 'favorited' ? 'text-danger' : 'text-ok-on-dark'}"
-				fill={caption.kind === 'favorited' ? 'currentColor' : 'none'}
-				aria-hidden="true"
-			/>
+			<span class="sr-only">{look.label({ date })}</span>
+			<look.icon size={16} class="shrink-0 {look.color}" fill={look.fill} aria-hidden="true" />
 			<time datetime={caption.at} class="truncate" aria-hidden="true">{date}</time>
 		</p>
 	{/if}
