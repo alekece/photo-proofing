@@ -44,6 +44,7 @@ pub enum NotificationKind {
     Selection,
     Download,
     Open,
+    Comment,
 }
 
 /// A notification with what the bell shows of its gallery.

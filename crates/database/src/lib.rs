@@ -1,6 +1,7 @@
 //! PostgreSQL persistence and versioned application migrations.
 
 pub mod auth;
+pub mod comments;
 pub mod error;
 pub mod export;
 pub mod favorite_events;
