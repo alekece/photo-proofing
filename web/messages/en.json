@@ -295,7 +295,10 @@
 			}
 		}
 	],
-	"dashboard_empty": "Nothing in frame yet.",
+	"dashboard_empty": "No galleries in focus.",
+	"dashboard_empty_pun_1": "Say cheese… or at least “New gallery”.",
+	"dashboard_empty_pun_2": "Zero shots. Zero stress.",
+	"dashboard_empty_pun_3": "Your next hit is one click away.",
 	"action_preview": "Preview",
 	"action_restore": "Restore",
 	"action_share": "Share",

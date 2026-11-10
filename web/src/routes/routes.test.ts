@@ -49,7 +49,7 @@ describe('route shells', () => {
 				}
 			}
 		});
-		expect(screen.getByText('Nothing in frame yet.')).toBeTruthy();
+		expect(screen.getByText('No galleries in focus.')).toBeTruthy();
 	});
 });
 

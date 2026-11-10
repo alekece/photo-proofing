@@ -298,7 +298,10 @@
 			}
 		}
 	],
-	"dashboard_empty": "Rien dans le cadre pour l’instant.",
+	"dashboard_empty": "Aucune galerie à l’horizon.",
+	"dashboard_empty_pun_1": "Souriez… ou au moins créez une « Nouvelle galerie ».",
+	"dashboard_empty_pun_2": "Zéro cliché, zéro stress.",
+	"dashboard_empty_pun_3": "Votre prochain succès est à un clic.",
 	"action_preview": "Aperçu",
 	"action_restore": "Restaurer",
 	"action_share": "Partager",
