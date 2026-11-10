@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -97,13 +98,14 @@ jobs:
     name: Rust clippy
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/alekece/pp-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev pkg-config
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -122,7 +124,12 @@ jobs:
     name: Rust tests
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/alekece/pp-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     services:
       postgres:
         image: postgres:17
@@ -139,11 +146,9 @@ jobs:
           --health-retries 10
     env:
       # Throwaway CI database; not a real credential
-      DATABASE_URL: postgres://pp:pp-ci-only@localhost:5432/pp_test
+      DATABASE_URL: postgres://pp:pp-ci-only@postgres:5432/pp_test
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev pkg-config
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
