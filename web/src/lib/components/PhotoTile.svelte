@@ -259,7 +259,12 @@
 					? m.tile_favorited_at({ date })
 					: m.tile_downloaded_at({ date })}</span
 			>
-			<Icon size={12} class="shrink-0" aria-hidden="true" />
+			<Icon
+				size={16}
+				class="shrink-0 {caption.kind === 'favorited' ? 'text-danger' : 'text-ok-on-dark'}"
+				fill={caption.kind === 'favorited' ? 'currentColor' : 'none'}
+				aria-hidden="true"
+			/>
 			<time datetime={caption.at} class="truncate" aria-hidden="true">{date}</time>
 		</p>
 	{/if}

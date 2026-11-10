@@ -229,4 +229,18 @@ describe('PhotoTile loading polish', () => {
 		expect(onretry).toHaveBeenCalledOnce();
 		expect(container.querySelector('.bar')).toBeNull();
 	});
+
+	it.each([
+		['favorited', 'text-danger'],
+		['downloaded', 'text-ok-on-dark']
+	] as const)('draws the %s caption icon at 16 px in %s', (kind, color) => {
+		const { container } = render(PhotoTile, {
+			...base,
+			caption: { kind, at: '2026-11-09T12:00:00Z' }
+		});
+		const icon = container.querySelector('p svg')!;
+
+		expect(icon.getAttribute('width')).toBe('16');
+		expect(icon.getAttribute('class')).toContain(color);
+	});
 });
