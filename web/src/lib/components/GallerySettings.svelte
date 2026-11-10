@@ -7,6 +7,7 @@
 	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Card from '#lib/components/ui/Card/Card.svelte';
+	import DatePicker from '#lib/components/ui/DatePicker/DatePicker.svelte';
 	import IconButtonGroup from '#lib/components/ui/IconButtonGroup/IconButtonGroup.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
@@ -162,13 +163,14 @@
 		</h2>
 		<div class={row}>
 			<Label for="expiry" class="text-muted-foreground">{m.expiry_open_until()}</Label>
-			<Input
+			<DatePicker
 				id="expiry"
-				type="date"
-				class="min-h-0 w-[8.75rem] rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
-				value={expiryDay}
-				onchange={(event) => {
-					expiryDay = event.currentTarget.value;
+				class="min-h-0 w-auto rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
+				value={expiryDay || null}
+				placeholder="∞"
+				clearable
+				onchange={(day) => {
+					expiryDay = day ?? '';
 					setExpiry();
 				}}
 			/>

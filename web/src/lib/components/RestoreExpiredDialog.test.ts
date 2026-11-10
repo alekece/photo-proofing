@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import RestoreExpiredDialog from './RestoreExpiredDialog.svelte';
@@ -8,11 +8,14 @@ const open = (onsave = vi.fn().mockResolvedValue(true), onclose = vi.fn()) => {
 
 	return { onsave, onclose };
 };
-const tomorrow = () => {
-	const date = new Date();
-	date.setDate(date.getDate() + 1);
+const thisMonth = (day: string) =>
+	within(screen.getByRole('grid')).getByText(day, {
+		selector: '[data-bits-day]:not([data-outside-month])'
+	});
+const lastDayOfMonth = () => {
+	const now = new Date();
 
-	return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+	return String(new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate());
 };
 
 describe('Restore expired dialog', () => {
@@ -24,29 +27,30 @@ describe('Restore expired dialog', () => {
 		expect(screen.getByLabelText('Open until')).toBe(document.activeElement);
 	});
 
-	it('keeps Set date disabled until a date is entered, then saves its end of day', async () => {
+	it('keeps Set date disabled until a date is picked, then saves its end of day', async () => {
 		const { onsave } = open();
+		const user = userEvent.setup();
 		const set = screen.getByRole('button', { name: 'Set date' }) as HTMLButtonElement;
 
 		expect(set.disabled).toBe(true);
 
-		await fireEvent.input(screen.getByLabelText('Open until'), { target: { value: tomorrow() } });
-		await userEvent.setup().click(set);
+		await user.click(screen.getByLabelText('Open until'));
+		await user.click(thisMonth(lastDayOfMonth()));
+		await user.click(set);
 
 		expect(onsave).toHaveBeenCalledOnce();
 		expect(new Date(onsave.mock.calls[0][0]).getTime()).toBeGreaterThan(Date.now());
 	});
 
-	it('refuses a past date with an inline error tied to the input', async () => {
-		const { onsave } = open();
-		const input = screen.getByLabelText('Open until');
+	it('does not offer days before today', async () => {
+		open();
 
-		await fireEvent.input(input, { target: { value: '2020-01-01' } });
-		await userEvent.setup().click(screen.getByRole('button', { name: 'Set date' }));
+		await userEvent.setup().click(screen.getByLabelText('Open until'));
 
-		expect(onsave).not.toHaveBeenCalled();
-		expect((await screen.findByRole('alert')).textContent).toBe('Pick a date from today on.');
-		expect(input.getAttribute('aria-describedby')).toBe(screen.getByRole('alert').id);
+		const today = new Date().getDate();
+
+		if (today > 1) expect(thisMonth(String(today - 1)).hasAttribute('data-disabled')).toBe(true);
+		expect(thisMonth(String(today)).hasAttribute('data-disabled')).toBe(false);
 	});
 
 	it('clears the expiry with No expiry', async () => {

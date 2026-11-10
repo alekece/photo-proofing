@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,6 +35,25 @@ const base: Gallery = {
 	created_at: '2026-01-01T10:00:00Z',
 	updated_at: '2026-01-02T10:00:00Z'
 };
+/** Opens the date picker named `label` and picks `day` in the month `months` away from today. */
+async function pickDay(label: string, months: number, day: string, scope = document.body) {
+	const user = userEvent.setup();
+
+	await user.click(within(scope).getByLabelText(label));
+
+	for (let step = 0; step < Math.abs(months); step++) {
+		await user.click(
+			screen.getByRole('button', { name: months < 0 ? 'Previous month' : 'Next month' })
+		);
+	}
+
+	await user.click(
+		within(screen.getByRole('grid')).getByText(day, {
+			selector: '[data-bits-day]:not([data-outside-month])'
+		})
+	);
+}
+
 const open = (over: Partial<Gallery> = {}) =>
 	render(GalleryPage, {
 		props: { data: { gallery: { ...base, ...over }, idleTimeoutMs: 2592000000 } as never }
@@ -285,12 +304,17 @@ describe('gallery page', () => {
 	it('sends the end of the chosen day in local time', async () => {
 		const patches = stubApi();
 		open();
-		await fireEvent.change(screen.getByLabelText('Open until'), {
-			target: { value: '2099-03-04' }
-		});
+		await pickDay('Open until', 1, '4');
 		await waitFor(() => expect(patches()).toHaveLength(1));
 		const sent = new Date(JSON.parse(patches()[0][1]?.body as string).expires_at);
-		expect([sent.getFullYear(), sent.getMonth(), sent.getDate()]).toEqual([2099, 2, 4]);
+		const next = new Date();
+		next.setDate(1);
+		next.setMonth(next.getMonth() + 1);
+		expect([sent.getFullYear(), sent.getMonth(), sent.getDate()]).toEqual([
+			next.getFullYear(),
+			next.getMonth(),
+			4
+		]);
 		expect([sent.getHours(), sent.getMinutes(), sent.getSeconds()]).toEqual([23, 59, 59]);
 	});
 
@@ -311,10 +335,10 @@ describe('gallery page', () => {
 		vi.stubGlobal('fetch', fetcher);
 		const user = userEvent.setup();
 		open();
-		const input = screen.getByLabelText('Open until');
-		await fireEvent.change(input, { target: { value: '2020-01-01' } });
+		await pickDay('Open until', -1, '1');
 		expect(await screen.findByText('Expired')).toBeTruthy();
-		await user.clear(input);
+		await user.click(screen.getByLabelText('Open until'));
+		await user.click(screen.getByRole('button', { name: 'Clear' }));
 		expect(await screen.findByText('Draft')).toBeTruthy();
 		const bodies = fetcher.mock.calls
 			.filter(([url]) => url.includes('/galleries/'))
@@ -341,9 +365,7 @@ describe('gallery page', () => {
 		await user.type(screen.getByLabelText('Gallery title'), ' II');
 		await user.tab();
 		await waitFor(() => expect(finishTitle).toBeDefined());
-		await fireEvent.change(screen.getByLabelText('Open until'), {
-			target: { value: '2020-01-01' }
-		});
+		await pickDay('Open until', -1, '1');
 		await screen.findByText('Expired');
 		finishTitle();
 		await waitFor(() => expect(document.title).toBe('Wedding II — PhotoProofing'));
@@ -353,7 +375,7 @@ describe('gallery page', () => {
 	it('shows the stored expiry as a local date', () => {
 		const stored = new Date(2030, 5, 15, 23, 59, 59).toISOString();
 		open({ expires_at: stored });
-		expect((screen.getByLabelText('Open until') as HTMLInputElement).value).toBe('2030-06-15');
+		expect(screen.getByLabelText('Open until').textContent).toContain('June 15, 2030');
 	});
 
 	it('sends null when included photos is cleared and rejects zero', async () => {
@@ -618,11 +640,11 @@ describe('gallery page', () => {
 			const calls = stubRestore({ states: ['shared', 'expired'] });
 			open(archived);
 			await restore();
-			await fireEvent.input(
-				await screen.findByLabelText('Open until', { selector: 'dialog input' }),
-				{
-					target: { value: '2999-01-02' }
-				}
+			await pickDay(
+				'Open until',
+				1,
+				'2',
+				await screen.findByRole('dialog', { name: 'Clients can’t see this gallery yet' })
 			);
 
 			await userEvent.setup().click(screen.getByRole('button', { name: 'Set date' }));

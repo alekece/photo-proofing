@@ -96,3 +96,16 @@ describe('DatePicker in French', () => {
 		expect(screen.getByText('juin 2026')).toBeTruthy();
 	});
 });
+
+describe('DatePicker in French', () => {
+	useLocale('fr');
+
+	it('names the month buttons in the current language', async () => {
+		render(DatePicker, { id: 'when', value: '2026-06-14', onchange: vi.fn() });
+
+		await userEvent.setup().click(screen.getByRole('button'));
+
+		expect(screen.getByRole('button', { name: 'Mois suivant' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Mois précédent' })).toBeTruthy();
+	});
+});

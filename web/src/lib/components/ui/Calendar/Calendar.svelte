@@ -52,12 +52,21 @@
 			{/snippet}
 		</CalendarPrimitive.Header>
 		{#snippet nav()}
-			<CalendarPrimitive.PrevButton class={navButton} aria-label={m.date_previous_month()}>
-				<ChevronLeft size={16} aria-hidden="true" />
+			<!-- Bits UI's own English label would win a plain prop merge, so ours is spread last. -->
+			<CalendarPrimitive.PrevButton class={navButton}>
+				{#snippet child({ props })}
+					<button {...props} aria-label={m.date_previous_month()}>
+						<ChevronLeft size={16} aria-hidden="true" />
+					</button>
+				{/snippet}
 			</CalendarPrimitive.PrevButton>
 			<CalendarPrimitive.Heading class="text-sm font-semibold capitalize" />
-			<CalendarPrimitive.NextButton class={navButton} aria-label={m.date_next_month()}>
-				<ChevronRight size={16} aria-hidden="true" />
+			<CalendarPrimitive.NextButton class={navButton}>
+				{#snippet child({ props })}
+					<button {...props} aria-label={m.date_next_month()}>
+						<ChevronRight size={16} aria-hidden="true" />
+					</button>
+				{/snippet}
 			</CalendarPrimitive.NextButton>
 		{/snippet}
 		{#each months as month (month.value)}

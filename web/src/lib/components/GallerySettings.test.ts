@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
@@ -95,15 +95,27 @@ describe('GallerySettings', () => {
 		);
 	});
 
-	it('saves the open-until date as the end of that day and clears it with null', async () => {
+	it('saves the picked open-until date as the end of that day and clears it with null', async () => {
 		const { onsave, user } = setup({ expires_at: new Date(2030, 5, 15, 23, 59, 59).toISOString() });
-		const input = screen.getByLabelText('Open until') as HTMLInputElement;
+		const trigger = screen.getByLabelText('Open until');
 
-		expect(input.value).toBe('2030-06-15');
+		expect(trigger.textContent).toContain('June 15, 2030');
 
-		await user.clear(input);
+		await user.click(trigger);
+		await user.click(
+			within(screen.getByRole('grid')).getByText('20', {
+				selector: '[data-bits-day]:not([data-outside-month])'
+			})
+		);
 
-		expect(onsave).toHaveBeenCalledWith({ expires_at: null });
+		expect(onsave).toHaveBeenCalledWith({
+			expires_at: new Date(2030, 5, 20, 23, 59, 59).toISOString()
+		});
+
+		await user.click(trigger);
+		await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+		expect(onsave).toHaveBeenLastCalledWith({ expires_at: null });
 	});
 
 	it('debounces included photos through the page and saves on leaving', async () => {
