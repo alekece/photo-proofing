@@ -6,6 +6,8 @@ import fr from '../../../messages/fr.json';
 
 /** Keys whose French reads the same as the English, on purpose. */
 const SAME_IN_BOTH: string[] = [
+	'comments_client',
+	'comments_length',
 	'common_logo',
 	'common_photos',
 	'header_notifications',

@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { ChevronLeft, ChevronRight, Download, Heart, LoaderCircle, X } from '@lucide/svelte';
+	import {
+		ChevronLeft,
+		ChevronRight,
+		Download,
+		Heart,
+		LoaderCircle,
+		MessageSquare,
+		X
+	} from '@lucide/svelte';
 	import { onMount, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
@@ -18,6 +26,8 @@
 		favoriteCount,
 		readonly = false,
 		actions,
+		thread,
+		commentCount,
 		onclose,
 		onselect,
 		onretry
@@ -37,6 +47,8 @@
 		readonly?: boolean;
 		/** The photo's actions in the top bar, which depend on where the viewer was opened from. */
 		actions?: Snippet<[Proof]>;
+		thread?: Snippet<[Proof]>;
+		commentCount?: (id: string) => number;
 		onclose: () => void;
 		/** Without it the proof cannot be selected, as once the gallery is delivered. */
 		onselect?: (id: string) => void;
@@ -55,7 +67,14 @@
 		'inline-flex h-[52px] cursor-pointer items-center gap-2.5 rounded-full pr-[22px] pl-[18px] text-[0.9375rem] font-semibold transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus';
 
 	let closeButton: HTMLButtonElement;
+	let commentsButton = $state<HTMLButtonElement>();
+	let openThread = $state<string | null>(null);
 	const proof = $derived(proofs[index]);
+	const threadOpen = $derived(openThread === proof.id);
+	$effect(() => {
+		void proof.id;
+		openThread = null;
+	});
 	const status = $derived(proof.status ?? 'ready');
 	const client = $derived(title !== undefined);
 
@@ -65,6 +84,10 @@
 
 	function onkeydown(event: KeyboardEvent & { currentTarget: HTMLDialogElement }) {
 		const dialog = event.currentTarget;
+		if ((event.target as HTMLElement).closest('dialog') !== dialog) return;
+		if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) {
+			if (event.key !== 'Tab') return;
+		}
 
 		switch (event.key) {
 			case 'ArrowRight':
@@ -80,7 +103,11 @@
 				go(proofs.length - 1);
 				break;
 			case 'Tab': {
-				const items = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]')];
+				const items = [
+					...dialog.querySelectorAll<HTMLElement>(
+						'button:not(:disabled), a[href], textarea:not(:disabled), input:not(:disabled)'
+					)
+				];
 				const first = items[0];
 				const last = items[items.length - 1];
 				const active = document.activeElement;
@@ -133,6 +160,25 @@
 <Dialog
 	{onclose}
 	{onkeydown}
+	onkeydowncapture={(event) => {
+		if (
+			event.key === 'Escape' &&
+			threadOpen &&
+			(event.target as HTMLElement).closest('dialog') === event.currentTarget
+		) {
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			openThread = null;
+			commentsButton?.focus();
+		}
+	}}
+	oncancel={(event) => {
+		if (threadOpen) {
+			event.preventDefault();
+			openThread = null;
+			commentsButton?.focus();
+		}
+	}}
 	label={m.viewer_label()}
 	aria-modal="true"
 	class={cn(
@@ -140,11 +186,15 @@
 		client
 			? 'grid-rows-[60px_1fr_44px] max-[700px]:grid-rows-[56px_1fr_104px]'
 			: 'grid-rows-[60px_1fr_44px] max-[700px]:grid-rows-[56px_1fr_20px]',
-		className
+		className,
+		threadOpen &&
+			'max-[700px]:grid-rows-[56px_minmax(0,1fr)_minmax(0,45dvh)_104px] min-[701px]:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]'
 	)}
 >
 	{#snippet children(close)}
-		<div class="flex min-w-0 items-center gap-3.5 px-5 max-[700px]:gap-2 max-[700px]:px-3">
+		<div
+			class="col-span-full flex min-w-0 items-center gap-3.5 px-5 max-[700px]:gap-2 max-[700px]:px-3"
+		>
 			{#if client}
 				<span class="truncate font-serif text-[1.1875rem] text-panel max-[700px]:hidden"
 					>{title}</span
@@ -166,6 +216,18 @@
 				{@render heartPill(false)}
 			{/if}
 			{@render actions?.(proof)}
+			{#if thread}
+				<button
+					type="button"
+					bind:this={commentsButton}
+					aria-label={m.comments_title()}
+					aria-expanded={threadOpen}
+					onclick={() => (openThread = threadOpen ? null : proof.id)}
+					class="inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-white/8 px-3 text-panel hover:bg-white/14 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
+				>
+					<MessageSquare size={18} aria-hidden="true" />{commentCount?.(proof.id) ?? 0}
+				</button>
+			{/if}
 			<button
 				type="button"
 				bind:this={closeButton}
@@ -185,7 +247,11 @@
 						<img
 							src={proof.previewUrl}
 							alt={proof.alt}
-							class="block max-h-[calc(100dvh-124px)] max-w-[calc(100vw-168px)] rounded-[2px] object-contain shadow-[0_30px_80px_rgb(0_0_0/0.5)] max-[700px]:max-h-[calc(100dvh-160px)] max-[700px]:max-w-screen max-[700px]:rounded-none max-[700px]:shadow-none"
+							class={cn(
+								'block max-h-[calc(100dvh-124px)] max-w-[calc(100vw-168px)] rounded-[2px] object-contain shadow-[0_30px_80px_rgb(0_0_0/0.5)] max-[700px]:max-h-[calc(100dvh-160px)] max-[700px]:max-w-screen max-[700px]:rounded-none max-[700px]:shadow-none',
+								threadOpen &&
+									'max-[700px]:max-h-[calc(55dvh-160px)] min-[701px]:max-w-[calc(100vw-528px)]'
+							)}
 						/>
 						{#if wide.current && proof.downloadUrl}
 							<a
@@ -241,6 +307,13 @@
 				aria-label={m.viewer_next()}><ChevronRight size={22} aria-hidden="true" /></button
 			>
 		</div>
+		{#if threadOpen && thread}
+			<aside
+				class="min-h-0 overflow-hidden border-panel/20 bg-dark p-4 max-[700px]:row-start-3 max-[700px]:border-t min-[701px]:col-start-2 min-[701px]:row-span-2 min-[701px]:row-start-2 min-[701px]:border-l"
+			>
+				{#key proof.id}{@render thread(proof)}{/key}
+			</aside>
+		{/if}
 		<div class="flex items-center justify-center gap-3">
 			{#if client && !wide.current && status === 'ready'}
 				{#if proof.downloadUrl}
