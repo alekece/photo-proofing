@@ -24,7 +24,6 @@
 		isSelected = () => false,
 		class: className,
 		title,
-		favoriteCount,
 		readonly = false,
 		actions,
 		trailing,
@@ -44,7 +43,6 @@
 		 */
 		title?: string;
 		/** Shown in the top bar beside the photo's position. */
-		favoriteCount?: number;
 		/** Shows the heart without letting it change, as in the owner's views. */
 		readonly?: boolean;
 		/** The photo's actions in the top bar, which depend on where the viewer was opened from. */
@@ -207,12 +205,6 @@
 				>{m.viewer_position({ position: index + 1, total: proofs.length })}</span
 			>
 			<span class="flex-1"></span>
-			{#if favoriteCount !== undefined}
-				<span class="flex items-center gap-1.5 font-semibold text-panel">
-					<Heart size={17} aria-hidden="true" fill="currentColor" class="text-[#e4573b]" />
-					<span class="sr-only">{m.viewer_favorites()}</span>{favoriteCount}
-				</span>
-			{/if}
 			{#if client && wide.current && status === 'ready' && (onselect || readonly) && !proof.downloadUrl}
 				{@render heartPill(false)}
 			{/if}

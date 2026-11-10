@@ -574,7 +574,6 @@
 	"thumb_favorite": "Favorite proof {position}",
 	"viewer_label": "Proof viewer",
 	"viewer_position": "{position} of {total}",
-	"viewer_favorites": "Favorites:",
 	"viewer_favorite": "Favorite",
 	"viewer_add_favorite": "Add to favorites",
 	"viewer_close": "Close viewer",

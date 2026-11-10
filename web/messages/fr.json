@@ -586,7 +586,6 @@
 	"thumb_favorite": "Mettre l’épreuve {position} en favori",
 	"viewer_label": "Visionneuse",
 	"viewer_position": "{position} sur {total}",
-	"viewer_favorites": "Favoris :",
 	"viewer_favorite": "Favori",
 	"viewer_add_favorite": "Ajouter aux favoris",
 	"viewer_close": "Fermer la visionneuse",

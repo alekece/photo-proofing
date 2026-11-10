@@ -352,15 +352,6 @@ describe('ClientGallery', () => {
 		expect(screen.queryByRole('contentinfo')).toBeNull();
 	});
 
-	it('shows the favorites count in the viewer', async () => {
-		const user = userEvent.setup();
-		show({ favorites: ['p1', 'p2'] });
-
-		await user.click(screen.getByRole('button', { name: 'Open proof 3 of 3' }));
-
-		expect(screen.getByText('Favorites:').parentElement?.textContent).toContain('2');
-	});
-
 	it('shows the selection but cannot change it in preview mode', () => {
 		show({ preview: true, favorites: ['p1'] });
 
