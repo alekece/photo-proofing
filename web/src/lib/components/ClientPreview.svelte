@@ -58,7 +58,11 @@
 				settings = studio;
 
 				if (finals) {
-					proofs = toOwnerProofs(id, photos, 'finals');
+					// The preview shows the client's download controls; the link serves the final's preview image.
+					proofs = toOwnerProofs(id, photos, 'finals').map((proof) => ({
+						...proof,
+						downloadUrl: proof.previewUrl
+					}));
 					favorites = [];
 
 					return;

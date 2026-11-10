@@ -68,13 +68,8 @@
 
 	let closeButton: HTMLButtonElement;
 	let commentsButton = $state<HTMLButtonElement>();
-	let openThread = $state<string | null>(null);
+	let threadOpen = $state(false);
 	const proof = $derived(proofs[index]);
-	const threadOpen = $derived(openThread === proof.id);
-	$effect(() => {
-		void proof.id;
-		openThread = null;
-	});
 	const status = $derived(proof.status ?? 'ready');
 	const client = $derived(title !== undefined);
 
@@ -168,14 +163,14 @@
 		) {
 			event.preventDefault();
 			event.stopImmediatePropagation();
-			openThread = null;
+			threadOpen = false;
 			commentsButton?.focus();
 		}
 	}}
 	oncancel={(event) => {
 		if (threadOpen) {
 			event.preventDefault();
-			openThread = null;
+			threadOpen = false;
 			commentsButton?.focus();
 		}
 	}}
@@ -215,6 +210,15 @@
 			{#if client && wide.current && status === 'ready' && (onselect || readonly) && !proof.downloadUrl}
 				{@render heartPill(false)}
 			{/if}
+			{#if client && wide.current && status === 'ready' && proof.downloadUrl}
+				<a
+					href={proof.downloadUrl}
+					download
+					class="inline-flex h-10 items-center gap-2 rounded-full bg-panel px-3.5 text-[0.84375rem] font-semibold whitespace-nowrap text-foreground focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
+				>
+					<Download size={17} aria-hidden="true" />{m.action_download()}
+				</a>
+			{/if}
 			{@render actions?.(proof)}
 			{#if thread}
 				<button
@@ -222,10 +226,12 @@
 					bind:this={commentsButton}
 					aria-label={m.comments_title()}
 					aria-expanded={threadOpen}
-					onclick={() => (openThread = threadOpen ? null : proof.id)}
+					onclick={() => (threadOpen = !threadOpen)}
 					class="inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-white/8 px-3 text-panel hover:bg-white/14 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
 				>
-					<MessageSquare size={18} aria-hidden="true" />{commentCount?.(proof.id) ?? 0}
+					<MessageSquare size={18} aria-hidden="true" /><span class="max-[700px]:hidden"
+						>{m.comments_title()}</span
+					>{commentCount?.(proof.id) ?? 0}
 				</button>
 			{/if}
 			<button
@@ -253,16 +259,7 @@
 									'max-[700px]:max-h-[calc(55dvh-160px)] min-[701px]:max-w-[calc(100vw-528px)]'
 							)}
 						/>
-						{#if wide.current && proof.downloadUrl}
-							<a
-								href={proof.downloadUrl}
-								download
-								aria-label={m.viewer_download()}
-								class="{overlay} bg-panel text-foreground shadow-[0_6px_18px_rgb(0_0_0/0.25)]"
-							>
-								<Download size={20} aria-hidden="true" />
-							</a>
-						{:else if !client && readonly && isSelected(proof.id)}
+						{#if !client && readonly && isSelected(proof.id)}
 							<span
 								role="img"
 								aria-label={m.viewer_marked()}
@@ -309,7 +306,7 @@
 		</div>
 		{#if threadOpen && thread}
 			<aside
-				class="min-h-0 overflow-hidden border-panel/20 bg-dark p-4 max-[700px]:row-start-3 max-[700px]:border-t min-[701px]:col-start-2 min-[701px]:row-span-2 min-[701px]:row-start-2 min-[701px]:border-l"
+				class="min-h-0 overflow-hidden border-panel/20 bg-dark py-4 pr-6 pl-4 max-[700px]:row-start-3 max-[700px]:border-t min-[701px]:col-start-2 min-[701px]:row-span-2 min-[701px]:row-start-2 min-[701px]:border-l"
 			>
 				{#key proof.id}{@render thread(proof)}{/key}
 			</aside>

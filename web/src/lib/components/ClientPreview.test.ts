@@ -78,6 +78,7 @@ describe('ClientPreview', () => {
 		});
 
 		await screen.findAllByRole('button', { name: /download/i });
+		expect(screen.queryByRole('button', { name: /favorite/i })).toBeNull();
 		const thumbnails = screen
 			.getAllByRole('img')
 			.filter((image) => image.getAttribute('alt') !== 'Gallery cover');

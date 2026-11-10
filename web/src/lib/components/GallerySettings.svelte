@@ -174,9 +174,9 @@
 			<Label for="expiry" class="text-muted-foreground">{m.expiry_open_until()}</Label>
 			<DatePicker
 				id="expiry"
-				class="min-h-0 w-auto rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
+				class="min-h-0 w-48 rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
 				value={expiryDay || null}
-				placeholder="∞"
+				placeholder={m.shoot_date_placeholder()}
 				clearable
 				onchange={(day) => {
 					expiryDay = day ?? '';
@@ -191,7 +191,7 @@
 				type="number"
 				min="1"
 				step="1"
-				placeholder="∞"
+				placeholder={m.shoot_date_placeholder()}
 				class="min-h-0 w-[4.5rem] rounded-lg px-2 py-[0.3125rem] text-right text-sm font-semibold"
 				bind:value={included}
 				disabled={delivered}
@@ -235,7 +235,7 @@
 			<Label for="shoot-date" class="text-muted-foreground">{m.shoot_date_label()}</Label>
 			<DatePicker
 				id="shoot-date"
-				class="min-h-0 w-auto rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
+				class="min-h-0 w-48 rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
 				value={shootDate}
 				placeholder={m.shoot_date_placeholder()}
 				clearable

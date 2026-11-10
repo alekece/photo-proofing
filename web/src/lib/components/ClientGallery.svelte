@@ -300,7 +300,7 @@
 					<div
 						inert={barHidden}
 						aria-hidden={barHidden}
-						class="flex items-center gap-3.5 border-b border-border bg-[rgb(244_239_232/0.96)] px-7 py-3 text-sm font-medium backdrop-blur-[10px] @max-[700px]:px-3.5 @max-[700px]:py-2.5"
+						class="flex items-center gap-3.5 border-b border-border bg-[rgb(244_239_232/0.65)] px-7 py-3 text-sm font-medium backdrop-blur-[14px] backdrop-saturate-120 @max-[700px]:px-3.5 @max-[700px]:py-2.5"
 					>
 						<h2 class="min-w-0 truncate font-serif text-[1.25rem] @max-[700px]:text-[1.0625rem]">
 							{title}
@@ -326,12 +326,14 @@
 										class="group inline-flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-[5px] text-[0.8125rem] font-semibold text-muted-foreground focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-foreground aria-pressed:text-panel"
 									>
 										{#if only}
-											<span class="sr-only">{m.tab_favorites()}</span>
+											<span class="sr-only @min-[700px]:not-sr-only">{m.tab_favorites()}</span>
 											<Heart
 												size={14}
 												aria-hidden="true"
 												fill="currentColor"
-												class="text-danger group-aria-pressed:text-[#ff8f75]"
+												class={gallery.included_photos === null
+													? 'text-current'
+													: 'text-danger group-aria-pressed:text-[#ff8f75]'}
 											/>
 											{#key selection.count}<span
 													class={[

@@ -74,7 +74,7 @@
 <Dialog
 	{onclose}
 	labelledby="new-gallery-title"
-	class="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
+	class="m-auto w-[min(24rem,calc(100vw-2rem))] overflow-visible rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
 >
 	{#snippet children(close)}
 		<form onsubmit={submit} class="grid gap-4" aria-busy={creating}>

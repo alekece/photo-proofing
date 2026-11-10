@@ -138,8 +138,7 @@
 	class={[
 		'group relative block overflow-hidden rounded-md bg-placeholder-tile',
 		ratio === undefined && 'aspect-square',
-		onselect && 'cursor-pointer',
-		selected && 'shadow-[0_0_0_3px_var(--color-foreground)]'
+		onselect && 'cursor-pointer'
 	]}
 	style:aspect-ratio={ratio}
 >
@@ -150,7 +149,7 @@
 			alt={name}
 			loading="lazy"
 			class="size-full object-cover transition-transform {fade} {selected
-				? 'scale-[0.94] rounded'
+				? 'scale-[0.96] rounded'
 				: ''}"
 			onload={() => (loaded = true)}
 			onerror={() => (loaded = true)}

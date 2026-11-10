@@ -3,6 +3,7 @@
 	import type { CommentsClient } from '#lib/gallery/comments.js';
 	import type { Comment } from '#lib/gallery/schemas.js';
 	import { formatDateTime } from '#lib/gallery/format.js';
+	import { Pencil, Trash2 } from '@lucide/svelte';
 	import ConfirmDialog from './ui/ConfirmDialog/ConfirmDialog.svelte';
 	import ViewerButton from './ViewerButton.svelte';
 
@@ -27,9 +28,10 @@
 	let error = $state('');
 	let draft = $state('');
 	let editing = $state<string | null>(null);
+	let editDraft = $state('');
 	let deleting = $state<string | null>(null);
-	const length = $derived([...draft].length);
-	const valid = $derived(draft.trim().length > 0 && length <= 500);
+	const valid = $derived(draft.trim().length > 0 && [...draft].length <= 500);
+	const editValid = $derived(editDraft.trim().length > 0 && [...editDraft].length <= 500);
 
 	$effect(() => {
 		const current = photoId;
@@ -55,19 +57,12 @@
 		};
 	});
 
-	async function send() {
-		if (pending || !valid) return;
+	async function submit(save: () => Promise<void>) {
+		if (pending) return;
 		pending = true;
 		error = '';
 		try {
-			const comment = editing
-				? await client.edit(editing, draft)
-				: await client.add(photoId, draft);
-			comments = editing
-				? comments.map((item) => (item.id === comment.id ? comment : item))
-				: [...comments, comment];
-			draft = '';
-			editing = null;
+			await save();
 			onchange?.();
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : m.api_error_generic();
@@ -75,6 +70,25 @@
 			pending = false;
 		}
 	}
+
+	const send = () =>
+		valid &&
+		submit(async () => {
+			comments = [...comments, await client.add(photoId, draft)];
+			draft = '';
+		});
+
+	const saveEdit = () =>
+		editing &&
+		editValid &&
+		submit(async () => {
+			const comment = await client.edit(editing!, editDraft);
+			comments = comments.map((item) => (item.id === comment.id ? comment : item));
+			editing = null;
+		});
+
+	const iconButton =
+		'inline-grid size-7 cursor-pointer place-items-center rounded-full text-panel/75 transition-colors hover:bg-white/14 hover:text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-30';
 
 	async function remove() {
 		if (!deleting) return;
@@ -86,14 +100,16 @@
 
 <section class="flex h-full min-h-0 flex-col gap-4 text-panel" aria-label={m.comments_title()}>
 	<h2 class="font-serif text-xl">{m.comments_title()}</h2>
-	<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+	<div
+		class="min-h-0 flex-1 [scrollbar-width:none] overflow-y-auto overscroll-contain [&::-webkit-scrollbar]:hidden"
+	>
 		{#if loading}<p role="status" class="text-sm text-panel/75">{m.comments_loading()}</p>{/if}
 		{#if !loading && comments.length === 0}<p class="text-sm text-panel/75">
 				{m.comments_empty()}
 			</p>{/if}
 		<ol class="space-y-5">
 			{#each comments as comment (comment.id)}
-				<li class="border-b border-panel/15 pb-4">
+				<li class="group relative border-b border-panel/15 pb-4">
 					<div class="mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-panel/75">
 						<strong class="font-semibold text-panel"
 							>{comment.author === viewer
@@ -105,26 +121,65 @@
 						<time datetime={comment.created_at}>{formatDateTime(comment.created_at)}</time>
 						{#if comment.edited_at && !comment.deleted_at}<span>{m.comments_edited()}</span>{/if}
 					</div>
-					<p
-						class="wrap-anywhere whitespace-pre-wrap {comment.deleted_at
-							? 'text-panel/65'
-							: ''} {comment.deleted_at && comment.body !== null ? 'line-through' : ''}"
-					>
-						{comment.body ?? m.comments_deleted()}
-					</p>
-					{#if comment.author === viewer && !comment.deleted_at}
-						<div class="mt-1 flex gap-1">
-							<ViewerButton
+					{#if editing === comment.id}
+						<form
+							class="grid gap-2"
+							onsubmit={(event) => {
+								event.preventDefault();
+								void saveEdit();
+							}}
+						>
+							<textarea
+								aria-label={m.comments_edit()}
+								bind:value={editDraft}
 								disabled={pending}
-								onclick={() => {
-									editing = comment.id;
-									draft = comment.body ?? '';
-								}}>{m.comments_edit()}</ViewerButton
+								rows="3"
+								class="max-h-40 min-h-20 w-full resize-none rounded-md border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
+							></textarea>
+							<div class="flex justify-end gap-2">
+								<ViewerButton disabled={pending} onclick={() => (editing = null)}
+									>{m.common_cancel()}</ViewerButton
+								>
+								<ViewerButton
+									type="submit"
+									disabled={pending || !editValid}
+									class="bg-panel text-foreground hover:bg-panel/90"
+									>{pending ? m.comments_saving() : m.comments_save()}</ViewerButton
+								>
+							</div>
+						</form>
+					{:else}
+						<p
+							class="wrap-anywhere whitespace-pre-wrap {comment.deleted_at
+								? 'text-panel/65'
+								: ''} {comment.deleted_at && comment.body !== null ? 'line-through' : ''}"
+						>
+							{comment.body ?? m.comments_deleted()}
+						</p>
+						{#if comment.author === viewer && !comment.deleted_at}
+							<div
+								class="absolute top-0 right-0 flex gap-0.5 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100"
 							>
-							<ViewerButton disabled={pending} tone="warn" onclick={() => (deleting = comment.id)}
-								>{m.comments_delete()}</ViewerButton
-							>
-						</div>
+								<button
+									type="button"
+									disabled={pending}
+									aria-label={m.comments_edit()}
+									class={iconButton}
+									onclick={() => {
+										editing = comment.id;
+										editDraft = comment.body ?? '';
+									}}><Pencil size={14} aria-hidden="true" /></button
+								>
+								<button
+									type="button"
+									disabled={pending}
+									aria-label={m.comments_delete()}
+									class="{iconButton} hover:text-warning-on-dark"
+									onclick={() => (deleting = comment.id)}
+									><Trash2 size={14} aria-hidden="true" /></button
+								>
+							</div>
+						{/if}
 					{/if}
 				</li>
 			{/each}
@@ -139,37 +194,22 @@
 		}}
 	>
 		<label for="{id}-body" class="text-sm"
-			>{editing
-				? m.comments_edit()
-				: viewer === 'client'
-					? m.comments_add()
-					: m.comments_reply()}</label
+			>{viewer === 'client' ? m.comments_add() : m.comments_reply()}</label
 		>
 		<textarea
 			id="{id}-body"
 			bind:value={draft}
 			disabled={pending || loading}
 			rows="3"
-			class="max-h-40 min-h-20 w-full resize-y rounded-md border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
+			class="max-h-40 min-h-20 w-full resize-none rounded-md border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
 		></textarea>
 		<div class="flex flex-wrap items-center justify-end gap-2">
 			<div class="flex gap-2">
-				{#if editing}<ViewerButton
-						disabled={pending}
-						onclick={() => {
-							editing = null;
-							draft = '';
-						}}>{m.common_cancel()}</ViewerButton
-					>{/if}
 				<ViewerButton
 					type="submit"
 					disabled={pending || loading || !valid}
 					class="bg-panel text-foreground hover:bg-panel/90"
-					>{pending
-						? m.comments_saving()
-						: editing
-							? m.comments_save()
-							: m.comments_send()}</ViewerButton
+					>{pending && !editing ? m.comments_saving() : m.comments_send()}</ViewerButton
 				>
 			</div>
 		</div>

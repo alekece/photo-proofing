@@ -265,7 +265,7 @@ describe('FavoritesPanel', () => {
 		expect(ondownload).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'p2' })]);
 
 		await user.click(screen.getByRole('button', { name: 'Select' }));
-		await user.click(screen.getByRole('button', { name: 'Select all' }));
+		await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 
 		expect(screen.getByText('2 selected')).toBeTruthy();
 
@@ -328,7 +328,7 @@ describe('FavoritesPanel', () => {
 
 		const bar = document.querySelector<HTMLElement>('[data-slot="select-actions"]')!;
 
-		expect(within(bar).getByRole('button', { name: 'Select all' })).toBeTruthy();
+		expect(within(bar).getByRole('checkbox', { name: 'Select all' })).toBeTruthy();
 		expect(within(bar).getByRole('button', { name: 'Download all' })).toHaveProperty(
 			'disabled',
 			true
@@ -347,11 +347,11 @@ describe('FavoritesPanel', () => {
 		const user = userEvent.setup();
 		await screen.findByAltText('p1.jpg');
 		await user.click(screen.getByRole('button', { name: 'Select' }));
-		await user.click(screen.getByRole('button', { name: 'Select all' }));
+		await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 
 		expect(screen.getByRole('button', { name: 'Download 2' })).toBeTruthy();
 
-		await user.click(screen.getByRole('button', { name: 'Unselect all' }));
+		await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
 
 		expect(screen.getByText('0 selected')).toBeTruthy();
 
