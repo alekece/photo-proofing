@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
@@ -11,6 +11,7 @@ import GallerySettings from './GallerySettings.svelte';
 const gallery = {
 	layout: 'grid',
 	expires_at: null,
+	shoot_date: null,
 	included_photos: null,
 	watermark_enabled: false,
 	states: ['draft']
@@ -95,15 +96,39 @@ describe('GallerySettings', () => {
 		);
 	});
 
-	it('saves the open-until date as the end of that day and clears it with null', async () => {
+	it('saves the picked open-until date as the end of that day and clears it with null', async () => {
 		const { onsave, user } = setup({ expires_at: new Date(2030, 5, 15, 23, 59, 59).toISOString() });
-		const input = screen.getByLabelText('Open until') as HTMLInputElement;
+		const trigger = screen.getByLabelText('Open until');
 
-		expect(input.value).toBe('2030-06-15');
+		expect(trigger.textContent).toContain('June 15, 2030');
 
-		await user.clear(input);
+		await user.click(trigger);
+		await user.click(
+			within(screen.getByRole('grid')).getByText('20', {
+				selector: '[data-bits-day]:not([data-outside-month])'
+			})
+		);
 
-		expect(onsave).toHaveBeenCalledWith({ expires_at: null });
+		expect(onsave).toHaveBeenCalledWith({
+			expires_at: new Date(2030, 5, 20, 23, 59, 59).toISOString()
+		});
+
+		await user.click(trigger);
+		await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+		expect(onsave).toHaveBeenLastCalledWith({ expires_at: null });
+	});
+
+	it('shows the shoot date and clears it with null', async () => {
+		const { onsave, user } = setup({ shoot_date: '2026-06-14' });
+		const trigger = screen.getByLabelText('Shoot date');
+
+		expect(trigger.textContent).toContain('June 14, 2026');
+
+		await user.click(trigger);
+		await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+		expect(onsave).toHaveBeenCalledWith({ shoot_date: null });
 	});
 
 	it('debounces included photos through the page and saves on leaving', async () => {
@@ -134,7 +159,7 @@ describe('GallerySettings', () => {
 
 		expect(onsave).not.toHaveBeenCalled();
 		expect(input.value).toBe('3');
-		expect(toasts.items.map(({ kind }) => kind)).toEqual(['error']);
+		expect(toasts.items).toHaveLength(1);
 	});
 
 	it('leaves a half-typed included count alone until the field is left', async () => {

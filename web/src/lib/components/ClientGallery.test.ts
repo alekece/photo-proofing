@@ -197,7 +197,7 @@ describe('ClientGallery', () => {
 
 		expect(screen.queryAllByRole('button', { name: /^favorite proof/i })).toEqual([]);
 		expect(screen.queryByRole('button', { name: /^Favorites/ })).toBeNull();
-		expect(screen.getByText('Your photos are ready')).toBeTruthy();
+		expect(screen.queryByText('Your photos are ready')).toBeNull();
 		expect(screen.getByRole('link', { name: 'Download photo 1' }).getAttribute('href')).toBe(
 			'/final/a'
 		);
@@ -429,7 +429,7 @@ describe('ClientGallery in French', () => {
 	it('shows the delivered page in French', () => {
 		show({ gallery: { ...gallery, delivered: true } });
 
-		expect(screen.getByText('Vos photos sont prêtes')).toBeTruthy();
+		expect(screen.queryByText('Vos photos sont prêtes')).toBeNull();
 		expect(screen.getAllByRole('button', { name: /Tout télécharger/ }).length).toBeGreaterThan(0);
 		expect(screen.queryByText('Your photos are ready')).toBeNull();
 	});

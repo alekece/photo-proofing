@@ -1,2 +1,8 @@
 onlyBuiltDependencies:
   - esbuild
+
+auditConfig:
+  ignoreGhsas:
+    # deepmerge (low, no patched release) is reached only through runed's optional SvelteKit
+    # peer, which pulls in the build-time Vite plugin; it never ships in the app.
+    - GHSA-gcqx-w48m-w2h4

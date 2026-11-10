@@ -7,17 +7,12 @@
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
 	import { previewUrl } from '#lib/gallery/photos.js';
-	import {
-		formatDateTime,
-		formatLongDate,
-		formatShortDate,
-		galleryStatus
-	} from '#lib/gallery/format.js';
+	import { formatDateTime, formatLongDate, galleryStatus } from '#lib/gallery/format.js';
 	import type { Gallery } from '#lib/gallery/api.js';
 
 	/**
 	 * The banner over a gallery: hero photo (or a warm stand-in), status, the editable `heading`
-	 * field, one meta line, the next main action and the journey steps. Photo and favorite counts
+	 * field, a details card, the next main action and the journey steps. Photo and favorite counts
 	 * come from the tabs; they stay out of the text until known.
 	 */
 	let {
@@ -46,23 +41,24 @@
 	const shared = $derived(gallery.share_token !== null);
 	const delivered = $derived(gallery.states.includes('delivered'));
 	const archived = $derived(status === 'archived');
-	const created = $derived(formatShortDate(gallery.created_at));
-	const createdLong = $derived(formatLongDate(gallery.created_at));
-	const lastOpened = $derived(
-		gallery.last_opened_at === null
-			? m.header_meta_not_opened()
-			: m.header_meta_opened({ date: formatDateTime(gallery.last_opened_at) })
+	// A shoot date is a calendar day: read at local noon so no time zone moves it.
+	const day = $derived(
+		gallery.shoot_date
+			? formatLongDate(`${gallery.shoot_date}T12:00`)
+			: formatLongDate(gallery.created_at)
 	);
-	const meta = $derived(
-		photoCount === 0 && !shared
-			? m.header_meta_empty({ created })
-			: [
-					photoCount === null ? '' : m.summary_photos({ count: photoCount }),
-					m.header_meta_created({ created }),
-					shared ? lastOpened : ''
-				]
-					.filter(Boolean)
-					.join(' · ')
+	const details = $derived(
+		[
+			{ term: m.common_photos(), value: photoCount === null ? '–' : String(photoCount) },
+			{ term: gallery.shoot_date ? m.details_shot() : m.details_created(), value: day },
+			shared && {
+				term: m.details_last_opened(),
+				value:
+					gallery.last_opened_at === null
+						? m.details_not_opened()
+						: formatDateTime(gallery.last_opened_at)
+			}
+		].filter((detail) => detail !== false)
 	);
 	const photos = $derived(photoCount ?? 0);
 	const favorites = $derived(favoriteCount ?? 0);
@@ -108,7 +104,7 @@
 				: ''}"
 		/>
 	{:else}
-		<CoverBackdrop title={gallery.title} edge={createdLong} />
+		<CoverBackdrop title={gallery.title} edge={day} />
 	{/if}
 	<div
 		aria-hidden="true"
@@ -118,7 +114,16 @@
 	<div class="grid min-w-0 flex-none gap-0 sm:flex-1">
 		<StatusChip {status} dot cover class="w-fit" />
 		{@render heading()}
-		<p class="mb-3 text-[0.8125rem] opacity-90 sm:mb-0 sm:text-sm">{meta}</p>
+		<dl
+			class="mt-2 mb-3 flex w-fit gap-5 rounded-lg border border-panel/40 bg-panel/15 px-3.5 py-2 backdrop-blur-[6px] sm:mb-0"
+		>
+			{#each details as { term, value } (term)}
+				<div class="grid gap-0.5">
+					<dt class="text-xs opacity-80">{term}</dt>
+					<dd class="text-sm font-semibold">{value}</dd>
+				</div>
+			{/each}
+		</dl>
 	</div>
 	<div class="flex gap-2.5 [&>*]:max-sm:flex-1">
 		<Button

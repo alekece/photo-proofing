@@ -76,6 +76,26 @@ export class NotificationCenter {
 		await this.#post(`/${encodeURIComponent(id)}/read`);
 	}
 
+	/** Opening a gallery reads its news: the badge goes at once, then the server confirms. */
+	async markGalleryRead(galleryId: string): Promise<void> {
+		const cleared = this.items.filter(
+			(item) => item.gallery_id === galleryId && item.read_at === null
+		).length;
+
+		if (cleared > 0) {
+			// A one-off timestamp, not reactive state.
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity
+			const now = new Date().toISOString();
+
+			this.items = this.items.map((item) =>
+				item.gallery_id === galleryId && item.read_at === null ? { ...item, read_at: now } : item
+			);
+			this.unread = Math.max(0, this.unread - cleared);
+		}
+
+		await this.#post(`/galleries/${encodeURIComponent(galleryId)}/read`);
+	}
+
 	async markAllRead(): Promise<void> {
 		await this.#post('/read');
 	}

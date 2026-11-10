@@ -1,5 +1,5 @@
 import { m } from '#lib/paraglide/messages.js';
-import { hasCleanPhoto, previewUrl, thumbnailUrl, type Photo } from './photos';
+import { hasCleanPhoto, previewUrl, thumbnailUrl, type Photo, type PhotoSet } from './photos';
 import type { Proof, SharedPhoto } from './types';
 
 /** Points each photo at the same-origin client media routes behind the private link. */
@@ -47,13 +47,17 @@ export function toClientPreviewProofs(
 	);
 }
 
-/** The owner's ready photos as proofs, served from their authenticated preview routes. */
-export function toOwnerProofs(galleryId: string, photos: Photo[]): Proof[] {
+/** The owner's ready photos of one set as proofs, served from their authenticated preview routes. */
+export function toOwnerProofs(
+	galleryId: string,
+	photos: Photo[],
+	set: PhotoSet = 'photos'
+): Proof[] {
 	return photos.filter(hasCleanPhoto).map(({ id, width, height, revision }, i) => ({
 		id,
 		alt: m.proof_alt({ number: i + 1 }),
-		thumbnailUrl: thumbnailUrl(galleryId, id, 'photos', revision),
-		previewUrl: previewUrl(galleryId, id, 'photos', revision),
+		thumbnailUrl: thumbnailUrl(galleryId, id, set, revision),
+		previewUrl: previewUrl(galleryId, id, set, revision),
 		width,
 		height
 	}));

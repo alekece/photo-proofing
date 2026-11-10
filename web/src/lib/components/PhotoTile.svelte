@@ -12,7 +12,7 @@
 
 	/** The tile grid of a gallery tab: staggered columns or even rows, as the gallery's layout says. */
 	export const GRID_CLASSES = {
-		masonry: 'block columns-2 gap-2 sm:columns-[11.25rem_4] sm:gap-2.5',
+		masonry: 'block columns-2 gap-2 sm:columns-[17rem_4] sm:gap-2.5',
 		grid: 'grid grid-cols-2 gap-2 sm:grid-cols-[repeat(auto-fill,minmax(11.25rem,1fr))] sm:gap-2.5'
 	} as const;
 	export const ITEM_CLASSES = {
@@ -42,7 +42,7 @@
 
 	let {
 		name,
-		state,
+		state: status,
 		ratio,
 		error,
 		thumbnailUrl,
@@ -88,12 +88,50 @@
 	} = $props();
 
 	const failed = $derived(
-		state === 'upload-failed' || state === 'rejected' || state === 'process-failed'
+		status === 'upload-failed' || status === 'rejected' || status === 'process-failed'
 	);
 	const reveal =
 		'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100';
-	const busy = $derived(!failed && state !== 'ready');
+	const busy = $derived(!failed && status !== 'ready');
+
+	const captions = {
+		favorited: {
+			icon: Heart,
+			color: 'text-danger',
+			fill: 'currentColor',
+			label: m.tile_favorited_at
+		},
+		downloaded: {
+			icon: Download,
+			color: 'text-ok-on-dark',
+			fill: 'none',
+			label: m.tile_downloaded_at
+		}
+	};
+
+	let loaded = $state(false);
+	const fade = $derived(loaded ? 'animate-tile-in' : 'opacity-0');
+
+	/** A cached or broken image can finish before its listeners are attached. */
+	function seen(image: HTMLImageElement) {
+		if (image.complete) loaded = true;
+	}
 </script>
+
+{#snippet progress()}
+	<div class="absolute inset-x-1.5 bottom-1.5 h-[3px] overflow-hidden rounded-full bg-white/60">
+		<span class="bar block h-full w-2/5 rounded-full bg-foreground/60"></span>
+	</div>
+{/snippet}
+
+{#snippet retry(classes: string)}
+	<button
+		type="button"
+		class="{classes} flex min-h-8 w-fit cursor-pointer items-center gap-1 rounded-full bg-panel px-3 text-xs text-foreground shadow"
+		aria-label={m.tile_retry({ name })}
+		onclick={onretry}><RotateCw size={14} aria-hidden="true" />{m.action_retry()}</button
+	>
+{/snippet}
 
 <svelte:element
 	this={onselect ? 'label' : 'div'}
@@ -106,21 +144,34 @@
 	style:aspect-ratio={ratio}
 >
 	<CommentBadge count={commentCount} />
-	{#if (state === 'ready' || (cleanReady && thumbnailUrl)) && onselect}
+	{#if (status === 'ready' || (cleanReady && thumbnailUrl)) && onselect}
 		<img
 			src={thumbnailUrl}
 			alt={name}
 			loading="lazy"
-			class="size-full object-cover transition-transform {selected ? 'scale-[0.94] rounded' : ''}"
+			class="size-full object-cover transition-transform {fade} {selected
+				? 'scale-[0.94] rounded'
+				: ''}"
+			onload={() => (loaded = true)}
+			onerror={() => (loaded = true)}
+			{@attach seen}
 		/>
-	{:else if state === 'ready' || (cleanReady && thumbnailUrl)}
+	{:else if status === 'ready' || (cleanReady && thumbnailUrl)}
 		<button
 			type="button"
 			class="block size-full cursor-zoom-in"
 			aria-label={m.tile_open({ name })}
 			onclick={onopen}
 		>
-			<img src={thumbnailUrl} alt={name} loading="lazy" class="size-full object-cover" />
+			<img
+				src={thumbnailUrl}
+				alt={name}
+				loading="lazy"
+				class="size-full object-cover {fade}"
+				onload={() => (loaded = true)}
+				onerror={() => (loaded = true)}
+				{@attach seen}
+			/>
 		</button>
 	{:else}
 		<div
@@ -128,7 +179,8 @@
 				'absolute inset-0 flex flex-col items-center p-2 text-center',
 				STATUS_TEXT,
 				failed ? 'justify-center gap-1 bg-danger/10 text-danger' : 'text-placeholder-foreground',
-				busy && 'pb-5'
+				busy &&
+					'animate-shimmer bg-[linear-gradient(100deg,transparent_30%,var(--color-placeholder-tile-strong)_50%,transparent_70%)] bg-[length:200%_100%] pb-5'
 			]}
 		>
 			{#if busy}
@@ -138,39 +190,28 @@
 			{:else}
 				<span class="sr-only">{name}</span>
 			{/if}
-			<span class="font-semibold">{LABELS[state]()}</span>
-			{#if failed && error && error !== LABELS[state]()}<span class="line-clamp-1">{error}</span
+			<span class="font-semibold">{LABELS[status]()}</span>
+			{#if failed && error && error !== LABELS[status]()}<span class="line-clamp-1">{error}</span
 				>{/if}
-			{#if !onselect && onretry && (state === 'upload-failed' || state === 'process-failed')}
-				<button
-					type="button"
-					class="mt-0.5 flex min-h-8 w-fit cursor-pointer items-center gap-1 rounded-full bg-panel px-3 text-xs text-foreground shadow"
-					aria-label={m.tile_retry({ name })}
-					onclick={onretry}><RotateCw size={14} aria-hidden="true" />{m.action_retry()}</button
-				>
+			{#if !onselect && onretry && (status === 'upload-failed' || status === 'process-failed')}
+				{@render retry('mt-0.5')}
 			{/if}
 		</div>
-		{#if busy}
-			<div class="absolute inset-x-1.5 bottom-1.5 h-[3px] overflow-hidden rounded-full bg-white/60">
-				<span class="bar block h-full w-2/5 rounded-full bg-foreground/60"></span>
-			</div>
-		{/if}
+		{#if busy}{@render progress()}{/if}
 	{/if}
 
-	{#if cleanReady && thumbnailUrl && state !== 'ready' && !onselect}
+	{#if cleanReady && thumbnailUrl && status !== 'ready' && !onselect}
 		<div
-			class="absolute inset-x-1.5 bottom-1.5 flex items-center justify-between gap-2 rounded bg-panel/95 px-2 py-1 text-xs font-semibold text-foreground"
+			class={[
+				'pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-1 bg-gradient-to-t from-black/60 to-transparent px-2 pt-8 text-center text-white',
+				STATUS_TEXT,
+				busy ? 'pb-5' : 'pb-2'
+			]}
 		>
-			<span>{LABELS[state]()}</span>
-			{#if failed && onretry}
-				<button
-					type="button"
-					class="cursor-pointer rounded px-1 focus-visible:outline-2"
-					aria-label={m.tile_retry({ name })}
-					onclick={onretry}>{m.action_retry()}</button
-				>
-			{/if}
+			<span>{LABELS[status]()}</span>
+			{#if failed && onretry}{@render retry('pointer-events-auto')}{/if}
 		</div>
+		{#if busy}{@render progress()}{/if}
 	{/if}
 
 	{#if onselect}
@@ -181,7 +222,7 @@
 			onchange={onselect}
 		/>
 	{:else}
-		{#if (state === 'ready' || (cleanReady && thumbnailUrl)) && onhero}
+		{#if (status === 'ready' || (cleanReady && thumbnailUrl)) && onhero}
 			<button
 				type="button"
 				class={[
@@ -206,7 +247,7 @@
 				onclick={onremove}><X size={14} aria-hidden="true" /></button
 			>
 		{/if}
-		{#if state === 'ready' && ondownload}
+		{#if status === 'ready' && ondownload}
 			<button
 				type="button"
 				class="absolute right-1.5 bottom-1.5 grid size-8 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground {reveal}"
@@ -228,18 +269,14 @@
 		{/if}
 	{/if}
 
-	{#if caption && state === 'ready'}
+	{#if caption && status === 'ready'}
 		{@const date = formatDateTime(caption.at)}
-		{@const Icon = caption.kind === 'favorited' ? Heart : Download}
+		{@const look = captions[caption.kind]}
 		<p
 			class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/60 to-transparent pt-6 pr-11 pb-1.5 pl-2 text-xs font-semibold text-white"
 		>
-			<span class="sr-only"
-				>{caption.kind === 'favorited'
-					? m.tile_favorited_at({ date })
-					: m.tile_downloaded_at({ date })}</span
-			>
-			<Icon size={12} class="shrink-0" aria-hidden="true" />
+			<span class="sr-only">{look.label({ date })}</span>
+			<look.icon size={16} class="shrink-0 {look.color}" fill={look.fill} aria-hidden="true" />
 			<time datetime={caption.at} class="truncate" aria-hidden="true">{date}</time>
 		</p>
 	{/if}

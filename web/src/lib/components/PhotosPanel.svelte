@@ -202,7 +202,6 @@
 			const gallery = await updateGallery(id, { hero_id: target });
 
 			if (galleryId === id) heroId = gallery.hero_id;
-			toasts.saved();
 		} catch (cause) {
 			if (cause instanceof GalleryApiError && cause.status === 401) {
 				await signedOut();

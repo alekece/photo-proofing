@@ -368,6 +368,46 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
+    async fn shoot_date_round_trips_and_clears(pool: PgPool) {
+        let (state, _directory) = app_state(pool).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let (_, created) = call(&app, post_gallery(&cookie)).await;
+        let id = created["id"].as_str().unwrap().to_owned();
+
+        assert_eq!(created["shoot_date"], Value::Null);
+
+        let (status, dated) = call(
+            &app,
+            patch(&id, &cookie, json!({"shoot_date": "2026-06-14"})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(dated["shoot_date"], "2026-06-14");
+
+        let (_, renamed) = call(&app, patch(&id, &cookie, json!({"title": "x"}))).await;
+
+        assert_eq!(renamed["shoot_date"], "2026-06-14");
+
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/v1/galleries/{id}"))
+            .cookie(cookie.clone());
+        let (_, shown) = call(&app, request).await;
+
+        assert_eq!(shown["shoot_date"], "2026-06-14");
+
+        let (_, cleared) = call(&app, patch(&id, &cookie, json!({"shoot_date": null}))).await;
+
+        assert_eq!(cleared["shoot_date"], Value::Null);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
     async fn listing_reports_photo_and_favorite_counts_and_sorts_oldest_first(pool: PgPool) {
         let directory = tempfile::tempdir().unwrap();
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
@@ -606,6 +646,12 @@ mod tests {
                 json!({"expires_at": "9999-12-31T23:59:59-01:00"}),
                 "invalid_request_body",
             ),
+            (
+                json!({"shoot_date": "2026-06-14T10:00:00Z"}),
+                "invalid_request_body",
+            ),
+            (json!({"shoot_date": "14/06/2026"}), "invalid_request_body"),
+            (json!({"shoot_date": "2026-02-30"}), "invalid_request_body"),
         ] {
             let (status, error) = call(&app, patch(&id, &cookie, body.clone())).await;
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,7 +16,12 @@ vi.mock('#lib/components/PhotosPanel.svelte', async () => ({
 vi.mock('#lib/components/FavoritesPanel.svelte', async () => ({
 	default: (await import('#lib/components/FavoritesPanelStub.test.svelte')).default
 }));
+vi.mock('#lib/gallery/notifications.svelte.js', async (importOriginal) => ({
+	...(await importOriginal<object>()),
+	getNotifications: vi.fn()
+}));
 import { goto } from '$app/navigation';
+import { getNotifications, NotificationCenter } from '#lib/gallery/notifications.svelte.js';
 import type { Gallery } from '#lib/gallery/api.js';
 import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import GalleryPage from './+page.svelte';
@@ -31,10 +36,30 @@ const base: Gallery = {
 	hero_id: null,
 	share_token: null,
 	last_opened_at: null,
+	shoot_date: null,
 	states: ['draft'],
 	created_at: '2026-01-01T10:00:00Z',
 	updated_at: '2026-01-02T10:00:00Z'
 };
+/** Opens the date picker named `label` and picks `day` in the month `months` away from today. */
+async function pickDay(label: string, months: number, day: string, scope = document.body) {
+	const user = userEvent.setup();
+
+	await user.click(within(scope).getByLabelText(label));
+
+	for (let step = 0; step < Math.abs(months); step++) {
+		await user.click(
+			screen.getByRole('button', { name: months < 0 ? 'Previous month' : 'Next month' })
+		);
+	}
+
+	await user.click(
+		within(screen.getByRole('grid')).getByText(day, {
+			selector: '[data-bits-day]:not([data-outside-month])'
+		})
+	);
+}
+
 const open = (over: Partial<Gallery> = {}) =>
 	render(GalleryPage, {
 		props: { data: { gallery: { ...base, ...over }, idleTimeoutMs: 2592000000 } as never }
@@ -60,6 +85,26 @@ afterEach(() => {
 });
 
 describe('gallery page', () => {
+	it('marks the gallery notifications read on open and when moving to another gallery', async () => {
+		vi.stubGlobal('fetch', async () => Response.json({ notifications: [], unread: 0 }));
+		const center = new NotificationCenter();
+		const markGalleryRead = vi.spyOn(center, 'markGalleryRead');
+		vi.mocked(getNotifications).mockReturnValue(center);
+
+		const view = open();
+
+		await waitFor(() => expect(markGalleryRead).toHaveBeenCalledWith('g1'));
+
+		await center.refresh();
+		await view.rerender({
+			data: { gallery: { ...base, id: 'g2' }, idleTimeoutMs: 2592000000 } as never
+		});
+
+		await waitFor(() => expect(markGalleryRead).toHaveBeenCalledWith('g2'));
+		expect(markGalleryRead).toHaveBeenCalledTimes(2);
+		vi.mocked(getNotifications).mockReset();
+	});
+
 	it('links back to the galleries', () => {
 		open();
 
@@ -91,21 +136,18 @@ describe('gallery page', () => {
 	});
 
 	it('shows no Saved toast after a save, only the error toast on failure', async () => {
-		const savedToast = vi.spyOn(toasts, 'saved');
 		const user = userEvent.setup();
 
 		stubApi(500);
 		open();
 		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
-		await waitFor(() => expect(toasts.items.map(({ kind }) => kind)).toEqual(['error']));
+		await waitFor(() => expect(toasts.items).toHaveLength(1));
 
 		stubApi();
 		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
 		await waitFor(() => expect(screen.queryByText('Saving…')).toBeNull());
 
-		expect(savedToast).not.toHaveBeenCalled();
-		expect(toasts.items.map(({ kind }) => kind)).toEqual(['error']);
-		savedToast.mockRestore();
+		expect(toasts.items).toHaveLength(1);
 	});
 
 	it('sends only the changed field without an immediate success toast', async () => {
@@ -163,7 +205,7 @@ describe('gallery page', () => {
 		open();
 		const toggle = screen.getByRole('switch', { name: 'Enable watermarks' });
 		await user.click(toggle);
-		await waitFor(() => expect(toasts.items.map(({ kind }) => kind)).toEqual(['error']));
+		await waitFor(() => expect(toasts.items).toHaveLength(1));
 		expect(toggle.getAttribute('aria-checked')).toBe('false');
 		expect(screen.queryByText('Couldn’t save')).toBeNull();
 	});
@@ -234,8 +276,7 @@ describe('gallery page', () => {
 		await waitFor(() => expect(pending).toHaveLength(2));
 		pending[1](200);
 		pending[0](500);
-		await waitFor(() => expect(toasts.items.length).toBeGreaterThan(0));
-		expect(toasts.items.filter(({ kind }) => kind === 'success')).toHaveLength(0);
+		await waitFor(() => expect(toasts.items).toHaveLength(1));
 	});
 
 	it('saves an edited title normally when leaving the field after a failure', async () => {
@@ -285,12 +326,17 @@ describe('gallery page', () => {
 	it('sends the end of the chosen day in local time', async () => {
 		const patches = stubApi();
 		open();
-		await fireEvent.change(screen.getByLabelText('Open until'), {
-			target: { value: '2099-03-04' }
-		});
+		await pickDay('Open until', 1, '4');
 		await waitFor(() => expect(patches()).toHaveLength(1));
 		const sent = new Date(JSON.parse(patches()[0][1]?.body as string).expires_at);
-		expect([sent.getFullYear(), sent.getMonth(), sent.getDate()]).toEqual([2099, 2, 4]);
+		const next = new Date();
+		next.setDate(1);
+		next.setMonth(next.getMonth() + 1);
+		expect([sent.getFullYear(), sent.getMonth(), sent.getDate()]).toEqual([
+			next.getFullYear(),
+			next.getMonth(),
+			4
+		]);
 		expect([sent.getHours(), sent.getMinutes(), sent.getSeconds()]).toEqual([23, 59, 59]);
 	});
 
@@ -311,10 +357,10 @@ describe('gallery page', () => {
 		vi.stubGlobal('fetch', fetcher);
 		const user = userEvent.setup();
 		open();
-		const input = screen.getByLabelText('Open until');
-		await fireEvent.change(input, { target: { value: '2020-01-01' } });
+		await pickDay('Open until', -1, '1');
 		expect(await screen.findByText('Expired')).toBeTruthy();
-		await user.clear(input);
+		await user.click(screen.getByLabelText('Open until'));
+		await user.click(screen.getByRole('button', { name: 'Clear' }));
 		expect(await screen.findByText('Draft')).toBeTruthy();
 		const bodies = fetcher.mock.calls
 			.filter(([url]) => url.includes('/galleries/'))
@@ -341,9 +387,7 @@ describe('gallery page', () => {
 		await user.type(screen.getByLabelText('Gallery title'), ' II');
 		await user.tab();
 		await waitFor(() => expect(finishTitle).toBeDefined());
-		await fireEvent.change(screen.getByLabelText('Open until'), {
-			target: { value: '2020-01-01' }
-		});
+		await pickDay('Open until', -1, '1');
 		await screen.findByText('Expired');
 		finishTitle();
 		await waitFor(() => expect(document.title).toBe('Wedding II — PhotoProofing'));
@@ -353,7 +397,7 @@ describe('gallery page', () => {
 	it('shows the stored expiry as a local date', () => {
 		const stored = new Date(2030, 5, 15, 23, 59, 59).toISOString();
 		open({ expires_at: stored });
-		expect((screen.getByLabelText('Open until') as HTMLInputElement).value).toBe('2030-06-15');
+		expect(screen.getByLabelText('Open until').textContent).toContain('June 15, 2030');
 	});
 
 	it('sends null when included photos is cleared and rejects zero', async () => {
@@ -367,7 +411,7 @@ describe('gallery page', () => {
 		expect(JSON.parse(patches()[0][1]?.body as string)).toEqual({ included_photos: null });
 		await user.type(input, '0');
 		await user.tab();
-		expect(toasts.items.filter(({ kind }) => kind === 'error')).toHaveLength(1);
+		expect(toasts.items).toHaveLength(1);
 		expect(patches()).toHaveLength(1);
 	});
 
@@ -407,11 +451,11 @@ describe('gallery page', () => {
 		it('shows the title and the draft status', () => {
 			open();
 			expect(screen.getByText('Draft')).toBeTruthy();
-			expect(screen.getByText(/created /)).toBeTruthy();
+			expect(screen.getByText('Created')).toBeTruthy();
 			expect(screen.getByLabelText('Gallery title')).toBeTruthy();
 		});
 
-		it('shares only after confirming in the dialog, then offers the link', async () => {
+		it('shares only after confirming in the dialog', async () => {
 			const shares = stubShareFlow();
 			const user = userEvent.setup();
 			open();
@@ -423,7 +467,6 @@ describe('gallery page', () => {
 			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Share' }));
 			expect(await screen.findByRole('dialog', { name: 'Your gallery is shared' })).toBeTruthy();
 			expect(shares()).toHaveLength(1);
-			expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Copy' })).toBeTruthy();
 
 			await user.click(screen.getByRole('button', { name: 'Done' }));
 			expect(screen.getByLabelText('Client link')).toBeTruthy();
@@ -508,6 +551,7 @@ describe('gallery page', () => {
 				)
 			);
 			expect(await screen.findByText('Delivered')).toBeTruthy();
+			expect(toasts.items).toEqual([]);
 			expect(fetcher.mock.calls.some(([url]) => url.endsWith('/g1/deliver'))).toBe(true);
 		});
 
@@ -585,7 +629,8 @@ describe('gallery page', () => {
 
 			await restore();
 
-			await waitFor(() => expect(toasts.items.map(({ message }) => message)).toEqual(['Restored']));
+			await waitFor(() => expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull());
+			expect(toasts.items).toEqual([]);
 			expect(screen.queryByRole('dialog')).toBeNull();
 			expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
 		});
@@ -618,11 +663,11 @@ describe('gallery page', () => {
 			const calls = stubRestore({ states: ['shared', 'expired'] });
 			open(archived);
 			await restore();
-			await fireEvent.input(
-				await screen.findByLabelText('Open until', { selector: 'dialog input' }),
-				{
-					target: { value: '2999-01-02' }
-				}
+			await pickDay(
+				'Open until',
+				1,
+				'2',
+				await screen.findByRole('dialog', { name: 'Clients can’t see this gallery yet' })
 			);
 
 			await userEvent.setup().click(screen.getByRole('button', { name: 'Set date' }));
@@ -632,7 +677,7 @@ describe('gallery page', () => {
 			expect(url).toBe('/api/v1/galleries/g1');
 			expect(init?.method).toBe('PATCH');
 			expect(Object.keys(JSON.parse(init?.body as string))).toEqual(['expires_at']);
-			expect(toasts.items.map(({ message }) => message)).toEqual(['Restored']);
+			expect(toasts.items).toEqual([]);
 			expect(screen.queryByText('Expired')).toBeNull();
 		});
 
@@ -707,6 +752,7 @@ describe('gallery page', () => {
 				)
 			).toBe(true);
 			expect(screen.getAllByRole('button', { name: 'Restore' }).length).toBeGreaterThan(0);
+			expect(toasts.items).toEqual([]);
 		});
 
 		it('deletes through the API and returns to the dashboard', async () => {

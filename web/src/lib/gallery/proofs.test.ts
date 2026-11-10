@@ -65,6 +65,24 @@ describe('toOwnerProofs', () => {
 		expect(next[0].previewUrl).toBe('/api/v1/galleries/g1/photos/a/preview?revision=2');
 	});
 
+	it('points finals at their own routes', () => {
+		const final = {
+			id: 'f',
+			original_name: 'f.jpg',
+			size: 1,
+			width: 300,
+			height: 200,
+			status: 'ready' as const,
+			favorited_at: null,
+			created_at: '2026-01-01T10:00:00Z'
+		};
+
+		expect(toOwnerProofs('g1', [final], 'finals')[0]).toMatchObject({
+			thumbnailUrl: '/api/v1/galleries/g1/photos/f/thumbnail?finals=true',
+			previewUrl: '/api/v1/galleries/g1/photos/f/preview?finals=true'
+		});
+	});
+
 	describe('client preview media', () => {
 		it('uses authenticated watermark URLs and changes identity on a toggle', () => {
 			const photos = [{ id: 'p1', width: 300, height: 200, revision: 2 }];

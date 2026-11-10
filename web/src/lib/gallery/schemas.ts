@@ -30,6 +30,8 @@ export const gallerySchema = v.object({
 	share_token: v.nullable(v.string()),
 	/** When a client last opened the shared gallery; `null` until the first open. */
 	last_opened_at: v.nullable(v.string()),
+	/** The calendar day of the shoot (`YYYY-MM-DD`), shown only to the photographer. */
+	shoot_date: v.nullable(v.pipe(v.string(), v.isoDate())),
 	/** The progress state first, then `archived` and `expired` when they apply. */
 	states: v.array(galleryStateSchema),
 	created_at: v.string(),
