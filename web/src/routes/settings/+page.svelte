@@ -6,6 +6,7 @@
 	import { authRequest } from '#lib/auth.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
+	import ButtonFace from '#lib/components/ButtonFace.svelte';
 	import ClickRipple from '#lib/components/ClickRipple.svelte';
 	import ProofQualityPicker from '#lib/components/ProofQualityPicker.svelte';
 	import SignatureEditor from '#lib/components/SignatureEditor.svelte';
@@ -40,6 +41,8 @@
 	let status = $state<SaveStatus>('idle');
 	// A new edit ends the confirmation early so Save is offered again at once.
 	let shown = $derived<SaveStatus>(status === 'saved' && dirty ? 'idle' : status);
+	// Like Saved, Reverted gives way as soon as there is something to cancel again.
+	let reverted = $derived(feedback === 'reverted' && !dirty);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let savedTimer: ReturnType<typeof setTimeout> | undefined;
 	let signingOut = $state(false);
@@ -72,7 +75,7 @@
 	}
 
 	async function save() {
-		if (!dirty || status === 'saving') return;
+		if (!dirty || shown !== 'idle') return;
 
 		status = 'saving';
 		clearTimeout(timer);
@@ -144,8 +147,6 @@
 
 	const action =
 		'relative inline-grid h-11 min-h-0 px-[1.375rem] max-sm:flex-1 font-semibold! tracking-normal! transition-[background-color,opacity] duration-300 disabled:opacity-35';
-	const face =
-		'col-start-1 row-start-1 inline-flex items-center justify-center gap-2 transition-[opacity,transform] duration-300';
 </script>
 
 <svelte:head><title>{m.header_settings()} — PhotoProofing</title></svelte:head>
@@ -165,27 +166,25 @@
 		</h1>
 		<Button
 			variant="outline"
-			disabled={!dirty || status === 'saving'}
+			disabled={!reverted && (!dirty || status === 'saving')}
+			aria-disabled={reverted || undefined}
 			onclick={cancel}
-			class="{action} border-[1.5px]! border-border! bg-input! {feedback === 'reverted'
-				? 'border-[#d8cab7]! bg-[#efe7dc]! opacity-100!'
+			class="{action} border-[1.5px]! border-border! bg-input! aria-disabled:cursor-default {reverted
+				? 'border-[#d8cab7]! bg-[#efe7dc]!'
 				: ''}"
 		>
-			<span
-				class="{face} {feedback === 'reverted' ? '-translate-y-2 opacity-0' : ''}"
-				aria-hidden={feedback === 'reverted'}>{m.common_cancel()}</span
-			>
-			<span
-				class="{face} {feedback === 'reverted' ? '' : 'translate-y-2 opacity-0'}"
-				aria-hidden={feedback !== 'reverted'}
-			>
-				<Undo2 size={16} strokeWidth={2.4} aria-hidden="true" />{m.studio_reverted()}
-			</span>
-			{#if feedback === 'reverted'}<ClickRipple class="rounded-[inherit]" />{/if}
+			<ButtonFace shown={!reverted}>{m.common_cancel()}</ButtonFace>
+			<ButtonFace shown={reverted}>
+				{#snippet icon()}
+					<Undo2 size={16} strokeWidth={2.4} aria-hidden="true" />
+				{/snippet}
+				{m.studio_reverted()}
+			</ButtonFace>
+			{#if reverted}<ClickRipple class="rounded-[inherit]" />{/if}
 		</Button>
 		<SaveButton
 			status={shown}
-			disabled={!dirty || status === 'saving'}
+			disabled={shown === 'idle' && !dirty}
 			onclick={save}
 			class={action}
 		/>

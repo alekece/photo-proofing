@@ -5,6 +5,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { Check, LoaderCircle } from '@lucide/svelte';
+	import ButtonFace from '#lib/components/ButtonFace.svelte';
 	import ClickRipple from '#lib/components/ClickRipple.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 
@@ -16,47 +17,34 @@
 	}: {
 		/** The owner drives the lifecycle: idle, then saving, then saved, then idle again. */
 		status: SaveStatus;
-		/** Nothing to save; the saving and saved faces stay readable while disabled. */
+		/** Nothing to save. While saving or saved the button ignores clicks without greying out. */
 		disabled?: boolean;
 		onclick: () => void;
 		class?: string;
 	} = $props();
-	const face =
-		'col-start-1 row-start-1 inline-flex items-center justify-center gap-2 transition-[opacity,transform] duration-300';
+
+	const busy = $derived(status !== 'idle');
 </script>
 
 <Button
 	{disabled}
-	{onclick}
-	class="relative inline-grid {status === 'saved' ? 'disabled:opacity-100' : ''} {className}"
+	aria-disabled={busy || undefined}
+	onclick={() => !busy && onclick()}
+	class="relative inline-grid aria-disabled:cursor-default {className}"
 >
-	<span
-		class="{face} {status === 'idle' ? '' : '-translate-y-2 opacity-0'}"
-		aria-hidden={status !== 'idle'}
-	>
-		{m.studio_save()}
-	</span>
-	<span
-		class="{face} {status === 'saving' ? '' : 'translate-y-2 opacity-0'}"
-		aria-hidden={status !== 'saving'}
-	>
-		<LoaderCircle
-			size={16}
-			class="animate-spin motion-reduce:animate-none"
-			aria-hidden="true"
-		/>{m.studio_saving()}
-	</span>
-	<span
-		class="{face} {status === 'saved' ? '' : 'translate-y-2 opacity-0'}"
-		aria-hidden={status !== 'saved'}
-	>
-		<Check
-			size={16}
-			strokeWidth={2.8}
-			class="text-ok-on-dark"
-			aria-hidden="true"
-		/>{m.studio_saved()}
-	</span>
+	<ButtonFace shown={status === 'idle'}>{m.studio_save()}</ButtonFace>
+	<ButtonFace shown={status === 'saving'}>
+		{#snippet icon()}
+			<LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+		{/snippet}
+		{m.studio_saving()}
+	</ButtonFace>
+	<ButtonFace shown={status === 'saved'}>
+		{#snippet icon()}
+			<Check size={16} strokeWidth={2.8} class="text-ok-on-dark" aria-hidden="true" />
+		{/snippet}
+		{m.studio_saved()}
+	</ButtonFace>
 	{#if status === 'saved'}<ClickRipple class="rounded-[inherit] text-ok-on-dark" />{/if}
 </Button>
 <span role="status" class="sr-only">
