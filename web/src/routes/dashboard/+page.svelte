@@ -172,7 +172,7 @@
 			{m.dashboard_load_failed()}
 		</p>
 	{:else if all.length === 0}
-		<EmptyWorkspace oncreate={() => (dialogOpen = true)} />
+		<EmptyWorkspace />
 	{:else}
 		<ul class="{gridClass} mb-12">
 			{#each visible as gallery (gallery.id)}

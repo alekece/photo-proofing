@@ -109,7 +109,7 @@ describe('dashboard', () => {
 
 	it('shows the empty workspace with the toolbar disabled, and an error state', async () => {
 		const { container, unmount } = render(Dashboard, { props: props([]) });
-		expect(screen.getByText('Nothing in frame yet.')).toBeTruthy();
+		expect(screen.getByText('No galleries in focus.')).toBeTruthy();
 		expect(screen.queryByText('Golden hour, no clients.')).toBeNull();
 		expect(
 			(screen.getByRole('searchbox', { name: 'Search galleries' }) as HTMLInputElement).disabled
@@ -282,7 +282,7 @@ describe('dashboard', () => {
 		it('keeps the workspace-empty screen only when there are no galleries at all', () => {
 			render(Dashboard, { props: props([]) });
 
-			expect(screen.getByText('Nothing in frame yet.')).toBeTruthy();
+			expect(screen.getByText('No galleries in focus.')).toBeTruthy();
 		});
 	});
 });
