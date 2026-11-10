@@ -129,7 +129,12 @@
 		<ol class="space-y-5">
 			{#each comments as comment (comment.id)}
 				<li class="group relative border-b border-panel/15 pb-4">
-					<div class="mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-panel/75">
+					<div
+						class="mb-1 flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-panel/75 {comment.author ===
+							viewer && !comment.deleted_at
+							? 'pr-16'
+							: ''}"
+					>
 						<strong class="font-semibold text-panel"
 							>{comment.author === viewer
 								? m.comments_you()
@@ -247,7 +252,7 @@
 				<ViewerButton
 					type="submit"
 					disabled={pending || !loaded || !valid}
-					class="bg-panel text-foreground hover:bg-panel/90"
+					class="min-w-32 bg-panel text-foreground hover:bg-panel/90"
 					>{pending && !editing ? m.comments_saving() : m.comments_send()}</ViewerButton
 				>
 			</div>
@@ -258,7 +263,7 @@
 {#if deleting}
 	<ConfirmDialog
 		title={m.comments_delete_question()}
-		confirmLabel={m.comments_delete_confirm()}
+		confirmLabel={m.comments_delete()}
 		destructive
 		onconfirm={remove}
 		onclose={() => (deleting = null)}

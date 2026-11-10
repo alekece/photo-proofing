@@ -31,7 +31,6 @@
 	"comments_save": "Save",
 	"comments_saving": "Saving…",
 	"comments_delete_question": "Delete this comment?",
-	"comments_delete_confirm": "Delete comment",
 	"api_error_thread_full": "This photo's conversation is full. Contact your photographer to continue.",
 	"language_menu_label": "Language: {language}",
 	"language_menu_options": "Language",

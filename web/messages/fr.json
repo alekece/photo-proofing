@@ -34,7 +34,6 @@
 	"comments_save": "Enregistrer",
 	"comments_saving": "Enregistrement…",
 	"comments_delete_question": "Supprimer ce commentaire ?",
-	"comments_delete_confirm": "Supprimer le commentaire",
 	"api_error_thread_full": "La conversation pour cette photo est complète. Contactez votre photographe pour continuer.",
 	"language_menu_label": "Langue : {language}",
 	"language_menu_options": "Langue",
