@@ -10,8 +10,7 @@ describe('EmptyWorkspace', () => {
 
 		expect(screen.getByRole('heading', { name: 'No galleries in focus.' })).toBeTruthy();
 		expect(container.querySelector('[data-slot="empty-state"]')).not.toBeNull();
-		expect(container.querySelectorAll('.frame')).toHaveLength(4);
-		expect(container.querySelector('.stage')?.getAttribute('aria-hidden')).toBe('true');
+		expect(container.querySelector('picture img')?.getAttribute('alt')).toBe('');
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
