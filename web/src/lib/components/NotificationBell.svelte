@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { Bell } from '@lucide/svelte';
+	import emptyIllustration from '#lib/assets/empty-notifications.webp';
 	import Popover from '#lib/components/ui/Popover/Popover.svelte';
 	import { previewUrl } from '#lib/gallery/photos.js';
 	import {
@@ -49,7 +50,11 @@
 		>
 	</div>
 	{#if unread.length === 0}
-		<p class="px-3 pb-3 text-sm text-muted-foreground">{m.notifications_none()}</p>
+		<div class="flex flex-col items-center gap-1 px-6 pt-4 pb-6 text-center">
+			<img src={emptyIllustration} alt="" width="128" height="128" class="size-32" />
+			<p class="text-sm font-semibold">{m.notifications_none()}</p>
+			<p class="text-xs text-muted-foreground">{m.notifications_none_hint()}</p>
+		</div>
 	{:else}
 		<ul class="max-h-96 overflow-y-auto">
 			{#each unread as item (item.id)}
