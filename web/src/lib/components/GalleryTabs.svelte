@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import CommentsPanel from '#lib/components/CommentsPanel.svelte';
 	import FavoritesPanel from '#lib/components/FavoritesPanel.svelte';
 	import PhotosPanel from '#lib/components/PhotosPanel.svelte';
 	import type { GalleryLayout } from '#lib/gallery/api.js';
@@ -31,6 +32,7 @@
 	} = $props();
 
 	let tab = $state('photos');
+	let commentCount = $state<number | null>(null);
 	let finalCount = $state<number | null>(null);
 	// Saving replaces the parent gallery object; equal IDs must not reset loaded panels.
 	const id = $derived(galleryId);
@@ -43,6 +45,13 @@
 			count: favoriteCount,
 			accent: included !== null && favoriteCount !== null && favoriteCount > included,
 			locked: delivered,
+			disabled: !shared,
+			title: shared ? undefined : m.tab_after_sharing()
+		},
+		{
+			id: 'comments',
+			label: m.tab_comments(),
+			count: commentCount,
 			disabled: !shared,
 			title: shared ? undefined : m.tab_after_sharing()
 		},
@@ -71,6 +80,9 @@
 			</div>
 			<div hidden={active !== 'favorites'} class="grid gap-4">
 				<FavoritesPanel galleryId={id} {layout} oncount={(n) => (favoriteCount = n)} />
+			</div>
+			<div hidden={active !== 'comments'} class="grid gap-4">
+				<CommentsPanel galleryId={id} {layout} oncount={(n) => (commentCount = n)} />
 			</div>
 			<div hidden={active !== 'final'}>
 				<PhotosPanel set="finals" galleryId={id} {layout} oncount={(n) => (finalCount = n)} />

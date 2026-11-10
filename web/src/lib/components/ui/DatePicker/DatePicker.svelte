@@ -60,11 +60,11 @@
 		className
 	)}
 	{rootClass}
-	panelClass="min-w-0"
+	panelClass="min-w-0 bg-white"
 >
 	{#snippet trigger()}
 		<CalendarDays size={16} class="shrink-0 text-muted-foreground" aria-hidden="true" />
-		<span class={cn('min-w-0 truncate', !value && 'text-muted-foreground')}>
+		<span class={cn('min-w-0 truncate', !value && 'text-muted-foreground/40')}>
 			{value ? formatFullDate(value, 'UTC', 'medium') : placeholder}
 		</span>
 	{/snippet}

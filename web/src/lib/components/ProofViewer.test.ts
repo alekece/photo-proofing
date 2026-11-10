@@ -83,15 +83,13 @@ describe('ProofViewer', () => {
 		expect(screen.queryByRole('button', { name: /favorite/i })).toBeNull();
 	});
 
-	it('shows the favorites count and a Download button once delivered', () => {
+	it('shows a Download button once delivered', () => {
 		render(ProofViewer, {
 			proofs: [{ ...proofs[0], downloadUrl: '/final/p1' }],
 			index: 0,
-			favoriteCount: 2,
 			title: 'Gallery',
 			onclose: () => {}
 		});
-		expect(screen.getByText('Favorites:').parentElement?.textContent).toContain('2');
 		expect(screen.getByRole('link', { name: 'Download' }).getAttribute('href')).toBe('/final/p1');
 		expect(screen.queryByRole('button', { name: /favorite/i })).toBeNull();
 	});

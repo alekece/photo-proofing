@@ -8,6 +8,10 @@ vi.mock('#lib/components/FavoritesPanel.svelte', async () => ({
 	default: (await import('#lib/components/FavoritesPanelStub.test.svelte')).default
 }));
 
+vi.mock('#lib/components/CommentsPanel.svelte', async () => ({
+	default: (await import('#lib/components/CommentsPanelStub.test.svelte')).default
+}));
+
 import GalleryTabs from './GalleryTabs.svelte';
 
 describe('gallery tab availability', () => {
@@ -15,9 +19,11 @@ describe('gallery tab availability', () => {
 		render(GalleryTabs, { galleryId: 'g1', included: null, shared: false });
 		const photos = screen.getByRole('tab', { name: 'Photos' });
 		const favorites = screen.getByRole('tab', { name: 'Favorites' });
+		const comments = screen.getByRole('tab', { name: 'Comments' });
 		const finals = screen.getByRole('tab', { name: 'Final' });
 
 		expect((favorites as HTMLButtonElement).disabled).toBe(true);
+		expect((comments as HTMLButtonElement).disabled).toBe(true);
 		expect((finals as HTMLButtonElement).disabled).toBe(true);
 		expect(favorites.title).toBe('Available once the gallery is shared');
 		expect(finals.title).toBe('Available once the gallery is shared');

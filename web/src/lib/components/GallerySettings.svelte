@@ -176,7 +176,7 @@
 				id="expiry"
 				placeholder="–"
 				rootClass="w-40 min-w-0"
-				class="min-h-0 w-full rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
+				class="min-h-0 w-full rounded-lg px-2 py-[0.3125rem] text-sm font-semibold [&>span]:flex-1 [&>span]:text-center"
 				value={expiryDay || null}
 				clearable
 				onchange={(day) => {
@@ -193,7 +193,7 @@
 				type="number"
 				min="1"
 				step="1"
-				class="min-h-0 w-[4.5rem] rounded-lg px-2 py-[0.3125rem] text-right text-sm font-semibold"
+				class="min-h-0 w-[4.5rem] [appearance:textfield] rounded-lg px-2 py-[0.3125rem] text-center text-sm font-semibold placeholder:text-muted-foreground/40 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
 				bind:value={included}
 				disabled={delivered}
 				oninput={() => schedule('included_photos', () => saveIncluded(false))}
@@ -238,7 +238,7 @@
 				id="shoot-date"
 				placeholder="–"
 				rootClass="w-40 min-w-0"
-				class="min-h-0 w-full rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
+				class="min-h-0 w-full rounded-lg px-2 py-[0.3125rem] text-sm font-semibold [&>span]:flex-1 [&>span]:text-center"
 				value={shootDate}
 				clearable
 				onchange={setShootDate}
