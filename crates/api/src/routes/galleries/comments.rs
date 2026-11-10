@@ -131,13 +131,14 @@ async fn remove(
     path: Path<CommentPath>,
 ) -> Result<HttpResponse, ErrorResponse> {
     access.pace(&state)?;
-    ErrorResponse::applied_comment(
-        state
-            .database()
-            .repository::<CommentRepository>()
-            .delete(access.location, path.comment_id, access.author)
-            .await?,
-    )?;
+
+    let change = state
+        .database()
+        .repository::<CommentRepository>()
+        .delete(access.location, path.comment_id, access.author)
+        .await?;
+
+    ErrorResponse::applied_comment(change)?;
 
     Ok(HttpResponse::NoContent().no_store().no_referrer().finish())
 }
@@ -180,7 +181,18 @@ mod tests {
             .as_str()
             .to_owned();
         let photo = PhotoId::from(Uuid::new_v4());
-        sqlx::query("INSERT INTO photos (id,workspace_id,gallery_id,original_name,size,width,height,status,clean_ready) VALUES ($1,$2,$3,'a.jpg',1,1,1,'ready',true)").bind(photo).bind(workspace).bind(id).execute(pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO photos
+                 (id, workspace_id, gallery_id, original_name, size, width, height, status, clean_ready)
+             VALUES ($1, $2, $3, 'a.jpg', 1, 1, 1, 'ready', true)",
+        )
+        .bind(photo)
+        .bind(workspace)
+        .bind(id)
+        .execute(pool)
+        .await
+        .unwrap();
 
         (id.0.to_string(), token, photo.to_string())
     }
@@ -208,6 +220,7 @@ mod tests {
         )
         .await;
         let cookie = sign_up(&app).await;
+
         call(&app, request("POST", "/api/v1/galleries", Some(&cookie))).await;
         let (_, token, photo) = gallery(&pool).await;
         let base = format!("/api/v1/galleries/shared/{token}");
@@ -221,16 +234,20 @@ mod tests {
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(comment["author"], "client");
         let response = test::call_service(&app, request("GET", &path, None).to_request()).await;
+
         assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
         assert_eq!(
             response.headers().get("referrer-policy").unwrap(),
             "no-referrer"
         );
         let thread: Value = test::read_body_json(response).await;
+
         assert_eq!(thread[0], comment);
         let (_, counts) = call(&app, request("GET", &format!("{base}/comments"), None)).await;
+
         assert_eq!(counts[0]["count"], 1);
         let (_, bell) = call(&app, request("GET", "/api/v1/notifications", Some(&cookie))).await;
+
         assert_eq!(bell["notifications"][0]["kind"], "comment");
     }
 
@@ -244,9 +261,18 @@ mod tests {
         )
         .await;
         let cookie = sign_up(&app).await;
+
         call(&app, request("POST", "/api/v1/galleries", Some(&cookie))).await;
         let (id, token, photo) = gallery(&pool).await;
-        sqlx::query("INSERT INTO photo_comments (workspace_id,gallery_id,photo_id,author,body) SELECT workspace_id,id,$1,'client','Secret' FROM galleries").bind(Uuid::parse_str(&photo).unwrap()).execute(&pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO photo_comments (workspace_id, gallery_id, photo_id, author, body)
+             SELECT workspace_id, id, $1, 'client', 'Secret' FROM galleries",
+        )
+        .bind(Uuid::parse_str(&photo).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
         let cid: Uuid = sqlx::query_scalar("SELECT id FROM photo_comments")
             .fetch_one(&pool)
             .await
@@ -291,8 +317,10 @@ mod tests {
         )
         .await;
         let cookie = sign_up(&app).await;
+
         call(&app, request("POST", "/api/v1/galleries", Some(&cookie))).await;
         let (id, token, photo) = gallery(&pool).await;
+
         sqlx::query("UPDATE galleries SET delivered_at=now()")
             .execute(&pool)
             .await
@@ -345,6 +373,7 @@ mod tests {
         )
         .await;
         let cookie = sign_up(&app).await;
+
         call(&app, request("POST", "/api/v1/galleries", Some(&cookie))).await;
         let (id, token, photo) = gallery(&pool).await;
         let path = format!("/api/v1/galleries/shared/{token}/photos/{photo}/comments");
@@ -404,6 +433,7 @@ mod tests {
         )
         .await;
         let cookie = sign_up(&app).await;
+
         call(&app, request("POST", "/api/v1/galleries", Some(&cookie))).await;
         let (id, token, photo) = gallery(&pool).await;
         let owner = format!("/api/v1/galleries/{id}");
@@ -433,6 +463,7 @@ mod tests {
         )
         .await;
         let cid = reply["id"].as_str().unwrap();
+
         assert_eq!(
             call(
                 &app,

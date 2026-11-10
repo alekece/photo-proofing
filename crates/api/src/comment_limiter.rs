@@ -27,6 +27,7 @@ impl CommentLimiter {
 
     fn check_at(&self, gallery: GalleryId, now: Instant) -> Result<(), Duration> {
         let mut windows = self.windows.lock().unwrap_or_else(PoisonError::into_inner);
+
         windows.retain(|_, start| now.saturating_duration_since(*start) < self.interval);
 
         if let Some(start) = windows.get(&gallery) {

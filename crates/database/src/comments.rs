@@ -106,28 +106,38 @@ impl CommentRepository<'_> {
         viewer: CommentAuthor,
     ) -> Result<Option<Vec<Comment>>, DatabaseError> {
         let found: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM photos WHERE workspace_id=$1 AND gallery_id=$2 AND id=$3 AND kind='proof' AND clean_ready)"
-        ).bind(location.workspace_id).bind(location.gallery_id).bind(photo).fetch_one(self.pool).await?;
+            "SELECT EXISTS(
+                 SELECT 1 FROM photos
+                 WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3
+                   AND kind = 'proof' AND clean_ready
+             )",
+        )
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .bind(photo)
+        .fetch_one(self.pool)
+        .await?;
 
         if !found {
             return Ok(None);
         }
 
-        Ok(Some(
-            sqlx::query_as(
-                "SELECT id, photo_id, author,
-                CASE WHEN deleted_at IS NOT NULL AND $4 = 'client' THEN NULL ELSE body END AS body,
-                created_at, edited_at, deleted_at
-             FROM photo_comments WHERE workspace_id=$1 AND gallery_id=$2 AND photo_id=$3
+        let comments = sqlx::query_as(
+            "SELECT id, photo_id, author,
+                    CASE WHEN deleted_at IS NOT NULL AND $4 = 'client' THEN NULL ELSE body END AS body,
+                    created_at, edited_at, deleted_at
+             FROM photo_comments
+             WHERE workspace_id = $1 AND gallery_id = $2 AND photo_id = $3
              ORDER BY created_at, id",
-            )
-            .bind(location.workspace_id)
-            .bind(location.gallery_id)
-            .bind(photo)
-            .bind(viewer)
-            .fetch_all(self.pool)
-            .await?,
-        ))
+        )
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .bind(photo)
+        .bind(viewer)
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(Some(comments))
     }
 
     pub async fn counts(
@@ -135,9 +145,12 @@ impl CommentRepository<'_> {
         location: PhotoLocation,
     ) -> Result<Vec<CommentCount>, DatabaseError> {
         let rows: Vec<(PhotoId, i64)> = sqlx::query_as(
-            "SELECT c.photo_id, count(*) FROM photo_comments c JOIN photos p ON p.id=c.photo_id
-             WHERE c.workspace_id=$1 AND c.gallery_id=$2 AND c.deleted_at IS NULL
-               AND p.kind='proof' AND p.clean_ready GROUP BY c.photo_id ORDER BY c.photo_id",
+            "SELECT c.photo_id, count(*)
+             FROM photo_comments AS c JOIN photos AS p ON p.id = c.photo_id
+             WHERE c.workspace_id = $1 AND c.gallery_id = $2 AND c.deleted_at IS NULL
+               AND p.kind = 'proof' AND p.clean_ready
+             GROUP BY c.photo_id
+             ORDER BY c.photo_id",
         )
         .bind(location.workspace_id)
         .bind(location.gallery_id)
@@ -163,9 +176,10 @@ impl CommentRepository<'_> {
         author: CommentAuthor,
     ) -> Result<CommentChange<()>, DatabaseError> {
         let delivered: Option<bool> = sqlx::query_scalar(
-            "SELECT g.delivered_at IS NOT NULL FROM galleries g JOIN photos p ON p.gallery_id=g.id
-             WHERE g.workspace_id=$1 AND g.id=$2 AND p.workspace_id=$1 AND p.id=$3
-               AND p.kind='proof' AND p.clean_ready
+            "SELECT g.delivered_at IS NOT NULL
+             FROM galleries AS g JOIN photos AS p ON p.gallery_id = g.id
+             WHERE g.workspace_id = $1 AND g.id = $2 AND p.workspace_id = $1 AND p.id = $3
+               AND p.kind = 'proof' AND p.clean_ready
              FOR SHARE OF g FOR UPDATE OF p",
         )
         .bind(location.workspace_id)
@@ -199,7 +213,7 @@ impl CommentRepository<'_> {
 
         if author == CommentAuthor::Client {
             let count: i64 =
-                sqlx::query_scalar("SELECT count(*) FROM photo_comments WHERE photo_id=$1")
+                sqlx::query_scalar("SELECT count(*) FROM photo_comments WHERE photo_id = $1")
                     .bind(photo)
                     .fetch_one(&mut *tx)
                     .await?;
@@ -210,9 +224,18 @@ impl CommentRepository<'_> {
         }
 
         let comment = sqlx::query_as(
-            "INSERT INTO photo_comments (workspace_id,gallery_id,photo_id,author,body) VALUES ($1,$2,$3,$4,$5)
-             RETURNING id,photo_id,author,body,created_at,edited_at,deleted_at"
-        ).bind(location.workspace_id).bind(location.gallery_id).bind(photo).bind(author).bind(body.as_str()).fetch_one(&mut *tx).await?;
+            "INSERT INTO photo_comments (workspace_id, gallery_id, photo_id, author, body)
+             VALUES ($1, $2, $3, $4, $5)
+             RETURNING id, photo_id, author, body, created_at, edited_at, deleted_at",
+        )
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .bind(photo)
+        .bind(author)
+        .bind(body.as_str())
+        .fetch_one(&mut *tx)
+        .await?;
+
         tx.commit().await?;
 
         Ok(CommentChange::Applied(comment))
@@ -224,8 +247,18 @@ impl CommentRepository<'_> {
         id: CommentId,
         author: CommentAuthor,
     ) -> Result<Option<PhotoId>, DatabaseError> {
-        Ok(sqlx::query_scalar("SELECT photo_id FROM photo_comments WHERE workspace_id=$1 AND gallery_id=$2 AND id=$3 AND author=$4")
-            .bind(location.workspace_id).bind(location.gallery_id).bind(id).bind(author).fetch_optional(self.pool).await?)
+        let photo = sqlx::query_scalar(
+            "SELECT photo_id FROM photo_comments
+             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4",
+        )
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .bind(id)
+        .bind(author)
+        .fetch_optional(self.pool)
+        .await?;
+
+        Ok(photo)
     }
 
     pub async fn edit(
@@ -238,6 +271,7 @@ impl CommentRepository<'_> {
         let Some(photo) = self.comment_photo(location, id, author).await? else {
             return Ok(CommentChange::NotFound);
         };
+
         let mut tx = self.pool.begin().await?;
 
         match self.writable(&mut tx, location, photo, author).await? {
@@ -247,9 +281,10 @@ impl CommentRepository<'_> {
         }
 
         let comment = sqlx::query_as(
-            "UPDATE photo_comments SET body=$5, edited_at=now()
-             WHERE workspace_id=$1 AND gallery_id=$2 AND id=$3 AND author=$4 AND deleted_at IS NULL
-             RETURNING id,photo_id,author,body,created_at,edited_at,deleted_at",
+            "UPDATE photo_comments SET body = $5, edited_at = now()
+             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4
+               AND deleted_at IS NULL
+             RETURNING id, photo_id, author, body, created_at, edited_at, deleted_at",
         )
         .bind(location.workspace_id)
         .bind(location.gallery_id)
@@ -258,6 +293,7 @@ impl CommentRepository<'_> {
         .bind(body.as_str())
         .fetch_optional(&mut *tx)
         .await?;
+
         tx.commit().await?;
 
         Ok(comment.map_or(CommentChange::NotFound, CommentChange::Applied))
@@ -272,6 +308,7 @@ impl CommentRepository<'_> {
         let Some(photo) = self.comment_photo(location, id, author).await? else {
             return Ok(CommentChange::NotFound);
         };
+
         let mut tx = self.pool.begin().await?;
 
         match self.writable(&mut tx, location, photo, author).await? {
@@ -280,8 +317,17 @@ impl CommentRepository<'_> {
             _ => return Ok(CommentChange::NotFound),
         }
 
-        let changed = sqlx::query("UPDATE photo_comments SET deleted_at=coalesce(deleted_at,now()) WHERE workspace_id=$1 AND gallery_id=$2 AND id=$3 AND author=$4")
-            .bind(location.workspace_id).bind(location.gallery_id).bind(id).bind(author).execute(&mut *tx).await?;
+        let changed = sqlx::query(
+            "UPDATE photo_comments SET deleted_at = coalesce(deleted_at, now())
+             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4",
+        )
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .bind(id)
+        .bind(author)
+        .execute(&mut *tx)
+        .await?;
+
         tx.commit().await?;
 
         Ok(if changed.rows_affected() == 1 {
@@ -332,8 +378,19 @@ mod tests {
             let final_photo = PhotoId::from(Uuid::new_v4());
 
             for (id, kind) in [(proof, "proof"), (final_photo, "final")] {
-                sqlx::query("INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height, kind, status, clean_ready) VALUES ($1,$2,$3,'a.jpg',1,1,1,$4::photo_kind,'ready',true)")
-                    .bind(id).bind(workspace_id).bind(gallery_id).bind(kind).execute(pool).await.unwrap();
+                sqlx::query(
+                    "INSERT INTO photos
+                         (id, workspace_id, gallery_id, original_name, size, width, height,
+                          kind, status, clean_ready)
+                     VALUES ($1, $2, $3, 'a.jpg', 1, 1, 1, $4::photo_kind, 'ready', true)",
+                )
+                .bind(id)
+                .bind(workspace_id)
+                .bind(gallery_id)
+                .bind(kind)
+                .execute(pool)
+                .await
+                .unwrap();
             }
 
             Self {
@@ -503,6 +560,7 @@ mod tests {
         }
 
         let other = Fixture::new(&pool).await;
+
         assert_eq!(
             repo.edit(other.location, client.id, CommentAuthor::Client, &body)
                 .await
@@ -547,6 +605,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+
         assert_eq!(client[0].body, None);
         assert!(client[0].deleted_at.is_some());
         assert_eq!(
@@ -575,6 +634,7 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn deleting_a_photo_removes_its_comments(pool: PgPool) {
         let f = Fixture::new(&pool).await;
+
         f.add(CommentAuthor::Client).await;
         sqlx::query("DELETE FROM photos WHERE id=$1")
             .bind(f.proof)
@@ -598,6 +658,7 @@ mod tests {
         let limit = NonZeroU16::new(3).unwrap();
         let body = "hi".to_owned().try_into().unwrap();
         let comment = f.add(CommentAuthor::Client).await;
+
         assert_eq!(
             repo.delete(f.location, comment.id, CommentAuthor::Client)
                 .await
@@ -655,9 +716,11 @@ mod tests {
     async fn only_a_new_client_comment_notifies(pool: PgPool) {
         let f = Fixture::new(&pool).await;
         let comment = f.add(CommentAuthor::Client).await;
+
         f.add(CommentAuthor::Client).await;
         f.add(CommentAuthor::Photographer).await;
         let repo = f.database.repository::<CommentRepository>();
+
         assert!(matches!(
             repo.edit(
                 f.location,

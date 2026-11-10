@@ -61,6 +61,7 @@ impl FromRequest for CommentAccess {
             let Authenticated(identity) = identity.await?;
             let gallery_id = id.ok_or_else(ErrorResponse::not_found)?;
             let state = state.ok_or_else(ErrorResponse::unavailable)?;
+
             state
                 .database()
                 .repository::<GalleryRepository>()

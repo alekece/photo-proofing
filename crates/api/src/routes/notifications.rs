@@ -107,6 +107,7 @@ mod tests {
         )
         .await;
         let cookie = sign_up(&app).await;
+
         call(
             &app,
             request(test::TestRequest::post(), "/api/v1/galleries", &cookie),
