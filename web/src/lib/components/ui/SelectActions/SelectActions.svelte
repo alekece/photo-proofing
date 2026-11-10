@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import type { Snippet } from 'svelte';
-	import { ListChecks, ListX, X } from '@lucide/svelte';
+	import { X } from '@lucide/svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
+	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
 
 	/**
-	 * The contextual bar of select mode: exit and count on the left; Select all, Unselect all and the
-	 * actions that fit a selection on the right. It sticks to the top of the page while a long gallery
-	 * scrolls.
+	 * The contextual bar of select mode: exit, a tri-state "select all" checkbox and the count on the
+	 * left; the actions that fit a selection on the right. The checkbox is indeterminate while only
+	 * some items are selected; toggling it selects everything or clears the selection. The bar sticks
+	 * to the top of the page while a long gallery scrolls.
 	 */
 	let {
 		count,
@@ -25,11 +27,19 @@
 		onexit: () => void;
 		actions?: Snippet;
 	} = $props();
+
+	const all = $derived(total > 0 && count >= total);
+	const some = $derived(count > 0 && !all);
+
+	function toggle() {
+		if (all) onunselectall();
+		else onselectall();
+	}
 </script>
 
 <div
 	data-slot="select-actions"
-	class="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-md border border-border bg-panel px-2 py-1.5 shadow-sm"
+	class="sticky top-0 z-20 flex flex-wrap items-center gap-2 px-2 py-1.5"
 >
 	<Button
 		variant="ghost"
@@ -38,28 +48,16 @@
 		aria-label={m.selection_exit()}
 		onclick={onexit}><X size={18} aria-hidden="true" /></Button
 	>
+	<Checkbox
+		aria-label={m.action_select_all()}
+		class="size-4"
+		checked={all}
+		indeterminate={some}
+		disabled={total === 0}
+		onchange={toggle}
+	/>
 	<strong class="text-sm font-semibold">{m.notification_selected({ count })}</strong>
 	<div class="ml-auto flex flex-wrap items-center justify-end gap-2">
-		<Button
-			variant="outline"
-			size="sm"
-			class="min-h-9! gap-1.5"
-			disabled={total === 0 || count >= total}
-			onclick={onselectall}
-			><ListChecks size={16} aria-hidden="true" /><span class="max-sm:sr-only"
-				>{m.action_select_all()}</span
-			></Button
-		>
-		<Button
-			variant="outline"
-			size="sm"
-			class="min-h-9! gap-1.5"
-			disabled={count === 0}
-			onclick={onunselectall}
-			><ListX size={16} aria-hidden="true" /><span class="max-sm:sr-only"
-				>{m.action_unselect_all()}</span
-			></Button
-		>
 		{@render actions?.()}
 	</div>
 </div>

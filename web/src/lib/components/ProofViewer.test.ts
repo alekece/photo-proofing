@@ -18,7 +18,7 @@ const proofs: Proof[] = [1, 2, 3].map((n) => ({
 const shown = () => screen.getByRole('img').getAttribute('alt');
 
 describe('ProofViewer', () => {
-	it('keeps comments closed by default, closes them on navigation and Escape first', async () => {
+	it('keeps comments closed by default, open across navigation, and closes them on Escape first', async () => {
 		const user = userEvent.setup();
 		const onclose = vi.fn();
 		render(ProofViewer, {
@@ -37,6 +37,8 @@ describe('ProofViewer', () => {
 		expect(onclose).not.toHaveBeenCalled();
 		await user.click(button);
 		await user.click(screen.getByRole('button', { name: /next/i }));
+		expect(screen.getByText('Thread content')).toBeTruthy();
+		await user.keyboard('{Escape}');
 		expect(screen.queryByText('Thread content')).toBeNull();
 		await user.keyboard('{Escape}');
 		expect(onclose).toHaveBeenCalledOnce();
@@ -76,9 +78,7 @@ describe('ProofViewer', () => {
 			onclose: () => {}
 		});
 		expect(screen.getByText('Favorites:').parentElement?.textContent).toContain('2');
-		expect(screen.getByRole('link', { name: 'Download this photo' }).getAttribute('href')).toBe(
-			'/final/p1'
-		);
+		expect(screen.getByRole('link', { name: 'Download' }).getAttribute('href')).toBe('/final/p1');
 		expect(screen.queryByRole('button', { name: /favorite/i })).toBeNull();
 	});
 

@@ -82,7 +82,7 @@ describe('CommentThread', () => {
 		});
 		await screen.findByText('Nice');
 		await user.click(screen.getByRole('button', { name: 'Edit' }));
-		const input = screen.getByRole('textbox');
+		const input = screen.getByRole('textbox', { name: 'Edit' });
 		await user.clear(input);
 		await user.type(input, 'Changed');
 		await user.click(screen.getByRole('button', { name: 'Save' }));

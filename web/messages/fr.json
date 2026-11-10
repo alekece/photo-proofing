@@ -306,6 +306,8 @@
 	"action_archive": "Archiver",
 	"action_delete": "Supprimer",
 	"action_upload": "Importer",
+	"photos_filter_commented": "Commentées",
+	"photos_filter_commented_empty": "Aucune photo n’a encore de commentaire.",
 	"action_select": "Sélectionner",
 	"action_select_all": "Tout sélectionner",
 	"action_unselect_all": "Tout désélectionner",
