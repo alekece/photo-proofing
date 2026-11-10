@@ -85,7 +85,7 @@ describe('NotificationBell', () => {
 		await userEvent.click(screen.getByRole('button', { name: /Notifications/ }));
 		await userEvent.click(screen.getByRole('button', { name: 'Mark all as read' }));
 
-		expect(screen.getByText('Nothing new.')).toBeTruthy();
+		expect(screen.getByText("You're all caught up")).toBeTruthy();
 		expect(
 			(screen.getByRole('button', { name: 'Mark all as read' }) as HTMLButtonElement).disabled
 		).toBe(true);

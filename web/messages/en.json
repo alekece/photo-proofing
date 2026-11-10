@@ -220,7 +220,8 @@
 		}
 	],
 	"notifications_mark_all_read": "Mark all as read",
-	"notifications_none": "Nothing new.",
+	"notifications_none": "You're all caught up",
+	"notifications_none_hint": "You'll see it here when a client opens, selects or downloads.",
 	"expiry_open_until": "Open until",
 	"filter_status": "Status",
 	"filter_none": "None",
