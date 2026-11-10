@@ -150,13 +150,9 @@
 			bind:value={draft}
 			disabled={pending || loading}
 			rows="3"
-			aria-describedby="{id}-length"
 			class="max-h-40 min-h-20 w-full resize-y rounded-md border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
 		></textarea>
-		<div class="flex flex-wrap items-center justify-between gap-2">
-			<span id="{id}-length" class="text-xs text-panel/75"
-				>{m.comments_length({ count: length })}</span
-			>
+		<div class="flex flex-wrap items-center justify-end gap-2">
 			<div class="flex gap-2">
 				{#if editing}<ViewerButton
 						disabled={pending}

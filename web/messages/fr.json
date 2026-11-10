@@ -32,7 +32,6 @@
 	"comments_send": "Envoyer",
 	"comments_save": "Enregistrer",
 	"comments_saving": "Enregistrement…",
-	"comments_length": "{count}/1000",
 	"comments_delete_question": "Supprimer ce commentaire ?",
 	"comments_delete_confirm": "Supprimer le commentaire",
 	"api_error_thread_full": "La conversation pour cette photo est complète. Contactez votre photographe pour continuer.",
