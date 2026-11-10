@@ -69,10 +69,12 @@
 
 	let closeButton: HTMLButtonElement;
 	let commentsButton = $state<HTMLButtonElement>();
-	let threadOpen = $state(false);
 	const proof = $derived(proofs[index]);
 	const status = $derived(proof.status ?? 'ready');
 	const client = $derived(title !== undefined);
+	// The photographer reads feedback while reviewing, so the thread starts open; the client's starts closed.
+	// svelte-ignore state_referenced_locally
+	let threadOpen = $state(!client && !!thread);
 
 	const go = (to: number) => (index = Math.min(Math.max(to, 0), proofs.length - 1));
 

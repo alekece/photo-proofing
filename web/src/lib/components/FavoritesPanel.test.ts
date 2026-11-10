@@ -46,7 +46,6 @@ it('opens the photographer thread from a favorite photo', async () => {
 	);
 	render(Harness, { props: { events } });
 	await user.click(await screen.findByRole('button', { name: 'Open p1.jpg' }));
-	await user.click(screen.getByRole('button', { name: 'Comments' }));
 	expect(await screen.findByText('Favorite note')).toBeTruthy();
 	expect(screen.getByRole('textbox').getAttribute('id')).toBeTruthy();
 });

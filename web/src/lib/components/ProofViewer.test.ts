@@ -18,7 +18,7 @@ const proofs: Proof[] = [1, 2, 3].map((n) => ({
 const shown = () => screen.getByRole('img').getAttribute('alt');
 
 describe('ProofViewer', () => {
-	it('keeps comments closed by default, open across navigation, and closes them on Escape first', async () => {
+	it('opens the photographer thread by default, keeps it across navigation, and closes it on Escape first', async () => {
 		const user = userEvent.setup();
 		const onclose = vi.fn();
 		render(ProofViewer, {
@@ -27,23 +27,35 @@ describe('ProofViewer', () => {
 			commentCount: () => 2,
 			thread: createRawSnippet(() => ({ render: () => '<p>Thread content</p>' }))
 		});
-		expect(screen.queryByText('Thread content')).toBeNull();
 		const button = screen.getByRole('button', { name: /comments/i });
-		expect(button.textContent).toContain('2');
-		await user.click(button);
+
 		expect(screen.getByText('Thread content')).toBeTruthy();
 		expect(button.textContent).toContain('Hide comments');
-		await user.keyboard('{Escape}');
-		expect(screen.queryByText('Thread content')).toBeNull();
-		expect(button.textContent).not.toContain('Hide comments');
-		expect(onclose).not.toHaveBeenCalled();
-		await user.click(button);
 		await user.click(screen.getByRole('button', { name: /next/i }));
 		expect(screen.getByText('Thread content')).toBeTruthy();
 		await user.keyboard('{Escape}');
 		expect(screen.queryByText('Thread content')).toBeNull();
+		expect(onclose).not.toHaveBeenCalled();
+		await user.click(button);
+		expect(screen.getByText('Thread content')).toBeTruthy();
+		await user.keyboard('{Escape}');
 		await user.keyboard('{Escape}');
 		expect(onclose).toHaveBeenCalledOnce();
+	});
+
+	it('keeps the client thread closed until asked for', async () => {
+		const user = userEvent.setup();
+		render(ProofViewer, {
+			proofs,
+			title: 'Wedding',
+			onclose: () => {},
+			commentCount: () => 2,
+			thread: createRawSnippet(() => ({ render: () => '<p>Thread content</p>' }))
+		});
+
+		expect(screen.queryByText('Thread content')).toBeNull();
+		await user.click(screen.getByRole('button', { name: /comments/i }));
+		expect(screen.getByText('Thread content')).toBeTruthy();
 	});
 
 	it('has no comments control when no thread is provided', () => {
