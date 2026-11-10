@@ -41,11 +41,13 @@
 	</ButtonFace>
 	<ButtonFace shown={status === 'saved'}>
 		{#snippet icon()}
-			<Check size={16} strokeWidth={2.8} class="text-ok-on-dark" aria-hidden="true" />
+			<span class="relative inline-grid">
+				<Check size={16} strokeWidth={2.8} class="text-ok-on-dark" aria-hidden="true" />
+				{#if status === 'saved'}<ClickRipple class="text-ok-on-dark" />{/if}
+			</span>
 		{/snippet}
 		{m.studio_saved()}
 	</ButtonFace>
-	{#if status === 'saved'}<ClickRipple class="rounded-[inherit] text-ok-on-dark" />{/if}
 </Button>
 <span role="status" class="sr-only">
 	{status === 'saving' ? m.studio_saving() : status === 'saved' ? m.studio_saved() : ''}

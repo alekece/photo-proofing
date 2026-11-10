@@ -51,9 +51,9 @@ export class NotificationCenter {
 		this.#fetcher = fetcher;
 	}
 
-	/** The unread notification of a gallery, if any. */
-	unreadFor(galleryId: string): Notification | undefined {
-		return this.items.find((item) => item.gallery_id === galleryId && item.read_at === null);
+	/** Every unread notification of a gallery, newest first as the server lists them. */
+	unreadFor(galleryId: string): Notification[] {
+		return this.items.filter((item) => item.gallery_id === galleryId && item.read_at === null);
 	}
 
 	async refresh(): Promise<void> {

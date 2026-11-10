@@ -26,7 +26,7 @@ describe('DatePicker', () => {
 
 		await rerender({ value: '2026-06-14' });
 
-		expect(screen.getByRole('button').textContent).toContain('June 14, 2026');
+		expect(screen.getByRole('button').textContent).toContain('Jun 14, 2026');
 	});
 
 	it('keeps the date and closes when the picked day is clicked again', async () => {
@@ -39,7 +39,7 @@ describe('DatePicker', () => {
 
 		expect(onchange).not.toHaveBeenCalled();
 		expect(screen.queryByRole('grid')).toBeNull();
-		expect(screen.getByRole('button').textContent).toContain('June 14, 2026');
+		expect(screen.getByRole('button').textContent).toContain('Jun 14, 2026');
 	});
 
 	it('emits the picked day as YYYY-MM-DD and closes', async () => {
@@ -74,7 +74,7 @@ describe('DatePicker', () => {
 		const onchange = vi.fn();
 		render(DatePicker, { id: 'when', value: '2026-06-14', clearable: true, onchange });
 
-		await user.click(screen.getByRole('button', { name: /june 14/i }));
+		await user.click(screen.getByRole('button', { name: /jun 14/i }));
 		await user.click(screen.getByRole('button', { name: 'Clear' }));
 
 		expect(onchange).toHaveBeenCalledWith(null);

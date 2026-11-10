@@ -8,13 +8,13 @@
 	let {
 		gallery,
 		query = '',
-		news
+		news = []
 	}: {
 		gallery: GalleryOverview;
 		/** The search text to highlight in the title. */
 		query?: string;
-		/** "New selection" or "New downloads" while the gallery has unread activity. */
-		news?: string;
+		/** One badge per kind of unread activity, e.g. "New selection" and "New downloads". */
+		news?: string[];
 	} = $props();
 
 	let status = $derived(galleryStatus(gallery.states));
@@ -47,11 +47,15 @@
 			class="absolute top-2 right-2 px-2 py-[3px] text-[0.65625rem] sm:top-3 sm:right-3 sm:px-2.5 sm:py-1 sm:text-xs"
 		/>
 		<div class="absolute inset-x-0 bottom-0 px-3 py-2.5 sm:px-[1.125rem] sm:py-4">
-			{#if news}
-				<span
-					class="mb-2 inline-block rounded-full bg-danger px-[9px] py-[3px] text-[0.6875rem] font-bold tracking-[0.02em] text-inverse"
-					>{news}</span
-				>
+			{#if news.length > 0}
+				<div class="mb-2 flex flex-wrap gap-1.5">
+					{#each news as badge (badge)}
+						<span
+							class="inline-block rounded-full bg-danger px-[9px] py-[3px] text-[0.6875rem] font-bold tracking-[0.02em] text-inverse"
+							>{badge}</span
+						>
+					{/each}
+				</div>
 			{/if}
 			<h2
 				class="mb-1.5 font-serif text-[1.0625rem] leading-[1.1] sm:text-[1.4375rem] {gallery.title ===

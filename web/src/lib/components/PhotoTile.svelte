@@ -38,6 +38,7 @@
 	import { Download, Heart, LoaderCircle, RotateCw, Star, X } from '@lucide/svelte';
 	import { formatDateTime } from '#lib/gallery/format.js';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
+	import ClickRipple from './ClickRipple.svelte';
 	import CommentBadge from './CommentBadge.svelte';
 
 	let {
@@ -109,6 +110,7 @@
 		}
 	};
 
+	let rippling = $state(false);
 	let loaded = $state(false);
 	const fade = $derived(loaded ? 'animate-tile-in' : 'opacity-0');
 
@@ -214,12 +216,18 @@
 	{/if}
 
 	{#if onselect}
-		<Checkbox
-			class="absolute top-2 left-2 z-10 size-6 cursor-pointer appearance-none rounded-full border-2 border-panel bg-foreground/25 bg-center bg-no-repeat shadow-[0_1px_4px_rgb(0_0_0/0.3)] transition-colors checked:bg-panel checked:bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23201a16%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%2F%3E%3C%2Fsvg%3E')] checked:bg-[length:70%]"
-			aria-label={m.tile_select({ name })}
-			checked={selected}
-			onchange={onselect}
-		/>
+		<span class="absolute top-3 left-3 z-10 grid size-6 text-panel">
+			<Checkbox
+				class="size-6 cursor-pointer appearance-none rounded-full border-2 border-panel bg-foreground/25 bg-center bg-no-repeat shadow-[0_1px_4px_rgb(0_0_0/0.3)] transition-colors checked:bg-panel checked:bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23201a16%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%2F%3E%3C%2Fsvg%3E')] checked:bg-[length:70%]"
+				aria-label={m.tile_select({ name })}
+				checked={selected}
+				onchange={() => {
+					rippling = !selected;
+					onselect();
+				}}
+			/>
+			{#if rippling && selected}<ClickRipple onend={() => (rippling = false)} />{/if}
+		</span>
 	{:else}
 		{#if (status === 'ready' || (cleanReady && thumbnailUrl)) && onhero}
 			<button

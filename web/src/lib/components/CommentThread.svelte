@@ -3,7 +3,7 @@
 	import type { CommentsClient } from '#lib/gallery/comments.js';
 	import type { Comment } from '#lib/gallery/schemas.js';
 	import { formatDateTime } from '#lib/gallery/format.js';
-	import { Pencil, Trash2 } from '@lucide/svelte';
+	import { Check, Pencil, Trash2, X } from '@lucide/svelte';
 	import ConfirmDialog from './ui/ConfirmDialog/ConfirmDialog.svelte';
 	import ViewerButton from './ViewerButton.svelte';
 
@@ -24,6 +24,9 @@
 	const id = $props.id();
 	let comments = $state<Comment[]>([]);
 	let loading = $state(true);
+	// The first answer is what the placeholder waits for; later photos keep the thread in place.
+	let loaded = $state(false);
+	let threadPhoto: string | undefined;
 	let pending = $state(false);
 	let error = $state('');
 	let draft = $state('');
@@ -37,6 +40,14 @@
 		const current = photoId;
 		void refresh;
 		let active = true;
+
+		if (current !== threadPhoto) {
+			threadPhoto = current;
+			editing = null;
+			deleting = null;
+			draft = '';
+		}
+
 		loading = true;
 		client
 			.thread(current)
@@ -50,7 +61,9 @@
 				if (active) error = cause instanceof Error ? cause.message : m.api_error_generic();
 			})
 			.finally(() => {
-				if (active) loading = false;
+				if (!active) return;
+				loading = false;
+				loaded = true;
 			});
 		return () => {
 			active = false;
@@ -87,6 +100,9 @@
 			editing = null;
 		});
 
+	const swap =
+		'col-start-1 row-start-1 flex gap-0.5 transition-[opacity,scale] duration-200 motion-reduce:transition-none';
+	const hidden = 'pointer-events-none scale-75 opacity-0';
 	const iconButton =
 		'inline-grid size-7 cursor-pointer place-items-center rounded-full text-panel/75 transition-colors hover:bg-white/14 hover:text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-30';
 
@@ -101,10 +117,13 @@
 <section class="flex h-full min-h-0 flex-col gap-4 text-panel" aria-label={m.comments_title()}>
 	<h2 class="font-serif text-xl">{m.comments_title()}</h2>
 	<div
-		class="min-h-0 flex-1 [scrollbar-width:none] overflow-y-auto overscroll-contain [&::-webkit-scrollbar]:hidden"
+		class="min-h-0 flex-1 [scrollbar-width:none] overflow-y-auto overscroll-contain transition-opacity delay-150 duration-200 [&::-webkit-scrollbar]:hidden {loading &&
+		loaded
+			? 'opacity-50'
+			: ''}"
 	>
-		{#if loading}<p role="status" class="text-sm text-panel/75">{m.comments_loading()}</p>{/if}
-		{#if !loading && comments.length === 0}<p class="text-sm text-panel/75">
+		{#if !loaded}<p role="status" class="text-sm text-panel/75">{m.comments_loading()}</p>{/if}
+		{#if loaded && !loading && comments.length === 0}<p class="text-sm text-panel/75">
 				{m.comments_empty()}
 			</p>{/if}
 		<ol class="space-y-5">
@@ -123,6 +142,7 @@
 					</div>
 					{#if editing === comment.id}
 						<form
+							id="{id}-edit"
 							class="grid gap-2"
 							onsubmit={(event) => {
 								event.preventDefault();
@@ -136,17 +156,6 @@
 								rows="3"
 								class="max-h-40 min-h-20 w-full resize-none rounded-md border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
 							></textarea>
-							<div class="flex justify-end gap-2">
-								<ViewerButton disabled={pending} onclick={() => (editing = null)}
-									>{m.common_cancel()}</ViewerButton
-								>
-								<ViewerButton
-									type="submit"
-									disabled={pending || !editValid}
-									class="bg-panel text-foreground hover:bg-panel/90"
-									>{pending ? m.comments_saving() : m.comments_save()}</ViewerButton
-								>
-							</div>
 						</form>
 					{:else}
 						<p
@@ -156,9 +165,18 @@
 						>
 							{comment.body ?? m.comments_deleted()}
 						</p>
-						{#if comment.author === viewer && !comment.deleted_at}
+					{/if}
+					{#if comment.author === viewer && !comment.deleted_at}
+						{@const isEditing = editing === comment.id}
+						<div
+							class="absolute top-0 right-0 grid [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100 {isEditing
+								? 'opacity-100!'
+								: ''}"
+						>
 							<div
-								class="absolute top-0 right-0 flex gap-0.5 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100"
+								class="{swap} {isEditing ? hidden : ''}"
+								aria-hidden={isEditing}
+								inert={isEditing}
 							>
 								<button
 									type="button"
@@ -179,7 +197,28 @@
 									><Trash2 size={14} aria-hidden="true" /></button
 								>
 							</div>
-						{/if}
+							<div
+								class="{swap} {isEditing ? '' : hidden}"
+								aria-hidden={!isEditing}
+								inert={!isEditing}
+							>
+								<button
+									type="button"
+									disabled={pending}
+									aria-label={m.common_cancel()}
+									class={iconButton}
+									onclick={() => (editing = null)}><X size={14} aria-hidden="true" /></button
+								>
+								<button
+									type="submit"
+									form="{id}-edit"
+									disabled={pending || !editValid}
+									aria-label={m.comments_save()}
+									class="{iconButton} hover:text-ok-on-dark"
+									><Check size={14} aria-hidden="true" /></button
+								>
+							</div>
+						</div>
 					{/if}
 				</li>
 			{/each}
@@ -199,7 +238,7 @@
 		<textarea
 			id="{id}-body"
 			bind:value={draft}
-			disabled={pending || loading}
+			disabled={pending || !loaded}
 			rows="3"
 			class="max-h-40 min-h-20 w-full resize-none rounded-md border border-panel/30 bg-dark p-3 text-base text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-50"
 		></textarea>
@@ -207,7 +246,7 @@
 			<div class="flex gap-2">
 				<ViewerButton
 					type="submit"
-					disabled={pending || loading || !valid}
+					disabled={pending || !loaded || !valid}
 					class="bg-panel text-foreground hover:bg-panel/90"
 					>{pending && !editing ? m.comments_saving() : m.comments_send()}</ViewerButton
 				>

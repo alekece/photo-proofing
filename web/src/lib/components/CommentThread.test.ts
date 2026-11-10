@@ -92,6 +92,53 @@ describe('CommentThread', () => {
 		expect(await screen.findByText('Comment deleted')).toBeTruthy();
 	});
 
+	it('swaps edit and delete for cancel and save while editing', async () => {
+		const user = userEvent.setup();
+		const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json([comment]));
+		render(CommentThread, {
+			client: new CommentsClient('/base', fetcher),
+			photoId: 'p1',
+			viewer: 'client'
+		});
+		await screen.findByText('Nice');
+
+		expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+
+		await user.click(screen.getByRole('button', { name: 'Edit' }));
+
+		expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+		expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy();
+		expect(screen.queryByRole('textbox', { name: 'Edit' })).toBeNull();
+	});
+
+	it('keeps the thread in place, without a loading placeholder, when the photo changes', async () => {
+		const answer = Promise.withResolvers<Response>();
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(Response.json([comment]))
+			.mockReturnValueOnce(answer.promise);
+		const view = render(CommentThread, {
+			client: new CommentsClient('/base', fetcher),
+			photoId: 'p1',
+			viewer: 'client'
+		});
+		await screen.findByText('Nice');
+		await view.rerender({ photoId: 'p2' });
+
+		expect(screen.queryByRole('status')).toBeNull();
+		expect(screen.getByText('Nice')).toBeTruthy();
+
+		answer.resolve(Response.json([{ ...comment, id: 'c9', photo_id: 'p2', body: 'Other' }]));
+
+		expect(await screen.findByText('Other')).toBeTruthy();
+		expect(screen.queryByText('Nice')).toBeNull();
+	});
+
 	it('shows load and write errors without discarding the draft', async () => {
 		const user = userEvent.setup();
 		const fetcher = vi

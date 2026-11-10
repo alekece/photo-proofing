@@ -60,8 +60,8 @@ describe('NotificationCenter.markGalleryRead', () => {
 
 		const marking = center.markGalleryRead('g1');
 
-		expect(center.unreadFor('g1')).toBeUndefined();
-		expect(center.unreadFor('g2')).toBeDefined();
+		expect(center.unreadFor('g1')).toEqual([]);
+		expect(center.unreadFor('g2')).toHaveLength(1);
 		expect(center.unread).toBe(1);
 
 		answer();

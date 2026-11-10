@@ -32,8 +32,10 @@ describe('ProofViewer', () => {
 		expect(button.textContent).toContain('2');
 		await user.click(button);
 		expect(screen.getByText('Thread content')).toBeTruthy();
+		expect(button.textContent).toContain('Hide comments');
 		await user.keyboard('{Escape}');
 		expect(screen.queryByText('Thread content')).toBeNull();
+		expect(button.textContent).not.toContain('Hide comments');
 		expect(onclose).not.toHaveBeenCalled();
 		await user.click(button);
 		await user.click(screen.getByRole('button', { name: /next/i }));
