@@ -82,7 +82,6 @@ async fn add(
     path: Path<PhotoPath>,
     input: Json<CommentInput>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    access.pace(&state)?;
     let comment = state
         .database()
         .repository::<CommentRepository>()
@@ -111,7 +110,6 @@ async fn edit(
     path: Path<CommentPath>,
     input: Json<CommentInput>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    access.pace(&state)?;
     let comment = state
         .database()
         .repository::<CommentRepository>()
@@ -130,8 +128,6 @@ async fn remove(
     access: CommentAccess,
     path: Path<CommentPath>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    access.pace(&state)?;
-
     let change = state
         .database()
         .repository::<CommentRepository>()

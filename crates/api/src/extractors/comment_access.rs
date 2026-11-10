@@ -1,6 +1,6 @@
 use std::{future::Future, pin::Pin};
 
-use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
+use actix_web::{FromRequest, HttpRequest, dev::Payload, http::Method, web::Data};
 use pp_database::{
     comments::CommentAuthor,
     gallery::{GalleryId, GalleryRepository},
@@ -15,20 +15,11 @@ use crate::{
 };
 
 /// The comment thread scope of a request: a client under a share link, or the photographer
-/// under their gallery. The author comes from the credentials, never from the input.
+/// under their gallery. The author comes from the credentials, never from the input. Client
+/// writes are paced per gallery before the handler runs.
 pub(crate) struct CommentAccess {
-    pub location: PhotoLocation,
-    pub author: CommentAuthor,
-}
-
-impl CommentAccess {
-    pub(crate) fn pace(&self, state: &ApiState) -> Result<(), ErrorResponse> {
-        if self.author == CommentAuthor::Client {
-            state.pace_comments(self.location.gallery_id)?;
-        }
-
-        Ok(())
-    }
+    pub(crate) location: PhotoLocation,
+    pub(crate) author: CommentAuthor,
 }
 
 impl FromRequest for CommentAccess {
@@ -38,12 +29,21 @@ impl FromRequest for CommentAccess {
     fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
         if request.match_info().get("token").is_some() {
             let access = ClientAccess::from_request(request, payload);
+            let state = request.app_data::<Data<ApiState>>().cloned();
+            let writes = request.method() != Method::GET;
 
             return Box::pin(async move {
                 let access = access.await?;
+                let location = access.open_for_comments()?;
+
+                if writes {
+                    let state = state.ok_or_else(ErrorResponse::unavailable)?;
+
+                    state.pace_comments(location.gallery_id)?;
+                }
 
                 Ok(Self {
-                    location: access.open_for_comments()?,
+                    location,
                     author: CommentAuthor::Client,
                 })
             });
