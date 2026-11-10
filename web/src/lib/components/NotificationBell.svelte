@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { Bell } from '@lucide/svelte';
+	import { Bell, BellOff } from '@lucide/svelte';
 	import Popover from '#lib/components/ui/Popover/Popover.svelte';
 	import { previewUrl } from '#lib/gallery/photos.js';
 	import {
@@ -49,7 +49,14 @@
 		>
 	</div>
 	{#if unread.length === 0}
-		<p class="px-3 pb-3 text-sm text-muted-foreground">{m.notifications_none()}</p>
+		<div class="flex flex-col items-center gap-1 px-6 pt-4 pb-6 text-center">
+			<span
+				class="mb-2 grid size-12 place-items-center rounded-full bg-border/60 text-muted-foreground"
+				><BellOff size={22} aria-hidden="true" /></span
+			>
+			<p class="text-sm font-semibold">{m.notifications_none()}</p>
+			<p class="text-xs text-muted-foreground">{m.notifications_none_hint()}</p>
+		</div>
 	{:else}
 		<ul class="max-h-96 overflow-y-auto">
 			{#each unread as item (item.id)}
