@@ -188,7 +188,7 @@
 			: 'grid-rows-[60px_1fr_44px] max-[700px]:grid-rows-[56px_1fr_20px]',
 		className,
 		threadOpen &&
-			'max-[700px]:grid-rows-[56px_minmax(0,1fr)_minmax(0,45dvh)_104px] min-[701px]:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]'
+			'comments-open max-[700px]:grid-rows-[56px_minmax(0,1fr)_minmax(0,45dvh)_104px] min-[701px]:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]'
 	)}
 >
 	{#snippet children(close)}
@@ -239,7 +239,7 @@
 			</button>
 		</div>
 		<div
-			class="relative flex min-h-0 items-center justify-center overflow-hidden px-[84px] max-[700px]:px-0"
+			class="photo-stage relative flex min-h-0 items-center justify-center overflow-hidden px-[84px] max-[700px]:px-0"
 		>
 			{#if status === 'ready'}
 				{#key proof.id}
@@ -314,7 +314,7 @@
 				{#key proof.id}{@render thread(proof)}{/key}
 			</aside>
 		{/if}
-		<div class="flex items-center justify-center gap-3">
+		<div class="viewer-footer flex items-center justify-center gap-3">
 			{#if client && !wide.current && status === 'ready'}
 				{#if proof.downloadUrl}
 					<a
@@ -331,3 +331,32 @@
 		</div>
 	{/snippet}
 </Dialog>
+
+<style>
+	@media (min-width: 560px) and (max-width: 700px) and (max-height: 500px) {
+		:global(dialog.comments-open) {
+			grid-template-columns: minmax(0, 1fr) minmax(280px, 45%);
+			grid-template-rows: 56px minmax(0, 1fr);
+		}
+
+		:global(dialog.comments-open) .photo-stage {
+			padding-inline: 24px;
+		}
+
+		:global(dialog.comments-open) img {
+			max-width: calc(55vw - 48px);
+			max-height: calc(100dvh - 100px);
+		}
+
+		:global(dialog.comments-open) aside {
+			grid-column: 2;
+			grid-row: 2;
+			border-top: 0;
+			border-left: 1px solid rgb(255 255 255 / 20%);
+		}
+
+		:global(dialog.comments-open) .viewer-footer {
+			display: none;
+		}
+	}
+</style>

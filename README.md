@@ -266,6 +266,13 @@ PP_E2E_URL=http://localhost:15163 pnpm --dir web test:auth
 
 Use a fresh disposable database to exercise initial setup; reruns verify its persisted `trial@example.test` account with synthetic test credentials. The harness does not reset databases. For the short-idle scenario, start the API with `PP_SESSION_IDLE_TIMEOUT=10s` and run with `PP_E2E_IDLE_MS=10000`; otherwise that scenario is explicitly skipped. `PP_BROWSER_PATH` selects a Chrome/Chromium binary. Browser artifacts go to `/tmp/pp63-playwright-results` by default, override with `PP_E2E_OUTPUT`. Unit/component tests do not substitute for this browser/API/database check. Compose proxy and persistence checks are additional integration evidence, not automatic release acceptance.
 
+For a Rust build-output reset, use `cargo clean`. The photo-comment layout regression runs against a disposable shared gallery containing at least
+one ready proof, in English. It checks desktop, portrait phone and short landscape viewports:
+
+```sh
+PP_E2E_URL=http://localhost:15163 PP_E2E_COMMENTS_TOKEN=<disposable-share-token> pnpm --dir web exec playwright test e2e/comments.spec.ts
+```
+
 For a Rust build-output reset, use `cargo clean`. Frontend generated state lives under `web/node_modules`, `web/.svelte-kit`, and `web/build`; reinstall dependencies after removing dependency state. Do not confuse resetting build outputs with deleting persistent database or photo data.
 
 ## Contributing

@@ -30,6 +30,8 @@ it on phones, without covering the image. It starts closed; toggling the button,
 or changing photos closes it. Escape closes the thread before the viewer. The photographer can
 reply and edit/delete her own replies; deleted messages retain their text, struck through.
 New client comments refresh an open thread without clearing a draft. Finals have no comments.
+Short landscape phones use the side panel too; while it is open, the bottom favorite action is
+hidden so the photo and composer both fit. Closing comments restores that action.
 
 ![Hero toggle motion](gallery/hero-motion.gif)
 ![Hero toggle frames](gallery/hero-motion.frames.png)

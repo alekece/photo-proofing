@@ -65,3 +65,5 @@ Dark full screen, like the photographer's [viewer](viewer.md).
   plain text (1–1000 characters), edit client messages, or delete them after confirmation.
   Deleted messages show a placeholder. Replies appear on reopening the thread or reloading,
   without email or live notifications. Delivered galleries and read-only Preview omit comments.
+  Short landscape phones use the side panel instead, temporarily hiding the bottom favorite action
+  while comments are open to keep the image and composer usable.
