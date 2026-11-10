@@ -16,7 +16,12 @@ vi.mock('#lib/components/PhotosPanel.svelte', async () => ({
 vi.mock('#lib/components/FavoritesPanel.svelte', async () => ({
 	default: (await import('#lib/components/FavoritesPanelStub.test.svelte')).default
 }));
+vi.mock('#lib/gallery/notifications.svelte.js', async (importOriginal) => ({
+	...(await importOriginal<object>()),
+	getNotifications: vi.fn()
+}));
 import { goto } from '$app/navigation';
+import { getNotifications, NotificationCenter } from '#lib/gallery/notifications.svelte.js';
 import type { Gallery } from '#lib/gallery/api.js';
 import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import GalleryPage from './+page.svelte';
@@ -80,6 +85,26 @@ afterEach(() => {
 });
 
 describe('gallery page', () => {
+	it('marks the gallery notifications read on open and when moving to another gallery', async () => {
+		vi.stubGlobal('fetch', async () => Response.json({ notifications: [], unread: 0 }));
+		const center = new NotificationCenter();
+		const markGalleryRead = vi.spyOn(center, 'markGalleryRead');
+		vi.mocked(getNotifications).mockReturnValue(center);
+
+		const view = open();
+
+		await waitFor(() => expect(markGalleryRead).toHaveBeenCalledWith('g1'));
+
+		await center.refresh();
+		await view.rerender({
+			data: { gallery: { ...base, id: 'g2' }, idleTimeoutMs: 2592000000 } as never
+		});
+
+		await waitFor(() => expect(markGalleryRead).toHaveBeenCalledWith('g2'));
+		expect(markGalleryRead).toHaveBeenCalledTimes(2);
+		vi.mocked(getNotifications).mockReset();
+	});
+
 	it('links back to the galleries', () => {
 		open();
 
@@ -430,7 +455,7 @@ describe('gallery page', () => {
 		it('shows the title and the draft status', () => {
 			open();
 			expect(screen.getByText('Draft')).toBeTruthy();
-			expect(screen.getByText(/created /)).toBeTruthy();
+			expect(screen.getByText('Created')).toBeTruthy();
 			expect(screen.getByLabelText('Gallery title')).toBeTruthy();
 		});
 

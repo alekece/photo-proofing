@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { ArrowLeft } from '@lucide/svelte';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -31,6 +31,7 @@
 		type GalleryChanges
 	} from '#lib/gallery/api.js';
 	import { goingToRetry } from '#lib/gallery/focus.js';
+	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
 	import { TITLE_MAX } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
 
@@ -38,6 +39,14 @@
 
 	let { data }: { data: PageData } = $props();
 	const queue = getUploadQueue();
+	const notifications = getNotifications();
+
+	// Keyed on the id only: the center's own state must not re-run this after its refresh.
+	$effect(() => {
+		const id = data.gallery.id;
+
+		untrack(() => void notifications?.markGalleryRead(id));
+	});
 	// svelte-ignore state_referenced_locally
 	let saved = $state(data.gallery);
 	// svelte-ignore state_referenced_locally
