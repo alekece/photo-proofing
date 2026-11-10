@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import PhotoTile from './PhotoTile.svelte';
@@ -183,5 +183,73 @@ describe('PhotoTile upload states', () => {
 
 		expect(screen.getByText('Upload failed').className).toContain('font-semibold');
 		expect(container.querySelector('.bar')).toBeNull();
+	});
+});
+
+describe('PhotoTile loading polish', () => {
+	it('shimmers while a photo is not ready yet', () => {
+		const { container } = render(PhotoTile, { name: 'a.jpg', state: 'uploading' });
+
+		expect(container.querySelector('.animate-shimmer')).not.toBeNull();
+	});
+
+	it('fades the image in once it has loaded', async () => {
+		render(PhotoTile, base);
+		const image = screen.getByRole('img', { name: 'a.jpg' });
+
+		expect(image.className).toContain('opacity-0');
+
+		await fireEvent.load(image);
+
+		expect(image.className).not.toContain('opacity-0');
+		expect(image.className).toContain('animate-tile-in');
+	});
+
+	it('shows reprocessing like an upload: the label above the bar, over the old image', () => {
+		const { container } = render(PhotoTile, { ...base, state: 'processing', cleanReady: true });
+		const text = screen.getByText('Processing');
+		const bar = container.querySelector('.bar')!.parentElement!;
+
+		expect(screen.getByRole('img', { name: 'a.jpg' })).toBeTruthy();
+		expect(text.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(container.querySelector('.bg-panel\\/95')).toBeNull();
+	});
+
+	it('keeps Retry when reprocessing fails', async () => {
+		const onretry = vi.fn();
+		const { container } = render(PhotoTile, {
+			...base,
+			state: 'process-failed',
+			cleanReady: true,
+			onretry
+		});
+
+		await userEvent.click(screen.getByRole('button', { name: 'Retry a.jpg' }));
+
+		expect(onretry).toHaveBeenCalledOnce();
+		expect(container.querySelector('.bar')).toBeNull();
+	});
+
+	it.each([
+		['favorited', 'text-danger'],
+		['downloaded', 'text-ok-on-dark']
+	] as const)('draws the %s caption icon at 16 px in %s', (kind, color) => {
+		const { container } = render(PhotoTile, {
+			...base,
+			caption: { kind, at: '2026-11-09T12:00:00Z' }
+		});
+		const icon = container.querySelector('p svg')!;
+
+		expect(icon.getAttribute('width')).toBe('16');
+		expect(icon.getAttribute('class')).toContain(color);
+	});
+
+	it('shows a thumbnail that failed to load instead of hiding it', async () => {
+		render(PhotoTile, base);
+		const img = screen.getByRole('img');
+
+		await fireEvent.error(img);
+
+		expect(img.className).not.toContain('opacity-0');
 	});
 });

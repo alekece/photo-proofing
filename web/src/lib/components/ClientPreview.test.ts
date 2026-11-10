@@ -62,6 +62,36 @@ const stub = (photos: unknown[]) => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ClientPreview', () => {
+	it('shows a delivered gallery with its finals only, as the client sees it', async () => {
+		const fetcher = vi.fn<typeof fetch>(async (url) => {
+			const path = String(url);
+
+			if (path === '/api/v1/settings') return stub([]).getMockImplementation()!(url);
+			if (path.endsWith('?finals=true')) return Response.json([photo('f1'), photo('f2')]);
+
+			return Response.json([photo('a'), photo('b'), photo('c')]);
+		});
+		vi.stubGlobal('fetch', fetcher);
+		render(ClientPreview, {
+			gallery: { ...gallery, states: ['shared', 'delivered'], hero_id: 'a' },
+			onclose: () => {}
+		});
+
+		await screen.findAllByRole('button', { name: /download/i });
+		const thumbnails = screen
+			.getAllByRole('img')
+			.filter((image) => image.getAttribute('alt') !== 'Gallery cover');
+
+		expect(thumbnails.map((image) => image.getAttribute('src'))).toEqual([
+			'/api/v1/galleries/g1/photos/f1/thumbnail?finals=true',
+			'/api/v1/galleries/g1/photos/f2/thumbnail?finals=true'
+		]);
+		expect(screen.getByRole('img', { name: 'Gallery cover' }).getAttribute('src')).toBe(
+			'/api/v1/galleries/g1/photos/a/preview'
+		);
+		expect(fetcher.mock.calls.some(([url]) => String(url).includes('?watermark='))).toBe(false);
+	});
+
 	it('refreshes mounted client media when the gallery switch changes', async () => {
 		const fetcher = stub([photo('a')]);
 		const onclose = () => {};

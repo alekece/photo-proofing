@@ -2,7 +2,7 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
-	import Input from '#lib/components/ui/Input/Input.svelte';
+	import DatePicker from '#lib/components/ui/DatePicker/DatePicker.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
 	import { endOfLocalDay, formatShortDate, toLocalDate } from '#lib/gallery/format.js';
 
@@ -25,9 +25,8 @@
 	let day = $state('');
 	let error = $state('');
 	let pending = $state(false);
-	let input = $state<HTMLInputElement | null>(null);
 
-	$effect(() => input?.focus());
+	$effect(() => document.getElementById(`${id}-day`)?.focus());
 
 	async function save(value: string | null, close: () => void) {
 		if (pending) return;
@@ -73,13 +72,11 @@
 			</div>
 			<div class="grid gap-1.5">
 				<Label for="{id}-day" class="text-muted-foreground">{m.expiry_open_until()}</Label>
-				<Input
+				<DatePicker
 					id="{id}-day"
-					type="date"
 					min={today}
-					bind:ref={input}
-					bind:value={day}
-					aria-invalid={error ? true : undefined}
+					value={day || null}
+					onchange={(picked) => (day = picked ?? '')}
 					aria-describedby={error ? `${id}-error` : undefined}
 				/>
 				{#if error}<p id="{id}-error" role="alert" class="text-sm text-danger">{error}</p>{/if}

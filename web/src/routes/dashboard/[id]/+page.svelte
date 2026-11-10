@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { ArrowLeft } from '@lucide/svelte';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -31,6 +31,7 @@
 		type GalleryChanges
 	} from '#lib/gallery/api.js';
 	import { goingToRetry } from '#lib/gallery/focus.js';
+	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
 	import { TITLE_MAX } from '#lib/gallery/format.js';
 	import type { PageData } from './$types';
 
@@ -38,6 +39,14 @@
 
 	let { data }: { data: PageData } = $props();
 	const queue = getUploadQueue();
+	const notifications = getNotifications();
+
+	// Keyed on the id only: the center's own state must not re-run this after its refresh.
+	$effect(() => {
+		const id = data.gallery.id;
+
+		untrack(() => void notifications?.markGalleryRead(id));
+	});
 	// svelte-ignore state_referenced_locally
 	let saved = $state(data.gallery);
 	// svelte-ignore state_referenced_locally
@@ -162,7 +171,7 @@
 			title = saved.title ?? '';
 		} else saveTitle();
 	}
-	/** Creates the client link and returns it for the dialog to offer. */
+	/** Creates the client link; the share card then offers it. */
 	async function share() {
 		try {
 			const shared = await shareGallery(saved.id);
@@ -176,8 +185,6 @@
 
 			throw new Error(m.gallery_share_failed(), { cause: error });
 		}
-
-		return `${page.url.origin}/g/${shareToken}`;
 	}
 	/** Sends the photographer to sign in on a 401; otherwise rethrows with a retryable message. */
 	async function failAction(error: unknown, message: string): Promise<never> {
@@ -194,7 +201,6 @@
 			const delivered = await deliverGallery(saved.id);
 
 			saved = { ...saved, states: delivered.states, updated_at: delivered.updated_at };
-			toasts.success(m.state_delivered());
 		} catch (error) {
 			await failAction(error, m.gallery_deliver_failed());
 		}
@@ -206,7 +212,6 @@
 			const archived = await archiveGallery(saved.id);
 
 			saved = { ...saved, states: archived.states, updated_at: archived.updated_at };
-			toasts.success(m.state_archived());
 		} catch (error) {
 			await failAction(error, m.gallery_archive_failed());
 		}
@@ -229,7 +234,6 @@
 			const restored = await restoreGallery(saved.id);
 
 			saved = { ...saved, states: restored.states, updated_at: restored.updated_at };
-			toasts.success(m.gallery_restored());
 			expiredSince = restored.states.includes('expired') ? restored.expires_at : null;
 		} catch (error) {
 			if (error instanceof GalleryApiError && error.status === 401) {

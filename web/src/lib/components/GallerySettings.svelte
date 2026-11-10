@@ -7,6 +7,7 @@
 	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Card from '#lib/components/ui/Card/Card.svelte';
+	import DatePicker from '#lib/components/ui/DatePicker/DatePicker.svelte';
 	import IconButtonGroup from '#lib/components/ui/IconButtonGroup/IconButtonGroup.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
@@ -45,6 +46,8 @@
 
 	// svelte-ignore state_referenced_locally
 	let expiryDay = $state(gallery.expires_at ? toLocalDate(gallery.expires_at) : '');
+	// svelte-ignore state_referenced_locally
+	let shootDate = $state(gallery.shoot_date);
 	// svelte-ignore state_referenced_locally
 	let included = $state<number | null>(gallery.included_photos);
 	// svelte-ignore state_referenced_locally
@@ -85,6 +88,13 @@
 		layout = value as GalleryLayout;
 		void commit({ layout }, () => (layout = previous));
 	}
+	function setShootDate(day: string | null) {
+		const previous = shootDate;
+
+		shootDate = day;
+		void commit({ shoot_date: day }, () => (shootDate = previous));
+	}
+
 	function setExpiry() {
 		void commit(
 			{ expires_at: expiryDay ? endOfLocalDay(expiryDay) : null },
@@ -162,13 +172,14 @@
 		</h2>
 		<div class={row}>
 			<Label for="expiry" class="text-muted-foreground">{m.expiry_open_until()}</Label>
-			<Input
+			<DatePicker
 				id="expiry"
-				type="date"
-				class="min-h-0 w-[8.75rem] rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
-				value={expiryDay}
-				onchange={(event) => {
-					expiryDay = event.currentTarget.value;
+				class="min-h-0 w-auto rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
+				value={expiryDay || null}
+				placeholder="∞"
+				clearable
+				onchange={(day) => {
+					expiryDay = day ?? '';
 					setExpiry();
 				}}
 			/>
@@ -220,6 +231,17 @@
 		>
 			{m.settings_gallery()}
 		</h2>
+		<div class="{row} mb-3">
+			<Label for="shoot-date" class="text-muted-foreground">{m.shoot_date_label()}</Label>
+			<DatePicker
+				id="shoot-date"
+				class="min-h-0 w-auto rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
+				value={shootDate}
+				placeholder={m.shoot_date_placeholder()}
+				clearable
+				onchange={setShootDate}
+			/>
+		</div>
 		<div class="flex gap-2 [&>*]:min-h-9! [&>*]:flex-1">
 			{#if archived}
 				<Button variant="outline" size="sm" onclick={onrestore}>

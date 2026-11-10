@@ -30,7 +30,6 @@
 <ConfirmDialog
 	title={m.delete_title()}
 	confirmLabel={m.action_delete()}
-	cancelLabel={m.delete_keep()}
 	destructive
 	{onconfirm}
 	{onclose}

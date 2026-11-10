@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import Button from '#lib/components/ui/Button/Button.svelte';
+	import DatePicker from '#lib/components/ui/DatePicker/DatePicker.svelte';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
@@ -21,6 +22,7 @@
 
 	let field = $state<HTMLInputElement | null>(null);
 	let title = $state('');
+	let shootDate = $state<string | null>(null);
 	let error = $state('');
 	let creating = $state(false);
 
@@ -50,7 +52,10 @@
 			const gallery = await create();
 
 			// The gallery exists even if naming it fails; the title can be set on its own page.
-			await update(gallery.id, { title: trimmed }).catch(() => undefined);
+			await update(
+				gallery.id,
+				shootDate ? { title: trimmed, shoot_date: shootDate } : { title: trimmed }
+			).catch(() => undefined);
 			await goto(`/dashboard/${gallery.id}`);
 		} catch (cause) {
 			if (cause instanceof GalleryApiError && cause.status === 401) {
@@ -88,6 +93,17 @@
 				{#if error}
 					<p id="new-gallery-error" role="alert" class="text-sm text-danger">{error}</p>
 				{/if}
+			</div>
+			<div class="grid gap-2">
+				<Label for="new-gallery-shoot-date" class="font-normal">{m.shoot_date_label()}</Label>
+				<DatePicker
+					id="new-gallery-shoot-date"
+					class="w-full"
+					value={shootDate}
+					placeholder={m.shoot_date_placeholder()}
+					clearable
+					onchange={(day) => (shootDate = day)}
+				/>
 			</div>
 			<div class="flex justify-end gap-2">
 				<Button variant="outline" onclick={close} disabled={creating}>{m.common_cancel()}</Button>

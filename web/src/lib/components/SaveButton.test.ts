@@ -17,18 +17,36 @@ describe('SaveButton', () => {
 	});
 
 	it('names the button Saving… and announces it', () => {
-		render(SaveButton, { status: 'saving', disabled: true, onclick: vi.fn() });
+		render(SaveButton, { status: 'saving', onclick: vi.fn() });
 
-		expect(screen.getByRole('button', { name: 'Saving…' })).toHaveProperty('disabled', true);
+		expect(screen.getByRole('button', { name: 'Saving…' })).toBeTruthy();
 		expect(screen.getByRole('status').textContent?.trim()).toBe('Saving…');
 	});
 
+	it.each(['saving', 'saved'] as const)(
+		'keeps its look but ignores clicks while %s',
+		async (status) => {
+			const onclick = vi.fn();
+
+			render(SaveButton, { status, onclick });
+			const button = screen.getByRole('button');
+
+			await userEvent.setup().click(button);
+
+			expect(button).toHaveProperty('disabled', false);
+			expect(button.getAttribute('aria-disabled')).toBe('true');
+			expect(onclick).not.toHaveBeenCalled();
+		}
+	);
+
+	it('fades its labels in place instead of sliding them', () => {
+		const { container } = render(SaveButton, { status: 'saving', onclick: vi.fn() });
+
+		expect(container.innerHTML).not.toMatch(/translate-y/);
+	});
+
 	it('confirms with a check and a ripple, and announces Saved', () => {
-		const { container } = render(SaveButton, {
-			status: 'saved',
-			disabled: true,
-			onclick: vi.fn()
-		});
+		const { container } = render(SaveButton, { status: 'saved', onclick: vi.fn() });
 
 		expect(screen.getByRole('button', { name: 'Saved' })).toBeTruthy();
 		expect(screen.getByTestId('click-ripple')).toBeTruthy();

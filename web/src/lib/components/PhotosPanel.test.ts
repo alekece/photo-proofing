@@ -149,6 +149,7 @@ const gallery = {
 	hero_id: null,
 	share_token: null,
 	last_opened_at: null,
+	shoot_date: null,
 	states: ['draft'],
 	created_at: '2026-11-04T10:00:00Z',
 	updated_at: '2026-11-04T10:00:00Z'
@@ -184,6 +185,7 @@ beforeEach(() => vi.mocked(goto).mockClear());
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.useRealTimers();
+	toasts.items = [];
 });
 
 describe('PhotosPanel', () => {
@@ -586,7 +588,7 @@ describe('PhotosPanel', () => {
 
 		setup();
 		await user.click(await screen.findByRole('button', { name: 'Select' }));
-		await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+		await user.click(screen.getByRole('button', { name: 'Select all' }));
 		await user.click(screen.getByRole('button', { name: 'Delete' }));
 
 		expect(
@@ -705,7 +707,6 @@ describe('PhotosPanel', () => {
 
 	it('sets and removes the hero from the viewer', async () => {
 		const api = stubApi([photo('p1'), photo('p2')]);
-		const savedToast = vi.spyOn(toasts, 'saved');
 		const user = userEvent.setup();
 
 		setup();
@@ -717,8 +718,7 @@ describe('PhotosPanel', () => {
 		await waitFor(() =>
 			expect(within(viewer).getByRole('button', { name: 'Remove cover' })).toBeTruthy()
 		);
-		expect(savedToast).toHaveBeenCalledOnce();
-		savedToast.mockRestore();
+		expect(toasts.items).toEqual([]);
 		expect(api.heroes()).toEqual(['p2']);
 	});
 
@@ -877,11 +877,11 @@ describe('PhotosPanel', () => {
 
 			expect(announced()).toContain('1 selected');
 
-			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
 
 			expect(counter()).toBe('2 selected');
 
-			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
 
 			expect(counter()).toBe('0 selected');
 
@@ -915,7 +915,7 @@ describe('PhotosPanel', () => {
 			await user.click(select);
 
 			expect(document.querySelector('[data-slot="select-actions"]')).not.toBeNull();
-			expect(screen.getByRole('checkbox', { name: 'Select all' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Select all' })).toBeTruthy();
 			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
 			expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
 			expect(screen.queryByRole('button', { name: 'Upload' })).toBeNull();
@@ -934,7 +934,7 @@ describe('PhotosPanel', () => {
 			const click = vi.spyOn(HTMLInputElement.prototype, 'click');
 
 			await enter(user);
-			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 
 			expect(click).not.toHaveBeenCalled();
@@ -942,25 +942,19 @@ describe('PhotosPanel', () => {
 			click.mockRestore();
 		});
 
-		it('toggles every photo from the tri-state checkbox, then exits from the bar', async () => {
+		it('selects and unselects every photo from the bar, then exits', async () => {
 			stubApi([photo('p1'), photo('p2')]);
 			setup();
 			const user = userEvent.setup();
 
 			await enter(user);
-
-			const all = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Select all' });
-
 			await user.click(checkbox('p1.jpg')!);
-
-			expect(all.indeterminate).toBe(true);
-
-			await user.click(all);
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
 
 			expect(counter()).toBe('2 selected');
-			expect(all.checked).toBe(true);
+			expect(screen.getByRole('button', { name: 'Select all' })).toHaveProperty('disabled', true);
 
-			await user.click(all);
+			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
 
 			expect(counter()).toBe('0 selected');
 			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
@@ -978,7 +972,7 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
 
 			expect(counter()).toBe('2 selected');
 
@@ -1044,7 +1038,7 @@ describe('PhotosPanel', () => {
 			setup();
 			const user = userEvent.setup();
 			await enter(user);
-			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 			expect(screen.getByRole('button', { name: 'Deleting…' })).toHaveProperty('disabled', true);
@@ -1086,7 +1080,7 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
 			await confirmDeletion(user);
 			await waitFor(() => expect(api.bulk()).toHaveLength(1));
 			await view.rerender({ galleryId: 'g2' });
@@ -1116,7 +1110,7 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
 			await confirmDeletion(user);
 			await waitFor(() => expect(api.bulk()).toHaveLength(1));
 			view.unmount();
@@ -1143,7 +1137,7 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
 			await confirmDeletion(user);
 			await waitFor(() => expect(api.bulk()).toHaveLength(1));
 			await view.rerender({ galleryId: 'g2' });
@@ -1197,7 +1191,7 @@ describe('PhotosPanel', () => {
 
 			setup();
 			await enter(user);
-			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 
@@ -1236,7 +1230,7 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+			await user.click(screen.getByRole('button', { name: 'Select all' }));
 			server.pop();
 			emit({ photo_id: 'p2', status: 'deleted' });
 

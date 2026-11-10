@@ -19,6 +19,7 @@ const base: Gallery = {
 	hero_id: null,
 	share_token: null,
 	last_opened_at: null,
+	shoot_date: null,
 	states: ['draft'],
 	created_at: '2026-06-12T10:00:00Z',
 	updated_at: '2026-06-12T10:00:00Z'
@@ -66,7 +67,6 @@ describe('GalleryHeader', () => {
 		const { onshare, user } = setup({}, { photos: 48 });
 
 		expect(screen.getByText('Draft')).toBeTruthy();
-		expect(screen.getByText(/^48 photos · created /)).toBeTruthy();
 		expect(screen.getByText('48 photos', { selector: '[data-slot="step-fact"]' })).toBeTruthy();
 
 		await user.click(screen.getByRole('button', { name: 'Share' }));
@@ -87,22 +87,40 @@ describe('GalleryHeader', () => {
 		expect(ondeliver).toHaveBeenCalledOnce();
 	});
 
+	const details = () =>
+		Object.fromEntries(
+			[...document.querySelectorAll('dl div')].map((group) => [
+				group.querySelector('dt')?.textContent?.trim(),
+				group.querySelector('dd')?.textContent?.trim()
+			])
+		);
+
+	it('lists photos, created date and nothing about opens before sharing', () => {
+		setup({}, { photos: 0 });
+
+		expect(details()).toEqual({ Photos: '0', Created: '12 Jun 2026' });
+		expect(screen.queryByText(/no photos yet/i)).toBeNull();
+		expect(screen.queryByText(/opened/i)).toBeNull();
+	});
+
+	it('shows the shoot date in place of the created date, on the cover edge too', () => {
+		const { container } = setup({ shoot_date: '2026-06-14' }, { photos: 12 });
+
+		expect(details()).toEqual({ Photos: '12', Shot: '14 Jun 2026' });
+		expect(container.textContent).toContain('14 Jun 2026');
+		expect(container.textContent).not.toContain('12 Jun 2026');
+	});
+
 	it('shows when the client last opened a shared gallery, or that it has not', () => {
 		const shared = { share_token: 'T'.repeat(22), states: ['shared' as const] };
 		const { unmount } = setup(shared, { photos: 3 });
 
-		expect(screen.getByText(/ · Not opened yet$/)).toBeTruthy();
+		expect(details()['Last opened']).toBe('Not yet');
 
 		unmount();
 		setup({ ...shared, last_opened_at: '2026-11-09T14:38:00Z' }, { photos: 3 });
 
-		expect(screen.getByText(/ · Last opened \w{3} \d{1,2}, 2026/)).toBeTruthy();
-	});
-
-	it('shows nothing about opens before the gallery is shared', () => {
-		setup({}, { photos: 3 });
-
-		expect(screen.queryByText(/opened/i)).toBeNull();
+		expect(details()['Last opened']).toMatch(/^\w{3} \d{1,2}, 2026/);
 	});
 
 	it('shows the status only in the badge, not in the meta line or the steps', () => {
@@ -110,7 +128,7 @@ describe('GalleryHeader', () => {
 
 		expect(screen.getByText('Delivered')).toBeTruthy();
 		expect(screen.getAllByText('done', { selector: '.sr-only' }).length).toBeGreaterThan(0);
-		expect(screen.queryByText(/delivered|shared/i, { selector: 'p' })).toBeNull();
+		expect(screen.queryByText(/delivered|shared/i, { selector: 'dd' })).toBeNull();
 		expect(
 			screen.queryByText(/^(Shared|Delivered)$/, { selector: '[data-slot="step-fact"]' })
 		).toBeNull();
@@ -163,7 +181,8 @@ describe('GalleryHeader in French', () => {
 			{ photos: 3 }
 		);
 
-		expect(screen.getByText(/ · Dernière ouverture le \d{1,2} nov\. 2026/)).toBeTruthy();
+		expect(screen.getByText('Dernière ouverture')).toBeTruthy();
+		expect(screen.getByText(/^\d{1,2} nov\. 2026/)).toBeTruthy();
 	});
 
 	it('shows the actions and the next step in French', () => {

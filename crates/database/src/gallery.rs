@@ -14,6 +14,7 @@ use pp_core::types::{generate::Generate, timestamp::Timestamp};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{AssertSqlSafe, FromRow, PgExecutor, PgPool, Row, Type, postgres::PgRow};
 use thiserror::Error;
+use time::Date;
 use uuid::Uuid;
 
 pub use self::share::{ShareToken, SharedAccess, SharedGallery};
@@ -139,6 +140,8 @@ pub struct Gallery {
     /// When a client last opened the shared gallery, to within the throttle delay; `None` means
     /// not yet.
     pub last_opened_at: Option<Timestamp>,
+    /// The day of the shoot; `None` means none was given.
+    pub shoot_date: Option<Date>,
     /// The progress state first, then `Archived` and `Expired` when they apply.
     pub states: Vec<GalleryState>,
     pub created_at: Timestamp,
@@ -196,6 +199,7 @@ impl FromRow<'_, PgRow> for Gallery {
             hero_id: row.try_get("hero_id")?,
             share_token: row.try_get("share_token")?,
             last_opened_at: row.try_get("last_opened_at")?,
+            shoot_date: row.try_get("shoot_date")?,
             states,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
@@ -281,6 +285,13 @@ pub struct GalleryChanges {
         skip_serializing_if = "Option::is_none"
     )]
     pub hero_id: Option<Option<PhotoId>>,
+    /// A calendar day written `YYYY-MM-DD`.
+    #[serde(
+        default,
+        with = "serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub shoot_date: Option<Option<Date>>,
 }
 
 impl GalleryChanges {
@@ -360,7 +371,7 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
 
 impl GalleryRepository<'_> {
     // Interpolated identifiers are fixed here or selected from GallerySort's closed enum.
-    const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,hero_id,share_token,shared_at,last_opened_at,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
+    const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,hero_id,share_token,shared_at,last_opened_at,shoot_date,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
 
     /// How long after a recorded client open later opens change nothing. Fixed, not configurable:
     /// a minute collapses reload bursts while "last opened" stays fresh enough to compare with
@@ -624,6 +635,7 @@ impl GalleryRepository<'_> {
                 included_photos = CASE WHEN $8 THEN $9 ELSE included_photos END,
                 watermark_enabled = COALESCE($10, watermark_enabled),
                 hero_id = CASE WHEN $11 THEN $12 ELSE hero_id END,
+                shoot_date = CASE WHEN $13 THEN $14 ELSE shoot_date END,
                 updated_at = now()
              WHERE id=$1 AND workspace_id=$2
                AND (NOT $11 OR $12::uuid IS NULL OR EXISTS (
@@ -646,6 +658,8 @@ impl GalleryRepository<'_> {
         .bind(changes.watermark_enabled)
         .bind(changes.hero_id.is_some())
         .bind(changes.hero_id.flatten())
+        .bind(changes.shoot_date.is_some())
+        .bind(changes.shoot_date.flatten())
         .fetch_optional(executor)
         .await
         .map_err(GalleryError::classify)

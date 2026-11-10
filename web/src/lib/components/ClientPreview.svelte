@@ -5,7 +5,7 @@
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import type { Gallery } from '#lib/gallery/api.js';
 	import { listClientPreviewPhotos, listPhotos, previewUrl } from '#lib/gallery/photos.js';
-	import { toClientPreviewProofs } from '#lib/gallery/proofs.js';
+	import { toClientPreviewProofs, toOwnerProofs } from '#lib/gallery/proofs.js';
 	import type { Proof } from '#lib/gallery/types.js';
 	import { parseSettings, type WorkspaceSettings } from '#lib/settings/settings.js';
 	import { cn } from '#lib/utils.js';
@@ -31,16 +31,20 @@
 		closeButton?.focus();
 	});
 
+	const delivered = $derived(gallery.states.includes('delivered'));
+
+	// Once delivered the client sees the finals, without the favourites made on the proofs.
 	$effect(() => {
 		const id = gallery.id;
 		const watermarked = gallery.watermark_enabled;
+		const finals = delivered;
 		let active = true;
 		loaded = false;
 		failed = false;
 
 		Promise.all([
-			listPhotos(id),
-			listClientPreviewPhotos(id, watermarked),
+			finals ? listPhotos(id, fetch, 'finals') : listPhotos(id),
+			finals ? Promise.resolve([]) : listClientPreviewPhotos(id, watermarked),
 			fetch('/api/v1/settings').then(async (response) => {
 				if (!response.ok) throw new Error('Couldn’t load studio settings.');
 				const parsed = parseSettings(await response.json());
@@ -51,8 +55,16 @@
 			.then(([photos, visible, studio]) => {
 				if (!active) return;
 
-				proofs = toClientPreviewProofs(id, visible, watermarked);
 				settings = studio;
+
+				if (finals) {
+					proofs = toOwnerProofs(id, photos, 'finals');
+					favorites = [];
+
+					return;
+				}
+
+				proofs = toClientPreviewProofs(id, visible, watermarked);
 				favorites = photos.filter(({ favorited_at }) => favorited_at).map(({ id }) => id);
 			})
 			.catch(() => active && (failed = true))
@@ -159,7 +171,7 @@
 						</p>
 					{:else if loaded}
 						<ClientGallery
-							gallery={{ ...gallery, delivered: gallery.states.includes('delivered') }}
+							gallery={{ ...gallery, delivered }}
 							coverUrl={gallery.hero_id ? previewUrl(gallery.id, gallery.hero_id) : undefined}
 							{proofs}
 							{favorites}

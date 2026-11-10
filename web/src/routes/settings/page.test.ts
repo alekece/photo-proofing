@@ -60,7 +60,9 @@ describe('Settings page', () => {
 		await user.type(screen.getByLabelText('Studio name'), 'Studio X');
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 		const pending = screen.getByRole('button', { name: /Saving/ });
-		expect(pending.hasAttribute('disabled')).toBe(true);
+		expect(pending.hasAttribute('disabled')).toBe(false);
+		expect(pending.getAttribute('aria-disabled')).toBe('true');
+		await user.click(pending);
 		await user.click(pending);
 		expect(fetcher.mock.calls.filter(([url]) => url === '/api/v1/settings')).toHaveLength(1);
 		finish(Response.json(saved));
@@ -107,7 +109,7 @@ describe('Settings page', () => {
 		expect(screen.getByRole('button', { name: 'None' }).getAttribute('aria-pressed')).toBe('true');
 	});
 
-	it('saves, confirms on the button without a toast and announces the regeneration', async () => {
+	it('saves and confirms on the button only, without any toast', async () => {
 		toasts.items = [];
 		const fetcher = respond(saved);
 		open();
@@ -122,6 +124,7 @@ describe('Settings page', () => {
 			).toBe(true)
 		);
 		expect(screen.getByTestId('click-ripple')).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Saved' })).toHaveProperty('disabled', false);
 		expect(toasts.items.map((toast) => toast.message)).not.toContain('Saved');
 		expect(fetcher).toHaveBeenCalledWith(
 			'/api/v1/settings',
@@ -137,9 +140,7 @@ describe('Settings page', () => {
 			studio_name: 'Studio X',
 			logo: { action: 'keep' }
 		});
-		expect(toasts.items.map((toast) => toast.message)).toContain(
-			'Watermarked proofs are being regenerated'
-		);
+		expect(toasts.items).toEqual([]);
 	});
 
 	it('does not announce a regeneration for a signature-only change', async () => {
@@ -154,7 +155,7 @@ describe('Settings page', () => {
 		expect(toasts.items).toEqual([]);
 	});
 
-	it('saves the proof quality and announces that every proof is regenerated', async () => {
+	it('saves the proof quality without a toast', async () => {
 		toasts.items = [];
 		const fetcher = respond({ ...saved, proof_quality: 'high' });
 
@@ -165,11 +166,8 @@ describe('Settings page', () => {
 		await user.click(screen.getByRole('radio', { name: /High/ }));
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
-		await vi.waitFor(() =>
-			expect(toasts.items.map((toast) => toast.message)).toContain(
-				'Thumbnails and previews are being regenerated'
-			)
-		);
+		await screen.findByRole('button', { name: 'Saved' });
+		expect(toasts.items).toEqual([]);
 		expect(
 			JSON.parse(
 				(fetcher.mock.calls as unknown as [string, RequestInit][]).find(
@@ -230,8 +228,10 @@ describe('Settings page', () => {
 
 		const reverted = await screen.findByRole('button', { name: /Reverted/ });
 
-		expect(reverted).toHaveProperty('disabled', true);
+		expect(reverted).toHaveProperty('disabled', false);
+		expect(reverted.getAttribute('aria-disabled')).toBe('true');
 		expect(screen.getByTestId('click-ripple')).toBeTruthy();
+		expect(document.body.innerHTML).not.toMatch(/translate-y/);
 		expect(screen.getAllByRole('status').some((live) => live.textContent === 'Reverted')).toBe(
 			true
 		);

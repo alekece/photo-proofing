@@ -243,9 +243,6 @@
 				class="px-5 pt-7 font-serif text-[1.1875rem] italic @max-[700px]:text-[0.9375rem]"
 			/>
 			<div class="mt-auto animate-photo-in px-6 pb-[34px]">
-				{#if delivered}
-					<p class="font-serif text-lg italic">{m.client_ready()}</p>
-				{/if}
 				<h1
 					class="mb-3 font-serif text-[4rem] leading-none wrap-anywhere @max-[700px]:text-[2.5rem]"
 				>

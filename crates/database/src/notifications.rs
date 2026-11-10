@@ -157,6 +157,25 @@ impl NotificationRepository<'_> {
         Ok(found.rows_affected() == 1)
     }
 
+    /// Marks the gallery's unread notification read, as the photographer has opened the gallery.
+    /// A gallery with nothing unread, or of another workspace, changes nothing.
+    pub async fn mark_gallery_read(
+        &self,
+        workspace_id: WorkspaceId,
+        gallery_id: GalleryId,
+    ) -> Result<(), DatabaseError> {
+        sqlx::query(
+            "UPDATE notifications SET read_at = now()
+             WHERE workspace_id = $1 AND gallery_id = $2 AND read_at IS NULL",
+        )
+        .bind(workspace_id)
+        .bind(gallery_id)
+        .execute(self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn mark_all_read(&self, workspace_id: WorkspaceId) -> Result<(), DatabaseError> {
         sqlx::query(
             "UPDATE notifications SET read_at = now() WHERE workspace_id = $1 AND read_at IS NULL",

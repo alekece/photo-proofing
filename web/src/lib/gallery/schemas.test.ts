@@ -23,6 +23,7 @@ const gallery = {
 	hero_id: null,
 	share_token: null,
 	last_opened_at: null,
+	shoot_date: null,
 	states: ['draft'],
 	created_at: '2026-11-05T10:00:00Z',
 	updated_at: '2026-11-05T10:00:00Z'
@@ -63,6 +64,11 @@ describe('schemas', () => {
 		expect(
 			parseOrNull(photoEventSchema, { gallery_id: 'g', photo_id: 'p', status: 'deleted' })
 		).not.toBeNull();
+	});
+
+	it('accept a calendar-day shoot date and reject anything else', () => {
+		expect(parseOrNull(gallerySchema, { ...gallery, shoot_date: '2026-06-14' })).not.toBeNull();
+		expect(parseOrNull(gallerySchema, { ...gallery, shoot_date: 'x' })).toBeNull();
 	});
 
 	it('accept lists of shapes', () => {
