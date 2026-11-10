@@ -2,5 +2,6 @@
 //! (the session cookie, a client's private link) before a handler runs.
 
 pub mod client_access;
+pub mod comment_access;
 pub mod identity;
 pub mod session_token;

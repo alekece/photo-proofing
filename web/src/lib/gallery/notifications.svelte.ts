@@ -15,6 +15,8 @@ export function notificationText(notification: Notification): string {
 		return m.notification_selected({ count: notification.selected });
 	}
 	if (notification.kind === 'open') return m.notification_opened({ count: notification.count });
+	if (notification.kind === 'comment')
+		return m.notification_comments({ count: notification.count });
 	if (notification.count === 0) return m.notification_zip();
 
 	return m.notification_downloads({ count: notification.count });
@@ -23,6 +25,7 @@ export function notificationText(notification: Notification): string {
 export function notificationBadge(notification: Notification): string {
 	if (notification.kind === 'selection') return m.notification_badge_selection();
 	if (notification.kind === 'open') return m.notification_badge_opened();
+	if (notification.kind === 'comment') return m.comments_title();
 
 	return m.notification_badge_downloads();
 }

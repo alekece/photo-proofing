@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import { CommentsClient } from '#lib/gallery/comments.js';
+	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
+	import CommentThread from './CommentThread.svelte';
 	import { Download, Heart } from '@lucide/svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
@@ -89,6 +92,14 @@
 	);
 
 	const delivered = $derived(gallery.delivered);
+	const comments = $derived(
+		token && !preview && !delivered
+			? new PhotoComments(
+					new CommentsClient(`/api/v1/galleries/shared/${encodeURIComponent(token)}`)
+				)
+			: null
+	);
+	$effect(() => comments?.start());
 	const shown = $derived(
 		onlyFavorites && !delivered ? proofs.filter(({ id }) => selection.has(id)) : proofs
 	);
@@ -347,6 +358,9 @@
 			{#if selection.error}
 				<p role="alert" class="py-2 text-center font-bold text-warning">{selection.error}</p>
 			{/if}
+			{#if comments?.error}<p role="alert" class="py-2 text-center text-danger">
+					{comments.error}
+				</p>{/if}
 			{#if shown.length === 0}
 				<p class="py-[50px] text-center text-muted-foreground">
 					{proofs.length === 0 ? m.client_on_their_way() : m.favorites_empty()}
@@ -357,6 +371,7 @@
 					layout={gallery.layout}
 					isSelected={(id) => selection.has(id)}
 					readonly={preview}
+					commentCount={comments ? (id) => comments.count(id) : undefined}
 					onopen={(i) => {
 						viewerProofs = shown;
 						viewerIndex = i;
@@ -367,6 +382,16 @@
 		</div>
 	</main>
 {/if}
+{#snippet photoThread(proof: Proof)}
+	{#if comments}
+		<CommentThread
+			client={comments.client}
+			photoId={proof.id}
+			viewer="client"
+			onchange={() => void comments?.refresh()}
+		/>
+	{/if}
+{/snippet}
 {#if viewerIndex !== null}
 	<ProofViewer
 		proofs={viewerProofs}
@@ -377,5 +402,7 @@
 		isSelected={(id) => selection.has(id)}
 		onclose={() => (viewerIndex = null)}
 		onselect={select}
+		thread={comments ? photoThread : undefined}
+		commentCount={(id) => comments?.count(id) ?? 0}
 	/>
 {/if}

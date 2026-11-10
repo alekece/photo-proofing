@@ -1,5 +1,37 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
+	"comments_title": "Comments",
+	"comments_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": { "countPlural=one": "{count} comment", "countPlural=*": "{count} comments" }
+		}
+	],
+	"notification_comments": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": { "countPlural=one": "{count} new comment", "countPlural=*": "{count} new comments" }
+		}
+	],
+	"comments_loading": "Loading comments…",
+	"comments_empty": "No comments yet.",
+	"comments_you": "You",
+	"comments_client": "Client",
+	"comments_photographer": "Photographer",
+	"comments_edited": "edited",
+	"comments_deleted": "Comment deleted",
+	"comments_edit": "Edit",
+	"comments_delete": "Delete",
+	"comments_add": "Add a comment",
+	"comments_reply": "Reply",
+	"comments_send": "Send",
+	"comments_save": "Save",
+	"comments_saving": "Saving…",
+	"comments_delete_question": "Delete this comment?",
+	"comments_delete_confirm": "Delete comment",
+	"api_error_thread_full": "This photo's conversation is full. Contact your photographer to continue.",
 	"language_menu_label": "Language: {language}",
 	"language_menu_options": "Language",
 	"language_name_en": "English",

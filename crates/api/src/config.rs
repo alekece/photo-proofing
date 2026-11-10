@@ -3,6 +3,7 @@
 use std::{
     num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize},
     str::FromStr,
+    time::Duration,
 };
 
 use clap::Args;
@@ -31,6 +32,9 @@ pub type CookieDuration = BoundedDuration<1_000, MAX_COOKIE_MILLIS>;
 
 /// How long failed sign-ins are remembered per peer.
 pub type LimiterWindow = BoundedDuration<1_000, MAX_LIMITER_WINDOW_MILLIS>;
+
+/// Minimum time between client comment writes in one gallery.
+pub type CommentInterval = BoundedDuration<1_000, 60_000>;
 
 /// Longest [`KeepAlive`]: proxies commonly drop idle connections after a minute or two, so a
 /// longer period would only let streams die silently.
@@ -89,6 +93,9 @@ pub struct ApiConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub limiter: LimiterConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub comments: CommentsConfig,
     #[command(flatten)]
     #[config(no_flatten)]
     pub queue: QueueConfig,
@@ -217,6 +224,29 @@ pub struct LimiterConfig {
         default_value = "1024"
     )]
     pub max_peers: NonZeroUsize,
+}
+
+/// Default shortest pause between two client comment changes in one gallery.
+pub const DEFAULT_COMMENT_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Default cap on the comments of one photo.
+pub const DEFAULT_COMMENT_LIMIT: NonZeroU16 = NonZeroU16::new(100).unwrap();
+
+/// Client comment abuse controls; photographer replies are exempt.
+#[derive(Args, ConfigArgs, Clone)]
+pub struct CommentsConfig {
+    #[arg(
+        long = "comments-min-interval",
+        env = "PP_COMMENTS_MIN_INTERVAL",
+        default_value = "2s"
+    )]
+    pub min_interval: CommentInterval,
+    #[arg(
+        long = "comments-max-per-photo",
+        env = "PP_COMMENTS_MAX_PER_PHOTO",
+        default_value = "100"
+    )]
+    pub max_per_photo: NonZeroU16,
 }
 
 /// Per-process limits that bound upload memory and metadata parsing.
@@ -351,6 +381,8 @@ mod tests {
         assert_eq!(api.limiter.max_failures.get(), 10);
         assert_eq!(api.limiter.window.get(), Duration::from_secs(60));
         assert_eq!(api.limiter.max_peers.get(), 1024);
+        assert_eq!(api.comments.min_interval.get(), Duration::from_secs(2));
+        assert_eq!(api.comments.max_per_photo.get(), 100);
         assert_eq!(api.photo_upload.max_size.get(), 64 * 1024 * 1024);
         assert_eq!(api.photo_upload.max_pixels.get(), 100_000_000);
         assert_eq!(api.photo_upload.concurrency.get(), 4);
@@ -592,6 +624,9 @@ mod tests {
     fn invalid_limiter_settings_are_rejected_at_parse_time() {
         for args in [
             ["--limiter-max-failures", "0"],
+            ["--comments-max-per-photo", "0"],
+            ["--comments-min-interval", "0s"],
+            ["--comments-min-interval", "61s"],
             ["--limiter-max-peers", "0"],
             ["--limiter-window", "0s"],
             ["--limiter-window", "2d"],

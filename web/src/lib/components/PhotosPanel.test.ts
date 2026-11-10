@@ -41,11 +41,15 @@ function jpeg(name: string) {
 function fakeEvents() {
 	const photoHandlers = new Set<(event: PhotoEvent) => void>();
 	const resyncHandlers = new Set<() => void>();
+	const notificationHandlers = new Set<(event: { gallery_id: string }) => void>();
 	const events: LiveEvents = {
 		onPhoto: (handler) => (photoHandlers.add(handler), () => photoHandlers.delete(handler)),
 		onFavorites: () => () => {},
 		onExport: () => () => {},
-		onNotification: () => () => {},
+		onNotification: (handler) => (
+			notificationHandlers.add(handler),
+			() => notificationHandlers.delete(handler)
+		),
 		onResync: (handler) => (resyncHandlers.add(handler), () => resyncHandlers.delete(handler)),
 		start() {},
 		close() {}
@@ -53,6 +57,9 @@ function fakeEvents() {
 
 	return {
 		events,
+		notify: (gallery_id = 'g1') => {
+			for (const handler of notificationHandlers) handler({ gallery_id });
+		},
 		emit: (event: Omit<PhotoEvent, 'gallery_id' | 'kind'> & Partial<PhotoEvent>) => {
 			for (const handler of photoHandlers) handler({ gallery_id: 'g1', kind: 'proof', ...event });
 		},
@@ -87,6 +94,7 @@ function stubApi(
 		}
 	};
 	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+		if (url.endsWith('/comments')) return Response.json([]);
 		if (init?.method === 'PATCH') {
 			const { hero_id } = JSON.parse(String(init.body));
 
@@ -189,6 +197,59 @@ afterEach(() => {
 });
 
 describe('PhotosPanel', () => {
+	it('shows photographer comments on proofs and refreshes the open thread on activity', async () => {
+		const user = userEvent.setup();
+		const live = fakeEvents();
+		let threadLoads = 0;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string) => {
+				if (url.endsWith('/photos/p1/comments')) {
+					threadLoads++;
+					return Response.json([
+						{
+							id: 'c1',
+							photo_id: 'p1',
+							author: 'client',
+							body: threadLoads === 1 ? 'Nice' : 'New message',
+							created_at: '2026-11-10T09:00:00Z',
+							edited_at: null,
+							deleted_at: null
+						}
+					]);
+				}
+				if (url.endsWith('/comments')) return Response.json([{ photo_id: 'p1', count: 1 }]);
+				return Response.json([photo('p1')]);
+			})
+		);
+		render(PhotosPanelHarness, {
+			props: { galleryId: 'g1', queue: new UploadQueue(), events: live.events }
+		});
+		await user.click(await screen.findByRole('button', { name: 'Open p1.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Comments' }));
+		expect(await screen.findByText('Nice')).toBeTruthy();
+		live.notify();
+		expect(await screen.findByText('New message')).toBeTruthy();
+	});
+
+	it('never fetches or shows comments on finals', async () => {
+		const user = userEvent.setup();
+		const fetcher = vi
+			.fn<(url: string) => Promise<Response>>()
+			.mockImplementation(async () => Response.json([photo('f1')]));
+		vi.stubGlobal('fetch', fetcher);
+		render(PhotosPanelHarness, {
+			props: {
+				galleryId: 'g1',
+				set: 'finals',
+				queue: new UploadQueue(),
+				events: fakeEvents().events
+			}
+		});
+		await user.click(await screen.findByRole('button', { name: 'Open f1.jpg' }));
+		expect(screen.queryByRole('button', { name: 'Comments' })).toBeNull();
+		expect(fetcher.mock.calls.every((args) => !String(args[0]).endsWith('/comments'))).toBe(true);
+	});
 	it('keeps deletion confirmation busy until the real photo request finishes', async () => {
 		let finish!: (status: number) => void;
 		const pending = new Promise<number>((resolve) => (finish = resolve));

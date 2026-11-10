@@ -12,6 +12,7 @@ use actix_web::{
     http::{StatusCode, header::RETRY_AFTER},
 };
 use pp_database::{
+    comments::CommentChange,
     error::DatabaseError,
     export::{ExportFailure, ExportStatus},
     gallery::{GalleryError, GallerySetting},
@@ -35,6 +36,7 @@ pub(crate) enum ErrorCode {
     NotFound,
     SetupClosed,
     GalleryDelivered,
+    ThreadFull,
     GalleryNotShared,
     SelectionEmpty,
     ZipNotReady,
@@ -132,6 +134,19 @@ impl ErrorResponse {
 
     pub fn gallery_delivered() -> Self {
         Self::new(StatusCode::CONFLICT, ErrorCode::GalleryDelivered)
+    }
+
+    pub fn thread_full() -> Self {
+        Self::new(StatusCode::CONFLICT, ErrorCode::ThreadFull)
+    }
+
+    pub fn applied_comment<T>(change: CommentChange<T>) -> Result<T, Self> {
+        match change {
+            CommentChange::Applied(value) => Ok(value),
+            CommentChange::NotFound => Err(Self::not_found()),
+            CommentChange::Delivered => Err(Self::gallery_delivered()),
+            CommentChange::Full => Err(Self::thread_full()),
+        }
     }
 
     pub fn gallery_not_shared() -> Self {

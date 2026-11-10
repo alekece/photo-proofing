@@ -38,6 +38,7 @@
 	import { Download, Heart, LoaderCircle, RotateCw, Star, X } from '@lucide/svelte';
 	import { formatDateTime } from '#lib/gallery/format.js';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
+	import CommentBadge from './CommentBadge.svelte';
 
 	let {
 		name,
@@ -55,7 +56,8 @@
 		onopen,
 		onselect,
 		hero = false,
-		onhero
+		onhero,
+		commentCount = 0
 	}: {
 		name: string;
 		state: TileState;
@@ -82,6 +84,7 @@
 		hero?: boolean;
 		/** Toggles the hero star; only a ready photo outside select mode offers it. */
 		onhero?: () => void;
+		commentCount?: number;
 	} = $props();
 
 	const failed = $derived(
@@ -140,6 +143,7 @@
 	]}
 	style:aspect-ratio={ratio}
 >
+	<CommentBadge count={commentCount} />
 	{#if (status === 'ready' || (cleanReady && thumbnailUrl)) && onselect}
 		<img
 			src={thumbnailUrl}

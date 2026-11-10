@@ -7,6 +7,7 @@ pub mod credentials;
 pub mod extractors;
 pub mod routes;
 
+mod comment_limiter;
 mod error;
 mod events;
 mod limiter;

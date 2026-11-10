@@ -3,6 +3,7 @@
 	import { Download } from '@lucide/svelte';
 	import type { Proof } from '../gallery/types';
 	import FavoriteButton from './FavoriteButton.svelte';
+	import CommentBadge from './CommentBadge.svelte';
 
 	let {
 		proof,
@@ -12,7 +13,8 @@
 		selected = false,
 		onopen,
 		readonly = false,
-		onselect
+		onselect,
+		commentCount = 0
 	}: {
 		proof: Proof;
 		layout: 'grid' | 'masonry';
@@ -24,6 +26,7 @@
 		onopen: () => void;
 		/** Without it the proof cannot be selected, as once the gallery is delivered. */
 		onselect?: () => void;
+		commentCount?: number;
 	} = $props();
 
 	const BADGE =
@@ -31,6 +34,7 @@
 </script>
 
 <div class="group relative animate-photo-in overflow-hidden rounded-[4px]">
+	<CommentBadge count={commentCount} />
 	<button
 		type="button"
 		class="block w-full cursor-zoom-in focus-visible:outline-3 focus-visible:outline-offset-2! focus-visible:outline-focus!"

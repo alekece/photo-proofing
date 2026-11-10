@@ -28,6 +28,12 @@ max_failures = 10
 window = "1m"
 max_peers = 1024
 
+# Client writes share a pace per gallery. Deleted messages still count toward the cap.
+# Photographer replies are exempt from both limits.
+[comments]
+min_interval = "2s"
+max_per_photo = 100
+
 # Image worker queue. max_attempts is read by the API, which records it on each job it
 # enqueues; the other keys are read by pp-image-worker.
 [queue]

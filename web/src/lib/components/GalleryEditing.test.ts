@@ -38,7 +38,11 @@ describe('gallery editing integration', () => {
 			revision: 1
 		};
 		const fetcher = vi.fn<typeof fetch>(async (url) =>
-			String(url).endsWith('/export') ? new Response(null, { status: 204 }) : Response.json([photo])
+			String(url).endsWith('/export')
+				? new Response(null, { status: 204 })
+				: String(url).endsWith('/comments')
+					? Response.json([])
+					: Response.json([photo])
 		);
 		vi.stubGlobal('fetch', fetcher);
 		const queue = new UploadQueue({
@@ -62,7 +66,7 @@ describe('gallery editing integration', () => {
 		};
 		const props = { gallery, queue, events };
 		const view = render(Harness, { props });
-		await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
+		await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(6));
 		await userEvent.click(await screen.findByRole('button', { name: 'Open portrait.jpg' }));
 		const viewer = screen.getByRole('dialog');
 		await view.rerender({
@@ -70,7 +74,7 @@ describe('gallery editing integration', () => {
 			gallery: { ...gallery, title: 'New title', layout: 'masonry' }
 		});
 
-		expect(fetcher).toHaveBeenCalledTimes(4);
+		expect(fetcher).toHaveBeenCalledTimes(6);
 		expect(screen.getByRole('dialog')).toBe(viewer);
 	});
 });

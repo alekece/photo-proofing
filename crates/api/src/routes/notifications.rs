@@ -99,7 +99,7 @@ async fn read_one(
 
 #[cfg(test)]
 mod tests {
-    use actix_web::{App, http::StatusCode, test};
+    use actix_web::{App, http::StatusCode, test, web::Data};
     use sqlx::PgPool;
 
     use crate::{
@@ -119,11 +119,49 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
+    async fn client_comments_are_listed_with_their_count(pool: PgPool) {
+        let (state, _directory) = app_state(pool.clone()).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+
+        call(
+            &app,
+            request(test::TestRequest::post(), "/api/v1/galleries", &cookie),
+        )
+        .await;
+        sqlx::query(
+            "WITH photo AS (
+            INSERT INTO photos (id,workspace_id,gallery_id,original_name,size,width,height)
+            SELECT gen_random_uuid(),workspace_id,id,'a.jpg',1,1,1 FROM galleries RETURNING *
+        ) INSERT INTO photo_comments (workspace_id,gallery_id,photo_id,author,body)
+          SELECT workspace_id,gallery_id,id,'client','Nice' FROM photo",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let (status, list) = call(
+            &app,
+            request(test::TestRequest::get(), "/api/v1/notifications", &cookie),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(list["notifications"][0]["kind"], "comment");
+        assert_eq!(list["notifications"][0]["count"], 1);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
     async fn activity_is_listed_and_read_for_the_workspace(pool: PgPool) {
         let (state, _directory) = app_state(pool.clone()).await;
         let app = test::init_service(
             App::new()
-                .app_data(actix_web::web::Data::new(state))
+                .app_data(Data::new(state))
                 .configure(configure_routes),
         )
         .await;

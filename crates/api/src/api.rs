@@ -1,7 +1,7 @@
 use std::{
     io::Error as IoError,
     net::IpAddr,
-    num::NonZeroU64,
+    num::{NonZeroU16, NonZeroU64},
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -21,6 +21,7 @@ use pp_database::{
     auth::AuthRepository,
     error::DatabaseError,
     export::{DeliveryZip, ExportRepository},
+    gallery::GalleryId,
     jobs::JobOptions,
     photo::PhotoLocation,
 };
@@ -30,8 +31,10 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
+    comment_limiter::CommentLimiter,
     config::{
-        ApiConfig, AuthConfig, CookieDuration, CookieName, HttpConfig, LimiterConfig, QueueConfig,
+        ApiConfig, AuthConfig, CommentsConfig, CookieDuration, CookieName,
+        DEFAULT_COMMENT_INTERVAL, DEFAULT_COMMENT_LIMIT, HttpConfig, LimiterConfig, QueueConfig,
         SessionConfig, UploadConfig,
     },
     credentials::{HashError, PasswordHash},
@@ -92,6 +95,8 @@ pub(crate) struct ApiState {
     export_retention: Duration,
     failed_attempts: AttemptLimiter,
     dummy_hash: PasswordHash,
+    comment_limiter: CommentLimiter,
+    comment_limit: NonZeroU16,
 }
 
 impl ApiState {
@@ -126,11 +131,31 @@ impl ApiState {
             export_retention: DEFAULT_EXPORT_RETENTION,
             failed_attempts: AttemptLimiter::new(limiter),
             dummy_hash: PasswordHash::generate()?,
+            comment_limiter: CommentLimiter::new(DEFAULT_COMMENT_INTERVAL),
+            comment_limit: DEFAULT_COMMENT_LIMIT,
         })
     }
 
     pub fn database(&self) -> &Database {
         &self.database
+    }
+
+    #[must_use]
+    pub fn with_comments(mut self, config: &CommentsConfig) -> Self {
+        self.comment_limiter = CommentLimiter::new(config.min_interval.get());
+        self.comment_limit = config.max_per_photo;
+
+        self
+    }
+
+    pub fn pace_comments(&self, gallery: GalleryId) -> Result<(), ErrorResponse> {
+        self.comment_limiter
+            .check(gallery)
+            .map_err(ErrorResponse::busy)
+    }
+
+    pub fn comment_limit(&self) -> NonZeroU16 {
+        self.comment_limit
     }
 
     /// Applies the selection ZIP limits; without them the defaults of [`ExportConfig`] hold.
@@ -306,7 +331,8 @@ impl Api {
             config.photo_upload,
             config.queue,
         )?
-        .with_export(&config.export);
+        .with_export(&config.export)
+        .with_comments(&config.comments);
 
         Ok(Self {
             http: config.http,

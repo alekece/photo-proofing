@@ -124,6 +124,24 @@ export const photoEventSchema = v.object({
 /** The favorite ids of a shared gallery, in the photographer's photo order. */
 export const favoriteIdsSchema = v.array(v.string());
 
+export const commentSchema = v.object({
+	id: v.string(),
+	photo_id: v.string(),
+	author: v.picklist(['client', 'photographer']),
+	body: v.nullable(v.string()),
+	created_at: v.string(),
+	edited_at: v.nullable(v.string()),
+	deleted_at: v.nullable(v.string())
+});
+export const commentsSchema = v.array(commentSchema);
+export const commentCountsSchema = v.array(
+	v.object({
+		photo_id: v.string(),
+		count: v.pipe(finite, v.integer(), v.minValue(0))
+	})
+);
+export type Comment = v.InferOutput<typeof commentSchema>;
+
 /** A change to the selection of a gallery of the signed-in workspace; the favorites come from a refetch. */
 export const favoritesEventSchema = v.object({ gallery_id: v.string() });
 
@@ -136,7 +154,7 @@ export const notificationSchema = v.object({
 	gallery_id: v.string(),
 	title: v.nullable(v.string()),
 	hero_id: v.nullable(v.string()),
-	kind: v.picklist(['selection', 'download', 'open']),
+	kind: v.picklist(['selection', 'download', 'open', 'comment']),
 	/** Finals downloaded, or client opens, since it opened; 0 for a selection or a ZIP of already-downloaded finals. */
 	count: v.pipe(finite, v.integer(), v.minValue(0)),
 	/** The gallery's current selection. */

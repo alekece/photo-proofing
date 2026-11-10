@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { createRawSnippet } from 'svelte';
 import type { Proof } from '../gallery/types';
 import ProofViewer from './ProofViewer.svelte';
 import ViewerHarness from './ViewerHarness.test.svelte';
@@ -17,6 +18,34 @@ const proofs: Proof[] = [1, 2, 3].map((n) => ({
 const shown = () => screen.getByRole('img').getAttribute('alt');
 
 describe('ProofViewer', () => {
+	it('keeps comments closed by default, closes them on navigation and Escape first', async () => {
+		const user = userEvent.setup();
+		const onclose = vi.fn();
+		render(ProofViewer, {
+			proofs,
+			onclose,
+			commentCount: () => 2,
+			thread: createRawSnippet(() => ({ render: () => '<p>Thread content</p>' }))
+		});
+		expect(screen.queryByText('Thread content')).toBeNull();
+		const button = screen.getByRole('button', { name: /comments/i });
+		expect(button.textContent).toContain('2');
+		await user.click(button);
+		expect(screen.getByText('Thread content')).toBeTruthy();
+		await user.keyboard('{Escape}');
+		expect(screen.queryByText('Thread content')).toBeNull();
+		expect(onclose).not.toHaveBeenCalled();
+		await user.click(button);
+		await user.click(screen.getByRole('button', { name: /next/i }));
+		expect(screen.queryByText('Thread content')).toBeNull();
+		await user.keyboard('{Escape}');
+		expect(onclose).toHaveBeenCalledOnce();
+	});
+
+	it('has no comments control when no thread is provided', () => {
+		render(ProofViewer, { proofs, onclose: () => {} });
+		expect(screen.queryByRole('button', { name: /comments/i })).toBeNull();
+	});
 	it('is a labelled modal dialog with focus on the close button', () => {
 		render(ProofViewer, { proofs, index: 0, onclose: () => {} });
 		const dialog = screen.getByRole('dialog', { name: /proof viewer/i });

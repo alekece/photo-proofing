@@ -3,7 +3,7 @@ use std::{future::Future, pin::Pin};
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
 use pp_database::{
     gallery::{GalleryRepository, ShareToken, SharedAccess},
-    photo::{PhotoKind, Watermarked},
+    photo::{PhotoKind, PhotoLocation, Watermarked},
 };
 
 use crate::{api::ApiState, error::ErrorResponse};
@@ -31,6 +31,14 @@ impl ClientPhotoSet {
 }
 
 impl ClientAccess {
+    pub(crate) fn open_for_comments(&self) -> Result<PhotoLocation, ErrorResponse> {
+        if self.0.gallery.delivered {
+            return Err(ErrorResponse::gallery_delivered());
+        }
+
+        Ok(self.0.location)
+    }
+
     pub(crate) fn photo_set(&self) -> ClientPhotoSet {
         if self.0.gallery.delivered {
             ClientPhotoSet::Finals
