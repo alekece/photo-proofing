@@ -1,6 +1,20 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
 	"comments_title": "Comments",
+	"comments_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": { "countPlural=one": "{count} comment", "countPlural=*": "{count} comments" }
+		}
+	],
+	"notification_comments": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": { "countPlural=one": "{count} new comment", "countPlural=*": "{count} new comments" }
+		}
+	],
 	"comments_loading": "Loading comments…",
 	"comments_empty": "No comments yet.",
 	"comments_you": "You",

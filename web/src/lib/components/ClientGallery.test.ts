@@ -45,10 +45,55 @@ describe('ClientGallery', () => {
 
 	beforeEach(() => {
 		fetcher.mockReset();
-		fetcher.mockResolvedValue(new Response(null, { status: 204 }));
+		fetcher.mockImplementation(async (url: string) =>
+			url.endsWith('/comments') ? Response.json([]) : new Response(null, { status: 204 })
+		);
 		vi.stubGlobal('fetch', fetcher);
 	});
 	afterEach(() => vi.unstubAllGlobals());
+
+	it('loads comment badges and posts in the closed-by-default viewer thread', async () => {
+		const user = userEvent.setup();
+		fetcher.mockImplementation(async (url: string, init?: RequestInit) => {
+			if (url.endsWith('/photos/p1/comments')) {
+				if (init?.method === 'POST')
+					return Response.json({
+						id: 'c1',
+						photo_id: 'p1',
+						author: 'client',
+						body: 'Nice',
+						created_at: '2026-11-10T09:00:00Z',
+						edited_at: null,
+						deleted_at: null
+					});
+				return Response.json([]);
+			}
+			return Response.json([{ photo_id: 'p1', count: 2 }]);
+		});
+		show();
+		expect(await screen.findByLabelText('2 comments')).toBeTruthy();
+		await user.click(screen.getByRole('button', { name: /open proof 1/i }));
+		await user.click(screen.getByRole('button', { name: 'Comments' }));
+		await screen.findByText('No comments yet.');
+		await user.type(screen.getByRole('textbox'), 'Nice');
+		await user.click(screen.getByRole('button', { name: 'Send' }));
+		expect(await screen.findByText('Nice')).toBeTruthy();
+		expect(fetcher).toHaveBeenCalledWith(
+			'/api/v1/galleries/shared/tok/photos/p1/comments',
+			expect.objectContaining({ method: 'POST', body: '{"body":"Nice"}' })
+		);
+	});
+
+	it.each([{ preview: true }, { gallery: { ...gallery, delivered: true } }])(
+		'does not request comments in preview or after delivery',
+		async (props) => {
+			const user = userEvent.setup();
+			show(props);
+			await user.click(screen.getByRole('button', { name: /open proof 1/i }));
+			expect(screen.queryByRole('button', { name: 'Comments' })).toBeNull();
+			expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/comments'))).toBe(false);
+		}
+	);
 
 	it('wraps a long unbroken title with a utility class, not an inline style', () => {
 		const title = 'x'.repeat(200);
@@ -86,7 +131,9 @@ describe('ClientGallery', () => {
 
 	it('puts the choice back and says so when saving fails', async () => {
 		const user = userEvent.setup();
-		fetcher.mockResolvedValue(new Response(null, { status: 500 }));
+		fetcher.mockImplementation(async (url: string) =>
+			url.endsWith('/comments') ? Response.json([]) : new Response(null, { status: 500 })
+		);
 		show();
 
 		await user.click(hearts()[0]);

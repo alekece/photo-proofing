@@ -12,6 +12,45 @@ import type { FavoritesEvent, LiveEvents } from '#lib/events.js';
 import type { Photo } from '#lib/gallery/photos.js';
 import Harness from './FavoritesPanelHarness.test.svelte';
 
+it('opens the photographer thread from a favorite photo', async () => {
+	const user = userEvent.setup();
+	const off = () => () => {};
+	const events: LiveEvents = {
+		onPhoto: off,
+		onFavorites: off,
+		onNotification: off,
+		onExport: off,
+		onResync: off,
+		start() {},
+		close() {}
+	};
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async (url: string) => {
+			if (url.endsWith('/export')) return new Response(null, { status: 204 });
+			if (url.endsWith('/photos/p1/comments'))
+				return Response.json([
+					{
+						id: 'c1',
+						photo_id: 'p1',
+						author: 'client',
+						body: 'Favorite note',
+						created_at: '2026-11-10T09:00:00Z',
+						edited_at: null,
+						deleted_at: null
+					}
+				]);
+			if (url.endsWith('/comments')) return Response.json([]);
+			return Response.json([photo('p1', true)]);
+		})
+	);
+	render(Harness, { props: { events } });
+	await user.click(await screen.findByRole('button', { name: 'Open p1.jpg' }));
+	await user.click(screen.getByRole('button', { name: 'Comments' }));
+	expect(await screen.findByText('Favorite note')).toBeTruthy();
+	expect(screen.getByRole('textbox').getAttribute('id')).toBeTruthy();
+});
+
 const photo = (id: string, favorite: boolean): Photo => ({
 	id,
 	original_name: `${id}.jpg`,
@@ -60,6 +99,7 @@ function setup(
 	vi.stubGlobal(
 		'fetch',
 		vi.fn(async (url: string, init?: RequestInit) => {
+			if (url.endsWith('/comments')) return Response.json([]);
 			if (!url.endsWith('/export')) return new Response(JSON.stringify(server));
 			if (init?.method === 'POST') {
 				if (rejection) return rejection;
@@ -356,6 +396,7 @@ describe('FavoritesPanel', () => {
 		await screen.findByAltText('p1.jpg');
 		let finish!: (response: Response) => void;
 		vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+			if (url.endsWith('/comments')) return Promise.resolve(Response.json([]));
 			if (init?.method === 'POST') {
 				return new Promise<Response>((resolve) => (finish = resolve));
 			}

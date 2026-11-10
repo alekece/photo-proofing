@@ -34,7 +34,9 @@ describe('client gallery page', () => {
 
 	beforeEach(() => {
 		fetcher.mockReset();
-		fetcher.mockResolvedValue(new Response(null, { status: 204 }));
+		fetcher.mockImplementation(async (url: string) =>
+			url.endsWith('/comments') ? Response.json([]) : new Response(null, { status: 204 })
+		);
 		vi.stubGlobal('fetch', fetcher);
 	});
 	afterEach(() => vi.unstubAllGlobals());
@@ -42,8 +44,9 @@ describe('client gallery page', () => {
 	it('reports one open when a gallery is shown', () => {
 		render(Page, { data: { gallery, proofs: [], favorites: [] }, params: { token: 'tok' } });
 
-		expect(fetcher).toHaveBeenCalledTimes(1);
-		expect(fetcher.mock.calls[0][0]).toBe('/api/v1/galleries/shared/tok/open');
+		const opens = fetcher.mock.calls.filter(([url]) => url.endsWith('/open'));
+		expect(opens).toHaveLength(1);
+		expect(opens[0][0]).toBe('/api/v1/galleries/shared/tok/open');
 	});
 
 	it('reports nothing for an unavailable link', () => {

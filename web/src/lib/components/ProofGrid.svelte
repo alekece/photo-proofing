@@ -9,7 +9,8 @@
 		isSelected = () => false,
 		readonly = false,
 		onopen,
-		onselect
+		onselect,
+		commentCount
 	}: {
 		proofs: Proof[];
 		layout: 'grid' | 'masonry';
@@ -17,6 +18,7 @@
 		readonly?: boolean;
 		onopen: (index: number) => void;
 		onselect?: (id: string) => void;
+		commentCount?: (id: string) => number;
 	} = $props();
 </script>
 
@@ -41,6 +43,7 @@
 					total={proofs.length}
 					selected={isSelected(proof.id)}
 					{readonly}
+					commentCount={commentCount?.(proof.id) ?? 0}
 					onopen={() => onopen(i)}
 					onselect={onselect && (() => onselect(proof.id))}
 				/>

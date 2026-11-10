@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import { CommentsClient } from '#lib/gallery/comments.js';
+	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
+	import CommentThread from './CommentThread.svelte';
 	import { CircleCheck, ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack } from 'svelte';
@@ -61,6 +64,12 @@
 
 	const queue = getUploadQueue();
 	const events = getLiveEvents();
+	const comments = $derived(
+		!finals
+			? new PhotoComments(new CommentsClient(`/api/v1/galleries/${encodeURIComponent(galleryId)}`))
+			: null
+	);
+	$effect(() => comments?.start(events, galleryId));
 
 	let photos = $state<Photo[]>([]);
 	let loaded = $state(false);
@@ -598,6 +607,7 @@
 				>
 					<PhotoTile
 						name={photo.original_name}
+						commentCount={comments?.count(photo.id) ?? 0}
 						{state}
 						cleanReady={!finals && hasCleanPhoto(photo)}
 						ratio={layout === 'masonry' ? photo.width / photo.height : 3 / 2}
@@ -698,11 +708,25 @@
 	</ConfirmDialog>
 {/if}
 
+{#if comments?.error}<p role="alert" class="text-sm text-danger">{comments.error}</p>{/if}
+{#snippet photoThread(proof: Proof)}
+	{#if comments}
+		<CommentThread
+			client={comments.client}
+			photoId={proof.id}
+			viewer="photographer"
+			refresh={comments.revision}
+			onchange={() => void comments?.refresh()}
+		/>
+	{/if}
+{/snippet}
 {#if viewing && proofs[viewIndex]}
 	{@const current = (id: string) => photos.find((photo) => photo.id === id)}
 	<ProofViewer
 		{proofs}
 		bind:index={viewIndex}
+		thread={comments ? photoThread : undefined}
+		commentCount={(id) => comments?.count(id) ?? 0}
 		onclose={() => (viewing = false)}
 		onretry={(id) => {
 			const photo = current(id);
