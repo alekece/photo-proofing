@@ -1,6 +1,6 @@
 # Comments on proof photos
 
-Status: awaiting maintainer approval. Decisions marked *my call* are the author's and open to change in review.
+Status: approved by the maintainer. Decisions marked *my call* were included in that approval.
 Issue: [#321](https://github.com/alekece/photo-proofing/issues/321).
 
 ## Intent

@@ -42,6 +42,7 @@ details on it.
 - **Heart** at the bottom right of each photo: shown on hover and focus, always on touch screens,
   always when favorited. One click saves; it pops on favorite. No submit button, no confirmation.
 - Favorites filter with none: "No favorites yet".
+- Proof tiles show a small badge with the nondeleted comment count when nonzero.
 - **Delivered:** the grid shows the finished photos without watermark, each with a download
   button instead of a heart. Favorites are gone from view.
 - Footer: "STUDIO NAME · PHOTOPROOFING".
@@ -58,3 +59,9 @@ Dark full screen, like the photographer's [viewer](viewer.md).
 - **Phone:** the heart button sits under the photo instead of the top bar, easy to reach with a
   thumb.
 - **Delivered:** a **Download** button instead of the heart.
+- **Comments:** the top-bar button shows the count and toggles a thread, closed by default.
+  It sits beside the photo on desktop and below it on phones, never covering the image.
+  Escape closes the thread before the viewer; changing photos closes it too. Clients write
+  plain text (1–1000 characters), edit client messages, or delete them after confirmation.
+  Deleted messages show a placeholder. Replies appear on reopening the thread or reloading,
+  without email or live notifications. Delivered galleries and read-only Preview omit comments.

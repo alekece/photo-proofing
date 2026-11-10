@@ -18,12 +18,18 @@ Full-screen dark viewer for one photo, opened by clicking a tile. The client's v
 
 | Opened from | Actions |
 |---|---|
-| Photos | **Set as hero** / **Remove hero** (toggle, star filled when it's the hero), **Delete** |
-| Favorites | None; a read-only white heart on the photo shows it is a client favorite |
+| Photos | **Set as hero** / **Remove hero** (toggle, star filled when it's the hero), **Delete**, **Comments** |
+| Favorites | **Comments**; a read-only white heart on the photo shows it is a client favorite |
 | Final | **Delete** |
 
 Setting a hero updates the gallery header straight away; removing it brings back the no-hero
 header. Delete confirms like everywhere else.
+
+**Comments** shows the nondeleted count and opens a thread beside the photo on desktop or below
+it on phones, without covering the image. It starts closed; toggling the button, pressing Escape
+or changing photos closes it. Escape closes the thread before the viewer. The photographer can
+reply and edit/delete her own replies; deleted messages retain their text, struck through.
+New client comments refresh an open thread without clearing a draft. Finals have no comments.
 
 ![Hero toggle motion](gallery/hero-motion.gif)
 ![Hero toggle frames](gallery/hero-motion.frames.png)
