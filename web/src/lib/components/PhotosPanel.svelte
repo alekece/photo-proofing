@@ -24,10 +24,10 @@
 	} from '#lib/components/PhotoTile.svelte';
 	import ProofViewer from '#lib/components/ProofViewer.svelte';
 	import ViewerButton from '#lib/components/ViewerButton.svelte';
+	import SegmentedControl from '#lib/components/ui/SegmentedControl/SegmentedControl.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
-	import Switch from '#lib/components/ui/Switch/Switch.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
@@ -539,10 +539,15 @@
 		{/if}
 		{#if !selecting}
 			{#if comments}
-				<label class="flex min-h-9 cursor-pointer items-center gap-2 text-sm font-semibold">
-					<Switch bind:checked={commentedOnly} />
-					<MessageSquare size={16} aria-hidden="true" />{m.photos_filter_commented()}
-				</label>
+				<SegmentedControl
+					label={m.common_photos()}
+					value={commentedOnly ? 'commented' : 'all'}
+					items={[
+						{ id: 'all', label: m.photos_filter_all() },
+						{ id: 'commented', label: m.photos_filter_commented(), icon: MessageSquare }
+					]}
+					onchange={(id) => (commentedOnly = id === 'commented')}
+				/>
 			{/if}
 			<Button
 				bind:ref={selectButton}

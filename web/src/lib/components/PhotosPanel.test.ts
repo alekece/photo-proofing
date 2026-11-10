@@ -226,7 +226,6 @@ describe('PhotosPanel', () => {
 			props: { galleryId: 'g1', queue: new UploadQueue(), events: live.events }
 		});
 		await user.click(await screen.findByRole('button', { name: 'Open p1.jpg' }));
-		await user.click(screen.getByRole('button', { name: 'Comments' }));
 		expect(await screen.findByText('Nice')).toBeTruthy();
 		live.notify();
 		expect(await screen.findByText('New message')).toBeTruthy();
@@ -245,12 +244,12 @@ describe('PhotosPanel', () => {
 			props: { galleryId: 'g1', queue: new UploadQueue(), events: fakeEvents().events }
 		});
 		await screen.findByRole('button', { name: 'Open p1.jpg' });
-		await user.click(screen.getByRole('switch', { name: 'Commented' }));
+		await user.click(screen.getByRole('button', { name: 'Commented' }));
 
 		expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull();
 		expect(screen.getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
 
-		await user.click(screen.getByRole('switch', { name: 'Commented' }));
+		await user.click(screen.getByRole('button', { name: 'All' }));
 
 		expect(screen.getByRole('button', { name: 'Open p1.jpg' })).toBeTruthy();
 	});
@@ -271,7 +270,7 @@ describe('PhotosPanel', () => {
 		});
 		await user.click(await screen.findByRole('button', { name: 'Open f1.jpg' }));
 		expect(screen.queryByRole('button', { name: 'Comments' })).toBeNull();
-		expect(screen.queryByRole('switch', { name: 'Commented' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Commented' })).toBeNull();
 		expect(fetcher.mock.calls.every((args) => !String(args[0]).endsWith('/comments'))).toBe(true);
 	});
 	it('keeps deletion confirmation busy until the real photo request finishes', async () => {

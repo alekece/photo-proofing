@@ -174,7 +174,8 @@
 			<Label for="expiry" class="shrink-0 text-muted-foreground">{m.expiry_open_until()}</Label>
 			<DatePicker
 				id="expiry"
-				class="min-h-0 w-40 rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
+				rootClass="w-40 min-w-0"
+				class="min-h-0 w-full rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
 				value={expiryDay || null}
 				clearable
 				onchange={(day) => {
@@ -233,7 +234,8 @@
 			<Label for="shoot-date" class="shrink-0 text-muted-foreground">{m.shoot_date_label()}</Label>
 			<DatePicker
 				id="shoot-date"
-				class="min-h-0 w-40 rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
+				rootClass="w-40 min-w-0"
+				class="min-h-0 w-full rounded-lg px-2 py-[0.3125rem] text-sm font-semibold"
 				value={shootDate}
 				clearable
 				onchange={setShootDate}

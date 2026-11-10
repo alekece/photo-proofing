@@ -20,6 +20,7 @@
 		clearable = false,
 		onchange,
 		class: className,
+		rootClass,
 		'aria-describedby': ariaDescribedby
 	}: {
 		id: string;
@@ -29,6 +30,7 @@
 		clearable?: boolean;
 		onchange: (value: string | null) => void;
 		class?: string;
+		rootClass?: string;
 		'aria-describedby'?: string;
 	} = $props();
 
@@ -57,11 +59,12 @@
 		'cn-input inline-flex items-center gap-2 text-left focus-visible:border-foreground',
 		className
 	)}
+	{rootClass}
 	panelClass="min-w-0"
 >
 	{#snippet trigger()}
 		<CalendarDays size={16} class="shrink-0 text-muted-foreground" aria-hidden="true" />
-		<span class={cn('truncate', !value && 'text-muted-foreground')}>
+		<span class={cn('min-w-0 truncate', !value && 'text-muted-foreground')}>
 			{value ? formatFullDate(value, 'UTC', 'medium') : placeholder}
 		</span>
 	{/snippet}

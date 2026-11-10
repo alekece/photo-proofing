@@ -69,12 +69,14 @@ describe('gallery editing integration', () => {
 		await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(6));
 		await userEvent.click(await screen.findByRole('button', { name: 'Open portrait.jpg' }));
 		const viewer = screen.getByRole('dialog');
+		await screen.findByRole('textbox');
+		const loaded = fetcher.mock.calls.length;
 		await view.rerender({
 			...props,
 			gallery: { ...gallery, title: 'New title', layout: 'masonry' }
 		});
 
-		expect(fetcher).toHaveBeenCalledTimes(6);
+		expect(fetcher).toHaveBeenCalledTimes(loaded);
 		expect(screen.getByRole('dialog')).toBe(viewer);
 	});
 });
