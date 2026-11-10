@@ -17,6 +17,7 @@
 //!   files afterwards.
 //!
 //! The public `/shared/{token}` routes for clients live in [`shared`].
+//! Photo thread reads and writes for both sides live in [`comments`].
 //!
 //! A gallery of another workspace is a 404, never a 403, so ids reveal nothing. Like every state-changing
 //! route, they must carry the configured `Origin`, which the API-wide middleware checks.
@@ -40,6 +41,7 @@ use crate::{
     response::ResponseBuilderExt,
 };
 
+mod comments;
 mod export;
 mod photos;
 mod shared;
@@ -82,6 +84,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(create_gallery)
             .service(list_galleries)
             .configure(shared::configure)
+            .configure(comments::CommentRoutes::configure)
             .service(show_gallery)
             .service(update_gallery)
             .service(share_gallery)

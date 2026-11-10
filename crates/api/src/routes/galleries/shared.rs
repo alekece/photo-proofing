@@ -8,6 +8,7 @@
 //! - `GET /photos/{photo_id}/thumbnail|preview` serves one of those photos.
 //! - `GET /favorites` lists the ids the client selected; `PUT|DELETE /favorites/{photo_id}`
 //!   selects or unselects one, idempotently, until the gallery is delivered (409).
+//! - Photo comment counts, threads and writes live in [`super::comments`], proofs only.
 //!
 //! - `GET /photos/{photo_id}/download` sends one ready final as an attachment, once delivered.
 //! - `POST /download` makes sure the ZIP of every ready final exists: 200 `{"status":"ready"}`,
