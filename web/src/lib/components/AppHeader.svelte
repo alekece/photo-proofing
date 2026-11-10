@@ -27,7 +27,7 @@
 
 <header
 	class={cn(
-		'z-20 flex items-center gap-2.5 px-3.5 py-3 sm:gap-4 sm:px-8 sm:py-3.5',
+		'z-30 flex items-center gap-2.5 px-3.5 py-3 sm:gap-4 sm:px-8 sm:py-3.5',
 		overlay
 			? 'absolute inset-x-0 top-0 text-panel'
 			: 'relative border-b border-border text-foreground'
