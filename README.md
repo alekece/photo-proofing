@@ -286,11 +286,12 @@ Keep requirements, release acceptance, significant decisions, and implementation
 
 ### Repository settings
 
-Auto-merge is only safe when GitHub enforces the checks. A maintainer configures these by hand:
+GitHub enforces green, up-to-date CI and resolved conversations; it does not know a PR's risk level, which the agents apply by following [AGENTS.md](AGENTS.md#superpowers-delivery-workflow). A maintainer configures these by hand:
 
 - **Ruleset** `Protect main` (Settings → Rules → Rulesets): active, targets the default branch, empty bypass list.
   - Require a pull request before merging, with 0 required approvals (agents push with the maintainer's account, which cannot approve its own PRs).
   - Require status checks to pass, and require branches to be up to date before merging. Required checks: `Detect changes`, `Deployment checks`, `Rust format`, `Rust clippy`, `Rust dependencies`, `Rust tests`, `Web format`, `Web lint and check`, `Web dependencies`, `Web tests`, `Web build`. CI skips jobs a PR does not affect, and a skipped job counts as passed. The image builds are not required: their matrix check names differ when skipped, and `docker/` changes are high risk, so they never auto-merge.
+  - Require conversation resolution before merging, so an open review comment stops auto-merge.
   - Block force pushes and restrict deletions.
 - **General → Pull Requests**: allow auto-merge.
 - **Code security**: enable CodeQL default setup and secret scanning.

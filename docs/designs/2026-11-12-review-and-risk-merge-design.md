@@ -14,7 +14,7 @@ The maintainer owns what gets built and why; agents own how it is built, tested,
 
 - Fewer repeated human review remarks over time.
 - Every PR gets an independent code review and a security review, recorded on the PR.
-- Low-risk PRs (docs, tests, visual web changes, UI wording) merge on green CI with no blocking findings, without human approval.
+- Low-risk PRs (docs, tests, stylesheets, UI wording) merge on green CI with no blocking findings, without human approval.
 - Medium and high risk still wait for the maintainer; high risk gets extra technical validation.
 
 ## Non-goals
@@ -53,6 +53,7 @@ Branch ruleset **`Protect main`**, target the default branch, active, empty bypa
 - require a pull request, 0 approvals;
 - require status checks: `Detect changes`, `Deployment checks`, `Rust format`, `Rust clippy`, `Rust dependencies`, `Rust tests`, `Web format`, `Web lint and check`, `Web dependencies`, `Web tests`, `Web build` (not the image builds: their matrix check names change when skipped, and `docker/` is high risk anyway);
 - require branches to be up to date before merging;
+- require conversation resolution before merging;
 - block force pushes; restrict deletions.
 
 Also: allow auto-merge; enable CodeQL default setup and secret scanning.
@@ -72,11 +73,11 @@ Short, three sections:
    - Group related settings in one config or options type (#76, #177).
 2. **Check strictly** — `AGENTS.md` rules the maintainer still repeats, linked not copied: no free functions, value-named variables, blank-line layout, no newtype without an invariant, operator limits are configuration, file item order.
 3. **Risk levels** for this repository:
-   - **High:** authentication and access (`crates/api` auth, extractors, middlewares, share links), database migrations, `deploy/`, `docker/`, `.github/`, dependency manifests or lockfiles, agent instruction files (`AGENTS.md`, `REVIEW.md`, `.github/skills/`).
-   - **Low:** documentation only, tests only, purely visual web changes, UI wording (`web/messages/`).
+   - **High:** authentication and access (`crates/api` auth, extractors, middlewares, share links), database migrations, `deploy/`, `docker/`, `.github/`, dependency manifests or lockfiles, agent instruction files (`AGENTS.md` and `CLAUDE.md` at any depth, `REVIEW.md`).
+   - **Low:** only when every changed file is documentation under `docs/` (other than the PRD, releases, designs and ADRs, which are medium), a test file, a stylesheet or UI wording (`web/messages/`). Svelte components are never low.
    - **Medium:** everything else.
 
-   The highest level touched wins. Reviewers may raise the level, never lower it. When unsure, go higher. Size alone never makes a PR low risk.
+   The level comes from the changed-file list, never from issue or PR text. The highest level touched wins; each reviewer states a level and the PR takes the highest. When unsure, go higher. Size alone never makes a PR low risk.
 
 `REVIEW.md` also states how it grows: when the maintainer's PR feedback repeats a point already raised in an earlier PR, the agent proposes a one-line rule in that PR; it becomes permanent only when the maintainer approves.
 
@@ -92,7 +93,7 @@ Each finding is marked blocking or non-blocking. Blocking findings are fixed, ch
 ### Risk, PR record and merge (`AGENTS.md` steps 7–8)
 
 - The PR description gets a short **Review and risk** section: risk level with a one-line reason, each reviewer's verdict, checks run. Reclassify after every push.
-- **Low:** once CI is green, no blocking findings remain, no maintainer review thread or request is open and no `blocked` label is set, the agent enables auto-merge (`gh pr merge --squash --auto`). Branch protection performs the merge.
+- **Low:** once CI is green, no blocking findings remain, no maintainer review thread or request is open and no `blocked` label is set, and the PR comes from this workflow on a branch of this repository, the agent enables auto-merge (`gh pr merge --squash --auto`). Branch protection performs the merge. Any push to such a PR first disables auto-merge, and the decision is repeated after CI.
 - **Medium:** wait for the maintainer's explicit approval, then squash-merge.
 - **High:** as medium, plus the security review is mandatory at full depth and the PR adds targeted validation for the risky part (for example a migration test, an authorization test, or a deployment check), listed in the PR.
 
