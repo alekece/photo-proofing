@@ -20,7 +20,7 @@
 </script>
 
 <nav aria-label={m.step_progress()} class="min-w-0 flex-1">
-	<ol class="hidden max-w-4xl items-center gap-2.5 @min-[58rem]:flex @min-[66rem]:gap-3.5">
+	<ol class="hidden max-w-4xl items-center gap-2.5 @min-[60rem]:flex @min-[68rem]:gap-3.5">
 		{#each steps as { id, label, done, fact, accent }, index (id)}
 			{#if index > 0}
 				<li
@@ -31,7 +31,7 @@
 				></li>
 			{/if}
 			<li
-				class="relative flex min-w-0 items-center gap-2 py-0.5 text-[0.78125rem] leading-[1.25] whitespace-nowrap"
+				class="relative flex shrink-0 items-center gap-2 py-0.5 text-[0.78125rem] leading-[1.25] whitespace-nowrap"
 				aria-current={index === current ? 'step' : undefined}
 			>
 				<span
@@ -43,7 +43,7 @@
 				>
 					{#if done}<Check size={12} strokeWidth={3} aria-hidden="true" />{:else}{index + 1}{/if}
 				</span>
-				<span class="flex min-w-0 flex-col">
+				<span class="flex flex-col">
 					<strong
 						class="text-[0.8125rem] leading-[1.15] {done || index === current
 							? 'font-semibold text-foreground'
@@ -52,7 +52,7 @@
 					{#if done}<span class="sr-only">{m.step_done()}</span>{/if}
 					{#if fact}
 						<span
-							class="max-w-44 truncate text-[0.6875rem] @min-[68rem]:max-w-none {accent
+							class="max-w-40 text-[0.6875rem] leading-[1.2] whitespace-normal @min-[65rem]:max-w-none @min-[65rem]:whitespace-nowrap {accent
 								? 'font-extrabold text-danger'
 								: 'text-muted-foreground'}"
 							data-slot="step-fact">{fact}</span
@@ -62,7 +62,7 @@
 			</li>
 		{/each}
 	</ol>
-	<div class="flex min-w-0 items-center gap-2.5 text-[0.78rem] @min-[58rem]:hidden">
+	<div class="flex min-w-0 items-center gap-2.5 text-[0.78rem] @min-[60rem]:hidden">
 		<ol class="flex shrink-0 gap-1">
 			{#each steps as { id, label, done }, index (id)}
 				<li
