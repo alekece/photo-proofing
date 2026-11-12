@@ -298,7 +298,13 @@
 				}
 			}}
 		/>
-		<div class="flex items-center gap-1.5 text-xs text-danger" role="status" aria-live="polite">
+		<div
+			class={inflight === 0 && hasFailures
+				? 'order-last flex basis-full items-center gap-1.5 pt-0.5 text-xs text-danger'
+				: 'sr-only'}
+			role="status"
+			aria-live="polite"
+		>
 			{#if inflight === 0 && hasFailures}
 				<span>{m.gallery_not_saved()}</span>
 				<!-- mousedown would blur the edited field, which reverts a failed value before the click -->

@@ -40,10 +40,26 @@
 		ondelete: () => void;
 	} = $props();
 
-	let expiryDay = $derived(gallery.expires_at ? toLocalDate(gallery.expires_at) : '');
-	let shootDate = $derived(gallery.shoot_date);
-	let included = $derived<number | null>(gallery.included_photos);
-	let watermark = $derived(gallery.watermark_enabled);
+	const savedExpiry = $derived(gallery.expires_at ? toLocalDate(gallery.expires_at) : '');
+	const savedShootDate = $derived(gallery.shoot_date);
+	const savedIncluded = $derived(gallery.included_photos);
+	const savedWatermark = $derived(gallery.watermark_enabled);
+
+	let expiryDay = $derived(savedExpiry);
+	let shootDate = $derived(savedShootDate);
+	let watermark = $derived(savedWatermark);
+	// svelte-ignore state_referenced_locally
+	let included = $state<number | null>(savedIncluded);
+	let includedDirty = false;
+	// svelte-ignore state_referenced_locally
+	let lastSavedIncluded = savedIncluded;
+
+	$effect.pre(() => {
+		if (savedIncluded !== lastSavedIncluded) {
+			lastSavedIncluded = savedIncluded;
+			if (!includedDirty) included = savedIncluded;
+		}
+	});
 
 	const archived = $derived(gallery.states.includes('archived'));
 	const delivered = $derived(gallery.states.includes('delivered'));
@@ -79,7 +95,10 @@
 	function saveIncluded(leaving: boolean) {
 		const count = included;
 		const revert = () => {
-			if (leaving) included = gallery.included_photos;
+			if (leaving || included === count) {
+				includedDirty = false;
+				included = gallery.included_photos;
+			}
 		};
 
 		if (count !== null && (!Number.isInteger(count) || count < 1)) {
@@ -90,9 +109,19 @@
 
 			return;
 		}
-		if (count === gallery.included_photos) return;
+		if (count === gallery.included_photos) {
+			if (leaving) includedDirty = false;
 
-		void commit({ included_photos: count }, revert);
+			return;
+		}
+
+		void (async () => {
+			if (await onsave({ included_photos: count })) {
+				if (included === count) includedDirty = false;
+			} else {
+				revert();
+			}
+		})();
 	}
 
 	function setWatermark(value: boolean) {
@@ -128,7 +157,10 @@
 				class="min-h-0 w-[4.75rem] [appearance:textfield] rounded-lg bg-white px-2 py-1.5 text-center text-sm font-semibold placeholder:text-muted-foreground/40 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
 				bind:value={included}
 				disabled={delivered}
-				oninput={() => schedule('included_photos', () => saveIncluded(false))}
+				oninput={() => {
+					includedDirty = true;
+					schedule('included_photos', () => saveIncluded(false));
+				}}
 				onblur={() => {
 					cancel('included_photos');
 					saveIncluded(true);

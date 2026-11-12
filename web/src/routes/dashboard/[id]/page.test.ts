@@ -445,6 +445,59 @@ describe('gallery page', () => {
 		expect((screen.getByLabelText('Included photos') as HTMLInputElement).value).toBe('12');
 	});
 
+	it('does not clobber in-progress Included photos typing or optimistic layout when an earlier save resolves', async () => {
+		let resolveTitle!: () => void;
+		let resolveFirstIncluded!: () => void;
+		const patches: unknown[] = [];
+
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				const patch = JSON.parse(init?.body as string);
+				patches.push(patch);
+
+				if ('title' in patch) await new Promise<void>((r) => (resolveTitle = r));
+				if (patch.included_photos === 1) await new Promise<void>((r) => (resolveFirstIncluded = r));
+
+				return Response.json({ ...base, ...patch });
+			})
+		);
+
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		open();
+
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		const titleInput = screen.getByLabelText('Gallery title');
+		const includedInput = screen.getByLabelText('Included photos') as HTMLInputElement;
+
+		await user.type(titleInput, ' II');
+		await user.click(includedInput);
+		await waitFor(() => expect(resolveTitle).toBeDefined());
+
+		await user.clear(includedInput);
+		await user.type(includedInput, '1');
+		resolveTitle();
+		await waitFor(() => expect(document.title).toBe('Wedding II — PhotoProofing'));
+		expect(includedInput.value).toBe('1');
+
+		await vi.advanceTimersByTimeAsync(650);
+		await waitFor(() => expect(resolveFirstIncluded).toBeDefined());
+
+		await user.type(includedInput, '2');
+		resolveFirstIncluded();
+		await vi.advanceTimersByTimeAsync(50);
+		expect(includedInput.value).toBe('12');
+
+		await user.click(screen.getByRole('tab', { name: 'Design' }));
+		const staggered = screen.getByRole('button', { name: 'Staggered columns' });
+		await user.click(staggered);
+		await vi.advanceTimersByTimeAsync(650);
+		expect(staggered.getAttribute('aria-pressed')).toBe('true');
+		expect(patches).toContainEqual({ included_photos: 12 });
+	});
+
 	it('has no axe violations across Photos, Design, and Settings views', async () => {
 		const user = userEvent.setup();
 		const { container } = open();

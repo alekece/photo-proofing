@@ -213,7 +213,7 @@
 
 <div
 	data-slot="gallery-studio"
-	class="grid min-h-[calc(100dvh-3.75rem)] grid-cols-1 content-start [grid-template-areas:'identity''journey''nav''stage'] md:grid-cols-[16.5rem_1fr] md:grid-rows-[auto_1fr] md:content-stretch md:[grid-template-areas:'identity_journey''nav_stage']"
+	class="grid min-h-[calc(100dvh-3.75rem)] grid-cols-1 content-start [grid-template-areas:'identity''journey''nav''stage'] md:grid-cols-[16.5rem_1fr] md:grid-rows-[auto_auto_1fr] md:content-stretch md:[grid-template-areas:'identity_journey''identity_stage''nav_stage']"
 >
 	<div
 		class="flex items-center gap-2.5 bg-panel px-3.5 pt-2.5 pb-2 [grid-area:identity] md:flex-col md:items-stretch md:gap-3 md:border-r md:border-border md:px-4 md:pt-4 md:pb-3"

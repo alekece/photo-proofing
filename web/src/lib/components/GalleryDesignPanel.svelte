@@ -18,7 +18,8 @@
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
 	} = $props();
 
-	let current = $derived<GalleryLayout>(layout);
+	const savedLayout = $derived(layout);
+	let current = $derived<GalleryLayout>(savedLayout);
 
 	const layouts = [
 		{ id: 'masonry', label: m.settings_layout_masonry(), icon: LayoutStaggeredIcon },
