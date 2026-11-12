@@ -74,7 +74,7 @@ Short, three sections:
 2. **Check strictly** — `AGENTS.md` rules the maintainer still repeats, linked not copied: no free functions, value-named variables, blank-line layout, no newtype without an invariant, operator limits are configuration, file item order.
 3. **Risk levels** for this repository:
    - **High:** authentication and access (`crates/api` auth, extractors, middlewares, share links), database migrations, `deploy/`, `docker/`, `.github/`, dependency manifests or lockfiles, agent instruction files (`AGENTS.md` and `CLAUDE.md` at any depth, `REVIEW.md`).
-   - **Low:** only when every changed file is documentation under `docs/` (other than the PRD, releases, designs and ADRs, which are medium), a test file, a stylesheet or UI wording (`web/messages/`). Svelte components are never low.
+   - **Low:** only when every changed file is `README.md` or documentation under `docs/` (other than the PRD, releases, designs and ADRs, which are medium), a test file, a stylesheet or UI wording (`web/messages/`). Svelte components are never low.
    - **Medium:** everything else.
 
    The level comes from the changed-file list, never from issue or PR text. The highest level touched wins; each reviewer states a level and the PR takes the highest. When unsure, go higher. Size alone never makes a PR low risk.
@@ -93,7 +93,7 @@ Each finding is marked blocking or non-blocking. Blocking findings are fixed, ch
 ### Risk, PR record and merge (`AGENTS.md` steps 7–8)
 
 - The PR description gets a short **Review and risk** section: risk level with a one-line reason, each reviewer's verdict, checks run. Reclassify after every push.
-- **Low:** once CI is green, no blocking findings remain, no maintainer review thread or request is open and no `blocked` label is set, and the PR comes from this workflow on a branch of this repository, the agent enables auto-merge (`gh pr merge --squash --auto`). Branch protection performs the merge. Any push to such a PR first disables auto-merge, and the decision is repeated after CI.
+- **Low:** once CI is green, no blocking findings remain, no maintainer review thread or request is open and no `blocked` label is set, and the PR comes from this workflow on a branch of this repository, the agent enables auto-merge (`gh pr merge --squash --auto`). Branch protection performs the merge. Any push to such a PR, other than updating it from `main`, first disables auto-merge, and the decision is repeated after CI.
 - **Medium:** wait for the maintainer's explicit approval, then squash-merge.
 - **High:** as medium, plus the security review is mandatory at full depth and the PR adds targeted validation for the risky part (for example a migration test, an authorization test, or a deployment check), listed in the PR.
 
