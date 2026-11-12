@@ -257,7 +257,10 @@
 <svelte:head><title>{saved.title ?? m.gallery_untitled()} — PhotoProofing</title></svelte:head>
 <AppHeader onsignout={logout} />
 {#if signOutError}
-	<p role="alert" class="border-b border-border bg-panel px-3.5 py-2 text-center text-sm text-danger sm:px-8">
+	<p
+		role="alert"
+		class="border-b border-border bg-panel px-3.5 py-2 text-center text-sm text-danger sm:px-8"
+	>
 		{signOutError}
 	</p>
 {/if}

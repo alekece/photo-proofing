@@ -15,7 +15,7 @@ Unsplash, so it needs a network connection.
 | Screen | Doc | What it covers |
 |---|---|---|
 | Dashboard | [dashboard](screens/dashboard.md) | Greeting, gallery cards, search, status filter, sort, notifications, account menu, new gallery, empty workspace |
-| Gallery | [gallery](screens/gallery.md) | Hero header with the journey steps, side nav, Photos, Favorites and Final tabs, upload, select mode, Share, Deliver and Delete dialogs |
+| Gallery | [gallery](screens/gallery.md) | Left studio rail (`Collection` + `Studio`), top Journey Wizard bar, `Photos`, `Favorites`, `Comments`, `Final`, `Design` and `Settings` views, Share, Publish and Delete dialogs |
 | Photo viewer | [viewer](screens/viewer.md) | Full-screen photo with set or remove hero, delete, favorite state |
 | Preview | [preview](screens/preview.md) | The client page inside the app, Desktop and Phone |
 | Settings | [settings](screens/settings.md) | Studio name and logo, watermark, cover signature |
@@ -61,20 +61,20 @@ around them.
   hold the longer French text without clipping. The workspace language applies to every screen,
   client pages too.
 - **No hint text.** Plain labels, short copy, no counts repeated in two places.
-- **Confirm, never block.** Delete always asks in a dialog. Share and Deliver ask in a dialog and
+- **Confirm, never block.** Delete always asks in a dialog. Share and Publish ask in a dialog and
   warn when something is missing (no photos, no finals), but never refuse.
 - **Toasts.** Success is short ("Saved", "Link copied") on an ink toast with a green tick. Errors
   are red toasts with a short reason and, when possible, Retry.
-- **Statuses.** Draft, Shared, Delivered, plus the flags Expired and Archived.
+- **Statuses.** Draft, Prepublish, Publish, plus the flags Expired and Archived.
 - **Selection count.** Only the number ("13 selected"). Over the included allowance it turns
   bold and accent-coloured; no "extra" count.
 - **Hearts.** A white disc with a red heart when favorited; an outline heart on a dark translucent
   disc otherwise.
 - **Photo actions** (upload, delete, hero) live in the Photos tab only; Favorites and Final are
   for reviewing and downloading.
-- **Phone.** Every screen works at 390 px. The gallery side nav becomes an icon rail with
-  pop-out cards; dialogs stay centred and fit the width. Hover-only controls are always visible on
-  touch screens.
+- **Phone.** Every screen works at 390 px. On the gallery page, the studio rail collapses into a
+  compact identity bar, a 4-bar Journey row and a horizontally scrollable pill strip; dialogs stay
+  centred and fit the width. Hover-only controls are always visible on touch screens.
 - **Accessibility.** Keyboard reachable, visible focus, toggles use `aria-pressed` or
   `role="switch"`, dialogs trap focus and return it on close.
 

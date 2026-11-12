@@ -79,8 +79,8 @@
 		</ol>
 		<span aria-hidden="true" class="min-w-0 truncate text-muted-foreground"
 			><b class="font-semibold text-foreground">{focus?.label}</b>
-			{#if focus?.fact}<span>· </span><span
-					class={focus.accent ? 'font-extrabold text-danger' : ''}>{focus.fact}</span
+			{#if focus?.fact}<span>· </span><span class={focus.accent ? 'font-extrabold text-danger' : ''}
+					>{focus.fact}</span
 				>{/if}</span
 		>
 	</div>

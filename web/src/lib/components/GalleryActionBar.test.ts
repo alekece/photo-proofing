@@ -47,9 +47,7 @@ describe('GalleryActionBar', () => {
 		const { container, onpreview, onshare, user } = setup({}, { photos: 48 });
 
 		expect(screen.getByText('48 photos', { selector: '[data-slot="step-fact"]' })).toBeTruthy();
-		expect(
-			screen.getByText('Share', { selector: '[aria-current="step"] strong' })
-		).toBeTruthy();
+		expect(screen.getByText('Share', { selector: '[aria-current="step"] strong' })).toBeTruthy();
 
 		await user.click(screen.getByRole('button', { name: 'Preview' }));
 		await user.click(screen.getByRole('button', { name: 'Share' }));

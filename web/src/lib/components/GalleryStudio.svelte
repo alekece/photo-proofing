@@ -106,7 +106,10 @@
 			label: m.tab_favorites(),
 			icon: Heart,
 			count: favoriteCount,
-			accent: gallery.included_photos !== null && favoriteCount !== null && favoriteCount > gallery.included_photos,
+			accent:
+				gallery.included_photos !== null &&
+				favoriteCount !== null &&
+				favoriteCount > gallery.included_photos,
 			locked: delivered,
 			disabled: !shared,
 			title: shared ? undefined : m.tab_after_sharing()
@@ -144,7 +147,9 @@
 		const focusedId = event.currentTarget.id.replace(/^tab-/, '');
 		const currentIndex = available.findIndex(({ id: itemId }) => itemId === focusedId);
 		const index =
-			currentIndex !== -1 ? currentIndex : available.findIndex(({ id: itemId }) => itemId === section);
+			currentIndex !== -1
+				? currentIndex
+				: available.findIndex(({ id: itemId }) => itemId === section);
 		const next = {
 			ArrowDown: (index + 1) % available.length,
 			ArrowRight: (index + 1) % available.length,
@@ -187,7 +192,7 @@
 		<span>{item.label}</span>
 		{#if item.count != null}
 			<em
-				class="ml-auto rounded-full px-1.5 py-px text-[0.6875rem] font-bold tracking-[0.02em] tabular-nums not-italic {item.accent
+				class="ml-auto rounded-full px-1.5 py-px text-[0.6875rem] font-bold tracking-[0.02em] not-italic tabular-nums {item.accent
 					? active
 						? 'bg-danger text-inverse'
 						: 'bg-danger/15 font-extrabold text-danger'
@@ -271,7 +276,7 @@
 	<div
 		role="tablist"
 		aria-label={m.tabs_label()}
-		class="flex items-center gap-1.5 overflow-x-auto border-b border-border bg-background px-3.5 py-2 [scrollbar-width:none] [grid-area:nav] md:flex-col md:items-stretch md:gap-4 md:overflow-visible md:border-r md:border-b-0 md:bg-panel md:px-3 md:pt-1 md:pb-6 [&::-webkit-scrollbar]:hidden"
+		class="flex [scrollbar-width:none] items-center gap-1.5 overflow-x-auto border-b border-border bg-background px-3.5 py-2 [grid-area:nav] md:flex-col md:items-stretch md:gap-4 md:overflow-visible md:border-r md:border-b-0 md:bg-panel md:px-3 md:pt-1 md:pb-6 [&::-webkit-scrollbar]:hidden"
 	>
 		<div role="none" class="contents md:grid md:gap-0.5">
 			<span
@@ -318,11 +323,7 @@
 				/>
 			</div>
 			<div hidden={section !== 'comments'} class="grid gap-4">
-				<CommentsPanel
-					galleryId={id}
-					layout={gallery.layout}
-					oncount={(n) => (commentCount = n)}
-				/>
+				<CommentsPanel galleryId={id} layout={gallery.layout} oncount={(n) => (commentCount = n)} />
 			</div>
 			<div hidden={section !== 'final'}>
 				<PhotosPanel
