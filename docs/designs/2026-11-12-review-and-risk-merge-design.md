@@ -72,7 +72,7 @@ Short, three sections:
    - Group related settings in one config or options type (#76, #177).
 2. **Check strictly** — `AGENTS.md` rules the maintainer still repeats, linked not copied: no free functions, value-named variables, blank-line layout, no newtype without an invariant, operator limits are configuration, file item order.
 3. **Risk levels** for this repository:
-   - **High:** authentication and access (`crates/api` auth, extractors, middlewares, share links), database migrations, `deploy/`, `docker/`, `.github/`, dependency manifests or lockfiles.
+   - **High:** authentication and access (`crates/api` auth, extractors, middlewares, share links), database migrations, `deploy/`, `docker/`, `.github/`, dependency manifests or lockfiles, agent instruction files (`AGENTS.md`, `REVIEW.md`, `.github/skills/`).
    - **Low:** documentation only, tests only, purely visual web changes, UI wording (`web/messages/`).
    - **Medium:** everything else.
 
