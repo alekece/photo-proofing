@@ -51,7 +51,7 @@ The maintainer owns what gets built and why; agents own how it is built, tested,
 Branch ruleset **`Protect main`**, target the default branch, active, empty bypass list:
 
 - require a pull request, 0 approvals;
-- require status checks: `Detect changes`, `Deployment checks`, `Rust format`, `Rust clippy`, `Rust dependencies`, `Rust tests`, `Web format`, `Web lint and check`, `Web dependencies`, `Web tests`, `Web build`, `Build application images`;
+- require status checks: `Detect changes`, `Deployment checks`, `Rust format`, `Rust clippy`, `Rust dependencies`, `Rust tests`, `Web format`, `Web lint and check`, `Web dependencies`, `Web tests`, `Web build` (not the image builds: their matrix check names change when skipped, and `docker/` is high risk anyway);
 - require branches to be up to date before merging;
 - block force pushes; restrict deletions.
 
