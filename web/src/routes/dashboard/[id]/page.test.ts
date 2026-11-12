@@ -131,8 +131,10 @@ describe('gallery page', () => {
 		expect(screen.queryByLabelText('Client link')).toBeNull();
 	});
 
-	it('renders the share control with a link built from the page origin', () => {
+	it('renders the share control inside Settings with a link built from the page origin', async () => {
+		const user = userEvent.setup();
 		open({ share_token: 'B'.repeat(22) });
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		expect((screen.getByLabelText('Client link') as HTMLInputElement).value).toBe(
 			`https://pp.test/g/${'B'.repeat(22)}`
 		);
@@ -143,6 +145,7 @@ describe('gallery page', () => {
 
 		stubApi(500);
 		open();
+		await user.click(screen.getByRole('tab', { name: 'Design' }));
 		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
 		await waitFor(() => expect(toasts.items).toHaveLength(1));
 
@@ -155,8 +158,10 @@ describe('gallery page', () => {
 
 	it('sends only the changed field without an immediate success toast', async () => {
 		const patches = stubApi();
+		const user = userEvent.setup();
 		open();
-		await userEvent.setup().click(screen.getByRole('button', { name: 'Staggered columns' }));
+		await user.click(screen.getByRole('tab', { name: 'Design' }));
+		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
 		await waitFor(() => expect(patches()).toHaveLength(1));
 		await waitFor(() => expect(screen.queryByText('Saving…')).toBeNull());
 		expect(toasts.items).toEqual([]);
@@ -206,6 +211,7 @@ describe('gallery page', () => {
 		stubApi(500);
 		const user = userEvent.setup();
 		open();
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		const toggle = screen.getByRole('switch', { name: 'Enable watermarks' });
 		await user.click(toggle);
 		await waitFor(() => expect(toasts.items).toHaveLength(1));
@@ -217,6 +223,7 @@ describe('gallery page', () => {
 		const patches = stubApi(500);
 		const user = userEvent.setup();
 		open();
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		await user.type(screen.getByLabelText('Gallery title'), ' II');
 		await user.click(screen.getByRole('switch', { name: 'Enable watermarks' }));
 		await waitFor(() => expect(patches()).toHaveLength(2));
@@ -273,6 +280,7 @@ describe('gallery page', () => {
 		const pending = deferApi();
 		const user = userEvent.setup();
 		open();
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		const toggle = screen.getByRole('switch', { name: 'Enable watermarks' });
 		await user.click(toggle);
 		await user.click(toggle);
@@ -321,14 +329,18 @@ describe('gallery page', () => {
 
 	it('redirects to sign-in when the session expired', async () => {
 		stubApi(401);
+		const user = userEvent.setup();
 		open();
-		await userEvent.setup().click(screen.getByRole('switch', { name: 'Enable watermarks' }));
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		await user.click(screen.getByRole('switch', { name: 'Enable watermarks' }));
 		await waitFor(() => expect(goto).toHaveBeenCalledWith('/login?expired=1', expect.anything()));
 	});
 
 	it('sends the end of the chosen day in local time', async () => {
 		const patches = stubApi();
+		const user = userEvent.setup();
 		open();
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		await pickDay('Open until', 1, '4');
 		await waitFor(() => expect(patches()).toHaveLength(1));
 		const sent = new Date(JSON.parse(patches()[0][1]?.body as string).expires_at);
@@ -360,6 +372,7 @@ describe('gallery page', () => {
 		vi.stubGlobal('fetch', fetcher);
 		const user = userEvent.setup();
 		open();
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		await pickDay('Open until', -1, '1');
 		expect(await screen.findByText('Expired')).toBeTruthy();
 		await user.click(screen.getByLabelText('Open until'));
@@ -387,6 +400,7 @@ describe('gallery page', () => {
 		});
 		open();
 		const user = userEvent.setup();
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		await user.type(screen.getByLabelText('Gallery title'), ' II');
 		await user.tab();
 		await waitFor(() => expect(finishTitle).toBeDefined());
@@ -397,17 +411,21 @@ describe('gallery page', () => {
 		expect(screen.getByText('Expired')).toBeTruthy();
 	});
 
-	it('shows the stored expiry as a local date', () => {
+	it('shows the stored expiry as a local date', async () => {
+		const user = userEvent.setup();
 		const stored = new Date(2030, 5, 15, 23, 59, 59).toISOString();
 		open({ expires_at: stored });
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		expect(screen.getByLabelText('Open until').textContent).toContain('Jun 15, 2030');
 	});
 
-	it('sends null when included photos is cleared and rejects zero', async () => {
+	it('sends null when included photos is cleared, rejects zero, and preserves debounced edits across tab switches', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
 		const patches = stubApi();
-		const user = userEvent.setup();
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 		open();
-		const input = screen.getByLabelText('Included photos');
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		const input = screen.getByLabelText('Included photos') as HTMLInputElement;
 		await user.clear(input);
 		await user.tab();
 		await waitFor(() => expect(patches()).toHaveLength(1));
@@ -416,10 +434,77 @@ describe('gallery page', () => {
 		await user.tab();
 		expect(toasts.items).toHaveLength(1);
 		expect(patches()).toHaveLength(1);
+
+		await user.clear(input);
+		await user.type(input, '12');
+		await user.click(screen.getByRole('tab', { name: /^Photos/ }));
+		await vi.advanceTimersByTimeAsync(700);
+		expect(patches()).toHaveLength(2);
+		expect(JSON.parse(patches()[1][1]?.body as string)).toEqual({ included_photos: 12 });
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		expect((screen.getByLabelText('Included photos') as HTMLInputElement).value).toBe('12');
 	});
 
-	it('has no axe violations', async () => {
+	it('does not clobber in-progress Included photos typing or optimistic layout when an earlier save resolves', async () => {
+		let resolveTitle!: () => void;
+		let resolveFirstIncluded!: () => void;
+		const patches: unknown[] = [];
+
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				const patch = JSON.parse(init?.body as string);
+				patches.push(patch);
+
+				if ('title' in patch) await new Promise<void>((r) => (resolveTitle = r));
+				if (patch.included_photos === 1) await new Promise<void>((r) => (resolveFirstIncluded = r));
+
+				return Response.json({ ...base, ...patch });
+			})
+		);
+
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		open();
+
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		const titleInput = screen.getByLabelText('Gallery title');
+		const includedInput = screen.getByLabelText('Included photos') as HTMLInputElement;
+
+		await user.type(titleInput, ' II');
+		await user.click(includedInput);
+		await waitFor(() => expect(resolveTitle).toBeDefined());
+
+		await user.clear(includedInput);
+		await user.type(includedInput, '1');
+		resolveTitle();
+		await waitFor(() => expect(document.title).toBe('Wedding II — PhotoProofing'));
+		expect(includedInput.value).toBe('1');
+
+		await vi.advanceTimersByTimeAsync(650);
+		await waitFor(() => expect(resolveFirstIncluded).toBeDefined());
+
+		await user.type(includedInput, '2');
+		resolveFirstIncluded();
+		await vi.advanceTimersByTimeAsync(50);
+		expect(includedInput.value).toBe('12');
+
+		await user.click(screen.getByRole('tab', { name: 'Design' }));
+		const staggered = screen.getByRole('button', { name: 'Staggered columns' });
+		await user.click(staggered);
+		await vi.advanceTimersByTimeAsync(650);
+		expect(staggered.getAttribute('aria-pressed')).toBe('true');
+		expect(patches).toContainEqual({ included_photos: 12 });
+	});
+
+	it('has no axe violations across Photos, Design, and Settings views', async () => {
+		const user = userEvent.setup();
 		const { container } = open();
+		expect((await axe(container)).violations).toEqual([]);
+		await user.click(screen.getByRole('tab', { name: 'Design' }));
+		expect((await axe(container)).violations).toEqual([]);
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
@@ -472,9 +557,10 @@ describe('gallery page', () => {
 			expect(shares()).toHaveLength(1);
 
 			await user.click(screen.getByRole('button', { name: 'Done' }));
-			expect(screen.getByLabelText('Client link')).toBeTruthy();
-			expect(screen.getByText('Shared')).toBeTruthy();
+			expect(screen.getByText('Prepublish')).toBeTruthy();
 			expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
+			await user.click(screen.getByRole('tab', { name: 'Settings' }));
+			expect(screen.getByLabelText('Client link')).toBeTruthy();
 		});
 
 		it('does not share when the dialog is dismissed', async () => {
@@ -514,24 +600,26 @@ describe('gallery page', () => {
 			expect(await screen.findByText(/pick favorites until 12 Sep 2026\./)).toBeTruthy();
 		});
 
-		it('starts from the link row and an enabled Deliver when already shared', () => {
+		it('starts from the link row and an enabled Publish when already shared', async () => {
+			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22), states: ['shared'] });
-			expect(screen.getByText('Shared')).toBeTruthy();
-			expect(screen.getByLabelText('Client link')).toBeTruthy();
-			expect((screen.getByRole('button', { name: 'Deliver' }) as HTMLButtonElement).disabled).toBe(
+			expect(screen.getByText('Prepublish')).toBeTruthy();
+			expect((screen.getByRole('button', { name: 'Publish' }) as HTMLButtonElement).disabled).toBe(
 				false
 			);
+			await user.click(screen.getByRole('tab', { name: 'Settings' }));
+			expect(screen.getByLabelText('Client link')).toBeTruthy();
 		});
 
-		it('names the gallery in the Deliver text, plural when it has an ampersand', async () => {
+		it('names the gallery in the Publish text, plural when it has an ampersand', async () => {
 			stubShareFlow();
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22), title: 'Camille & Hugo' });
-			await user.click(screen.getByRole('button', { name: 'Deliver' }));
+			await user.click(screen.getByRole('button', { name: 'Publish' }));
 			expect(await screen.findByText(/Camille & Hugo see them at the same link/)).toBeTruthy();
 		});
 
-		it('delivers after confirming and shows the gallery as delivered', async () => {
+		it('publishes after confirming and shows the gallery as published', async () => {
 			const fetcher = vi.fn(async (url: string) =>
 				url.endsWith('/deliver')
 					? new Response(
@@ -546,19 +634,22 @@ describe('gallery page', () => {
 			vi.stubGlobal('fetch', fetcher);
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22) });
-			await user.click(screen.getByRole('button', { name: 'Deliver' }));
+			await user.click(screen.getByRole('button', { name: 'Publish' }));
 			await user.click(
-				within(await screen.findByRole('dialog', { name: 'Deliver 1 photo?' })).getByRole(
+				within(await screen.findByRole('dialog', { name: 'Publish 1 photo?' })).getByRole(
 					'button',
-					{ name: 'Deliver' }
+					{ name: 'Publish' }
 				)
 			);
-			expect(await screen.findByText('Delivered')).toBeTruthy();
+			expect(
+				await screen.findByText('Publish', { selector: '[data-slot="status-chip"]' })
+			).toBeTruthy();
+			expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
 			expect(toasts.items).toEqual([]);
 			expect(fetcher.mock.calls.some(([url]) => url.endsWith('/g1/deliver'))).toBe(true);
 		});
 
-		it('reports a failed delivery and keeps the dialog open to try again', async () => {
+		it('reports a failed publish and keeps the dialog open to try again', async () => {
 			vi.stubGlobal(
 				'fetch',
 				vi.fn(async (url: string) =>
@@ -569,14 +660,14 @@ describe('gallery page', () => {
 			);
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22) });
-			await user.click(screen.getByRole('button', { name: 'Deliver' }));
+			await user.click(screen.getByRole('button', { name: 'Publish' }));
 			await user.click(
-				within(await screen.findByRole('dialog', { name: 'Deliver 1 photo?' })).getByRole(
+				within(await screen.findByRole('dialog', { name: 'Publish 1 photo?' })).getByRole(
 					'button',
-					{ name: 'Deliver' }
+					{ name: 'Publish' }
 				)
 			);
-			expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t deliver/);
+			expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t publish/);
 		});
 
 		it('reports a failed share and keeps the dialog open to try again', async () => {
@@ -739,6 +830,7 @@ describe('gallery page', () => {
 		};
 		const confirm = async (action: 'Archive' | 'Delete') => {
 			const user = userEvent.setup();
+			await user.click(screen.getByRole('tab', { name: 'Settings' }));
 			await user.click(screen.getByRole('button', { name: action }));
 			const dialog = await screen.findByRole('dialog');
 			await user.click(within(dialog).getByRole('button', { name: action }));
@@ -790,12 +882,14 @@ describe('gallery page', () => {
 	});
 
 	describe('tabs', () => {
-		it('offers Photos, Favorites, Comments and Finals with Photos selected', async () => {
+		it('offers Collection and Studio tabs with Photos selected by default', async () => {
 			vi.stubGlobal('fetch', async () => new Response('[]'));
 			open();
-			const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent?.trim());
-			expect(tabs).toEqual(['Photos', 'Favorites', 'Comments', 'Final']);
-			expect(screen.getByRole('tab', { name: 'Photos' }).getAttribute('aria-selected')).toBe(
+			const tabs = screen
+				.getAllByRole('tab')
+				.map((tab) => tab.textContent?.replace(/\s+/g, ' ').trim());
+			expect(tabs).toEqual(['Photos', 'Favorites', 'Comments', 'Final', 'Design', 'Settings']);
+			expect(screen.getByRole('tab', { name: /^Photos/ }).getAttribute('aria-selected')).toBe(
 				'true'
 			);
 			expect(screen.getByRole('tabpanel').textContent).toMatch(/Photos of g1/);
@@ -814,12 +908,21 @@ describe('gallery page', () => {
 			expect(screen.getByRole('tabpanel').textContent).toMatch(/No favorites yet/);
 		});
 
-		it('disables Favorites and Final for an unshared gallery', () => {
+		it('disables Favorites, Comments and Final for an unshared gallery while keeping Design and Settings enabled', () => {
 			open();
 			expect((screen.getByRole('tab', { name: 'Favorites' }) as HTMLButtonElement).disabled).toBe(
 				true
 			);
+			expect((screen.getByRole('tab', { name: 'Comments' }) as HTMLButtonElement).disabled).toBe(
+				true
+			);
 			expect((screen.getByRole('tab', { name: 'Final' }) as HTMLButtonElement).disabled).toBe(true);
+			expect((screen.getByRole('tab', { name: 'Design' }) as HTMLButtonElement).disabled).toBe(
+				false
+			);
+			expect((screen.getByRole('tab', { name: 'Settings' }) as HTMLButtonElement).disabled).toBe(
+				false
+			);
 		});
 	});
 });

@@ -10,7 +10,11 @@ const SAME_IN_BOTH: string[] = [
 	'common_logo',
 	'common_photos',
 	'header_notifications',
+	'settings_actions',
+	'studio_group_collection',
+	'studio_group_studio',
 	'summary_photos',
+	'tab_design',
 	'watermark_position',
 	'watermark_position_cell'
 ];

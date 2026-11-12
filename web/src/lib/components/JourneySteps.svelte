@@ -19,68 +19,69 @@
 	const focus = $derived(steps[current] ?? steps.at(-1));
 </script>
 
-<nav
-	aria-label={m.step_progress()}
-	class="absolute inset-x-0 bottom-0 border-t border-panel/20 bg-scrim text-panel/85 backdrop-blur-[14px] backdrop-saturate-120"
->
-	<ol class="mx-auto hidden max-w-5xl items-center justify-center gap-3.5 px-8 sm:flex">
+<nav aria-label={m.step_progress()} class="min-w-0 flex-1">
+	<ol class="hidden max-w-4xl items-center gap-2.5 @min-[60rem]:flex @min-[68rem]:gap-3.5">
 		{#each steps as { id, label, done, fact, accent }, index (id)}
 			{#if index > 0}
 				<li
 					aria-hidden="true"
-					class="h-[1.5px] max-w-30 flex-1 {steps[index - 1].done
-						? 'bg-ok-on-dark/80'
-						: 'bg-panel/25'}"
+					class="h-[1.5px] max-w-10 min-w-2 flex-1 {steps[index - 1].done
+						? 'bg-ok/55'
+						: 'bg-border'}"
 				></li>
 			{/if}
 			<li
-				class="relative flex items-center gap-2 py-3 text-[0.78125rem] leading-[1.3] whitespace-nowrap {index ===
-				current
-					? 'shadow-[inset_0_-2px_0_var(--color-warning-on-dark)]'
-					: done
-						? ''
-						: 'opacity-75'}"
+				class="relative flex shrink-0 items-center gap-2 py-0.5 text-[0.78125rem] leading-[1.25] whitespace-nowrap"
 				aria-current={index === current ? 'step' : undefined}
 			>
 				<span
-					class="grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] text-[0.625rem] font-bold {done
-						? 'border-ok-on-dark bg-ok-on-dark text-panel'
+					class="grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] text-[0.6875rem] font-bold {done
+						? 'border-ok bg-ok text-inverse'
 						: index === current
-							? 'border-warning-on-dark text-warning-on-dark'
-							: 'border-panel/50 text-panel'}"
+							? 'border-danger bg-golden-hour text-danger'
+							: 'border-border-strong bg-background text-muted-foreground'}"
 				>
 					{#if done}<Check size={12} strokeWidth={3} aria-hidden="true" />{:else}{index + 1}{/if}
 				</span>
 				<span class="flex flex-col">
-					<strong class="text-[0.84375rem] font-semibold text-panel">{label}</strong>
+					<strong
+						class="text-[0.8125rem] leading-[1.15] {done || index === current
+							? 'font-semibold text-foreground'
+							: 'font-medium text-muted-foreground'}">{label}</strong
+					>
 					{#if done}<span class="sr-only">{m.step_done()}</span>{/if}
 					{#if fact}
-						<span class={accent ? 'font-extrabold text-warning-on-dark' : ''} data-slot="step-fact"
-							>{fact}</span
+						<span
+							class="max-w-40 text-[0.6875rem] leading-[1.2] whitespace-normal @min-[65rem]:max-w-none @min-[65rem]:whitespace-nowrap {accent
+								? 'font-extrabold text-danger'
+								: 'text-muted-foreground'}"
+							data-slot="step-fact">{fact}</span
 						>
 					{/if}
 				</span>
 			</li>
 		{/each}
 	</ol>
-	<div class="flex items-center gap-3 px-[1.125rem] py-[0.6875rem] text-[0.78rem] sm:hidden">
-		<ol class="flex gap-[0.3125rem]">
+	<div class="flex min-w-0 items-center gap-2.5 text-[0.78rem] @min-[60rem]:hidden">
+		<ol class="flex shrink-0 gap-1">
 			{#each steps as { id, label, done }, index (id)}
 				<li
-					class="h-1 w-[1.375rem] rounded-xs {done
-						? 'bg-ok-on-dark'
+					class="h-1 w-[1.125rem] rounded-xs {done
+						? 'bg-ok'
 						: index === current
-							? 'bg-warning-on-dark'
-							: 'bg-panel/30'}"
+							? 'bg-danger'
+							: 'bg-border-strong'}"
 					aria-current={index === current ? 'step' : undefined}
 				>
 					<span class="sr-only">{label}{done ? ` (${m.step_done()})` : ''}</span>
 				</li>
 			{/each}
 		</ol>
-		<span aria-hidden="true" class="min-w-0 truncate"
-			><b class="font-semibold text-panel">{focus?.label}</b>
-			{#if focus?.fact}<span class="opacity-80">· {focus.fact}</span>{/if}</span
+		<span aria-hidden="true" class="min-w-0 truncate text-muted-foreground"
+			><b class="font-semibold text-foreground">{focus?.label}</b>
+			{#if focus?.fact}<span>· </span><span class={focus.accent ? 'font-extrabold text-danger' : ''}
+					>{focus.fact}</span
+				>{/if}</span
 		>
 	</div>
 </nav>

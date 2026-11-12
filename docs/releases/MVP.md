@@ -43,7 +43,7 @@ Run with synthetic/replaceable photos whose originals are retained elsewhere. Th
 
 ### Prepare, process, and share
 
-- [ ] Create a gallery from the title-only New gallery dialog, then set and remove the hero (no hero shows the default cover on the gallery and client page), switch between default even rows and staggered columns, and set/clear expiry and included photo count ([FR-03](../SPECIFICATIONS.md#fr-03)).
+- [ ] Create a gallery from the New gallery dialog, then set and remove the hero (no hero shows the default cover on the studio cover card and client page), switch between default even rows and staggered columns, and set/clear expiry and included photo count ([FR-03](../SPECIFICATIONS.md#fr-03)).
 - [ ] Share an empty gallery after a warning; the link opens a useful empty state, with no client account or code required ([FR-04](../SPECIFICATIONS.md#fr-04)).
 - [ ] Open Preview on an unshared gallery, switch between desktop and mobile views, and close it: the client page shows only ready reduced previews, selection and download controls are disabled, and no share link or client activity is created ([FR-04](../SPECIFICATIONS.md#fr-04))
 - [ ] Upload a representative 50–100-JPEG gallery; observe transfer progress separately from processing. Navigate away and return to the current processing state. Ready previews appear progressively at the shared link; pending/failed photos never appear as ready ([FR-04–FR-05](../SPECIFICATIONS.md#fr-04), [NF-04](../SPECIFICATIONS.md#nf-04)).

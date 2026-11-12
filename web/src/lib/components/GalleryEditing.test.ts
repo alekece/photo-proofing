@@ -67,7 +67,11 @@ describe('gallery editing integration', () => {
 		const props = { gallery, queue, events };
 		const view = render(Harness, { props });
 		await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(8));
-		await userEvent.click(await screen.findByRole('button', { name: 'Open portrait.jpg' }));
+		const user = userEvent.setup();
+		await user.click(screen.getByRole('tab', { name: 'Design' }));
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		await user.click(screen.getByRole('tab', { name: /^Photos/ }));
+		await user.click(await screen.findByRole('button', { name: 'Open portrait.jpg' }));
 		const viewer = screen.getByRole('dialog');
 		await screen.findByRole('textbox');
 		const loaded = fetcher.mock.calls.length;

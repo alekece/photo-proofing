@@ -19,7 +19,7 @@ describe('PublishDialog photo set', () => {
 			onclose: () => {}
 		});
 
-		expect(await screen.findByRole('dialog', { name: 'Deliver with no photos?' })).toBeTruthy();
+		expect(await screen.findByRole('dialog', { name: 'Publish with no photos?' })).toBeTruthy();
 	});
 
 	it.each([
@@ -99,7 +99,7 @@ describe('PublishDialog dismissal', () => {
 describe('PublishDialog in French', () => {
 	useLocale('fr');
 
-	it('asks to deliver the photos in French', async () => {
+	it('asks to publish the photos in French', async () => {
 		render(PublishDialog, {
 			kind: 'deliver',
 			galleryId: 'g1',
@@ -109,8 +109,8 @@ describe('PublishDialog in French', () => {
 			onclose: () => {}
 		});
 
-		expect(await screen.findByRole('dialog', { name: 'Livrer 1 photo ?' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Livrer' })).toBeTruthy();
-		expect(screen.queryByText(/Deliver/)).toBeNull();
+		expect(await screen.findByRole('dialog', { name: 'Publier 1 photo ?' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Publier' })).toBeTruthy();
+		expect(screen.queryByText(/Publish/)).toBeNull();
 	});
 });

@@ -1,12 +1,11 @@
 import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Gallery } from '#lib/gallery/api.js';
-
 import { toasts } from './ui/Toast/toasts.svelte.js';
-import GallerySettings from './GallerySettings.svelte';
+import GallerySettingsPanel from './GallerySettingsPanel.svelte';
 
 const gallery = {
 	layout: 'grid',
@@ -25,7 +24,7 @@ function setup(over: Partial<Gallery> = {}, saves = true, shareToken: string | n
 	const onrestore = vi.fn();
 	const ondelete = vi.fn();
 
-	const view = render(GallerySettings, {
+	const view = render(GallerySettingsPanel, {
 		gallery: { ...gallery, ...over },
 		shareToken,
 		origin: 'https://pp.test',
@@ -53,11 +52,22 @@ afterEach(() => {
 	toasts.items = [];
 });
 
-describe('GallerySettings', () => {
+describe('GallerySettingsPanel', () => {
+	it('splits settings into General, Privacy & Protection, and Actions cards', async () => {
+		const { container } = setup();
+
+		expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'General' })).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'Privacy & Protection' })).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'Actions' })).toBeTruthy();
+		expect((await axe(container)).violations).toEqual([]);
+	});
+
 	it('says a draft is not shared and offers the link once shared', () => {
-		setup();
+		const first = setup();
 
 		expect(screen.getByText('Not shared yet')).toBeTruthy();
+		first.unmount();
 
 		setup({}, true, 'A'.repeat(22));
 
@@ -65,35 +75,23 @@ describe('GallerySettings', () => {
 		expect(screen.queryByRole('link', { name: 'Open' })).toBeNull();
 	});
 
-	it('saves the layout and watermark as patches', async () => {
-		const { onsave, user } = setup();
+	it('toggles watermarks without flashing a success ring and reverts on failure', async () => {
+		const ok = setup();
 
-		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
-		await user.click(screen.getByRole('switch', { name: 'Enable watermarks' }));
-
-		expect(onsave).toHaveBeenNthCalledWith(1, { layout: 'masonry' });
-		expect(onsave).toHaveBeenNthCalledWith(2, { watermark_enabled: true });
-	});
-
-	it('puts a refused setting back', async () => {
-		const { user } = setup({}, false);
-		const toggle = screen.getByRole('switch', { name: 'Enable watermarks' });
-
-		await user.click(toggle);
-
-		await vi.waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('false'));
-	});
-
-	it('does not flash a success ring after autosaving', async () => {
-		const { user } = setup();
-
-		await user.click(screen.getByRole('switch', { name: 'Enable watermarks' }));
-
+		await ok.user.click(screen.getByRole('switch', { name: 'Enable watermarks' }));
+		expect(ok.onsave).toHaveBeenCalledWith({ watermark_enabled: true });
 		await vi.waitFor(() =>
 			expect(screen.getByRole('switch', { name: 'Enable watermarks' }).className).not.toContain(
 				'ring-ok'
 			)
 		);
+		ok.unmount();
+
+		const fail = setup({}, false);
+		const toggle = screen.getByRole('switch', { name: 'Enable watermarks' });
+
+		await fail.user.click(toggle);
+		await vi.waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('false'));
 	});
 
 	it('saves the picked open-until date as the end of that day and clears it with null', async () => {
@@ -131,48 +129,35 @@ describe('GallerySettings', () => {
 		expect(onsave).toHaveBeenCalledWith({ shoot_date: null });
 	});
 
-	it('debounces included photos through the page and saves on leaving', async () => {
-		const { onsave, schedule, cancel, user } = setup();
+	it('debounces included photos through the page, disables when published, and reverts invalid input', async () => {
+		const first = setup();
 
-		await user.type(screen.getByLabelText('Included photos'), '5');
-		expect(schedule).toHaveBeenCalledWith('included_photos', expect.any(Function));
-		expect(onsave).not.toHaveBeenCalled();
+		await first.user.type(screen.getByLabelText('Included photos'), '5');
+		expect(first.schedule).toHaveBeenCalledWith('included_photos', expect.any(Function));
+		expect(first.onsave).not.toHaveBeenCalled();
 
-		await user.tab();
-		expect(cancel).toHaveBeenCalledWith('included_photos');
-		expect(onsave).toHaveBeenCalledWith({ included_photos: 5 });
-	});
+		await first.user.tab();
+		expect(first.cancel).toHaveBeenCalledWith('included_photos');
+		expect(first.onsave).toHaveBeenCalledWith({ included_photos: 5 });
+		first.unmount();
 
-	it('disables the included photos once the gallery is delivered', () => {
-		setup({ included_photos: 3, states: ['delivered'] });
-
+		const locked = setup({ included_photos: 3, states: ['delivered'] });
 		expect((screen.getByLabelText('Included photos') as HTMLInputElement).disabled).toBe(true);
-	});
+		locked.unmount();
 
-	it('reverts an invalid included count with an error toast', async () => {
-		const { onsave, user } = setup({ included_photos: 3 });
+		const invalid = setup({ included_photos: 3 });
 		const input = screen.getByLabelText('Included photos') as HTMLInputElement;
 
-		await user.clear(input);
-		await user.type(input, '0');
-		await user.tab();
+		await invalid.user.clear(input);
+		await invalid.user.type(input, '0');
+		invalid.schedule.mock.calls.at(-1)![1]();
+		expect(input.value).toBe('0');
+		expect(invalid.onsave).not.toHaveBeenCalled();
 
-		expect(onsave).not.toHaveBeenCalled();
+		await invalid.user.tab();
+		expect(invalid.onsave).not.toHaveBeenCalled();
 		expect(input.value).toBe('3');
 		expect(toasts.items).toHaveLength(1);
-	});
-
-	it('leaves a half-typed included count alone until the field is left', async () => {
-		const { onsave, schedule, user } = setup({ included_photos: 3 });
-		const input = screen.getByLabelText('Included photos') as HTMLInputElement;
-
-		await user.clear(input);
-		await user.type(input, '0');
-		schedule.mock.calls.at(-1)![1]();
-
-		expect(input.value).toBe('0');
-		expect(onsave).not.toHaveBeenCalled();
-		expect(toasts.items).toEqual([]);
 	});
 
 	it('archives and deletes through the page, and restores an archived gallery', async () => {
@@ -183,32 +168,12 @@ describe('GallerySettings', () => {
 
 		expect(first.onarchive).toHaveBeenCalledOnce();
 		expect(first.ondelete).toHaveBeenCalledOnce();
-
 		first.unmount();
 
 		const second = setup({ states: ['draft', 'archived'] });
 
 		expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-
 		await second.user.click(screen.getByRole('button', { name: 'Restore' }));
-
 		expect(second.onrestore).toHaveBeenCalledOnce();
-	});
-
-	it('pops a card out of the phone rail and closes it with Escape', async () => {
-		const { user } = setup();
-		const button = screen.getByRole('button', { name: 'Show Look' });
-
-		await user.click(button);
-		expect(button.getAttribute('aria-expanded')).toBe('true');
-
-		await user.keyboard('{Escape}');
-		expect(button.getAttribute('aria-expanded')).toBe('false');
-	});
-
-	it('has no axe violations', async () => {
-		const { container } = setup();
-
-		expect((await axe(container)).violations).toEqual([]);
 	});
 });

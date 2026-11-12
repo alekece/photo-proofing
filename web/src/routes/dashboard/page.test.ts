@@ -215,7 +215,7 @@ describe('dashboard', () => {
 
 	describe('states', () => {
 		const choose = async (user: ReturnType<typeof userEvent.setup>, ...names: RegExp[]) => {
-			await user.click(screen.getByRole('button', { name: /^Status|Shared|Draft|Archived/ }));
+			await user.click(screen.getByRole('button', { name: /^Status|Prepublish|Draft|Archived/ }));
 			for (const name of names) await user.click(screen.getByRole('checkbox', { name }));
 		};
 
@@ -232,7 +232,9 @@ describe('dashboard', () => {
 				])
 			});
 
-			expect(within(screen.getByRole('link', { name: /One/ })).getByText('Shared')).toBeTruthy();
+			expect(
+				within(screen.getByRole('link', { name: /One/ })).getByText('Prepublish')
+			).toBeTruthy();
 			expect(within(screen.getByRole('link', { name: /Two/ })).getByText('Expired')).toBeTruthy();
 		});
 

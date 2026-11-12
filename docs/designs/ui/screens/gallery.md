@@ -20,57 +20,47 @@ Where the photographer runs one shoot from upload to delivery. Route `/dashboard
 | Side nav editing | ![](gallery/side-nav-edit.desktop.png) | |
 | Photos in French | ![](gallery/photos-fr.desktop.png) | ![](gallery/photos-fr.phone.png) |
 
-## Header: hero and journey
+## Studio layout: left rail and top journey bar
 
-The hero photo fills a wide banner. Over it:
+The gallery page uses the standard top `AppHeader` above a two-column Warm Paper studio workspace on
+desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
 
-- status chip (Draft, Shared, Delivered, Expired, Archived), title in Georgia, one meta line
-  ("48 photos · shared 12 Jun");
-- **Preview** (ghost) and the next main action: **Share** for a draft, **Deliver** once shared,
-  nothing once delivered, **Restore** when archived;
-- the **journey steps**, centred along the bottom: Upload → Share → Collect favorites → Deliver. Done steps
-  show a green tick and a fact ("Shared 12 Jun", "13 selected"), the current step is highlighted,
-  later ones are dim. On phones the steps collapse to four dots and the current step's label.
-  Hidden when archived.
+- **Left studio rail (`identity` + `nav`):**
+  - `← Back to galleries` link and a `3:2` framed cover thumbnail button (`44 × 34 px` on phones)
+    showing the hero preview or a compact `CoverBackdrop` stand-in; clicking it opens **Design**.
+  - Inline-editable Georgia gallery title paired on its right with the read-only status chip
+    (**Draft**, **Prepublish**, **Publish**, **Expired**, **Archived**), plus `Shot` (or `Created`)
+    and, once shared, `Last opened` (`Not yet` until first opened).
+  - **Collection** navigation with counts: **Photos**, **Favorites** (accented when over allowance,
+    padlock once published), **Comments**, and **Final** (`Favorites`, `Comments`, and `Final` stay
+    visible and disabled before the first share, with tooltip `"Available once the gallery is shared"`).
+  - **Studio** navigation (always enabled): **Design** and **Settings**.
+  - On phones (`< md`), `nav` becomes a horizontally scrollable pill strip below the Journey bar.
+- **Top Journey Wizard & action bar (`journey`):**
+  - Actionable 4-step wizard on Warm Paper: **Upload → Share → Collect favorites → Publish** (hidden
+    when archived; collapses to four progress bars + the active step label and fact on phones).
+  - Right-aligned actions: **Preview** (outline) and the stage CTA (**Share** on a draft,
+    **Publish** during Prepublish, nothing once published, **Restore** when archived).
 
-**No hero:** a warm dark gradient with the gallery's initials large and faint, a film-edge line
-with the date and place, and a slow light leak. Title, chip, meta, actions and steps sit on it
-as usual, so it looks intended, not missing.
+## Studio views (`Design` and `Settings`)
 
-![No-hero header motion](gallery/no-hero-motion.gif)
-![No-hero header frames](gallery/no-hero-motion.frames.png)
-
-## Side nav
-
-Four cards on the left; on phones an icon rail whose buttons pop the same cards out.
-
-| Card | Content |
+| View / Card | Content |
 |---|---|
-| Client link | Draft: "Not shared yet". Shared: the link and **Copy link**; the owner uses read-only **Preview**, not the client credential |
-| Client access | **Open until** (date input) and **Included photos** (number input), edited in place; both optional, empty means no expiry or no limit |
-| Look | **Layout** as two icon buttons (staggered columns, even rows; even rows by default) and a **Watermark proofs** switch |
-| Gallery | **Archive** or **Restore**, **Delete** |
+| **Design** | **Look:** **Layout** as two icon buttons (staggered columns, even rows; even rows by default) |
+| **Settings → General** | **Shoot date**, **Included photos** (number input, disabled once published), and **Open until** (date picker); all optional |
+| **Settings → Privacy & Protection** | **Client link** (Draft: `"Not shared yet"`; once shared: link and **Copy**) and **Enable watermarks** switch |
+| **Settings → Actions** | **Archive** (or **Restore**) and destructive **Delete**, each with a short consequence hint and confirmation dialog |
 
-- In-place inputs save on change without success rings or repeated "Saved" toasts. Pending saves
-  show **Saving…**; loaded photos and the viewer stay mounted. An invalid value shows
-  a red toast and reverts. A past "Open until" makes the gallery Expired; a future or cleared one lifts it. The prototype
-  seeds every gallery with a date, a count and staggered columns and refuses empty values; build
-  to this doc and the PRD instead.
-- The prototype's date input follows the browser's locale; the real app must format it in the workspace language.
+- All six panels (**Photos**, **Favorites**, **Comments**, **Final**, **Design**, **Settings**) stay
+  mounted so counts load on open and in-place edits, uploads, or open viewers survive section
+  switches and autosaves.
+- In-place inputs save on change without success rings or repeated `"Saved"` toasts. An invalid
+  value shows a red toast and reverts. A past `"Open until"` marks the gallery Expired; a future or
+  cleared one lifts it.
 - The watermark switch is the only watermark control here. Mark, repeat, position and size live in
   [Settings](settings.md) and apply to every gallery.
-- Archive asks first ("Archive this gallery?", "The client link stops working. You can restore it
-  any time."). Delete asks with the danger style ("Delete this gallery?", "Its photos, favorites
-  and client link go for good.", **Keep it** / **Delete**).
 
-## Tabs
-
-**Photos**, **Favorites** and **Final**, each with its count. The Favorites count turns bold
-accent when over the allowance. After delivery Favorites shows a padlock: the selection is locked.
-Before the first share, **Favorites** and **Final** are dimmed and disabled, with
-the tooltip "Available once the gallery is shared". Only Photos opens, even from
-a direct link; pointer and keyboard navigation skip the disabled tabs. Sharing
-enables both immediately without reloading or discarding existing photos.
+## Collection views (`Photos`, `Favorites`, `Comments`, `Final`)
 
 ### Photos
 
