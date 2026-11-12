@@ -25,6 +25,7 @@ rustc-ice-*.txt
 
 # Local development
 .worktrees/
+/docs/plans/
 /config.toml
 /deploy/*.local.yml
 node_modules

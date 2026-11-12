@@ -5,6 +5,8 @@ This file is the shared repository policy for Codex, GitHub Copilot coding agent
 - [`crates/AGENTS.md`](crates/AGENTS.md): Rust principles and `cargo` commands.
 - [`web/AGENTS.md`](web/AGENTS.md): SvelteKit frontend commands and conventions.
 
+[`REVIEW.md`](REVIEW.md) holds the review rules learned from past PRs, the security review and the risk levels used to decide how a PR is merged.
+
 Never put secrets in logs, spans, or commits, in any language.
 Keep real deployment hostnames, addresses, volume mappings, account details,
 secret-manager identifiers and certificates outside Git, public discussion and
@@ -30,7 +32,7 @@ values and reserved domains.
 - `docs/releases/` owns release scope and acceptance criteria, referencing product requirements rather than duplicating the PRD. Record the accepted PRD commit/tag at release completion and preserve completed releases as historical records.
 - `docs/adr/` records significant architectural decisions, their alternatives, and consequences. Do not create an ADR for every dependency or restate the PRD.
 - Commit approved designs in `docs/designs/` as durable records. Update evolving designs in place after approved PR-review changes; replace superseded decisions instead of appending review-by-review sections. Keep documents concise and easy for humans to read and reason about; Git history preserves previous decisions. The current PRD owns current product requirements.
-- Commit implementation plans in `docs/plans/` on the working branch and retain them through implementation, PR review, and corrections. After review and corrections, retain lasting decisions/evidence in permanent documents or the PR, then remove the relevant plans before requesting final merge approval. Permanent documents must not depend on links to temporary plan files.
+- Keep implementation plans in `docs/plans/` in the worktree; Git ignores that directory, so plans are never committed. Retain lasting decisions and evidence in permanent documents or the PR. Permanent documents must not depend on links to plan files.
 - Do not add duplicate harness-specific guidance or synchronization tooling. This file is the shared repository policy.
 
 ### Superpowers delivery workflow
@@ -39,14 +41,21 @@ values and reserved domains.
 2. Write a design specification and obtain explicit user approval of the written design before implementation. Approval of an approach alone does not approve the written design.
 3. Before implementation planning, identify or create a focused GitHub issue describing motivation, observable acceptance criteria, constraints, and references. Issues describe outcomes rather than implementation task lists. Link the issue from the design.
 4. Use Superpowers writing-plans to create an implementation plan from the approved design, referencing the design and issue.
-5. Implement only the approved specification, following the plan, in an isolated worktree. Name the branch `<type>/<issue>-slug`, where `<type>` is a git-cliff commit type (`feat`, `fix`, `docs`, ...), for example `feat/61-development-workflow`. Default to implementation in the current session with one fresh reviewer at the end; task-by-task subagents are optional. If worktree creation fails, resolve the blocker rather than implementing in the main checkout.
-6. Confirm the change is documented for its area (see the Comments and Docs section of `crates/AGENTS.md` for Rust, `web/AGENTS.md` for the frontend, and the documents listed above for behavior changes), run the relevant checks, and request independent review by a fresh agent or subagent. Review both correctness and compliance with the approved design. Address material findings, then perform a dedicated refactor pass for evident improvements to responsibilities, naming, duplication and repository-guidance compliance. Keep it within approved scope, preserve behavior and rerun affected checks before delivery. Record the result even when no further refactor is warranted. If independent review is unavailable, report the blocker rather than substituting author self-review.
-7. Create a PR referencing the original issue, with a summary of changes, verification evidence, and material limitations. Keep the worktree available through PR review and corrections.
-8. After review and corrections, complete the plan cleanup described above and request explicit user approval of the final changes before merging. Prefer squash merges. Never merge automatically or substitute a local merge for PR delivery.
+5. Implement only the approved specification, following the plan, in an isolated worktree. Name the branch `<type>/<issue>-slug`, where `<type>` is a git-cliff commit type (`feat`, `fix`, `docs`, ...), for example `feat/61-development-workflow`. Default to implementation in the current session with the fresh reviewers of step 6 at the end; task-by-task subagents are optional. If worktree creation fails, resolve the blocker rather than implementing in the main checkout.
+6. Confirm the change is documented for its area (see the Comments and Docs section of `crates/AGENTS.md` for Rust, `web/AGENTS.md` for the frontend, and the documents listed above for behavior changes), run the relevant checks, and request independent review. Start two fresh subagents in parallel, neither of which wrote the code, and give both [`REVIEW.md`](REVIEW.md): a code reviewer (correctness, edge cases, error handling, tests, maintainability, compliance with the approved design, `AGENTS.md` and `REVIEW.md`) and a security reviewer (the security review in `REVIEW.md`). Use the harness's code-review and security-review agents when available. Fix blocking findings, rerun the checks, and have a fresh reviewer re-check only the changed code and its context; after three rounds with blocking findings left, stop and ask the user with a short summary. Then perform a dedicated refactor pass for evident improvements to responsibilities, naming, duplication and repository-guidance compliance. Keep it within approved scope, preserve behavior and rerun affected checks before delivery. Record the result even when no further refactor is warranted. If no fresh reviewer can be started, never substitute author self-review: report the blocker, record "not independently reviewed", and treat the PR as at least medium risk.
+7. Create a PR referencing the original issue, with a summary of changes, verification evidence, and material limitations. Add a **Review and risk** section: the risk level from `REVIEW.md` with a one-line reason, each reviewer's verdict with any non-blocking findings, the blocking findings that were fixed, and the checks run. Update the section after every push; if a push raises the risk above low, disable auto-merge (`gh pr merge --disable-auto`). Keep the worktree available through PR review and corrections.
+8. Merge according to the PR's risk, always with a squash merge and never with a local merge:
+   - **Low**, when the auto-merge mode below is `enabled`: once CI is green, no blocking finding remains, no user review thread or request is open and the PR is not labelled `blocked`, enable auto-merge with `gh pr merge --squash --auto`. Branch protection performs the merge. A PR whose branch falls behind `main` waits until someone updates the branch; that needs green CI but no new review.
+   - **Low** in `recommend` mode, and **medium**: request the user's explicit approval, then squash-merge.
+   - **High**: as medium, plus a full-depth security review covering every touched area and targeted validation for the risky part (for example a migration, authorization or deployment test), listed in the PR.
+
+   Auto-merge mode: `recommend`. Only the user changes it, to `enabled`, once the risk classifications have proved reliable.
 
 These repository rules take precedence over skill defaults, including those that allow implementation without isolation or local merge delivery and those that store designs and plans under `docs/superpowers/`. Do not add issue templates or custom commands without a concrete need and approval.
 
 ### Automation is opt-in
+
+Automation is paused: the `Pick issues` and `Implement issue` workflows are disabled on GitHub.
 
 - An issue without the `agent` label is never touched by a workflow, and the manual flow above never asks about automation.
 - Hand-off is always explicit: the user says "hand this to automation" and a skill adds `agent`, or someone with write access adds it.
