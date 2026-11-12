@@ -280,6 +280,18 @@ For a Rust build-output reset, use `cargo clean`. Frontend generated state lives
 
 Use [Conventional Commits](https://www.conventionalcommits.org/). Treat changelog maintenance as release work; no automatic changelog-generation workflow is currently configured.
 
-Follow the [shared Superpowers workflow](AGENTS.md#superpowers-delivery-workflow): brainstorm a bounded outcome, approve the written design, plan, implement in an isolated worktree, verify, request fresh independent review, and open a PR. Brainstorming may start without an issue; link an outcome-focused issue before implementation planning. Name branches `<type>/<issue>-slug` with a git-cliff commit type, such as `feat/61-development-workflow`. Merge only after explicit approval, preferably with a squash merge.
+Follow the [shared Superpowers workflow](AGENTS.md#superpowers-delivery-workflow): brainstorm a bounded outcome, approve the written design, plan, implement in an isolated worktree, verify, have fresh code and security reviewers check the change against [REVIEW.md](REVIEW.md), and open a PR that states its risk level. Brainstorming may start without an issue; link an outcome-focused issue before implementation planning. Name branches `<type>/<issue>-slug` with a git-cliff commit type, such as `feat/61-development-workflow`. PRs are squash-merged: medium- and high-risk PRs after explicit approval, low-risk PRs automatically once the auto-merge mode in [AGENTS.md](AGENTS.md#superpowers-delivery-workflow) is `enabled`.
 
-Keep requirements, release acceptance, significant decisions, and implementation details in their respective documents, following [AGENTS.md](AGENTS.md#documentation-and-development-workflow). Preserve committed approved designs. Commit plans on the working branch and retain them through PR review and corrections, then remove them before final merge approval after retaining lasting decisions in permanent records. Product requirements and release scope changes require approval.
+Keep requirements, release acceptance, significant decisions, and implementation details in their respective documents, following [AGENTS.md](AGENTS.md#documentation-and-development-workflow). Preserve committed approved designs. Implementation plans stay untracked in `docs/plans/`; keep lasting decisions in permanent records or the PR. Product requirements and release scope changes require approval.
+
+### Repository settings
+
+GitHub enforces green, up-to-date CI and resolved conversations; it does not know a PR's risk level, which the agents apply by following [AGENTS.md](AGENTS.md#superpowers-delivery-workflow). A maintainer configures these by hand:
+
+- **Ruleset** `Protect main` (Settings → Rules → Rulesets): active, targets the default branch, empty bypass list.
+  - Require a pull request before merging, with 0 required approvals (agents push with the maintainer's account, which cannot approve its own PRs).
+  - Require status checks to pass, and require branches to be up to date before merging. Required checks: `Detect changes`, `Deployment checks`, `Rust format`, `Rust clippy`, `Rust dependencies`, `Rust tests`, `Web format`, `Web lint and check`, `Web dependencies`, `Web tests`, `Web build`. CI skips jobs a PR does not affect, and a skipped job counts as passed. The image builds are not required: their matrix check names differ when skipped, and `docker/` changes are high risk, so they never auto-merge.
+  - Require conversation resolution before merging, so an unresolved inline review comment stops auto-merge. A plain PR comment does not.
+  - Block force pushes and restrict deletions.
+- **General → Pull Requests**: allow auto-merge.
+- **Code security**: enable CodeQL default setup and secret scanning.
