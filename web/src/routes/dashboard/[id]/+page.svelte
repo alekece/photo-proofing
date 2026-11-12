@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount, untrack } from 'svelte';
-	import { ArrowLeft } from '@lucide/svelte';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { getUploadQueue } from '#lib/gallery/uploads.svelte.js';
@@ -11,9 +10,7 @@
 	import ArchiveGalleryDialog from '#lib/components/ArchiveGalleryDialog.svelte';
 	import ClientPreview from '#lib/components/ClientPreview.svelte';
 	import DeleteGalleryDialog from '#lib/components/DeleteGalleryDialog.svelte';
-	import GalleryHeader from '#lib/components/GalleryHeader.svelte';
-	import GallerySettings from '#lib/components/GallerySettings.svelte';
-	import GalleryTabs from '#lib/components/GalleryTabs.svelte';
+	import GalleryStudio from '#lib/components/GalleryStudio.svelte';
 	import RestoreExpiredDialog from '#lib/components/RestoreExpiredDialog.svelte';
 	import PublishDialog from '#lib/components/PublishDialog.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
@@ -57,8 +54,6 @@
 	let confirming = $state<'archive' | 'delete' | null>(null);
 	// The expiry the restored gallery is still past; the prompt stays open while a new one is saved.
 	let expiredSince = $state<string | null>(null);
-	let photoCount = $state<number | null>(null);
-	let favoriteCount = $state<number | null>(null);
 	let heroRevision = $state<number | undefined>();
 	let previewing = $state(false);
 	let signOutError = $state('');
@@ -260,92 +255,62 @@
 </script>
 
 <svelte:head><title>{saved.title ?? m.gallery_untitled()} — PhotoProofing</title></svelte:head>
-<div class="relative">
-	<AppHeader onsignout={logout} />
-	<div
-		class="absolute inset-x-0 top-[3.75rem] z-20 flex flex-col items-start gap-2 px-[1.125rem] sm:px-8"
-	>
-		<a
-			href="/dashboard"
-			class="inline-flex items-center gap-1.5 rounded-full bg-panel/15 px-3 py-1 text-sm text-panel backdrop-blur-sm hover:underline"
-			><ArrowLeft class="size-4" aria-hidden="true" />{m.header_back_to_galleries()}</a
-		>
-		{#if signOutError}<p role="alert" class="self-stretch text-center text-warning-on-dark">
-				{signOutError}
-			</p>{/if}
-	</div>
+<AppHeader onsignout={logout} />
+{#if signOutError}
+	<p role="alert" class="border-b border-border bg-panel px-3.5 py-2 text-center text-sm text-danger sm:px-8">
+		{signOutError}
+	</p>
+{/if}
 
-	<GalleryHeader
-		{heroRevision}
-		gallery={{ ...saved, share_token: shareToken }}
-		{photoCount}
-		{favoriteCount}
-		onpreview={() => (previewing = true)}
-		onshare={() => (publishing = 'share')}
-		ondeliver={() => (publishing = 'deliver')}
-		onrestore={restore}
-	>
-		{#snippet heading()}
-			<div class="flex flex-wrap items-center gap-3">
-				<Label srOnly for="title">{m.gallery_title_label()}</Label>
-				<Input
-					id="title"
-					class="mt-2 mb-1.5 min-h-0 flex-1 rounded-none border-0 border-b border-transparent bg-transparent p-0 font-serif text-[2rem] leading-none text-panel placeholder:text-panel/70 hover:border-dotted hover:border-panel/50 focus:border-solid focus:border-panel sm:text-[2.875rem]"
-					bind:value={title}
-					placeholder={m.gallery_untitled()}
-					maxlength={TITLE_MAX}
-					oninput={editTitle}
-					onblur={(event) => leaveTitle(event)}
-					onkeydown={(event) => {
-						if (event.key === 'Enter') {
-							event.preventDefault();
-							leaveTitle();
-						}
-					}}
-				/>
-				<div class="flex items-center gap-2 text-sm" role="status" aria-live="polite">
-					{#if inflight === 0 && hasFailures}
-						<span>{m.gallery_not_saved()}</span>
-						<!-- mousedown would blur the edited field, which reverts a failed value before the click -->
-						<Button
-							variant="outline"
-							size="sm"
-							data-retry
-							class="border-white/60 bg-transparent text-inverse hover:bg-white/15"
-							onmousedown={(event) => event.preventDefault()}
-							onclick={retry}>{m.action_retry()}</Button
-						>
-					{/if}
-				</div>
-			</div>
-		{/snippet}
-	</GalleryHeader>
-</div>
-<div class="grid min-h-[calc(100vh-25rem)] grid-cols-[3.5rem_1fr] md:grid-cols-[23rem_1fr]">
-	<GallerySettings
-		gallery={saved}
-		{shareToken}
-		origin={page.url.origin}
-		onsave={save}
-		schedule={debounce}
-		{cancel}
-		onarchive={() => (confirming = 'archive')}
-		onrestore={restore}
-		ondelete={() => (confirming = 'delete')}
-	/>
-
-	<GalleryTabs
-		galleryId={saved.id}
-		included={saved.included_photos}
-		layout={saved.layout}
-		bind:heroId={saved.hero_id}
-		bind:heroRevision
-		bind:photoCount
-		bind:favoriteCount
-		delivered={saved.states.includes('delivered')}
-		shared={shareToken !== null}
-	/>
-</div>
+<GalleryStudio
+	gallery={saved}
+	{shareToken}
+	origin={page.url.origin}
+	bind:heroId={saved.hero_id}
+	bind:heroRevision
+	onsave={save}
+	schedule={debounce}
+	{cancel}
+	onpreview={() => (previewing = true)}
+	onshare={() => (publishing = 'share')}
+	onpublish={() => (publishing = 'deliver')}
+	onarchive={() => (confirming = 'archive')}
+	onrestore={restore}
+	ondelete={() => (confirming = 'delete')}
+>
+	{#snippet heading()}
+		<Label srOnly for="title">{m.gallery_title_label()}</Label>
+		<Input
+			id="title"
+			class="min-h-0 min-w-28 flex-1 rounded-none border-0 border-b border-transparent bg-transparent p-0 font-serif text-[1.0625rem] leading-tight text-foreground placeholder:text-muted-foreground/70 hover:border-dotted hover:border-border-strong focus:border-solid focus:border-foreground md:text-[1.25rem]"
+			bind:value={title}
+			placeholder={m.gallery_untitled()}
+			maxlength={TITLE_MAX}
+			oninput={editTitle}
+			onblur={(event) => leaveTitle(event)}
+			onkeydown={(event) => {
+				if (event.key === 'Enter') {
+					event.preventDefault();
+					leaveTitle();
+				}
+			}}
+		/>
+		<div class="flex items-center gap-1.5 text-xs text-danger" role="status" aria-live="polite">
+			{#if inflight === 0 && hasFailures}
+				<span>{m.gallery_not_saved()}</span>
+				<!-- mousedown would blur the edited field, which reverts a failed value before the click -->
+				<Button
+					variant="outline"
+					size="sm"
+					data-retry
+					class="min-h-7! px-2.5! text-xs"
+					onmousedown={(event) => event.preventDefault()}
+					onclick={retry}>{m.action_retry()}</Button
+				>
+			{/if}
+		</div>
+	{/snippet}
+</GalleryStudio>
 {#if previewing}
 	<ClientPreview gallery={saved} onclose={() => (previewing = false)} />
 {/if}
