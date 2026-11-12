@@ -261,7 +261,7 @@
 
 <svelte:head><title>{saved.title ?? m.gallery_untitled()} — PhotoProofing</title></svelte:head>
 <div class="relative">
-	<AppHeader overlay onsignout={logout} />
+	<AppHeader onsignout={logout} />
 	<div
 		class="absolute inset-x-0 top-[3.75rem] z-20 flex flex-col items-start gap-2 px-[1.125rem] sm:px-8"
 	>

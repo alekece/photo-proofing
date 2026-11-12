@@ -9,12 +9,9 @@
 	import type { Snippet } from 'svelte';
 
 	let {
-		overlay = false,
 		actions,
 		onsignout
 	}: {
-		/** Floats the bar over the hero banner below it instead of taking a row of its own. */
-		overlay?: boolean;
 		/** Replaces the notification bell. */
 		actions?: Snippet;
 		onsignout?: () => void | Promise<void>;
@@ -22,15 +19,12 @@
 
 	const notifications = getNotifications();
 	const round = 'grid size-[2.375rem] place-items-center rounded-full';
-	const hover = $derived(overlay ? 'hover:bg-panel/15' : 'hover:bg-border/60');
+	const hover = 'hover:bg-border/60';
 </script>
 
 <header
 	class={cn(
-		'z-30 flex items-center gap-2.5 px-3.5 py-3 sm:gap-4 sm:px-8 sm:py-3.5',
-		overlay
-			? 'absolute inset-x-0 top-0 text-panel'
-			: 'relative border-b border-border text-foreground'
+		'relative z-30 flex items-center gap-2.5 border-b border-border px-3.5 py-3 text-foreground sm:gap-4 sm:px-8 sm:py-3.5'
 	)}
 >
 	<a href="/dashboard" class="brand text-lg whitespace-nowrap sm:text-[1.3125rem]">PhotoProofing</a>

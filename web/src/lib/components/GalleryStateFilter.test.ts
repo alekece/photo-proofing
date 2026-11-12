@@ -17,7 +17,7 @@ describe('GalleryStateFilter', () => {
 	it('keeps a fixed trigger and anchors the menu on its right edge', async () => {
 		const user = userEvent.setup();
 		setup(['draft', 'shared', 'expired']);
-		const trigger = screen.getByRole('button', { name: 'Draft, Shared, Expired' });
+		const trigger = screen.getByRole('button', { name: 'Draft, Prepublish, Expired' });
 
 		expect(trigger.parentElement?.className).toContain('w-40');
 		await user.click(trigger);
@@ -35,7 +35,7 @@ describe('GalleryStateFilter', () => {
 		expect(screen.getByRole('button', { name: 'Status' })).toBeTruthy();
 		unmount();
 		setup(['shared', 'expired']);
-		expect(screen.getByRole('button', { name: 'Shared, Expired' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Prepublish, Expired' })).toBeTruthy();
 	});
 
 	it('lists every status with its count and toggles one', async () => {
@@ -44,7 +44,7 @@ describe('GalleryStateFilter', () => {
 
 		await user.click(screen.getByRole('button', { name: 'Status' }));
 		expect(screen.getByRole('checkbox', { name: /Archived/ })).toHaveProperty('checked', false);
-		expect(screen.getByRole('checkbox', { name: /Shared/ })).toHaveProperty('checked', true);
+		expect(screen.getByRole('checkbox', { name: /Prepublish/ })).toHaveProperty('checked', true);
 		expect(screen.getByText('4')).toBeTruthy();
 		await user.click(screen.getByRole('checkbox', { name: /Archived/ }));
 		expect(onchange).toHaveBeenLastCalledWith(ALL_STATES);
@@ -56,7 +56,7 @@ describe('GalleryStateFilter', () => {
 		const user = userEvent.setup();
 		const { onchange } = setup(['shared']);
 
-		await user.click(screen.getByRole('button', { name: 'Shared' }));
+		await user.click(screen.getByRole('button', { name: 'Prepublish' }));
 		await user.click(screen.getByRole('button', { name: 'Select all' }));
 		expect(onchange).toHaveBeenLastCalledWith(ALL_STATES);
 		await user.click(screen.getByRole('button', { name: 'Reset' }));
@@ -82,6 +82,6 @@ describe('GalleryStateFilter in French', () => {
 		expect(screen.getByRole('button', { name: 'Statut' })).toBeTruthy();
 		unmount();
 		setup(['shared', 'expired']);
-		expect(screen.getByRole('button', { name: 'Partagée, Expirée' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Pré-publié, Expirée' })).toBeTruthy();
 	});
 });

@@ -32,7 +32,7 @@ describe('GalleryCard', () => {
 		const link = screen.getByRole('link', { name: /Martin Wedding/ });
 
 		expect(link.getAttribute('href')).toBe('/dashboard/g1');
-		expect(within(link).getByText('Shared')).toBeTruthy();
+		expect(within(link).getByText('Prepublish')).toBeTruthy();
 		expect(within(link).getByText('32 photos · 12 selected')).toBeTruthy();
 		// The grid supplies the list; the page test checks the whole.
 		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
@@ -60,7 +60,7 @@ describe('GalleryCard', () => {
 		});
 
 		expect(screen.getByText('Expired')).toBeTruthy();
-		expect(screen.queryByText('Shared')).toBeNull();
+		expect(screen.queryByText('Prepublish')).toBeNull();
 	});
 
 	it('uses the hero photo, else the striped cover', () => {
