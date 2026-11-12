@@ -20,7 +20,7 @@
 </script>
 
 <nav aria-label={m.step_progress()} class="min-w-0 flex-1">
-	<ol class="hidden max-w-2xl items-center gap-2.5 @min-[58rem]:flex @min-[66rem]:gap-3.5">
+	<ol class="hidden max-w-4xl items-center gap-2.5 @min-[58rem]:flex @min-[66rem]:gap-3.5">
 		{#each steps as { id, label, done, fact, accent }, index (id)}
 			{#if index > 0}
 				<li
@@ -45,7 +45,7 @@
 				</span>
 				<span class="flex min-w-0 flex-col">
 					<strong
-						class="truncate text-[0.8125rem] leading-[1.15] {done || index === current
+						class="text-[0.8125rem] leading-[1.15] {done || index === current
 							? 'font-semibold text-foreground'
 							: 'font-medium text-muted-foreground'}">{label}</strong
 					>
