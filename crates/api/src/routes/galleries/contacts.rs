@@ -6,7 +6,7 @@
 
 use actix_web::{
     HttpResponse, delete, get, put,
-    web::{Data, Path},
+    web::{Data, Path, ServiceConfig},
 };
 use pp_database::{
     contact::{ContactId, ContactRepository},
@@ -20,13 +20,20 @@ use crate::{
 };
 
 #[derive(Deserialize)]
-pub(crate) struct GalleryContactPath {
+struct GalleryContactPath {
     id: GalleryId,
     contact_id: ContactId,
 }
 
+/// Registers the gallery-contact association routes inside the `/api/v1/galleries` scope.
+pub fn configure(cfg: &mut ServiceConfig) {
+    cfg.service(list_contacts)
+        .service(link_contact)
+        .service(unlink_contact);
+}
+
 #[get("/{id}/contacts")]
-pub(crate) async fn list_contacts(
+async fn list_contacts(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: Path<GalleryId>,
@@ -42,7 +49,7 @@ pub(crate) async fn list_contacts(
 }
 
 #[put("/{id}/contacts/{contact_id}")]
-pub(crate) async fn link_contact(
+async fn link_contact(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     path: Path<GalleryContactPath>,
@@ -59,7 +66,7 @@ pub(crate) async fn link_contact(
 }
 
 #[delete("/{id}/contacts/{contact_id}")]
-pub(crate) async fn unlink_contact(
+async fn unlink_contact(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     path: Path<GalleryContactPath>,

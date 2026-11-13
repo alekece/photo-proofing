@@ -130,9 +130,10 @@ pub enum CoverLayout {
 /// assert_eq!(FocalCoordinate::try_from(100).unwrap().get(), 100);
 /// assert!(FocalCoordinate::try_from(101).is_err());
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(try_from = "u8", into = "u8")]
-pub struct FocalCoordinate(u8);
+#[sqlx(transparent)]
+pub struct FocalCoordinate(i16);
 
 impl FocalCoordinate {
     pub const MIN: Self = Self(0);
@@ -142,14 +143,7 @@ impl FocalCoordinate {
 
     /// The percentage coordinate, `0` to `100`.
     pub const fn get(self) -> u8 {
-        self.0
-    }
-
-    fn from_column(row: &PgRow, column: &str) -> Result<Self, sqlx::Error> {
-        let coordinate = u8::try_from(row.try_get::<i16, _>(column)?)
-            .map_err(|error| sqlx::Error::Decode(error.into()))?;
-
-        Self::try_from(coordinate).map_err(|error| sqlx::Error::Decode(error.into()))
+        self.0 as u8
     }
 }
 
@@ -157,23 +151,17 @@ impl TryFrom<u8> for FocalCoordinate {
     type Error = FocalCoordinateError;
 
     fn try_from(coordinate: u8) -> Result<Self, Self::Error> {
-        if coordinate > Self::MAX.0 {
+        if coordinate > Self::MAX.get() {
             return Err(FocalCoordinateError(coordinate));
         }
 
-        Ok(Self(coordinate))
+        Ok(Self(i16::from(coordinate)))
     }
 }
 
 impl From<FocalCoordinate> for u8 {
     fn from(coordinate: FocalCoordinate) -> Self {
-        coordinate.0
-    }
-}
-
-impl From<FocalCoordinate> for i16 {
-    fn from(coordinate: FocalCoordinate) -> Self {
-        Self::from(coordinate.0)
+        coordinate.get()
     }
 }
 
@@ -188,10 +176,12 @@ impl From<FocalCoordinate> for i16 {
 /// assert_eq!(point.x.get(), 50);
 /// assert_eq!(point.y.get(), 35);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, FromRow)]
 #[serde(deny_unknown_fields)]
 pub struct FocalPoint {
+    #[sqlx(rename = "hero_focal_x")]
     pub x: FocalCoordinate,
+    #[sqlx(rename = "hero_focal_y")]
     pub y: FocalCoordinate,
 }
 
@@ -201,15 +191,6 @@ impl Default for FocalPoint {
             x: FocalCoordinate::DEFAULT_X,
             y: FocalCoordinate::DEFAULT_Y,
         }
-    }
-}
-
-impl FromRow<'_, PgRow> for FocalPoint {
-    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
-        Ok(Self {
-            x: FocalCoordinate::from_column(row, "hero_focal_x")?,
-            y: FocalCoordinate::from_column(row, "hero_focal_y")?,
-        })
     }
 }
 
@@ -848,8 +829,8 @@ impl GalleryRepository<'_> {
         .bind(changes.shoot_date.is_some())
         .bind(changes.shoot_date.flatten())
         .bind(changes.cover_layout)
-        .bind(changes.focal_point.map(|point| i16::from(point.x)))
-        .bind(changes.focal_point.map(|point| i16::from(point.y)))
+        .bind(changes.focal_point.map(|point| point.x))
+        .bind(changes.focal_point.map(|point| point.y))
         .fetch_optional(executor)
         .await
         .map_err(GalleryError::classify)

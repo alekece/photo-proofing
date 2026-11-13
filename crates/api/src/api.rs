@@ -413,13 +413,7 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
             .service(routes::events::stream_events)
             .service(routes::upload::upload_limits)
             .configure(routes::auth::configure)
-            .service(
-                web::scope("/contacts")
-                    .service(routes::contacts::list_contacts)
-                    .service(routes::contacts::create_contact)
-                    .service(routes::contacts::update_contact)
-                    .service(routes::contacts::delete_contact),
-            )
+            .configure(routes::contacts::configure)
             .configure(routes::settings::configure)
             .configure(routes::notifications::configure)
             .configure(routes::galleries::configure),

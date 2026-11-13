@@ -14,7 +14,7 @@ use pp_core::{
     types::{generate::Generate, timestamp::Timestamp},
 };
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
-use sqlx::{AssertSqlSafe, FromRow, PgPool, Row, Type, postgres::PgRow, types::Json};
+use sqlx::{AssertSqlSafe, FromRow, PgPool, Type};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -86,8 +86,9 @@ impl Generate for ContactId {
 /// assert_eq!(name.as_str(), "Camille & Hugo");
 /// assert!("   ".parse::<ContactName>().is_err());
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize, Type)]
 #[serde(try_from = "String", into = "String")]
+#[sqlx(transparent)]
 pub struct ContactName(String);
 
 impl ContactName {
@@ -133,8 +134,9 @@ impl From<ContactName> for String {
 /// assert_eq!(phone.as_str(), "+33 6 12 34 56 78");
 /// assert!("".parse::<ContactPhone>().is_err());
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize, Type)]
 #[serde(try_from = "String", into = "String")]
+#[sqlx(transparent)]
 pub struct ContactPhone(String);
 
 impl ContactPhone {
@@ -179,8 +181,9 @@ impl From<ContactPhone> for String {
 /// let notes: ContactNotes = "  Prefers matte prints  ".parse().unwrap();
 /// assert_eq!(notes.as_str(), "Prefers matte prints");
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize, Type)]
 #[serde(try_from = "String", into = "String")]
+#[sqlx(transparent)]
 pub struct ContactNotes(String);
 
 impl ContactNotes {
@@ -225,51 +228,17 @@ pub struct LinkedGallery {
 }
 
 /// A workspace contact with the galleries linked to it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, FromRow)]
 pub struct Contact {
     pub id: ContactId,
     pub name: ContactName,
     pub email: Email,
     pub phone: Option<ContactPhone>,
     pub notes: Option<ContactNotes>,
+    #[sqlx(json)]
     pub galleries: Vec<LinkedGallery>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
-}
-
-impl FromRow<'_, PgRow> for Contact {
-    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
-        let name = row
-            .try_get::<String, _>("name")?
-            .parse::<ContactName>()
-            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-        let email = row
-            .try_get::<String, _>("email")?
-            .parse::<Email>()
-            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-        let phone = row
-            .try_get::<Option<String>, _>("phone")?
-            .map(|value| value.parse::<ContactPhone>())
-            .transpose()
-            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-        let notes = row
-            .try_get::<Option<String>, _>("notes")?
-            .map(|value| value.parse::<ContactNotes>())
-            .transpose()
-            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-        let galleries: Json<Vec<LinkedGallery>> = row.try_get("galleries")?;
-
-        Ok(Self {
-            id: row.try_get("id")?,
-            name,
-            email,
-            phone,
-            notes,
-            galleries: galleries.0,
-            created_at: row.try_get("created_at")?,
-            updated_at: row.try_get("updated_at")?,
-        })
-    }
 }
 
 /// A contact linked to a gallery together with its per-contact private link token.
@@ -431,12 +400,10 @@ impl ContactRepository<'_> {
         input: &NewContact,
     ) -> Result<Contact, ContactError> {
         let id = ContactId::generate();
-        let phone = input.phone.as_ref().map(ContactPhone::as_str);
         let notes = input
             .notes
             .as_ref()
-            .map(ContactNotes::as_str)
-            .filter(|text| !text.is_empty());
+            .filter(|notes| !notes.as_str().is_empty());
 
         sqlx::query_as(
             "INSERT INTO contacts (id, workspace_id, name, email, phone, notes)
@@ -445,9 +412,9 @@ impl ContactRepository<'_> {
         )
         .bind(id)
         .bind(workspace_id)
-        .bind(input.name.as_str())
-        .bind(input.email.as_str())
-        .bind(phone)
+        .bind(&input.name)
+        .bind(&input.email)
+        .bind(&input.phone)
         .bind(notes)
         .fetch_one(self.pool)
         .await
@@ -465,18 +432,10 @@ impl ContactRepository<'_> {
             return Ok(self.get(workspace_id, id).await?);
         }
 
-        let name = changes.name.as_ref().map(ContactName::as_str);
-        let email = changes.email.as_ref().map(Email::as_str);
-        let phone = changes
-            .phone
+        let notes = changes
+            .notes
             .as_ref()
-            .map(|value| value.as_ref().map(ContactPhone::as_str));
-        let notes = changes.notes.as_ref().map(|value| {
-            value
-                .as_ref()
-                .map(ContactNotes::as_str)
-                .filter(|text| !text.is_empty())
-        });
+            .map(|value| value.as_ref().filter(|notes| !notes.as_str().is_empty()));
 
         let updated_id: Option<ContactId> = sqlx::query_scalar(
             "UPDATE contacts SET
@@ -490,10 +449,10 @@ impl ContactRepository<'_> {
         )
         .bind(workspace_id)
         .bind(id)
-        .bind(name)
-        .bind(email)
-        .bind(phone.is_some())
-        .bind(phone.flatten())
+        .bind(&changes.name)
+        .bind(&changes.email)
+        .bind(changes.phone.is_some())
+        .bind(changes.phone.as_ref().and_then(Option::as_ref))
         .bind(notes.is_some())
         .bind(notes.flatten())
         .fetch_optional(self.pool)

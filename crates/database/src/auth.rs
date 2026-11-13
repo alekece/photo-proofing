@@ -106,7 +106,7 @@ impl AuthRepository<'_> {
             .await?;
 
         let inserted = sqlx::query("INSERT INTO accounts(id,workspace_id,email,password_hash) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING")
-            .bind(account_id).bind(workspace_id).bind(email.as_str()).bind(password_hash).execute(&mut *tx).await?.rows_affected();
+            .bind(account_id).bind(workspace_id).bind(email).bind(password_hash).execute(&mut *tx).await?.rows_affected();
 
         if inserted == 0 {
             tx.rollback().await?;
@@ -131,7 +131,7 @@ impl AuthRepository<'_> {
     pub async fn account_by_email(&self, email: &Email) -> Result<Option<Account>, DatabaseError> {
         Ok(
             sqlx::query_as("SELECT id,workspace_id,password_hash FROM accounts WHERE email=$1")
-                .bind(email.as_str())
+                .bind(email)
                 .fetch_optional(self.pool)
                 .await?,
         )

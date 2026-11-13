@@ -9,7 +9,7 @@
 
 use actix_web::{
     HttpResponse, delete, get, patch, post,
-    web::{Data, Json, Path},
+    web::{self, Data, Json, Path, ServiceConfig},
 };
 use pp_database::contact::{ContactChanges, ContactId, ContactRepository, NewContact};
 
@@ -18,8 +18,19 @@ use crate::{
     response::ResponseBuilderExt,
 };
 
+/// Registers the workspace contact routes.
+pub fn configure(cfg: &mut ServiceConfig) {
+    cfg.service(
+        web::scope("/contacts")
+            .service(list_contacts)
+            .service(create_contact)
+            .service(update_contact)
+            .service(delete_contact),
+    );
+}
+
 #[get("")]
-pub(crate) async fn list_contacts(
+async fn list_contacts(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
 ) -> Result<HttpResponse, ErrorResponse> {
@@ -33,7 +44,7 @@ pub(crate) async fn list_contacts(
 }
 
 #[post("")]
-pub(crate) async fn create_contact(
+async fn create_contact(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     input: Json<NewContact>,
@@ -48,7 +59,7 @@ pub(crate) async fn create_contact(
 }
 
 #[patch("/{id}")]
-pub(crate) async fn update_contact(
+async fn update_contact(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: Path<ContactId>,
@@ -65,7 +76,7 @@ pub(crate) async fn update_contact(
 }
 
 #[delete("/{id}")]
-pub(crate) async fn delete_contact(
+async fn delete_contact(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: Path<ContactId>,

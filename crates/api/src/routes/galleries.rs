@@ -94,9 +94,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(archive_gallery)
             .service(restore_gallery)
             .service(delete_gallery)
-            .service(contacts::list_contacts)
-            .service(contacts::link_contact)
-            .service(contacts::unlink_contact)
+            .configure(contacts::configure)
             .configure(photos::configure)
             .configure(export::configure),
     );
