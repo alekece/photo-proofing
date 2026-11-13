@@ -14,7 +14,7 @@ A photographer can prepare and share JPEG proofs, receive a shared client select
 
 - One photographer account/workspace per installation; one-time setup, email/password, logout, persistent sliding sessions ([FR-01–FR-02](../SPECIFICATIONS.md#fr-01)).
 - Title, hero, two layouts, optional expiry, editable optional included photo allowance, and watermark enablement ([FR-03](../SPECIFICATIONS.md#fr-03)).
-- Empty/progressively populated proofing shares through one private link and one client selection ([FR-04](../SPECIFICATIONS.md#fr-04)).
+- Empty/progressively populated proofing shares through one private link, one client selection, and 4-second sequential slideshow playback ([FR-04](../SPECIFICATIONS.md#fr-04)).
 - In-app, read-only owner preview of the client page in desktop and mobile views, without a share link ([FR-04](../SPECIFICATIONS.md#fr-04)).
 - JPEG uploads, separate transfer/processing progress, failed-file retry, reduced previews, and optional workspace name/logo watermark with repeat or position, size and cover signature ([FR-05–FR-07](../SPECIFICATIONS.md#fr-05)).
 - Editable favorites with informational overflow, one-click selection ZIP preparation/download, and single or multi-select favorite downloads ([FR-08–FR-09](../SPECIFICATIONS.md#fr-08)).
@@ -80,4 +80,4 @@ Run with synthetic/replaceable photos whose originals are retained elsewhere. Th
 - [ ] Confirm deletion while work is queued/in progress: deny subsequent access and eventually remove stored assets/temporary outputs; late workers cannot recreate accessible deleted content ([FR-13](../SPECIFICATIONS.md#fr-13), [NF-02](../SPECIFICATIONS.md#nf-02)).
 - [ ] Restart API/worker and recreate containers with persistent storage: accepted data and jobs survive. Interrupted work resumes eligibility, retries do not duplicate/corrupt results, and repeated failures become visible and manually retryable ([NF-02](../SPECIFICATIONS.md#nf-02), [TC-03–TC-04](../SPECIFICATIONS.md#tc-03)).
 - [ ] Disconnect and reconnect SSE during activity/processing: refresh authoritative state and recover missed changes without exposing data after access is revoked. Disk-full and bounded processing failures are visible and never reported as successful completion ([TC-05](../SPECIFICATIONS.md#tc-05), [NF-01–NF-04](../SPECIFICATIONS.md#nf-01)).
-- [ ] Complete the main photographer/client journey with keyboard navigation and mobile/desktop layouts, including dialogs, viewer, favorites, notifications, upload errors, and download-preparation status ([NF-03](../SPECIFICATIONS.md#nf-03)).
+- [ ] Complete the main photographer/client journey with keyboard navigation and mobile/desktop layouts, including dialogs, viewer (and client slideshow playback), favorites, notifications, upload errors, and download-preparation status ([NF-03](../SPECIFICATIONS.md#nf-03)).

@@ -35,8 +35,10 @@ details on it.
 
 ## Grid
 
-- **Sticky bar:** title on the left; on the right an **All** / **♥ 13** toggle that filters to
-  favorites (the number bumps when it changes). Once delivered, **Download all** instead.
+- **Sticky bar:** title on the left; on the right a **Slideshow** button (when two or more photos
+  are shown, opening the viewer at the first shown photo with playback active) beside an **All** /
+  **♥ 13** toggle that filters to favorites (the number bumps when it changes). Once delivered,
+  **Slideshow** sits beside **Download all** instead.
 - **Photos** in the gallery's layout (staggered columns or even rows), watermarked when the
   gallery has watermarking on.
 - **Heart** at the bottom right of each photo: shown on hover and focus, always on touch screens,
@@ -54,8 +56,9 @@ details on it.
 
 Dark full screen, like the photographer's [viewer](viewer.md).
 
-- **Top bar:** title, "4 of 48", the favorites count, then on desktop the **Add to favorites** /
-  **Favorite** button, and ✕.
+- **Top bar:** title, "4 of 48", Play / Pause slideshow (advancing every 4 seconds until the last
+  photo, pausing on manual navigation, favorite toggles or opening comments), then on desktop the
+  **Add to favorites** / **Favorite** button, and ✕.
 - **Phone:** the heart button sits under the photo instead of the top bar, easy to reach with a
   thumb.
 - **Delivered:** a **Download** button instead of the heart.

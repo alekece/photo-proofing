@@ -50,7 +50,10 @@ describe('ClientGallery', () => {
 		);
 		vi.stubGlobal('fetch', fetcher);
 	});
-	afterEach(() => vi.unstubAllGlobals());
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.unstubAllGlobals();
+	});
 
 	it('loads comment badges and posts in the closed-by-default viewer thread', async () => {
 		const user = userEvent.setup();
@@ -395,6 +398,33 @@ describe('ClientGallery', () => {
 			'/clean-cover/b'
 		);
 	});
+
+	it('launches a slideshow from the sticky bar across proofing and delivered views and hides it for 1 photo', async () => {
+		vi.useFakeTimers();
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		const { unmount } = show({ favorites: ['p1'] });
+
+		await user.click(screen.getByRole('button', { name: 'Slideshow' }));
+		expect(screen.getByRole('dialog')).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Pause slideshow' })).toBeTruthy();
+		expect(screen.getByText('1 of 3')).toBeTruthy();
+
+		await vi.advanceTimersByTimeAsync(4000);
+		await tick();
+		expect(screen.getByText('2 of 3')).toBeTruthy();
+
+		await user.click(screen.getByRole('button', { name: 'Close viewer' }));
+		await user.click(screen.getByRole('button', { name: /open proof 1/i }));
+		expect(screen.getByRole('button', { name: 'Play slideshow' })).toBeTruthy();
+		await user.click(screen.getByRole('button', { name: 'Close viewer' }));
+
+		await user.click(favoritesToggle());
+		expect(screen.queryByRole('button', { name: 'Slideshow' })).toBeNull();
+		unmount();
+
+		show({ gallery: { ...gallery, delivered: true } });
+		expect(screen.getByRole('button', { name: 'Slideshow' })).toBeTruthy();
+	});
 });
 
 describe('ClientGallery in French', () => {
@@ -421,6 +451,7 @@ describe('ClientGallery in French', () => {
 		show({ gallery: { ...gallery, delivered: true } });
 
 		expect(screen.queryByText('Vos photos sont prêtes')).toBeNull();
+		expect(screen.getByRole('button', { name: 'Diaporama' })).toBeTruthy();
 		expect(screen.getAllByRole('button', { name: /Tout télécharger/ }).length).toBeGreaterThan(0);
 		expect(screen.queryByText('Your photos are ready')).toBeNull();
 	});

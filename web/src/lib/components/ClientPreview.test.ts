@@ -87,6 +87,9 @@ describe('ClientPreview', () => {
 			'/api/v1/galleries/g1/photos/f1/thumbnail?finals=true',
 			'/api/v1/galleries/g1/photos/f2/thumbnail?finals=true'
 		]);
+		await userEvent.setup().click(screen.getByRole('button', { name: 'Slideshow' }));
+		expect(screen.getByRole('button', { name: 'Pause slideshow' })).toBeTruthy();
+		await userEvent.setup().click(screen.getByRole('button', { name: 'Close viewer' }));
 		expect(screen.getByRole('img', { name: 'Gallery cover' }).getAttribute('src')).toBe(
 			'/api/v1/galleries/g1/photos/a/preview'
 		);

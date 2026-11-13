@@ -8,6 +8,8 @@
 		LoaderCircle,
 		MessageSquare,
 		MessageSquareOff,
+		Pause,
+		Play,
 		X
 	} from '@lucide/svelte';
 	import { onMount, type Snippet } from 'svelte';
@@ -25,6 +27,7 @@
 		class: className,
 		title,
 		readonly = false,
+		autoplay = false,
 		actions,
 		trailing,
 		thread,
@@ -45,6 +48,8 @@
 		/** Shown in the top bar beside the photo's position. */
 		/** Shows the heart without letting it change, as in the owner's views. */
 		readonly?: boolean;
+		/** Starts sequential slideshow playback immediately in client mode. */
+		autoplay?: boolean;
 		/** The photo's actions in the top bar, which depend on where the viewer was opened from. */
 		actions?: Snippet<[Proof]>;
 		/** Actions that follow the comments button, such as the destructive ones. */
@@ -76,8 +81,44 @@
 	// The photographer reads feedback while reviewing, so the thread starts open; the client's starts closed.
 	// svelte-ignore state_referenced_locally
 	let threadOpen = $state(!client && !!thread);
+	// svelte-ignore state_referenced_locally
+	let playing = $state(client && autoplay && proofs.length > 1);
 
 	const go = (to: number) => (index = Math.min(Math.max(to, 0), proofs.length - 1));
+	const step = (to: number) => {
+		playing = false;
+		go(to);
+	};
+
+	function toggleSlideshow() {
+		if (playing) {
+			playing = false;
+
+			return;
+		}
+
+		if (index >= proofs.length - 1) index = 0;
+		playing = true;
+	}
+
+	$effect(() => {
+		if (!playing) return;
+
+		if (index >= proofs.length - 1) {
+			playing = false;
+
+			return;
+		}
+
+		const timer = setTimeout(() => {
+			const next = index + 1;
+
+			index = next;
+			if (next >= proofs.length - 1) playing = false;
+		}, 4000);
+
+		return () => clearTimeout(timer);
+	});
 
 	onMount(() => closeButton.focus());
 
@@ -90,16 +131,16 @@
 
 		switch (event.key) {
 			case 'ArrowRight':
-				go(index + 1);
+				step(index + 1);
 				break;
 			case 'ArrowLeft':
-				go(index - 1);
+				step(index - 1);
 				break;
 			case 'Home':
-				go(0);
+				step(0);
 				break;
 			case 'End':
-				go(proofs.length - 1);
+				step(proofs.length - 1);
 				break;
 			case 'Tab': {
 				const items = [
@@ -133,7 +174,10 @@
 	<FavoriteButton
 		selected={isSelected(proof.id)}
 		disabled={!onselect}
-		onclick={() => onselect?.(proof.id)}
+		onclick={() => {
+			playing = false;
+			onselect?.(proof.id);
+		}}
 		size={big ? 20 : 17}
 		class={big
 			? cn(
@@ -205,6 +249,23 @@
 				>{m.viewer_position({ position: index + 1, total: proofs.length })}</span
 			>
 			<span class="flex-1"></span>
+			{#if client && proofs.length > 1}
+				<button
+					type="button"
+					onclick={toggleSlideshow}
+					aria-label={playing ? m.viewer_pause_slideshow() : m.viewer_play_slideshow()}
+					class={cn(
+						'inline-grid size-10 cursor-pointer place-items-center rounded-full transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus',
+						playing ? 'bg-panel text-foreground' : 'bg-white/8 text-[#efe6da] hover:bg-white/14'
+					)}
+				>
+					{#if playing}
+						<Pause size={18} aria-hidden="true" />
+					{:else}
+						<Play size={18} aria-hidden="true" />
+					{/if}
+				</button>
+			{/if}
 			{#if client && wide.current && status === 'ready' && (onselect || readonly) && !proof.downloadUrl}
 				{@render heartPill(false)}
 			{/if}
@@ -225,7 +286,10 @@
 					bind:this={commentsButton}
 					aria-label={m.comments_title()}
 					aria-expanded={threadOpen}
-					onclick={() => (threadOpen = !threadOpen)}
+					onclick={() => {
+						if (!threadOpen) playing = false;
+						threadOpen = !threadOpen;
+					}}
 					aria-pressed={threadOpen}
 					class={cn(
 						'inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus',
@@ -310,14 +374,14 @@
 				type="button"
 				class="{arrow} left-5"
 				aria-disabled={index === 0}
-				onclick={() => go(index - 1)}
+				onclick={() => step(index - 1)}
 				aria-label={m.viewer_previous()}><ChevronLeft size={22} aria-hidden="true" /></button
 			>
 			<button
 				type="button"
 				class="{arrow} right-5"
 				aria-disabled={index === proofs.length - 1}
-				onclick={() => go(index + 1)}
+				onclick={() => step(index + 1)}
 				aria-label={m.viewer_next()}><ChevronRight size={22} aria-hidden="true" /></button
 			>
 		</div>
