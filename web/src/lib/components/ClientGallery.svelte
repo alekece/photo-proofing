@@ -7,7 +7,7 @@
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import { formatFullDate } from '#lib/gallery/format.js';
-	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
+	import { DEFAULT_FOCAL_POINT, HEADING_FONT_FAMILIES } from '#lib/gallery/schemas.js';
 	import { Selection } from '#lib/gallery/selection.svelte.js';
 	import type { Proof, SharedGallery } from '#lib/gallery/types.js';
 	import { DEFAULT_SIZE, type Signature } from '#lib/settings/settings.js';
@@ -164,6 +164,8 @@
 	let cover = $derived(coverUrl);
 	const focalPoint = $derived(gallery.focal_point ?? DEFAULT_FOCAL_POINT);
 	const objectPosition = $derived(`${focalPoint.x}% ${focalPoint.y}%`);
+	const headingFont = $derived(gallery.heading_font ?? 'editorial');
+	const headingFontFamily = $derived(HEADING_FONT_FAMILIES[headingFont]);
 	const formattedShootDate = $derived(
 		gallery.shoot_date ? formatFullDate(`${gallery.shoot_date}T12:00`) : null
 	);
@@ -174,6 +176,8 @@
 {#if proofs.length === 0 && !delivered && !cover && !showCoverWhenEmpty}
 	<svelte:element
 		this={rootTag}
+		data-heading-font={headingFont}
+		style:--gallery-heading-font={headingFontFamily}
 		class="@container flex flex-1 flex-col items-center overflow-hidden bg-[radial-gradient(120%_70%_at_50%_0,#2e241d,#16120f_60%)] pt-[34px] pb-10 text-center text-[#f4efe8]"
 	>
 		<StudioSignature
@@ -185,7 +189,11 @@
 			class="text-[2.75rem] opacity-95 @max-[700px]:text-4xl"
 		/>
 		<div class="mt-auto px-6">
-			<h1 class="font-serif text-[clamp(40px,6vw,64px)] leading-none wrap-anywhere">{title}</h1>
+			<h1
+				class="font-[family-name:var(--gallery-heading-font)] text-[clamp(40px,6vw,64px)] leading-none wrap-anywhere"
+			>
+				{title}
+			</h1>
 			{#if formattedShootDate && gallery.shoot_date}
 				<p class="mt-3 text-xs tracking-[0.22em] uppercase opacity-75">
 					<time datetime={gallery.shoot_date}>{formattedShootDate}</time>
@@ -207,7 +215,12 @@
 		<p class="mt-auto pt-10 text-xs tracking-[0.06em] text-[#8d7f72]">{m.client_shared_with()}</p>
 	</svelte:element>
 {:else if proofs.length === 0 && delivered && !showCoverWhenEmpty}
-	<svelte:element this={rootTag} class="@container flex flex-1 flex-col bg-background">
+	<svelte:element
+		this={rootTag}
+		data-heading-font={headingFont}
+		style:--gallery-heading-font={headingFontFamily}
+		class="@container flex flex-1 flex-col bg-background"
+	>
 		<header
 			class="relative isolate flex h-[300px] flex-none flex-col justify-end overflow-hidden bg-[#2b2420] px-8 pb-[26px] text-panel"
 		>
@@ -232,7 +245,11 @@
 				size={signatureSize}
 				class="absolute inset-x-0 top-[22px] font-serif text-[1.1875rem] italic"
 			/>
-			<h1 class="font-serif text-[2.75rem] leading-none wrap-anywhere">{title}</h1>
+			<h1
+				class="font-[family-name:var(--gallery-heading-font)] text-[2.75rem] leading-none wrap-anywhere"
+			>
+				{title}
+			</h1>
 			{#if formattedShootDate && gallery.shoot_date}
 				<p class="mt-2 text-xs tracking-[0.2em] uppercase opacity-85">
 					<time datetime={gallery.shoot_date}>{formattedShootDate}</time>
@@ -258,7 +275,12 @@
 		</div>
 	</svelte:element>
 {:else}
-	<svelte:element this={rootTag} class="@container bg-background">
+	<svelte:element
+		this={rootTag}
+		data-heading-font={headingFont}
+		style:--gallery-heading-font={headingFontFamily}
+		class="@container bg-background"
+	>
 		<ClientCover
 			bind:hero
 			{title}
@@ -294,7 +316,9 @@
 						aria-hidden={barHidden}
 						class="flex items-center gap-3.5 border-b border-border bg-[rgb(244_239_232/0.65)] px-7 py-3 text-sm font-medium backdrop-blur-[14px] backdrop-saturate-120 @max-[700px]:px-3.5 @max-[700px]:py-2.5"
 					>
-						<h2 class="min-w-0 truncate font-serif text-[1.25rem] @max-[700px]:text-[1.0625rem]">
+						<h2
+							class="min-w-0 truncate font-[family-name:var(--gallery-heading-font)] text-[1.25rem] @max-[700px]:text-[1.0625rem]"
+						>
 							{title}
 						</h2>
 						<span class="flex-1"></span>
@@ -378,6 +402,8 @@
 				<ProofGrid
 					proofs={shown}
 					layout={gallery.layout}
+					density={gallery.grid_density ?? 'compact'}
+					spacing={gallery.grid_spacing ?? 'compact'}
 					isSelected={(id) => selection.has(id)}
 					readonly={preview}
 					commentCount={comments ? (id) => comments.count(id) : undefined}

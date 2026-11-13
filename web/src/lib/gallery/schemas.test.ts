@@ -19,6 +19,9 @@ const gallery = {
 	layout: 'grid',
 	cover_layout: 'full_bleed',
 	focal_point: { x: 50, y: 35 },
+	heading_font: 'editorial',
+	grid_density: 'compact',
+	grid_spacing: 'compact',
 	expires_at: null,
 	included_photos: null,
 	watermark_enabled: false,
@@ -129,6 +132,68 @@ describe('schemas', () => {
 			{ ...gallery, focal_point: { x: 50, y: -1 } },
 			{ ...gallery, focal_point: { x: 50, y: 101 } },
 			{ ...gallery, focal_point: { x: 50.5, y: 35 } }
+		]) {
+			expect(parseOrNull(gallerySchema, invalid)).toBeNull();
+		}
+	});
+
+	it('default and validate heading_font, grid_density, and grid_spacing on owner and shared galleries', () => {
+		const legacyGallery = {
+			...gallery,
+			heading_font: undefined,
+			grid_density: undefined,
+			grid_spacing: undefined
+		};
+		expect(parseOrNull(gallerySchema, legacyGallery)).toMatchObject({
+			heading_font: 'editorial',
+			grid_density: 'compact',
+			grid_spacing: 'compact'
+		});
+		expect(
+			parseOrNull(sharedGallerySchema, {
+				title: 'T',
+				layout: 'grid',
+				expires_at: null,
+				included_photos: null,
+				delivered: false,
+				hero_id: null
+			})
+		).toMatchObject({
+			heading_font: 'editorial',
+			grid_density: 'compact',
+			grid_spacing: 'compact'
+		});
+
+		for (const heading_font of ['editorial', 'fine_art', 'timeless', 'modern'] as const) {
+			for (const grid_density of ['compact', 'large'] as const) {
+				for (const grid_spacing of ['compact', 'generous'] as const) {
+					expect(
+						parseOrNull(gallerySchema, { ...gallery, heading_font, grid_density, grid_spacing })
+					).toMatchObject({ heading_font, grid_density, grid_spacing });
+					expect(
+						parseOrNull(sharedGallerySchema, {
+							title: 'T',
+							layout: 'grid',
+							heading_font,
+							grid_density,
+							grid_spacing,
+							expires_at: null,
+							included_photos: null,
+							delivered: false,
+							hero_id: null
+						})
+					).toMatchObject({ heading_font, grid_density, grid_spacing });
+				}
+			}
+		}
+
+		for (const invalid of [
+			{ ...gallery, heading_font: 'comic_sans' },
+			{ ...gallery, heading_font: null },
+			{ ...gallery, grid_density: 'medium' },
+			{ ...gallery, grid_density: null },
+			{ ...gallery, grid_spacing: 'wide' },
+			{ ...gallery, grid_spacing: null }
 		]) {
 			expect(parseOrNull(gallerySchema, invalid)).toBeNull();
 		}

@@ -121,6 +121,38 @@ pub enum CoverLayout {
     Banner,
 }
 
+/// Curated typeface preset for client gallery headings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "heading_font", rename_all = "snake_case")]
+pub enum HeadingFont {
+    #[default]
+    Editorial,
+    FineArt,
+    Timeless,
+    Modern,
+}
+
+/// Column density preset for the client photo grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "grid_density", rename_all = "snake_case")]
+pub enum GridDensity {
+    #[default]
+    Compact,
+    Large,
+}
+
+/// Gap spacing preset between photos in the client grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "grid_spacing", rename_all = "snake_case")]
+pub enum GridSpacing {
+    #[default]
+    Compact,
+    Generous,
+}
+
 /// Percentage coordinate along one cover axis, bounded to `0..=100`.
 ///
 /// ```
@@ -223,6 +255,9 @@ pub struct Gallery {
     pub layout: GalleryLayout,
     pub cover_layout: CoverLayout,
     pub focal_point: FocalPoint,
+    pub heading_font: HeadingFont,
+    pub grid_density: GridDensity,
+    pub grid_spacing: GridSpacing,
     /// `None` means the gallery never expires.
     pub expires_at: Option<Timestamp>,
     /// `None` means selection is unlimited.
@@ -290,6 +325,9 @@ impl FromRow<'_, PgRow> for Gallery {
             layout: row.try_get("layout")?,
             cover_layout: row.try_get("cover_layout")?,
             focal_point: FocalPoint::from_row(row)?,
+            heading_font: row.try_get("heading_font")?,
+            grid_density: row.try_get("grid_density")?,
+            grid_spacing: row.try_get("grid_spacing")?,
             expires_at: row.try_get("expires_at")?,
             included_photos,
             watermark_enabled: row.try_get("watermark_enabled")?,
@@ -353,22 +391,40 @@ pub struct GalleryChanges {
     pub title: Option<Option<String>>,
     #[serde(
         default,
-        deserialize_with = "deserialize_present",
+        deserialize_with = "GalleryChanges::deserialize_present",
         skip_serializing_if = "Option::is_none"
     )]
     pub layout: Option<GalleryLayout>,
     #[serde(
         default,
-        deserialize_with = "deserialize_present",
+        deserialize_with = "GalleryChanges::deserialize_present",
         skip_serializing_if = "Option::is_none"
     )]
     pub cover_layout: Option<CoverLayout>,
     #[serde(
         default,
-        deserialize_with = "deserialize_present",
+        deserialize_with = "GalleryChanges::deserialize_present",
         skip_serializing_if = "Option::is_none"
     )]
     pub focal_point: Option<FocalPoint>,
+    #[serde(
+        default,
+        deserialize_with = "GalleryChanges::deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub heading_font: Option<HeadingFont>,
+    #[serde(
+        default,
+        deserialize_with = "GalleryChanges::deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub grid_density: Option<GridDensity>,
+    #[serde(
+        default,
+        deserialize_with = "GalleryChanges::deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub grid_spacing: Option<GridSpacing>,
     #[serde(
         default,
         with = "serde_with::rust::double_option",
@@ -383,7 +439,7 @@ pub struct GalleryChanges {
     pub included_photos: Option<Option<NonZeroUsize>>,
     #[serde(
         default,
-        deserialize_with = "deserialize_present",
+        deserialize_with = "GalleryChanges::deserialize_present",
         skip_serializing_if = "Option::is_none"
     )]
     pub watermark_enabled: Option<bool>,
@@ -407,22 +463,22 @@ impl GalleryChanges {
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
-}
 
-/// Deserializes a supplied value as `Some` and rejects `null`.
-///
-/// Plain `Option<T>` fields treat `null` like a missing field, so `{"layout": null}` would
-/// silently change nothing; settings that cannot be cleared fail instead.
-fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    // Going through `Option` makes `null` a data error for every `T`; deserializing `T`
-    // directly makes some types (enums) report it as a syntax error instead.
-    Option::<T>::deserialize(deserializer)?
-        .map(Some)
-        .ok_or_else(|| D::Error::custom("null is not allowed"))
+    /// Deserializes a supplied value as `Some` and rejects `null`.
+    ///
+    /// Plain `Option<T>` fields treat `null` like a missing field, so `{"layout": null}` would
+    /// silently change nothing; settings that cannot be cleared fail instead.
+    fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de>,
+    {
+        // Going through `Option` makes `null` a data error for every `T`; deserializing `T`
+        // directly makes some types (enums) report it as a syntax error instead.
+        Option::<T>::deserialize(deserializer)?
+            .map(Some)
+            .ok_or_else(|| D::Error::custom("null is not allowed"))
+    }
 }
 
 /// Ordering of [`GalleryRepository::list`]; ties always break on the gallery id.
@@ -480,7 +536,7 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
 
 impl GalleryRepository<'_> {
     // Interpolated identifiers are fixed here or selected from GallerySort's closed enum.
-    const COLUMNS: &'static str = "id,title,layout,cover_layout,hero_focal_x,hero_focal_y,expires_at,included_photos,watermark_enabled,hero_id,share_token,shared_at,last_opened_at,shoot_date,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
+    const COLUMNS: &'static str = "id,title,layout,cover_layout,hero_focal_x,hero_focal_y,heading_font,grid_density,grid_spacing,expires_at,included_photos,watermark_enabled,hero_id,share_token,shared_at,last_opened_at,shoot_date,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
 
     /// How long after a recorded client open later opens change nothing. Fixed, not configurable:
     /// a minute collapses reload bursts while "last opened" stays fresh enough to compare with
@@ -701,6 +757,9 @@ impl GalleryRepository<'_> {
                     g.cover_layout,
                     g.hero_focal_x,
                     g.hero_focal_y,
+                    g.heading_font,
+                    g.grid_density,
+                    g.grid_spacing,
                     g.shoot_date,
                     g.expires_at,
                     g.included_photos,
@@ -804,6 +863,9 @@ impl GalleryRepository<'_> {
                 cover_layout = COALESCE($15, cover_layout),
                 hero_focal_x = COALESCE($16, hero_focal_x),
                 hero_focal_y = COALESCE($17, hero_focal_y),
+                heading_font = COALESCE($18, heading_font),
+                grid_density = COALESCE($19, grid_density),
+                grid_spacing = COALESCE($20, grid_spacing),
                 updated_at = now()
              WHERE id=$1 AND workspace_id=$2
                AND (NOT $11 OR $12::uuid IS NULL OR EXISTS (
@@ -831,6 +893,9 @@ impl GalleryRepository<'_> {
         .bind(changes.cover_layout)
         .bind(changes.focal_point.map(|point| point.x))
         .bind(changes.focal_point.map(|point| point.y))
+        .bind(changes.heading_font)
+        .bind(changes.grid_density)
+        .bind(changes.grid_spacing)
         .fetch_optional(executor)
         .await
         .map_err(GalleryError::classify)
@@ -1032,6 +1097,9 @@ mod tests {
         assert_eq!(gallery.layout, GalleryLayout::Grid);
         assert_eq!(gallery.cover_layout, CoverLayout::FullBleed);
         assert_eq!(gallery.focal_point, FocalPoint::default());
+        assert_eq!(gallery.heading_font, HeadingFont::Editorial);
+        assert_eq!(gallery.grid_density, GridDensity::Compact);
+        assert_eq!(gallery.grid_spacing, GridSpacing::Compact);
         assert_eq!(gallery.expires_at, None);
         assert_eq!(gallery.included_photos, None);
         assert!(!gallery.watermark_enabled);
@@ -1176,6 +1244,12 @@ mod tests {
             json!({"layout": null}),
             json!({"cover_layout": null}),
             json!({"cover_layout": "carousel"}),
+            json!({"heading_font": null}),
+            json!({"heading_font": "comic_sans"}),
+            json!({"grid_density": null}),
+            json!({"grid_density": "medium"}),
+            json!({"grid_spacing": null}),
+            json!({"grid_spacing": "wide"}),
             json!({"focal_point": null}),
             json!({"focal_point": {"x": 101, "y": 35}}),
             json!({"focal_point": {"x": -1, "y": 35}}),
@@ -2295,5 +2369,182 @@ mod tests {
         assert_eq!(shared.cover_layout, CoverLayout::Framed);
         assert_eq!(shared.focal_point, updated.focal_point);
         assert_eq!(shared.shoot_date, updated.shoot_date);
+    }
+
+    #[test]
+    fn typography_and_grid_presets_serialize_and_default() {
+        assert_eq!(HeadingFont::default(), HeadingFont::Editorial);
+        assert_eq!(GridDensity::default(), GridDensity::Compact);
+        assert_eq!(GridSpacing::default(), GridSpacing::Compact);
+
+        for (font, expected) in [
+            (HeadingFont::Editorial, json!("editorial")),
+            (HeadingFont::FineArt, json!("fine_art")),
+            (HeadingFont::Timeless, json!("timeless")),
+            (HeadingFont::Modern, json!("modern")),
+        ] {
+            assert_eq!(serde_json::to_value(font).unwrap(), expected);
+            assert_eq!(
+                serde_json::from_value::<HeadingFont>(expected).unwrap(),
+                font
+            );
+        }
+
+        for (density, expected) in [
+            (GridDensity::Compact, json!("compact")),
+            (GridDensity::Large, json!("large")),
+        ] {
+            assert_eq!(serde_json::to_value(density).unwrap(), expected);
+            assert_eq!(
+                serde_json::from_value::<GridDensity>(expected).unwrap(),
+                density
+            );
+        }
+
+        for (spacing, expected) in [
+            (GridSpacing::Compact, json!("compact")),
+            (GridSpacing::Generous, json!("generous")),
+        ] {
+            assert_eq!(serde_json::to_value(spacing).unwrap(), expected);
+            assert_eq!(
+                serde_json::from_value::<GridSpacing>(expected).unwrap(),
+                spacing
+            );
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn migration_adds_typography_and_grid_preset_defaults(pool: PgPool) {
+        let mut transaction = pool.begin().await.unwrap();
+        let schema = format!("typography_grid_migration_{}", Uuid::new_v4().simple());
+
+        sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(AssertSqlSafe(format!("SET LOCAL search_path TO {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        for migration in [
+            include_str!("../migrations/0001_accounts_sessions.sql"),
+            include_str!("../migrations/0002_galleries.sql"),
+        ] {
+            sqlx::raw_sql(migration)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        let workspace_id = Uuid::new_v4();
+        let gallery_id = Uuid::new_v4();
+
+        sqlx::query("INSERT INTO workspaces(id) VALUES ($1)")
+            .bind(workspace_id)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO galleries(id, workspace_id) VALUES ($1, $2)")
+            .bind(gallery_id)
+            .bind(workspace_id)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../migrations/0032_gallery_typography_and_grid_presets.sql"
+        ))
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+
+        let row: (String, String, String) = sqlx::query_as(
+            "SELECT heading_font::text, grid_density::text, grid_spacing::text
+             FROM galleries WHERE id = $1",
+        )
+        .bind(gallery_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            row,
+            (
+                "editorial".to_owned(),
+                "compact".to_owned(),
+                "compact".to_owned()
+            )
+        );
+
+        for statement in [
+            "UPDATE galleries SET heading_font = 'comic_sans'",
+            "UPDATE galleries SET grid_density = 'medium'",
+            "UPDATE galleries SET grid_spacing = 'wide'",
+        ] {
+            sqlx::raw_sql("SAVEPOINT invalid_preset_write")
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+
+            let outcome = sqlx::raw_sql(statement).execute(&mut *transaction).await;
+
+            assert!(outcome.is_err(), "{statement}");
+
+            sqlx::raw_sql("ROLLBACK TO SAVEPOINT invalid_preset_write")
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        transaction.rollback().await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn typography_and_grid_presets_reach_owner_and_shared_views(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let id = store.create(workspace).await.unwrap().id;
+        let updated = store
+            .update(
+                workspace,
+                id,
+                &changes(json!({
+                    "heading_font": "fine_art",
+                    "grid_density": "large",
+                    "grid_spacing": "generous",
+                })),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(updated.heading_font, HeadingFont::FineArt);
+        assert_eq!(updated.grid_density, GridDensity::Large);
+        assert_eq!(updated.grid_spacing, GridSpacing::Generous);
+
+        let kept = store
+            .update(workspace, id, &changes(json!({"title": "Portraits"})))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(kept.heading_font, HeadingFont::FineArt);
+        assert_eq!(kept.grid_density, GridDensity::Large);
+        assert_eq!(kept.grid_spacing, GridSpacing::Generous);
+
+        let token = store
+            .share(workspace, id)
+            .await
+            .unwrap()
+            .unwrap()
+            .share_token
+            .unwrap();
+        let shared = store.find_shared(&token).await.unwrap().unwrap().gallery;
+
+        assert_eq!(shared.heading_font, HeadingFont::FineArt);
+        assert_eq!(shared.grid_density, GridDensity::Large);
+        assert_eq!(shared.grid_spacing, GridSpacing::Generous);
     }
 }

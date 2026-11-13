@@ -12,6 +12,9 @@ const gallery: SharedGallery = {
 	layout: 'grid',
 	cover_layout: 'full_bleed',
 	focal_point: { x: 50, y: 35 },
+	heading_font: 'editorial',
+	grid_density: 'compact',
+	grid_spacing: 'compact',
 	shoot_date: null,
 	expires_at: null,
 	included_photos: null,
@@ -449,6 +452,86 @@ describe('ClientGallery', () => {
 			fallback.unmount();
 		}
 	);
+
+	it('applies --gallery-heading-font strictly to client cover and sticky-bar headings and forwards grid density and spacing', async () => {
+		vi.stubGlobal('IntersectionObserver', undefined);
+
+		const presets = [
+			['editorial', 'Georgia, serif'],
+			['fine_art', "'Cormorant Garamond Variable', Georgia, serif"],
+			['timeless', "'Playfair Display Variable', Georgia, serif"],
+			['modern', "'Plus Jakarta Sans Variable', var(--font-sans)"]
+		] as const;
+
+		for (const [heading_font, expectedFamily] of presets) {
+			for (const cover_layout of ['full_bleed', 'split', 'framed', 'banner'] as const) {
+				const { container, unmount } = show({
+					gallery: {
+						...gallery,
+						cover_layout,
+						heading_font,
+						grid_density: 'large',
+						grid_spacing: 'generous'
+					} as SharedGallery,
+					studio: 'Studio Lune'
+				});
+				await tick();
+
+				const root = container.querySelector('[data-heading-font]') as HTMLElement | null;
+				expect(root?.getAttribute('data-heading-font')).toBe(heading_font);
+				expect(root?.style.getPropertyValue('--gallery-heading-font')).toBe(expectedFamily);
+
+				const h1 = screen.getByRole('heading', { level: 1, name: 'Wedding' });
+				const h2 = screen.getByRole('heading', { level: 2, name: 'Wedding' });
+				expect(h1.className).toContain('font-[family-name:var(--gallery-heading-font)]');
+				expect(h2.className).toContain('font-[family-name:var(--gallery-heading-font)]');
+
+				expect(screen.getByRole('button', { name: 'View the gallery' }).className).not.toContain(
+					'font-[family-name:var(--gallery-heading-font)]'
+				);
+				expect(screen.getByRole('button', { name: 'Slideshow' }).className).not.toContain(
+					'font-[family-name:var(--gallery-heading-font)]'
+				);
+				expect(screen.getByText('Studio Lune').className).not.toContain(
+					'font-[family-name:var(--gallery-heading-font)]'
+				);
+
+				const list = screen.getByRole('list', { name: 'Proofs' });
+				expect(list.getAttribute('data-density')).toBe('large');
+				expect(list.getAttribute('data-spacing')).toBe('generous');
+
+				unmount();
+			}
+		}
+
+		const emptyProofing = show({
+			gallery: { ...gallery, heading_font: 'fine_art' } as SharedGallery,
+			proofs: []
+		});
+		expect(
+			(
+				emptyProofing.container.querySelector('[data-heading-font]') as HTMLElement | null
+			)?.style.getPropertyValue('--gallery-heading-font')
+		).toBe("'Cormorant Garamond Variable', Georgia, serif");
+		expect(screen.getByRole('heading', { level: 1, name: 'Wedding' }).className).toContain(
+			'font-[family-name:var(--gallery-heading-font)]'
+		);
+		emptyProofing.unmount();
+
+		const emptyDelivered = show({
+			gallery: { ...gallery, delivered: true, heading_font: 'timeless' } as SharedGallery,
+			proofs: []
+		});
+		expect(
+			(
+				emptyDelivered.container.querySelector('[data-heading-font]') as HTMLElement | null
+			)?.style.getPropertyValue('--gallery-heading-font')
+		).toBe("'Playfair Display Variable', Georgia, serif");
+		expect(screen.getByRole('heading', { level: 1, name: 'Wedding' }).className).toContain(
+			'font-[family-name:var(--gallery-heading-font)]'
+		);
+		emptyDelivered.unmount();
+	});
 
 	it('launches a slideshow from the sticky bar across proofing and delivered views and hides it for 1 photo', async () => {
 		vi.useFakeTimers();

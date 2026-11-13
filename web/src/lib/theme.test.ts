@@ -37,4 +37,11 @@ describe('warm paper tokens', () => {
 			expect(contrast(token(name), token('--panel'))).toBeGreaterThanOrEqual(4.5);
 		}
 	);
+
+	it('self-hosts gallery variable fonts without external font CDNs', () => {
+		expect(css).toContain("@import '@fontsource-variable/cormorant-garamond';");
+		expect(css).toContain("@import '@fontsource-variable/playfair-display';");
+		expect(css).toContain("@import '@fontsource-variable/plus-jakarta-sans';");
+		expect(css).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com/i);
+	});
 });

@@ -25,7 +25,7 @@ Four selectable cover templates share the same content and studio signature (nam
 none, from [Settings](settings.md)):
 
 - **Full bleed** (default): full-screen hero photo with a dark scrim, signature at the top, and
-  centred Georgia title, optional formatted shoot date, photo count, optional expiry badge, and
+  centred title, optional formatted shoot date, photo count, optional expiry badge, and
   **View the gallery** at the bottom.
 - **Split editorial:** side-by-side cover image and Warm Paper (`#f4efe8`) typography panel on
   desktop, stacking cleanly on phones (`@max-[700px]`).
@@ -34,9 +34,12 @@ none, from [Settings](settings.md)):
 - **Minimal banner:** studio signature, title, details and actions above a wide panoramic banner
   frame.
 
-Cover images apply the gallery's saved focal point (`object-position: {x}% {y}%`, defaulting to
-`50% 35%`). Once delivered, **Download all** appears beside **View the gallery** across every
-template.
+Cover headings (including empty-state covers) and the sticky-bar title render in the gallery's
+selected self-hosted heading typography preset (`editorial`: Georgia; `fine_art`: Cormorant
+Garamond; `timeless`: Playfair Display; `modern`: Plus Jakarta Sans) via `--gallery-heading-font`,
+while buttons, counts, badges and the studio signature keep their standard fonts. Cover images
+apply the gallery's saved focal point (`object-position: {x}% {y}%`, defaulting to `50% 35%`). Once
+delivered, **Download all** appears beside **View the gallery** across every template.
 
 When Both is selected, the centered logo sits above the centered name. Only the chosen public
 signature fields are exposed; fetching the normalized logo requires an available private link,
@@ -51,8 +54,10 @@ cover photo is set or ready.
   are shown, opening the viewer at the first shown photo with playback active) beside an **All** /
   **♥ 13** toggle that filters to favorites (the number bumps when it changes). Once delivered,
   **Slideshow** sits beside **Download all** instead.
-- **Photos** in the gallery's layout (staggered columns or even rows), watermarked when the
-  gallery has watermarking on.
+- **Photos** in the gallery's layout (staggered columns or even rows), grid density (**Compact** by
+  default — 2 columns on `@max-[700px]` phones and denser desktop columns — or **Large** — 1 column
+  on `@max-[700px]` phones and wider desktop columns), and spacing (**Compact** by default or
+  **Generous** for wider gaps), watermarked when the gallery has watermarking on.
 - **Heart** at the bottom right of each photo: shown on hover and focus, always on touch screens,
   always when favorited. One click saves; it pops on favorite. No submit button, no confirmation.
 - Favorites filter with none: "No favorites yet".

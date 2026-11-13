@@ -13,6 +13,9 @@ const baseGallery: Gallery = {
 	layout: 'grid',
 	cover_layout: 'full_bleed',
 	focal_point: { x: 50, y: 35 },
+	heading_font: 'editorial',
+	grid_density: 'compact',
+	grid_spacing: 'compact',
 	expires_at: null,
 	included_photos: null,
 	watermark_enabled: false,
@@ -124,18 +127,34 @@ describe('GalleryDesignPanel', () => {
 		vi.unstubAllGlobals();
 	});
 
-	it('renders Cover card, Look card, and live Desktop/Phone preview with no axe violations', async () => {
+	it('renders Cover, Typography, and Photo Grid & Spacing cards plus live Desktop/Phone preview with no axe violations', async () => {
 		const { container, user } = setup();
 
 		expect(screen.getByRole('heading', { name: 'Design' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Cover' })).toBeTruthy();
-		expect(screen.getByRole('heading', { name: 'Look' })).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'Typography' })).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'Photo Grid & Spacing' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Select cover' })).toBeTruthy();
 		expect(screen.queryByRole('button', { name: 'Remove cover' })).toBeNull();
 
 		for (const label of ['Full bleed', 'Split editorial', 'Framed paper', 'Minimal banner']) {
 			expect(screen.getByRole('button', { name: label })).toBeTruthy();
 		}
+
+		const fontGroup = screen.getByRole('group', { name: 'Heading font' });
+		for (const [label, typeface] of [
+			['Editorial', 'Georgia'],
+			['Fine Art', 'Cormorant Garamond Variable'],
+			['Timeless', 'Playfair Display Variable'],
+			['Modern', 'Plus Jakarta Sans Variable']
+		] as const) {
+			const button = within(fontGroup).getByRole('button', { name: label });
+			const specimen = button.querySelector('[style*="font-family"]') as HTMLElement | null;
+			expect(specimen?.style.fontFamily).toContain(typeface);
+		}
+
+		expect(screen.getByRole('group', { name: 'Grid density' })).toBeTruthy();
+		expect(screen.getByRole('group', { name: 'Spacing' })).toBeTruthy();
 
 		const pad = screen.getByRole('button', { name: /Cover focal point/ }) as HTMLButtonElement;
 		expect(pad.disabled).toBe(true);
@@ -250,11 +269,17 @@ describe('GalleryDesignPanel', () => {
 		expect(coverImg.style.objectPosition).toBe('50% 35%');
 	});
 
-	it('saves and reverts the Look layout', async () => {
-		const { onsave, user } = setup();
+	it('saves and reverts layout, typography, grid density, and spacing while updating the live preview immediately', async () => {
+		const { container, onsave, user } = setup({ hero_id: 'p1' });
 
+		await waitFor(() => expect(screen.getByRole('list', { name: 'Proofs' })).toBeTruthy());
+
+		// Layout
 		await user.click(screen.getByRole('button', { name: 'Staggered columns' }));
-		expect(onsave).toHaveBeenCalledWith({ layout: 'masonry' });
+		expect(onsave).toHaveBeenLastCalledWith({ layout: 'masonry' });
+		expect(screen.getByRole('list', { name: 'Proofs' }).getAttribute('data-layout')).toBe(
+			'masonry'
+		);
 
 		onsave.mockResolvedValueOnce(false);
 		await user.click(screen.getByRole('button', { name: 'Even rows' }));
@@ -263,6 +288,147 @@ describe('GalleryDesignPanel', () => {
 				screen.getByRole('button', { name: 'Staggered columns' }).getAttribute('aria-pressed')
 			).toBe('true')
 		);
+
+		// Heading typography
+		const fontGroup = screen.getByRole('group', { name: 'Heading font' });
+		for (const [label, id, family] of [
+			['Fine Art', 'fine_art', "'Cormorant Garamond Variable', Georgia, serif"],
+			['Timeless', 'timeless', "'Playfair Display Variable', Georgia, serif"],
+			['Modern', 'modern', "'Plus Jakarta Sans Variable', var(--font-sans)"],
+			['Editorial', 'editorial', 'Georgia, serif']
+		] as const) {
+			await user.click(within(fontGroup).getByRole('button', { name: label }));
+			expect(onsave).toHaveBeenLastCalledWith({ heading_font: id });
+			const previewRoot = container.querySelector('[data-heading-font]') as HTMLElement | null;
+			expect(previewRoot?.getAttribute('data-heading-font')).toBe(id);
+			expect(previewRoot?.style.getPropertyValue('--gallery-heading-font')).toBe(family);
+		}
+
+		// Studio Design heading itself never adopts --gallery-heading-font
+		expect(screen.getByRole('heading', { name: 'Design' }).className).not.toContain(
+			'font-[family-name:var(--gallery-heading-font)]'
+		);
+
+		onsave.mockResolvedValueOnce(false);
+		await user.click(within(fontGroup).getByRole('button', { name: 'Modern' }));
+		await waitFor(() =>
+			expect(
+				within(fontGroup).getByRole('button', { name: 'Editorial' }).getAttribute('aria-pressed')
+			).toBe('true')
+		);
+		expect(container.querySelector('[data-heading-font]')?.getAttribute('data-heading-font')).toBe(
+			'editorial'
+		);
+
+		// Grid density (verify live update in Phone frame too)
+		await user.click(screen.getByRole('button', { name: 'Phone' }));
+		const densityGroup = screen.getByRole('group', { name: 'Grid density' });
+		await user.click(within(densityGroup).getByRole('button', { name: 'Large' }));
+		expect(onsave).toHaveBeenLastCalledWith({ grid_density: 'large' });
+		expect(screen.getByRole('list', { name: 'Proofs' }).getAttribute('data-density')).toBe('large');
+		expect(screen.getByRole('list', { name: 'Proofs' }).className).toContain(
+			'@max-[700px]:columns-1'
+		);
+
+		onsave.mockResolvedValueOnce(false);
+		await user.click(within(densityGroup).getByRole('button', { name: 'Compact' }));
+		await waitFor(() =>
+			expect(
+				within(densityGroup).getByRole('button', { name: 'Large' }).getAttribute('aria-pressed')
+			).toBe('true')
+		);
+		expect(screen.getByRole('list', { name: 'Proofs' }).getAttribute('data-density')).toBe('large');
+
+		// Grid spacing
+		const spacingGroup = screen.getByRole('group', { name: 'Spacing' });
+		await user.click(within(spacingGroup).getByRole('button', { name: 'Generous' }));
+		expect(onsave).toHaveBeenLastCalledWith({ grid_spacing: 'generous' });
+		expect(screen.getByRole('list', { name: 'Proofs' }).getAttribute('data-spacing')).toBe(
+			'generous'
+		);
+
+		onsave.mockResolvedValueOnce(false);
+		await user.click(within(spacingGroup).getByRole('button', { name: 'Compact' }));
+		await waitFor(() =>
+			expect(
+				within(spacingGroup).getByRole('button', { name: 'Generous' }).getAttribute('aria-pressed')
+			).toBe('true')
+		);
+		expect(screen.getByRole('list', { name: 'Proofs' }).getAttribute('data-spacing')).toBe(
+			'generous'
+		);
+	});
+
+	it('preserves overlapping preset selections across concurrent gallery updates and ignores stale rollbacks', async () => {
+		let resolveFirstFont!: (ok: boolean) => void;
+		let resolveDensity!: (ok: boolean) => void;
+		const onsave = vi
+			.fn()
+			.mockImplementationOnce(
+				() =>
+					new Promise<boolean>((resolve) => {
+						resolveFirstFont = resolve;
+					})
+			)
+			.mockImplementationOnce(
+				() =>
+					new Promise<boolean>((resolve) => {
+						resolveDensity = resolve;
+					})
+			)
+			.mockResolvedValue(true);
+		const user = userEvent.setup();
+		const view = render(GalleryDesignPanel, {
+			gallery: { ...baseGallery, hero_id: 'p1' },
+			heroId: 'p1',
+			focalPoint: { x: 50, y: 35 },
+			active: true,
+			onsave
+		});
+
+		await waitFor(() => expect(screen.getByRole('list', { name: 'Proofs' })).toBeTruthy());
+
+		const fontGroup = screen.getByRole('group', { name: 'Heading font' });
+		const densityGroup = screen.getByRole('group', { name: 'Grid density' });
+
+		await user.click(within(fontGroup).getByRole('button', { name: 'Fine Art' }));
+		await user.click(within(densityGroup).getByRole('button', { name: 'Large' }));
+
+		// First PATCH resolves and replaces `gallery`, still carrying `grid_density: 'compact'`
+		// while `Large` is in flight.
+		resolveFirstFont(true);
+		await view.rerender({
+			gallery: { ...baseGallery, hero_id: 'p1', heading_font: 'fine_art', grid_density: 'compact' },
+			heroId: 'p1',
+			focalPoint: { x: 50, y: 35 },
+			active: true,
+			onsave
+		});
+
+		expect(
+			within(densityGroup).getByRole('button', { name: 'Large' }).getAttribute('aria-pressed')
+		).toBe('true');
+		expect(screen.getByRole('list', { name: 'Proofs' }).getAttribute('data-density')).toBe('large');
+
+		resolveDensity(true);
+		await Promise.resolve();
+
+		// Out-of-order failure of an earlier click in the same group must not overwrite a newer choice.
+		let resolveStaleFont!: (ok: boolean) => void;
+		onsave.mockImplementationOnce(
+			() =>
+				new Promise<boolean>((resolve) => {
+					resolveStaleFont = resolve;
+				})
+		);
+		await user.click(within(fontGroup).getByRole('button', { name: 'Modern' }));
+		await user.click(within(fontGroup).getByRole('button', { name: 'Timeless' }));
+		resolveStaleFont(false);
+		await Promise.resolve();
+
+		expect(
+			within(fontGroup).getByRole('button', { name: 'Timeless' }).getAttribute('aria-pressed')
+		).toBe('true');
 	});
 
 	it('reflects saved favorites in the embedded live preview once photos load', async () => {
@@ -387,12 +553,20 @@ describe('GalleryDesignPanel in French', () => {
 		const { container } = setup({ hero_id: 'p1' });
 
 		expect(screen.getByRole('heading', { name: 'Couverture' })).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'Typographie' })).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'Grille photo et espacement' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Changer la couverture' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Retirer la couverture' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Plein cadre' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Éditorial scindé' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Cadre papier' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Bannière épurée' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Éditorial' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Beaux-arts' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Intemporel' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Moderne' })).toBeTruthy();
+		expect(screen.getByRole('group', { name: 'Densité de la grille' })).toBeTruthy();
+		expect(screen.getByRole('group', { name: 'Espacement' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Téléphone' })).toBeTruthy();
 		expect((await axe(container)).violations).toEqual([]);
 	});

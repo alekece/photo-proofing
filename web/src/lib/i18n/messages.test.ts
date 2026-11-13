@@ -12,6 +12,7 @@ const SAME_IN_BOTH: string[] = [
 	'contacts_notes',
 	'contacts_title',
 	'contacts_total',
+	'design_spacing_compact',
 	'header_notifications',
 	'settings_actions',
 	'studio_group_collection',

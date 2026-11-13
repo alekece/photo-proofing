@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row, Type, postgres::PgRow};
 use time::Date;
 
-use super::{CoverLayout, FocalPoint, Gallery, GalleryLayout};
+use super::{
+    CoverLayout, FocalPoint, Gallery, GalleryLayout, GridDensity, GridSpacing, HeadingFont,
+};
 use crate::{
     contact::ContactId,
     photo::{PhotoId, PhotoLocation},
@@ -37,6 +39,9 @@ pub struct SharedGallery {
     pub layout: GalleryLayout,
     pub cover_layout: CoverLayout,
     pub focal_point: FocalPoint,
+    pub heading_font: HeadingFont,
+    pub grid_density: GridDensity,
+    pub grid_spacing: GridSpacing,
     /// The day of the shoot; `None` means none was given.
     pub shoot_date: Option<Date>,
     /// `None` means the gallery never expires.
@@ -57,6 +62,9 @@ impl FromRow<'_, PgRow> for SharedGallery {
             layout: row.try_get("layout")?,
             cover_layout: row.try_get("cover_layout")?,
             focal_point: FocalPoint::from_row(row)?,
+            heading_font: row.try_get("heading_font")?,
+            grid_density: row.try_get("grid_density")?,
+            grid_spacing: row.try_get("grid_spacing")?,
             shoot_date: row.try_get("shoot_date")?,
             expires_at: row.try_get("expires_at")?,
             included_photos: Gallery::included_photos(row)?,

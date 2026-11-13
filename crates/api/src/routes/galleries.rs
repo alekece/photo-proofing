@@ -311,6 +311,9 @@ mod tests {
         assert_eq!(created["layout"], "grid");
         assert_eq!(created["cover_layout"], "full_bleed");
         assert_eq!(created["focal_point"], json!({"x": 50, "y": 35}));
+        assert_eq!(created["heading_font"], "editorial");
+        assert_eq!(created["grid_density"], "compact");
+        assert_eq!(created["grid_spacing"], "compact");
         assert_eq!(created["expires_at"], Value::Null);
         assert_eq!(created["included_photos"], Value::Null);
         assert_eq!(created["watermark_enabled"], false);
@@ -326,6 +329,9 @@ mod tests {
                     "layout": "masonry",
                     "cover_layout": "split",
                     "focal_point": {"x": 25, "y": 70},
+                    "heading_font": "timeless",
+                    "grid_density": "large",
+                    "grid_spacing": "generous",
                     "expires_at": "2030-01-02T03:04:05Z",
                     "included_photos": 30,
                     "watermark_enabled": true,
@@ -339,6 +345,9 @@ mod tests {
         assert_eq!(updated["layout"], "masonry");
         assert_eq!(updated["cover_layout"], "split");
         assert_eq!(updated["focal_point"], json!({"x": 25, "y": 70}));
+        assert_eq!(updated["heading_font"], "timeless");
+        assert_eq!(updated["grid_density"], "large");
+        assert_eq!(updated["grid_spacing"], "generous");
         assert_eq!(updated["expires_at"], "2030-01-02T03:04:05Z");
         assert_eq!(updated["included_photos"], 30);
 
@@ -649,6 +658,15 @@ mod tests {
             (json!({"layout": null}), "invalid_request_body"),
             (json!({"cover_layout": null}), "invalid_request_body"),
             (json!({"cover_layout": "carousel"}), "invalid_request_body"),
+            (json!({"heading_font": null}), "invalid_request_body"),
+            (
+                json!({"heading_font": "comic_sans"}),
+                "invalid_request_body",
+            ),
+            (json!({"grid_density": null}), "invalid_request_body"),
+            (json!({"grid_density": "medium"}), "invalid_request_body"),
+            (json!({"grid_spacing": null}), "invalid_request_body"),
+            (json!({"grid_spacing": "wide"}), "invalid_request_body"),
             (json!({"focal_point": null}), "invalid_request_body"),
             (
                 json!({"focal_point": {"x": 101, "y": 35}}),
@@ -725,6 +743,9 @@ mod tests {
         .await;
 
         assert_eq!(after["title"], Value::Null);
+        assert_eq!(after["heading_font"], "editorial");
+        assert_eq!(after["grid_density"], "compact");
+        assert_eq!(after["grid_spacing"], "compact");
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
