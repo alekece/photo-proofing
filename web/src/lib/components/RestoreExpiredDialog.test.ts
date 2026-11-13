@@ -1,7 +1,11 @@
 import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import RestoreExpiredDialog from './RestoreExpiredDialog.svelte';
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 const open = (onsave = vi.fn().mockResolvedValue(true), onclose = vi.fn()) => {
 	render(RestoreExpiredDialog, { expiresAt: '2026-09-07T21:59:59Z', onsave, onclose });
@@ -94,5 +98,25 @@ describe('Restore expired dialog', () => {
 		await userEvent.setup().click(screen.getByRole('button', { name: 'No expiry' }));
 
 		expect(onclose).toHaveBeenCalledOnce();
+	});
+
+	it('lets the user pick a relative preset and submit it via Set date', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date(2026, 5, 1, 12, 0, 0));
+
+		const { onsave } = open();
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		const set = screen.getByRole('button', { name: 'Set date' }) as HTMLButtonElement;
+
+		await user.click(screen.getByLabelText('Open until'));
+		await user.click(screen.getByRole('button', { name: 'In 1 month' }));
+
+		expect(onsave).not.toHaveBeenCalled();
+		expect(screen.queryByRole('grid')).toBeNull();
+		expect(set.disabled).toBe(false);
+
+		await user.click(set);
+
+		expect(onsave).toHaveBeenCalledWith(new Date(2026, 6, 1, 23, 59, 59).toISOString());
 	});
 });

@@ -75,6 +75,7 @@
 				<DatePicker
 					id="{id}-day"
 					min={today}
+					presets
 					value={day || null}
 					onchange={(picked) => (day = picked ?? '')}
 					aria-describedby={error ? `${id}-error` : undefined}

@@ -139,6 +139,7 @@
 			<DatePicker
 				id="shoot-date"
 				placeholder="–"
+				align="end"
 				rootClass="w-44 min-w-0"
 				class="min-h-0 w-full rounded-lg bg-white px-2.5 py-1.5 text-sm font-semibold [&>span]:flex-1 [&>span]:text-center"
 				value={shootDate}
@@ -172,6 +173,8 @@
 			<DatePicker
 				id="expiry"
 				placeholder="–"
+				align="end"
+				presets
 				rootClass="w-44 min-w-0"
 				class="min-h-0 w-full rounded-lg bg-white px-2.5 py-1.5 text-sm font-semibold [&>span]:flex-1 [&>span]:text-center"
 				value={expiryDay || null}
