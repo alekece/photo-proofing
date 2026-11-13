@@ -95,6 +95,8 @@ describe('GalleryStudio', () => {
 		await view.user.click(coverButton);
 		expect(screen.getByRole('tab', { name: 'Design' }).getAttribute('aria-selected')).toBe('true');
 		expect(screen.getByRole('heading', { name: 'Design' })).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'Typography' })).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'Photo Grid & Spacing' })).toBeTruthy();
 
 		const pad = screen.getByRole('button', { name: 'Cover focal point (50%, 35%)' });
 		await fireEvent.keyDown(pad, { key: 'ArrowLeft', shiftKey: true });

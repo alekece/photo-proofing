@@ -14,7 +14,10 @@
 		FocalPoint,
 		Gallery,
 		GalleryChanges,
-		GalleryLayout
+		GalleryLayout,
+		GridDensity,
+		GridSpacing,
+		HeadingFont
 	} from '#lib/gallery/api.js';
 	import {
 		hasCleanPhoto,
@@ -25,14 +28,15 @@
 		type Photo
 	} from '#lib/gallery/photos.js';
 	import { toClientPreviewProofs, toOwnerProofs } from '#lib/gallery/proofs.js';
-	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
+	import { DEFAULT_FOCAL_POINT, HEADING_FONT_FAMILIES } from '#lib/gallery/schemas.js';
 	import type { Proof } from '#lib/gallery/types.js';
 	import { parseSettings, type WorkspaceSettings } from '#lib/settings/settings.js';
 	import { cn } from '#lib/utils.js';
 
 	/**
 	 * Studio `Design` view: two-column workspace with cover picker, four cover templates,
-	 * rule-of-thirds focal-point pad, grid layout toggle, and a live scrollable client preview.
+	 * rule-of-thirds focal-point pad, heading typography presets, photo grid layout/density/spacing
+	 * controls, and a live scrollable client preview.
 	 */
 	let {
 		gallery,
@@ -58,6 +62,9 @@
 
 	let currentLayout = $derived<GalleryLayout>(gallery.layout);
 	let currentCoverLayout = $derived<CoverLayout>(gallery.cover_layout ?? 'full_bleed');
+	let currentHeadingFont = $derived<HeadingFont>(gallery.heading_font ?? 'editorial');
+	let currentGridDensity = $derived<GridDensity>(gallery.grid_density ?? 'compact');
+	let currentGridSpacing = $derived<GridSpacing>(gallery.grid_spacing ?? 'compact');
 	let localHeroId = $derived<string | null>(heroId !== undefined ? heroId : gallery.hero_id);
 	const savedFocal = $derived<FocalPoint>(gallery.focal_point ?? { ...DEFAULT_FOCAL_POINT });
 	// svelte-ignore state_referenced_locally
@@ -129,6 +136,23 @@
 		{ id: 'split', label: m.design_cover_split() },
 		{ id: 'framed', label: m.design_cover_framed() },
 		{ id: 'banner', label: m.design_cover_banner() }
+	]);
+
+	const headingFonts = $derived<{ id: HeadingFont; label: string }[]>([
+		{ id: 'editorial', label: m.design_font_editorial() },
+		{ id: 'fine_art', label: m.design_font_fine_art() },
+		{ id: 'timeless', label: m.design_font_timeless() },
+		{ id: 'modern', label: m.design_font_modern() }
+	]);
+
+	const gridDensities = $derived<{ id: GridDensity; label: string }[]>([
+		{ id: 'compact', label: m.design_density_compact() },
+		{ id: 'large', label: m.design_density_large() }
+	]);
+
+	const gridSpacings = $derived<{ id: GridSpacing; label: string }[]>([
+		{ id: 'compact', label: m.design_spacing_compact() },
+		{ id: 'generous', label: m.design_spacing_generous() }
 	]);
 
 	const previewViews = $derived([
@@ -215,8 +239,11 @@
 	}
 
 	async function setLayout(value: string) {
-		const previous = currentLayout;
 		const next = value as GalleryLayout;
+
+		if (next === currentLayout) return;
+
+		const previous = currentLayout;
 
 		currentLayout = next;
 
@@ -234,6 +261,42 @@
 
 		if (!(await onsave({ cover_layout: next }))) {
 			currentCoverLayout = previous;
+		}
+	}
+
+	async function setHeadingFont(next: HeadingFont) {
+		if (next === currentHeadingFont) return;
+
+		const previous = currentHeadingFont;
+
+		currentHeadingFont = next;
+
+		if (!(await onsave({ heading_font: next }))) {
+			currentHeadingFont = previous;
+		}
+	}
+
+	async function setGridDensity(next: GridDensity) {
+		if (next === currentGridDensity) return;
+
+		const previous = currentGridDensity;
+
+		currentGridDensity = next;
+
+		if (!(await onsave({ grid_density: next }))) {
+			currentGridDensity = previous;
+		}
+	}
+
+	async function setGridSpacing(next: GridSpacing) {
+		if (next === currentGridSpacing) return;
+
+		const previous = currentGridSpacing;
+
+		currentGridSpacing = next;
+
+		if (!(await onsave({ grid_spacing: next }))) {
+			currentGridSpacing = previous;
 		}
 	}
 
@@ -520,13 +583,46 @@
 				</div>
 			</Card>
 
-			<Card as="section" class="rounded-[0.875rem] border border-border bg-panel p-4 sm:p-5">
+			<Card
+				as="section"
+				class="grid gap-3 rounded-[0.875rem] border border-border bg-panel p-4 sm:p-5"
+			>
 				<h3
-					class="mb-2.5 font-sans! text-[0.6875rem] leading-none font-semibold! tracking-[0.08em] text-muted-foreground uppercase"
+					class="font-sans! text-[0.6875rem] leading-none font-semibold! tracking-[0.08em] text-muted-foreground uppercase"
 				>
-					{m.settings_look()}
+					{m.design_typography()}
 				</h3>
-				<div class="flex items-center justify-between gap-2.5 pt-0.5 text-sm">
+				<div role="group" aria-label={m.design_heading_font()} class="grid grid-cols-2 gap-2">
+					{#each headingFonts as item (item.id)}
+						{@const selected = currentHeadingFont === item.id}
+						{@const fontFamily = HEADING_FONT_FAMILIES[item.id]}
+						<button
+							type="button"
+							aria-pressed={selected}
+							onclick={() => void setHeadingFont(item.id)}
+							class="flex cursor-pointer flex-col gap-1.5 rounded-[0.625rem] border px-3 py-2.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus {selected
+								? 'border-foreground bg-foreground text-panel'
+								: 'border-border bg-background text-foreground hover:border-border-strong'}"
+						>
+							<span aria-hidden="true" style:font-family={fontFamily} class="text-2xl leading-none"
+								>Aa</span
+							>
+							<span style:font-family={fontFamily} class="truncate text-sm">{item.label}</span>
+						</button>
+					{/each}
+				</div>
+			</Card>
+
+			<Card
+				as="section"
+				class="grid gap-3 rounded-[0.875rem] border border-border bg-panel p-4 sm:p-5"
+			>
+				<h3
+					class="font-sans! text-[0.6875rem] leading-none font-semibold! tracking-[0.08em] text-muted-foreground uppercase"
+				>
+					{m.design_grid_and_spacing()}
+				</h3>
+				<div class="flex flex-wrap items-center justify-between gap-2.5 text-sm">
 					<span class="text-foreground">{m.settings_layout()}</span>
 					<IconButtonGroup
 						value={currentLayout}
@@ -534,6 +630,44 @@
 						label={m.settings_layout()}
 						onchange={(value) => void setLayout(value)}
 					/>
+				</div>
+				<div class="flex flex-wrap items-center justify-between gap-2.5 text-sm">
+					<span class="text-foreground">{m.design_grid_density()}</span>
+					<div
+						role="group"
+						aria-label={m.design_grid_density()}
+						class="inline-flex rounded-full border border-border bg-background p-[3px]"
+					>
+						{#each gridDensities as item (item.id)}
+							<button
+								type="button"
+								aria-pressed={currentGridDensity === item.id}
+								onclick={() => void setGridDensity(item.id)}
+								class="cursor-pointer rounded-full px-3 py-1 text-xs font-medium text-muted-foreground transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-foreground aria-pressed:text-panel"
+							>
+								{item.label}
+							</button>
+						{/each}
+					</div>
+				</div>
+				<div class="flex flex-wrap items-center justify-between gap-2.5 text-sm">
+					<span class="text-foreground">{m.design_grid_spacing()}</span>
+					<div
+						role="group"
+						aria-label={m.design_grid_spacing()}
+						class="inline-flex rounded-full border border-border bg-background p-[3px]"
+					>
+						{#each gridSpacings as item (item.id)}
+							<button
+								type="button"
+								aria-pressed={currentGridSpacing === item.id}
+								onclick={() => void setGridSpacing(item.id)}
+								class="cursor-pointer rounded-full px-3 py-1 text-xs font-medium text-muted-foreground transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-foreground aria-pressed:text-panel"
+							>
+								{item.label}
+							</button>
+						{/each}
+					</div>
 				</div>
 			</Card>
 		</div>
@@ -600,6 +734,9 @@
 									layout: currentLayout,
 									cover_layout: currentCoverLayout,
 									focal_point: localFocal,
+									heading_font: currentHeadingFont,
+									grid_density: currentGridDensity,
+									grid_spacing: currentGridSpacing,
 									hero_id: localHeroId,
 									delivered
 								}}
