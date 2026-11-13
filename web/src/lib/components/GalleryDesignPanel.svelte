@@ -60,12 +60,25 @@
 
 	const events = getLiveEvents();
 
-	let currentLayout = $derived<GalleryLayout>(gallery.layout);
-	let currentCoverLayout = $derived<CoverLayout>(gallery.cover_layout ?? 'full_bleed');
-	let currentHeadingFont = $derived<HeadingFont>(gallery.heading_font ?? 'editorial');
-	let currentGridDensity = $derived<GridDensity>(gallery.grid_density ?? 'compact');
-	let currentGridSpacing = $derived<GridSpacing>(gallery.grid_spacing ?? 'compact');
-	let localHeroId = $derived<string | null>(heroId !== undefined ? heroId : gallery.hero_id);
+	const savedLayout = $derived<GalleryLayout>(gallery.layout);
+	const savedCoverLayout = $derived<CoverLayout>(gallery.cover_layout ?? 'full_bleed');
+	const savedHeadingFont = $derived<HeadingFont>(gallery.heading_font ?? 'editorial');
+	const savedGridDensity = $derived<GridDensity>(gallery.grid_density ?? 'compact');
+	const savedGridSpacing = $derived<GridSpacing>(gallery.grid_spacing ?? 'compact');
+	const savedHeroId = $derived<string | null>(heroId !== undefined ? heroId : gallery.hero_id);
+
+	let committedLayout = $derived<GalleryLayout>(savedLayout);
+	let committedCoverLayout = $derived<CoverLayout>(savedCoverLayout);
+	let committedHeadingFont = $derived<HeadingFont>(savedHeadingFont);
+	let committedGridDensity = $derived<GridDensity>(savedGridDensity);
+	let committedGridSpacing = $derived<GridSpacing>(savedGridSpacing);
+
+	let currentLayout = $derived<GalleryLayout>(committedLayout);
+	let currentCoverLayout = $derived<CoverLayout>(committedCoverLayout);
+	let currentHeadingFont = $derived<HeadingFont>(committedHeadingFont);
+	let currentGridDensity = $derived<GridDensity>(committedGridDensity);
+	let currentGridSpacing = $derived<GridSpacing>(committedGridSpacing);
+	let localHeroId = $derived<string | null>(savedHeroId);
 	const savedFocal = $derived<FocalPoint>(gallery.focal_point ?? { ...DEFAULT_FOCAL_POINT });
 	// svelte-ignore state_referenced_locally
 	let localFocal = $state<FocalPoint>(focalPoint ?? savedFocal);
@@ -160,6 +173,13 @@
 		{ id: 'phone' as const, label: m.preview_phone(), icon: Smartphone }
 	]);
 
+	const sectionCard = 'grid gap-3 rounded-[0.875rem] border border-border bg-panel p-4 sm:p-5';
+	const sectionHeading =
+		'font-sans! text-[0.6875rem] leading-none font-semibold! tracking-[0.08em] text-muted-foreground uppercase';
+	const pillGroup = 'inline-flex rounded-full border border-border bg-background p-[3px]';
+	const pillButton =
+		'cursor-pointer rounded-full px-3 py-1 text-xs font-medium text-muted-foreground transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-foreground aria-pressed:text-panel';
+
 	// Load preview data when the Design tab is shown or when gallery media changes.
 	$effect(() => {
 		if (!active && !pickingCover) return;
@@ -243,60 +263,60 @@
 
 		if (next === currentLayout) return;
 
-		const previous = currentLayout;
-
 		currentLayout = next;
 
-		if (!(await onsave({ layout: next }))) {
-			currentLayout = previous;
+		if (await onsave({ layout: next })) {
+			if (currentLayout === next) committedLayout = next;
+		} else if (currentLayout === next) {
+			currentLayout = committedLayout;
 		}
 	}
 
 	async function setCoverLayout(next: CoverLayout) {
 		if (next === currentCoverLayout) return;
 
-		const previous = currentCoverLayout;
-
 		currentCoverLayout = next;
 
-		if (!(await onsave({ cover_layout: next }))) {
-			currentCoverLayout = previous;
+		if (await onsave({ cover_layout: next })) {
+			if (currentCoverLayout === next) committedCoverLayout = next;
+		} else if (currentCoverLayout === next) {
+			currentCoverLayout = committedCoverLayout;
 		}
 	}
 
 	async function setHeadingFont(next: HeadingFont) {
 		if (next === currentHeadingFont) return;
 
-		const previous = currentHeadingFont;
-
 		currentHeadingFont = next;
 
-		if (!(await onsave({ heading_font: next }))) {
-			currentHeadingFont = previous;
+		if (await onsave({ heading_font: next })) {
+			if (currentHeadingFont === next) committedHeadingFont = next;
+		} else if (currentHeadingFont === next) {
+			currentHeadingFont = committedHeadingFont;
 		}
 	}
 
 	async function setGridDensity(next: GridDensity) {
 		if (next === currentGridDensity) return;
 
-		const previous = currentGridDensity;
-
 		currentGridDensity = next;
 
-		if (!(await onsave({ grid_density: next }))) {
-			currentGridDensity = previous;
+		if (await onsave({ grid_density: next })) {
+			if (currentGridDensity === next) committedGridDensity = next;
+		} else if (currentGridDensity === next) {
+			currentGridDensity = committedGridDensity;
 		}
 	}
 
 	async function setGridSpacing(next: GridSpacing) {
 		if (next === currentGridSpacing) return;
 
-		const previous = currentGridSpacing;
-
 		currentGridSpacing = next;
 
-		if (!(await onsave({ grid_spacing: next }))) {
-			currentGridSpacing = previous;
+		if (await onsave({ grid_spacing: next })) {
+			if (currentGridSpacing === next) committedGridSpacing = next;
+		} else if (currentGridSpacing === next) {
+			currentGridSpacing = committedGridSpacing;
 		}
 	}
 
@@ -457,13 +477,8 @@
 		class="grid items-start gap-5 lg:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]"
 	>
 		<div class="grid gap-4">
-			<Card
-				as="section"
-				class="grid gap-4 rounded-[0.875rem] border border-border bg-panel p-4 sm:p-5"
-			>
-				<h3
-					class="font-sans! text-[0.6875rem] leading-none font-semibold! tracking-[0.08em] text-muted-foreground uppercase"
-				>
+			<Card as="section" class="gap-4 {sectionCard}">
+				<h3 class={sectionHeading}>
 					{m.design_cover()}
 				</h3>
 
@@ -583,13 +598,8 @@
 				</div>
 			</Card>
 
-			<Card
-				as="section"
-				class="grid gap-3 rounded-[0.875rem] border border-border bg-panel p-4 sm:p-5"
-			>
-				<h3
-					class="font-sans! text-[0.6875rem] leading-none font-semibold! tracking-[0.08em] text-muted-foreground uppercase"
-				>
+			<Card as="section" class={sectionCard}>
+				<h3 class={sectionHeading}>
 					{m.design_typography()}
 				</h3>
 				<div role="group" aria-label={m.design_heading_font()} class="grid grid-cols-2 gap-2">
@@ -613,13 +623,8 @@
 				</div>
 			</Card>
 
-			<Card
-				as="section"
-				class="grid gap-3 rounded-[0.875rem] border border-border bg-panel p-4 sm:p-5"
-			>
-				<h3
-					class="font-sans! text-[0.6875rem] leading-none font-semibold! tracking-[0.08em] text-muted-foreground uppercase"
-				>
+			<Card as="section" class={sectionCard}>
+				<h3 class={sectionHeading}>
 					{m.design_grid_and_spacing()}
 				</h3>
 				<div class="flex flex-wrap items-center justify-between gap-2.5 text-sm">
@@ -633,17 +638,13 @@
 				</div>
 				<div class="flex flex-wrap items-center justify-between gap-2.5 text-sm">
 					<span class="text-foreground">{m.design_grid_density()}</span>
-					<div
-						role="group"
-						aria-label={m.design_grid_density()}
-						class="inline-flex rounded-full border border-border bg-background p-[3px]"
-					>
+					<div role="group" aria-label={m.design_grid_density()} class={pillGroup}>
 						{#each gridDensities as item (item.id)}
 							<button
 								type="button"
 								aria-pressed={currentGridDensity === item.id}
 								onclick={() => void setGridDensity(item.id)}
-								class="cursor-pointer rounded-full px-3 py-1 text-xs font-medium text-muted-foreground transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-foreground aria-pressed:text-panel"
+								class={pillButton}
 							>
 								{item.label}
 							</button>
@@ -652,17 +653,13 @@
 				</div>
 				<div class="flex flex-wrap items-center justify-between gap-2.5 text-sm">
 					<span class="text-foreground">{m.design_grid_spacing()}</span>
-					<div
-						role="group"
-						aria-label={m.design_grid_spacing()}
-						class="inline-flex rounded-full border border-border bg-background p-[3px]"
-					>
+					<div role="group" aria-label={m.design_grid_spacing()} class={pillGroup}>
 						{#each gridSpacings as item (item.id)}
 							<button
 								type="button"
 								aria-pressed={currentGridSpacing === item.id}
 								onclick={() => void setGridSpacing(item.id)}
-								class="cursor-pointer rounded-full px-3 py-1 text-xs font-medium text-muted-foreground transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-foreground aria-pressed:text-panel"
+								class={pillButton}
 							>
 								{item.label}
 							</button>

@@ -359,6 +359,78 @@ describe('GalleryDesignPanel', () => {
 		);
 	});
 
+	it('preserves overlapping preset selections across concurrent gallery updates and ignores stale rollbacks', async () => {
+		let resolveFirstFont!: (ok: boolean) => void;
+		let resolveDensity!: (ok: boolean) => void;
+		const onsave = vi
+			.fn()
+			.mockImplementationOnce(
+				() =>
+					new Promise<boolean>((resolve) => {
+						resolveFirstFont = resolve;
+					})
+			)
+			.mockImplementationOnce(
+				() =>
+					new Promise<boolean>((resolve) => {
+						resolveDensity = resolve;
+					})
+			)
+			.mockResolvedValue(true);
+		const user = userEvent.setup();
+		const view = render(GalleryDesignPanel, {
+			gallery: { ...baseGallery, hero_id: 'p1' },
+			heroId: 'p1',
+			focalPoint: { x: 50, y: 35 },
+			active: true,
+			onsave
+		});
+
+		await waitFor(() => expect(screen.getByRole('list', { name: 'Proofs' })).toBeTruthy());
+
+		const fontGroup = screen.getByRole('group', { name: 'Heading font' });
+		const densityGroup = screen.getByRole('group', { name: 'Grid density' });
+
+		await user.click(within(fontGroup).getByRole('button', { name: 'Fine Art' }));
+		await user.click(within(densityGroup).getByRole('button', { name: 'Large' }));
+
+		// First PATCH resolves and replaces `gallery`, still carrying `grid_density: 'compact'`
+		// while `Large` is in flight.
+		resolveFirstFont(true);
+		await view.rerender({
+			gallery: { ...baseGallery, hero_id: 'p1', heading_font: 'fine_art', grid_density: 'compact' },
+			heroId: 'p1',
+			focalPoint: { x: 50, y: 35 },
+			active: true,
+			onsave
+		});
+
+		expect(
+			within(densityGroup).getByRole('button', { name: 'Large' }).getAttribute('aria-pressed')
+		).toBe('true');
+		expect(screen.getByRole('list', { name: 'Proofs' }).getAttribute('data-density')).toBe('large');
+
+		resolveDensity(true);
+		await Promise.resolve();
+
+		// Out-of-order failure of an earlier click in the same group must not overwrite a newer choice.
+		let resolveStaleFont!: (ok: boolean) => void;
+		onsave.mockImplementationOnce(
+			() =>
+				new Promise<boolean>((resolve) => {
+					resolveStaleFont = resolve;
+				})
+		);
+		await user.click(within(fontGroup).getByRole('button', { name: 'Modern' }));
+		await user.click(within(fontGroup).getByRole('button', { name: 'Timeless' }));
+		resolveStaleFont(false);
+		await Promise.resolve();
+
+		expect(
+			within(fontGroup).getByRole('button', { name: 'Timeless' }).getAttribute('aria-pressed')
+		).toBe('true');
+	});
+
 	it('reflects saved favorites in the embedded live preview once photos load', async () => {
 		vi.stubGlobal('IntersectionObserver', undefined);
 		stubPreviewFetch([
