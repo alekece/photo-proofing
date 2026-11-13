@@ -51,7 +51,7 @@
 <Dialog
 	{onclose}
 	labelledby="{id}-title"
-	class="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
+	class="mx-auto mt-6 mb-auto w-[min(26rem,calc(100vw-2rem))] overflow-visible rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl sm:my-auto"
 >
 	{#snippet children(close)}
 		<form
@@ -74,7 +74,9 @@
 				<Label for="{id}-day" class="text-muted-foreground">{m.expiry_open_until()}</Label>
 				<DatePicker
 					id="{id}-day"
+					class="w-full"
 					min={today}
+					presets
 					value={day || null}
 					onchange={(picked) => (day = picked ?? '')}
 					aria-describedby={error ? `${id}-error` : undefined}

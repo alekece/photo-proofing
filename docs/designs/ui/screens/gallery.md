@@ -47,7 +47,7 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
 | View / Card | Content |
 |---|---|
 | **Design** | **Look:** **Layout** as two icon buttons (staggered columns, even rows; even rows by default) |
-| **Settings → General** | **Shoot date**, **Included photos** (number input, disabled once published), and **Open until** (date picker); all optional |
+| **Settings → General** | **Shoot date**, **Included photos** (number input, disabled once published), and **Open until** (date picker with one-click relative presets from 1 week to 1 year); all optional |
 | **Settings → Privacy & Protection** | **Client link** (Draft: `"Not shared yet"`; once shared: link and **Copy**) and **Enable watermarks** switch |
 | **Settings → Actions** | **Archive** (or **Restore**) and destructive **Delete**, each with a short consequence hint and confirmation dialog |
 

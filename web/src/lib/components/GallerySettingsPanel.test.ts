@@ -50,6 +50,7 @@ function setup(over: Partial<Gallery> = {}, saves = true, shareToken: string | n
 
 afterEach(() => {
 	toasts.items = [];
+	vi.useRealTimers();
 });
 
 describe('GallerySettingsPanel', () => {
@@ -115,6 +116,25 @@ describe('GallerySettingsPanel', () => {
 		await user.click(screen.getByRole('button', { name: 'Clear' }));
 
 		expect(onsave).toHaveBeenLastCalledWith({ expires_at: null });
+	});
+
+	it('offers relative presets on Open until and omits them on Shoot date', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date(2026, 5, 1, 12, 0, 0));
+
+		const { onsave } = setup();
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+		await user.click(screen.getByLabelText('Shoot date'));
+		expect(screen.queryByRole('button', { name: 'In 2 weeks' })).toBeNull();
+
+		await user.click(screen.getByLabelText('Open until'));
+		await user.click(screen.getByRole('button', { name: 'In 2 weeks' }));
+
+		expect(onsave).toHaveBeenCalledWith({
+			expires_at: new Date(2026, 5, 15, 23, 59, 59).toISOString()
+		});
+		expect(screen.queryByRole('grid')).toBeNull();
 	});
 
 	it('shows the shoot date and clears it with null', async () => {
