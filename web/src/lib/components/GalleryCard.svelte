@@ -4,6 +4,7 @@
 	import type { GalleryOverview } from '#lib/gallery/api.js';
 	import { galleryStatus, gallerySummary, highlightParts } from '#lib/gallery/format.js';
 	import { previewUrl } from '#lib/gallery/photos.js';
+	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
 
 	let {
 		gallery,
@@ -20,6 +21,7 @@
 	let status = $derived(galleryStatus(gallery.states));
 	let title = $derived(gallery.title ?? m.gallery_untitled());
 	let faded = $derived(status === 'expired' || status === 'archived');
+	let focalPoint = $derived(gallery.focal_point ?? DEFAULT_FOCAL_POINT);
 </script>
 
 <li
@@ -34,6 +36,7 @@
 				src={previewUrl(gallery.id, gallery.hero_id)}
 				alt=""
 				loading="lazy"
+				style:object-position="{focalPoint.x}% {focalPoint.y}%"
 				class="size-full object-cover {faded ? 'brightness-90 grayscale-[0.6]' : ''}"
 			/>
 		{/if}

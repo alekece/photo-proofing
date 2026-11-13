@@ -6,9 +6,12 @@
 	import { Download, Heart, Play } from '@lucide/svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+	import { formatFullDate } from '#lib/gallery/format.js';
+	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
 	import { Selection } from '#lib/gallery/selection.svelte.js';
 	import type { Proof, SharedGallery } from '#lib/gallery/types.js';
 	import { DEFAULT_SIZE, type Signature } from '#lib/settings/settings.js';
+	import ClientCover from './ClientCover.svelte';
 	import CoverBackdrop from './CoverBackdrop.svelte';
 	import ExpiryBadge from './ExpiryBadge.svelte';
 	import FilmStrip from './FilmStrip.svelte';
@@ -27,7 +30,8 @@
 		signature = 'name',
 		signatureSize = DEFAULT_SIZE,
 		preview = false,
-		framed = false
+		framed = false,
+		showCoverWhenEmpty = false
 	}: {
 		/** The private link's token; the owner's preview has none. */
 		token?: string;
@@ -47,9 +51,9 @@
 		preview?: boolean;
 		/** Shown inside the preview's phone frame, which has a fixed height. */
 		framed?: boolean;
+		/** Renders the cover template even when the gallery has zero photos and no hero (for live Design editing). */
+		showCoverWhenEmpty?: boolean;
 	} = $props();
-	const CTA =
-		'inline-flex cursor-pointer items-center gap-2 rounded-full border px-5 py-2.5 text-xs tracking-[0.16em] uppercase transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus';
 	let viewerIndex = $state<number | null>(null);
 	let viewerAutoplay = $state(false);
 	// Frozen while the viewer is open, so unfavoriting under the ♥ filter doesn't shift its photos.
@@ -147,10 +151,15 @@
 		grid?.scrollIntoView?.({ behavior: reduced ? 'auto' : 'smooth' });
 	}
 	let cover = $derived(coverUrl);
+	const focalPoint = $derived(gallery.focal_point ?? DEFAULT_FOCAL_POINT);
+	const objectPosition = $derived(`${focalPoint.x}% ${focalPoint.y}%`);
+	const formattedShootDate = $derived(
+		gallery.shoot_date ? formatFullDate(`${gallery.shoot_date}T12:00`) : null
+	);
 </script>
 
 <!-- Container queries stand in for the prototype's 700px media rule, so the phone preview narrows too. -->
-{#if proofs.length === 0 && !delivered && !cover}
+{#if proofs.length === 0 && !delivered && !cover && !showCoverWhenEmpty}
 	<main
 		class="@container flex flex-1 flex-col items-center overflow-hidden bg-[radial-gradient(120%_70%_at_50%_0,#2e241d,#16120f_60%)] pt-[34px] pb-10 text-center text-[#f4efe8]"
 	>
@@ -164,6 +173,11 @@
 		/>
 		<div class="mt-auto px-6">
 			<h1 class="font-serif text-[clamp(40px,6vw,64px)] leading-none wrap-anywhere">{title}</h1>
+			{#if formattedShootDate && gallery.shoot_date}
+				<p class="mt-3 text-xs tracking-[0.22em] uppercase opacity-75">
+					<time datetime={gallery.shoot_date}>{formattedShootDate}</time>
+				</p>
+			{/if}
 			{#if gallery.expires_at}
 				<div class="mt-3.5 text-xs tracking-[0.22em] uppercase opacity-75">
 					<ExpiryBadge expiresAt={gallery.expires_at} />
@@ -179,7 +193,7 @@
 		</div>
 		<p class="mt-auto pt-10 text-xs tracking-[0.06em] text-[#8d7f72]">{m.client_shared_with()}</p>
 	</main>
-{:else if proofs.length === 0 && delivered}
+{:else if proofs.length === 0 && delivered && !showCoverWhenEmpty}
 	<main class="@container flex flex-1 flex-col bg-background">
 		<header
 			class="relative isolate flex h-[300px] flex-none flex-col justify-end overflow-hidden bg-[#2b2420] px-8 pb-[26px] text-panel"
@@ -188,14 +202,15 @@
 				<img
 					src={cover}
 					alt={m.client_cover_alt()}
-					class="absolute inset-0 -z-20 size-full object-cover object-[center_35%]"
+					style:object-position={objectPosition}
+					class="absolute inset-0 -z-20 size-full object-cover"
 				/>
 				<div
 					data-image-context-menu-overlay
 					class="absolute inset-0 -z-10 bg-[linear-gradient(rgb(43_36_32/0.3),transparent_30%,transparent_45%,rgb(43_36_32/0.75))]"
 				></div>
 			{:else}
-				<CoverBackdrop title={gallery.title} />
+				<CoverBackdrop title={gallery.title} edge={formattedShootDate} />
 			{/if}
 			<StudioSignature
 				{studio}
@@ -205,6 +220,11 @@
 				class="absolute inset-x-0 top-[22px] font-serif text-[1.1875rem] italic"
 			/>
 			<h1 class="font-serif text-[2.75rem] leading-none wrap-anywhere">{title}</h1>
+			{#if formattedShootDate && gallery.shoot_date}
+				<p class="mt-2 text-xs tracking-[0.2em] uppercase opacity-85">
+					<time datetime={gallery.shoot_date}>{formattedShootDate}</time>
+				</p>
+			{/if}
 			{#if gallery.expires_at}
 				<div class="mt-2.5 text-xs tracking-[0.2em] uppercase opacity-85">
 					<ExpiryBadge expiresAt={gallery.expires_at} />
@@ -226,69 +246,27 @@
 	</main>
 {:else}
 	<main class="@container bg-background">
-		<header
-			bind:this={hero}
-			class="relative isolate flex min-h-[max(520px,100dvh)] flex-col overflow-hidden bg-[#2b2420] text-center text-panel @max-[700px]:min-h-[max(480px,100svh)] {framed
-				? 'min-h-[600px]! @max-[700px]:min-h-[600px]!'
-				: preview
-					? 'min-h-[max(520px,calc(100dvh-56px))]'
-					: ''}"
-		>
-			{#if cover}
-				<img
-					src={cover}
-					alt={m.client_cover_alt()}
-					class="absolute inset-0 -z-20 size-full object-cover object-[center_35%]"
-				/>
-				<div
-					data-image-context-menu-overlay
-					class="absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgb(43_36_32/0.35),transparent_22%,transparent_50%,rgb(43_36_32/0.8))]"
-				></div>
-			{:else}
-				<CoverBackdrop title={gallery.title} centered />
-			{/if}
-			<StudioSignature
-				{studio}
-				logo={studioLogo}
-				{signature}
-				size={signatureSize}
-				class="px-5 pt-7 font-serif text-[1.1875rem] italic @max-[700px]:text-[0.9375rem]"
-			/>
-			<div class="mt-auto animate-photo-in px-6 pb-[34px]">
-				<h1
-					class="mb-3 font-serif text-[4rem] leading-none wrap-anywhere @max-[700px]:text-[2.5rem]"
-				>
-					{title}
-				</h1>
-				<p class="text-xs tracking-[0.2em] uppercase opacity-85">{count}</p>
-				{#if gallery.expires_at}
-					<div class="mt-1 text-xs opacity-85"><ExpiryBadge expiresAt={gallery.expires_at} /></div>
-				{/if}
-				<div
-					class="mt-5 flex justify-center gap-2.5 @max-[700px]:flex-col @max-[700px]:items-center"
-				>
-					{#if delivered}
-						<button
-							type="button"
-							disabled={downloading}
-							onclick={downloadAll}
-							class="{CTA} border-panel bg-panel font-bold text-foreground hover:bg-panel disabled:cursor-progress disabled:opacity-80"
-						>
-							<Download size={15} aria-hidden="true" />{downloading
-								? m.favorites_downloading()
-								: m.favorites_download_all()}
-						</button>
-					{/if}
-					<button
-						type="button"
-						class="{CTA} border-panel/55 hover:bg-panel/15"
-						onclick={viewGallery}
-					>
-						{m.client_view_gallery()}
-					</button>
-				</div>
-			</div>
-		</header>
+		<ClientCover
+			bind:hero
+			{title}
+			rawTitle={gallery.title}
+			coverLayout={gallery.cover_layout ?? 'full_bleed'}
+			{focalPoint}
+			shootDate={gallery.shoot_date ?? null}
+			expiresAt={gallery.expires_at}
+			{count}
+			coverUrl={cover}
+			{studio}
+			{studioLogo}
+			{signature}
+			{signatureSize}
+			{delivered}
+			{downloading}
+			{preview}
+			{framed}
+			onviewgallery={viewGallery}
+			ondownloadall={() => void downloadAll()}
+		/>
 		<div bind:this={grid}>
 			<!-- The row collapses to zero height while hidden, so there is no gap, and expands in flow so the bar never covers photos. -->
 			<div

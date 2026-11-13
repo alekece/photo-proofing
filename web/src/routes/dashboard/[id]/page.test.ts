@@ -33,6 +33,8 @@ const base: Gallery = {
 	id: 'g1',
 	title: 'Wedding',
 	layout: 'grid',
+	cover_layout: 'full_bleed',
+	focal_point: { x: 50, y: 35 },
 	expires_at: null,
 	included_photos: 5,
 	watermark_enabled: false,

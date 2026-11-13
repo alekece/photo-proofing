@@ -7,6 +7,9 @@ import Page from './+page.svelte';
 const gallery = {
 	title: 'Wedding',
 	layout: 'grid' as const,
+	cover_layout: 'full_bleed' as const,
+	focal_point: { x: 50, y: 35 },
+	shoot_date: null,
 	expires_at: null,
 	included_photos: null,
 	delivered: false,

@@ -9,6 +9,8 @@ const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 	id: 'g1',
 	title: 'Martin Wedding',
 	layout: 'grid',
+	cover_layout: 'full_bleed',
+	focal_point: { x: 50, y: 35 },
 	expires_at: null,
 	included_photos: 30,
 	watermark_enabled: false,
@@ -63,15 +65,15 @@ describe('GalleryCard', () => {
 		expect(screen.queryByText('Prepublish')).toBeNull();
 	});
 
-	it('uses the hero photo, else the striped cover', () => {
+	it('uses the hero photo with its focal point, else the striped cover', () => {
 		const { container, rerender } = render(GalleryCard, {
-			gallery: gallery({ hero_id: 'p1' }),
+			gallery: gallery({ hero_id: 'p1', focal_point: { x: 18, y: 72 } }),
 			query: ''
 		});
 
-		expect(container.querySelector('img')?.getAttribute('src')).toBe(
-			'/api/v1/galleries/g1/photos/p1/preview'
-		);
+		const img = container.querySelector('img') as HTMLImageElement | null;
+		expect(img?.getAttribute('src')).toBe('/api/v1/galleries/g1/photos/p1/preview');
+		expect(img?.style.objectPosition).toBe('18% 72%');
 		rerender({ gallery: gallery(), query: '' });
 		expect(container.querySelector('img')).toBeNull();
 	});

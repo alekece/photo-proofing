@@ -1,12 +1,28 @@
-import { gallerySchema, parseOrNull, type Gallery, type GalleryLayout } from './schemas';
+import {
+	gallerySchema,
+	parseOrNull,
+	type CoverLayout,
+	type FocalPoint,
+	type Gallery,
+	type GalleryLayout
+} from './schemas';
 import { apiErrorMessage, readResponseErrorCode } from '#lib/i18n/errors.js';
 
-export type { Gallery, GalleryLayout, GalleryOverview, GallerySort } from './schemas';
+export type {
+	CoverLayout,
+	FocalPoint,
+	Gallery,
+	GalleryLayout,
+	GalleryOverview,
+	GallerySort
+} from './schemas';
 
 /** Subset of settings sent by a PATCH: a missing key is kept, `null` clears the optional ones. */
 export interface GalleryChanges {
 	title?: string | null;
 	layout?: GalleryLayout;
+	cover_layout?: CoverLayout;
+	focal_point?: FocalPoint;
 	expires_at?: string | null;
 	shoot_date?: string | null;
 	included_photos?: number | null;
