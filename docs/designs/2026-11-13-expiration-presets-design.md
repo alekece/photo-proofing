@@ -1,46 +1,44 @@
 # Quick relative presets for the expiration date
 
-Issue: #343. Touches the "Open until" field in gallery settings and the restore-expired dialog (#175).
+Issue: [#343](https://github.com/alekece/photo-proofing/issues/343). Extends `DatePicker` (#319) for the "Open until" field in `GallerySettingsPanel` (#342) and `RestoreExpiredDialog` (#175).
 
 ## Intent
 
-Photographers usually pick the same expiry windows ("in two weeks", "in a month"). The native date input makes them page through months. A calendar popover with one-click presets makes the common case a single click while keeping manual picking and clearing.
+Photographers usually pick the same expiry windows ("in two weeks", "in a month"). Today `DatePicker` opens only the calendar grid, so they still page through months. Adding one-click presets inside the popover makes the common case a single click while keeping manual picking and clearing.
 
 ## Goals
 
-- A reusable `DatePicker`: a button showing the chosen date (or "No expiry") that opens a popover with a calendar and, optionally, preset buttons.
-- Presets: In 1 week, In 2 weeks, In 1 month, In 2 months, In 6 months, In 1 year. Each is computed from today's local date, commits immediately and closes the popover, exactly like picking a day.
-- The calendar and a Clear action stay in the same popover.
-- Used by `GallerySettings` (Open until) and `RestoreExpiredDialog`, both with presets.
-- Works at 390 px and on desktop, in English and French, with no `vitest-axe` violations.
+- Extend `DatePicker` with an optional `presets` prop so shoot-date pickers (`NewGalleryDialog`, `GallerySettingsPanel` shoot date) stay clean while expiration pickers (`GallerySettingsPanel` Open until, `RestoreExpiredDialog`) show presets.
+- Presets: In 1 week, In 2 weeks, In 1 month, In 2 months, In 6 months, In 1 year. Each is computed from today's local calendar date (`today(getLocalTimeZone())`), commits immediately through `onchange` and closes the popover, just like picking a calendar day.
+- Keep manual day selection on the existing `Calendar` and clearing (`clearable`) inside the same popover.
+- Fits cleanly on desktop and mobile (`390 px`) in both English and French, with zero `vitest-axe` violations.
 
 ## Non-goals
 
-- Presets on other date fields; the picker takes an optional `presets` prop and shows none unless a caller passes it.
-- Changing how expiry is stored or saved: callers keep the `YYYY-MM-DD` day string and the existing `endOfLocalDay` / save path.
-- Configurable or user-defined presets.
+- Presets on shoot-date fields (`presets` defaults to `false`).
+- Changing how expiry is stored or saved: callers keep receiving `YYYY-MM-DD | null` and using the existing `endOfLocalDay` / save path.
+- Configurable or custom presets.
 
 ## Constraints
 
-- Past days stay disabled where today's input has `min` (restore dialog). The settings field keeps allowing past days as today.
-- Reuse the existing `Popover` primitive (outside press, Escape, focus return) rather than a second popover implementation.
-- Follow the design tokens in `docs/designs/ui/DESIGN.md`; no new visual language.
+- Build on the existing `DatePicker`, `Calendar` (shadcn-svelte on Bits UI, [ADR 0004](../adr/0004-styleable-component-libraries.md)) and `Popover` primitives, styled with the tokens in `docs/designs/ui/DESIGN.md`.
+- Every preset label is a Paraglide message in `web/messages/{en,fr}.json`.
+- `RestoreExpiredDialog` keeps `min={today}` (and `presets`), while `GallerySettingsPanel` keeps `clearable` (and adds `presets`).
 
 ## Approaches
 
-- **A. bits-ui `Calendar` + `@internationalized/date` inside our `Popover` (chosen).** Well-known, accessible (keyboard, ARIA, locale-aware); needs token styling and two dependencies. Matches the issue's suggested date library.
-- **B. Hand-built month grid.** No dependencies, but we would own keyboard navigation, accessibility and localisation.
-- **C. Native date input plus a chip row.** Smallest, but not a calendar popover with presets; rejected by the maintainer.
+- **A. Preset list inside the existing `DatePicker` popover (chosen).** Reuses `DatePicker`, `Calendar` and `@internationalized/date` already in the repo; zero new dependencies; shoot-date callers stay untouched.
+- **B. Separate `ExpirationDatePicker` wrapper.** Duplicates popover state (`open = false` on pick) or leaks internal close hooks out of `DatePicker`.
 
 ## Decisions
 
-- New `web/src/lib/components/ui/DatePicker/DatePicker.svelte` with `value` (`YYYY-MM-DD` or empty, bindable), `min`, `presets` (boolean), `onchange`, plus id wiring so the existing `Label for` still works.
-- Dates use `@internationalized/date` (`today(getLocalTimeZone())`, `.add({ weeks | months | years })`); the calendar locale follows the active Paraglide locale.
-- Month overflow follows the library (1 month from 31 Jan is 28/29 Feb).
-- New messages in `web/messages/{en,fr}.json` for the six presets, "No expiry" and "Clear".
+- Add `presets?: boolean` (default `false`) to `DatePicker.svelte`.
+- Compute presets on click via `today(getLocalTimeZone()).add({ weeks | months | years })` from `@internationalized/date`; month overflow follows the library (`31 Jan + 1 month` -> `28/29 Feb`), and picking today's identical value is a no-op close just like `pick()`.
+- Add the six localized preset messages in `web/messages/{en,fr}.json`.
+- Enable `presets` on `GallerySettingsPanel` (`id="expiry"`) and `RestoreExpiredDialog` (`id="{id}-day"`).
 
 ## Left to the builder
 
-- Exact popover layout (presets beside or above the calendar at 390 px), as long as nothing overflows.
-- Tests: unit tests for `DatePicker` (preset values with fake timers, clear, min, keyboard) plus updated settings and restore tests.
-- Docs: update the expiry wording in `docs/SPECIFICATIONS.md` and `docs/releases/MVP.md` if they describe the date input.
+- Responsive layout inside `DatePicker` (e.g. compact chip grid above or beside the calendar so `390 px` viewports never overflow horizontally).
+- Unit tests in `DatePicker.test.ts` (fake timers covering all 6 presets including month-end rollover, immediate close, no presets when omitted, `vitest-axe` in EN/FR) plus call-site assertions in `GallerySettingsPanel` and `RestoreExpiredDialog` tests.
+- Docs check (`docs/SPECIFICATIONS.md` / `docs/releases/MVP.md`) if expiration picker UI is mentioned.
