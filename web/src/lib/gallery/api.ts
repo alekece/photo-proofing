@@ -4,7 +4,10 @@ import {
 	type CoverLayout,
 	type FocalPoint,
 	type Gallery,
-	type GalleryLayout
+	type GalleryLayout,
+	type GridDensity,
+	type GridSpacing,
+	type HeadingFont
 } from './schemas';
 import { apiErrorMessage, readResponseErrorCode } from '#lib/i18n/errors.js';
 
@@ -14,7 +17,10 @@ export type {
 	Gallery,
 	GalleryLayout,
 	GalleryOverview,
-	GallerySort
+	GallerySort,
+	GridDensity,
+	GridSpacing,
+	HeadingFont
 } from './schemas';
 
 /** Subset of settings sent by a PATCH: a missing key is kept, `null` clears the optional ones. */
@@ -23,6 +29,9 @@ export interface GalleryChanges {
 	layout?: GalleryLayout;
 	cover_layout?: CoverLayout;
 	focal_point?: FocalPoint;
+	heading_font?: HeadingFont;
+	grid_density?: GridDensity;
+	grid_spacing?: GridSpacing;
 	expires_at?: string | null;
 	shoot_date?: string | null;
 	included_photos?: number | null;

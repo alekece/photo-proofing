@@ -10,11 +10,20 @@ const focalCoordinateSchema = v.pipe(finite, v.integer(), v.minValue(0), v.maxVa
 
 export const galleryLayoutSchema = v.picklist(['grid', 'masonry']);
 export const coverLayoutSchema = v.picklist(['full_bleed', 'split', 'framed', 'banner']);
+export const headingFontSchema = v.picklist(['editorial', 'fine_art', 'timeless', 'modern']);
+export const gridDensitySchema = v.picklist(['compact', 'large']);
+export const gridSpacingSchema = v.picklist(['compact', 'generous']);
 export const focalPointSchema = v.object({
 	x: focalCoordinateSchema,
 	y: focalCoordinateSchema
 });
 export const DEFAULT_FOCAL_POINT = { x: 50, y: 35 } as const;
+export const HEADING_FONT_FAMILIES = {
+	editorial: 'Georgia, serif',
+	fine_art: "'Cormorant Garamond Variable', Georgia, serif",
+	timeless: "'Playfair Display Variable', Georgia, serif",
+	modern: "'Plus Jakarta Sans Variable', var(--font-sans)"
+} as const satisfies Record<v.InferOutput<typeof headingFontSchema>, string>;
 export const gallerySortSchema = v.picklist(['updated', 'created', 'oldest', 'title']);
 export const galleryStateSchema = v.picklist([
 	'draft',
@@ -30,6 +39,9 @@ export const gallerySchema = v.object({
 	layout: galleryLayoutSchema,
 	cover_layout: v.optional(coverLayoutSchema, 'full_bleed'),
 	focal_point: v.optional(focalPointSchema, () => ({ ...DEFAULT_FOCAL_POINT })),
+	heading_font: v.optional(headingFontSchema, 'editorial'),
+	grid_density: v.optional(gridDensitySchema, 'compact'),
+	grid_spacing: v.optional(gridSpacingSchema, 'compact'),
 	expires_at: v.nullable(v.string()),
 	included_photos: v.nullable(finite),
 	watermark_enabled: v.boolean(),
@@ -65,6 +77,9 @@ export const sharedGallerySchema = v.object({
 	layout: galleryLayoutSchema,
 	cover_layout: v.optional(coverLayoutSchema, 'full_bleed'),
 	focal_point: v.optional(focalPointSchema, () => ({ ...DEFAULT_FOCAL_POINT })),
+	heading_font: v.optional(headingFontSchema, 'editorial'),
+	grid_density: v.optional(gridDensitySchema, 'compact'),
+	grid_spacing: v.optional(gridSpacingSchema, 'compact'),
 	shoot_date: v.optional(v.nullable(v.pipe(v.string(), v.isoDate())), null),
 	/** ISO 8601 access expiry; `null` means the link never expires. */
 	expires_at: v.nullable(v.string()),
@@ -204,6 +219,9 @@ export type ExportEvent = v.InferOutput<typeof exportEventSchema>;
 export type GalleryOverview = v.InferOutput<typeof galleryOverviewSchema>;
 export type GalleryLayout = v.InferOutput<typeof galleryLayoutSchema>;
 export type CoverLayout = v.InferOutput<typeof coverLayoutSchema>;
+export type HeadingFont = v.InferOutput<typeof headingFontSchema>;
+export type GridDensity = v.InferOutput<typeof gridDensitySchema>;
+export type GridSpacing = v.InferOutput<typeof gridSpacingSchema>;
 export type FocalPoint = v.InferOutput<typeof focalPointSchema>;
 export type GallerySort = v.InferOutput<typeof gallerySortSchema>;
 export type GalleryState = v.InferOutput<typeof galleryStateSchema>;

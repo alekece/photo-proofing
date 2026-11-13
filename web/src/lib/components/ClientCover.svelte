@@ -137,7 +137,7 @@
 			/>
 			<div class="my-auto max-w-md animate-photo-in py-6">
 				<h1
-					class="mb-3 font-serif text-[clamp(2.25rem,4vw,3.5rem)] leading-[1.06] wrap-anywhere text-foreground"
+					class="mb-3 font-[family-name:var(--gallery-heading-font)] text-[clamp(2.25rem,4vw,3.5rem)] leading-[1.06] wrap-anywhere text-foreground"
 				>
 					{title}
 				</h1>
@@ -180,7 +180,7 @@
 		</div>
 		<div class="max-w-xl animate-photo-in">
 			<h1
-				class="mb-2.5 font-serif text-[clamp(2rem,4vw,3.25rem)] leading-[1.06] wrap-anywhere text-foreground"
+				class="mb-2.5 font-[family-name:var(--gallery-heading-font)] text-[clamp(2rem,4vw,3.25rem)] leading-[1.06] wrap-anywhere text-foreground"
 			>
 				{title}
 			</h1>
@@ -205,7 +205,7 @@
 			/>
 			<div class="mt-4 animate-photo-in">
 				<h1
-					class="mb-2.5 font-serif text-[clamp(2.25rem,4.5vw,3.5rem)] leading-[1.06] wrap-anywhere text-foreground"
+					class="mb-2.5 font-[family-name:var(--gallery-heading-font)] text-[clamp(2.25rem,4.5vw,3.5rem)] leading-[1.06] wrap-anywhere text-foreground"
 				>
 					{title}
 				</h1>
@@ -256,7 +256,9 @@
 			class="px-5 pt-7 font-serif text-[1.1875rem] italic @max-[700px]:text-[0.9375rem]"
 		/>
 		<div class="mt-auto animate-photo-in px-6 pb-[34px]">
-			<h1 class="mb-3 font-serif text-[4rem] leading-none wrap-anywhere @max-[700px]:text-[2.5rem]">
+			<h1
+				class="mb-3 font-[family-name:var(--gallery-heading-font)] text-[4rem] leading-none wrap-anywhere @max-[700px]:text-[2.5rem]"
+			>
 				{title}
 			</h1>
 			{@render metaAndActions(true)}

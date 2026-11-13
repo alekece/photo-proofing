@@ -13,4 +13,12 @@ export interface Proof {
 	status?: 'ready' | 'processing' | 'failed';
 }
 
-export type { CoverLayout, FocalPoint, SharedGallery, SharedPhoto } from './schemas';
+export type {
+	CoverLayout,
+	FocalPoint,
+	GridDensity,
+	GridSpacing,
+	HeadingFont,
+	SharedGallery,
+	SharedPhoto
+} from './schemas';
