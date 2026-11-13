@@ -264,6 +264,113 @@ describe('GalleryDesignPanel', () => {
 			).toBe('true')
 		);
 	});
+
+	it('reflects saved favorites in the embedded live preview once photos load', async () => {
+		vi.stubGlobal('IntersectionObserver', undefined);
+		stubPreviewFetch([
+			{ ...readyPhoto('p1', 'Ceremony.jpg'), favorited_at: '2026-06-02T10:00:00Z' },
+			readyPhoto('p2', 'Dance.jpg')
+		]);
+		setup({ hero_id: 'p1' });
+
+		await waitFor(() =>
+			expect(
+				screen.getByRole('button', { name: 'Favorite proof 1' }).getAttribute('aria-pressed')
+			).toBe('true')
+		);
+		expect(screen.getByRole('button', { name: /^Favorites/ }).textContent).toContain('1');
+	});
+
+	it('keeps a pending focal-point edit across concurrent gallery saves and stale failures', async () => {
+		let resolveStale!: (ok: boolean) => void;
+		const stalePromise = new Promise<boolean>((resolve) => {
+			resolveStale = resolve;
+		});
+		const onsave = vi
+			.fn()
+			.mockImplementationOnce(() => stalePromise)
+			.mockResolvedValue(true);
+		let scheduledRun = null as (() => void) | null;
+		const runScheduled = () => scheduledRun?.();
+		const schedule = vi.fn((_field: string, run: () => void) => {
+			scheduledRun = run;
+		});
+		const cancel = vi.fn();
+		const user = userEvent.setup();
+		const view = render(GalleryDesignPanel, {
+			gallery: { ...baseGallery, hero_id: 'p1' },
+			heroId: 'p1',
+			focalPoint: { x: 50, y: 35 },
+			active: true,
+			onsave,
+			schedule,
+			cancel
+		});
+
+		const pad = screen.getByRole('button', { name: 'Cover focal point (50%, 35%)' });
+		await fireEvent.keyDown(pad, { key: 'ArrowRight', shiftKey: true });
+		const coverImg = () => screen.getByRole('img', { name: 'Gallery cover' }) as HTMLImageElement;
+		expect(coverImg().style.objectPosition).toBe('60% 35%');
+
+		// Fire first focal save (60, 35), then nudge again to (70, 35) while it is in flight,
+		// and also rerender with a concurrent cover_layout save that still carries old focal_point (50, 35).
+		runScheduled();
+		await fireEvent.keyDown(pad, { key: 'ArrowRight', shiftKey: true });
+		expect(coverImg().style.objectPosition).toBe('70% 35%');
+
+		await view.rerender({
+			gallery: {
+				...baseGallery,
+				hero_id: 'p1',
+				cover_layout: 'split',
+				focal_point: { x: 50, y: 35 }
+			},
+			heroId: 'p1',
+			focalPoint: { x: 70, y: 35 },
+			active: true,
+			onsave,
+			schedule,
+			cancel
+		});
+		expect(coverImg().style.objectPosition).toBe('70% 35%');
+
+		// Even if the stale (60, 35) save fails, the newer (70, 35) edit must not be clobbered.
+		resolveStale(false);
+		await Promise.resolve();
+		expect(coverImg().style.objectPosition).toBe('70% 35%');
+
+		// Delivered split cover CTA container wraps cleanly at narrow desktop widths.
+		await view.rerender({
+			gallery: {
+				...baseGallery,
+				hero_id: 'p1',
+				cover_layout: 'split',
+				states: ['shared', 'delivered']
+			},
+			heroId: 'p1',
+			focalPoint: { x: 70, y: 35 },
+			active: true,
+			onsave,
+			schedule,
+			cancel
+		});
+		const ctaRow = screen.getByRole('button', { name: 'View the gallery' }).parentElement;
+		expect(ctaRow?.classList.contains('flex-wrap')).toBe(true);
+
+		// Failed photo load surfaces an alert in the cover picker instead of claiming zero uploads.
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+		await view.rerender({
+			gallery: { ...baseGallery, id: 'g2', hero_id: null },
+			heroId: null,
+			focalPoint: { x: 50, y: 35 },
+			active: true,
+			onsave,
+			schedule,
+			cancel
+		});
+		await user.click(screen.getByRole('button', { name: 'Select cover' }));
+		expect((await screen.findByRole('alert')).textContent).toMatch(/couldn’t load the preview/i);
+	});
 });
 
 describe('GalleryDesignPanel in French', () => {

@@ -59,9 +59,39 @@
 	let currentLayout = $derived<GalleryLayout>(gallery.layout);
 	let currentCoverLayout = $derived<CoverLayout>(gallery.cover_layout ?? 'full_bleed');
 	let localHeroId = $derived<string | null>(heroId !== undefined ? heroId : gallery.hero_id);
-	let localFocal = $derived<FocalPoint>(
-		focalPoint ?? gallery.focal_point ?? { ...DEFAULT_FOCAL_POINT }
-	);
+	const savedFocal = $derived<FocalPoint>(gallery.focal_point ?? { ...DEFAULT_FOCAL_POINT });
+	// svelte-ignore state_referenced_locally
+	let localFocal = $state<FocalPoint>(focalPoint ?? savedFocal);
+	let focalDirty = false;
+	// svelte-ignore state_referenced_locally
+	let lastGalleryId = gallery.id;
+	// svelte-ignore state_referenced_locally
+	let lastSavedFocal = savedFocal;
+
+	$effect.pre(() => {
+		if (gallery.id !== lastGalleryId) {
+			lastGalleryId = gallery.id;
+			lastSavedFocal = savedFocal;
+			focalDirty = false;
+			localFocal = savedFocal;
+			focalPoint = savedFocal;
+			proofPhotos = [];
+			previewProofs = [];
+			previewFavorites = [];
+			photosLoadFailed = false;
+
+			return;
+		}
+
+		if (savedFocal.x !== lastSavedFocal.x || savedFocal.y !== lastSavedFocal.y) {
+			lastSavedFocal = savedFocal;
+
+			if (!focalDirty) {
+				localFocal = savedFocal;
+				focalPoint = savedFocal;
+			}
+		}
+	});
 
 	let pickingCover = $state(false);
 	let draggingFocal = $state(false);
@@ -69,6 +99,7 @@
 	// svelte-ignore state_referenced_locally
 	let opened = $state(active);
 	let proofPhotos = $state<Photo[]>([]);
+	let photosLoadFailed = $state(false);
 	let previewProofs = $state<Proof[]>([]);
 	let previewFavorites = $state<string[]>([]);
 	let studioSettings = $state<WorkspaceSettings | null>(null);
@@ -126,6 +157,7 @@
 			.then(([allProofs, finalPhotos, visibleProofs, studio]) => {
 				if (!alive) return;
 
+				photosLoadFailed = false;
 				proofPhotos = allProofs;
 				if (studio) studioSettings = studio;
 
@@ -145,7 +177,9 @@
 					.map(({ id: photoId }) => photoId);
 			})
 			.catch(() => {
-				// Keep the embedded preview usable with cover/layout state even if photo listing fails.
+				if (!alive) return;
+
+				photosLoadFailed = true;
 			});
 
 		return () => {
@@ -217,12 +251,21 @@
 	}
 
 	async function persistFocalPoint(next: FocalPoint) {
-		if (!(await onsave({ focal_point: next }))) {
+		const saved = await onsave({ focal_point: next });
+
+		if (localFocal.x !== next.x || localFocal.y !== next.y) return;
+
+		focalDirty = false;
+
+		if (saved) {
+			lastSavedFocal = next;
+		} else {
 			setFocalState(gallery.focal_point ?? { ...DEFAULT_FOCAL_POINT });
 		}
 	}
 
 	function queueFocalSave(next: FocalPoint) {
+		focalDirty = true;
 		setFocalState(next);
 
 		if (schedule) {
@@ -236,6 +279,7 @@
 		cancel?.('focal_point');
 		const reset = { ...DEFAULT_FOCAL_POINT };
 
+		focalDirty = true;
 		setFocalState(reset);
 		void persistFocalPoint(reset);
 	}
@@ -599,7 +643,11 @@
 				</button>
 			</div>
 
-			{#if readyPhotos.length === 0}
+			{#if photosLoadFailed && readyPhotos.length === 0}
+				<p role="alert" class="py-10 text-center text-sm text-danger">
+					{m.design_preview_load_failed()}
+				</p>
+			{:else if readyPhotos.length === 0}
 				<p class="py-10 text-center text-sm text-muted-foreground">
 					{m.design_cover_picker_empty()}
 				</p>

@@ -92,6 +92,14 @@
 	// The page is loaded once per link, so the initial values are read once on purpose.
 	// svelte-ignore state_referenced_locally
 	const selection = new Selection({ token, initial: favorites });
+
+	// Owner previews load and refresh favorites asynchronously after mount.
+	$effect(() => {
+		if (!preview) return;
+
+		selection.ids.clear();
+		for (const id of favorites) selection.ids.add(id);
+	});
 	const select = $derived(
 		preview || gallery.delivered ? undefined : (id: string) => void selection.toggle(id)
 	);

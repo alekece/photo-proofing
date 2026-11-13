@@ -77,7 +77,9 @@
 			<ExpiryBadge {expiresAt} />
 		</div>
 	{/if}
-	<div class="mt-5 flex justify-center gap-2.5 @max-[700px]:flex-col @max-[700px]:items-center">
+	<div
+		class="mt-5 flex flex-wrap justify-center gap-2.5 @max-[700px]:flex-col @max-[700px]:items-center"
+	>
 		{#if delivered}
 			<button
 				type="button"

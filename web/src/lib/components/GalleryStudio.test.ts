@@ -93,6 +93,25 @@ describe('GalleryStudio', () => {
 		const pad = screen.getByRole('button', { name: 'Cover focal point (50%, 35%)' });
 		await fireEvent.keyDown(pad, { key: 'ArrowLeft', shiftKey: true });
 		expect((image as HTMLImageElement).style.objectPosition).toBe('40% 35%');
+
+		// An unrelated gallery save replacing `gallery` before the debounced focal save lands
+		// must not snap the live focal point back to (50, 35).
+		await view.rerender({
+			gallery: { ...base, hero_id: 'p1', title: 'Renamed again', focal_point: { x: 50, y: 35 } },
+			shareToken: null,
+			origin: 'https://pp.test',
+			heading,
+			onsave: view.onsave,
+			schedule: view.schedule,
+			cancel: view.cancel,
+			onpreview: view.onpreview,
+			onshare: view.onshare,
+			onpublish: view.onpublish,
+			onarchive: view.onarchive,
+			onrestore: view.onrestore,
+			ondelete: view.ondelete
+		});
+		expect((image as HTMLImageElement).style.objectPosition).toBe('40% 35%');
 	});
 
 	it('renders compact CoverBackdrop for an untitled gallery without a cover and passes axe', async () => {

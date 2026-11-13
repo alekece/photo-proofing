@@ -143,10 +143,10 @@ impl FocalCoordinate {
     }
 
     fn from_column(row: &PgRow, column: &str) -> Result<Self, sqlx::Error> {
-        let raw = u8::try_from(row.try_get::<i16, _>(column)?)
+        let coordinate = u8::try_from(row.try_get::<i16, _>(column)?)
             .map_err(|error| sqlx::Error::Decode(error.into()))?;
 
-        Self::try_from(raw).map_err(|error| sqlx::Error::Decode(error.into()))
+        Self::try_from(coordinate).map_err(|error| sqlx::Error::Decode(error.into()))
     }
 }
 

@@ -137,13 +137,23 @@ describe('gallery page', () => {
 		);
 	});
 
-	it('previews an unshared gallery and returns focus to Preview when closed', async () => {
-		vi.stubGlobal('fetch', async () => new Response('[]'));
+	it('previews an unshared gallery, flushing pending edits first, and returns focus to Preview when closed', async () => {
+		const patches = stubApi();
 		const user = userEvent.setup();
-		open({ share_token: null });
-		const button = screen.getByRole('button', { name: 'Preview' });
+		open({ share_token: null, hero_id: 'p1' });
 
+		await user.click(screen.getByRole('tab', { name: 'Design' }));
+		const pad = screen.getByRole('button', { name: 'Cover focal point (50%, 35%)' });
+		pad.focus();
+		await user.keyboard('{ArrowRight}');
+		expect(patches()).toHaveLength(0);
+
+		const button = screen.getByRole('button', { name: 'Preview' });
 		await user.click(button);
+		expect(patches()).toHaveLength(1);
+		expect(JSON.parse(patches()[0][1]?.body as string)).toEqual({
+			focal_point: { x: 51, y: 35 }
+		});
 		expect(screen.getByRole('dialog', { name: 'Client preview' })).toBeTruthy();
 
 		await user.click(screen.getByRole('button', { name: 'Close preview' }));

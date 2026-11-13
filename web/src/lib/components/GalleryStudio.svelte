@@ -82,7 +82,8 @@
 	// Saving replaces the parent gallery object; equal IDs must not reset loaded panels.
 	const id = $derived(gallery.id);
 	const coverId = $derived(heroId !== undefined ? heroId : gallery.hero_id);
-	let liveFocalPoint = $derived<FocalPoint>(gallery.focal_point ?? DEFAULT_FOCAL_POINT);
+	// svelte-ignore state_referenced_locally
+	let liveFocalPoint = $state<FocalPoint>(gallery.focal_point ?? DEFAULT_FOCAL_POINT);
 	const status = $derived(galleryStatus(gallery.states));
 	const shared = $derived(shareToken !== null);
 	const delivered = $derived(gallery.states.includes('delivered'));
