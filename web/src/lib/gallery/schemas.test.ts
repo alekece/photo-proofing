@@ -17,6 +17,8 @@ const gallery = {
 	id: 'g',
 	title: null,
 	layout: 'grid',
+	cover_layout: 'full_bleed',
+	focal_point: { x: 50, y: 35 },
 	expires_at: null,
 	included_photos: null,
 	watermark_enabled: false,
@@ -69,6 +71,67 @@ describe('schemas', () => {
 	it('accept a calendar-day shoot date and reject anything else', () => {
 		expect(parseOrNull(gallerySchema, { ...gallery, shoot_date: '2026-06-14' })).not.toBeNull();
 		expect(parseOrNull(gallerySchema, { ...gallery, shoot_date: 'x' })).toBeNull();
+		expect(
+			parseOrNull(sharedGallerySchema, {
+				title: 'T',
+				layout: 'grid',
+				shoot_date: '2026-06-14',
+				expires_at: null,
+				included_photos: null,
+				delivered: false,
+				hero_id: null
+			})
+		)?.toMatchObject({
+			cover_layout: 'full_bleed',
+			focal_point: { x: 50, y: 35 },
+			shoot_date: '2026-06-14'
+		});
+	});
+
+	it('default and validate cover_layout and focal_point bounds on owner and shared galleries', () => {
+		const legacyGallery = { ...gallery, cover_layout: undefined, focal_point: undefined };
+		expect(parseOrNull(gallerySchema, legacyGallery)).toMatchObject({
+			cover_layout: 'full_bleed',
+			focal_point: { x: 50, y: 35 }
+		});
+
+		for (const cover_layout of ['full_bleed', 'split', 'framed', 'banner'] as const) {
+			expect(
+				parseOrNull(gallerySchema, { ...gallery, cover_layout, focal_point: { x: 0, y: 100 } })
+			).toMatchObject({
+				cover_layout,
+				focal_point: { x: 0, y: 100 }
+			});
+			expect(
+				parseOrNull(sharedGallerySchema, {
+					title: 'T',
+					layout: 'grid',
+					cover_layout,
+					focal_point: { x: 100, y: 0 },
+					shoot_date: null,
+					expires_at: null,
+					included_photos: null,
+					delivered: false,
+					hero_id: null
+				})
+			).toMatchObject({
+				cover_layout,
+				focal_point: { x: 100, y: 0 }
+			});
+		}
+
+		for (const invalid of [
+			{ ...gallery, cover_layout: 'carousel' },
+			{ ...gallery, cover_layout: null },
+			{ ...gallery, focal_point: null },
+			{ ...gallery, focal_point: { x: -1, y: 35 } },
+			{ ...gallery, focal_point: { x: 101, y: 35 } },
+			{ ...gallery, focal_point: { x: 50, y: -1 } },
+			{ ...gallery, focal_point: { x: 50, y: 101 } },
+			{ ...gallery, focal_point: { x: 50.5, y: 35 } }
+		]) {
+			expect(parseOrNull(gallerySchema, invalid)).toBeNull();
+		}
 	});
 
 	it('accept lists of shapes', () => {

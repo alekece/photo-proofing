@@ -6,8 +6,15 @@ import * as v from 'valibot';
  */
 
 const finite = v.pipe(v.number(), v.finite());
+const focalCoordinateSchema = v.pipe(finite, v.integer(), v.minValue(0), v.maxValue(100));
 
 export const galleryLayoutSchema = v.picklist(['grid', 'masonry']);
+export const coverLayoutSchema = v.picklist(['full_bleed', 'split', 'framed', 'banner']);
+export const focalPointSchema = v.object({
+	x: focalCoordinateSchema,
+	y: focalCoordinateSchema
+});
+export const DEFAULT_FOCAL_POINT = { x: 50, y: 35 } as const;
 export const gallerySortSchema = v.picklist(['updated', 'created', 'oldest', 'title']);
 export const galleryStateSchema = v.picklist([
 	'draft',
@@ -21,6 +28,8 @@ export const gallerySchema = v.object({
 	id: v.string(),
 	title: v.nullable(v.string()),
 	layout: galleryLayoutSchema,
+	cover_layout: v.optional(coverLayoutSchema, 'full_bleed'),
+	focal_point: v.optional(focalPointSchema, () => ({ ...DEFAULT_FOCAL_POINT })),
 	expires_at: v.nullable(v.string()),
 	included_photos: v.nullable(finite),
 	watermark_enabled: v.boolean(),
@@ -30,7 +39,7 @@ export const gallerySchema = v.object({
 	share_token: v.nullable(v.string()),
 	/** When a client last opened the shared gallery; `null` until the first open. */
 	last_opened_at: v.nullable(v.string()),
-	/** The calendar day of the shoot (`YYYY-MM-DD`), shown only to the photographer. */
+	/** The calendar day of the shoot (`YYYY-MM-DD`); `null` when not set. */
 	shoot_date: v.nullable(v.pipe(v.string(), v.isoDate())),
 	/** The progress state first, then `archived` and `expired` when they apply. */
 	states: v.array(galleryStateSchema),
@@ -54,6 +63,9 @@ export const galleryOverviewSchema = v.object({
 export const sharedGallerySchema = v.object({
 	title: v.nullable(v.string()),
 	layout: galleryLayoutSchema,
+	cover_layout: v.optional(coverLayoutSchema, 'full_bleed'),
+	focal_point: v.optional(focalPointSchema, () => ({ ...DEFAULT_FOCAL_POINT })),
+	shoot_date: v.optional(v.nullable(v.pipe(v.string(), v.isoDate())), null),
 	/** ISO 8601 access expiry; `null` means the link never expires. */
 	expires_at: v.nullable(v.string()),
 	/** How many photos the package includes; `null` means no limit. */
@@ -191,6 +203,8 @@ export type Export = v.InferOutput<typeof exportSchema>;
 export type ExportEvent = v.InferOutput<typeof exportEventSchema>;
 export type GalleryOverview = v.InferOutput<typeof galleryOverviewSchema>;
 export type GalleryLayout = v.InferOutput<typeof galleryLayoutSchema>;
+export type CoverLayout = v.InferOutput<typeof coverLayoutSchema>;
+export type FocalPoint = v.InferOutput<typeof focalPointSchema>;
 export type GallerySort = v.InferOutput<typeof gallerySortSchema>;
 export type GalleryState = v.InferOutput<typeof galleryStateSchema>;
 export type SharedGallery = v.InferOutput<typeof sharedGallerySchema>;

@@ -4,6 +4,9 @@ import { getGallery, getSharedGallery, getSharedPhotos, listGalleries } from './
 const gallery = {
 	title: 'Wedding',
 	layout: 'grid',
+	cover_layout: 'full_bleed',
+	focal_point: { x: 50, y: 35 },
+	shoot_date: null,
 	expires_at: null,
 	included_photos: null,
 	delivered: false,

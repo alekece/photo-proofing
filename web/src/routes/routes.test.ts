@@ -15,6 +15,9 @@ import Gallery from './g/[token]/+page.svelte';
 const shared = (overrides: Partial<SharedGallery> = {}): SharedGallery => ({
 	title: 'Sample session',
 	layout: 'grid',
+	cover_layout: 'full_bleed',
+	focal_point: { x: 50, y: 35 },
+	shoot_date: null,
 	expires_at: null,
 	included_photos: null,
 	delivered: false,

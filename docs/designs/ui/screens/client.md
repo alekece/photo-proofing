@@ -21,17 +21,29 @@ features.
 
 ## Cover
 
-Full-screen hero photo. The studio signature (name, logo, both or none, from
-[Settings](settings.md)) sits at the top. At the bottom, centred: the title in Georgia, the photo
-count and **View the gallery**, which scrolls to the grid. Once delivered, "Your photos are ready"
-above the title and **Download all** beside the button.
+Four selectable cover templates share the same content and studio signature (name, logo, both or
+none, from [Settings](settings.md)):
+
+- **Full bleed** (default): full-screen hero photo with a dark scrim, signature at the top, and
+  centred Georgia title, optional formatted shoot date, photo count, optional expiry badge, and
+  **View the gallery** at the bottom.
+- **Split editorial:** side-by-side cover image and Warm Paper (`#f4efe8`) typography panel on
+  desktop, stacking cleanly on phones (`@max-[700px]`).
+- **Framed paper:** matted photograph centred on Warm Paper with the studio signature above and the
+  title, details and actions below.
+- **Minimal banner:** studio signature, title, details and actions above a wide panoramic banner
+  frame.
+
+Cover images apply the gallery's saved focal point (`object-position: {x}% {y}%`, defaulting to
+`50% 35%`). Once delivered, **Download all** appears beside **View the gallery** across every
+template.
 
 When Both is selected, the centered logo sits above the centered name. Only the chosen public
 signature fields are exposed; fetching the normalized logo requires an available private link,
 just like the gallery and its photos.
 
-**No hero:** the same warm dark gradient as the photographer's no-hero header, with the title and
-details on it.
+**No hero:** every template falls back to the warm dark `CoverBackdrop` initials stand-in when no
+cover photo is set or ready.
 
 ## Grid
 

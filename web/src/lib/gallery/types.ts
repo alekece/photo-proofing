@@ -13,4 +13,4 @@ export interface Proof {
 	status?: 'ready' | 'processing' | 'failed';
 }
 
-export type { SharedGallery, SharedPhoto } from './schemas';
+export type { CoverLayout, FocalPoint, SharedGallery, SharedPhoto } from './schemas';

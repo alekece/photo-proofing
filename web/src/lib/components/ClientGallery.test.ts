@@ -10,6 +10,9 @@ import ClientGallery from './ClientGallery.svelte';
 const gallery: SharedGallery = {
 	title: 'Wedding',
 	layout: 'grid',
+	cover_layout: 'full_bleed',
+	focal_point: { x: 50, y: 35 },
+	shoot_date: null,
 	expires_at: null,
 	included_photos: null,
 	delivered: false,
@@ -398,6 +401,54 @@ describe('ClientGallery', () => {
 			'/clean-cover/b'
 		);
 	});
+
+	it.each(['full_bleed', 'split', 'framed', 'banner'] as const)(
+		'renders %s cover layout with focal point, shoot date, studio signature, and CoverBackdrop fallback',
+		(cover_layout) => {
+			const { container, unmount } = show({
+				gallery: {
+					...gallery,
+					cover_layout,
+					focal_point: { x: 24, y: 68 },
+					shoot_date: '2026-06-14',
+					expires_at: '2999-01-01T00:00:00Z',
+					delivered: true
+				},
+				studio: 'Studio Lune',
+				coverUrl: '/clean-cover/h1',
+				proofs: [{ ...proof('a'), downloadUrl: '/final/a' }]
+			});
+
+			expect(container.querySelector(`[data-cover-layout="${cover_layout}"]`)).toBeTruthy();
+			const coverImg = screen.getByRole('img', { name: 'Gallery cover' }) as HTMLImageElement;
+			expect(coverImg.style.objectPosition).toBe('24% 68%');
+			expect(screen.getByRole('heading', { level: 1, name: 'Wedding' })).toBeTruthy();
+			expect(screen.getByText('Studio Lune')).toBeTruthy();
+			expect(screen.getByText('June 14, 2026')).toBeTruthy();
+			expect(screen.getByText(/1 photo/)).toBeTruthy();
+			expect(screen.getAllByText(/Open until/).length).toBeGreaterThan(0);
+			expect(screen.getByRole('button', { name: 'View the gallery' })).toBeTruthy();
+			expect(screen.getAllByRole('button', { name: /download all/i }).length).toBeGreaterThan(0);
+
+			unmount();
+
+			const fallback = show({
+				gallery: {
+					...gallery,
+					cover_layout,
+					shoot_date: '2026-06-14',
+					hero_id: null
+				}
+			});
+			expect(
+				fallback.container.querySelector(`[data-cover-layout="${cover_layout}"]`)
+			).toBeTruthy();
+			expect(screen.queryByRole('img', { name: 'Gallery cover' })).toBeNull();
+			expect(screen.getByTestId('no-hero')).toBeTruthy();
+			expect(screen.getByText('June 14, 2026')).toBeTruthy();
+			fallback.unmount();
+		}
+	);
 
 	it('launches a slideshow from the sticky bar across proofing and delivered views and hides it for 1 photo', async () => {
 		vi.useFakeTimers();

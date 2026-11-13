@@ -33,6 +33,8 @@ const base: Gallery = {
 	id: 'g1',
 	title: 'Wedding',
 	layout: 'grid',
+	cover_layout: 'full_bleed',
+	focal_point: { x: 50, y: 35 },
 	expires_at: null,
 	included_photos: 5,
 	watermark_enabled: false,
@@ -71,11 +73,30 @@ const open = (over: Partial<Gallery> = {}) =>
 const stubApi = (status = 200) => {
 	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
 		if (url.includes('/auth/')) return new Response(null, { status: 204 });
+		if (!init?.method || init.method === 'GET') {
+			if (url.endsWith('/settings')) {
+				return Response.json({
+					studio_name: '',
+					mark: 'name',
+					pattern: 'repeat',
+					position: 8,
+					size: 4,
+					signature: 'name',
+					signature_size: 4,
+					proof_quality: 'medium',
+					has_logo: false
+				});
+			}
+			return Response.json([]);
+		}
 		if (status !== 200) return new Response(JSON.stringify({ error: 'nope' }), { status });
 		return new Response(JSON.stringify({ ...base, ...JSON.parse(init?.body as string) }));
 	});
 	vi.stubGlobal('fetch', fetcher);
-	return () => fetcher.mock.calls.filter(([url]) => url.includes('/galleries/'));
+	return () =>
+		fetcher.mock.calls.filter(
+			([url, init]) => url.includes('/galleries/') && (init?.method ?? 'GET') !== 'GET'
+		);
 };
 
 beforeEach(() => {
@@ -116,13 +137,23 @@ describe('gallery page', () => {
 		);
 	});
 
-	it('previews an unshared gallery and returns focus to Preview when closed', async () => {
-		vi.stubGlobal('fetch', async () => new Response('[]'));
+	it('previews an unshared gallery, flushing pending edits first, and returns focus to Preview when closed', async () => {
+		const patches = stubApi();
 		const user = userEvent.setup();
-		open({ share_token: null });
-		const button = screen.getByRole('button', { name: 'Preview' });
+		open({ share_token: null, hero_id: 'p1' });
 
+		await user.click(screen.getByRole('tab', { name: 'Design' }));
+		const pad = screen.getByRole('button', { name: 'Cover focal point (50%, 35%)' });
+		pad.focus();
+		await user.keyboard('{ArrowRight}');
+		expect(patches()).toHaveLength(0);
+
+		const button = screen.getByRole('button', { name: 'Preview' });
 		await user.click(button);
+		expect(patches()).toHaveLength(1);
+		expect(JSON.parse(patches()[0][1]?.body as string)).toEqual({
+			focal_point: { x: 51, y: 35 }
+		});
 		expect(screen.getByRole('dialog', { name: 'Client preview' })).toBeTruthy();
 
 		await user.click(screen.getByRole('button', { name: 'Close preview' }));

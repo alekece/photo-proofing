@@ -306,6 +306,8 @@ mod tests {
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(created["title"], Value::Null);
         assert_eq!(created["layout"], "grid");
+        assert_eq!(created["cover_layout"], "full_bleed");
+        assert_eq!(created["focal_point"], json!({"x": 50, "y": 35}));
         assert_eq!(created["expires_at"], Value::Null);
         assert_eq!(created["included_photos"], Value::Null);
         assert_eq!(created["watermark_enabled"], false);
@@ -319,6 +321,8 @@ mod tests {
                 json!({
                     "title": " Wedding ",
                     "layout": "masonry",
+                    "cover_layout": "split",
+                    "focal_point": {"x": 25, "y": 70},
                     "expires_at": "2030-01-02T03:04:05Z",
                     "included_photos": 30,
                     "watermark_enabled": true,
@@ -330,6 +334,8 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(updated["title"], "Wedding");
         assert_eq!(updated["layout"], "masonry");
+        assert_eq!(updated["cover_layout"], "split");
+        assert_eq!(updated["focal_point"], json!({"x": 25, "y": 70}));
         assert_eq!(updated["expires_at"], "2030-01-02T03:04:05Z");
         assert_eq!(updated["included_photos"], 30);
 
@@ -638,6 +644,17 @@ mod tests {
                 "invalid_included_photos",
             ),
             (json!({"layout": null}), "invalid_request_body"),
+            (json!({"cover_layout": null}), "invalid_request_body"),
+            (json!({"cover_layout": "carousel"}), "invalid_request_body"),
+            (json!({"focal_point": null}), "invalid_request_body"),
+            (
+                json!({"focal_point": {"x": 101, "y": 35}}),
+                "invalid_request_body",
+            ),
+            (
+                json!({"focal_point": {"x": -1, "y": 35}}),
+                "invalid_request_body",
+            ),
             (json!({"watermark_enabled": null}), "invalid_request_body"),
             (json!({"layout": "carousel"}), "invalid_request_body"),
             (json!({"unknown": 1}), "invalid_request_body"),

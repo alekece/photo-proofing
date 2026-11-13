@@ -274,7 +274,10 @@
 	onsave={save}
 	schedule={debounce}
 	{cancel}
-	onpreview={() => (previewing = true)}
+	onpreview={() => {
+		flush();
+		previewing = true;
+	}}
 	onshare={() => (publishing = 'share')}
 	onpublish={() => (publishing = 'deliver')}
 	onarchive={() => (confirming = 'archive')}

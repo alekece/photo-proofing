@@ -23,9 +23,10 @@
 	import GallerySettingsPanel from '#lib/components/GallerySettingsPanel.svelte';
 	import PhotosPanel from '#lib/components/PhotosPanel.svelte';
 	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
-	import type { Gallery, GalleryChanges } from '#lib/gallery/api.js';
+	import type { FocalPoint, Gallery, GalleryChanges } from '#lib/gallery/api.js';
 	import { formatDateTime, formatLongDate, galleryStatus } from '#lib/gallery/format.js';
 	import { previewUrl } from '#lib/gallery/photos.js';
+	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
 
 	type NavItem = {
 		id: StudioSection;
@@ -81,6 +82,8 @@
 	// Saving replaces the parent gallery object; equal IDs must not reset loaded panels.
 	const id = $derived(gallery.id);
 	const coverId = $derived(heroId !== undefined ? heroId : gallery.hero_id);
+	// svelte-ignore state_referenced_locally
+	let liveFocalPoint = $state<FocalPoint>(gallery.focal_point ?? DEFAULT_FOCAL_POINT);
 	const status = $derived(galleryStatus(gallery.states));
 	const shared = $derived(shareToken !== null);
 	const delivered = $derived(gallery.states.includes('delivered'));
@@ -237,6 +240,7 @@
 				<img
 					src={previewUrl(gallery.id, coverId, 'photos', heroRevision)}
 					alt=""
+					style:object-position="{liveFocalPoint.x}% {liveFocalPoint.y}%"
 					class="size-full object-cover {archived ? 'brightness-[0.85] grayscale-[0.7]' : ''}"
 				/>
 			{:else}
@@ -334,7 +338,16 @@
 				/>
 			</div>
 			<div hidden={section !== 'design'}>
-				<GalleryDesignPanel layout={gallery.layout} {onsave} />
+				<GalleryDesignPanel
+					{gallery}
+					bind:heroId={() => coverId, (next) => (heroId = next)}
+					{heroRevision}
+					bind:focalPoint={liveFocalPoint}
+					active={section === 'design'}
+					{onsave}
+					{schedule}
+					{cancel}
+				/>
 			</div>
 			<div hidden={section !== 'settings'}>
 				<GallerySettingsPanel
