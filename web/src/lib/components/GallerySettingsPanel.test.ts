@@ -196,4 +196,83 @@ describe('GallerySettingsPanel', () => {
 		await second.user.click(screen.getByRole('button', { name: 'Restore' }));
 		expect(second.onrestore).toHaveBeenCalledOnce();
 	});
+
+	it('generates, edits, copies, and clears a 6-digit access code in Draft and reverts on failure', async () => {
+		const draft = setup({ access_code: null, access_code_protected: false });
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, 'clipboard', {
+			value: { writeText },
+			configurable: true
+		});
+		const toggle = screen.getByRole('switch', { name: 'Require access code' });
+
+		await draft.user.click(toggle);
+		expect(draft.onsave).toHaveBeenCalledWith({
+			access_code: expect.stringMatching(/^[0-9]{6}$/)
+		});
+		const input = screen.getByLabelText('6-digit access code') as HTMLInputElement;
+		expect(input.value).toMatch(/^[0-9]{6}$/);
+
+		await draft.user.click(screen.getByRole('button', { name: 'Generate' }));
+		expect(draft.onsave).toHaveBeenCalledTimes(2);
+		expect(draft.onsave.mock.calls[1]![0]).toEqual({
+			access_code: expect.stringMatching(/^[0-9]{6}$/)
+		});
+
+		await draft.user.clear(input);
+		await draft.user.type(input, '042819');
+		await draft.user.tab();
+		expect(draft.onsave).toHaveBeenLastCalledWith({ access_code: '042819' });
+
+		await draft.user.click(screen.getByRole('button', { name: 'Copy' }));
+		expect(writeText).toHaveBeenCalledWith('042819');
+
+		expect((await axe(draft.container)).violations).toEqual([]);
+
+		await draft.user.click(toggle);
+		expect(draft.onsave).toHaveBeenLastCalledWith({ access_code: null });
+		draft.unmount();
+
+		const failing = setup({ access_code: null, access_code_protected: false }, false);
+		const failToggle = screen.getByRole('switch', { name: 'Require access code' });
+		await failing.user.click(failToggle);
+		await vi.waitFor(() => expect(failToggle.getAttribute('aria-checked')).toBe('false'));
+	});
+
+	it('locks access-code controls once shared, keeping Copy when set and disabling the switch when unset', async () => {
+		const sharedWithCode = setup(
+			{ access_code: '042819', access_code_protected: true, states: ['shared'] },
+			true,
+			'A'.repeat(22)
+		);
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, 'clipboard', {
+			value: { writeText },
+			configurable: true
+		});
+		const codeInput = screen.getByLabelText('6-digit access code') as HTMLInputElement;
+		expect(codeInput.readOnly).toBe(true);
+		expect(codeInput.value).toBe('042819');
+		expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull();
+		expect(screen.getByText('Locked after sharing')).toBeTruthy();
+
+		const copyButtons = screen.getAllByRole('button', { name: 'Copy' });
+		await sharedWithCode.user.click(copyButtons[1]!);
+		expect(writeText).toHaveBeenCalledWith('042819');
+
+		expect((await axe(sharedWithCode.container)).violations).toEqual([]);
+		sharedWithCode.unmount();
+
+		const sharedWithoutCode = setup(
+			{ access_code: null, access_code_protected: false, states: ['shared'] },
+			true,
+			'A'.repeat(22)
+		);
+		const disabledSwitch = screen.getByRole('switch', { name: 'Require access code' });
+		expect((disabledSwitch as HTMLButtonElement).disabled).toBe(true);
+		expect(
+			screen.getByText('Shared without an access code — cannot be added after sharing')
+		).toBeTruthy();
+		expect((await axe(sharedWithoutCode.container)).violations).toEqual([]);
+	});
 });

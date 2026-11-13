@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { Archive, ArchiveRestore, Trash2 } from '@lucide/svelte';
+	import { onDestroy } from 'svelte';
+	import { Archive, ArchiveRestore, Check, RotateCw, Trash2 } from '@lucide/svelte';
+	import ClickPop from '#lib/components/ClickPop.svelte';
 	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Card from '#lib/components/ui/Card/Card.svelte';
@@ -44,6 +46,7 @@
 	const savedShootDate = $derived(gallery.shoot_date);
 	const savedIncluded = $derived(gallery.included_photos);
 	const savedWatermark = $derived(gallery.watermark_enabled);
+	const savedAccessCode = $derived(gallery.access_code ?? null);
 
 	let expiryDay = $derived(savedExpiry);
 	let shootDate = $derived(savedShootDate);
@@ -54,10 +57,35 @@
 	// svelte-ignore state_referenced_locally
 	let lastSavedIncluded = savedIncluded;
 
+	// svelte-ignore state_referenced_locally
+	let committedAccessCode = $state<string | null>(savedAccessCode);
+	// svelte-ignore state_referenced_locally
+	let accessCodeEnabled = $state(savedAccessCode !== null);
+	// svelte-ignore state_referenced_locally
+	let accessCodeDraft = $state(savedAccessCode ?? '');
+	let accessCodeDirty = false;
+	// svelte-ignore state_referenced_locally
+	let lastPropAccessCode = savedAccessCode;
+	let codeCopied = $state(false);
+	let codePopping = $state(false);
+	let codeCopyFailed = $state(false);
+	let codeInput = $state<HTMLInputElement | null>(null);
+	let copyTimer: ReturnType<typeof setTimeout> | undefined;
+
+	onDestroy(() => clearTimeout(copyTimer));
+
 	$effect.pre(() => {
 		if (savedIncluded !== lastSavedIncluded) {
 			lastSavedIncluded = savedIncluded;
 			if (!includedDirty) included = savedIncluded;
+		}
+		if (savedAccessCode !== lastPropAccessCode) {
+			lastPropAccessCode = savedAccessCode;
+			committedAccessCode = savedAccessCode;
+			if (!accessCodeDirty) {
+				accessCodeEnabled = savedAccessCode !== null;
+				accessCodeDraft = savedAccessCode ?? '';
+			}
 		}
 	});
 
@@ -126,6 +154,121 @@
 
 	function setWatermark(value: boolean) {
 		void commit({ watermark_enabled: value }, () => (watermark = !value));
+	}
+
+	const ACCESS_CODE_RE = /^[0-9]{6}$/;
+
+	function generateRandomAccessCode(): string {
+		const limit = 4_294_000_000;
+		const buffer = new Uint32Array(1);
+		let sample = limit;
+
+		while (sample >= limit) {
+			crypto.getRandomValues(buffer);
+			sample = buffer[0]!;
+		}
+
+		return String(sample % 1_000_000).padStart(6, '0');
+	}
+
+	function revertAccessCode() {
+		accessCodeDirty = false;
+		accessCodeEnabled = committedAccessCode !== null;
+		accessCodeDraft = committedAccessCode ?? '';
+	}
+
+	function toggleAccessCode(enabled: boolean) {
+		cancel('access_code');
+		accessCodeDirty = false;
+
+		if (!enabled) {
+			if (committedAccessCode === null) {
+				accessCodeDraft = '';
+				return;
+			}
+
+			void (async () => {
+				if (await onsave({ access_code: null })) {
+					committedAccessCode = null;
+					accessCodeDraft = '';
+				} else {
+					revertAccessCode();
+				}
+			})();
+			return;
+		}
+
+		const next = ACCESS_CODE_RE.test(accessCodeDraft)
+			? accessCodeDraft
+			: generateRandomAccessCode();
+		accessCodeDraft = next;
+
+		void (async () => {
+			if (await onsave({ access_code: next })) {
+				committedAccessCode = next;
+			} else {
+				revertAccessCode();
+			}
+		})();
+	}
+
+	function regenerateAccessCode() {
+		cancel('access_code');
+		accessCodeDirty = false;
+
+		const previous = accessCodeDraft;
+		const next = generateRandomAccessCode();
+		accessCodeDraft = next;
+
+		void (async () => {
+			if (await onsave({ access_code: next })) {
+				committedAccessCode = next;
+			} else {
+				accessCodeDraft = previous;
+			}
+		})();
+	}
+
+	function saveAccessCode(leaving: boolean) {
+		const candidate = accessCodeDraft;
+
+		if (!ACCESS_CODE_RE.test(candidate)) {
+			if (leaving) {
+				toasts.error(m.settings_access_code_invalid());
+				revertAccessCode();
+			}
+			return;
+		}
+		if (candidate === committedAccessCode) {
+			if (leaving) accessCodeDirty = false;
+			return;
+		}
+
+		void (async () => {
+			if (await onsave({ access_code: candidate })) {
+				committedAccessCode = candidate;
+				if (accessCodeDraft === candidate) accessCodeDirty = false;
+			} else if (leaving || accessCodeDraft === candidate) {
+				revertAccessCode();
+			}
+		})();
+	}
+
+	async function copyAccessCode(code: string) {
+		if (!ACCESS_CODE_RE.test(code)) return;
+		clearTimeout(copyTimer);
+		try {
+			await navigator.clipboard.writeText(code);
+			codeCopyFailed = false;
+			codeCopied = true;
+			codePopping = true;
+			copyTimer = setTimeout(() => (codeCopied = false), 3000);
+		} catch {
+			codeCopied = false;
+			codeCopyFailed = true;
+			codeInput?.focus();
+			codeInput?.select();
+		}
 	}
 </script>
 
@@ -196,6 +339,135 @@
 				<span class="text-sm text-muted-foreground">{m.settings_not_shared()}</span>
 			{/if}
 		</div>
+		{#if shareToken}
+			{#if committedAccessCode !== null}
+				<div class={row}>
+					<div class="grid gap-0.5">
+						<span class="text-foreground">{m.settings_access_code()}</span>
+						<span class="text-xs text-muted-foreground">{m.settings_access_code_locked_hint()}</span
+						>
+					</div>
+					<div class="grid gap-1.5">
+						<div class="flex items-center gap-2">
+							<Input
+								bind:ref={codeInput}
+								readonly
+								value={committedAccessCode}
+								aria-label={m.settings_access_code_label()}
+								class="bg-muted/40 min-h-0 w-28 cursor-default rounded-lg border-border px-2.5 py-1.5 text-center font-mono text-sm font-semibold tracking-[0.18em] text-foreground focus-visible:outline-none"
+							/>
+							<Button
+								size="sm"
+								class="min-h-9! min-w-24 gap-1.5"
+								onclick={() => copyAccessCode(committedAccessCode ?? '')}
+							>
+								{#if codeCopied}
+									<span class="text-ok-on-dark">
+										<ClickPop active={codePopping} onend={() => (codePopping = false)}>
+											<Check size={16} aria-hidden="true" />
+										</ClickPop>
+									</span>
+									{m.copy_copied()}
+								{:else}
+									{m.copy_copy()}
+								{/if}
+							</Button>
+						</div>
+						<p class={codeCopyFailed ? 'text-xs text-danger' : 'sr-only'} role="status">
+							{codeCopied ? m.copy_copied() : codeCopyFailed ? m.copy_failed() : ''}
+						</p>
+					</div>
+				</div>
+			{:else}
+				<div class={row}>
+					<div class="grid gap-0.5">
+						<Label for="access-code-switch" class="text-foreground"
+							>{m.settings_access_code()}</Label
+						>
+						<span class="text-xs text-muted-foreground">{m.settings_access_code_none_locked()}</span
+						>
+					</div>
+					<Switch id="access-code-switch" checked={false} disabled />
+				</div>
+			{/if}
+		{:else}
+			<div class={row}>
+				<Label for="access-code-switch" class="text-foreground">{m.settings_access_code()}</Label>
+				<Switch
+					id="access-code-switch"
+					bind:checked={accessCodeEnabled}
+					onchange={toggleAccessCode}
+				/>
+				{#if accessCodeEnabled}
+					<div class="mt-1 flex basis-full flex-wrap items-center justify-end gap-2">
+						<Input
+							id="access-code-input"
+							bind:ref={codeInput}
+							type="text"
+							inputmode="numeric"
+							pattern="[0-9]{6}"
+							maxlength={6}
+							placeholder="000000"
+							aria-label={m.settings_access_code_label()}
+							value={accessCodeDraft}
+							oninput={(event) => {
+								const digits = (event.currentTarget as HTMLInputElement).value
+									.replace(/\D/g, '')
+									.slice(0, 6);
+								accessCodeDraft = digits;
+								(event.currentTarget as HTMLInputElement).value = digits;
+								accessCodeDirty = true;
+								if (ACCESS_CODE_RE.test(digits)) {
+									schedule('access_code', () => saveAccessCode(false));
+								} else {
+									cancel('access_code');
+								}
+							}}
+							onblur={() => {
+								cancel('access_code');
+								saveAccessCode(true);
+							}}
+							class="min-h-0 w-28 rounded-lg bg-white px-2.5 py-1.5 text-center font-mono text-sm font-semibold tracking-[0.18em] text-foreground placeholder:text-muted-foreground/40"
+						/>
+						<Button
+							variant="outline"
+							size="sm"
+							class="min-h-9! shrink-0 bg-white!"
+							onclick={regenerateAccessCode}
+						>
+							<RotateCw
+								size={15}
+								aria-hidden="true"
+								class="mr-1.5"
+							/>{m.settings_access_code_generate()}
+						</Button>
+						<Button
+							size="sm"
+							class="min-h-9! min-w-24 gap-1.5"
+							disabled={!ACCESS_CODE_RE.test(accessCodeDraft)}
+							onclick={() => copyAccessCode(accessCodeDraft)}
+						>
+							{#if codeCopied}
+								<span class="text-ok-on-dark">
+									<ClickPop active={codePopping} onend={() => (codePopping = false)}>
+										<Check size={16} aria-hidden="true" />
+									</ClickPop>
+								</span>
+								{m.copy_copied()}
+							{:else}
+								{m.copy_copy()}
+							{/if}
+						</Button>
+						<p
+							class={codeCopyFailed ? 'basis-full text-right text-xs text-danger' : 'sr-only'}
+							role="status"
+						>
+							{codeCopied ? m.copy_copied() : codeCopyFailed ? m.copy_failed() : ''}
+						</p>
+					</div>
+				{/if}
+			</div>
+		{/if}
 		<div class={row}>
 			<Label for="watermark" class="text-foreground">{m.settings_watermark()}</Label>
 			<Switch id="watermark" bind:checked={watermark} onchange={setWatermark} />

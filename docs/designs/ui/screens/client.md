@@ -19,6 +19,21 @@ features.
 | Cover in French | ![](client/cover-fr.desktop.png) | ![](client/cover-fr.phone.png) |
 | Grid in French | ![](client/grid-fr.desktop.png) | ![](client/grid-fr.phone.png) |
 
+## Access-code gate
+
+When an active shared gallery is protected by a 6-digit numeric access code and the client browser
+has not unlocked it yet, `/g/{token}` displays a full-screen dark gate:
+
+- **Studio signature** at the top (name, logo, both or none) and **Gallery title** (+ optional
+  formatted shoot date) centered over a darkened clean cover photograph (`brightness-[0.38]` with a
+  warm dark vignette, or `CoverBackdrop` when no cover photo is set).
+- **Frosted 6-digit numeric input** (`inputmode="numeric"`, `autocomplete="one-time-code"`) and
+  **Enter** button submitting to `/api/v1/galleries/shared/{token}/unlock` (rate-limited per peer),
+  showing localized inline errors on wrong codes (`401`) or rate-limit refusals (`429`).
+- Before unlock, photos, thumbnails, previews, downloads, favorites, comments, and open tracking all
+  return `401`; unavailable links (draft, expired, archived, unknown) still return `404` and render
+  the generic unbranded unavailable page.
+
 ## Cover
 
 Four selectable cover templates share the same content and studio signature (name, logo, both or

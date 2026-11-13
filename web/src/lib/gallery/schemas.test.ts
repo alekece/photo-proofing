@@ -2,12 +2,14 @@ import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import {
 	deletedPhotosSchema,
+	galleryOverviewSchema,
 	gallerySchema,
 	parseGalleryStates,
 	parseGallerySort,
 	parseOrNull,
 	photoEventSchema,
 	photoSchema,
+	sharedGalleryResponseSchema,
 	sharedGallerySchema,
 	sharedPhotoSchema,
 	uploadLimitsSchema
@@ -247,6 +249,54 @@ describe('schemas', () => {
 		expect(parseGallerySort('oldest')).toBe('oldest');
 		expect(parseGallerySort('random')).toBe('updated');
 		expect(parseGallerySort(null)).toBe('updated');
+	});
+
+	it('validates 6-digit access codes on owner galleries, omits them on overviews, and parses locked client gates', () => {
+		expect(
+			parseOrNull(gallerySchema, {
+				...gallery,
+				access_code_protected: true,
+				access_code: '042819'
+			})
+		).toMatchObject({
+			access_code_protected: true,
+			access_code: '042819'
+		});
+		expect(parseOrNull(gallerySchema, { ...gallery, access_code: '12345' })).toBeNull();
+		expect(parseOrNull(gallerySchema, { ...gallery, access_code: 'abcdef' })).toBeNull();
+
+		const overview = parseOrNull(galleryOverviewSchema, {
+			...gallery,
+			access_code_protected: true,
+			photo_count: 3,
+			favorite_count: 1,
+			final_count: 0,
+			downloaded_count: 0
+		});
+		expect(overview).toMatchObject({ access_code_protected: true, photo_count: 3 });
+		expect(overview && 'access_code' in overview).toBe(false);
+
+		expect(
+			parseOrNull(sharedGalleryResponseSchema, {
+				locked: true,
+				title: 'Secret Shoot',
+				shoot_date: '2026-07-04',
+				has_cover: true,
+				studio_name: 'Studio',
+				signature: 'both',
+				signature_size: 4,
+				has_logo: true
+			})
+		).toEqual({
+			locked: true,
+			title: 'Secret Shoot',
+			shoot_date: '2026-07-04',
+			has_cover: true,
+			studio_name: 'Studio',
+			signature: 'both',
+			signature_size: 4,
+			has_logo: true
+		});
 	});
 });
 

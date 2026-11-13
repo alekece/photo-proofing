@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import { EyeOff, Lock } from '@lucide/svelte';
 	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
 	import type { GalleryOverview } from '#lib/gallery/api.js';
 	import { galleryStatus, gallerySummary, highlightParts } from '#lib/gallery/format.js';
@@ -60,16 +61,38 @@
 					{/each}
 				</div>
 			{/if}
-			<h2
-				class="mb-1.5 font-serif text-[1.0625rem] leading-[1.1] sm:text-[1.4375rem] {gallery.title ===
-				null
-					? 'opacity-70'
-					: ''}"
-			>
-				{#each highlightParts(title, query) as part, index (index)}{#if part.match}<mark
-							class="rounded-[2px] bg-hero/55 px-px text-inherit">{part.text}</mark
-						>{:else}{part.text}{/if}{/each}
-			</h2>
+			<div class="mb-1.5 flex items-center gap-1.5">
+				<h2
+					class="min-w-0 font-serif text-[1.0625rem] leading-[1.1] sm:text-[1.4375rem] {gallery.title ===
+					null
+						? 'opacity-70'
+						: ''}"
+				>
+					{#each highlightParts(title, query) as part, index (index)}{#if part.match}<mark
+								class="rounded-[2px] bg-hero/55 px-px text-inherit">{part.text}</mark
+							>{:else}{part.text}{/if}{/each}
+				</h2>
+				{#if gallery.access_code_protected}
+					<span
+						role="img"
+						aria-label={m.card_access_code_protected()}
+						title={m.card_access_code_protected()}
+						class="inline-flex shrink-0 text-panel/85"
+					>
+						<Lock class="size-3.5 sm:size-4" aria-hidden="true" />
+					</span>
+				{/if}
+				{#if faded}
+					<span
+						role="img"
+						aria-label={m.card_client_access_closed()}
+						title={m.card_client_access_closed()}
+						class="inline-flex shrink-0 text-panel/85"
+					>
+						<EyeOff class="size-3.5 sm:size-4" aria-hidden="true" />
+					</span>
+				{/if}
+			</div>
 			<p class="text-[0.71875rem] opacity-90 sm:text-[0.8125rem]">
 				{#each gallerySummary(gallery) as part, index (index)}{#if part.over}<b
 							class="font-extrabold text-warning-on-dark">{part.text}</b

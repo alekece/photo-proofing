@@ -99,6 +99,9 @@
 			const current = keys.filter(isLatest);
 			for (const key of current) {
 				saved = { ...saved, [key]: result[key], updated_at: result.updated_at };
+				if (key === 'access_code') {
+					saved = { ...saved, access_code_protected: result.access_code_protected };
+				}
 				delete failed[key];
 			}
 			// A response for another field may still describe an older expiry.
@@ -168,11 +171,20 @@
 	}
 	/** Creates the client link; the share card then offers it. */
 	async function share() {
+		flush();
+
 		try {
 			const shared = await shareGallery(saved.id);
 
 			shareToken = shared.share_token;
-			saved = { ...saved, states: shared.states, updated_at: shared.updated_at };
+			saved = {
+				...saved,
+				share_token: shared.share_token,
+				access_code: shared.access_code,
+				access_code_protected: shared.access_code_protected,
+				states: shared.states,
+				updated_at: shared.updated_at
+			};
 		} catch (error) {
 			if (error instanceof GalleryApiError && error.status === 401) {
 				await goto('/login?expired=1', { refreshAll: true });

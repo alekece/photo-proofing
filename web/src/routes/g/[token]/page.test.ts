@@ -131,4 +131,25 @@ describe('client gallery page', () => {
 			screen.getByRole('main').parentElement?.classList.contains('client-gallery-protected')
 		).toBe(true);
 	});
+
+	it('renders the access gate when locked without recording an open until unlocked', () => {
+		render(Page, {
+			data: {
+				gallery: null,
+				lockedGallery: {
+					locked: true,
+					title: 'Secret Shoot',
+					shoot_date: '2026-07-04',
+					has_cover: true
+				},
+				proofs: [],
+				favorites: [],
+				coverUrl: '/api/v1/galleries/shared/tok/cover'
+			},
+			params: { token: 'tok' }
+		});
+
+		expect(screen.getByLabelText('Access code')).toBeTruthy();
+		expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/open'))).toHaveLength(0);
+	});
 });
