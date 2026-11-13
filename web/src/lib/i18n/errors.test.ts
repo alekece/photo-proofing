@@ -14,6 +14,9 @@ describe('apiErrorMessage in English', () => {
 		expect(apiErrorMessage(409, 'zip_not_ready')).toBe(
 			'The ZIP isn’t ready yet. Try again in a moment.'
 		);
+		expect(apiErrorMessage(409, 'contact_email_taken')).toBe(
+			'A contact with this email already exists.'
+		);
 		expect(apiErrorMessage(422, 'unknown')).toBe(apiErrorMessage(422));
 		expect(apiErrorMessage(409, 'constructor')).toBe(apiErrorMessage(409));
 		expect(apiErrorMessage(418)).toBe('Something went wrong. Please try again.');
@@ -29,6 +32,9 @@ describe('apiErrorMessage in French', () => {
 		);
 		expect(apiErrorMessage(409, 'zip_in_progress')).toBe(
 			'Un ZIP est déjà en préparation. Attendez qu’il soit terminé.'
+		);
+		expect(apiErrorMessage(409, 'contact_email_taken')).toBe(
+			'Un contact utilise déjà cette adresse e-mail.'
 		);
 		expect(apiErrorMessage(418)).toBe('Une erreur s’est produite. Veuillez réessayer.');
 	});
