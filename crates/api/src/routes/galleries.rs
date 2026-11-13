@@ -18,6 +18,7 @@
 //!
 //! The public `/shared/{token}` routes for clients live in [`shared`].
 //! Photo thread reads and writes for both sides live in [`comments`].
+//! Linked workspace contacts for a gallery live in [`contacts`].
 //!
 //! A gallery of another workspace is a 404, never a 403, so ids reveal nothing. Like every state-changing
 //! route, they must carry the configured `Origin`, which the API-wide middleware checks.
@@ -42,6 +43,7 @@ use crate::{
 };
 
 mod comments;
+mod contacts;
 mod export;
 mod photos;
 mod shared;
@@ -92,6 +94,9 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(archive_gallery)
             .service(restore_gallery)
             .service(delete_gallery)
+            .service(contacts::list_contacts)
+            .service(contacts::link_contact)
+            .service(contacts::unlink_contact)
             .configure(photos::configure)
             .configure(export::configure),
     );
