@@ -5,7 +5,7 @@
 	import CommentThread from './CommentThread.svelte';
 	import { CircleCheck, Download, Heart, LoaderCircle } from '@lucide/svelte';
 	import PhotoTile, { GRID_CLASSES, ITEM_CLASSES } from '#lib/components/PhotoTile.svelte';
-	import ProofViewer from '#lib/components/ProofViewer.svelte';
+	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
 	import ViewerButton from '#lib/components/ViewerButton.svelte';
 	import { GalleryApiError, type GalleryLayout } from '#lib/gallery/api.js';
 	import {
@@ -321,7 +321,7 @@
 	/>
 {/snippet}
 {#if viewing && proofs[viewIndex]}
-	<ProofViewer
+	<PhotoViewer
 		{proofs}
 		bind:index={viewIndex}
 		thread={photoThread}
@@ -351,5 +351,5 @@
 				{/if}
 			</ViewerButton>
 		{/snippet}
-	</ProofViewer>
+	</PhotoViewer>
 {/if}

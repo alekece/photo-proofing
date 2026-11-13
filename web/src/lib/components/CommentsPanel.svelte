@@ -5,7 +5,7 @@
 	import CommentThread from './CommentThread.svelte';
 	import { MessageSquare } from '@lucide/svelte';
 	import PhotoTile, { GRID_CLASSES, ITEM_CLASSES } from '#lib/components/PhotoTile.svelte';
-	import ProofViewer from '#lib/components/ProofViewer.svelte';
+	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import { getLiveEvents } from '#lib/events.js';
 	import type { GalleryLayout } from '#lib/gallery/api.js';
@@ -139,7 +139,7 @@
 {/if}
 
 {#if viewing && proofs[viewIndex]}
-	<ProofViewer
+	<PhotoViewer
 		{proofs}
 		bind:index={viewIndex}
 		thread={photoThread}

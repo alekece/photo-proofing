@@ -1,10 +1,16 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
-import { createRawSnippet } from 'svelte';
+import { createRawSnippet, tick } from 'svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { axe } from 'vitest-axe';
+import { useLocale } from '#lib/i18n/testing.js';
 import type { Proof } from '../gallery/types';
-import ProofViewer from './ProofViewer.svelte';
+import PhotoViewer from './PhotoViewer.svelte';
 import ViewerHarness from './ViewerHarness.test.svelte';
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 const proofs: Proof[] = [1, 2, 3].map((n) => ({
 	id: `p${n}`,
@@ -17,11 +23,13 @@ const proofs: Proof[] = [1, 2, 3].map((n) => ({
 
 const shown = () => screen.getByRole('img').getAttribute('alt');
 
-describe('ProofViewer', () => {
+describe('PhotoViewer', () => {
+	useLocale('en');
+
 	it('opens the photographer thread by default, keeps it across navigation, and closes it on Escape first', async () => {
 		const user = userEvent.setup();
 		const onclose = vi.fn();
-		render(ProofViewer, {
+		render(PhotoViewer, {
 			proofs,
 			onclose,
 			commentCount: () => 2,
@@ -45,7 +53,7 @@ describe('ProofViewer', () => {
 
 	it('keeps the client thread closed until asked for', async () => {
 		const user = userEvent.setup();
-		render(ProofViewer, {
+		render(PhotoViewer, {
 			proofs,
 			title: 'Wedding',
 			onclose: () => {},
@@ -59,11 +67,11 @@ describe('ProofViewer', () => {
 	});
 
 	it('has no comments control when no thread is provided', () => {
-		render(ProofViewer, { proofs, onclose: () => {} });
+		render(PhotoViewer, { proofs, onclose: () => {} });
 		expect(screen.queryByRole('button', { name: /comments/i })).toBeNull();
 	});
 	it('is a labelled modal dialog with focus on the close button', () => {
-		render(ProofViewer, { proofs, index: 0, onclose: () => {} });
+		render(PhotoViewer, { proofs, index: 0, onclose: () => {} });
 		const dialog = screen.getByRole('dialog', { name: /proof viewer/i });
 		expect(dialog.getAttribute('aria-modal')).toBe('true');
 		expect(document.activeElement).toBe(screen.getByRole('button', { name: /close/i }));
@@ -72,7 +80,7 @@ describe('ProofViewer', () => {
 	});
 
 	it('shows a read-only heart for the photographer', () => {
-		render(ProofViewer, {
+		render(PhotoViewer, {
 			proofs,
 			index: 0,
 			readonly: true,
@@ -84,7 +92,7 @@ describe('ProofViewer', () => {
 	});
 
 	it('shows a Download button once delivered', () => {
-		render(ProofViewer, {
+		render(PhotoViewer, {
 			proofs: [{ ...proofs[0], downloadUrl: '/final/p1' }],
 			index: 0,
 			title: 'Gallery',
@@ -97,13 +105,13 @@ describe('ProofViewer', () => {
 	it('labels the heart by what a click does', async () => {
 		const user = userEvent.setup();
 		const onselect = vi.fn();
-		render(ProofViewer, { proofs, index: 0, onselect, title: 'Gallery', onclose: () => {} });
+		render(PhotoViewer, { proofs, index: 0, onselect, title: 'Gallery', onclose: () => {} });
 		await user.click(screen.getByRole('button', { name: 'Add to favorites' }));
 		expect(onselect).toHaveBeenCalledWith('p1');
 	});
 
 	it('shows a spinner while a photo is processing', () => {
-		render(ProofViewer, {
+		render(PhotoViewer, {
 			proofs: [{ ...proofs[0], status: 'processing' }],
 			index: 0,
 			onclose: () => {}
@@ -115,7 +123,7 @@ describe('ProofViewer', () => {
 	it('offers Try again when processing failed', async () => {
 		const onretry = vi.fn();
 		const user = userEvent.setup();
-		render(ProofViewer, {
+		render(PhotoViewer, {
 			proofs: [{ ...proofs[0], status: 'failed' }],
 			index: 0,
 			onretry,
@@ -128,7 +136,7 @@ describe('ProofViewer', () => {
 
 	it('navigates with arrows, Home and End, stopping at the ends', async () => {
 		const user = userEvent.setup();
-		render(ProofViewer, { proofs, index: 0, onclose: () => {} });
+		render(PhotoViewer, { proofs, index: 0, onclose: () => {} });
 		await user.keyboard('{ArrowRight}');
 		expect(shown()).toBe('Proof 2');
 		await user.keyboard('{End}');
@@ -148,7 +156,7 @@ describe('ProofViewer', () => {
 
 	it('operates through keyboard-activated buttons', async () => {
 		const user = userEvent.setup();
-		render(ProofViewer, { proofs, index: 0, onclose: () => {} });
+		render(PhotoViewer, { proofs, index: 0, onclose: () => {} });
 		screen.getByRole('button', { name: /next/i }).focus();
 		await user.keyboard('{Enter}');
 		expect(shown()).toBe('Proof 2');
@@ -160,14 +168,14 @@ describe('ProofViewer', () => {
 	it('closes on Escape', async () => {
 		const onclose = vi.fn();
 		const user = userEvent.setup();
-		render(ProofViewer, { proofs, index: 0, onclose });
+		render(PhotoViewer, { proofs, index: 0, onclose });
 		await user.keyboard('{Escape}');
 		expect(onclose).toHaveBeenCalledOnce();
 	});
 
 	it('traps Tab focus inside the dialog', async () => {
 		const user = userEvent.setup();
-		render(ProofViewer, { proofs, index: 0, onclose: () => {} });
+		render(PhotoViewer, { proofs, index: 0, onclose: () => {} });
 		const buttons = screen.getAllByRole('button');
 		const dialog = screen.getByRole('dialog');
 		for (let i = 0; i < buttons.length * 2 + 1; i++) {
@@ -188,5 +196,131 @@ describe('ProofViewer', () => {
 		await user.keyboard('{Escape}');
 		expect(screen.queryByRole('dialog')).toBeNull();
 		expect(document.activeElement).toBe(opener);
+	});
+
+	it('omits slideshow controls in photographer mode and on single-photo galleries, and passes axe when playing', async () => {
+		const studio = render(PhotoViewer, { proofs, index: 0, onclose: () => {} });
+		expect(screen.queryByRole('button', { name: /slideshow/i })).toBeNull();
+		studio.unmount();
+
+		const single = render(PhotoViewer, {
+			proofs: [proofs[0]],
+			index: 0,
+			title: 'Gallery',
+			onclose: () => {}
+		});
+		expect(screen.queryByRole('button', { name: /slideshow/i })).toBeNull();
+		single.unmount();
+
+		const { container } = render(PhotoViewer, {
+			proofs,
+			index: 0,
+			title: 'Gallery',
+			autoplay: true,
+			onclose: () => {}
+		});
+		expect((await axe(container)).violations).toEqual([]);
+	});
+
+	it('plays every 4 seconds in client mode (including finals), stops on the last photo, and restarts from photo 1', async () => {
+		vi.useFakeTimers();
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		const finals = proofs.map((p) => ({ ...p, downloadUrl: `/final/${p.id}` }));
+		render(PhotoViewer, {
+			proofs: finals,
+			index: 0,
+			title: 'Finals',
+			onclose: () => {}
+		});
+
+		await user.click(screen.getByRole('button', { name: 'Play slideshow' }));
+		expect(screen.getByRole('button', { name: 'Pause slideshow' })).toBeTruthy();
+
+		await vi.advanceTimersByTimeAsync(3999);
+		expect(shown()).toBe('Proof 1');
+
+		await vi.advanceTimersByTimeAsync(1);
+		await tick();
+		expect(shown()).toBe('Proof 2');
+
+		await vi.advanceTimersByTimeAsync(4000);
+		await tick();
+		expect(shown()).toBe('Proof 3');
+		expect(screen.getByRole('button', { name: 'Play slideshow' })).toBeTruthy();
+
+		await user.click(screen.getByRole('button', { name: 'Play slideshow' }));
+		expect(shown()).toBe('Proof 1');
+		expect(screen.getByRole('button', { name: 'Pause slideshow' })).toBeTruthy();
+
+		await vi.advanceTimersByTimeAsync(4000);
+		await tick();
+		expect(shown()).toBe('Proof 2');
+	});
+
+	it('supports autoplay on open and clears the slideshow timer on unmount', async () => {
+		vi.useFakeTimers();
+		const spy = vi.spyOn(globalThis, 'clearTimeout');
+		const { unmount } = render(PhotoViewer, {
+			proofs,
+			index: 0,
+			title: 'Gallery',
+			autoplay: true,
+			onclose: () => {}
+		});
+
+		expect(screen.getByRole('button', { name: 'Pause slideshow' })).toBeTruthy();
+
+		unmount();
+		expect(spy).toHaveBeenCalled();
+		expect(() => vi.advanceTimersByTime(8000)).not.toThrow();
+	});
+
+	it('pauses playback on manual navigation, toggling a favorite, or opening comments', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(PhotoViewer, {
+			proofs,
+			index: 0,
+			title: 'Gallery',
+			autoplay: true,
+			onselect: vi.fn(),
+			commentCount: () => 0,
+			thread: createRawSnippet(() => ({ render: () => '<p>Thread</p>' })),
+			onclose: () => {}
+		});
+
+		await user.keyboard('{ArrowRight}');
+		expect(shown()).toBe('Proof 2');
+		expect(screen.getByRole('button', { name: 'Play slideshow' })).toBeTruthy();
+		await vi.advanceTimersByTimeAsync(4000);
+		expect(shown()).toBe('Proof 2');
+
+		await user.click(screen.getByRole('button', { name: 'Play slideshow' }));
+		await user.click(screen.getByRole('button', { name: 'Add to favorites' }));
+		expect(screen.getByRole('button', { name: 'Play slideshow' })).toBeTruthy();
+
+		await user.click(screen.getByRole('button', { name: 'Play slideshow' }));
+		await user.click(screen.getByRole('button', { name: /comments/i }));
+		expect(screen.getByRole('button', { name: 'Play slideshow' })).toBeTruthy();
+	});
+});
+
+describe('PhotoViewer in French', () => {
+	useLocale('fr');
+
+	it('localizes slideshow controls with zero axe violations', async () => {
+		const user = userEvent.setup();
+		const { container } = render(PhotoViewer, {
+			proofs,
+			index: 0,
+			title: 'Mariage',
+			onclose: () => {}
+		});
+
+		const play = screen.getByRole('button', { name: 'Lire le diaporama' });
+		expect(play).toBeTruthy();
+		await user.click(play);
+		expect(screen.getByRole('button', { name: 'Mettre le diaporama en pause' })).toBeTruthy();
+		expect((await axe(container)).violations).toEqual([]);
 	});
 });

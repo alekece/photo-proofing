@@ -14,7 +14,7 @@
 		ITEM_CLASSES,
 		type TileState
 	} from '#lib/components/PhotoTile.svelte';
-	import ProofViewer from '#lib/components/ProofViewer.svelte';
+	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
 	import ViewerButton from '#lib/components/ViewerButton.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
@@ -720,7 +720,7 @@
 {/snippet}
 {#if viewing && proofs[viewIndex]}
 	{@const current = (id: string) => photos.find((photo) => photo.id === id)}
-	<ProofViewer
+	<PhotoViewer
 		{proofs}
 		bind:index={viewIndex}
 		thread={comments ? photoThread : undefined}
@@ -765,5 +765,5 @@
 				</ViewerButton>
 			{/if}
 		{/snippet}
-	</ProofViewer>
+	</PhotoViewer>
 {/if}

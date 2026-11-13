@@ -13,7 +13,7 @@
 	import ExpiryBadge from './ExpiryBadge.svelte';
 	import FilmStrip from './FilmStrip.svelte';
 	import ProofGrid from './ProofGrid.svelte';
-	import ProofViewer from './ProofViewer.svelte';
+	import PhotoViewer from './PhotoViewer.svelte';
 	import StudioSignature from './StudioSignature.svelte';
 
 	let {
@@ -395,7 +395,7 @@
 	{/if}
 {/snippet}
 {#if viewerIndex !== null}
-	<ProofViewer
+	<PhotoViewer
 		proofs={viewerProofs}
 		bind:index={viewerIndex}
 		{title}
