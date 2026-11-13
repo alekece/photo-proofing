@@ -23,6 +23,7 @@ import GalleryStudio from './GalleryStudio.svelte';
 const base: Gallery = {
 	id: 'g1',
 	title: 'Camille & Lucas',
+	favorite: false,
 	layout: 'grid',
 	cover_layout: 'full_bleed',
 	focal_point: { x: 50, y: 35 },
@@ -197,5 +198,28 @@ describe('GalleryStudio', () => {
 		expect(finals.disabled).toBe(false);
 		await fireEvent.keyDown(photos, { key: 'ArrowDown' });
 		expect(favorites.getAttribute('aria-selected')).toBe('true');
+	});
+
+	it('toggles gallery favorite pin via onsave and reverts on failure', async () => {
+		const ok = setup({ favorite: false });
+		const pin = screen.getByRole('button', { name: 'Pin gallery to top' });
+		expect(pin.getAttribute('aria-pressed')).toBe('false');
+
+		await ok.user.click(pin);
+		expect(ok.onsave).toHaveBeenCalledWith({ favorite: true });
+		expect(screen.getByRole('button', { name: 'Unpin gallery' }).getAttribute('aria-pressed')).toBe(
+			'true'
+		);
+		expect((await axe(ok.container)).violations).toEqual([]);
+		ok.unmount();
+
+		const failing = setup({ favorite: true });
+		failing.onsave.mockResolvedValueOnce(false);
+		await failing.user.click(screen.getByRole('button', { name: 'Unpin gallery' }));
+		await vi.waitFor(() =>
+			expect(
+				screen.getByRole('button', { name: 'Unpin gallery' }).getAttribute('aria-pressed')
+			).toBe('true')
+		);
 	});
 });

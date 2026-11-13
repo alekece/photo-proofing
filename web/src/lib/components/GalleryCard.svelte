@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { EyeOff, Lock } from '@lucide/svelte';
+	import { Check, EyeOff, Lock, Star } from '@lucide/svelte';
 	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
 	import type { GalleryOverview } from '#lib/gallery/api.js';
 	import { galleryStatus, gallerySummary, highlightParts } from '#lib/gallery/format.js';
@@ -10,13 +10,22 @@
 	let {
 		gallery,
 		query = '',
-		news = []
+		news = [],
+		selected = false,
+		selecting = false,
+		onselect
 	}: {
 		gallery: GalleryOverview;
 		/** The search text to highlight in the title. */
 		query?: string;
 		/** One badge per kind of unread activity, e.g. "New selection" and "New downloads". */
 		news?: string[];
+		/** Whether this card is currently selected for dashboard bulk actions. */
+		selected?: boolean;
+		/** Whether dashboard selection mode is active so every card shows its selection circle. */
+		selecting?: boolean;
+		/** Toggles this card's selection without navigating to the gallery. */
+		onselect?: () => void;
 	} = $props();
 
 	let status = $derived(galleryStatus(gallery.states));
@@ -26,7 +35,9 @@
 </script>
 
 <li
-	class="group relative aspect-[3/4] overflow-hidden rounded-card bg-[repeating-linear-gradient(45deg,#efe7dc_0_10px,#f6f0e8_10px_20px)] shadow-[0_14px_30px_-18px_rgb(43_36_32/0.6)] transition-transform duration-250 hover:-translate-y-[3px] sm:aspect-[4/5]"
+	class="group relative aspect-[3/4] overflow-hidden rounded-card bg-[repeating-linear-gradient(45deg,#efe7dc_0_10px,#f6f0e8_10px_20px)] shadow-[0_14px_30px_-18px_rgb(43_36_32/0.6)] transition-[transform,box-shadow] duration-250 hover:-translate-y-[3px] sm:aspect-[4/5] {selected
+		? 'ring-[2.5px] ring-foreground ring-offset-2 ring-offset-background'
+		: ''}"
 >
 	<a
 		href={`/dashboard/${gallery.id}`}
@@ -72,6 +83,16 @@
 								class="rounded-[2px] bg-hero/55 px-px text-inherit">{part.text}</mark
 							>{:else}{part.text}{/if}{/each}
 				</h2>
+				{#if gallery.favorite}
+					<span
+						role="img"
+						aria-label={m.card_favorited()}
+						title={m.card_favorited()}
+						class="inline-flex shrink-0 text-[#f2c063]"
+					>
+						<Star class="size-3.5 fill-current sm:size-4" aria-hidden="true" />
+					</span>
+				{/if}
 				{#if gallery.access_code_protected}
 					<span
 						role="img"
@@ -100,4 +121,19 @@
 			</p>
 		</div>
 	</a>
+	{#if onselect}
+		<button
+			type="button"
+			aria-label={m.card_select_gallery({ title })}
+			aria-pressed={selected}
+			onclick={onselect}
+			class="absolute top-2 left-2 z-[2] grid size-[26px] cursor-pointer place-items-center rounded-full border transition-[opacity,background-color,border-color,transform] duration-150 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus sm:top-3 sm:left-3 {selected
+				? 'border-panel bg-foreground text-panel opacity-100 shadow-sm'
+				: selecting
+					? 'border-white/75 bg-black/35 text-transparent opacity-100 backdrop-blur-[4px] hover:border-white hover:bg-black/50'
+					: 'border-white/75 bg-black/35 text-transparent opacity-100 backdrop-blur-[4px] hover:border-white hover:bg-black/50 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100'}"
+		>
+			<Check size={14} strokeWidth={2.75} aria-hidden="true" />
+		</button>
+	{/if}
 </li>

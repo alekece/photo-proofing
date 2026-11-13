@@ -648,6 +648,48 @@
 	"api_error_access_code_unavailable": "Les codes d’accès ne sont pas configurés sur ce serveur.",
 	"card_access_code_protected": "Protégée par un code d’accès",
 	"card_client_access_closed": "Fermée aux clients",
+	"card_favorited": "Galerie épinglée en favori",
+	"card_select_gallery": "Sélectionner {title}",
+	"studio_favorite_add": "Épingler la galerie en haut",
+	"studio_favorite_remove": "Retirer l’épingle de la galerie",
+	"dashboard_bulk_selected": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} sélectionnée",
+				"countPlural=*": "{count} sélectionnées"
+			}
+		}
+	],
+	"dashboard_bulk_clear": "Effacer la sélection",
+	"dashboard_bulk_favorite": "Favori",
+	"dashboard_bulk_unfavorite": "Retirer des favoris",
+	"dashboard_bulk_quick_edit": "Modification rapide",
+	"dashboard_bulk_delete_title": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Supprimer {count} galerie ?",
+				"countPlural=*": "Supprimer {count} galeries ?"
+			}
+		}
+	],
+	"dashboard_bulk_delete_body": "Leurs photos, sélections clients, commentaires et liens partagés seront définitivement supprimés. Cette action est irréversible.",
+	"quick_edit_title": "Modification rapide des galeries",
+	"quick_edit_subtitle": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Modifiez le titre et la date de prise de vue de {count} galerie.",
+				"countPlural=*": "Modifiez les titres et dates de prise de vue de {count} galeries."
+			}
+		}
+	],
+	"quick_edit_save": "Enregistrer les modifications",
+	"quick_edit_saving": "Enregistrement…",
 	"settings_access_code": "Exiger un code d’accès",
 	"settings_access_code_label": "Code d’accès à 6 chiffres",
 	"settings_access_code_generate": "Générer",

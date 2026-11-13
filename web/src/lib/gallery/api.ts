@@ -26,6 +26,7 @@ export type {
 /** Subset of settings sent by a PATCH: a missing key is kept, `null` clears the optional ones. */
 export interface GalleryChanges {
 	title?: string | null;
+	favorite?: boolean;
 	layout?: GalleryLayout;
 	cover_layout?: CoverLayout;
 	focal_point?: FocalPoint;
