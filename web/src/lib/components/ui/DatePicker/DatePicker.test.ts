@@ -1,9 +1,13 @@
 import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import { useLocale } from '#lib/i18n/testing.js';
 import DatePicker from './DatePicker.svelte';
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 function day(label: string) {
 	return within(screen.getByRole('grid')).getByText(label, {
@@ -92,6 +96,79 @@ describe('DatePicker', () => {
 
 		expect((await axe(container)).violations).toEqual([]);
 	});
+
+	it('omits preset buttons when presets is not set', async () => {
+		const user = userEvent.setup();
+		render(DatePicker, { id: 'when', value: '2026-06-14', onchange: vi.fn() });
+
+		await user.click(screen.getByRole('button'));
+
+		expect(screen.queryByRole('button', { name: 'In 1 week' })).toBeNull();
+	});
+
+	it('computes all six relative presets from today (including month-end rollover) and closes on click', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date(2026, 0, 31, 12, 0, 0));
+
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		const onchange = vi.fn();
+		const { container } = render(DatePicker, {
+			id: 'when',
+			value: null,
+			placeholder: '–',
+			presets: true,
+			clearable: true,
+			onchange
+		});
+
+		const cases: [string, string][] = [
+			['In 1 week', '2026-02-07'],
+			['In 2 weeks', '2026-02-14'],
+			['In 1 month', '2026-02-28'],
+			['In 2 months', '2026-03-31'],
+			['In 6 months', '2026-07-31'],
+			['In 1 year', '2027-01-31']
+		];
+
+		for (const [label, expected] of cases) {
+			await user.click(document.getElementById('when')!);
+
+			if (label === 'In 1 week') {
+				expect((await axe(container)).violations).toEqual([]);
+			}
+
+			await user.click(screen.getByRole('button', { name: label }));
+
+			expect(onchange).toHaveBeenLastCalledWith(expected);
+			expect(screen.queryByRole('grid')).toBeNull();
+		}
+	});
+
+	it('closes without firing onchange when clicking a preset matching the current value', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date(2026, 0, 31, 12, 0, 0));
+
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		const onchange = vi.fn();
+		render(DatePicker, {
+			id: 'when',
+			value: '2026-02-07',
+			presets: true,
+			clearable: true,
+			onchange
+		});
+
+		await user.click(document.getElementById('when')!);
+		await user.click(screen.getByRole('button', { name: 'In 1 week' }));
+
+		expect(onchange).not.toHaveBeenCalled();
+		expect(screen.queryByRole('grid')).toBeNull();
+
+		await user.click(document.getElementById('when')!);
+		await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+		expect(onchange).toHaveBeenCalledWith(null);
+	});
 });
 
 describe('DatePicker in French', () => {
@@ -113,12 +190,28 @@ describe('DatePicker in French', () => {
 describe('DatePicker in French', () => {
 	useLocale('fr');
 
-	it('names the month buttons in the current language', async () => {
-		render(DatePicker, { id: 'when', value: '2026-06-14', onchange: vi.fn() });
+	it('names the month buttons and presets in the current language', async () => {
+		const { container } = render(DatePicker, {
+			id: 'when',
+			value: '2026-06-14',
+			presets: true,
+			onchange: vi.fn()
+		});
 
 		await userEvent.setup().click(screen.getByRole('button'));
 
 		expect(screen.getByRole('button', { name: 'Mois suivant' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Mois précédent' })).toBeTruthy();
+		for (const label of [
+			'Dans 1 semaine',
+			'Dans 2 semaines',
+			'Dans 1 mois',
+			'Dans 2 mois',
+			'Dans 6 mois',
+			'Dans 1 an'
+		]) {
+			expect(screen.getByRole('button', { name: label })).toBeTruthy();
+		}
+		expect((await axe(container)).violations).toEqual([]);
 	});
 });
