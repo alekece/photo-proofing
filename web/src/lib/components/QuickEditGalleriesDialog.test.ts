@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { describe, expect, it, vi } from 'vitest';
 import type { GalleryOverview } from '#lib/gallery/api.js';
-import QuickEditGalleriesDialog from './QuickEditGalleriesDialog.svelte';
+import QuickEditGalleriesDialog, { type QuickGalleryEdit } from './QuickEditGalleriesDialog.svelte';
 
 const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 	id: 'g1',
@@ -89,6 +89,48 @@ describe('QuickEditGalleriesDialog', () => {
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
 		expect(onsave).not.toHaveBeenCalled();
+		await waitFor(() => expect(onclose).toHaveBeenCalledOnce());
+	});
+
+	it('prunes succeeded rows on partial failure so retrying only re-submits failed rows', async () => {
+		const user = userEvent.setup();
+		const items = [
+			gallery({ id: 'g1', title: 'One', shoot_date: null }),
+			gallery({ id: 'g2', title: 'Two', shoot_date: null })
+		];
+		const onclose = vi.fn();
+		let attempt = 0;
+		const { rerender } = render(QuickEditGalleriesDialog, {
+			galleries: items,
+			onsave: vi.fn(async (edits: QuickGalleryEdit[]) => {
+				attempt++;
+				if (attempt === 1) {
+					expect(edits.map((e) => e.id)).toEqual(['g1', 'g2']);
+					await rerender({
+						galleries: [items[1]],
+						onsave,
+						onclose
+					});
+					return 'Could not save Two';
+				}
+				expect(edits.map((e) => e.id)).toEqual(['g2']);
+				return null;
+			}),
+			onclose
+		});
+		const onsave = vi.fn().mockResolvedValue(null);
+
+		const inputs = screen.getAllByLabelText('Title');
+		await user.type(inputs[0], ' Updated');
+		await user.type(inputs[1], ' Updated');
+		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+		expect((await screen.findByRole('alert')).textContent).toBe('Could not save Two');
+		expect(screen.getAllByLabelText('Title')).toHaveLength(1);
+		expect(onclose).not.toHaveBeenCalled();
+
+		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		expect(onsave).toHaveBeenCalledWith([{ id: 'g2', changes: { title: 'Two Updated' } }]);
 		await waitFor(() => expect(onclose).toHaveBeenCalledOnce());
 	});
 });

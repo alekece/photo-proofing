@@ -162,7 +162,8 @@
 			event.key === 'Escape' &&
 			!event.defaultPrevented &&
 			selectedIds.size > 0 &&
-			!hasOpenDialog
+			!hasOpenDialog &&
+			!document.querySelector('[data-slot="popover"] > button[aria-expanded="true"]')
 		) {
 			event.preventDefault();
 			clearSelection();

@@ -8,7 +8,7 @@
 </script>
 
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import { LoaderCircle } from '@lucide/svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
@@ -44,24 +44,68 @@
 		shootDate: string | null;
 	};
 
-	// svelte-ignore state_referenced_locally
-	let rows = $state<DraftRow[]>(
-		galleries.map((gallery) => {
-			const focal = gallery.focal_point ?? DEFAULT_FOCAL_POINT;
-			const initialTitle = gallery.title ?? '';
+	function toDraftRow(gallery: GalleryOverview): DraftRow {
+		const focal = gallery.focal_point ?? DEFAULT_FOCAL_POINT;
+		const initialTitle = gallery.title ?? '';
 
-			return {
-				id: gallery.id,
-				heroId: gallery.hero_id,
-				focalX: focal.x,
-				focalY: focal.y,
-				initialTitle,
-				title: initialTitle,
-				initialShootDate: gallery.shoot_date,
-				shootDate: gallery.shoot_date
-			};
-		})
-	);
+		return {
+			id: gallery.id,
+			heroId: gallery.hero_id,
+			focalX: focal.x,
+			focalY: focal.y,
+			initialTitle,
+			title: initialTitle,
+			initialShootDate: gallery.shoot_date,
+			shootDate: gallery.shoot_date
+		};
+	}
+
+	// svelte-ignore state_referenced_locally
+	let rows = $state<DraftRow[]>(galleries.map(toDraftRow));
+
+	// When a batch save partially fails, the dashboard prunes succeeded IDs from `galleries`;
+	// keep only remaining galleries while preserving any unsaved draft edits on them.
+	$effect(() => {
+		const incoming = galleries;
+
+		untrack(() => {
+			const reconciled: DraftRow[] = [];
+
+			for (const item of incoming) {
+				const current = rows.find((row) => row.id === item.id);
+
+				if (!current) {
+					reconciled.push(toDraftRow(item));
+					continue;
+				}
+
+				const serverTitle = item.title ?? '';
+				const serverDate = item.shoot_date;
+				const titleEdited = current.title !== current.initialTitle;
+				const dateEdited = current.shootDate !== current.initialShootDate;
+
+				reconciled.push({
+					...current,
+					initialTitle: serverTitle,
+					title: titleEdited ? current.title : serverTitle,
+					initialShootDate: serverDate,
+					shootDate: dateEdited ? current.shootDate : serverDate
+				});
+			}
+
+			if (
+				reconciled.length !== rows.length ||
+				reconciled.some(
+					(row, index) =>
+						row.id !== rows[index]?.id ||
+						row.initialTitle !== rows[index]?.initialTitle ||
+						row.initialShootDate !== rows[index]?.initialShootDate
+				)
+			) {
+				rows = reconciled;
+			}
+		});
+	});
 
 	let firstInput = $state<HTMLInputElement | null>(null);
 	let saving = $state(false);
@@ -131,7 +175,9 @@
 	{onclose}
 	dismissible={!saving}
 	labelledby="{id}-title"
-	class="mx-auto mt-6 mb-auto w-[min(38rem,calc(100vw-1.5rem))] overflow-visible rounded-dialog border border-border bg-panel p-5 text-foreground shadow-xl sm:my-auto sm:p-6"
+	class="mx-auto mt-6 mb-auto w-[min(38rem,calc(100vw-1.5rem))] {rows.length > 4
+		? 'max-h-[calc(100dvh-2rem)] overflow-y-auto'
+		: 'overflow-visible'} rounded-dialog border border-border bg-panel p-5 text-foreground shadow-xl sm:my-auto sm:p-6"
 >
 	{#snippet children(close)}
 		<form onsubmit={(event) => void submit(event, close)} class="grid gap-4" aria-busy={saving}>
@@ -146,7 +192,7 @@
 				<p role="alert" class="text-sm text-danger">{error}</p>
 			{/if}
 
-			<div class="grid max-h-[min(56dvh,24rem)] gap-2.5 overflow-visible pr-0.5">
+			<div class="grid gap-2.5">
 				{#each rows as row, index (row.id)}
 					<div
 						class="grid grid-cols-[2.75rem_1fr] items-center gap-2.5 rounded-[0.75rem] border border-border bg-background/65 p-2.5 sm:grid-cols-[3rem_1fr_10.5rem]"

@@ -364,6 +364,12 @@ describe('dashboard', () => {
 
 			await user.click(screen.getByRole('button', { name: 'Select Wedding' }));
 			expect(screen.getByText('1 selected')).toBeTruthy();
+			await user.click(screen.getByRole('button', { name: 'Recently updated' }));
+			expect(screen.getAllByRole('radio')).toHaveLength(4);
+			await user.keyboard('{Escape}');
+			expect(screen.queryByRole('radio')).toBeNull();
+			expect(screen.getByText('1 selected')).toBeTruthy();
+
 			await user.keyboard('{Escape}');
 			expect(screen.queryByText('1 selected')).toBeNull();
 		});
