@@ -84,7 +84,7 @@
 		className
 	)}
 	{rootClass}
-	panelClass="min-w-0 max-w-[calc(100vw-2rem)] bg-white"
+	panelClass="min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(28rem,calc(100dvh-2rem))] overflow-y-auto bg-white"
 >
 	{#snippet trigger()}
 		<CalendarDays size={16} class="shrink-0 text-muted-foreground" aria-hidden="true" />

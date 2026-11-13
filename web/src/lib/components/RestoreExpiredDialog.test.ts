@@ -106,7 +106,10 @@ describe('Restore expired dialog', () => {
 
 		const { onsave } = open();
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		const dialog = screen.getByRole('dialog');
 		const set = screen.getByRole('button', { name: 'Set date' }) as HTMLButtonElement;
+
+		expect(dialog.className).toContain('overflow-visible');
 
 		await user.click(screen.getByLabelText('Open until'));
 		await user.click(screen.getByRole('button', { name: 'In 1 month' }));
