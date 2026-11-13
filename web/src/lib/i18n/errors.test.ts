@@ -17,6 +17,18 @@ describe('apiErrorMessage in English', () => {
 		expect(apiErrorMessage(409, 'contact_email_taken')).toBe(
 			'A contact with this email already exists.'
 		);
+		expect(apiErrorMessage(401, 'gallery_locked')).toBe(
+			'Enter the 6-digit access code to open this gallery.'
+		);
+		expect(apiErrorMessage(401, 'invalid_access_code')).toBe(
+			'Incorrect access code. Check the 6 digits and try again.'
+		);
+		expect(apiErrorMessage(409, 'access_code_locked')).toBe(
+			'The access code can’t be changed once the gallery is shared.'
+		);
+		expect(apiErrorMessage(503, 'access_code_unavailable')).toBe(
+			'Access codes aren’t configured on this server.'
+		);
 		expect(apiErrorMessage(422, 'unknown')).toBe(apiErrorMessage(422));
 		expect(apiErrorMessage(409, 'constructor')).toBe(apiErrorMessage(409));
 		expect(apiErrorMessage(418)).toBe('Something went wrong. Please try again.');
@@ -35,6 +47,15 @@ describe('apiErrorMessage in French', () => {
 		);
 		expect(apiErrorMessage(409, 'contact_email_taken')).toBe(
 			'Un contact utilise déjà cette adresse e-mail.'
+		);
+		expect(apiErrorMessage(401, 'invalid_access_code')).toBe(
+			'Code d’accès incorrect. Vérifiez les 6 chiffres et réessayez.'
+		);
+		expect(apiErrorMessage(409, 'access_code_locked')).toBe(
+			'Le code d’accès ne peut plus être modifié une fois la galerie partagée.'
+		);
+		expect(apiErrorMessage(503, 'access_code_unavailable')).toBe(
+			'Les codes d’accès ne sont pas configurés sur ce serveur.'
 		);
 		expect(apiErrorMessage(418)).toBe('Une erreur s’est produite. Veuillez réessayer.');
 	});

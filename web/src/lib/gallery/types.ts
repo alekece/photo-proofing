@@ -19,6 +19,8 @@ export type {
 	GridDensity,
 	GridSpacing,
 	HeadingFont,
+	LockedSharedGallery,
 	SharedGallery,
+	SharedGalleryResponse,
 	SharedPhoto
 } from './schemas';

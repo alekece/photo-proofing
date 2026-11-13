@@ -32,8 +32,9 @@ export const galleryStateSchema = v.picklist([
 	'archived',
 	'expired'
 ]);
+export const accessCodeSchema = v.pipe(v.string(), v.regex(/^[0-9]{6}$/));
 
-export const gallerySchema = v.object({
+const baseGalleryEntries = {
 	id: v.string(),
 	title: v.nullable(v.string()),
 	layout: galleryLayoutSchema,
@@ -45,6 +46,8 @@ export const gallerySchema = v.object({
 	expires_at: v.nullable(v.string()),
 	included_photos: v.nullable(finite),
 	watermark_enabled: v.boolean(),
+	/** Whether clients must enter a 6-digit access code before viewing the shared gallery. */
+	access_code_protected: v.optional(v.boolean()),
 	/** The ready photo starred as the gallery's cover; `null` means none. */
 	hero_id: v.nullable(v.string()),
 	/** The private client link's token once shared; the link never changes afterwards. */
@@ -57,11 +60,17 @@ export const gallerySchema = v.object({
 	states: v.array(galleryStateSchema),
 	created_at: v.string(),
 	updated_at: v.string()
+};
+
+export const gallerySchema = v.object({
+	...baseGalleryEntries,
+	/** Decrypted 6-digit access code on single-gallery owner views; omitted from dashboard lists. */
+	access_code: v.optional(v.nullable(accessCodeSchema))
 });
 
 /** A gallery in the dashboard list, with totals over its ready photos. */
 export const galleryOverviewSchema = v.object({
-	...gallerySchema.entries,
+	...baseGalleryEntries,
 	photo_count: v.pipe(finite, v.integer(), v.minValue(0)),
 	/** How many of the ready photos the client chose. */
 	favorite_count: v.pipe(finite, v.integer(), v.minValue(0)),
@@ -71,8 +80,16 @@ export const galleryOverviewSchema = v.object({
 	downloaded_count: v.pipe(finite, v.integer(), v.minValue(0))
 });
 
-/** What the private link reveals to a client; mirrors the API's `SharedGallery`. */
+const sharedBrandingEntries = {
+	studio_name: v.optional(v.string()),
+	signature: v.optional(v.picklist(['name', 'logo', 'both', 'none'])),
+	signature_size: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(9))),
+	has_logo: v.optional(v.boolean())
+};
+
+/** What an unlocked private link reveals to a client; mirrors the API's `SharedGallery`. */
 export const sharedGallerySchema = v.object({
+	locked: v.optional(v.literal(false)),
 	title: v.nullable(v.string()),
 	layout: galleryLayoutSchema,
 	cover_layout: v.optional(coverLayoutSchema, 'full_bleed'),
@@ -89,11 +106,22 @@ export const sharedGallerySchema = v.object({
 	delivered: v.boolean(),
 	/** The cover photo, only while it is ready; `null` means no cover. */
 	hero_id: v.nullable(v.string()),
-	studio_name: v.optional(v.string()),
-	signature: v.optional(v.picklist(['name', 'logo', 'both', 'none'])),
-	signature_size: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(9))),
-	has_logo: v.optional(v.boolean())
+	...sharedBrandingEntries
 });
+
+/** Minimal gate metadata returned for an active code-protected gallery before unlock. */
+export const lockedSharedGallerySchema = v.object({
+	locked: v.literal(true),
+	title: v.nullable(v.string()),
+	shoot_date: v.optional(v.nullable(v.pipe(v.string(), v.isoDate())), null),
+	has_cover: v.boolean(),
+	...sharedBrandingEntries
+});
+
+export const sharedGalleryResponseSchema = v.union([
+	lockedSharedGallerySchema,
+	sharedGallerySchema
+]);
 
 /** A photo a client may see; mirrors the API's `ReadyPhoto`. */
 export const sharedPhotoSchema = v.object({
@@ -226,6 +254,8 @@ export type FocalPoint = v.InferOutput<typeof focalPointSchema>;
 export type GallerySort = v.InferOutput<typeof gallerySortSchema>;
 export type GalleryState = v.InferOutput<typeof galleryStateSchema>;
 export type SharedGallery = v.InferOutput<typeof sharedGallerySchema>;
+export type LockedSharedGallery = v.InferOutput<typeof lockedSharedGallerySchema>;
+export type SharedGalleryResponse = v.InferOutput<typeof sharedGalleryResponseSchema>;
 export type SharedPhoto = v.InferOutput<typeof sharedPhotoSchema>;
 export type Photo = v.InferOutput<typeof photoSchema>;
 export type PhotoStatus = v.InferOutput<typeof photoStatusSchema>;

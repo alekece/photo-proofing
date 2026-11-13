@@ -1,6 +1,7 @@
 //! Gallery HTTP API: route wiring, process-wide authentication state and the
 //! [`api::Api`] runner.
 
+pub mod access_code;
 pub mod api;
 pub mod config;
 pub mod credentials;

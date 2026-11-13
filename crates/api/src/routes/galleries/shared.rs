@@ -1,7 +1,11 @@
 //! Public client routes under `/api/v1/galleries/shared/{token}`.
 //!
 //! - `GET /` returns the title, layout, cover, typography and grid settings, shoot date and
-//!   expiry of the gallery behind a private link.
+//!   expiry of the gallery behind a private link, or only the minimal gate metadata (`locked: true`,
+//!   `title`, `shoot_date`, `has_cover`, and studio signature) while a code-protected gallery is
+//!   locked.
+//! - `POST /unlock` verifies a 6-digit access code behind [`FailedAttempts::limit`] and issues
+//!   the `HttpOnly` `pp_gallery_unlock` cookie.
 //! - `POST /open` records the client's open as the gallery's last-opened time, at most once per
 //!   throttle delay; other calls are no-ops (204).
 //! - `GET /photos` lists the photos the client may see, with their displayed size: the ready
@@ -10,51 +14,120 @@
 //! - `GET /favorites` lists the ids the client selected; `PUT|DELETE /favorites/{photo_id}`
 //!   selects or unselects one, idempotently, until the gallery is delivered (409).
 //! - Photo comment counts, threads and writes live in [`super::comments`], proofs only.
-//!
 //! - `GET /photos/{photo_id}/download` sends one ready final as an attachment, once delivered.
 //! - `POST /download` makes sure the ZIP of every ready final exists: 200 `{"status":"ready"}`,
 //!   202 `{"status":"building"}`, or 503 `{"status":"failed"}` once after a failed build.
 //!   `GET /download` then sends that ZIP. A download is recorded when it is first sent.
 //!
-//! Every route takes [`ClientAccess`], so malformed, unknown, unshared and expired links are
-//! the same 404, and so are unready, foreign and unknown photos. No route serves an original.
-//! The link is a bearer credential: any access log added later must redact
+//! Only `GET /`, `/cover`, `/logo`, and `POST /unlock` accept [`SharedLinkAccess`]; every other
+//! client route requires [`ClientAccess`], which refuses locked galleries with `401`. Malformed,
+//! unknown, unshared, archived, and expired links always fail with `404` on every route. No route
+//! serves an original. The link is a bearer credential: any access log added later must redact
 //! `/galleries/shared/` paths.
 
 use actix_web::{
-    HttpResponse, delete, get,
+    HttpRequest, HttpResponse, delete, get,
     http::StatusCode,
+    middleware::from_fn,
     post, put,
-    web::{Data, Path, ServiceConfig},
+    web::{Data, Json, Path, ServiceConfig},
 };
 use pp_database::export::{DeliveryZip, ExportRepository};
 use pp_database::photo::PhotoId;
 use pp_database::{
-    gallery::GalleryRepository,
+    gallery::{GalleryAccessCode, GalleryRepository, SharedGallery, SharedGalleryGate},
     photo::{PhotoKind, PhotoRepository, Watermarked},
-};
-use pp_database::{
-    gallery::SharedGallery,
-    settings::{CoverSignature, SettingsRepository, SizeStep},
+    settings::{CoverSignature, SettingsRepository, SizeStep, WorkspaceSettings},
 };
 use pp_storage::{ArchiveKey, PhotoKey, Variant};
-use serde::Serialize;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
 
 use super::DerivativePhoto;
+use crate::{
+    access_code::UNLOCK_COOKIE_NAME,
+    api::ApiState,
+    error::ErrorResponse,
+    extractors::client_access::{ClientAccess, ClientPhotoSet, SharedLinkAccess},
+    middlewares::failed_attempts::FailedAttempts,
+    response::{Attachment, ImageFile, ResponseBuilderExt},
+};
 
 /// The name the browser saves the client's ZIP under.
 const DOWNLOAD_NAME: &str = "photos.zip";
-use crate::{
-    api::ApiState,
-    error::ErrorResponse,
-    extractors::client_access::{ClientAccess, ClientPhotoSet},
-    response::{Attachment, ImageFile, ResponseBuilderExt},
-};
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UnlockInput {
+    code: GalleryAccessCode,
+}
+
+#[derive(Serialize)]
+struct StudioBranding {
+    studio_name: String,
+    signature: CoverSignature,
+    signature_size: SizeStep,
+    has_logo: bool,
+}
+
+impl From<WorkspaceSettings> for StudioBranding {
+    fn from(settings: WorkspaceSettings) -> Self {
+        let studio_name = if matches!(
+            settings.signature,
+            CoverSignature::Name | CoverSignature::Both
+        ) {
+            settings.studio_name
+        } else {
+            String::new()
+        };
+        let has_logo = settings.logo.is_some()
+            && matches!(
+                settings.signature,
+                CoverSignature::Logo | CoverSignature::Both
+            );
+
+        Self {
+            studio_name,
+            signature: settings.signature,
+            signature_size: settings.signature_size,
+            has_logo,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct SharedGalleryView {
+    locked: bool,
+    #[serde(flatten)]
+    gallery: SharedGallery,
+    #[serde(flatten)]
+    branding: StudioBranding,
+}
+
+#[derive(Serialize)]
+struct LockedSharedGalleryView {
+    locked: bool,
+    #[serde(flatten)]
+    gate: SharedGalleryGate,
+    #[serde(flatten)]
+    branding: StudioBranding,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum SharedGalleryResponse {
+    Unlocked(SharedGalleryView),
+    Locked(LockedSharedGalleryView),
+}
+
+#[derive(Serialize)]
+struct ZipStatusResponse {
+    status: &'static str,
+}
 
 /// Registers the client routes inside the `/api/v1/galleries` scope.
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(show_shared_gallery)
+        .service(unlock_shared_gallery)
         .service(record_open)
         .service(list_shared_photos)
         .service(list_favorites)
@@ -71,63 +144,88 @@ pub fn configure(cfg: &mut ServiceConfig) {
 #[get("/shared/{token}")]
 async fn show_shared_gallery(
     state: Data<ApiState>,
-    ClientAccess(access): ClientAccess,
+    link: SharedLinkAccess,
 ) -> Result<HttpResponse, ErrorResponse> {
     let settings = state
         .database()
         .repository::<SettingsRepository>()
-        .settings(access.location.workspace_id)
+        .settings(link.access.location.workspace_id)
         .await?;
-    Ok(HttpResponse::Ok()
-        .no_store()
-        .no_referrer()
-        .json(SharedGalleryView {
-            gallery: access.gallery,
-            studio_name: if matches!(
-                settings.signature,
-                CoverSignature::Name | CoverSignature::Both
-            ) {
-                settings.studio_name
-            } else {
-                String::new()
-            },
-            signature: settings.signature,
-            signature_size: settings.signature_size,
-            has_logo: settings.logo.is_some()
-                && matches!(
-                    settings.signature,
-                    CoverSignature::Logo | CoverSignature::Both
-                ),
-        }))
+    let branding = StudioBranding::from(settings);
+    let body = if link.unlocked {
+        SharedGalleryResponse::Unlocked(SharedGalleryView {
+            locked: false,
+            gallery: link.access.gallery,
+            branding,
+        })
+    } else {
+        SharedGalleryResponse::Locked(LockedSharedGalleryView {
+            locked: true,
+            gate: SharedGalleryGate::from(link.access.gallery),
+            branding,
+        })
+    };
+
+    Ok(HttpResponse::Ok().no_store().no_referrer().json(body))
 }
 
-#[derive(Serialize)]
-struct SharedGalleryView {
-    #[serde(flatten)]
-    gallery: SharedGallery,
-    studio_name: String,
-    signature: CoverSignature,
-    signature_size: SizeStep,
-    has_logo: bool,
+#[post("/shared/{token}/unlock", wrap = "from_fn(FailedAttempts::limit)")]
+async fn unlock_shared_gallery(
+    request: HttpRequest,
+    state: Data<ApiState>,
+    link: SharedLinkAccess,
+    input: Json<UnlockInput>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let Some(ciphertext) = &link.access.access_code_ciphertext else {
+        return Ok(HttpResponse::NoContent().no_store().no_referrer().finish());
+    };
+    let cipher = state
+        .access_code_cipher()
+        .ok_or_else(ErrorResponse::access_code_unavailable)?;
+    let matches = cipher
+        .verify_code(link.access.location.gallery_id, ciphertext, &input.code)
+        .map_err(|_| ErrorResponse::access_code_unavailable())?;
+
+    if !matches {
+        return Err(ErrorResponse::invalid_access_code());
+    }
+
+    let existing = request
+        .cookie(UNLOCK_COOKIE_NAME)
+        .map(|cookie| cookie.value().to_owned());
+    let cookie_value = cipher.issue_unlock_cookie_value(
+        existing.as_deref(),
+        link.access.location.gallery_id,
+        ciphertext,
+    );
+
+    Ok(HttpResponse::NoContent()
+        .no_store()
+        .no_referrer()
+        .cookie(state.unlock_cookie(cookie_value))
+        .finish())
 }
 
 #[get("/shared/{token}/logo")]
 async fn serve_shared_logo(
     state: Data<ApiState>,
-    access: ClientAccess,
+    link: SharedLinkAccess,
 ) -> Result<HttpResponse, ErrorResponse> {
     let settings = state
         .database()
         .repository::<SettingsRepository>()
-        .settings(access.0.location.workspace_id)
+        .settings(link.access.location.workspace_id)
         .await?;
+
     if !matches!(
         settings.signature,
         CoverSignature::Logo | CoverSignature::Both
     ) {
         return Err(ErrorResponse::not_found());
     }
+
     let logo = settings.logo.ok_or_else(ErrorResponse::not_found)?;
+
     Ok(HttpResponse::Ok()
         .no_store()
         .no_referrer()
@@ -317,7 +415,7 @@ async fn prepare_shared_zip(
     Ok(HttpResponse::build(status)
         .no_store()
         .no_referrer()
-        .json(json!({ "status": body })))
+        .json(ZipStatusResponse { status: body }))
 }
 
 #[get("/shared/{token}/download")]
@@ -360,10 +458,10 @@ async fn download_shared_zip(
 #[get("/shared/{token}/cover")]
 async fn serve_shared_cover(
     state: Data<ApiState>,
-    access: ClientAccess,
+    link: SharedLinkAccess,
 ) -> Result<ImageFile, ErrorResponse> {
-    let id = access
-        .0
+    let id = link
+        .access
         .gallery
         .hero_id
         .ok_or_else(ErrorResponse::not_found)?;
@@ -371,7 +469,12 @@ async fn serve_shared_cover(
     if !state
         .database()
         .repository::<PhotoRepository>()
-        .is_ready(access.0.location, id, PhotoKind::Proof, Watermarked(false))
+        .is_ready(
+            link.access.location,
+            id,
+            PhotoKind::Proof,
+            Watermarked(false),
+        )
         .await?
     {
         return Err(ErrorResponse::not_found());
@@ -379,7 +482,7 @@ async fn serve_shared_cover(
 
     ImageFile::read(
         state.storage(),
-        &PhotoKey::with_location(access.0.location, id, Variant::Preview),
+        &PhotoKey::with_location(link.access.location, id, Variant::Preview),
     )
     .await
     .map(ImageFile::proof)
@@ -396,7 +499,7 @@ mod tests {
     };
     use pp_database::{
         Database,
-        gallery::{GalleryChanges, GalleryId, GalleryRepository, ShareToken},
+        gallery::{GalleryAccessCode, GalleryChanges, GalleryId, GalleryRepository, ShareToken},
         tests::TestRepository,
     };
     use serde_json::{Value, json};
@@ -419,7 +522,10 @@ mod tests {
         let database = Database::new(pool.clone());
         let store = database.repository::<GalleryRepository>();
         let id = store.create(workspace).await.unwrap().id;
-        let changes: GalleryChanges = serde_json::from_value(changes).unwrap();
+        let changes = serde_json::from_value::<GalleryChanges<GalleryAccessCode>>(changes)
+            .unwrap()
+            .try_map_access_code(|_| Err(()))
+            .unwrap();
 
         store.update(workspace, id, &changes).await.unwrap();
 
@@ -463,6 +569,7 @@ mod tests {
         assert_eq!(
             body,
             json!({
+                "locked": false,
                 "title": "Wedding",
                 "layout": "masonry",
                 "cover_layout": "full_bleed",
@@ -1410,5 +1517,392 @@ mod tests {
         call(&app, lifecycle("POST", &gallery_id, "/archive", &cookie)).await;
 
         waiting_photo(&app, &cookie, &gallery_id).await;
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn locked_gallery_serves_only_gate_cover_and_logo_until_unlocked(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let photo_dir: pp_core::config::PhotoDir =
+            directory.path().to_path_buf().try_into().unwrap();
+        let storage = pp_storage::PhotoStorage::open(&photo_dir).await.unwrap();
+        crate::upload::jpeg::install().unwrap();
+        let cfg = upload_config(1024, 100);
+        let key = "0123456789abcdef"
+            .repeat(4)
+            .parse::<crate::access_code::EncryptionKey>()
+            .unwrap();
+        let state = crate::tests::state_with_upload(pool.clone(), storage, cfg.clone())
+            .with_gallery_password(&crate::config::GalleryPasswordConfig {
+                encryption_key: Some(key),
+            });
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(crate::upload::limiter::UploadLimiter::from(&cfg)))
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let owner_cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &owner_cookie).await;
+        let photo = photo_in(&app, &pool, &owner_cookie, &gallery_id, Progress::Ready).await;
+        let clean_cover = store_derivative(&pool, directory.path(), &photo, "preview").await;
+        store_derivative(&pool, directory.path(), &photo, "thumbnail").await;
+
+        let workspace: uuid::Uuid =
+            sqlx::query_scalar("SELECT workspace_id FROM galleries WHERE id = $1::uuid")
+                .bind(&gallery_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        sqlx::query(
+            "INSERT INTO workspace_settings(workspace_id, studio_name, signature, logo)
+             VALUES ($1, 'Studio Lumiere', 'both', $2)",
+        )
+        .bind(workspace)
+        .bind(b"png-logo".as_slice())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let (status, _) = call(
+            &app,
+            test::TestRequest::patch()
+                .uri(&format!("/api/v1/galleries/{gallery_id}"))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(owner_cookie.clone())
+                .set_json(json!({
+                    "title": "Secret Shoot",
+                    "shoot_date": "2026-07-04",
+                    "included_photos": 20,
+                    "expires_at": "2999-01-01T00:00:00Z",
+                    "hero_id": photo,
+                    "access_code": "042819",
+                })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        // Link a contact BEFORE sharing; while still Draft, contact link must return 404 on every endpoint.
+        let (_, created_contact) = call(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/v1/contacts")
+                .insert_header(("Origin", ORIGIN))
+                .cookie(owner_cookie.clone())
+                .set_json(json!({"name": "Claire", "email": "claire@example.test"})),
+        )
+        .await;
+        let contact_id = created_contact["id"].as_str().unwrap();
+        call(
+            &app,
+            test::TestRequest::put()
+                .uri(&format!(
+                    "/api/v1/galleries/{gallery_id}/contacts/{contact_id}"
+                ))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(owner_cookie.clone()),
+        )
+        .await;
+        let contact_token: String = sqlx::query_scalar(
+            "SELECT share_token FROM gallery_contacts WHERE gallery_id = $1::uuid",
+        )
+        .bind(&gallery_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        for draft_probe in [
+            test::TestRequest::get().uri(&format!("/api/v1/galleries/shared/{contact_token}")),
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/galleries/shared/{contact_token}/cover")),
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/shared/{contact_token}/unlock"))
+                .insert_header(("Origin", ORIGIN))
+                .set_json(json!({"code": "042819"})),
+        ] {
+            assert_eq!(call(&app, draft_probe).await.0, StatusCode::NOT_FOUND);
+        }
+
+        let token = share(&app, &owner_cookie, &gallery_id).await;
+
+        // Second protected gallery to verify multi-gallery cookie retention.
+        let second_id = create_gallery(&app, &owner_cookie).await;
+        call(
+            &app,
+            test::TestRequest::patch()
+                .uri(&format!("/api/v1/galleries/{second_id}"))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(owner_cookie.clone())
+                .set_json(json!({"title": "Second Shoot", "access_code": "111222"})),
+        )
+        .await;
+        let second_token = share(&app, &owner_cookie, &second_id).await;
+
+        // Gate metadata omits non-gate fields before unlock.
+        let (status, gate) = call(&app, get(&token)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            gate,
+            json!({
+                "locked": true,
+                "title": "Secret Shoot",
+                "shoot_date": "2026-07-04",
+                "has_cover": true,
+                "studio_name": "Studio Lumiere",
+                "signature": "both",
+                "signature_size": 4,
+                "has_logo": true,
+            })
+        );
+
+        // Cover and logo remain reachable so the darkened cover gate can render.
+        let cover_res = test::call_service(&app, client_request(&token, "/cover")).await;
+        assert_eq!(cover_res.status(), StatusCode::OK);
+        assert_eq!(test::read_body(cover_res).await.as_ref(), clean_cover);
+
+        let logo_res = test::call_service(&app, client_request(&token, "/logo")).await;
+        assert_eq!(logo_res.status(), StatusCode::OK);
+        assert_eq!(test::read_body(logo_res).await.as_ref(), b"png-logo");
+
+        // All content, selection, comment, download, and open routes fail 401 gallery_locked.
+        for blocked in [
+            test::TestRequest::get().uri(&format!("/api/v1/galleries/shared/{token}/photos")),
+            test::TestRequest::get().uri(&format!(
+                "/api/v1/galleries/shared/{token}/photos/{photo}/thumbnail"
+            )),
+            test::TestRequest::get().uri(&format!(
+                "/api/v1/galleries/shared/{token}/photos/{photo}/preview"
+            )),
+            test::TestRequest::get().uri(&format!(
+                "/api/v1/galleries/shared/{token}/photos/{photo}/download"
+            )),
+            test::TestRequest::get().uri(&format!("/api/v1/galleries/shared/{token}/download")),
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/shared/{token}/download"))
+                .insert_header(("Origin", ORIGIN)),
+            test::TestRequest::get().uri(&format!("/api/v1/galleries/shared/{token}/favorites")),
+            test::TestRequest::put()
+                .uri(&format!(
+                    "/api/v1/galleries/shared/{token}/favorites/{photo}"
+                ))
+                .insert_header(("Origin", ORIGIN)),
+            test::TestRequest::delete()
+                .uri(&format!(
+                    "/api/v1/galleries/shared/{token}/favorites/{photo}"
+                ))
+                .insert_header(("Origin", ORIGIN)),
+            test::TestRequest::get().uri(&format!("/api/v1/galleries/shared/{token}/comments")),
+            test::TestRequest::get().uri(&format!(
+                "/api/v1/galleries/shared/{token}/photos/{photo}/comments"
+            )),
+            test::TestRequest::post()
+                .uri(&format!(
+                    "/api/v1/galleries/shared/{token}/photos/{photo}/comments"
+                ))
+                .insert_header(("Origin", ORIGIN))
+                .set_json(json!({"body": "Hello"})),
+            open(&token),
+        ] {
+            let (status, err) = call(&app, blocked).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(err["code"], "gallery_locked");
+        }
+
+        // Non-POST requests miss the #[post] guard without consuming the peer's attempt budget.
+        for _ in 0..11 {
+            let get_unlock = test::call_service(&app, client_request(&token, "/unlock")).await;
+            assert_ne!(get_unlock.status(), StatusCode::TOO_MANY_REQUESTS);
+        }
+
+        // Wrong code returns 401 invalid_access_code without issuing a cookie.
+        let wrong_res = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/shared/{token}/unlock"))
+                .insert_header(("Origin", ORIGIN))
+                .set_json(json!({"code": "000000"}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(wrong_res.status(), StatusCode::UNAUTHORIZED);
+        assert!(wrong_res.response().cookies().next().is_none());
+        let wrong_body: Value = test::read_body_json(wrong_res).await;
+        assert_eq!(wrong_body["code"], "invalid_access_code");
+
+        // Correct code sets HttpOnly SameSite=Lax cookie and unlocks both general and contact tokens.
+        let unlock_res = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/shared/{token}/unlock"))
+                .insert_header(("Origin", ORIGIN))
+                .set_json(json!({"code": "042819"}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(unlock_res.status(), StatusCode::NO_CONTENT);
+        let unlock_cookie = unlock_res
+            .response()
+            .cookies()
+            .find(|c| c.name() == crate::access_code::UNLOCK_COOKIE_NAME)
+            .unwrap()
+            .into_owned();
+        assert_eq!(unlock_cookie.http_only(), Some(true));
+        assert_eq!(
+            unlock_cookie.same_site(),
+            Some(actix_web::cookie::SameSite::Lax)
+        );
+        assert_eq!(unlock_cookie.path(), Some("/"));
+
+        for link in [&token, &contact_token] {
+            let (status, unlocked_body) = call(
+                &app,
+                test::TestRequest::get()
+                    .uri(&format!("/api/v1/galleries/shared/{link}"))
+                    .cookie(unlock_cookie.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(unlocked_body["locked"], false);
+            assert_eq!(unlocked_body["included_photos"], 20);
+
+            let (status, photos) = call(
+                &app,
+                test::TestRequest::get()
+                    .uri(&format!("/api/v1/galleries/shared/{link}/photos"))
+                    .cookie(unlock_cookie.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(photos.as_array().unwrap().len(), 1);
+        }
+
+        // Unlocking second gallery keeps the first gallery unlocked in the same cookie.
+        let second_unlock_res = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/shared/{second_token}/unlock"))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(unlock_cookie)
+                .set_json(json!({"code": "111222"}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(second_unlock_res.status(), StatusCode::NO_CONTENT);
+        let both_cookie = second_unlock_res
+            .response()
+            .cookies()
+            .find(|c| c.name() == crate::access_code::UNLOCK_COOKIE_NAME)
+            .unwrap()
+            .into_owned();
+
+        for link in [&token, &second_token] {
+            let (status, body) = call(
+                &app,
+                test::TestRequest::get()
+                    .uri(&format!("/api/v1/galleries/shared/{link}"))
+                    .cookie(both_cookie.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body["locked"], false);
+        }
+
+        // Archiving or expiring a protected gallery returns 404 everywhere, even with a valid unlock cookie.
+        call(
+            &app,
+            lifecycle("POST", &gallery_id, "/archive", &owner_cookie),
+        )
+        .await;
+        for archived_probe in [
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/galleries/shared/{token}"))
+                .cookie(both_cookie.clone()),
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/galleries/shared/{token}/cover"))
+                .cookie(both_cookie.clone()),
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/shared/{token}/unlock"))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(both_cookie.clone())
+                .set_json(json!({"code": "042819"})),
+        ] {
+            assert_eq!(call(&app, archived_probe).await.0, StatusCode::NOT_FOUND);
+        }
+
+        call(
+            &app,
+            lifecycle("POST", &gallery_id, "/restore", &owner_cookie),
+        )
+        .await;
+        expire(&app, &owner_cookie, &gallery_id).await;
+        for expired_probe in [
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/galleries/shared/{token}"))
+                .cookie(both_cookie.clone()),
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/shared/{token}/unlock"))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(both_cookie)
+                .set_json(json!({"code": "042819"})),
+        ] {
+            assert_eq!(call(&app, expired_probe).await.0, StatusCode::NOT_FOUND);
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn wrong_unlock_attempts_are_rate_limited_per_peer(pool: PgPool) {
+        let (state, _directory) = app_state(pool).await;
+        let key = "0123456789abcdef"
+            .repeat(4)
+            .parse::<crate::access_code::EncryptionKey>()
+            .unwrap();
+        let state = state.with_gallery_password(&crate::config::GalleryPasswordConfig {
+            encryption_key: Some(key),
+        });
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let owner_cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &owner_cookie).await;
+
+        call(
+            &app,
+            test::TestRequest::patch()
+                .uri(&format!("/api/v1/galleries/{gallery_id}"))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(owner_cookie.clone())
+                .set_json(json!({"access_code": "123456"})),
+        )
+        .await;
+        let token = share(&app, &owner_cookie, &gallery_id).await;
+
+        for attempt in 0..10 {
+            let (status, body) = call(
+                &app,
+                test::TestRequest::post()
+                    .uri(&format!("/api/v1/galleries/shared/{token}/unlock"))
+                    .insert_header(("Origin", ORIGIN))
+                    .set_json(json!({"code": "000000"})),
+            )
+            .await;
+
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "attempt {attempt}");
+            assert_eq!(body["code"], "invalid_access_code");
+        }
+
+        let (status, body) = call(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/shared/{token}/unlock"))
+                .insert_header(("Origin", ORIGIN))
+                .set_json(json!({"code": "123456"})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(body["code"], "too_many_attempts");
     }
 }

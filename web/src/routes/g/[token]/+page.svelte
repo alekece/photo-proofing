@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { onMount } from 'svelte';
+	import { invalidateAll } from '$app/navigation';
 	import AccessUnavailable from '#lib/components/AccessUnavailable.svelte';
+	import ClientAccessGate from '#lib/components/ClientAccessGate.svelte';
 	import ClientGallery from '#lib/components/ClientGallery.svelte';
 	import { recordOpened } from '#lib/gallery/opened.js';
-	import type { Proof, SharedGallery } from '#lib/gallery/types.js';
+	import type { LockedSharedGallery, Proof, SharedGallery } from '#lib/gallery/types.js';
 
 	let {
 		data,
@@ -12,6 +13,7 @@
 	}: {
 		data: {
 			gallery: SharedGallery | null;
+			lockedGallery?: LockedSharedGallery | null;
 			proofs: Proof[];
 			favorites: string[];
 			coverUrl?: string;
@@ -19,10 +21,24 @@
 		params: { token: string };
 	} = $props();
 
-	// Only a browser showing an available gallery counts as an open, not link previews or the owner's preview.
-	onMount(() => {
-		if (data.gallery) void recordOpened(params.token);
+	let reportedOpen = false;
+
+	// Only a browser showing an unlocked available gallery counts as an open, whether initially
+	// unlocked or unlocked through the 6-digit gate on this page.
+	$effect(() => {
+		if (data.gallery && !reportedOpen) {
+			reportedOpen = true;
+			void recordOpened(params.token);
+		}
 	});
+
+	const pageTitle = $derived(
+		data.gallery
+			? (data.gallery.title ?? m.gallery_untitled())
+			: data.lockedGallery
+				? (data.lockedGallery.title ?? m.gallery_untitled())
+				: m.client_unavailable()
+	);
 
 	function oncontextmenu(event: MouseEvent) {
 		const target = event.target;
@@ -38,9 +54,7 @@
 </script>
 
 <svelte:head>
-	<title
-		>{data.gallery ? (data.gallery.title ?? m.gallery_untitled()) : m.client_unavailable()}</title
-	>
+	<title>{pageTitle}</title>
 	<meta name="referrer" content="no-referrer" />
 	<meta name="robots" content="noindex" />
 </svelte:head>
@@ -61,6 +75,15 @@
 				: null}
 			signature={data.gallery.signature}
 			signatureSize={data.gallery.signature_size}
+		/>
+	</div>
+{:else if data.lockedGallery}
+	<div class="client-gallery-protected">
+		<ClientAccessGate
+			token={params.token}
+			gallery={data.lockedGallery}
+			coverUrl={data.coverUrl}
+			onunlock={() => invalidateAll()}
 		/>
 	</div>
 {:else}

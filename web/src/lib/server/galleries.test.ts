@@ -18,15 +18,32 @@ const gallery = {
 const token = 'A'.repeat(22);
 
 describe('getSharedGallery', () => {
-	it('parses the gallery and forwards no cookie', async () => {
+	it('parses the gallery and forwards no cookie when none is provided', async () => {
 		const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(gallery)));
-		expect(await getSharedGallery(fetcher, token)).toEqual(gallery);
+		expect(await getSharedGallery(fetcher, token)).toMatchObject(gallery);
 		expect(fetcher).toHaveBeenCalledWith(
 			expect.stringContaining(`/api/v1/galleries/shared/${token}`),
 			expect.objectContaining({
 				headers: {},
 				cache: 'no-store',
 				redirect: 'error'
+			})
+		);
+	});
+
+	it('forwards only pp_gallery_unlock when provided and parses locked gate responses', async () => {
+		const locked = {
+			locked: true,
+			title: 'Secret',
+			shoot_date: null,
+			has_cover: false
+		};
+		const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(locked)));
+		expect(await getSharedGallery(fetcher, token, 'abc_123')).toMatchObject(locked);
+		expect(fetcher).toHaveBeenCalledWith(
+			expect.stringContaining(`/api/v1/galleries/shared/${token}`),
+			expect.objectContaining({
+				headers: { Cookie: 'pp_gallery_unlock=abc_123' }
 			})
 		);
 	});

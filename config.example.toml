@@ -87,3 +87,9 @@ relay_backoff_cap = "30s"
 [process]
 # Positive integer pixel limit for originals the worker renders; match photo_upload.
 max_pixels = 100000000
+
+[gallery_password]
+# Optional 32-byte key (64 hex digits or 43-char unpadded base64url) for 6-digit gallery
+# access codes; inject PP_GALLERY_PASSWORD_KEY from the secret manager in deployments.
+# encryption_key = "<64-hex-chars-from-secret-manager>"
+

@@ -545,6 +545,122 @@ describe('gallery page', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
+	it('awaits in-flight access-code saves before sharing and aborts Share if saving the access code fails', async () => {
+		let resolvePatch!: (response: Response) => void;
+		const shareCalls: string[] = [];
+
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				if (!init?.method || init.method === 'GET') return Response.json([]);
+				if (url.endsWith('/share')) {
+					shareCalls.push(url);
+					return Response.json({
+						...base,
+						share_token: 'A'.repeat(22),
+						access_code: '042819',
+						access_code_protected: true,
+						states: ['shared']
+					});
+				}
+				return new Promise<Response>((r) => (resolvePatch = r));
+			})
+		);
+
+		const user = userEvent.setup();
+		const first = open();
+
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		await user.click(screen.getByRole('switch', { name: 'Require access code' }));
+		await waitFor(() => expect(resolvePatch).toBeDefined());
+
+		await user.click(screen.getByRole('button', { name: 'Share' }));
+		await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+
+		// Share must NOT fire while the access-code PATCH is still in flight, and must abort if PATCH fails.
+		expect(shareCalls).toHaveLength(0);
+		resolvePatch(Response.json({ code: 'access_code_unavailable' }, { status: 503 }));
+
+		await screen.findByText('Couldn’t share the gallery. Please try again.');
+		expect(shareCalls).toHaveLength(0);
+		first.unmount();
+
+		// Now verify that when an in-flight PATCH succeeds, Share proceeds in order (PATCH completes -> POST /share).
+		const events: string[] = [];
+		let finishOkPatch!: () => void;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				if (!init?.method || init.method === 'GET') return Response.json([]);
+				if (url.endsWith('/share')) {
+					events.push('share');
+					return Response.json({
+						...base,
+						share_token: 'B'.repeat(22),
+						access_code: '042819',
+						access_code_protected: true,
+						states: ['shared']
+					});
+				}
+				await new Promise<void>((r) => (finishOkPatch = r));
+				const patch = JSON.parse(init?.body as string);
+				events.push('patch-done');
+				return Response.json({ ...base, ...patch, access_code_protected: true });
+			})
+		);
+
+		open();
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		await user.click(screen.getByRole('switch', { name: 'Require access code' }));
+		await waitFor(() => expect(finishOkPatch).toBeDefined());
+
+		await user.click(screen.getByRole('button', { name: 'Share' }));
+		await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+		expect(events).toEqual([]);
+
+		finishOkPatch();
+		await waitFor(() => expect(events).toEqual(['patch-done', 'share']));
+	});
+
+	it('refuses to open Share or lock a stale code when the access-code input has a half-typed invalid draft', async () => {
+		const shareCalls: string[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				if (!init?.method || init.method === 'GET') return Response.json([]);
+				if (url.endsWith('/share')) {
+					shareCalls.push(url);
+					return Response.json({ ...base, share_token: 'C'.repeat(22), states: ['shared'] });
+				}
+				const patch = JSON.parse(init?.body as string);
+				return Response.json({
+					...base,
+					...patch,
+					access_code_protected: Boolean(patch.access_code)
+				});
+			})
+		);
+
+		const user = userEvent.setup();
+		open();
+
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		await user.click(screen.getByRole('switch', { name: 'Require access code' }));
+		const codeInput = await screen.findByLabelText('6-digit access code');
+
+		await user.clear(codeInput);
+		await user.type(codeInput, '12');
+
+		// Clicking Share while '12' is in the field must block PublishDialog and never revert+share the old code.
+		await user.click(screen.getByRole('button', { name: 'Share' }));
+		expect(screen.queryByRole('button', { name: 'Share anyway' })).toBeNull();
+		expect((codeInput as HTMLInputElement).value).toBe('12');
+		expect(shareCalls).toHaveLength(0);
+	});
+
 	describe('progress header', () => {
 		const photo = (id: string, status: unknown = 'ready') => ({
 			id,

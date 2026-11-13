@@ -48,6 +48,7 @@
 		origin,
 		heroId = $bindable(),
 		heroRevision = $bindable(),
+		expectedAccessCode = $bindable(),
 		heading,
 		onsave,
 		schedule,
@@ -64,6 +65,7 @@
 		origin: string;
 		heroId?: string | null;
 		heroRevision?: number;
+		expectedAccessCode?: string | null | 'invalid';
 		heading: Snippet;
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
 		schedule: (field: string, run: () => void) => void;
@@ -362,6 +364,7 @@
 					{gallery}
 					{shareToken}
 					{origin}
+					bind:expectedAccessCode
 					{onsave}
 					{schedule}
 					{cancel}

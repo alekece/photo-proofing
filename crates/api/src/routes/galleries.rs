@@ -29,17 +29,18 @@ use actix_web::{
 };
 use actix_web_lab::extract::Query as LabQuery;
 use pp_database::gallery::{
-    Delivery, GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
+    Delivery, Gallery, GalleryAccessCode, GalleryChanges, GalleryId, GalleryRepository,
+    GallerySort, GalleryState,
 };
 use pp_database::photo::{PhotoLocation, Watermarked};
 use pp_database::settings::SettingsRepository;
 use pp_database::workspace_deletion::WorkspaceDeletion;
 use pp_storage::Variant;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
-    response::ResponseBuilderExt,
+    access_code::AccessCodeCipher, api::ApiState, error::ErrorResponse,
+    extractors::identity::Authenticated, response::ResponseBuilderExt,
 };
 
 mod comments;
@@ -79,6 +80,38 @@ struct ListQuery {
     states: Vec<GalleryState>,
 }
 
+/// Photographer view of a single gallery, adding the decrypted 6-digit access code when set.
+///
+/// Dashboard list responses ([`pp_database::gallery::GalleryOverview`]) deliberately omit
+/// `access_code` and carry only `access_code_protected`.
+#[derive(Serialize)]
+struct GalleryView {
+    #[serde(flatten)]
+    gallery: Gallery,
+    access_code: Option<GalleryAccessCode>,
+}
+
+impl GalleryView {
+    fn try_new(gallery: Gallery, cipher: Option<&AccessCodeCipher>) -> Result<Self, ErrorResponse> {
+        let access_code = match &gallery.access_code_ciphertext {
+            None => None,
+            Some(ciphertext) => {
+                let cipher = cipher.ok_or_else(ErrorResponse::access_code_unavailable)?;
+                let code = cipher
+                    .decrypt(gallery.id, ciphertext)
+                    .map_err(|_| ErrorResponse::access_code_unavailable())?;
+
+                Some(code)
+            }
+        };
+
+        Ok(Self {
+            gallery,
+            access_code,
+        })
+    }
+}
+
 /// Registers the gallery routes.
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(
@@ -110,8 +143,9 @@ async fn create_gallery(
         .repository::<GalleryRepository>()
         .create(identity.workspace_id)
         .await?;
+    let view = GalleryView::try_new(gallery, state.access_code_cipher())?;
 
-    Ok(HttpResponse::Created().no_store().json(gallery))
+    Ok(HttpResponse::Created().no_store().json(view))
 }
 
 #[get("")]
@@ -145,8 +179,9 @@ async fn show_gallery(
         .get(identity.workspace_id, id.into_inner())
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
+    let view = GalleryView::try_new(gallery, state.access_code_cipher())?;
 
-    Ok(HttpResponse::Ok().no_store().json(gallery))
+    Ok(HttpResponse::Ok().no_store().json(view))
 }
 
 #[patch("/{id}")]
@@ -154,16 +189,25 @@ async fn update_gallery(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: Path<GalleryId>,
-    changes: Json<GalleryChanges>,
+    changes: Json<GalleryChanges<GalleryAccessCode>>,
 ) -> Result<HttpResponse, ErrorResponse> {
+    let gallery_id = id.into_inner();
+    let changes = changes.into_inner().try_map_access_code(|code| {
+        state
+            .access_code_cipher()
+            .ok_or_else(ErrorResponse::access_code_unavailable)?
+            .encrypt(gallery_id, &code)
+            .map_err(|_| ErrorResponse::access_code_unavailable())
+    })?;
     let gallery = state
         .database()
         .repository_with::<SettingsRepository>(state.job_options())
-        .update_gallery(identity.workspace_id, id.into_inner(), &changes)
+        .update_gallery(identity.workspace_id, gallery_id, &changes)
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
+    let view = GalleryView::try_new(gallery, state.access_code_cipher())?;
 
-    Ok(HttpResponse::Ok().no_store().json(gallery))
+    Ok(HttpResponse::Ok().no_store().json(view))
 }
 
 #[post("/{id}/archive")]
@@ -178,8 +222,9 @@ async fn archive_gallery(
         .archive(identity.workspace_id, id.into_inner())
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
+    let view = GalleryView::try_new(gallery, state.access_code_cipher())?;
 
-    Ok(HttpResponse::Ok().no_store().json(gallery))
+    Ok(HttpResponse::Ok().no_store().json(view))
 }
 
 #[post("/{id}/restore")]
@@ -194,8 +239,9 @@ async fn restore_gallery(
         .restore(identity.workspace_id, id.into_inner())
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
+    let view = GalleryView::try_new(gallery, state.access_code_cipher())?;
 
-    Ok(HttpResponse::Ok().no_store().json(gallery))
+    Ok(HttpResponse::Ok().no_store().json(view))
 }
 
 #[delete("/{id}")]
@@ -229,8 +275,9 @@ async fn share_gallery(
         .share(identity.workspace_id, id.into_inner())
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
+    let view = GalleryView::try_new(gallery, state.access_code_cipher())?;
 
-    Ok(HttpResponse::Ok().no_store().json(gallery))
+    Ok(HttpResponse::Ok().no_store().json(view))
 }
 
 #[post("/{id}/deliver")]
@@ -246,6 +293,7 @@ async fn deliver_gallery(
         .await?
     {
         Delivery::Delivered(gallery) => {
+            let gallery = *gallery;
             // A head start for the first click; the click builds it if this did not.
             let location = PhotoLocation {
                 workspace_id: identity.workspace_id,
@@ -256,7 +304,9 @@ async fn deliver_gallery(
                 tracing::warn!(%error, "delivery ZIP could not be started");
             }
 
-            Ok(HttpResponse::Ok().no_store().json(gallery))
+            let view = GalleryView::try_new(gallery, state.access_code_cipher())?;
+
+            Ok(HttpResponse::Ok().no_store().json(view))
         }
         Delivery::NotDeliverable => Err(ErrorResponse::gallery_not_shared()),
         Delivery::NotFound => Err(ErrorResponse::not_found()),
@@ -893,5 +943,121 @@ mod tests {
         let (status, _) = call(&app, share("not-a-uuid", Some(&cookie), Some(ORIGIN))).await;
 
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn access_code_round_trips_in_draft_locks_after_share_and_stays_out_of_overview(
+        pool: PgPool,
+    ) {
+        let (unconfigured_state, _dir1) = app_state(pool.clone()).await;
+        let unconfigured_app = test::init_service(
+            App::new()
+                .app_data(Data::new(unconfigured_state))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&unconfigured_app).await;
+        let (status, created) = call(&unconfigured_app, post_gallery(&cookie)).await;
+        let id = created["id"].as_str().unwrap().to_owned();
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(created["access_code_protected"], false);
+        assert_eq!(created["access_code"], Value::Null);
+
+        let (status, error) = call(
+            &unconfigured_app,
+            patch(&id, &cookie, json!({"access_code": "042819"})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error["code"], "access_code_unavailable");
+
+        let (status, cleared_without_key) = call(
+            &unconfigured_app,
+            patch(&id, &cookie, json!({"access_code": null, "title": "Draft"})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cleared_without_key["title"], "Draft");
+
+        let (configured_state, _dir2) = app_state(pool).await;
+        let key = "0123456789abcdef"
+            .repeat(4)
+            .parse::<crate::access_code::EncryptionKey>()
+            .unwrap();
+        let configured_state =
+            configured_state.with_gallery_password(&crate::config::GalleryPasswordConfig {
+                encryption_key: Some(key),
+            });
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(configured_state))
+                .configure(configure_routes),
+        )
+        .await;
+
+        let (status, protected) =
+            call(&app, patch(&id, &cookie, json!({"access_code": "042819"}))).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(protected["access_code_protected"], true);
+        assert_eq!(protected["access_code"], "042819");
+        assert!(protected.get("access_code_ciphertext").is_none());
+
+        let (_, list) = call(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/v1/galleries")
+                .cookie(cookie.clone()),
+        )
+        .await;
+
+        assert_eq!(list[0]["access_code_protected"], true);
+        assert!(list[0].get("access_code").is_none());
+        assert!(list[0].get("access_code_ciphertext").is_none());
+
+        let (_, shown) = call(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/galleries/{id}"))
+                .cookie(cookie.clone()),
+        )
+        .await;
+
+        assert_eq!(shown["access_code_protected"], true);
+        assert_eq!(shown["access_code"], "042819");
+
+        let (_, cleared) = call(&app, patch(&id, &cookie, json!({"access_code": null}))).await;
+
+        assert_eq!(cleared["access_code_protected"], false);
+        assert_eq!(cleared["access_code"], Value::Null);
+
+        call(&app, patch(&id, &cookie, json!({"access_code": "007123"}))).await;
+
+        let (status, shared) = call(&app, share(&id, Some(&cookie), Some(ORIGIN))).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(shared["access_code_protected"], true);
+        assert_eq!(shared["access_code"], "007123");
+
+        for forbidden in [json!("999999"), Value::Null] {
+            let (status, error) =
+                call(&app, patch(&id, &cookie, json!({"access_code": forbidden}))).await;
+
+            assert_eq!(status, StatusCode::CONFLICT);
+            assert_eq!(error["code"], "access_code_locked");
+        }
+
+        let (status, retitled) = call(
+            &app,
+            patch(&id, &cookie, json!({"title": "Still Editable"})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retitled["title"], "Still Editable");
+        assert_eq!(retitled["access_code"], "007123");
     }
 }

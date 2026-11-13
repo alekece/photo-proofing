@@ -18,6 +18,8 @@ use pp_database::jobs::DEFAULT_CLEANUP_BATCH;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::access_code::EncryptionKey;
+
 /// Longest [`CookieDuration`]: far beyond any sensible policy, yet small enough that adding it
 /// to the current time cannot overflow a timestamp.
 const MAX_COOKIE_MILLIS: u64 = 1000 * 365 * 24 * 60 * 60 * 1000;
@@ -102,6 +104,25 @@ pub struct ApiConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub export: ExportConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub gallery_password: GalleryPasswordConfig,
+}
+
+/// Optional encryption key for per-gallery 6-digit access codes (`[gallery_password]`).
+/// Deliberately omits `Debug` because it holds secret key material.
+#[derive(Args, ConfigArgs, Default, Clone)]
+pub struct GalleryPasswordConfig {
+    /// 256-bit key (64 hex digits or 43 unpadded base64url characters) encrypting gallery access
+    /// codes at rest and signing client unlock cookies.
+    #[arg(
+        long = "gallery-password-key",
+        env = "PP_GALLERY_PASSWORD_KEY",
+        hide_env_values = true,
+        value_parser = EncryptionKey::value_parser()
+    )]
+    #[config(value_format = EncryptionKey::encode_base64url)]
+    pub encryption_key: Option<EncryptionKey>,
 }
 
 /// Where the HTTP server listens.
@@ -694,5 +715,87 @@ mod tests {
         assert!("a b".parse::<CookieName>().is_err());
         assert!("a=b".parse::<CookieName>().is_err());
         assert!("a;b".parse::<CookieName>().is_err());
+    }
+
+    #[test]
+    fn gallery_password_key_is_optional_and_validated_when_present() {
+        if env::var_os("PP_TEST_HELP_SECRET_CHILD").is_some() {
+            let help = parse(&["--help"]).err().unwrap().to_string();
+
+            assert!(!help.contains(&"5a".repeat(32)));
+
+            let bad_env = Command::new(env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "config::tests::gallery_password_key_is_optional_and_validated_when_present",
+                ])
+                .env_remove("PP_TEST_HELP_SECRET_CHILD")
+                .env("PP_TEST_BAD_ENV_CHILD", "1")
+                .env("PP_GALLERY_PASSWORD_KEY", "secret-env-bad")
+                .output()
+                .unwrap();
+
+            assert!(bad_env.status.success());
+
+            return;
+        }
+
+        if env::var_os("PP_TEST_BAD_ENV_CHILD").is_some() {
+            let env_err = parse(&[]).err().unwrap().to_string();
+
+            assert!(!env_err.contains("secret-env-bad"), "{env_err}");
+
+            return;
+        }
+
+        let api = parse(&[]).unwrap().api;
+
+        assert!(api.gallery_password.encryption_key.is_none());
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.toml");
+        let hex_key = "0123456789abcdef".repeat(4);
+
+        fs::write(
+            &path,
+            format!("[gallery_password]\nencryption_key = '{hex_key}'\n"),
+        )
+        .unwrap();
+
+        let api = parse(&["--config", path.to_str().unwrap()]).unwrap().api;
+
+        assert!(api.gallery_password.encryption_key.is_some());
+
+        for bad in ["secret-too-short", &"zz".repeat(32)] {
+            let cli_err = parse(&["--gallery-password-key", bad]).err().unwrap();
+
+            assert!(!cli_err.to_string().contains(bad), "{bad}");
+
+            fs::write(
+                &path,
+                format!("[gallery_password]\nencryption_key = '{bad}'\n"),
+            )
+            .unwrap();
+
+            let toml_err = parse(&["--config", path.to_str().unwrap()]).err().unwrap();
+
+            assert!(!toml_err.to_string().contains(bad), "{bad}");
+        }
+
+        let output = Command::new(env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "config::tests::gallery_password_key_is_optional_and_validated_when_present",
+            ])
+            .env("PP_TEST_HELP_SECRET_CHILD", "1")
+            .env("PP_GALLERY_PASSWORD_KEY", "5a".repeat(32))
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
     }
 }

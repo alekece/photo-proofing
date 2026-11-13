@@ -1002,7 +1002,10 @@ mod tests {
             .update(
                 mine,
                 gallery_b.id,
-                &serde_json::from_value::<GalleryChanges>(json!({"title": "Wedding Day"})).unwrap(),
+                &GalleryChanges {
+                    title: Some(Some("Wedding Day".to_owned())),
+                    ..GalleryChanges::default()
+                },
             )
             .await
             .unwrap();
@@ -1010,8 +1013,10 @@ mod tests {
             .update(
                 mine,
                 gallery_a.id,
-                &serde_json::from_value::<GalleryChanges>(json!({"title": " engagement "}))
-                    .unwrap(),
+                &GalleryChanges {
+                    title: Some(Some(" engagement ".to_owned())),
+                    ..GalleryChanges::default()
+                },
             )
             .await
             .unwrap();

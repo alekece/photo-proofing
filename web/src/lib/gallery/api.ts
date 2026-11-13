@@ -36,6 +36,7 @@ export interface GalleryChanges {
 	shoot_date?: string | null;
 	included_photos?: number | null;
 	watermark_enabled?: boolean;
+	access_code?: string | null;
 	hero_id?: string | null;
 }
 
@@ -115,5 +116,29 @@ export async function deleteGallery(id: string, fetcher: typeof fetch = fetch): 
 		const code = await readResponseErrorCode(response);
 
 		throw new GalleryApiError(response.status, apiErrorMessage(response.status, code), code);
+	}
+}
+
+/** Submits a 6-digit client access code to unlock a shared gallery (`204` sets `pp_gallery_unlock`). */
+export async function unlockSharedGallery(
+	token: string,
+	code: string,
+	fetcher: typeof fetch = fetch
+): Promise<void> {
+	const response = await fetcher(`/api/v1/galleries/shared/${encodeURIComponent(token)}/unlock`, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ code })
+	});
+
+	if (!response.ok) {
+		const errorCode = await readResponseErrorCode(response);
+
+		throw new GalleryApiError(
+			response.status,
+			apiErrorMessage(response.status, errorCode),
+			errorCode
+		);
 	}
 }

@@ -55,6 +55,7 @@
 	// The expiry the restored gallery is still past; the prompt stays open while a new one is saved.
 	let expiredSince = $state<string | null>(null);
 	let heroRevision = $state<number | undefined>();
+	let expectedAccessCode = $state<string | null | 'invalid' | undefined>();
 	let previewing = $state(false);
 	let signOutError = $state('');
 	let inflight = $state(0);
@@ -82,9 +83,19 @@
 
 	// Latest save number per field: only the newest save of a field may update its state.
 	const latestSave: Record<string, number> = {};
+	// Active PATCH promises; never read by the template.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const pendingSaves = new Set<Promise<boolean>>();
 	let saveCount = 0;
 
-	async function save(changes: GalleryChanges): Promise<boolean> {
+	function save(changes: GalleryChanges): Promise<boolean> {
+		const promise = performSave(changes);
+		pendingSaves.add(promise);
+		void promise.finally(() => pendingSaves.delete(promise));
+		return promise;
+	}
+
+	async function performSave(changes: GalleryChanges): Promise<boolean> {
 		const keys = Object.keys(changes) as (keyof GalleryChanges)[];
 		const number = ++saveCount;
 		for (const key of keys) latestSave[key] = number;
@@ -99,6 +110,9 @@
 			const current = keys.filter(isLatest);
 			for (const key of current) {
 				saved = { ...saved, [key]: result[key], updated_at: result.updated_at };
+				if (key === 'access_code') {
+					saved = { ...saved, access_code_protected: result.access_code_protected };
+				}
 				delete failed[key];
 			}
 			// A response for another field may still describe an older expiry.
@@ -166,13 +180,37 @@
 			title = saved.title ?? '';
 		} else saveTitle();
 	}
-	/** Creates the client link; the share card then offers it. */
+	/** Creates the client link; awaits any pending setting saves first so access codes lock safely. */
 	async function share() {
+		flush();
+
+		while (pendingSaves.size > 0) {
+			const outcomes = await Promise.all([...pendingSaves]);
+
+			if (outcomes.includes(false)) {
+				throw new Error(m.gallery_share_failed());
+			}
+		}
+
+		if (
+			expectedAccessCode === 'invalid' ||
+			(expectedAccessCode !== undefined && (saved.access_code ?? null) !== expectedAccessCode)
+		) {
+			throw new Error(m.gallery_share_failed());
+		}
+
 		try {
 			const shared = await shareGallery(saved.id);
 
 			shareToken = shared.share_token;
-			saved = { ...saved, states: shared.states, updated_at: shared.updated_at };
+			saved = {
+				...saved,
+				share_token: shared.share_token,
+				access_code: shared.access_code,
+				access_code_protected: shared.access_code_protected,
+				states: shared.states,
+				updated_at: shared.updated_at
+			};
 		} catch (error) {
 			if (error instanceof GalleryApiError && error.status === 401) {
 				await goto('/login?expired=1', { refreshAll: true });
@@ -271,6 +309,7 @@
 	origin={page.url.origin}
 	bind:heroId={saved.hero_id}
 	bind:heroRevision
+	bind:expectedAccessCode
 	onsave={save}
 	schedule={debounce}
 	{cancel}
@@ -278,7 +317,14 @@
 		flush();
 		previewing = true;
 	}}
-	onshare={() => (publishing = 'share')}
+	onshare={() => {
+		flush();
+		if (expectedAccessCode === 'invalid') {
+			toasts.error(m.settings_access_code_invalid());
+			return;
+		}
+		publishing = 'share';
+	}}
 	onpublish={() => (publishing = 'deliver')}
 	onarchive={() => (confirming = 'archive')}
 	onrestore={restore}

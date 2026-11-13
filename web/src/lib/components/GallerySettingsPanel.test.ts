@@ -196,4 +196,168 @@ describe('GallerySettingsPanel', () => {
 		await second.user.click(screen.getByRole('button', { name: 'Restore' }));
 		expect(second.onrestore).toHaveBeenCalledOnce();
 	});
+
+	it('generates, edits, copies, and clears a 6-digit access code in Draft and reverts on failure', async () => {
+		const draft = setup({ access_code: null, access_code_protected: false });
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, 'clipboard', {
+			value: { writeText },
+			configurable: true
+		});
+		const toggle = screen.getByRole('switch', { name: 'Require access code' });
+
+		await draft.user.click(toggle);
+		expect(draft.onsave).toHaveBeenCalledWith({
+			access_code: expect.stringMatching(/^[0-9]{6}$/)
+		});
+		const input = screen.getByLabelText('6-digit access code') as HTMLInputElement;
+		expect(input.value).toMatch(/^[0-9]{6}$/);
+
+		await draft.user.click(screen.getByRole('button', { name: 'Generate' }));
+		expect(draft.onsave).toHaveBeenCalledTimes(2);
+		expect(draft.onsave.mock.calls[1]![0]).toEqual({
+			access_code: expect.stringMatching(/^[0-9]{6}$/)
+		});
+
+		await draft.user.clear(input);
+		await draft.user.type(input, '042819');
+		await draft.user.tab();
+		expect(draft.onsave).toHaveBeenLastCalledWith({ access_code: '042819' });
+
+		await draft.user.click(screen.getByRole('button', { name: 'Copy' }));
+		expect(writeText).toHaveBeenCalledWith('042819');
+
+		expect((await axe(draft.container)).violations).toEqual([]);
+
+		await draft.user.click(toggle);
+		expect(draft.onsave).toHaveBeenLastCalledWith({ access_code: null });
+		draft.unmount();
+
+		const failing = setup({ access_code: null, access_code_protected: false }, false);
+		const failToggle = screen.getByRole('switch', { name: 'Require access code' });
+		await failing.user.click(failToggle);
+		await vi.waitFor(() => expect(failToggle.getAttribute('aria-checked')).toBe('false'));
+	});
+
+	it('locks access-code controls once shared, keeping Copy when set and disabling the switch when unset', async () => {
+		const sharedWithCode = setup(
+			{ access_code: '042819', access_code_protected: true, states: ['shared'] },
+			true,
+			'A'.repeat(22)
+		);
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, 'clipboard', {
+			value: { writeText },
+			configurable: true
+		});
+		const codeInput = screen.getByLabelText('6-digit access code') as HTMLInputElement;
+		expect(codeInput.readOnly).toBe(true);
+		expect(codeInput.value).toBe('042819');
+		expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull();
+		expect(screen.getByText('Locked after sharing')).toBeTruthy();
+
+		const copyButtons = screen.getAllByRole('button', { name: 'Copy' });
+		await sharedWithCode.user.click(copyButtons[1]!);
+		expect(writeText).toHaveBeenCalledWith('042819');
+
+		expect((await axe(sharedWithCode.container)).violations).toEqual([]);
+		sharedWithCode.unmount();
+
+		const sharedWithoutCode = setup(
+			{ access_code: null, access_code_protected: false, states: ['shared'] },
+			true,
+			'A'.repeat(22)
+		);
+		const disabledSwitch = screen.getByRole('switch', { name: 'Require access code' });
+		expect((disabledSwitch as HTMLButtonElement).disabled).toBe(true);
+		expect(
+			screen.getByText('Shared without an access code — cannot be added after sharing')
+		).toBeTruthy();
+		expect((await axe(sharedWithoutCode.container)).violations).toEqual([]);
+	});
+
+	it('serializes rapid Generate clicks and reverts partial drafts when Generate fails', async () => {
+		let resolveFirst!: (ok: boolean) => void;
+		let resolveSecond!: (ok: boolean) => void;
+		let callCount = 0;
+
+		const onsave = vi.fn().mockImplementation(() => {
+			callCount += 1;
+			if (callCount === 1) return Promise.resolve(true);
+			if (callCount === 2) return new Promise<boolean>((r) => (resolveFirst = r));
+			if (callCount === 3) return new Promise<boolean>((r) => (resolveSecond = r));
+			return Promise.resolve(false);
+		});
+
+		const user = userEvent.setup();
+		render(GallerySettingsPanel, {
+			gallery: { ...gallery, access_code: null, access_code_protected: false },
+			shareToken: null,
+			origin: 'https://pp.test',
+			onsave,
+			schedule: vi.fn(),
+			cancel: vi.fn(),
+			onarchive: vi.fn(),
+			onrestore: vi.fn(),
+			ondelete: vi.fn()
+		});
+
+		await user.click(screen.getByRole('switch', { name: 'Require access code' }));
+		const input = screen.getByLabelText('6-digit access code') as HTMLInputElement;
+		const generate = screen.getByRole('button', { name: 'Generate' });
+
+		await user.click(generate);
+		await user.click(generate);
+		const secondCode = input.value;
+		expect(onsave).toHaveBeenCalledTimes(2);
+
+		resolveFirst(true);
+		await vi.waitFor(() => expect(onsave).toHaveBeenCalledTimes(3));
+		expect(onsave.mock.calls[2]![0]).toEqual({ access_code: secondCode });
+
+		resolveSecond(true);
+		await vi.waitFor(() => expect(input.value).toBe(secondCode));
+
+		// Type partial unsaved draft '12', then fail Generate -> must revert to committed secondCode, not '12'.
+		await user.clear(input);
+		await user.type(input, '12');
+		await user.click(generate);
+		await vi.waitFor(() => expect(input.value).toBe(secondCode));
+	});
+
+	it('chains an access_code: null clear when toggled OFF while the enabling PATCH is still in flight', async () => {
+		let resolveEnable!: (ok: boolean) => void;
+		const calls: Array<string | null | undefined> = [];
+		const onsave = vi.fn().mockImplementation((changes: { access_code?: string | null }) => {
+			calls.push(changes.access_code);
+			if (calls.length === 1) return new Promise<boolean>((r) => (resolveEnable = r));
+			return Promise.resolve(true);
+		});
+
+		const user = userEvent.setup();
+		render(GallerySettingsPanel, {
+			gallery: { ...gallery, access_code: null, access_code_protected: false },
+			shareToken: null,
+			origin: 'https://pp.test',
+			onsave,
+			schedule: vi.fn(),
+			cancel: vi.fn(),
+			onarchive: vi.fn(),
+			onrestore: vi.fn(),
+			ondelete: vi.fn()
+		});
+
+		const toggle = screen.getByRole('switch', { name: 'Require access code' });
+		await user.click(toggle);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toMatch(/^[0-9]{6}$/);
+
+		// Turn OFF before the first PATCH resolves: PATCH #2 (null) must wait and then fire once PATCH #1 finishes.
+		await user.click(toggle);
+		expect(calls).toHaveLength(1);
+
+		resolveEnable(true);
+		await vi.waitFor(() => expect(calls).toEqual([expect.stringMatching(/^[0-9]{6}$/), null]));
+		expect(toggle.getAttribute('aria-checked')).toBe('false');
+	});
 });

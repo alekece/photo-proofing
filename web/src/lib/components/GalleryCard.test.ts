@@ -101,4 +101,38 @@ describe('GalleryCard', () => {
 		expect(screen.getByText('New selection')).toBeTruthy();
 		expect(screen.getByText('New downloads')).toBeTruthy();
 	});
+
+	it('shows inline Lock when access_code_protected and EyeOff when Expired or Archived with zero axe violations', async () => {
+		const { container, rerender } = render(GalleryCard, {
+			gallery: gallery({ access_code_protected: true }),
+			query: ''
+		});
+
+		expect(screen.getByRole('img', { name: 'Protected by an access code' })).toBeTruthy();
+		expect(screen.queryByRole('img', { name: 'Closed to clients' })).toBeNull();
+		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
+			[]
+		);
+
+		await rerender({
+			gallery: gallery({
+				access_code_protected: true,
+				states: ['shared', 'expired'],
+				expires_at: '2026-01-01T00:00:00Z'
+			}),
+			query: ''
+		});
+		expect(screen.getByRole('img', { name: 'Protected by an access code' })).toBeTruthy();
+		expect(screen.getByRole('img', { name: 'Closed to clients' })).toBeTruthy();
+
+		await rerender({
+			gallery: gallery({ access_code_protected: false, states: ['shared', 'archived'] }),
+			query: ''
+		});
+		expect(screen.queryByRole('img', { name: 'Protected by an access code' })).toBeNull();
+		expect(screen.getByRole('img', { name: 'Closed to clients' })).toBeTruthy();
+		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
+			[]
+		);
+	});
 });

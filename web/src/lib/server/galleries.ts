@@ -5,16 +5,18 @@ import {
 	galleryOverviewSchema,
 	gallerySchema,
 	parseOrNull,
-	sharedGallerySchema,
+	sharedGalleryResponseSchema,
 	sharedPhotoSchema,
 	type Gallery,
 	type GalleryOverview,
 	type GallerySort,
 	type GalleryState,
-	type SharedGallery,
+	type SharedGalleryResponse,
 	type SharedPhoto
 } from '#lib/gallery/schemas.js';
 import { apiUrl } from './api';
+
+const UNLOCK_COOKIE_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 async function readGalleries<const S extends v.GenericSchema>(
 	fetcher: typeof fetch,
@@ -75,18 +77,23 @@ async function readShared<const S extends v.GenericSchema>(
 	fetcher: typeof fetch,
 	token: string,
 	path: string,
-	schema: S
+	schema: S,
+	unlockCookie?: string | null
 ) {
 	const unavailable = 'This gallery is temporarily unavailable. Please try again.';
 	const url = apiUrl(`/api/v1/galleries/shared/${encodeURIComponent(token)}${path}`);
+	const headers: HeadersInit =
+		unlockCookie && UNLOCK_COOKIE_PATTERN.test(unlockCookie)
+			? { Cookie: `pp_gallery_unlock=${unlockCookie}` }
+			: {};
 	let response: Response;
 
 	try {
-		response = await fetcher(url, { headers: {}, cache: 'no-store', redirect: 'error' });
+		response = await fetcher(url, { headers, cache: 'no-store', redirect: 'error' });
 	} catch {
 		error(503, unavailable);
 	}
-	if (response.status === 404) return null;
+	if (response.status === 404 || response.status === 401) return null;
 	if (!response.ok) error(503, unavailable);
 	let body: unknown;
 	try {
@@ -100,25 +107,32 @@ async function readShared<const S extends v.GenericSchema>(
 }
 
 /**
- * Resolves a private link without credentials. A 404 (unknown, malformed or expired link,
- * which the API deliberately does not distinguish) is `null`; everything else is a 503.
+ * Resolves a private link, forwarding only `pp_gallery_unlock` when present so unlocked
+ * browsers stay unlocked across reloads without exposing photographer session cookies.
+ * A 404 (unknown, malformed, archived or expired link) is `null`; everything else is a 503.
  */
 export function getSharedGallery(
 	fetcher: typeof fetch,
-	token: string
-): Promise<SharedGallery | null> {
-	return readShared(fetcher, token, '', sharedGallerySchema);
+	token: string,
+	unlockCookie?: string | null
+): Promise<SharedGalleryResponse | null> {
+	return readShared(fetcher, token, '', sharedGalleryResponseSchema, unlockCookie);
 }
 
 /** Lists the photos a client may see, with the same contract as `getSharedGallery`. */
 export function getSharedPhotos(
 	fetcher: typeof fetch,
-	token: string
+	token: string,
+	unlockCookie?: string | null
 ): Promise<SharedPhoto[] | null> {
-	return readShared(fetcher, token, '/photos', v.array(sharedPhotoSchema));
+	return readShared(fetcher, token, '/photos', v.array(sharedPhotoSchema), unlockCookie);
 }
 
 /** Lists the ids the client selected, with the same contract as `getSharedGallery`. */
-export function getSharedFavorites(fetcher: typeof fetch, token: string): Promise<string[] | null> {
-	return readShared(fetcher, token, '/favorites', favoriteIdsSchema);
+export function getSharedFavorites(
+	fetcher: typeof fetch,
+	token: string,
+	unlockCookie?: string | null
+): Promise<string[] | null> {
+	return readShared(fetcher, token, '/favorites', favoriteIdsSchema, unlockCookie);
 }

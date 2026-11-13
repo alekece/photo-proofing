@@ -46,7 +46,9 @@ Portrait (4:5) cover of the hero photo with a dark gradient at the bottom:
 - status chip at the top left: Draft, Shared, Delivered, Expired or Archived, each with its dot
   colour;
 - "New selection" or "New downloads" badge when the gallery has an unread notification;
-- title in Georgia;
+- title in Georgia, accompanied inline by subtle status icons when applicable: a **Lock** icon when
+  protected by a 6-digit access code, and an **EyeOff** icon when client access is closed (`Expired`
+  or `Archived`);
 - one line that says where it stands:
 
 | Status | Line |
