@@ -396,7 +396,7 @@ mod tests {
     };
     use pp_database::{
         Database,
-        gallery::{GalleryChanges, GalleryId, GalleryRepository, ShareToken},
+        gallery::{GalleryAccessCode, GalleryChanges, GalleryId, GalleryRepository, ShareToken},
         tests::TestRepository,
     };
     use serde_json::{Value, json};
@@ -419,7 +419,10 @@ mod tests {
         let database = Database::new(pool.clone());
         let store = database.repository::<GalleryRepository>();
         let id = store.create(workspace).await.unwrap().id;
-        let changes: GalleryChanges = serde_json::from_value(changes).unwrap();
+        let changes = serde_json::from_value::<GalleryChanges<GalleryAccessCode>>(changes)
+            .unwrap()
+            .try_map_access_code(|_| Err(()))
+            .unwrap();
 
         store.update(workspace, id, &changes).await.unwrap();
 

@@ -9,7 +9,8 @@ use sqlx::{FromRow, Row, Type, postgres::PgRow};
 use time::Date;
 
 use super::{
-    CoverLayout, FocalPoint, Gallery, GalleryLayout, GridDensity, GridSpacing, HeadingFont,
+    CoverLayout, EncryptedAccessCode, FocalPoint, Gallery, GalleryLayout, GridDensity, GridSpacing,
+    HeadingFont,
 };
 use crate::{
     contact::ContactId,
@@ -84,6 +85,9 @@ pub struct SharedAccess {
     /// Whether the client sees watermarked proofs; kept out of [`SharedGallery`] because the
     /// client page never needs it.
     pub watermark_enabled: bool,
+    /// Encrypted 6-digit access code when the gallery is code-protected; kept out of
+    /// [`SharedGallery`] so client JSON never serializes ciphertext.
+    pub access_code_ciphertext: Option<EncryptedAccessCode>,
     /// The linked contact when reached through a personal gallery-contact link, or `None` on
     /// the gallery's general link. Kept out of [`SharedGallery`] so client responses never
     /// serialize it.

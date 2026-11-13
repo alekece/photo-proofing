@@ -29,7 +29,8 @@ use actix_web::{
 };
 use actix_web_lab::extract::Query as LabQuery;
 use pp_database::gallery::{
-    Delivery, GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
+    Delivery, GalleryAccessCode, GalleryChanges, GalleryId, GalleryRepository, GallerySort,
+    GalleryState,
 };
 use pp_database::photo::{PhotoLocation, Watermarked};
 use pp_database::settings::SettingsRepository;
@@ -154,8 +155,11 @@ async fn update_gallery(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: Path<GalleryId>,
-    changes: Json<GalleryChanges>,
+    changes: Json<GalleryChanges<GalleryAccessCode>>,
 ) -> Result<HttpResponse, ErrorResponse> {
+    let changes = changes
+        .into_inner()
+        .try_map_access_code(|_| Err(ErrorResponse::unavailable()))?;
     let gallery = state
         .database()
         .repository_with::<SettingsRepository>(state.job_options())
@@ -246,6 +250,7 @@ async fn deliver_gallery(
         .await?
     {
         Delivery::Delivered(gallery) => {
+            let gallery = *gallery;
             // A head start for the first click; the click builds it if this did not.
             let location = PhotoLocation {
                 workspace_id: identity.workspace_id,

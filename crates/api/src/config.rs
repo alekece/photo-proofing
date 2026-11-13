@@ -18,6 +18,8 @@ use pp_database::jobs::DEFAULT_CLEANUP_BATCH;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::access_code::EncryptionKey;
+
 /// Longest [`CookieDuration`]: far beyond any sensible policy, yet small enough that adding it
 /// to the current time cannot overflow a timestamp.
 const MAX_COOKIE_MILLIS: u64 = 1000 * 365 * 24 * 60 * 60 * 1000;
@@ -102,6 +104,20 @@ pub struct ApiConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub export: ExportConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub gallery_password: GalleryPasswordConfig,
+}
+
+/// Optional encryption key for per-gallery 6-digit access codes (`[gallery_password]`).
+/// Deliberately omits `Debug` because it holds secret key material.
+#[derive(Args, ConfigArgs, Default, Clone)]
+pub struct GalleryPasswordConfig {
+    /// 256-bit key (64 hex digits or 43 unpadded base64url characters) encrypting gallery access
+    /// codes at rest and signing client unlock cookies.
+    #[arg(long = "gallery-password-key", env = "PP_GALLERY_PASSWORD_KEY")]
+    #[config(value_format = EncryptionKey::encode_base64url)]
+    pub encryption_key: Option<EncryptionKey>,
 }
 
 /// Where the HTTP server listens.
@@ -694,5 +710,28 @@ mod tests {
         assert!("a b".parse::<CookieName>().is_err());
         assert!("a=b".parse::<CookieName>().is_err());
         assert!("a;b".parse::<CookieName>().is_err());
+    }
+
+    #[test]
+    fn gallery_password_key_is_optional_and_validated_when_present() {
+        let api = parse(&[]).unwrap().api;
+        assert!(api.gallery_password.encryption_key.is_none());
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.toml");
+        let hex_key = "0123456789abcdef".repeat(4);
+
+        fs::write(
+            &path,
+            format!("[gallery_password]\nencryption_key = '{hex_key}'\n"),
+        )
+        .unwrap();
+
+        let api = parse(&["--config", path.to_str().unwrap()]).unwrap().api;
+        assert!(api.gallery_password.encryption_key.is_some());
+
+        for bad in ["too-short", &"zz".repeat(32)] {
+            assert!(parse(&["--gallery-password-key", bad]).is_err(), "{bad}");
+        }
     }
 }
