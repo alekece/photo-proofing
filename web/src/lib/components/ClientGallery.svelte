@@ -3,7 +3,7 @@
 	import { CommentsClient } from '#lib/gallery/comments.js';
 	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
 	import CommentThread from './CommentThread.svelte';
-	import { Download, Heart } from '@lucide/svelte';
+	import { Download, Heart, Play } from '@lucide/svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import { Selection } from '#lib/gallery/selection.svelte.js';
@@ -51,6 +51,7 @@
 	const CTA =
 		'inline-flex cursor-pointer items-center gap-2 rounded-full border px-5 py-2.5 text-xs tracking-[0.16em] uppercase transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus';
 	let viewerIndex = $state<number | null>(null);
+	let viewerAutoplay = $state(false);
 	// Frozen while the viewer is open, so unfavoriting under the ♥ filter doesn't shift its photos.
 	let viewerProofs = $state.raw<Proof[]>([]);
 	let onlyFavorites = $state(false);
@@ -306,6 +307,21 @@
 							{title}
 						</h2>
 						<span class="flex-1"></span>
+						{#if shown.length > 1}
+							<button
+								type="button"
+								aria-label={m.client_slideshow()}
+								onclick={() => {
+									viewerProofs = shown;
+									viewerAutoplay = true;
+									viewerIndex = 0;
+								}}
+								class="inline-flex min-h-9 min-w-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-full border border-border bg-panel px-3.5 py-1.5 text-[0.8125rem] font-semibold text-foreground transition-colors hover:bg-foreground/5 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus @max-[700px]:px-2.5"
+							>
+								<Play size={14} aria-hidden="true" />
+								<span class="@max-[700px]:hidden">{m.client_slideshow()}</span>
+							</button>
+						{/if}
 						{#if delivered}
 							<Button size="sm" disabled={downloading} onclick={downloadAll}>
 								<Download size={16} aria-hidden="true" class="mr-2" />{downloading
@@ -375,6 +391,7 @@
 					readonly={preview}
 					commentCount={comments ? (id) => comments.count(id) : undefined}
 					onopen={(i) => {
+						viewerAutoplay = false;
 						viewerProofs = shown;
 						viewerIndex = i;
 					}}
@@ -400,8 +417,12 @@
 		bind:index={viewerIndex}
 		{title}
 		readonly={preview}
+		autoplay={viewerAutoplay}
 		isSelected={(id) => selection.has(id)}
-		onclose={() => (viewerIndex = null)}
+		onclose={() => {
+			viewerIndex = null;
+			viewerAutoplay = false;
+		}}
 		onselect={select}
 		thread={comments ? photoThread : undefined}
 		commentCount={(id) => comments?.count(id) ?? 0}
