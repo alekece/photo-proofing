@@ -75,6 +75,24 @@ impl FromRow<'_, PgRow> for SharedGallery {
     }
 }
 
+/// Minimal metadata of a shared gallery safe to show on the client access-code gate before unlock.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SharedGalleryGate {
+    pub title: Option<String>,
+    pub shoot_date: Option<Date>,
+    pub has_cover: bool,
+}
+
+impl From<SharedGallery> for SharedGalleryGate {
+    fn from(gallery: SharedGallery) -> Self {
+        Self {
+            title: gallery.title,
+            shoot_date: gallery.shoot_date,
+            has_cover: gallery.hero_id.is_some(),
+        }
+    }
+}
+
 /// A gallery reached through its private link: where its photos live, and what the client sees.
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct SharedAccess {

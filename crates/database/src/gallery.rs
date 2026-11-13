@@ -20,7 +20,7 @@ use thiserror::Error;
 use time::Date;
 use uuid::Uuid;
 
-pub use self::share::{ShareToken, SharedAccess, SharedGallery};
+pub use self::share::{ShareToken, SharedAccess, SharedGallery, SharedGalleryGate};
 use crate::{
     Repository,
     auth::WorkspaceId,

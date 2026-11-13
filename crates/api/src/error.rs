@@ -36,6 +36,10 @@ pub(crate) enum ErrorCode {
     ForbiddenOrigin,
     NotFound,
     SetupClosed,
+    GalleryLocked,
+    InvalidAccessCode,
+    AccessCodeLocked,
+    AccessCodeUnavailable,
     GalleryDelivered,
     ContactEmailTaken,
     ThreadFull,
@@ -132,6 +136,24 @@ impl ErrorResponse {
 
     pub fn not_found() -> Self {
         Self::new(StatusCode::NOT_FOUND, ErrorCode::NotFound)
+    }
+
+    pub fn gallery_locked() -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, ErrorCode::GalleryLocked)
+            .with_context("gallery requires an access code")
+    }
+
+    pub fn invalid_access_code() -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, ErrorCode::InvalidAccessCode)
+            .with_context("incorrect gallery access code")
+    }
+
+    pub fn access_code_unavailable() -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::AccessCodeUnavailable,
+        )
+        .with_context("gallery access codes are not configured")
     }
 
     pub fn gallery_delivered() -> Self {
@@ -276,6 +298,11 @@ impl From<AuthError> for ErrorResponse {
 
 impl From<GalleryError> for ErrorResponse {
     fn from(error: GalleryError) -> Self {
+        if matches!(error, GalleryError::AccessCodeLocked) {
+            return Self::new(StatusCode::CONFLICT, ErrorCode::AccessCodeLocked)
+                .with_context(error.to_string());
+        }
+
         let Some(setting) = error.setting() else {
             return Self::unavailable();
         };
@@ -418,6 +445,10 @@ mod tests {
             (ErrorCode::ForbiddenOrigin, "forbidden_origin"),
             (ErrorCode::NotFound, "not_found"),
             (ErrorCode::SetupClosed, "setup_closed"),
+            (ErrorCode::GalleryLocked, "gallery_locked"),
+            (ErrorCode::InvalidAccessCode, "invalid_access_code"),
+            (ErrorCode::AccessCodeLocked, "access_code_locked"),
+            (ErrorCode::AccessCodeUnavailable, "access_code_unavailable"),
             (ErrorCode::GalleryDelivered, "gallery_delivered"),
             (ErrorCode::ContactEmailTaken, "contact_email_taken"),
             (ErrorCode::GalleryNotShared, "gallery_not_shared"),

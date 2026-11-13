@@ -31,11 +31,12 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
+    access_code::{AccessCodeCipher, UNLOCK_COOKIE_NAME},
     comment_limiter::CommentLimiter,
     config::{
         ApiConfig, AuthConfig, CommentsConfig, CookieDuration, CookieName,
-        DEFAULT_COMMENT_INTERVAL, DEFAULT_COMMENT_LIMIT, HttpConfig, LimiterConfig, QueueConfig,
-        SessionConfig, UploadConfig,
+        DEFAULT_COMMENT_INTERVAL, DEFAULT_COMMENT_LIMIT, GalleryPasswordConfig, HttpConfig,
+        LimiterConfig, QueueConfig, SessionConfig, UploadConfig,
     },
     credentials::{HashError, PasswordHash},
     error::ErrorResponse,
@@ -97,6 +98,7 @@ pub(crate) struct ApiState {
     dummy_hash: PasswordHash,
     comment_limiter: CommentLimiter,
     comment_limit: NonZeroU16,
+    access_code_cipher: Option<AccessCodeCipher>,
 }
 
 impl ApiState {
@@ -133,11 +135,33 @@ impl ApiState {
             dummy_hash: PasswordHash::generate()?,
             comment_limiter: CommentLimiter::new(DEFAULT_COMMENT_INTERVAL),
             comment_limit: DEFAULT_COMMENT_LIMIT,
+            access_code_cipher: None,
         })
     }
 
     pub fn database(&self) -> &Database {
         &self.database
+    }
+
+    #[must_use]
+    pub fn with_gallery_password(mut self, config: &GalleryPasswordConfig) -> Self {
+        self.access_code_cipher = config.encryption_key.as_ref().map(AccessCodeCipher::new);
+
+        self
+    }
+
+    pub fn access_code_cipher(&self) -> Option<&AccessCodeCipher> {
+        self.access_code_cipher.as_ref()
+    }
+
+    pub fn unlock_cookie(&self, value: String) -> Cookie<'static> {
+        Cookie::build(UNLOCK_COOKIE_NAME, value)
+            .path("/")
+            .http_only(true)
+            .same_site(SameSite::Lax)
+            .secure(self.secure_cookie)
+            .max_age(CookieMaxAge::days(30))
+            .finish()
     }
 
     #[must_use]
@@ -332,7 +356,8 @@ impl Api {
             config.queue,
         )?
         .with_export(&config.export)
-        .with_comments(&config.comments);
+        .with_comments(&config.comments)
+        .with_gallery_password(&config.gallery_password);
 
         Ok(Self {
             http: config.http,
