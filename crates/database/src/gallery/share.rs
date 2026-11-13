@@ -9,7 +9,10 @@ use sqlx::{FromRow, Row, Type, postgres::PgRow};
 use time::Date;
 
 use super::{CoverLayout, FocalPoint, Gallery, GalleryLayout};
-use crate::photo::{PhotoId, PhotoLocation};
+use crate::{
+    contact::ContactId,
+    photo::{PhotoId, PhotoLocation},
+};
 
 /// The unguessable value that makes up a gallery's private link.
 ///
@@ -73,4 +76,8 @@ pub struct SharedAccess {
     /// Whether the client sees watermarked proofs; kept out of [`SharedGallery`] because the
     /// client page never needs it.
     pub watermark_enabled: bool,
+    /// The linked contact when reached through a personal gallery-contact link, or `None` on
+    /// the gallery's general link. Kept out of [`SharedGallery`] so client responses never
+    /// serialize it.
+    pub contact_id: Option<ContactId>,
 }

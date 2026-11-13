@@ -33,6 +33,9 @@ const INVALID_BYTE_SEQUENCE: &str = "22021";
 /// The CHECK constraint bounding the title length; see the migration.
 const TITLE_LENGTH_CONSTRAINT: &str = "galleries_title_length";
 
+/// Unique constraint on a gallery's general share token.
+const SHARE_TOKEN_UNIQUE: &str = "galleries_share_token_unique";
+
 /// A setting that failed validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
 pub enum GallerySetting {
@@ -648,6 +651,12 @@ impl GalleryRepository<'_> {
         )
     }
 
+    fn is_token_collision(error: &sqlx::Error) -> bool {
+        error
+            .as_database_error()
+            .is_some_and(|db| db.constraint() == Some(SHARE_TOKEN_UNIQUE))
+    }
+
     /// Returns the gallery with its private link, creating the link if it has none. A shared
     /// gallery keeps its token for good. Sharing is not an edit, so `updated_at` is untouched.
     pub async fn share(
@@ -655,38 +664,86 @@ impl GalleryRepository<'_> {
         workspace_id: WorkspaceId,
         id: GalleryId,
     ) -> Result<Option<Gallery>, DatabaseError> {
-        // The row lock taken by UPDATE makes concurrent calls converge on the first token.
-        Ok(sqlx::query_as(AssertSqlSafe(format!(
-            "UPDATE galleries SET share_token = COALESCE(share_token, $3),
-                 shared_at = COALESCE(shared_at, now())
-             WHERE id=$1 AND workspace_id=$2
-             RETURNING {}",
-            Self::COLUMNS
-        )))
-        .bind(id)
-        .bind(workspace_id)
-        .bind(ShareToken::generate())
-        .fetch_optional(self.pool)
-        .await?)
+        self.share_with(workspace_id, id, ShareToken::generate)
+            .await
     }
 
-    /// Finds the gallery behind a private link, with where its photos live. Unknown, archived and expired links are the same `None`,
-    /// so a client cannot tell them apart; the database clock decides expiry.
+    pub(crate) async fn share_with(
+        &self,
+        workspace_id: WorkspaceId,
+        id: GalleryId,
+        mut next_token: impl FnMut() -> ShareToken,
+    ) -> Result<Option<Gallery>, DatabaseError> {
+        loop {
+            let candidate = next_token();
+            // The row lock taken by UPDATE makes concurrent calls converge on the first token.
+            let update_result = sqlx::query_as::<_, Gallery>(AssertSqlSafe(format!(
+                "UPDATE galleries SET share_token = COALESCE(share_token, $3),
+                     shared_at = COALESCE(shared_at, now())
+                 WHERE id = $1 AND workspace_id = $2
+                   AND (share_token IS NOT NULL
+                        OR NOT EXISTS (SELECT 1 FROM gallery_contacts WHERE share_token = $3))
+                 RETURNING {}",
+                Self::COLUMNS
+            )))
+            .bind(id)
+            .bind(workspace_id)
+            .bind(candidate)
+            .fetch_optional(self.pool)
+            .await;
+
+            match update_result {
+                Ok(Some(gallery)) => return Ok(Some(gallery)),
+                Ok(None) => {
+                    if self.get(workspace_id, id).await?.is_none() {
+                        return Ok(None);
+                    }
+                }
+                Err(error) if Self::is_token_collision(&error) => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
+    /// Finds the gallery behind a general or per-contact private link, with where its photos
+    /// live. Unshared, unknown, archived and expired links are the same `None`, so a client
+    /// cannot tell them apart; the database clock decides expiry.
     pub async fn find_shared(
         &self,
         token: &ShareToken,
     ) -> Result<Option<SharedAccess>, DatabaseError> {
         Ok(sqlx::query_as(
-            "SELECT g.id AS gallery_id,g.workspace_id,g.title,g.layout,g.cover_layout,
-                    g.hero_focal_x,g.hero_focal_y,g.shoot_date,g.expires_at,g.included_photos,
+            "SELECT g.id AS gallery_id,
+                    g.workspace_id,
+                    g.title,
+                    g.layout,
+                    g.cover_layout,
+                    g.hero_focal_x,
+                    g.hero_focal_y,
+                    g.shoot_date,
+                    g.expires_at,
+                    g.included_photos,
                     g.watermark_enabled,
                     g.delivered_at IS NOT NULL AS delivered,
                     (SELECT p.id FROM photos p
                      WHERE p.id = g.hero_id AND p.clean_ready AND p.kind = 'proof'
-                       AND p.gallery_id = g.id AND p.workspace_id = g.workspace_id) AS hero_id
-             FROM galleries g
-             WHERE g.share_token=$1 AND g.archived_at IS NULL
-               AND (g.expires_at IS NULL OR g.expires_at > now())",
+                       AND p.gallery_id = g.id AND p.workspace_id = g.workspace_id) AS hero_id,
+                    matched.contact_id
+             FROM (
+                 SELECT id AS gallery_id, NULL::uuid AS contact_id
+                 FROM galleries
+                 WHERE share_token = $1
+                 UNION ALL
+                 SELECT gallery_id, contact_id
+                 FROM gallery_contacts
+                 WHERE share_token = $1
+             ) AS matched
+             JOIN galleries g ON g.id = matched.gallery_id
+             WHERE g.shared_at IS NOT NULL
+               AND g.archived_at IS NULL
+               AND (g.expires_at IS NULL OR g.expires_at > now())
+             ORDER BY matched.contact_id NULLS FIRST
+             LIMIT 1",
         )
         .bind(token)
         .fetch_optional(self.pool)
