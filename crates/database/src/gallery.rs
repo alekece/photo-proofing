@@ -322,6 +322,8 @@ pub struct Gallery {
     pub id: GalleryId,
     /// `None` means the gallery has no title yet.
     pub title: Option<String>,
+    /// Photographer-only pin that sorts this gallery ahead of unfavorited ones on the dashboard.
+    pub favorite: bool,
     pub layout: GalleryLayout,
     pub cover_layout: CoverLayout,
     pub focal_point: FocalPoint,
@@ -407,6 +409,7 @@ impl FromRow<'_, PgRow> for Gallery {
         Ok(Self {
             id: row.try_get("id")?,
             title: row.try_get("title")?,
+            favorite: row.try_get("favorite")?,
             layout: row.try_get("layout")?,
             cover_layout: row.try_get("cover_layout")?,
             focal_point: FocalPoint::from_row(row)?,
@@ -478,6 +481,12 @@ pub struct GalleryChanges<C = EncryptedAccessCode> {
         skip_serializing_if = "Option::is_none"
     )]
     pub title: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "GalleryChanges::deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub favorite: Option<bool>,
     #[serde(
         default,
         deserialize_with = "GalleryChanges::deserialize_present",
@@ -560,6 +569,7 @@ impl<C> Default for GalleryChanges<C> {
     fn default() -> Self {
         Self {
             title: None,
+            favorite: None,
             layout: None,
             cover_layout: None,
             focal_point: None,
@@ -584,6 +594,24 @@ impl<C> GalleryChanges<C> {
         *self == Self::default()
     }
 
+    /// Whether any setting other than `favorite` is being modified, so starring or unstarring
+    /// alone leaves `updated_at` untouched.
+    const fn touches_updated_at(&self) -> bool {
+        self.title.is_some()
+            || self.layout.is_some()
+            || self.cover_layout.is_some()
+            || self.focal_point.is_some()
+            || self.heading_font.is_some()
+            || self.grid_density.is_some()
+            || self.grid_spacing.is_some()
+            || self.expires_at.is_some()
+            || self.included_photos.is_some()
+            || self.watermark_enabled.is_some()
+            || self.access_code.is_some()
+            || self.hero_id.is_some()
+            || self.shoot_date.is_some()
+    }
+
     /// Transforms an inner `Some(Some(code))` access code while preserving `None` and `Some(None)`.
     pub fn try_map_access_code<U, E>(
         self,
@@ -597,6 +625,7 @@ impl<C> GalleryChanges<C> {
 
         Ok(GalleryChanges {
             title: self.title,
+            favorite: self.favorite,
             layout: self.layout,
             cover_layout: self.cover_layout,
             focal_point: self.focal_point,
@@ -649,10 +678,10 @@ pub enum GallerySort {
 impl GallerySort {
     fn order_by(self) -> &'static str {
         match self {
-            Self::Updated => "updated_at DESC, id",
-            Self::Created => "created_at DESC, id",
-            Self::Oldest => "created_at, id",
-            Self::Title => "lower(title) NULLS LAST, id",
+            Self::Updated => "favorite DESC, updated_at DESC, id",
+            Self::Created => "favorite DESC, created_at DESC, id",
+            Self::Oldest => "favorite DESC, created_at, id",
+            Self::Title => "favorite DESC, lower(title) NULLS LAST, id",
         }
     }
 }
@@ -686,7 +715,7 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
 
 impl GalleryRepository<'_> {
     // Interpolated identifiers are fixed here or selected from GallerySort's closed enum.
-    const COLUMNS: &'static str = "id,title,layout,cover_layout,hero_focal_x,hero_focal_y,heading_font,grid_density,grid_spacing,expires_at,included_photos,watermark_enabled,access_code_ciphertext,hero_id,share_token,shared_at,last_opened_at,shoot_date,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
+    const COLUMNS: &'static str = "id,title,favorite,layout,cover_layout,hero_focal_x,hero_focal_y,heading_font,grid_density,grid_spacing,expires_at,included_photos,watermark_enabled,access_code_ciphertext,hero_id,share_token,shared_at,last_opened_at,shoot_date,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
 
     /// How long after a recorded client open later opens change nothing. Fixed, not configurable:
     /// a minute collapses reload bursts while "last opened" stays fresh enough to compare with
@@ -1029,7 +1058,8 @@ impl GalleryRepository<'_> {
                 grid_density = COALESCE($19, grid_density),
                 grid_spacing = COALESCE($20, grid_spacing),
                 access_code_ciphertext = CASE WHEN $21 THEN $22 ELSE access_code_ciphertext END,
-                updated_at = now()
+                favorite = COALESCE($23, favorite),
+                updated_at = CASE WHEN $24 THEN now() ELSE updated_at END
              WHERE id=$1 AND workspace_id=$2
                AND (NOT $21 OR (shared_at IS NULL AND share_token IS NULL))
                AND (NOT $11 OR $12::uuid IS NULL OR EXISTS (
@@ -1062,6 +1092,8 @@ impl GalleryRepository<'_> {
         .bind(changes.grid_spacing)
         .bind(changes.access_code.is_some())
         .bind(changes.access_code.as_ref().and_then(Option::as_ref))
+        .bind(changes.favorite)
+        .bind(changes.touches_updated_at())
         .fetch_optional(executor)
         .await
         .map_err(GalleryError::classify)
@@ -2965,6 +2997,157 @@ mod tests {
         assert_eq!(
             contact_found.access_code_ciphertext.as_ref(),
             Some(&first_cipher)
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn migration_adds_favorite_false_default(pool: PgPool) {
+        let mut transaction = pool.begin().await.unwrap();
+        let schema = format!("favorite_migration_{}", Uuid::new_v4().simple());
+
+        sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(AssertSqlSafe(format!("SET LOCAL search_path TO {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        for migration in [
+            include_str!("../migrations/0001_accounts_sessions.sql"),
+            include_str!("../migrations/0002_galleries.sql"),
+        ] {
+            sqlx::raw_sql(migration)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        let workspace_id = Uuid::new_v4();
+        let gallery_id = Uuid::new_v4();
+
+        sqlx::query("INSERT INTO workspaces(id) VALUES ($1)")
+            .bind(workspace_id)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO galleries(id, workspace_id) VALUES ($1, $2)")
+            .bind(gallery_id)
+            .bind(workspace_id)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(include_str!("../migrations/0034_gallery_favorite.sql"))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let favorite: bool = sqlx::query_scalar("SELECT favorite FROM galleries WHERE id = $1")
+            .bind(gallery_id)
+            .fetch_one(&mut *transaction)
+            .await
+            .unwrap();
+
+        assert!(!favorite);
+        transaction.rollback().await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn favorites_sort_first_across_all_modes_and_keep_updated_at_when_toggled_alone(
+        pool: PgPool,
+    ) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let first = store.create(workspace).await.unwrap();
+        let second = store.create(workspace).await.unwrap();
+
+        sqlx::query(
+            "UPDATE galleries SET title = 'Beta',
+                 created_at = '2026-01-01T10:00:00Z',
+                 updated_at = '2026-01-01T10:00:00Z'
+             WHERE id = $1",
+        )
+        .bind(first.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE galleries SET title = 'Alpha',
+                 created_at = '2026-01-02T10:00:00Z',
+                 updated_at = '2026-01-02T10:00:00Z'
+             WHERE id = $1",
+        )
+        .bind(second.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let before = store.get(workspace, first.id).await.unwrap().unwrap();
+        assert!(!before.favorite);
+
+        let starred = store
+            .update(workspace, first.id, &changes(json!({"favorite": true})))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(starred.favorite);
+        assert_eq!(starred.updated_at, before.updated_at);
+
+        for sort in [
+            GallerySort::Updated,
+            GallerySort::Created,
+            GallerySort::Oldest,
+            GallerySort::Title,
+        ] {
+            let ids: Vec<GalleryId> = store
+                .list(workspace, sort, &[])
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|item| item.gallery.id)
+                .collect();
+
+            assert_eq!(ids, vec![first.id, second.id], "{sort:?}");
+        }
+
+        let token = store
+            .share(workspace, first.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .share_token
+            .unwrap();
+        let shared_json =
+            serde_json::to_value(store.find_shared(&token).await.unwrap().unwrap().gallery)
+                .unwrap();
+
+        assert!(shared_json.get("favorite").is_none());
+
+        let unstarred = store
+            .update(workspace, first.id, &changes(json!({"favorite": false})))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(!unstarred.favorite);
+        assert_eq!(unstarred.updated_at, before.updated_at);
+
+        let updated_ids: Vec<GalleryId> = store
+            .list(workspace, GallerySort::Updated, &[])
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|item| item.gallery.id)
+            .collect();
+
+        assert_eq!(updated_ids, vec![second.id, first.id]);
+        assert!(
+            serde_json::from_value::<GalleryChanges<GalleryAccessCode>>(json!({"favorite": null}))
+                .is_err()
         );
     }
 }
