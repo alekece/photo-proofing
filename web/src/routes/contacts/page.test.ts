@@ -173,6 +173,9 @@ describe('/contacts page', () => {
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
 		expect(await screen.findByRole('heading', { level: 2, name: 'Camille Laurent' })).toBeTruthy();
+		const savedBtn = screen.getByRole('button', { name: 'Saved' });
+		expect(savedBtn.hasAttribute('disabled')).toBe(false);
+		expect(savedBtn.getAttribute('aria-disabled')).toBe('true');
 		expect(fetcher).toHaveBeenCalledWith(
 			'/api/v1/contacts/c1',
 			expect.objectContaining({ method: 'PATCH' })

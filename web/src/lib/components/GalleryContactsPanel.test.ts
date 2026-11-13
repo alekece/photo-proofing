@@ -121,6 +121,58 @@ describe('GalleryContactsPanel', () => {
 		expect(await screen.findByText('Léo Martin')).toBeTruthy();
 		expect(oncount).toHaveBeenLastCalledWith(1);
 	});
+
+	it('lets the user retry linking without duplicating the contact if inline link fails after creation', async () => {
+		const user = userEvent.setup();
+		const created: Contact = {
+			id: 'c3',
+			name: 'Léo Martin',
+			email: 'leo@example.test',
+			phone: null,
+			notes: null,
+			galleries: [],
+			created_at: '2026-11-13T10:00:00Z',
+			updated_at: '2026-11-13T10:00:00Z'
+		};
+		const linked: Contact = {
+			...created,
+			galleries: [{ id: 'g1', title: 'Wedding' }]
+		};
+
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
+			.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
+			.mockResolvedValueOnce(new Response(JSON.stringify(created), { status: 201 }))
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ code: 'unavailable' }), {
+					status: 503,
+					headers: { 'Content-Type': 'application/json' }
+				})
+			)
+			.mockResolvedValueOnce(new Response(JSON.stringify(linked), { status: 200 }));
+		vi.stubGlobal('fetch', fetcher);
+
+		render(GalleryContactsPanel, { galleryId: 'g1' });
+
+		expect(await screen.findByText('No contacts linked yet.')).toBeTruthy();
+		await user.click(screen.getAllByRole('button', { name: '+ Link contact' })[0]);
+
+		const dialog = await screen.findByRole('dialog');
+		await user.type(within(dialog).getByLabelText('Name'), 'Léo Martin');
+		await user.type(within(dialog).getByLabelText('Email'), 'leo@example.test');
+		await user.click(within(dialog).getByRole('button', { name: 'Create & link' }));
+
+		expect(await within(dialog).findByRole('alert')).toBeTruthy();
+		await user.click(within(dialog).getByRole('button', { name: 'Link' }));
+
+		expect(await screen.findByText('Léo Martin')).toBeTruthy();
+		expect(
+			fetcher.mock.calls.filter(
+				([url, init]) => url === '/api/v1/contacts' && init?.method === 'POST'
+			)
+		).toHaveLength(1);
+	});
 });
 
 describe('GalleryContactsPanel in French', () => {

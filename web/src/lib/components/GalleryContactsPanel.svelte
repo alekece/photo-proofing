@@ -161,6 +161,8 @@
 		try {
 			const created = await createContact({ name, email, phone, notes });
 			directoryContacts = sortContacts([...directoryContacts, created]);
+			pickerQuery = '';
+			dialogMode = 'existing';
 
 			const added = await linkGalleryContact(galleryId, created.id);
 			const next = sortContacts([...linked.filter((item) => item.id !== added.id), added]);

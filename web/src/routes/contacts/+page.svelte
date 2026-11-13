@@ -548,7 +548,7 @@
 								</Button>
 								<SaveButton
 									status={shownSaveStatus}
-									disabled={!dirty}
+									disabled={shownSaveStatus === 'idle' && !dirty}
 									onclick={() => void submitSave()}
 								/>
 							{/if}
