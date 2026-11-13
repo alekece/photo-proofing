@@ -89,6 +89,10 @@ describe('GalleryStudio', () => {
 		await view.user.click(coverButton);
 		expect(screen.getByRole('tab', { name: 'Design' }).getAttribute('aria-selected')).toBe('true');
 		expect(screen.getByRole('heading', { name: 'Design' })).toBeTruthy();
+
+		const pad = screen.getByRole('button', { name: 'Cover focal point (50%, 35%)' });
+		await fireEvent.keyDown(pad, { key: 'ArrowLeft', shiftKey: true });
+		expect((image as HTMLImageElement).style.objectPosition).toBe('40% 35%');
 	});
 
 	it('renders compact CoverBackdrop for an untitled gallery without a cover and passes axe', async () => {

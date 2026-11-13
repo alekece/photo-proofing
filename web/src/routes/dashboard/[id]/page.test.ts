@@ -73,11 +73,30 @@ const open = (over: Partial<Gallery> = {}) =>
 const stubApi = (status = 200) => {
 	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
 		if (url.includes('/auth/')) return new Response(null, { status: 204 });
+		if (!init?.method || init.method === 'GET') {
+			if (url.endsWith('/settings')) {
+				return Response.json({
+					studio_name: '',
+					mark: 'name',
+					pattern: 'repeat',
+					position: 8,
+					size: 4,
+					signature: 'name',
+					signature_size: 4,
+					proof_quality: 'medium',
+					has_logo: false
+				});
+			}
+			return Response.json([]);
+		}
 		if (status !== 200) return new Response(JSON.stringify({ error: 'nope' }), { status });
 		return new Response(JSON.stringify({ ...base, ...JSON.parse(init?.body as string) }));
 	});
 	vi.stubGlobal('fetch', fetcher);
-	return () => fetcher.mock.calls.filter(([url]) => url.includes('/galleries/'));
+	return () =>
+		fetcher.mock.calls.filter(
+			([url, init]) => url.includes('/galleries/') && (init?.method ?? 'GET') !== 'GET'
+		);
 };
 
 beforeEach(() => {

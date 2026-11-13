@@ -337,7 +337,16 @@
 				/>
 			</div>
 			<div hidden={section !== 'design'}>
-				<GalleryDesignPanel layout={gallery.layout} {onsave} />
+				<GalleryDesignPanel
+					{gallery}
+					bind:heroId={() => coverId, (next) => (heroId = next)}
+					{heroRevision}
+					bind:focalPoint={liveFocalPoint}
+					active={section === 'design'}
+					{onsave}
+					{schedule}
+					{cancel}
+				/>
 			</div>
 			<div hidden={section !== 'settings'}>
 				<GallerySettingsPanel

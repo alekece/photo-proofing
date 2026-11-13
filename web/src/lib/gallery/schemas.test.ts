@@ -89,7 +89,7 @@ describe('schemas', () => {
 	});
 
 	it('default and validate cover_layout and focal_point bounds on owner and shared galleries', () => {
-		const { cover_layout: _cl, focal_point: _fp, ...legacyGallery } = gallery;
+		const legacyGallery = { ...gallery, cover_layout: undefined, focal_point: undefined };
 		expect(parseOrNull(gallerySchema, legacyGallery)).toMatchObject({
 			cover_layout: 'full_bleed',
 			focal_point: { x: 50, y: 35 }

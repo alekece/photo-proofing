@@ -31,7 +31,8 @@
 		signatureSize = DEFAULT_SIZE,
 		preview = false,
 		framed = false,
-		showCoverWhenEmpty = false
+		showCoverWhenEmpty = false,
+		embedded = false
 	}: {
 		/** The private link's token; the owner's preview has none. */
 		token?: string;
@@ -53,6 +54,8 @@
 		framed?: boolean;
 		/** Renders the cover template even when the gallery has zero photos and no hero (for live Design editing). */
 		showCoverWhenEmpty?: boolean;
+		/** Embedded inside a page that already provides a `<main>` landmark (Studio Design). */
+		embedded?: boolean;
 	} = $props();
 	let viewerIndex = $state<number | null>(null);
 	let viewerAutoplay = $state(false);
@@ -156,11 +159,13 @@
 	const formattedShootDate = $derived(
 		gallery.shoot_date ? formatFullDate(`${gallery.shoot_date}T12:00`) : null
 	);
+	const rootTag = $derived(embedded ? 'div' : 'main');
 </script>
 
 <!-- Container queries stand in for the prototype's 700px media rule, so the phone preview narrows too. -->
 {#if proofs.length === 0 && !delivered && !cover && !showCoverWhenEmpty}
-	<main
+	<svelte:element
+		this={rootTag}
 		class="@container flex flex-1 flex-col items-center overflow-hidden bg-[radial-gradient(120%_70%_at_50%_0,#2e241d,#16120f_60%)] pt-[34px] pb-10 text-center text-[#f4efe8]"
 	>
 		<StudioSignature
@@ -192,9 +197,9 @@
 			<p class="mt-1.5 text-[#bfb2a4]">{m.client_check_back()}</p>
 		</div>
 		<p class="mt-auto pt-10 text-xs tracking-[0.06em] text-[#8d7f72]">{m.client_shared_with()}</p>
-	</main>
+	</svelte:element>
 {:else if proofs.length === 0 && delivered && !showCoverWhenEmpty}
-	<main class="@container flex flex-1 flex-col bg-background">
+	<svelte:element this={rootTag} class="@container flex flex-1 flex-col bg-background">
 		<header
 			class="relative isolate flex h-[300px] flex-none flex-col justify-end overflow-hidden bg-[#2b2420] px-8 pb-[26px] text-panel"
 		>
@@ -243,9 +248,9 @@
 				<p class="mt-1.5 text-muted-foreground">{m.client_check_back()}</p>
 			</div>
 		</div>
-	</main>
+	</svelte:element>
 {:else}
-	<main class="@container bg-background">
+	<svelte:element this={rootTag} class="@container bg-background">
 		<ClientCover
 			bind:hero
 			{title}
@@ -377,7 +382,7 @@
 				/>
 			{/if}
 		</div>
-	</main>
+	</svelte:element>
 {/if}
 {#snippet photoThread(proof: Proof)}
 	{#if comments}
