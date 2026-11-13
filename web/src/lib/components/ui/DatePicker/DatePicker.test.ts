@@ -106,7 +106,7 @@ describe('DatePicker', () => {
 		expect(screen.queryByRole('button', { name: 'In 1 week' })).toBeNull();
 	});
 
-	it('computes all six relative presets from today (including month-end rollover) and closes on click', async () => {
+	it('computes all seven relative presets from today (including month-end rollover) and closes on click', async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		vi.setSystemTime(new Date(2026, 0, 31, 12, 0, 0));
 
@@ -126,6 +126,7 @@ describe('DatePicker', () => {
 			['In 2 weeks', '2026-02-14'],
 			['In 1 month', '2026-02-28'],
 			['In 2 months', '2026-03-31'],
+			['In 4 months', '2026-05-31'],
 			['In 6 months', '2026-07-31'],
 			['In 1 year', '2027-01-31']
 		];
@@ -207,6 +208,7 @@ describe('DatePicker in French', () => {
 			'Dans 2 semaines',
 			'Dans 1 mois',
 			'Dans 2 mois',
+			'Dans 4 mois',
 			'Dans 6 mois',
 			'Dans 1 an'
 		]) {

@@ -54,6 +54,7 @@
 		{ label: () => m.date_preset_2_weeks(), duration: { weeks: 2 } },
 		{ label: () => m.date_preset_1_month(), duration: { months: 1 } },
 		{ label: () => m.date_preset_2_months(), duration: { months: 2 } },
+		{ label: () => m.date_preset_4_months(), duration: { months: 4 } },
 		{ label: () => m.date_preset_6_months(), duration: { months: 6 } },
 		{ label: () => m.date_preset_1_year(), duration: { years: 1 } }
 	];
@@ -84,7 +85,7 @@
 		className
 	)}
 	{rootClass}
-	panelClass="min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(30rem,calc(100dvh-2rem))] overflow-y-auto bg-white"
+	panelClass="min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(32rem,calc(100dvh-2rem))] overflow-y-auto bg-white"
 >
 	{#snippet trigger()}
 		<CalendarDays size={16} class="shrink-0 text-muted-foreground" aria-hidden="true" />
