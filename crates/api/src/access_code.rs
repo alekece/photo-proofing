@@ -19,9 +19,7 @@ use chacha20poly1305::{
     ChaCha20Poly1305, Nonce,
     aead::{Aead, KeyInit as _, Payload},
 };
-use clap::{
-    Command as ClapCommand, Error as ClapError, builder::TypedValueParser, error::ErrorKind,
-};
+use clap::{Arg, Command, Error as ClapError, builder::TypedValueParser, error::ErrorKind};
 use hmac::{Hmac, Mac};
 pub use pp_core::types::access_code::{
     ACCESS_CODE_DIGITS, GalleryAccessCode, ParseAccessCodeError,
@@ -127,13 +125,13 @@ impl EncryptionKey {
             return None;
         }
 
-        let decoded = URL_SAFE_NO_PAD.decode(value).ok()?;
+        let bytes = URL_SAFE_NO_PAD.decode(value).ok()?;
 
-        if decoded.len() != KEY_BYTES || URL_SAFE_NO_PAD.encode(&decoded) != value {
+        if bytes.len() != KEY_BYTES || URL_SAFE_NO_PAD.encode(&bytes) != value {
             return None;
         }
 
-        decoded.try_into().ok()
+        bytes.try_into().ok()
     }
 }
 
@@ -171,7 +169,7 @@ impl From<EncryptionKey> for String {
 
 /// Clap parser for [`EncryptionKey`] that omits [`clap::error::ContextKind::InvalidValue`] so
 /// malformed `PP_GALLERY_PASSWORD_KEY` values are never echoed to startup logs.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EncryptionKeyValueParser;
 
 impl TypedValueParser for EncryptionKeyValueParser {
@@ -179,16 +177,15 @@ impl TypedValueParser for EncryptionKeyValueParser {
 
     fn parse_ref(
         &self,
-        cmd: &ClapCommand,
-        arg: Option<&clap::Arg>,
+        cmd: &Command,
+        arg: Option<&Arg>,
         value: &OsStr,
     ) -> Result<Self::Value, ClapError> {
-        let parsed = value
+        match value
             .to_str()
             .ok_or(ParseEncryptionKeyError)
-            .and_then(str::parse::<EncryptionKey>);
-
-        match parsed {
+            .and_then(EncryptionKey::from_str)
+        {
             Ok(key) => Ok(key),
             Err(error) => {
                 let flag =
@@ -266,7 +263,7 @@ impl AccessCodeCipher {
             msg: code.as_bytes(),
             aad: gallery_id.0.as_bytes(),
         };
-        let tagged = self
+        let ciphertext = self
             .aead
             .encrypt(&nonce, payload)
             .map_err(|_| AccessCodeCryptoError)?;
@@ -274,7 +271,7 @@ impl AccessCodeCipher {
         let mut combined = Vec::with_capacity(ENCRYPTED_ACCESS_CODE_LEN);
 
         combined.extend_from_slice(&nonce_bytes);
-        combined.extend_from_slice(&tagged);
+        combined.extend_from_slice(&ciphertext);
 
         EncryptedAccessCode::try_from(combined).map_err(|_| AccessCodeCryptoError)
     }

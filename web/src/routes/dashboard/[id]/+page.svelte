@@ -55,6 +55,7 @@
 	// The expiry the restored gallery is still past; the prompt stays open while a new one is saved.
 	let expiredSince = $state<string | null>(null);
 	let heroRevision = $state<number | undefined>();
+	let expectedAccessCode = $state<string | null | 'invalid' | undefined>();
 	let previewing = $state(false);
 	let signOutError = $state('');
 	let inflight = $state(0);
@@ -191,6 +192,13 @@
 			}
 		}
 
+		if (
+			expectedAccessCode === 'invalid' ||
+			(expectedAccessCode !== undefined && (saved.access_code ?? null) !== expectedAccessCode)
+		) {
+			throw new Error(m.gallery_share_failed());
+		}
+
 		try {
 			const shared = await shareGallery(saved.id);
 
@@ -301,6 +309,7 @@
 	origin={page.url.origin}
 	bind:heroId={saved.hero_id}
 	bind:heroRevision
+	bind:expectedAccessCode
 	onsave={save}
 	schedule={debounce}
 	{cancel}
@@ -308,7 +317,14 @@
 		flush();
 		previewing = true;
 	}}
-	onshare={() => (publishing = 'share')}
+	onshare={() => {
+		flush();
+		if (expectedAccessCode === 'invalid') {
+			toasts.error(m.settings_access_code_invalid());
+			return;
+		}
+		publishing = 'share';
+	}}
 	onpublish={() => (publishing = 'deliver')}
 	onarchive={() => (confirming = 'archive')}
 	onrestore={restore}

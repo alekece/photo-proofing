@@ -721,6 +721,7 @@ mod tests {
     fn gallery_password_key_is_optional_and_validated_when_present() {
         if env::var_os("PP_TEST_HELP_SECRET_CHILD").is_some() {
             let help = parse(&["--help"]).err().unwrap().to_string();
+
             assert!(!help.contains(&"5a".repeat(32)));
 
             let bad_env = Command::new(env::current_exe().unwrap())
@@ -733,17 +734,22 @@ mod tests {
                 .env("PP_GALLERY_PASSWORD_KEY", "secret-env-bad")
                 .output()
                 .unwrap();
+
             assert!(bad_env.status.success());
+
             return;
         }
 
         if env::var_os("PP_TEST_BAD_ENV_CHILD").is_some() {
             let env_err = parse(&[]).err().unwrap().to_string();
+
             assert!(!env_err.contains("secret-env-bad"), "{env_err}");
+
             return;
         }
 
         let api = parse(&[]).unwrap().api;
+
         assert!(api.gallery_password.encryption_key.is_none());
 
         let dir = tempfile::tempdir().unwrap();
@@ -757,10 +763,12 @@ mod tests {
         .unwrap();
 
         let api = parse(&["--config", path.to_str().unwrap()]).unwrap().api;
+
         assert!(api.gallery_password.encryption_key.is_some());
 
         for bad in ["secret-too-short", &"zz".repeat(32)] {
             let cli_err = parse(&["--gallery-password-key", bad]).err().unwrap();
+
             assert!(!cli_err.to_string().contains(bad), "{bad}");
 
             fs::write(
@@ -768,7 +776,9 @@ mod tests {
                 format!("[gallery_password]\nencryption_key = '{bad}'\n"),
             )
             .unwrap();
+
             let toml_err = parse(&["--config", path.to_str().unwrap()]).err().unwrap();
+
             assert!(!toml_err.to_string().contains(bad), "{bad}");
         }
 

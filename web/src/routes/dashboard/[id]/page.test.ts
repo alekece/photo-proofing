@@ -624,6 +624,43 @@ describe('gallery page', () => {
 		await waitFor(() => expect(events).toEqual(['patch-done', 'share']));
 	});
 
+	it('refuses to open Share or lock a stale code when the access-code input has a half-typed invalid draft', async () => {
+		const shareCalls: string[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				if (!init?.method || init.method === 'GET') return Response.json([]);
+				if (url.endsWith('/share')) {
+					shareCalls.push(url);
+					return Response.json({ ...base, share_token: 'C'.repeat(22), states: ['shared'] });
+				}
+				const patch = JSON.parse(init?.body as string);
+				return Response.json({
+					...base,
+					...patch,
+					access_code_protected: Boolean(patch.access_code)
+				});
+			})
+		);
+
+		const user = userEvent.setup();
+		open();
+
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		await user.click(screen.getByRole('switch', { name: 'Require access code' }));
+		const codeInput = await screen.findByLabelText('6-digit access code');
+
+		await user.clear(codeInput);
+		await user.type(codeInput, '12');
+
+		// Clicking Share while '12' is in the field must block PublishDialog and never revert+share the old code.
+		await user.click(screen.getByRole('button', { name: 'Share' }));
+		expect(screen.queryByRole('button', { name: 'Share anyway' })).toBeNull();
+		expect((codeInput as HTMLInputElement).value).toBe('12');
+		expect(shareCalls).toHaveLength(0);
+	});
+
 	describe('progress header', () => {
 		const photo = (id: string, status: unknown = 'ready') => ({
 			id,

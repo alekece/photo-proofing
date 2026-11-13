@@ -83,7 +83,7 @@
 				<ArchiveRestore size={16} aria-hidden="true" />{m.action_restore()}
 			</Button>
 		{:else if !shared}
-			<Button size="sm" class="min-h-9! gap-2" onclick={onshare}>
+			<Button data-share-trigger size="sm" class="min-h-9! gap-2" onclick={onshare}>
 				<Send size={16} aria-hidden="true" />{m.action_share()}
 			</Button>
 		{:else if !delivered}

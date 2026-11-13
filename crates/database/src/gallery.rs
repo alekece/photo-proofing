@@ -611,7 +611,9 @@ impl<C> GalleryChanges<C> {
             shoot_date: self.shoot_date,
         })
     }
+}
 
+impl GalleryChanges {
     /// Deserializes a supplied value as `Some` and rejects `null`.
     ///
     /// Plain `Option<T>` fields treat `null` like a missing field, so `{"layout": null}` would

@@ -276,7 +276,7 @@ describe('GallerySettingsPanel', () => {
 		expect((await axe(sharedWithoutCode.container)).violations).toEqual([]);
 	});
 
-	it('ignores out-of-order Generate completions and reverts partial drafts when Generate fails', async () => {
+	it('serializes rapid Generate clicks and reverts partial drafts when Generate fails', async () => {
 		let resolveFirst!: (ok: boolean) => void;
 		let resolveSecond!: (ok: boolean) => void;
 		let callCount = 0;
@@ -308,19 +308,56 @@ describe('GallerySettingsPanel', () => {
 
 		await user.click(generate);
 		await user.click(generate);
-		const secondCode = (onsave.mock.calls[2]![0] as { access_code: string }).access_code;
+		const secondCode = input.value;
+		expect(onsave).toHaveBeenCalledTimes(2);
+
+		resolveFirst(true);
+		await vi.waitFor(() => expect(onsave).toHaveBeenCalledTimes(3));
+		expect(onsave.mock.calls[2]![0]).toEqual({ access_code: secondCode });
 
 		resolveSecond(true);
 		await vi.waitFor(() => expect(input.value).toBe(secondCode));
-
-		resolveFirst(true);
-		await Promise.resolve();
-		expect(input.value).toBe(secondCode);
 
 		// Type partial unsaved draft '12', then fail Generate -> must revert to committed secondCode, not '12'.
 		await user.clear(input);
 		await user.type(input, '12');
 		await user.click(generate);
 		await vi.waitFor(() => expect(input.value).toBe(secondCode));
+	});
+
+	it('chains an access_code: null clear when toggled OFF while the enabling PATCH is still in flight', async () => {
+		let resolveEnable!: (ok: boolean) => void;
+		const calls: Array<string | null | undefined> = [];
+		const onsave = vi.fn().mockImplementation((changes: { access_code?: string | null }) => {
+			calls.push(changes.access_code);
+			if (calls.length === 1) return new Promise<boolean>((r) => (resolveEnable = r));
+			return Promise.resolve(true);
+		});
+
+		const user = userEvent.setup();
+		render(GallerySettingsPanel, {
+			gallery: { ...gallery, access_code: null, access_code_protected: false },
+			shareToken: null,
+			origin: 'https://pp.test',
+			onsave,
+			schedule: vi.fn(),
+			cancel: vi.fn(),
+			onarchive: vi.fn(),
+			onrestore: vi.fn(),
+			ondelete: vi.fn()
+		});
+
+		const toggle = screen.getByRole('switch', { name: 'Require access code' });
+		await user.click(toggle);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toMatch(/^[0-9]{6}$/);
+
+		// Turn OFF before the first PATCH resolves: PATCH #2 (null) must wait and then fire once PATCH #1 finishes.
+		await user.click(toggle);
+		expect(calls).toHaveLength(1);
+
+		resolveEnable(true);
+		await vi.waitFor(() => expect(calls).toEqual([expect.stringMatching(/^[0-9]{6}$/), null]));
+		expect(toggle.getAttribute('aria-checked')).toBe('false');
 	});
 });

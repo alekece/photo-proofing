@@ -24,6 +24,7 @@
 		gallery,
 		shareToken,
 		origin,
+		expectedAccessCode = $bindable(),
 		onsave,
 		schedule,
 		cancel,
@@ -34,6 +35,8 @@
 		gallery: Gallery;
 		shareToken: string | null;
 		origin: string;
+		/** Desired pre-share access code (`string`, `null`, or `'invalid'` while incomplete). */
+		expectedAccessCode?: string | null | 'invalid';
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
 		schedule: (field: string, run: () => void) => void;
 		cancel: (field: string) => void;
@@ -57,15 +60,19 @@
 	// svelte-ignore state_referenced_locally
 	let lastSavedIncluded = savedIncluded;
 
+	const ACCESS_CODE_RE = /^[0-9]{6}$/;
+
 	// svelte-ignore state_referenced_locally
 	let committedAccessCode = $state<string | null>(savedAccessCode);
+	// svelte-ignore state_referenced_locally
+	let desiredAccessCode = $state<string | null>(savedAccessCode);
 	const lockedAccessCode = $derived(savedAccessCode ?? committedAccessCode);
 	// svelte-ignore state_referenced_locally
 	let accessCodeEnabled = $state(savedAccessCode !== null);
 	// svelte-ignore state_referenced_locally
 	let accessCodeDraft = $state(savedAccessCode ?? '');
 	let accessCodeDirty = false;
-	let accessCodeSeq = 0;
+	let accessCodeSaving = false;
 	// svelte-ignore state_referenced_locally
 	let lastPropAccessCode = savedAccessCode;
 	let codeCopied = $state(false);
@@ -84,11 +91,17 @@
 		if (savedAccessCode !== lastPropAccessCode) {
 			lastPropAccessCode = savedAccessCode;
 			committedAccessCode = savedAccessCode;
-			if (!accessCodeDirty) {
+			if (!accessCodeSaving && !accessCodeDirty) {
+				desiredAccessCode = savedAccessCode;
 				accessCodeEnabled = savedAccessCode !== null;
 				accessCodeDraft = savedAccessCode ?? '';
 			}
 		}
+		expectedAccessCode = accessCodeEnabled
+			? ACCESS_CODE_RE.test(accessCodeDraft)
+				? accessCodeDraft
+				: 'invalid'
+			: null;
 	});
 
 	const archived = $derived(gallery.states.includes('archived'));
@@ -158,8 +171,6 @@
 		void commit({ watermark_enabled: value }, () => (watermark = !value));
 	}
 
-	const ACCESS_CODE_RE = /^[0-9]{6}$/;
-
 	function generateRandomAccessCode(): string {
 		const limit = 4_294_000_000;
 		const buffer = new Uint32Array(1);
@@ -175,31 +186,49 @@
 
 	function revertAccessCode() {
 		accessCodeDirty = false;
+		desiredAccessCode = committedAccessCode;
 		accessCodeEnabled = committedAccessCode !== null;
 		accessCodeDraft = committedAccessCode ?? '';
+	}
+
+	function requestAccessCodeSave(target: string | null) {
+		desiredAccessCode = target;
+		if (accessCodeSaving) return;
+		void pumpAccessCodeSave();
+	}
+
+	async function pumpAccessCodeSave() {
+		accessCodeSaving = true;
+		try {
+			while (desiredAccessCode !== committedAccessCode) {
+				const target = desiredAccessCode;
+				const ok = await onsave({ access_code: target });
+
+				if (ok) {
+					committedAccessCode = target;
+					if (desiredAccessCode === target && !accessCodeDirty) {
+						accessCodeEnabled = target !== null;
+						accessCodeDraft = target ?? '';
+					}
+				} else {
+					if (desiredAccessCode === target) {
+						revertAccessCode();
+					}
+					return;
+				}
+			}
+		} finally {
+			accessCodeSaving = false;
+		}
 	}
 
 	function toggleAccessCode(enabled: boolean) {
 		cancel('access_code');
 		accessCodeDirty = false;
-		const seq = ++accessCodeSeq;
 
 		if (!enabled) {
-			if (committedAccessCode === null) {
-				accessCodeDraft = '';
-				return;
-			}
-
-			void (async () => {
-				const ok = await onsave({ access_code: null });
-				if (seq !== accessCodeSeq) return;
-				if (ok) {
-					committedAccessCode = null;
-					accessCodeDraft = '';
-				} else {
-					revertAccessCode();
-				}
-			})();
+			accessCodeDraft = '';
+			requestAccessCodeSave(null);
 			return;
 		}
 
@@ -207,64 +236,41 @@
 			? accessCodeDraft
 			: generateRandomAccessCode();
 		accessCodeDraft = next;
-
-		void (async () => {
-			const ok = await onsave({ access_code: next });
-			if (seq !== accessCodeSeq) return;
-			if (ok) {
-				committedAccessCode = next;
-			} else {
-				revertAccessCode();
-			}
-		})();
+		requestAccessCodeSave(next);
 	}
 
 	function regenerateAccessCode() {
 		cancel('access_code');
 		accessCodeDirty = false;
-		const seq = ++accessCodeSeq;
 
 		const next = generateRandomAccessCode();
 		accessCodeDraft = next;
-
-		void (async () => {
-			const ok = await onsave({ access_code: next });
-			if (seq !== accessCodeSeq) return;
-			if (ok) {
-				committedAccessCode = next;
-			} else {
-				revertAccessCode();
-			}
-		})();
+		requestAccessCodeSave(next);
 	}
 
-	function saveAccessCode(leaving: boolean) {
+	function saveAccessCode(leaving: boolean, event?: FocusEvent) {
 		const candidate = accessCodeDraft;
 
 		if (!ACCESS_CODE_RE.test(candidate)) {
 			if (leaving) {
-				toasts.error(m.settings_access_code_invalid());
-				revertAccessCode();
+				const clickingShare =
+					event?.relatedTarget instanceof Element &&
+					event.relatedTarget.closest('[data-share-trigger]') !== null;
+
+				if (!clickingShare) {
+					toasts.error(m.settings_access_code_invalid());
+					revertAccessCode();
+				}
 			}
 			return;
 		}
-		if (candidate === committedAccessCode) {
-			if (leaving) accessCodeDirty = false;
+
+		accessCodeDirty = false;
+		if (candidate === desiredAccessCode && !accessCodeSaving && candidate === committedAccessCode) {
 			return;
 		}
 
-		const seq = ++accessCodeSeq;
-
-		void (async () => {
-			const ok = await onsave({ access_code: candidate });
-			if (seq !== accessCodeSeq) return;
-			if (ok) {
-				committedAccessCode = candidate;
-				if (accessCodeDraft === candidate) accessCodeDirty = false;
-			} else if (leaving || accessCodeDraft === candidate) {
-				revertAccessCode();
-			}
-		})();
+		requestAccessCodeSave(candidate);
 	}
 
 	async function copyAccessCode(code: string) {
@@ -436,9 +442,9 @@
 									cancel('access_code');
 								}
 							}}
-							onblur={() => {
+							onblur={(event) => {
 								cancel('access_code');
-								saveAccessCode(true);
+								saveAccessCode(true, event);
 							}}
 							class="min-h-0 w-28 rounded-lg bg-white px-2.5 py-1.5 text-center font-mono text-sm font-semibold tracking-[0.18em] text-foreground placeholder:text-muted-foreground/40"
 						/>
