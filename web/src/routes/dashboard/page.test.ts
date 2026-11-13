@@ -21,6 +21,7 @@ import Dashboard from './+page.svelte';
 const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 	id: 'g1',
 	title: 'Wedding',
+	favorite: false,
 	layout: 'grid',
 	cover_layout: 'full_bleed',
 	focal_point: { x: 50, y: 35 },
@@ -295,13 +296,88 @@ describe('dashboard', () => {
 			expect(screen.getByText('No galleries in focus.')).toBeTruthy();
 		});
 	});
+
+	describe('bulk selection, favorites, quick edit, and delete', () => {
+		it('selects cards, pins favorites first, quick-edits, deletes, and handles Escape layering', async () => {
+			const stored = new Map<string, GalleryOverview>([
+				['g1', gallery({ id: 'g1', title: 'Wedding', updated_at: '2026-01-02T10:00:00Z' })],
+				['g2', gallery({ id: 'g2', title: 'Portraits', updated_at: '2026-01-01T10:00:00Z' })]
+			]);
+			const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+				const path = String(url);
+				if (init?.method === 'PATCH') {
+					const body = JSON.parse(String(init.body));
+					const id = path.split('/').pop()!;
+					const next = { ...stored.get(id)!, ...body };
+					stored.set(id, next);
+					return Response.json(next);
+				}
+				if (init?.method === 'DELETE') {
+					return new Response(null, { status: 204 });
+				}
+				return new Response('{}', { status: 200 });
+			});
+			vi.stubGlobal('fetch', fetcher);
+
+			const user = userEvent.setup();
+			const { container } = render(Dashboard, {
+				props: props([...stored.values()])
+			});
+
+			const cardTitles = () =>
+				screen
+					.queryAllByRole('heading', { level: 2 })
+					.filter((h) => h.closest('a'))
+					.map((h) => h.textContent);
+
+			expect(cardTitles()).toEqual(['Wedding', 'Portraits']);
+
+			await user.click(screen.getByRole('button', { name: 'Select Portraits' }));
+			expect(screen.getByText('1 selected')).toBeTruthy();
+			expect((await axe(container)).violations).toEqual([]);
+
+			await user.click(screen.getByRole('button', { name: 'Favorite' }));
+			await waitFor(() => expect(cardTitles()).toEqual(['Portraits', 'Wedding']));
+			expect(screen.getByRole('button', { name: 'Unfavorite' })).toBeTruthy();
+
+			await user.click(screen.getByRole('button', { name: 'Quick edit' }));
+			expect(screen.getByRole('dialog', { name: 'Quick edit galleries' })).toBeTruthy();
+
+			await user.keyboard('{Escape}');
+			expect(screen.queryByRole('dialog')).toBeNull();
+			expect(screen.getByText('1 selected')).toBeTruthy();
+
+			await user.click(screen.getByRole('button', { name: 'Quick edit' }));
+			const titleField = screen.getByDisplayValue('Portraits');
+			await user.clear(titleField);
+			await user.type(titleField, 'Editorial Portraits');
+			await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+			await waitFor(() => expect(cardTitles()).toEqual(['Editorial Portraits', 'Wedding']));
+
+			await user.click(screen.getByRole('button', { name: 'Delete' }));
+			expect(screen.getByRole('dialog', { name: 'Delete 1 gallery?' })).toBeTruthy();
+			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+
+			await waitFor(() => expect(cardTitles()).toEqual(['Wedding']));
+			expect(screen.queryByText(/selected/)).toBeNull();
+
+			await user.click(screen.getByRole('button', { name: 'Select Wedding' }));
+			expect(screen.getByText('1 selected')).toBeTruthy();
+			await user.keyboard('{Escape}');
+			expect(screen.queryByText('1 selected')).toBeNull();
+		});
+	});
 });
 
 describe('dashboard in French', () => {
 	useLocale('fr');
 
-	it('greets, searches, sorts and totals in French', async () => {
-		render(Dashboard, { props: props([gallery(), gallery({ id: 'g2', title: 'Portraits' })]) });
+	it('greets, searches, sorts, selects, and totals in French', async () => {
+		const user = userEvent.setup();
+		const { container } = render(Dashboard, {
+			props: props([gallery(), gallery({ id: 'g2', title: 'Portraits' })])
+		});
 
 		expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(
 			/^(Bonjour|Bon après-midi|Bonsoir)/
@@ -310,5 +386,10 @@ describe('dashboard in French', () => {
 		expect(screen.getByRole('button', { name: 'Modifiées récemment' })).toBeTruthy();
 		expect(screen.getByText('2 galeries · 0 photo')).toBeTruthy();
 		expect(screen.queryByText(/Who’s in front/)).toBeNull();
+
+		await user.click(screen.getByRole('button', { name: 'Sélectionner Portraits' }));
+		expect(screen.getByText('1 sélectionnée')).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Modification rapide' })).toBeTruthy();
+		expect((await axe(container)).violations).toEqual([]);
 	});
 });

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { navigating } from '$app/state';
 	import { authRequest } from '#lib/auth.js';
@@ -10,10 +11,21 @@
 	import EmptyWorkspace from '#lib/components/EmptyWorkspace.svelte';
 	import GalleryCard from '#lib/components/GalleryCard.svelte';
 	import NewGalleryDialog from '#lib/components/NewGalleryDialog.svelte';
+	import QuickEditGalleriesDialog, {
+		type QuickGalleryEdit
+	} from '#lib/components/QuickEditGalleriesDialog.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
-	import { Plus, Search } from '@lucide/svelte';
+	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
+	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+	import { Pencil, Plus, Search, Star, Trash2, X } from '@lucide/svelte';
 	import GalleryStateFilter from '#lib/components/GalleryStateFilter.svelte';
 	import GallerySortMenu from '#lib/components/GallerySortMenu.svelte';
+	import {
+		deleteGallery,
+		GalleryApiError,
+		updateGallery,
+		type GalleryOverview
+	} from '#lib/gallery/api.js';
 	import type { GallerySort, GalleryState } from '#lib/gallery/schemas.js';
 	import { ALL_STATES, DEFAULT_STATES } from '#lib/gallery/states.js';
 	import { galleryStatus } from '#lib/gallery/format.js';
@@ -23,17 +35,70 @@
 	let { data }: { data: PageData } = $props();
 	const notifications = getNotifications();
 	let pending = $state(false);
+	let bulkBusy = $state(false);
 	let message = $state('');
 
 	const gridClass =
 		'grid grid-cols-2 gap-2.5 px-2.5 sm:grid-cols-[repeat(auto-fill,minmax(230px,1fr))] sm:gap-5 sm:px-8';
 
 	let dialogOpen = $state(false);
+	let quickEditOpen = $state(false);
+	let deleteConfirmOpen = $state(false);
 	let query = $state('');
 	// Only a same-page navigation (changing the sort) shows the loading cards.
 	let loading = $derived(navigating.to?.route.id === '/dashboard');
 	let selected = $state<GalleryState[]>([...DEFAULT_STATES]);
-	let all = $derived(data.galleries ?? []);
+	let localGalleries = $derived<GalleryOverview[] | null>(data.galleries);
+
+	function compareGalleries(
+		left: GalleryOverview,
+		right: GalleryOverview,
+		sort: GallerySort
+	): number {
+		if (Boolean(left.favorite) !== Boolean(right.favorite)) {
+			return left.favorite ? -1 : 1;
+		}
+
+		switch (sort) {
+			case 'created': {
+				const diff = right.created_at.localeCompare(left.created_at);
+				if (diff !== 0) return diff;
+				break;
+			}
+			case 'oldest': {
+				const diff = left.created_at.localeCompare(right.created_at);
+				if (diff !== 0) return diff;
+				break;
+			}
+			case 'title': {
+				const leftTitle = left.title?.toLowerCase() ?? null;
+				const rightTitle = right.title?.toLowerCase() ?? null;
+				if (leftTitle === null && rightTitle !== null) return 1;
+				if (leftTitle !== null && rightTitle === null) return -1;
+				if (leftTitle !== null && rightTitle !== null) {
+					const diff = leftTitle.localeCompare(rightTitle);
+					if (diff !== 0) return diff;
+				}
+				break;
+			}
+			default: {
+				const diff = right.updated_at.localeCompare(left.updated_at);
+				if (diff !== 0) return diff;
+				break;
+			}
+		}
+
+		return left.id.localeCompare(right.id);
+	}
+
+	let all = $derived.by(() => {
+		if (!localGalleries) return [];
+
+		return [...localGalleries].sort((a, b) => compareGalleries(a, b, data.sort));
+	});
+
+	const selectedIds = new SvelteSet<string>();
+
 	let counts = $derived(
 		Object.fromEntries(
 			ALL_STATES.map((state) => [
@@ -62,6 +127,161 @@
 	let visible = $derived(
 		matching.filter((gallery) => selected.includes(galleryStatus(gallery.states)))
 	);
+
+	// Prune selected IDs whenever search, status filters, or deletions hide/remove cards.
+	$effect(() => {
+		const visibleSet = new Set(visible.map((g) => g.id));
+
+		for (const id of [...selectedIds]) {
+			if (!visibleSet.has(id)) selectedIds.delete(id);
+		}
+	});
+
+	let selectedGalleries = $derived(visible.filter((g) => selectedIds.has(g.id)));
+	let allSelectedFavorited = $derived(
+		selectedGalleries.length > 0 && selectedGalleries.every((g) => g.favorite)
+	);
+
+	function toggleSelect(id: string) {
+		if (selectedIds.has(id)) selectedIds.delete(id);
+		else selectedIds.add(id);
+	}
+
+	function clearSelection() {
+		selectedIds.clear();
+	}
+
+	let hasOpenDialog = $derived(
+		dialogOpen ||
+			(quickEditOpen && selectedGalleries.length > 0) ||
+			(deleteConfirmOpen && selectedGalleries.length > 0)
+	);
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (
+			event.key === 'Escape' &&
+			!event.defaultPrevented &&
+			selectedIds.size > 0 &&
+			!hasOpenDialog
+		) {
+			event.preventDefault();
+			clearSelection();
+		}
+	}
+
+	function mergeUpdated(
+		updated: Omit<
+			GalleryOverview,
+			'photo_count' | 'favorite_count' | 'final_count' | 'downloaded_count'
+		>
+	) {
+		if (!localGalleries) return;
+
+		localGalleries = localGalleries.map((item) =>
+			item.id === updated.id
+				? {
+						...item,
+						...updated,
+						access_code_protected: updated.access_code_protected ?? item.access_code_protected
+					}
+				: item
+		);
+	}
+
+	async function toggleBulkFavorite() {
+		if (bulkBusy || selectedGalleries.length === 0) return;
+
+		const targetFavorite = !allSelectedFavorited;
+		const targets = selectedGalleries.filter((g) => Boolean(g.favorite) !== targetFavorite);
+
+		if (targets.length === 0) return;
+
+		bulkBusy = true;
+
+		try {
+			let firstError: string | null = null;
+
+			for (const item of targets) {
+				try {
+					const updated = await updateGallery(item.id, { favorite: targetFavorite });
+
+					mergeUpdated(updated);
+				} catch (cause) {
+					if (cause instanceof GalleryApiError && cause.status === 401) {
+						await goto('/login', { refreshAll: true });
+
+						return;
+					}
+
+					firstError ??= cause instanceof Error ? cause.message : m.api_error_generic();
+				}
+			}
+
+			if (firstError) toasts.error(firstError);
+		} finally {
+			bulkBusy = false;
+		}
+	}
+
+	async function saveQuickEdits(edits: QuickGalleryEdit[]): Promise<string | null> {
+		let firstError: string | null = null;
+		const failedIds: string[] = [];
+
+		for (const edit of edits) {
+			try {
+				const updated = await updateGallery(edit.id, edit.changes);
+
+				mergeUpdated(updated);
+			} catch (cause) {
+				if (cause instanceof GalleryApiError && cause.status === 401) {
+					await goto('/login', { refreshAll: true });
+
+					return null;
+				}
+
+				failedIds.push(edit.id);
+				firstError ??= cause instanceof Error ? cause.message : m.api_error_generic();
+			}
+		}
+
+		if (failedIds.length > 0) {
+			for (const id of [...selectedIds]) {
+				if (!failedIds.includes(id)) selectedIds.delete(id);
+			}
+		}
+
+		return firstError;
+	}
+
+	async function confirmBulkDelete() {
+		const targets = [...selectedGalleries];
+		let firstError: string | null = null;
+
+		for (const item of targets) {
+			try {
+				await deleteGallery(item.id);
+				selectedIds.delete(item.id);
+				if (localGalleries) {
+					localGalleries = localGalleries.filter((g) => g.id !== item.id);
+				}
+			} catch (cause) {
+				if (cause instanceof GalleryApiError && cause.status === 401) {
+					await goto('/login', { refreshAll: true });
+
+					return;
+				}
+
+				firstError ??= cause instanceof Error ? cause.message : m.api_error_generic();
+			}
+		}
+
+		if (firstError) {
+			throw new Error(firstError);
+		}
+
+		deleteConfirmOpen = false;
+	}
+
 	let hiddenMatches = $derived(matching.length - visible.length);
 	let galleriesWithNews = $derived(
 		new Set(
@@ -106,6 +326,7 @@
 	}
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
 <svelte:head><title>{m.dashboard_head()} — PhotoProofing</title></svelte:head>
 <AppHeader onsignout={logout} />
 <main class="flex flex-1 flex-col">
@@ -167,7 +388,7 @@
 				</li>
 			{/each}
 		</ul>
-	{:else if data.galleries === null}
+	{:else if localGalleries === null}
 		<p role="alert" class="px-3.5 sm:px-8">
 			{m.dashboard_load_failed()}
 		</p>
@@ -179,7 +400,14 @@
 				{@const news = [
 					...new Set(notifications?.unreadFor(gallery.id).map((note) => notificationBadge(note)))
 				]}
-				<GalleryCard {gallery} {query} {news} />
+				<GalleryCard
+					{gallery}
+					{query}
+					{news}
+					selected={selectedIds.has(gallery.id)}
+					selecting={selectedIds.size > 0}
+					onselect={() => toggleSelect(gallery.id)}
+				/>
 			{:else}
 				<li class="col-span-full px-0 pt-14 pb-10 text-center text-muted-foreground">
 					<h2 class="mb-1.5 text-2xl leading-[1.2] text-foreground">
@@ -223,13 +451,97 @@
 				</li>
 			{/if}
 		</ul>
-		<p class="mt-auto px-3.5 pt-6 pb-6 text-[0.8125rem] text-muted-foreground sm:px-8">
+		<p
+			class="mt-auto px-3.5 pt-6 {selectedGalleries.length > 0
+				? 'pb-24'
+				: 'pb-6'} text-[0.8125rem] text-muted-foreground sm:px-8"
+		>
 			{m.dashboard_total_galleries({ count: totals.galleries })} · {m.summary_photos({
 				count: totals.photos
 			})}
 		</p>
 	{/if}
 </main>
+{#if selectedGalleries.length > 0}
+	<div
+		role="region"
+		aria-label={m.dashboard_bulk_selected({ count: selectedGalleries.length })}
+		class="fixed inset-x-2.5 bottom-4 z-20 mx-auto flex w-fit max-w-[calc(100vw-1.25rem)] items-center gap-1 rounded-full border border-white/12 bg-foreground px-2 py-1.5 text-[0.8125rem] font-semibold text-panel shadow-[0_20px_50px_-12px_rgb(0_0_0/0.55)] sm:bottom-6 sm:gap-1.5 sm:px-3 sm:py-2"
+	>
+		<button
+			type="button"
+			aria-label={m.dashboard_bulk_clear()}
+			title={m.dashboard_bulk_clear()}
+			onclick={clearSelection}
+			class="inline-grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-panel/80 transition-colors hover:bg-white/12 hover:text-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
+		>
+			<X size={16} aria-hidden="true" />
+		</button>
+		<span class="px-1 whitespace-nowrap tabular-nums sm:px-1.5">
+			{m.dashboard_bulk_selected({ count: selectedGalleries.length })}
+		</span>
+		<span aria-hidden="true" class="mx-0.5 h-4 w-px shrink-0 bg-white/18"></span>
+		<button
+			type="button"
+			disabled={bulkBusy}
+			aria-label={allSelectedFavorited
+				? m.dashboard_bulk_unfavorite()
+				: m.dashboard_bulk_favorite()}
+			onclick={() => void toggleBulkFavorite()}
+			class="inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-panel transition-colors hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus disabled:cursor-not-allowed disabled:opacity-50 sm:px-3"
+		>
+			<Star
+				size={15}
+				fill={allSelectedFavorited ? 'currentColor' : 'none'}
+				class={allSelectedFavorited ? 'text-[#f2c063]' : ''}
+				aria-hidden="true"
+			/>
+			<span class="max-[460px]:sr-only">
+				{allSelectedFavorited ? m.dashboard_bulk_unfavorite() : m.dashboard_bulk_favorite()}
+			</span>
+		</button>
+		<button
+			type="button"
+			disabled={bulkBusy}
+			aria-label={m.dashboard_bulk_quick_edit()}
+			onclick={() => (quickEditOpen = true)}
+			class="inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-panel transition-colors hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus disabled:cursor-not-allowed disabled:opacity-50 sm:px-3"
+		>
+			<Pencil size={15} aria-hidden="true" />
+			<span class="max-[460px]:sr-only">{m.dashboard_bulk_quick_edit()}</span>
+		</button>
+		<button
+			type="button"
+			disabled={bulkBusy}
+			aria-label={m.action_delete()}
+			onclick={() => (deleteConfirmOpen = true)}
+			class="inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-warning-on-dark transition-colors hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus disabled:cursor-not-allowed disabled:opacity-50 sm:px-3"
+		>
+			<Trash2 size={15} aria-hidden="true" />
+			<span class="max-[460px]:sr-only">{m.action_delete()}</span>
+		</button>
+	</div>
+{/if}
 {#if dialogOpen}
 	<NewGalleryDialog onclose={() => (dialogOpen = false)} />
+{/if}
+{#if quickEditOpen && selectedGalleries.length > 0}
+	<QuickEditGalleriesDialog
+		galleries={selectedGalleries}
+		onsave={saveQuickEdits}
+		onclose={() => (quickEditOpen = false)}
+	/>
+{/if}
+{#if deleteConfirmOpen && selectedGalleries.length > 0}
+	<ConfirmDialog
+		title={m.dashboard_bulk_delete_title({ count: selectedGalleries.length })}
+		confirmLabel={m.action_delete()}
+		destructive
+		onconfirm={confirmBulkDelete}
+		onclose={() => (deleteConfirmOpen = false)}
+	>
+		{#snippet description()}
+			<p class="text-sm text-muted-foreground">{m.dashboard_bulk_delete_body()}</p>
+		{/snippet}
+	</ConfirmDialog>
 {/if}
