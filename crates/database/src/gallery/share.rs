@@ -6,8 +6,9 @@ use derive_more::{Deref, FromStr};
 use pp_core::types::{timestamp::Timestamp, token::Token};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row, Type, postgres::PgRow};
+use time::Date;
 
-use super::{Gallery, GalleryLayout};
+use super::{CoverLayout, FocalPoint, Gallery, GalleryLayout};
 use crate::photo::{PhotoId, PhotoLocation};
 
 /// The unguessable value that makes up a gallery's private link.
@@ -31,6 +32,10 @@ pub struct SharedGallery {
     /// `None` means the gallery has no title yet.
     pub title: Option<String>,
     pub layout: GalleryLayout,
+    pub cover_layout: CoverLayout,
+    pub focal_point: FocalPoint,
+    /// The day of the shoot; `None` means none was given.
+    pub shoot_date: Option<Date>,
     /// `None` means the gallery never expires.
     pub expires_at: Option<Timestamp>,
     /// How many photos the client may pick before extra ones are charged; `None` means selection
@@ -47,6 +52,9 @@ impl FromRow<'_, PgRow> for SharedGallery {
         Ok(Self {
             title: row.try_get("title")?,
             layout: row.try_get("layout")?,
+            cover_layout: row.try_get("cover_layout")?,
+            focal_point: FocalPoint::from_row(row)?,
+            shoot_date: row.try_get("shoot_date")?,
             expires_at: row.try_get("expires_at")?,
             included_photos: Gallery::included_photos(row)?,
             delivered: row.try_get("delivered")?,

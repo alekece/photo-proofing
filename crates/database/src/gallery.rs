@@ -80,6 +80,11 @@ impl GalleryError {
     }
 }
 
+/// A focal-point percentage outside `0..=100`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("focal coordinate {0} is out of range")]
+pub struct FocalCoordinateError(pub u8);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(transparent)]
 #[sqlx(transparent)]
@@ -99,6 +104,110 @@ pub enum GalleryLayout {
     #[default]
     Grid,
     Masonry,
+}
+
+/// Arrangement of the client gallery cover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "cover_layout", rename_all = "snake_case")]
+pub enum CoverLayout {
+    #[default]
+    FullBleed,
+    Split,
+    Framed,
+    Banner,
+}
+
+/// Percentage coordinate along one cover axis, bounded to `0..=100`.
+///
+/// ```
+/// use pp_database::gallery::FocalCoordinate;
+///
+/// assert_eq!(FocalCoordinate::try_from(0).unwrap().get(), 0);
+/// assert_eq!(FocalCoordinate::try_from(100).unwrap().get(), 100);
+/// assert!(FocalCoordinate::try_from(101).is_err());
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "u8", into = "u8")]
+pub struct FocalCoordinate(u8);
+
+impl FocalCoordinate {
+    pub const MIN: Self = Self(0);
+    pub const MAX: Self = Self(100);
+    pub const DEFAULT_X: Self = Self(50);
+    pub const DEFAULT_Y: Self = Self(35);
+
+    /// The percentage coordinate, `0` to `100`.
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+
+    fn from_column(row: &PgRow, column: &str) -> Result<Self, sqlx::Error> {
+        let raw = u8::try_from(row.try_get::<i16, _>(column)?)
+            .map_err(|error| sqlx::Error::Decode(error.into()))?;
+
+        Self::try_from(raw).map_err(|error| sqlx::Error::Decode(error.into()))
+    }
+}
+
+impl TryFrom<u8> for FocalCoordinate {
+    type Error = FocalCoordinateError;
+
+    fn try_from(coordinate: u8) -> Result<Self, Self::Error> {
+        if coordinate > Self::MAX.0 {
+            return Err(FocalCoordinateError(coordinate));
+        }
+
+        Ok(Self(coordinate))
+    }
+}
+
+impl From<FocalCoordinate> for u8 {
+    fn from(coordinate: FocalCoordinate) -> Self {
+        coordinate.0
+    }
+}
+
+impl From<FocalCoordinate> for i16 {
+    fn from(coordinate: FocalCoordinate) -> Self {
+        Self::from(coordinate.0)
+    }
+}
+
+/// Horizontal and vertical cover crop anchor, in `0..=100` percentages from the top-left corner.
+///
+/// Defaults to `(50, 35)` so portraits keep faces in frame.
+///
+/// ```
+/// use pp_database::gallery::FocalPoint;
+///
+/// let point = FocalPoint::default();
+/// assert_eq!(point.x.get(), 50);
+/// assert_eq!(point.y.get(), 35);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FocalPoint {
+    pub x: FocalCoordinate,
+    pub y: FocalCoordinate,
+}
+
+impl Default for FocalPoint {
+    fn default() -> Self {
+        Self {
+            x: FocalCoordinate::DEFAULT_X,
+            y: FocalCoordinate::DEFAULT_Y,
+        }
+    }
+}
+
+impl FromRow<'_, PgRow> for FocalPoint {
+    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            x: FocalCoordinate::from_column(row, "hero_focal_x")?,
+            y: FocalCoordinate::from_column(row, "hero_focal_y")?,
+        })
+    }
 }
 
 /// The result of [`GalleryRepository::deliver`].
@@ -128,6 +237,8 @@ pub struct Gallery {
     /// `None` means the gallery has no title yet.
     pub title: Option<String>,
     pub layout: GalleryLayout,
+    pub cover_layout: CoverLayout,
+    pub focal_point: FocalPoint,
     /// `None` means the gallery never expires.
     pub expires_at: Option<Timestamp>,
     /// `None` means selection is unlimited.
@@ -193,6 +304,8 @@ impl FromRow<'_, PgRow> for Gallery {
             id: row.try_get("id")?,
             title: row.try_get("title")?,
             layout: row.try_get("layout")?,
+            cover_layout: row.try_get("cover_layout")?,
+            focal_point: FocalPoint::from_row(row)?,
             expires_at: row.try_get("expires_at")?,
             included_photos,
             watermark_enabled: row.try_get("watermark_enabled")?,
@@ -260,6 +373,18 @@ pub struct GalleryChanges {
         skip_serializing_if = "Option::is_none"
     )]
     pub layout: Option<GalleryLayout>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cover_layout: Option<CoverLayout>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub focal_point: Option<FocalPoint>,
     #[serde(
         default,
         with = "serde_with::rust::double_option",
@@ -371,7 +496,7 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
 
 impl GalleryRepository<'_> {
     // Interpolated identifiers are fixed here or selected from GallerySort's closed enum.
-    const COLUMNS: &'static str = "id,title,layout,expires_at,included_photos,watermark_enabled,hero_id,share_token,shared_at,last_opened_at,shoot_date,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
+    const COLUMNS: &'static str = "id,title,layout,cover_layout,hero_focal_x,hero_focal_y,expires_at,included_photos,watermark_enabled,hero_id,share_token,shared_at,last_opened_at,shoot_date,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
 
     /// How long after a recorded client open later opens change nothing. Fixed, not configurable:
     /// a minute collapses reload bursts while "last opened" stays fresh enough to compare with
@@ -552,7 +677,9 @@ impl GalleryRepository<'_> {
         token: &ShareToken,
     ) -> Result<Option<SharedAccess>, DatabaseError> {
         Ok(sqlx::query_as(
-            "SELECT g.id AS gallery_id,g.workspace_id,g.title,g.layout,g.expires_at,g.included_photos, g.watermark_enabled,
+            "SELECT g.id AS gallery_id,g.workspace_id,g.title,g.layout,g.cover_layout,
+                    g.hero_focal_x,g.hero_focal_y,g.shoot_date,g.expires_at,g.included_photos,
+                    g.watermark_enabled,
                     g.delivered_at IS NOT NULL AS delivered,
                     (SELECT p.id FROM photos p
                      WHERE p.id = g.hero_id AND p.clean_ready AND p.kind = 'proof'
@@ -636,6 +763,9 @@ impl GalleryRepository<'_> {
                 watermark_enabled = COALESCE($10, watermark_enabled),
                 hero_id = CASE WHEN $11 THEN $12 ELSE hero_id END,
                 shoot_date = CASE WHEN $13 THEN $14 ELSE shoot_date END,
+                cover_layout = COALESCE($15, cover_layout),
+                hero_focal_x = COALESCE($16, hero_focal_x),
+                hero_focal_y = COALESCE($17, hero_focal_y),
                 updated_at = now()
              WHERE id=$1 AND workspace_id=$2
                AND (NOT $11 OR $12::uuid IS NULL OR EXISTS (
@@ -660,6 +790,9 @@ impl GalleryRepository<'_> {
         .bind(changes.hero_id.flatten())
         .bind(changes.shoot_date.is_some())
         .bind(changes.shoot_date.flatten())
+        .bind(changes.cover_layout)
+        .bind(changes.focal_point.map(|point| i16::from(point.x)))
+        .bind(changes.focal_point.map(|point| i16::from(point.y)))
         .fetch_optional(executor)
         .await
         .map_err(GalleryError::classify)
@@ -859,6 +992,8 @@ mod tests {
 
         assert_eq!(gallery.title, None);
         assert_eq!(gallery.layout, GalleryLayout::Grid);
+        assert_eq!(gallery.cover_layout, CoverLayout::FullBleed);
+        assert_eq!(gallery.focal_point, FocalPoint::default());
         assert_eq!(gallery.expires_at, None);
         assert_eq!(gallery.included_photos, None);
         assert!(!gallery.watermark_enabled);
@@ -1001,6 +1136,15 @@ mod tests {
     fn changeset_parsing_rejects_nulls_unknown_fields_and_bad_counts() {
         for body in [
             json!({"layout": null}),
+            json!({"cover_layout": null}),
+            json!({"cover_layout": "carousel"}),
+            json!({"focal_point": null}),
+            json!({"focal_point": {"x": 101, "y": 35}}),
+            json!({"focal_point": {"x": -1, "y": 35}}),
+            json!({"focal_point": {"x": 50, "y": 101}}),
+            json!({"focal_point": {"x": 50, "y": -1}}),
+            json!({"focal_point": {"x": 50}}),
+            json!({"focal_point": {"x": 50, "y": 35, "z": 0}}),
             json!({"watermark_enabled": null}),
             json!({"included_photos": 0}),
             json!({"layout": "carousel"}),
@@ -1958,5 +2102,160 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn cover_layout_and_focal_point_serialize_and_enforce_bounds() {
+        assert_eq!(CoverLayout::default(), CoverLayout::FullBleed);
+
+        for (layout, expected) in [
+            (CoverLayout::FullBleed, json!("full_bleed")),
+            (CoverLayout::Split, json!("split")),
+            (CoverLayout::Framed, json!("framed")),
+            (CoverLayout::Banner, json!("banner")),
+        ] {
+            assert_eq!(serde_json::to_value(layout).unwrap(), expected);
+            assert_eq!(
+                serde_json::from_value::<CoverLayout>(expected).unwrap(),
+                layout
+            );
+        }
+
+        let default_point = FocalPoint::default();
+
+        assert_eq!((default_point.x.get(), default_point.y.get()), (50, 35));
+        assert_eq!(
+            serde_json::to_value(default_point).unwrap(),
+            json!({"x": 50, "y": 35})
+        );
+
+        let corners: FocalPoint = serde_json::from_value(json!({"x": 0, "y": 100})).unwrap();
+
+        assert_eq!((corners.x.get(), corners.y.get()), (0, 100));
+        assert!(FocalCoordinate::try_from(0).is_ok());
+        assert!(FocalCoordinate::try_from(100).is_ok());
+        assert!(FocalCoordinate::try_from(101).is_err());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn migration_adds_cover_layout_and_bounded_focal_point_defaults(pool: PgPool) {
+        let mut transaction = pool.begin().await.unwrap();
+        let schema = format!("cover_layout_migration_{}", Uuid::new_v4().simple());
+
+        sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(AssertSqlSafe(format!("SET LOCAL search_path TO {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        for migration in [
+            include_str!("../migrations/0001_accounts_sessions.sql"),
+            include_str!("../migrations/0002_galleries.sql"),
+        ] {
+            sqlx::raw_sql(migration)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        let workspace_id = Uuid::new_v4();
+        let gallery_id = Uuid::new_v4();
+
+        sqlx::query("INSERT INTO workspaces(id) VALUES ($1)")
+            .bind(workspace_id)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO galleries(id, workspace_id) VALUES ($1, $2)")
+            .bind(gallery_id)
+            .bind(workspace_id)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../migrations/0030_cover_layout_and_focal_point.sql"
+        ))
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+
+        let row: (String, i16, i16) = sqlx::query_as(
+            "SELECT cover_layout::text, hero_focal_x, hero_focal_y FROM galleries WHERE id = $1",
+        )
+        .bind(gallery_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .unwrap();
+
+        assert_eq!(row, ("full_bleed".to_owned(), 50, 35));
+
+        for statement in [
+            "UPDATE galleries SET hero_focal_x = -1",
+            "UPDATE galleries SET hero_focal_x = 101",
+            "UPDATE galleries SET hero_focal_y = -1",
+            "UPDATE galleries SET hero_focal_y = 101",
+            "UPDATE galleries SET cover_layout = 'carousel'",
+        ] {
+            sqlx::raw_sql("SAVEPOINT invalid_cover_write")
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+
+            let outcome = sqlx::raw_sql(statement).execute(&mut *transaction).await;
+
+            assert!(outcome.is_err(), "{statement}");
+
+            sqlx::raw_sql("ROLLBACK TO SAVEPOINT invalid_cover_write")
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        transaction.rollback().await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn cover_layout_focal_point_and_shoot_date_reach_owner_and_shared_views(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let store = database.repository::<GalleryRepository>();
+        let workspace = workspace(&pool).await;
+        let id = store.create(workspace).await.unwrap().id;
+        let updated = store
+            .update(
+                workspace,
+                id,
+                &changes(json!({
+                    "cover_layout": "framed",
+                    "focal_point": {"x": 22, "y": 78},
+                    "shoot_date": "2026-09-19",
+                })),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(updated.cover_layout, CoverLayout::Framed);
+        assert_eq!(
+            (updated.focal_point.x.get(), updated.focal_point.y.get()),
+            (22, 78)
+        );
+        assert!(updated.shoot_date.is_some());
+
+        let token = store
+            .share(workspace, id)
+            .await
+            .unwrap()
+            .unwrap()
+            .share_token
+            .unwrap();
+        let shared = store.find_shared(&token).await.unwrap().unwrap().gallery;
+
+        assert_eq!(shared.cover_layout, CoverLayout::Framed);
+        assert_eq!(shared.focal_point, updated.focal_point);
+        assert_eq!(shared.shoot_date, updated.shoot_date);
     }
 }
