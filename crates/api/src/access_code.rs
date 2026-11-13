@@ -12,12 +12,15 @@
 //! None of the types in this module prints raw key material, digits, ciphertext, or cookie
 //! tokens in [`fmt::Debug`].
 
-use std::{fmt, str::FromStr};
+use std::{ffi::OsStr, fmt, str::FromStr};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chacha20poly1305::{
     ChaCha20Poly1305, Nonce,
     aead::{Aead, KeyInit as _, Payload},
+};
+use clap::{
+    Command as ClapCommand, Error as ClapError, builder::TypedValueParser, error::ErrorKind,
 };
 use hmac::{Hmac, Mac};
 pub use pp_core::types::access_code::{
@@ -79,6 +82,10 @@ impl EncryptionKey {
 
     pub fn as_bytes(&self) -> &[u8; KEY_BYTES] {
         &self.0
+    }
+
+    pub const fn value_parser() -> EncryptionKeyValueParser {
+        EncryptionKeyValueParser
     }
 
     /// Canonical 43-character unpadded base64url form used internally by config merging;
@@ -159,6 +166,40 @@ impl TryFrom<String> for EncryptionKey {
 impl From<EncryptionKey> for String {
     fn from(key: EncryptionKey) -> Self {
         key.encode_base64url()
+    }
+}
+
+/// Clap parser for [`EncryptionKey`] that omits [`clap::error::ContextKind::InvalidValue`] so
+/// malformed `PP_GALLERY_PASSWORD_KEY` values are never echoed to startup logs.
+#[derive(Clone, Copy)]
+pub struct EncryptionKeyValueParser;
+
+impl TypedValueParser for EncryptionKeyValueParser {
+    type Value = EncryptionKey;
+
+    fn parse_ref(
+        &self,
+        cmd: &ClapCommand,
+        arg: Option<&clap::Arg>,
+        value: &OsStr,
+    ) -> Result<Self::Value, ClapError> {
+        let parsed = value
+            .to_str()
+            .ok_or(ParseEncryptionKeyError)
+            .and_then(str::parse::<EncryptionKey>);
+
+        match parsed {
+            Ok(key) => Ok(key),
+            Err(error) => {
+                let flag =
+                    arg.map_or_else(|| "--gallery-password-key".to_owned(), ToString::to_string);
+
+                Err(cmd.clone().error(
+                    ErrorKind::ValueValidation,
+                    format!("invalid value for '{flag}': {error}"),
+                ))
+            }
+        }
     }
 }
 

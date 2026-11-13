@@ -59,11 +59,13 @@
 
 	// svelte-ignore state_referenced_locally
 	let committedAccessCode = $state<string | null>(savedAccessCode);
+	const lockedAccessCode = $derived(savedAccessCode ?? committedAccessCode);
 	// svelte-ignore state_referenced_locally
 	let accessCodeEnabled = $state(savedAccessCode !== null);
 	// svelte-ignore state_referenced_locally
 	let accessCodeDraft = $state(savedAccessCode ?? '');
 	let accessCodeDirty = false;
+	let accessCodeSeq = 0;
 	// svelte-ignore state_referenced_locally
 	let lastPropAccessCode = savedAccessCode;
 	let codeCopied = $state(false);
@@ -180,6 +182,7 @@
 	function toggleAccessCode(enabled: boolean) {
 		cancel('access_code');
 		accessCodeDirty = false;
+		const seq = ++accessCodeSeq;
 
 		if (!enabled) {
 			if (committedAccessCode === null) {
@@ -188,7 +191,9 @@
 			}
 
 			void (async () => {
-				if (await onsave({ access_code: null })) {
+				const ok = await onsave({ access_code: null });
+				if (seq !== accessCodeSeq) return;
+				if (ok) {
 					committedAccessCode = null;
 					accessCodeDraft = '';
 				} else {
@@ -204,7 +209,9 @@
 		accessCodeDraft = next;
 
 		void (async () => {
-			if (await onsave({ access_code: next })) {
+			const ok = await onsave({ access_code: next });
+			if (seq !== accessCodeSeq) return;
+			if (ok) {
 				committedAccessCode = next;
 			} else {
 				revertAccessCode();
@@ -215,16 +222,18 @@
 	function regenerateAccessCode() {
 		cancel('access_code');
 		accessCodeDirty = false;
+		const seq = ++accessCodeSeq;
 
-		const previous = accessCodeDraft;
 		const next = generateRandomAccessCode();
 		accessCodeDraft = next;
 
 		void (async () => {
-			if (await onsave({ access_code: next })) {
+			const ok = await onsave({ access_code: next });
+			if (seq !== accessCodeSeq) return;
+			if (ok) {
 				committedAccessCode = next;
 			} else {
-				accessCodeDraft = previous;
+				revertAccessCode();
 			}
 		})();
 	}
@@ -244,8 +253,12 @@
 			return;
 		}
 
+		const seq = ++accessCodeSeq;
+
 		void (async () => {
-			if (await onsave({ access_code: candidate })) {
+			const ok = await onsave({ access_code: candidate });
+			if (seq !== accessCodeSeq) return;
+			if (ok) {
 				committedAccessCode = candidate;
 				if (accessCodeDraft === candidate) accessCodeDirty = false;
 			} else if (leaving || accessCodeDraft === candidate) {
@@ -340,7 +353,7 @@
 			{/if}
 		</div>
 		{#if shareToken}
-			{#if committedAccessCode !== null}
+			{#if lockedAccessCode !== null}
 				<div class={row}>
 					<div class="grid gap-0.5">
 						<span class="text-foreground">{m.settings_access_code()}</span>
@@ -352,14 +365,14 @@
 							<Input
 								bind:ref={codeInput}
 								readonly
-								value={committedAccessCode}
+								value={lockedAccessCode}
 								aria-label={m.settings_access_code_label()}
 								class="bg-muted/40 min-h-0 w-28 cursor-default rounded-lg border-border px-2.5 py-1.5 text-center font-mono text-sm font-semibold tracking-[0.18em] text-foreground focus-visible:outline-none"
 							/>
 							<Button
 								size="sm"
 								class="min-h-9! min-w-24 gap-1.5"
-								onclick={() => copyAccessCode(committedAccessCode ?? '')}
+								onclick={() => copyAccessCode(lockedAccessCode ?? '')}
 							>
 								{#if codeCopied}
 									<span class="text-ok-on-dark">

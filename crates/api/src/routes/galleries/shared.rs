@@ -30,7 +30,7 @@ use actix_web::{
     http::StatusCode,
     middleware::from_fn,
     post, put,
-    web::{self, Data, Json, Path, ServiceConfig},
+    web::{Data, Json, Path, ServiceConfig},
 };
 use pp_database::export::{DeliveryZip, ExportRepository};
 use pp_database::photo::PhotoId;
@@ -127,11 +127,7 @@ struct ZipStatusResponse {
 /// Registers the client routes inside the `/api/v1/galleries` scope.
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(show_shared_gallery)
-        .service(
-            web::resource("/shared/{token}/unlock")
-                .wrap(from_fn(FailedAttempts::limit))
-                .route(web::post().to(unlock_shared_gallery)),
-        )
+        .service(unlock_shared_gallery)
         .service(record_open)
         .service(list_shared_photos)
         .service(list_favorites)
@@ -173,6 +169,7 @@ async fn show_shared_gallery(
     Ok(HttpResponse::Ok().no_store().no_referrer().json(body))
 }
 
+#[post("/shared/{token}/unlock", wrap = "from_fn(FailedAttempts::limit)")]
 async fn unlock_shared_gallery(
     request: HttpRequest,
     state: Data<ApiState>,
@@ -1709,6 +1706,12 @@ mod tests {
             let (status, err) = call(&app, blocked).await;
             assert_eq!(status, StatusCode::UNAUTHORIZED);
             assert_eq!(err["code"], "gallery_locked");
+        }
+
+        // Non-POST requests miss the #[post] guard without consuming the peer's attempt budget.
+        for _ in 0..11 {
+            let get_unlock = test::call_service(&app, client_request(&token, "/unlock")).await;
+            assert_ne!(get_unlock.status(), StatusCode::TOO_MANY_REQUESTS);
         }
 
         // Wrong code returns 401 invalid_access_code without issuing a cookie.

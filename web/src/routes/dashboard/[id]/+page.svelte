@@ -82,9 +82,19 @@
 
 	// Latest save number per field: only the newest save of a field may update its state.
 	const latestSave: Record<string, number> = {};
+	// Active PATCH promises; never read by the template.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const pendingSaves = new Set<Promise<boolean>>();
 	let saveCount = 0;
 
-	async function save(changes: GalleryChanges): Promise<boolean> {
+	function save(changes: GalleryChanges): Promise<boolean> {
+		const promise = performSave(changes);
+		pendingSaves.add(promise);
+		void promise.finally(() => pendingSaves.delete(promise));
+		return promise;
+	}
+
+	async function performSave(changes: GalleryChanges): Promise<boolean> {
 		const keys = Object.keys(changes) as (keyof GalleryChanges)[];
 		const number = ++saveCount;
 		for (const key of keys) latestSave[key] = number;
@@ -169,9 +179,17 @@
 			title = saved.title ?? '';
 		} else saveTitle();
 	}
-	/** Creates the client link; the share card then offers it. */
+	/** Creates the client link; awaits any pending setting saves first so access codes lock safely. */
 	async function share() {
 		flush();
+
+		while (pendingSaves.size > 0) {
+			const outcomes = await Promise.all([...pendingSaves]);
+
+			if (outcomes.includes(false)) {
+				throw new Error(m.gallery_share_failed());
+			}
+		}
 
 		try {
 			const shared = await shareGallery(saved.id);

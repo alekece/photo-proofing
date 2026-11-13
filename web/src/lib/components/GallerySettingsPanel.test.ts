@@ -275,4 +275,52 @@ describe('GallerySettingsPanel', () => {
 		).toBeTruthy();
 		expect((await axe(sharedWithoutCode.container)).violations).toEqual([]);
 	});
+
+	it('ignores out-of-order Generate completions and reverts partial drafts when Generate fails', async () => {
+		let resolveFirst!: (ok: boolean) => void;
+		let resolveSecond!: (ok: boolean) => void;
+		let callCount = 0;
+
+		const onsave = vi.fn().mockImplementation(() => {
+			callCount += 1;
+			if (callCount === 1) return Promise.resolve(true);
+			if (callCount === 2) return new Promise<boolean>((r) => (resolveFirst = r));
+			if (callCount === 3) return new Promise<boolean>((r) => (resolveSecond = r));
+			return Promise.resolve(false);
+		});
+
+		const user = userEvent.setup();
+		render(GallerySettingsPanel, {
+			gallery: { ...gallery, access_code: null, access_code_protected: false },
+			shareToken: null,
+			origin: 'https://pp.test',
+			onsave,
+			schedule: vi.fn(),
+			cancel: vi.fn(),
+			onarchive: vi.fn(),
+			onrestore: vi.fn(),
+			ondelete: vi.fn()
+		});
+
+		await user.click(screen.getByRole('switch', { name: 'Require access code' }));
+		const input = screen.getByLabelText('6-digit access code') as HTMLInputElement;
+		const generate = screen.getByRole('button', { name: 'Generate' });
+
+		await user.click(generate);
+		await user.click(generate);
+		const secondCode = (onsave.mock.calls[2]![0] as { access_code: string }).access_code;
+
+		resolveSecond(true);
+		await vi.waitFor(() => expect(input.value).toBe(secondCode));
+
+		resolveFirst(true);
+		await Promise.resolve();
+		expect(input.value).toBe(secondCode);
+
+		// Type partial unsaved draft '12', then fail Generate -> must revert to committed secondCode, not '12'.
+		await user.clear(input);
+		await user.type(input, '12');
+		await user.click(generate);
+		await vi.waitFor(() => expect(input.value).toBe(secondCode));
+	});
 });
