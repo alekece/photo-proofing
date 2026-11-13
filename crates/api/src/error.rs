@@ -13,6 +13,7 @@ use actix_web::{
 };
 use pp_database::{
     comments::CommentChange,
+    contact::ContactError,
     error::DatabaseError,
     export::{ExportFailure, ExportStatus},
     gallery::{GalleryError, GallerySetting},
@@ -36,6 +37,7 @@ pub(crate) enum ErrorCode {
     NotFound,
     SetupClosed,
     GalleryDelivered,
+    ContactEmailTaken,
     ThreadFull,
     GalleryNotShared,
     SelectionEmpty,
@@ -303,6 +305,18 @@ impl From<SettingsError> for ErrorResponse {
     }
 }
 
+impl From<ContactError> for ErrorResponse {
+    fn from(error: ContactError) -> Self {
+        match error {
+            ContactError::DuplicateEmail => {
+                Self::new(StatusCode::CONFLICT, ErrorCode::ContactEmailTaken)
+                    .with_context(error.to_string())
+            }
+            ContactError::Database(_) => Self::unavailable(),
+        }
+    }
+}
+
 impl From<DatabaseError> for ErrorResponse {
     fn from(_: DatabaseError) -> Self {
         Self::unavailable()
@@ -405,6 +419,7 @@ mod tests {
             (ErrorCode::NotFound, "not_found"),
             (ErrorCode::SetupClosed, "setup_closed"),
             (ErrorCode::GalleryDelivered, "gallery_delivered"),
+            (ErrorCode::ContactEmailTaken, "contact_email_taken"),
             (ErrorCode::GalleryNotShared, "gallery_not_shared"),
             (ErrorCode::SelectionEmpty, "selection_empty"),
             (ErrorCode::ZipNotReady, "zip_not_ready"),

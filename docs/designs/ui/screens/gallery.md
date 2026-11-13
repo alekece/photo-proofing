@@ -34,7 +34,7 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
   - **Collection** navigation with counts: **Photos**, **Favorites** (accented when over allowance,
     padlock once published), **Comments**, and **Final** (`Favorites`, `Comments`, and `Final` stay
     visible and disabled before the first share, with tooltip `"Available once the gallery is shared"`).
-  - **Studio** navigation (always enabled): **Design** and **Settings**.
+  - **Studio** navigation (always enabled): **Design**, **Contacts** (with linked-contact count), and **Settings**.
   - On phones (`< md`), `nav` becomes a horizontally scrollable pill strip below the Journey bar.
 - **Top Journey Wizard & action bar (`journey`):**
   - Actionable 4-step wizard on Warm Paper: **Upload → Share → Collect favorites → Publish** (hidden
@@ -42,18 +42,19 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
   - Right-aligned actions: **Preview** (outline) and the stage CTA (**Share** on a draft,
     **Publish** during Prepublish, nothing once published, **Restore** when archived).
 
-## Studio views (`Design` and `Settings`)
+## Studio views (`Design`, `Contacts`, and `Settings`)
 
 | View / Card | Content |
 |---|---|
 | **Design** | Two-column workspace (stacking on `390 px` phones): **Cover** (**Select cover** / **Change cover** modal over ready proofs + **Remove cover**, four visual cover-template mini-cards — **Full bleed**, **Split editorial**, **Framed paper**, **Minimal banner** — and an interactive rule-of-thirds **Focal point** crosshair pad with `Reset`, disabled without a cover photo), **Look** (**Layout** as two icon buttons: staggered columns, even rows; even rows by default), and a live scrollable **Client preview** with **Desktop** / **Phone** toggle |
+| **Contacts** | Linked contacts list (monogram, **Name**, **Email**, optional **Phone**, **Unlink**), **Manage directory** (`/contacts`), and **+ Link contact** dialog (search unlinked workspace contacts or create a new contact inline and link it in one step) |
 | **Settings → General** | **Shoot date**, **Included photos** (number input, disabled once published), and **Open until** (date picker with one-click relative presets from 1 week to 1 year); all optional |
 | **Settings → Privacy & Protection** | **Client link** (Draft: `"Not shared yet"`; once shared: link and **Copy**) and **Enable watermarks** switch |
 | **Settings → Actions** | **Archive** (or **Restore**) and destructive **Delete**, each with a short consequence hint and confirmation dialog |
 
-- All six panels (**Photos**, **Favorites**, **Comments**, **Final**, **Design**, **Settings**) stay
-  mounted so counts load on open and in-place edits, uploads, or open viewers survive section
-  switches and autosaves.
+- All seven panels (**Photos**, **Favorites**, **Comments**, **Final**, **Design**, **Contacts**,
+  **Settings**) stay mounted so counts load on open and in-place edits, uploads, or open viewers
+  survive section switches and autosaves.
 - In-place inputs save on change without success rings or repeated `"Saved"` toasts. An invalid
   value shows a red toast and reverts. A past `"Open until"` marks the gallery Expired; a future or
   cleared one lifts it.

@@ -7,6 +7,7 @@ const CODES: Record<string, () => string> = {
 	not_found: m.api_error_not_found,
 	setup_closed: m.api_error_setup_closed,
 	gallery_delivered: m.api_error_gallery_delivered,
+	contact_email_taken: m.api_error_contact_email_taken,
 	thread_full: m.api_error_thread_full,
 	gallery_not_shared: m.api_error_gallery_not_shared,
 	selection_empty: m.api_error_selection_empty,

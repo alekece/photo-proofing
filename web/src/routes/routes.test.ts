@@ -5,10 +5,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
 
 vi.mock('$app/navigation', () => ({ afterNavigate: vi.fn(), goto: vi.fn() }));
-vi.mock('$app/state', () => ({ navigating: { to: null } }));
+vi.mock('$app/state', () => ({
+	page: { url: new URL('http://localhost/dashboard') },
+	navigating: { to: null }
+}));
 import ClientGallery from '#lib/components/ClientGallery.svelte';
 import AccessUnavailable from '#lib/components/AccessUnavailable.svelte';
 import type { Proof, SharedGallery } from '#lib/gallery/types.js';
+import Contacts from './contacts/+page.svelte';
 import Dashboard from './dashboard/+page.svelte';
 import Gallery from './g/[token]/+page.svelte';
 
@@ -53,6 +57,19 @@ describe('route shells', () => {
 			}
 		});
 		expect(screen.getByText('No galleries in focus.')).toBeTruthy();
+	});
+
+	it('contacts renders its heading', () => {
+		render(Contacts, {
+			props: {
+				data: {
+					identity: { account_id: 'account', workspace_id: 'workspace' },
+					idleTimeoutMs: 2592000000,
+					contacts: []
+				}
+			}
+		});
+		expect(screen.getByRole('heading', { level: 1, name: 'Contacts' })).toBeTruthy();
 	});
 });
 

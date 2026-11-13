@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod comments;
+pub mod contact;
 pub mod error;
 pub mod export;
 pub mod favorite_events;

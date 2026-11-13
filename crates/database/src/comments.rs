@@ -22,8 +22,9 @@ pub const MAX_BODY_CHARS: usize = 500;
 #[error("comment must contain between 1 and 500 characters")]
 pub struct CommentBodyError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Type)]
 #[serde(try_from = "String")]
+#[sqlx(transparent)]
 pub struct CommentBody(String);
 
 impl CommentBody {
@@ -232,7 +233,7 @@ impl CommentRepository<'_> {
         .bind(location.gallery_id)
         .bind(photo)
         .bind(author)
-        .bind(body.as_str())
+        .bind(body)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -291,7 +292,7 @@ impl CommentRepository<'_> {
         .bind(location.gallery_id)
         .bind(id)
         .bind(author)
-        .bind(body.as_str())
+        .bind(body)
         .fetch_optional(&mut *tx)
         .await?;
 

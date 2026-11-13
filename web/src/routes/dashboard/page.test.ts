@@ -9,7 +9,10 @@ vi.mock('$app/navigation', () => ({
 	beforeNavigate: vi.fn(),
 	goto: vi.fn()
 }));
-const state = vi.hoisted(() => ({ navigating: { to: null as null | { route: { id: string } } } }));
+const state = vi.hoisted(() => ({
+	page: { url: new URL('http://localhost/dashboard') },
+	navigating: { to: null as null | { route: { id: string } } }
+}));
 vi.mock('$app/state', () => state);
 import { goto } from '$app/navigation';
 import type { GalleryOverview } from '#lib/gallery/api.js';

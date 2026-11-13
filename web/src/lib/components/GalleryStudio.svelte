@@ -1,5 +1,6 @@
 <script module lang="ts">
-	export type StudioSection = 'photos' | 'favorites' | 'comments' | 'final' | 'design' | 'settings';
+	export type StudioSection =
+		'photos' | 'favorites' | 'comments' | 'final' | 'design' | 'contacts' | 'settings';
 </script>
 
 <script lang="ts">
@@ -12,13 +13,15 @@
 		Lock,
 		MessageSquare,
 		Palette,
-		SlidersHorizontal
+		SlidersHorizontal,
+		Users
 	} from '@lucide/svelte';
 	import type { Component, Snippet } from 'svelte';
 	import CommentsPanel from '#lib/components/CommentsPanel.svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
 	import FavoritesPanel from '#lib/components/FavoritesPanel.svelte';
 	import GalleryActionBar from '#lib/components/GalleryActionBar.svelte';
+	import GalleryContactsPanel from '#lib/components/GalleryContactsPanel.svelte';
 	import GalleryDesignPanel from '#lib/components/GalleryDesignPanel.svelte';
 	import GallerySettingsPanel from '#lib/components/GallerySettingsPanel.svelte';
 	import PhotosPanel from '#lib/components/PhotosPanel.svelte';
@@ -78,6 +81,7 @@
 	let favoriteCount = $state<number | null>(null);
 	let commentCount = $state<number | null>(null);
 	let finalCount = $state<number | null>(null);
+	let contactCount = $state<number | null>(null);
 
 	// Saving replaces the parent gallery object; equal IDs must not reset loaded panels.
 	const id = $derived(gallery.id);
@@ -137,6 +141,7 @@
 
 	const studioItems = $derived<NavItem[]>([
 		{ id: 'design', label: m.tab_design(), icon: Palette },
+		{ id: 'contacts', label: m.contacts_title(), icon: Users, count: contactCount },
 		{ id: 'settings', label: m.tab_settings(), icon: SlidersHorizontal }
 	]);
 
@@ -348,6 +353,9 @@
 					{schedule}
 					{cancel}
 				/>
+			</div>
+			<div hidden={section !== 'contacts'}>
+				<GalleryContactsPanel galleryId={id} oncount={(n) => (contactCount = n)} />
 			</div>
 			<div hidden={section !== 'settings'}>
 				<GallerySettingsPanel

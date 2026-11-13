@@ -10,9 +10,7 @@
 use std::num::NonZeroU16;
 
 use serde::{Deserialize, Serialize};
-use sqlx::{
-    AssertSqlSafe, FromRow, PgConnection, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow,
-};
+use sqlx::{AssertSqlSafe, FromRow, PgConnection, PgPool, Postgres, Row, Transaction, Type};
 use thiserror::Error;
 
 use crate::photo::PhotoId;
@@ -147,16 +145,17 @@ impl ProofQuality {
 }
 
 /// A cell of the 3 × 3 position grid, 0 (top left) to 8 (bottom right).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(try_from = "u8", into = "u8")]
-pub struct GridCell(u8);
+#[sqlx(transparent)]
+pub struct GridCell(i16);
 
 impl GridCell {
     pub const BOTTOM_RIGHT: Self = Self(8);
 
     /// The cell's index, 0 to 8.
     pub const fn get(self) -> u8 {
-        self.0
+        self.0 as u8
     }
 }
 
@@ -164,24 +163,25 @@ impl TryFrom<u8> for GridCell {
     type Error = SettingsError;
 
     fn try_from(cell: u8) -> Result<Self, Self::Error> {
-        if cell > Self::BOTTOM_RIGHT.0 {
+        if cell > Self::BOTTOM_RIGHT.get() {
             return Err(SettingsError::GridCell(cell));
         }
 
-        Ok(Self(cell))
+        Ok(Self(i16::from(cell)))
     }
 }
 
 impl From<GridCell> for u8 {
     fn from(cell: GridCell) -> Self {
-        cell.0
+        cell.get()
     }
 }
 
 /// How large the watermark or the cover signature is: 0 (small) to 9 (large).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(try_from = "u8", into = "u8")]
-pub struct SizeStep(u8);
+#[sqlx(transparent)]
+pub struct SizeStep(i16);
 
 impl SizeStep {
     pub const MIN: Self = Self(0);
@@ -189,7 +189,7 @@ impl SizeStep {
 
     /// The step, 0 to 9.
     pub const fn get(self) -> u8 {
-        self.0
+        self.0 as u8
     }
 }
 
@@ -204,17 +204,17 @@ impl TryFrom<u8> for SizeStep {
     type Error = SettingsError;
 
     fn try_from(step: u8) -> Result<Self, Self::Error> {
-        if step > Self::MAX.0 {
+        if step > Self::MAX.get() {
             return Err(SettingsError::SizeStep(step));
         }
 
-        Ok(Self(step))
+        Ok(Self(i16::from(step)))
     }
 }
 
 impl From<SizeStep> for u8 {
     fn from(step: SizeStep) -> Self {
-        step.0
+        step.get()
     }
 }
 
@@ -240,7 +240,7 @@ pub struct Watermark {
 }
 
 /// The saved workspace settings.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct WorkspaceSettings {
     pub studio_name: String,
     pub mark: WatermarkMark,
@@ -291,30 +291,6 @@ impl WorkspaceSettings {
             logo,
             placement,
             size: self.size,
-        })
-    }
-}
-
-impl FromRow<'_, PgRow> for WorkspaceSettings {
-    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
-        let narrow = |column: &str| {
-            u8::try_from(row.try_get::<i16, _>(column)?)
-                .map_err(|error| sqlx::Error::Decode(error.into()))
-        };
-
-        Ok(Self {
-            studio_name: row.try_get("studio_name")?,
-            mark: row.try_get("mark")?,
-            pattern: row.try_get("pattern")?,
-            position: GridCell::try_from(narrow("position")?)
-                .map_err(|error| sqlx::Error::Decode(error.into()))?,
-            size: SizeStep::try_from(narrow("size")?)
-                .map_err(|error| sqlx::Error::Decode(error.into()))?,
-            signature: row.try_get("signature")?,
-            signature_size: SizeStep::try_from(narrow("signature_size")?)
-                .map_err(|error| sqlx::Error::Decode(error.into()))?,
-            proof_quality: row.try_get("proof_quality")?,
-            logo: row.try_get("logo")?,
         })
     }
 }
@@ -489,13 +465,13 @@ impl SettingsRepository<'_> {
         .bind(&saved.studio_name)
         .bind(saved.mark)
         .bind(saved.pattern)
-        .bind(i16::from(saved.position.get()))
-        .bind(i16::from(saved.size.get()))
+        .bind(saved.position)
+        .bind(saved.size)
         .bind(saved.signature)
         .bind(&saved.logo)
         .bind(i64::from(changed))
         .bind(saved.proof_quality)
-        .bind(i16::from(saved.signature_size.get()))
+        .bind(saved.signature_size)
         .execute(&mut *transaction)
         .await?;
 

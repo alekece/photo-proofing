@@ -13,6 +13,9 @@ vi.mock('#lib/components/FavoritesPanel.svelte', async () => ({
 vi.mock('#lib/components/CommentsPanel.svelte', async () => ({
 	default: (await import('#lib/components/CommentsPanelStub.test.svelte')).default
 }));
+vi.mock('#lib/components/GalleryContactsPanel.svelte', async () => ({
+	default: (await import('#lib/components/GalleryContactsPanelStub.test.svelte')).default
+}));
 
 import type { Gallery } from '#lib/gallery/api.js';
 import GalleryStudio from './GalleryStudio.svelte';
@@ -144,17 +147,22 @@ describe('GalleryStudio', () => {
 		const comments = screen.getByRole('tab', { name: /^Comments/ }) as HTMLButtonElement;
 		const finals = screen.getByRole('tab', { name: /^Final/ }) as HTMLButtonElement;
 		const design = screen.getByRole('tab', { name: 'Design' });
+		const contacts = screen.getByRole('tab', { name: /^Contacts/ }) as HTMLButtonElement;
 		const settings = screen.getByRole('tab', { name: 'Settings' });
 
 		expect(favorites.disabled).toBe(true);
 		expect(comments.disabled).toBe(true);
 		expect(finals.disabled).toBe(true);
+		expect(contacts.disabled).toBe(false);
 		expect(favorites.title).toBe('Available once the gallery is shared');
 
 		await fireEvent.keyDown(photos, { key: 'ArrowDown' });
 		expect(design.getAttribute('aria-selected')).toBe('true');
 
 		await fireEvent.keyDown(design, { key: 'ArrowRight' });
+		expect(contacts.getAttribute('aria-selected')).toBe('true');
+
+		await fireEvent.keyDown(contacts, { key: 'ArrowRight' });
 		expect(settings.getAttribute('aria-selected')).toBe('true');
 
 		await fireEvent.keyDown(settings, { key: 'ArrowDown' });

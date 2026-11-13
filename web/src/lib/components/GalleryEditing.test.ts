@@ -42,7 +42,7 @@ describe('gallery editing integration', () => {
 		const fetcher = vi.fn<typeof fetch>(async (url) =>
 			String(url).endsWith('/export')
 				? new Response(null, { status: 204 })
-				: String(url).endsWith('/comments')
+				: String(url).endsWith('/comments') || String(url).endsWith('/contacts')
 					? Response.json([])
 					: Response.json([photo])
 		);
@@ -68,9 +68,10 @@ describe('gallery editing integration', () => {
 		};
 		const props = { gallery, queue, events };
 		const view = render(Harness, { props });
-		await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(8));
+		await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(9));
 		const user = userEvent.setup();
 		await user.click(screen.getByRole('tab', { name: 'Design' }));
+		await user.click(screen.getByRole('tab', { name: /^Contacts/ }));
 		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		await user.click(screen.getByRole('tab', { name: /^Photos/ }));
 		await user.click(await screen.findByRole('button', { name: 'Open portrait.jpg' }));
