@@ -1,7 +1,7 @@
 //! Public client routes under `/api/v1/galleries/shared/{token}`.
 //!
-//! - `GET /` returns the title, layout, cover settings, shoot date and expiry of the gallery
-//!   behind a private link.
+//! - `GET /` returns the title, layout, cover, typography and grid settings, shoot date and
+//!   expiry of the gallery behind a private link.
 //! - `POST /open` records the client's open as the gallery's last-opened time, at most once per
 //!   throttle delay; other calls are no-ops (204).
 //! - `GET /photos` lists the photos the client may see, with their displayed size: the ready
@@ -467,6 +467,9 @@ mod tests {
                 "layout": "masonry",
                 "cover_layout": "full_bleed",
                 "focal_point": {"x": 50, "y": 35},
+                "heading_font": "editorial",
+                "grid_density": "compact",
+                "grid_spacing": "compact",
                 "shoot_date": null,
                 "expires_at": null,
                 "included_photos": null,
@@ -484,6 +487,9 @@ mod tests {
             json!({
                 "cover_layout": "banner",
                 "focal_point": {"x": 15, "y": 80},
+                "heading_font": "modern",
+                "grid_density": "large",
+                "grid_spacing": "generous",
                 "shoot_date": "2026-06-14"
             }),
         )
@@ -493,6 +499,9 @@ mod tests {
 
         assert_eq!(custom_body["cover_layout"], "banner");
         assert_eq!(custom_body["focal_point"], json!({"x": 15, "y": 80}));
+        assert_eq!(custom_body["heading_font"], "modern");
+        assert_eq!(custom_body["grid_density"], "large");
+        assert_eq!(custom_body["grid_spacing"], "generous");
         assert_eq!(custom_body["shoot_date"], "2026-06-14");
     }
 
