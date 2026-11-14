@@ -113,8 +113,15 @@ Dashboard setup (private LAN/VPN only, authentication enabled; it has Docker soc
 - Manage the Docker daemon where staging runs and keep the project name `pp-staging`.
 - Bind the dashboard's secret-manager integration to the stack with a read-only service token for the
   staging config. The secret manager supplies `POSTGRES_PASSWORD` and a URL-encoded `PP_DATABASE_URL`,
-  plus optional `PP_GALLERY_PASSWORD_KEY` and `PP_SMTP_PASSWORD` (and any optional `PP_SMTP_*`
-  settings not kept in `/etc/pp/config.toml`).
+  plus optional `PP_GALLERY_PASSWORD_KEY`, `MP_UI_AUTH` (`user:password` to password-protect the
+  Mailpit inbox), and `PP_SMTP_PASSWORD` (when overriding the built-in `mailpit:1025` catch-all).
+- Staging runs a catch-all `mailpit` service (`axllent/mailpit:v1`, capped at 500 messages) with
+  `api` and `worker` pre-wired to `mailpit:1025` (`PP_SMTP_TLS=none`,
+  `PP_SMTP_FROM_EMAIL=noreply@proofing.example`) and its web inbox published directly at
+  `http://<PP_BIND_ADDRESS>:${PP_MAILPIT_PORT:-8025}` (SMTP `:1025` stays internal to the Compose
+  network). Override `PP_SMTP_HOST`, `PP_SMTP_PORT`, `PP_SMTP_TLS`, `PP_SMTP_USERNAME`,
+  `PP_SMTP_PASSWORD` and `PP_SMTP_FROM_EMAIL` in stack/secret-manager variables if testing an
+  external SMTP relay.
 - Set `PP_APP_ORIGIN`, `PP_STAGING_HOST`, `PP_BIND_ADDRESS` and the four existing volume
   names (`PP_POSTGRES_VOLUME`, `PP_PHOTO_VOLUME`, `PP_CADDY_DATA_VOLUME`,
   `PP_CADDY_CONFIG_VOLUME`) as stack variables in the dashboard, never in Git. A fresh

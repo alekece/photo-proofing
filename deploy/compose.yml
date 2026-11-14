@@ -16,15 +16,15 @@ x-runtime: &runtime
 x-app-config: &app-config
   PP_CONFIG: /etc/pp/config.toml
   PP_DATABASE_URL: ${PP_DATABASE_URL:?the secret manager must supply the URL-encoded database URL}
-  # Optional secrets and SMTP settings; forwarded only when supplied so empty values are never
-  # passed and /etc/pp/config.toml values remain in effect when unset.
+  # Default staging SMTP to the internal Mailpit catch-all container; override in stack/secret
+  # manager when testing an external relay. Bare keys forward only when set (never empty strings).
   PP_GALLERY_PASSWORD_KEY:
-  PP_SMTP_HOST:
-  PP_SMTP_PORT:
-  PP_SMTP_TLS:
+  PP_SMTP_HOST: ${PP_SMTP_HOST:-mailpit}
+  PP_SMTP_PORT: ${PP_SMTP_PORT:-1025}
+  PP_SMTP_TLS: ${PP_SMTP_TLS:-none}
   PP_SMTP_USERNAME:
   PP_SMTP_PASSWORD:
-  PP_SMTP_FROM_EMAIL:
+  PP_SMTP_FROM_EMAIL: ${PP_SMTP_FROM_EMAIL:-noreply@proofing.example}
   PP_SMTP_FROM_NAME:
   PP_SMTP_MAX_RECIPIENTS_PER_SEND:
 
@@ -73,6 +73,23 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mailpit:
+        condition: service_healthy
+
+  mailpit:
+    <<: *runtime
+    image: axllent/mailpit:v1
+    environment:
+      MP_MAX_MESSAGES: "500"
+      # Optional "user:password" from the secret manager to password-protect the web UI.
+      MP_UI_AUTH:
+    ports:
+      - "${PP_BIND_ADDRESS:?Select a loopback or LAN address}:${PP_MAILPIT_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   web:
     <<: *runtime
