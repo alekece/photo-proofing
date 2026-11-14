@@ -104,7 +104,6 @@ pub(crate) struct ApiState {
     comment_limiter: CommentLimiter,
     comment_limit: NonZeroU16,
     access_code_cipher: Option<AccessCodeCipher>,
-    #[allow(dead_code)]
     smtp: Option<SmtpSettings>,
 }
 
@@ -167,6 +166,10 @@ impl ApiState {
         self.smtp = smtp;
 
         self
+    }
+
+    pub fn smtp(&self) -> Option<&SmtpSettings> {
+        self.smtp.as_ref()
     }
 
     pub fn unlock_cookie(&self, value: String) -> Cookie<'static> {

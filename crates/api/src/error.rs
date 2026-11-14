@@ -16,7 +16,7 @@ use pp_database::{
     contact::ContactError,
     error::DatabaseError,
     export::{ExportFailure, ExportStatus},
-    gallery::{GalleryError, GallerySetting},
+    gallery::{GalleryError, GallerySetting, InvitationError},
     photo::FavoriteChange,
     settings::SettingsError,
 };
@@ -40,8 +40,12 @@ pub(crate) enum ErrorCode {
     InvalidAccessCode,
     AccessCodeLocked,
     AccessCodeUnavailable,
+    EmailUnavailable,
+    GalleryArchived,
+    GalleryExpired,
     GalleryDelivered,
     ContactEmailTaken,
+    TooManyRecipients,
     ThreadFull,
     GalleryNotShared,
     SelectionEmpty,
@@ -154,6 +158,16 @@ impl ErrorResponse {
             ErrorCode::AccessCodeUnavailable,
         )
         .with_context("gallery access codes are not configured")
+    }
+
+    pub fn email_unavailable() -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, ErrorCode::EmailUnavailable)
+            .with_context("outbound email is not configured")
+    }
+
+    pub fn too_many_recipients() -> Self {
+        Self::new(StatusCode::BAD_REQUEST, ErrorCode::TooManyRecipients)
+            .with_context("too many recipients in a single send")
     }
 
     pub fn gallery_delivered() -> Self {
@@ -344,6 +358,20 @@ impl From<ContactError> for ErrorResponse {
     }
 }
 
+impl From<InvitationError> for ErrorResponse {
+    fn from(error: InvitationError) -> Self {
+        match error {
+            InvitationError::Archived => {
+                Self::new(StatusCode::CONFLICT, ErrorCode::GalleryArchived)
+                    .with_context(error.to_string())
+            }
+            InvitationError::Expired => Self::new(StatusCode::CONFLICT, ErrorCode::GalleryExpired)
+                .with_context(error.to_string()),
+            InvitationError::Database(_) => Self::unavailable(),
+        }
+    }
+}
+
 impl From<DatabaseError> for ErrorResponse {
     fn from(_: DatabaseError) -> Self {
         Self::unavailable()
@@ -449,8 +477,12 @@ mod tests {
             (ErrorCode::InvalidAccessCode, "invalid_access_code"),
             (ErrorCode::AccessCodeLocked, "access_code_locked"),
             (ErrorCode::AccessCodeUnavailable, "access_code_unavailable"),
+            (ErrorCode::EmailUnavailable, "email_unavailable"),
+            (ErrorCode::GalleryArchived, "gallery_archived"),
+            (ErrorCode::GalleryExpired, "gallery_expired"),
             (ErrorCode::GalleryDelivered, "gallery_delivered"),
             (ErrorCode::ContactEmailTaken, "contact_email_taken"),
+            (ErrorCode::TooManyRecipients, "too_many_recipients"),
             (ErrorCode::GalleryNotShared, "gallery_not_shared"),
             (ErrorCode::SelectionEmpty, "selection_empty"),
             (ErrorCode::ZipNotReady, "zip_not_ready"),

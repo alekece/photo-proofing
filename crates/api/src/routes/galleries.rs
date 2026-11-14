@@ -8,6 +8,8 @@
 //! - `PATCH /{id}` applies a [`GalleryChanges`] changeset and returns the updated gallery.
 //! - `POST /{id}/share` creates the gallery's private link if it has none and returns the
 //!   gallery; sharing again returns the same link.
+//! - `POST /{id}/invitations` shares the gallery if needed, links `To` contacts, and queues one
+//!   email invitation job per unique recipient.
 //! - `POST /{id}/deliver` switches the link to the finished photos and returns the gallery;
 //!   delivering again changes nothing, and a gallery not shared or archived is a 409.
 //! - `POST /{id}/archive` hides the gallery from its client and returns it; archiving again
@@ -46,6 +48,7 @@ use crate::{
 mod comments;
 mod contacts;
 mod export;
+mod invitations;
 mod photos;
 mod shared;
 
@@ -128,6 +131,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(restore_gallery)
             .service(delete_gallery)
             .configure(contacts::configure)
+            .configure(invitations::configure)
             .configure(photos::configure)
             .configure(export::configure),
     );
