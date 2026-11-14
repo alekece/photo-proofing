@@ -737,5 +737,71 @@
 	"gallery_contacts_open_directory": "Manage directory",
 	"gallery_contacts_load_failed": "Couldn’t load linked contacts.",
 	"gallery_contacts_link_failed": "Couldn’t link this contact. Please try again.",
-	"gallery_contacts_unlink_failed": "Couldn’t unlink this contact. Please try again."
+	"gallery_contacts_unlink_failed": "Couldn’t unlink this contact. Please try again.",
+	"api_error_email_unavailable": "Email sending isn’t configured on this server.",
+	"api_error_gallery_archived": "Archived galleries can’t send invitations. Restore the gallery first.",
+	"api_error_gallery_expired": "This gallery has expired. Update its Open until date in Settings first.",
+	"api_error_too_many_recipients": "Too many recipients for a single send. Split the list into smaller batches.",
+	"tab_share": "Share",
+	"tab_share_archived": "Restore the gallery to share it",
+	"settings_share_link": "Share link",
+	"share_send_invitation": "Send invitation",
+	"share_send_invitation_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Send invitation ({count})",
+				"countPlural=*": "Send invitations ({count})"
+			}
+		}
+	],
+	"share_sending": "Sending…",
+	"share_invitations_queued": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Invitation queued",
+				"countPlural=*": "{count} invitations queued"
+			}
+		}
+	],
+	"share_smtp_unavailable_title": "Email sending isn’t configured",
+	"share_smtp_unavailable_body": "Configure [smtp] on this server to send email invitations, or share the client link directly from Settings.",
+	"share_open_settings": "Open Settings",
+	"share_expired_title": "This gallery has expired",
+	"share_expired_body": "Update Open until in Settings → General before sending invitations.",
+	"share_envelope_label": "Invitation envelope",
+	"share_to_label": "To",
+	"share_to_placeholder": "client@example.com or Name <client@example.com>",
+	"share_add_contacts": "+ Contacts",
+	"share_add_bcc": "+ BCC",
+	"share_bcc_label": "BCC",
+	"share_bcc_placeholder": "Private copy (not added to Contacts)",
+	"share_remove_recipient": "Remove {email}",
+	"share_subject_label": "Subject",
+	"share_default_subject_proofing": "{title} — Your proofing gallery is ready",
+	"share_default_subject_finals": "{title} — Your final photos are ready",
+	"share_default_message_proofing": "Hello,\n\nYour proofing gallery is ready to view. Take your time browsing the photos and mark your favorites whenever you’re ready.",
+	"share_default_message_finals": "Hello,\n\nYour finished photos are ready to view and download from your gallery.",
+	"share_preview_label": "Live email preview",
+	"share_eyebrow_proofing": "Proofing gallery",
+	"share_eyebrow_finals": "Final photos ready",
+	"share_message_label": "Personal message",
+	"share_message_placeholder": "Write a personal note for your client…",
+	"share_access_code_heading": "Access code",
+	"share_cta_proofing": "View gallery",
+	"share_cta_finals": "View final photos",
+	"share_available_until": "Available until {date}",
+	"share_picker_title": "Add from Contacts",
+	"share_picker_empty": "All workspace contacts are already in To.",
+	"share_invalid_email": "Enter a valid email address.",
+	"share_subject_required": "Enter an email subject.",
+	"share_message_required": "Enter a message before sending.",
+	"share_send_failed": "Couldn’t send invitations. Please try again.",
+	"share_warn_empty_title": "Send invitation with no ready photos?",
+	"share_warn_unfinished_title": "Send invitation while photos aren’t all ready?",
+	"share_warn_body": "Your client will receive the email right away and see the gallery before every proof is ready.",
+	"share_send_anyway": "Send anyway"
 }

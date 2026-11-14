@@ -64,4 +64,17 @@ describe('Toaster', () => {
 
 		expect(toasts.error('Copied')).not.toBe(first);
 	});
+
+	it('renders a success toast with status role and auto-dismisses it', async () => {
+		const { container } = render(Toaster);
+
+		toasts.success('Invitation queued');
+
+		expect(await screen.findByRole('status')).toBeTruthy();
+		expect(screen.getByText('Invitation queued')).toBeTruthy();
+		expect((await axe(container)).violations).toEqual([]);
+
+		await vi.advanceTimersByTimeAsync(4_500);
+		expect(screen.queryByRole('status')).toBeNull();
+	});
 });

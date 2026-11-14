@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onDestroy } from 'svelte';
-	import { Archive, ArchiveRestore, Check, RotateCw, Trash2 } from '@lucide/svelte';
+	import { Archive, ArchiveRestore, Check, Link2, RotateCw, Trash2 } from '@lucide/svelte';
 	import ClickPop from '#lib/components/ClickPop.svelte';
 	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
@@ -28,6 +28,7 @@
 		onsave,
 		schedule,
 		cancel,
+		onsharelink,
 		onarchive,
 		onrestore,
 		ondelete
@@ -40,6 +41,7 @@
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
 		schedule: (field: string, run: () => void) => void;
 		cancel: (field: string) => void;
+		onsharelink?: () => void;
 		onarchive: () => void;
 		onrestore: () => void;
 		ondelete: () => void;
@@ -355,7 +357,19 @@
 					<ShareLink token={shareToken} {origin} />
 				</div>
 			{:else}
-				<span class="text-sm text-muted-foreground">{m.settings_not_shared()}</span>
+				<div class="flex flex-wrap items-center gap-2.5">
+					<span class="text-sm text-muted-foreground">{m.settings_not_shared()}</span>
+					<Button
+						data-share-trigger
+						variant="outline"
+						size="sm"
+						class="min-h-9! gap-1.5 bg-white!"
+						disabled={archived}
+						onclick={onsharelink}
+					>
+						<Link2 size={15} aria-hidden="true" />{m.settings_share_link()}
+					</Button>
+				</div>
 			{/if}
 		</div>
 		{#if shareToken}

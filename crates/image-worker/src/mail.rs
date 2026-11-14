@@ -85,7 +85,7 @@ impl EmailCopy {
             (InvitationStage::Proofing, Language::En) => "Proofing gallery",
             (InvitationStage::Proofing, Language::Fr) => "Galerie de sélection",
             (InvitationStage::Finals, Language::En) => "Final photos ready",
-            (InvitationStage::Finals, Language::Fr) => "Photos finales prêtes",
+            (InvitationStage::Finals, Language::Fr) => "Photos retouchées prêtes",
         }
     }
 
@@ -94,7 +94,7 @@ impl EmailCopy {
             (InvitationStage::Proofing, Language::En) => "View gallery",
             (InvitationStage::Proofing, Language::Fr) => "Voir la galerie",
             (InvitationStage::Finals, Language::En) => "View final photos",
-            (InvitationStage::Finals, Language::Fr) => "Voir les photos finales",
+            (InvitationStage::Finals, Language::Fr) => "Voir les photos retouchées",
         }
     }
 
@@ -563,7 +563,7 @@ mod tests {
             reply_to: None,
             to_email: "client@example.test".parse::<Email>().unwrap(),
             to_name: None,
-            subject: "Vos photos finales".parse::<EmailSubject>().unwrap(),
+            subject: "Vos photos retouchées".parse::<EmailSubject>().unwrap(),
             studio_name: "Atelier".to_owned(),
             signature: CoverSignature::None,
             logo_png: Some(vec![1, 2, 3]),
@@ -584,7 +584,7 @@ mod tests {
         assert!(!decoded.contains("cid:gallery-cover@photoproofing"));
         assert!(!decoded.contains("Code d’accès"));
         assert!(!decoded.contains("Disponible jusqu’au"));
-        assert!(decoded.contains("Photos finales prêtes"));
-        assert!(decoded.contains("Voir les photos finales"));
+        assert!(decoded.contains("Photos retouchées prêtes"));
+        assert!(decoded.contains("Voir les photos retouchées"));
     }
 }

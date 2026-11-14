@@ -758,5 +758,71 @@
 	"gallery_contacts_open_directory": "Gérer le répertoire",
 	"gallery_contacts_load_failed": "Impossible de charger les contacts associés.",
 	"gallery_contacts_link_failed": "Impossible d’associer ce contact. Réessayez.",
-	"gallery_contacts_unlink_failed": "Impossible de dissocier ce contact. Réessayez."
+	"gallery_contacts_unlink_failed": "Impossible de dissocier ce contact. Réessayez.",
+	"api_error_email_unavailable": "L’envoi d’e-mails n’est pas configuré sur ce serveur.",
+	"api_error_gallery_archived": "Une galerie archivée ne peut pas envoyer d’invitations. Restaurez-la d’abord.",
+	"api_error_gallery_expired": "Cette galerie est expirée. Mettez d’abord à jour la date Ouverte jusqu’au dans Réglages.",
+	"api_error_too_many_recipients": "Trop de destinataires pour un seul envoi. Divisez la liste en plusieurs envois.",
+	"tab_share": "Partager",
+	"tab_share_archived": "Restaurez la galerie pour la partager",
+	"settings_share_link": "Activer le lien",
+	"share_send_invitation": "Envoyer l’invitation",
+	"share_send_invitation_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Envoyer l’invitation ({count})",
+				"countPlural=*": "Envoyer les invitations ({count})"
+			}
+		}
+	],
+	"share_sending": "Envoi…",
+	"share_invitations_queued": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Invitation mise en file d’attente",
+				"countPlural=*": "{count} invitations mises en file d’attente"
+			}
+		}
+	],
+	"share_smtp_unavailable_title": "Envoi d’e-mails non configuré",
+	"share_smtp_unavailable_body": "Configurez [smtp] sur ce serveur pour envoyer des invitations par e-mail, ou activez directement le lien client depuis Réglages.",
+	"share_open_settings": "Ouvrir les réglages",
+	"share_expired_title": "Cette galerie est expirée",
+	"share_expired_body": "Mettez à jour Ouverte jusqu’au dans Réglages → Général avant d’envoyer des invitations.",
+	"share_envelope_label": "Enveloppe de l’invitation",
+	"share_to_label": "À",
+	"share_to_placeholder": "client@exemple.fr ou Nom <client@exemple.fr>",
+	"share_add_contacts": "+ Contacts",
+	"share_add_bcc": "+ Cci",
+	"share_bcc_label": "Cci",
+	"share_bcc_placeholder": "Copie cachée (non ajoutée aux contacts)",
+	"share_remove_recipient": "Retirer {email}",
+	"share_subject_label": "Objet",
+	"share_default_subject_proofing": "{title} — Votre galerie de sélection est prête",
+	"share_default_subject_finals": "{title} — Vos photos retouchées sont prêtes",
+	"share_default_message_proofing": "Bonjour,\n\nVotre galerie de sélection est prête. Prenez le temps de parcourir les photos et d’indiquer vos coups de cœur.",
+	"share_default_message_finals": "Bonjour,\n\nVos photos retouchées sont prêtes à être consultées et téléchargées depuis votre galerie.",
+	"share_preview_label": "Aperçu de l’e-mail",
+	"share_eyebrow_proofing": "Galerie de sélection",
+	"share_eyebrow_finals": "Photos retouchées prêtes",
+	"share_message_label": "Message personnel",
+	"share_message_placeholder": "Écrivez un mot personnel pour votre client…",
+	"share_access_code_heading": "Code d’accès",
+	"share_cta_proofing": "Voir la galerie",
+	"share_cta_finals": "Voir les photos retouchées",
+	"share_available_until": "Disponible jusqu’au {date}",
+	"share_picker_title": "Ajouter depuis les contacts",
+	"share_picker_empty": "Tous les contacts de l’espace sont déjà dans À.",
+	"share_invalid_email": "Saisissez une adresse e-mail valide.",
+	"share_subject_required": "Saisissez un objet d’e-mail.",
+	"share_message_required": "Saisissez un message avant d’envoyer.",
+	"share_send_failed": "Impossible d’envoyer les invitations. Réessayez.",
+	"share_warn_empty_title": "Envoyer l’invitation sans photo prête ?",
+	"share_warn_unfinished_title": "Envoyer l’invitation avant que toutes les photos soient prêtes ?",
+	"share_warn_body": "Votre client recevra l’e-mail immédiatement et ouvrira la galerie avant que toutes les épreuves soient prêtes.",
+	"share_send_anyway": "Envoyer quand même"
 }

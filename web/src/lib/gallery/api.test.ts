@@ -5,6 +5,7 @@ import {
 	deleteGallery,
 	GalleryApiError,
 	restoreGallery,
+	sendGalleryInvitations,
 	shareGallery,
 	updateGallery
 } from './api';
@@ -88,5 +89,52 @@ describe('deleteGallery', () => {
 		const fetcher = vi.fn().mockResolvedValue(new Response('{}', { status: 404 }));
 
 		await expect(deleteGallery('g', fetcher)).rejects.toMatchObject({ status: 404 });
+	});
+});
+
+describe('sendGalleryInvitations', () => {
+	const payload = {
+		to: [{ email: 'camille@example.com', name: 'Camille' }],
+		bcc: ['archive@example.com'],
+		subject: 'Your gallery is ready',
+		message: 'Hello Camille!'
+	};
+
+	it('posts recipients and returns the updated gallery plus queued_count', async () => {
+		const gallery = { ...validGallery, id: 'g 1', share_token: 'A'.repeat(22), states: ['shared'] };
+		const fetcher = vi
+			.fn()
+			.mockResolvedValue(new Response(JSON.stringify({ gallery, queued_count: 2 })));
+
+		const result = await sendGalleryInvitations('g 1', payload, fetcher);
+
+		expect(result).toEqual({ gallery, queued_count: 2 });
+		expect(fetcher).toHaveBeenCalledWith(
+			'/api/v1/galleries/g%201/invitations',
+			expect.objectContaining({
+				method: 'POST',
+				body: JSON.stringify(payload)
+			})
+		);
+	});
+
+	it('rejects malformed responses and maps email_unavailable errors', async () => {
+		const badShape = vi
+			.fn()
+			.mockResolvedValue(new Response(JSON.stringify({ gallery: validGallery, queued_count: 0 })));
+		await expect(sendGalleryInvitations('g', payload, badShape)).rejects.toMatchObject({
+			status: 502
+		});
+
+		const unavailable = vi
+			.fn()
+			.mockResolvedValue(
+				new Response(JSON.stringify({ code: 'email_unavailable' }), { status: 503 })
+			);
+		await expect(sendGalleryInvitations('g', payload, unavailable)).rejects.toMatchObject({
+			status: 503,
+			code: 'email_unavailable',
+			message: 'Email sending isn’t configured on this server.'
+		});
 	});
 });

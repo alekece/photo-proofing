@@ -242,7 +242,13 @@ export const exportSchema = v.object({
 	created_at: v.string()
 });
 
+export const queuedInvitationsSchema = v.object({
+	gallery: gallerySchema,
+	queued_count: v.pipe(finite, v.integer(), v.minValue(1))
+});
+
 export type Gallery = v.InferOutput<typeof gallerySchema>;
+export type QueuedInvitations = v.InferOutput<typeof queuedInvitationsSchema>;
 export type Export = v.InferOutput<typeof exportSchema>;
 export type ExportEvent = v.InferOutput<typeof exportEventSchema>;
 export type GalleryOverview = v.InferOutput<typeof galleryOverviewSchema>;

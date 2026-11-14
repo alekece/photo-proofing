@@ -104,4 +104,54 @@ describe('GalleryActionBar', () => {
 		expect(onrestore).toHaveBeenCalledOnce();
 		expect((await axe(container)).violations).toEqual([]);
 	});
+
+	it('swaps actions to Cancel and Send invitations while keeping the journey wizard in Share view', async () => {
+		const oncancelshare = vi.fn();
+		const onsendinvitations = vi.fn();
+		const user = userEvent.setup();
+		const view = render(GalleryActionBar, {
+			gallery: { ...base },
+			photoCount: 12,
+			favoriteCount: 0,
+			sharing: true,
+			recipientCount: 2,
+			canSend: true,
+			sending: false,
+			onpreview: vi.fn(),
+			onshare: vi.fn(),
+			onpublish: vi.fn(),
+			onrestore: vi.fn(),
+			oncancelshare,
+			onsendinvitations
+		});
+
+		expect(screen.getByRole('navigation', { name: 'Gallery progress' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Preview' })).toBeNull();
+
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+		await user.click(screen.getByRole('button', { name: 'Send invitations (2)' }));
+
+		expect(oncancelshare).toHaveBeenCalledOnce();
+		expect(onsendinvitations).toHaveBeenCalledOnce();
+		expect((await axe(view.container)).violations).toEqual([]);
+
+		await view.rerender({
+			gallery: { ...base },
+			photoCount: 12,
+			favoriteCount: 0,
+			sharing: true,
+			recipientCount: 0,
+			canSend: false,
+			sending: false,
+			onpreview: vi.fn(),
+			onshare: vi.fn(),
+			onpublish: vi.fn(),
+			onrestore: vi.fn(),
+			oncancelshare,
+			onsendinvitations
+		});
+		expect(
+			(screen.getByRole('button', { name: 'Send invitation' }) as HTMLButtonElement).disabled
+		).toBe(true);
+	});
 });

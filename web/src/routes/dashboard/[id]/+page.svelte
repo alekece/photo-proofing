@@ -30,6 +30,7 @@
 	import { goingToRetry } from '#lib/gallery/focus.js';
 	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
 	import { TITLE_MAX } from '#lib/gallery/format.js';
+	import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
 	import type { PageData } from './$types';
 
 	const DEBOUNCE = 600;
@@ -180,15 +181,15 @@
 			title = saved.title ?? '';
 		} else saveTitle();
 	}
-	/** Creates the client link; awaits any pending setting saves first so access codes lock safely. */
-	async function share() {
+	/** Flushes debounced edits and verifies the access code is persisted before locking sharing. */
+	async function prepareForShare(): Promise<boolean> {
 		flush();
 
 		while (pendingSaves.size > 0) {
 			const outcomes = await Promise.all([...pendingSaves]);
 
 			if (outcomes.includes(false)) {
-				throw new Error(m.gallery_share_failed());
+				return false;
 			}
 		}
 
@@ -196,6 +197,15 @@
 			expectedAccessCode === 'invalid' ||
 			(expectedAccessCode !== undefined && (saved.access_code ?? null) !== expectedAccessCode)
 		) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/** Creates the client link; awaits any pending setting saves first so access codes lock safely. */
+	async function share() {
+		if (!(await prepareForShare())) {
 			throw new Error(m.gallery_share_failed());
 		}
 
@@ -307,6 +317,8 @@
 	gallery={saved}
 	{shareToken}
 	origin={page.url.origin}
+	settings={data.settings ?? DEFAULT_SETTINGS}
+	uploading={queue?.inFlight(saved.id) ?? 0}
 	bind:heroId={saved.hero_id}
 	bind:heroRevision
 	bind:expectedAccessCode
@@ -324,6 +336,30 @@
 			return;
 		}
 		publishing = 'share';
+	}}
+	onbeforesend={async () => {
+		const ok = await prepareForShare();
+
+		if (!ok) {
+			toasts.error(
+				expectedAccessCode === 'invalid'
+					? m.settings_access_code_invalid()
+					: m.gallery_share_failed()
+			);
+		}
+
+		return ok;
+	}}
+	oninvitationsent={({ gallery: updated }) => {
+		shareToken = updated.share_token;
+		saved = {
+			...saved,
+			share_token: updated.share_token,
+			access_code: updated.access_code,
+			access_code_protected: updated.access_code_protected,
+			states: updated.states,
+			updated_at: updated.updated_at
+		};
 	}}
 	onpublish={() => (publishing = 'deliver')}
 	onarchive={() => (confirming = 'archive')}
