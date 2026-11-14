@@ -46,7 +46,8 @@ services:
     image: ghcr.io/alekece/pp-api:staging
     environment:
       <<: *app-config
-      PP_GALLERY_PASSWORD_KEY: ${PP_GALLERY_PASSWORD_KEY:?the secret manager must supply the gallery access-code key}
+      # Forwarded only when the secret manager supplies it; the API rejects an empty value.
+      PP_GALLERY_PASSWORD_KEY:
     volumes:
       - photo-data:/var/lib/pp/photos
       - *config-mount
