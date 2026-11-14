@@ -93,3 +93,17 @@ max_pixels = 100000000
 # access codes; inject PP_GALLERY_PASSWORD_KEY from the secret manager in deployments.
 # encryption_key = "<64-hex-chars-from-secret-manager>"
 
+# Optional outbound SMTP settings for Studio -> Share gallery invitation emails; read by both
+# pp-api and pp-image-worker. Omit this section when email invitations are not used.
+# [smtp]
+# host = "smtp.example.invalid"
+# port = 587
+# tls = "starttls" # "starttls", "tls", or "none" (local dev relays only)
+# username = "studio@example.invalid"
+# # Inject PP_SMTP_PASSWORD from the secret manager in deployments.
+# password = "<smtp-password-from-secret-manager>"
+# from_email = "studio@example.invalid"
+# from_name = "Studio"
+# max_recipients_per_send = 50
+
+

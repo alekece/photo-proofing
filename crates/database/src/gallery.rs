@@ -7,11 +7,12 @@
 //! front end, which knows the viewer's language. Value limits live in the database as CHECK constraints, which are the
 //! single authority; violations surface as [`GalleryError`] variants.
 
-use std::{fmt, num::NonZeroUsize, time::Duration};
+use std::{num::NonZeroUsize, time::Duration};
 
 use derive_more::Display;
 pub use pp_core::types::access_code::{
-    ACCESS_CODE_DIGITS, GalleryAccessCode, ParseAccessCodeError,
+    ACCESS_CODE_DIGITS, ENCRYPTED_ACCESS_CODE_LEN, EncryptedAccessCode, EncryptedAccessCodeError,
+    GalleryAccessCode, ParseAccessCodeError,
 };
 use pp_core::types::{generate::Generate, timestamp::Timestamp};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
@@ -38,71 +39,6 @@ const TITLE_LENGTH_CONSTRAINT: &str = "galleries_title_length";
 
 /// Unique constraint on a gallery's general share token.
 const SHARE_TOKEN_UNIQUE: &str = "galleries_share_token_unique";
-
-/// Size in bytes of an AEAD-encrypted gallery access code (`12`-byte nonce + `6`-byte ASCII
-/// digits + `16`-byte authentication tag).
-pub const ENCRYPTED_ACCESS_CODE_LEN: usize = 34;
-
-/// Ciphertext length did not match [`ENCRYPTED_ACCESS_CODE_LEN`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[error("encrypted access code must be {ENCRYPTED_ACCESS_CODE_LEN} bytes")]
-pub struct EncryptedAccessCodeError;
-
-/// AEAD-encrypted 6-digit gallery access code stored in PostgreSQL `bytea`.
-///
-/// [`Debug`](fmt::Debug) redacts the ciphertext bytes, and neither `Serialize` nor `Deserialize`
-/// is implemented so raw ciphertext can never cross a JSON boundary.
-#[derive(Clone, PartialEq, Eq, Type)]
-#[sqlx(transparent)]
-pub struct EncryptedAccessCode(Vec<u8>);
-
-impl EncryptedAccessCode {
-    pub fn from_array(bytes: [u8; ENCRYPTED_ACCESS_CODE_LEN]) -> Self {
-        Self(bytes.to_vec())
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-
-    pub fn as_array(&self) -> Result<&[u8; ENCRYPTED_ACCESS_CODE_LEN], EncryptedAccessCodeError> {
-        self.0
-            .as_slice()
-            .try_into()
-            .map_err(|_| EncryptedAccessCodeError)
-    }
-
-    fn serialize_presence<S>(value: &Option<Self>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_bool(value.is_some())
-    }
-}
-
-impl fmt::Debug for EncryptedAccessCode {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("EncryptedAccessCode(..)")
-    }
-}
-
-impl From<[u8; ENCRYPTED_ACCESS_CODE_LEN]> for EncryptedAccessCode {
-    fn from(bytes: [u8; ENCRYPTED_ACCESS_CODE_LEN]) -> Self {
-        Self::from_array(bytes)
-    }
-}
-
-impl TryFrom<Vec<u8>> for EncryptedAccessCode {
-    type Error = EncryptedAccessCodeError;
-
-    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
-        if bytes.len() != ENCRYPTED_ACCESS_CODE_LEN {
-            return Err(EncryptedAccessCodeError);
-        }
-
-        Ok(Self(bytes))
-    }
-}
 
 /// A setting that failed validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
@@ -166,6 +102,12 @@ pub struct GalleryId(pub Uuid);
 impl Generate for GalleryId {
     fn generate() -> Self {
         Self(Uuid::new_v4())
+    }
+}
+
+impl From<GalleryId> for Uuid {
+    fn from(id: GalleryId) -> Self {
+        id.0
     }
 }
 

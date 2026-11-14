@@ -2040,21 +2040,26 @@ name = "pp-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "chacha20poly1305",
  "clap",
  "clap-config-fallback",
  "derive_more",
  "email_address",
+ "hmac",
  "humantime",
  "rand",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sqlx",
  "strum",
+ "subtle",
  "tempfile",
  "thiserror",
  "time",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
