@@ -9,7 +9,7 @@ use pp_database::{
     contact::ContactRepository,
     gallery::{GalleryRepository, ShareToken},
     jobs::{EmailRecipient, SendEmail},
-    photo::PhotoId,
+    photo::{PhotoId, PhotoLocation},
     settings::SettingsRepository,
 };
 use pp_storage::{PhotoKey, PhotoStorage, StorageError, Variant};
@@ -60,7 +60,7 @@ impl SendEmailHandler {
 
     async fn read_cover_jpeg(
         &self,
-        location: pp_database::photo::PhotoLocation,
+        location: PhotoLocation,
         hero_id: PhotoId,
     ) -> Result<Option<Vec<u8>>, StorageError> {
         let key = PhotoKey::with_location(location, hero_id, Variant::Thumbnail);
@@ -68,6 +68,7 @@ impl SendEmailHandler {
         match self.storage.read(&key).await {
             Ok(mut file) => {
                 let mut bytes = Vec::new();
+
                 file.read_to_end(&mut bytes).await?;
 
                 Ok(Some(bytes))
@@ -181,15 +182,14 @@ impl SendEmailHandler {
             None => None,
         };
 
-        let from_name = mailer.from_name().map(str::to_owned).or_else(|| {
-            let trimmed = settings.studio_name.trim();
-
-            (!trimmed.is_empty()).then(|| trimmed.to_owned())
-        });
+        let trimmed_studio = settings.studio_name.trim();
+        let from_name = (!trimmed_studio.is_empty())
+            .then(|| trimmed_studio.to_owned())
+            .or_else(|| mailer.sender_name().map(str::to_owned));
         let share_url = format!("{}/g/{}", self.app_origin.as_str(), share_token.as_str());
 
         let email = WarmPaperEmail {
-            from_email: mailer.from_email().clone(),
+            from_email: mailer.sender_email().clone(),
             from_name,
             reply_to,
             to_email,
@@ -209,6 +209,7 @@ impl SendEmailHandler {
         };
 
         let message = email.into_message().map_err(HandlerError::failed)?;
+
         mailer.send(message).await.map_err(HandlerError::failed)?;
         info!(
             gallery = %payload.gallery_id.0,
@@ -517,6 +518,17 @@ mod tests {
             .find(|m| m.rcpt_to.iter().any(|r| r.contains("alice@example.test")))
             .unwrap();
         assert!(alice_mail.mail_from.contains("noreply@example.test"));
+        let from_header = alice_mail
+            .data
+            .lines()
+            .find(|line| line.starts_with("From:"))
+            .unwrap();
+        assert!(
+            !from_header.contains("Photo Proofing")
+                && (from_header.contains("Studio Lum")
+                    || from_header.contains("U3R1ZGlvIEx1bWnDqHJl")),
+            "configured studio_name must take precedence over fallback smtp.from_name in From header, got: {from_header}"
+        );
         let decoded_alice = alice_mail.data.replace("=\r\n", "").replace("=3D", "=");
         assert!(decoded_alice.contains(&format!(
             "https://photos.example.test/g/{}",

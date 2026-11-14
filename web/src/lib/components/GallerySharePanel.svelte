@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { m } from '#lib/paraglide/messages.js';
 	import { AlertCircle, Mail, Search, Users, X } from '@lucide/svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
@@ -181,15 +182,27 @@
 		};
 	});
 
-	$effect(() => {
-		const total = toRecipients.length + bccRecipients.length;
+	const toEmailSet = $derived(new Set(toRecipients.map((item) => item.email.toLowerCase())));
+	const bccEmailSet = $derived(new Set(bccRecipients.map((email) => email.toLowerCase())));
+	const effectiveRecipientCount = $derived.by(() => {
+		const draftTo = parseRecipientEntry(toDraft);
+		const draftBcc = parseRecipientEntry(bccDraft);
 
-		recipientCount = total;
+		return new Set<string>([
+			...toEmailSet,
+			...bccEmailSet,
+			...(draftTo ? [draftTo.email] : []),
+			...(draftBcc ? [draftBcc.email] : [])
+		]).size;
+	});
+
+	$effect(() => {
+		recipientCount = effectiveRecipientCount;
 		canSend =
 			emailEnabled &&
 			!archived &&
 			!expired &&
-			total > 0 &&
+			effectiveRecipientCount > 0 &&
 			subject.trim().length > 0 &&
 			message.trim().length > 0;
 	});
@@ -213,8 +226,6 @@
 	const metaLine = $derived([shootDateText, countText].filter(Boolean).join(' · '));
 	const expiresText = $derived(gallery.expires_at ? formatLongDate(gallery.expires_at) : null);
 
-	const toEmailSet = $derived(new Set(toRecipients.map((item) => item.email.toLowerCase())));
-	const bccEmailSet = $derived(new Set(bccRecipients.map((email) => email.toLowerCase())));
 	const availableContacts = $derived.by(() => {
 		const query = pickerQuery.trim().toLowerCase();
 
@@ -344,15 +355,17 @@
 		}
 	}
 
-	async function executeSend(): Promise<void> {
+	async function executeSend(fromConfirm = false): Promise<void> {
 		const trimmedSubject = subject.trim();
 		const trimmedMessage = message.trim();
 
 		if (!trimmedSubject) {
+			if (fromConfirm) throw new Error(m.share_subject_required());
 			toasts.error(m.share_subject_required());
 			return;
 		}
 		if (!trimmedMessage) {
+			if (fromConfirm) throw new Error(m.share_message_required());
 			toasts.error(m.share_message_required());
 			return;
 		}
@@ -366,14 +379,24 @@
 				message: trimmedMessage
 			});
 
+			recipientsDirty = false;
 			bccRecipients = [];
 			bccDraft = '';
 			onsent?.(result);
 		} catch (err) {
+			if (err instanceof GalleryApiError && err.status === 401) {
+				readinessPrompt = null;
+				await goto('/login?expired=1', { refreshAll: true });
+				return;
+			}
+
 			const detail = err instanceof GalleryApiError ? err.message : m.share_send_failed();
 
+			if (fromConfirm) {
+				throw new Error(detail, { cause: err });
+			}
+
 			toasts.error(detail);
-			throw err;
 		} finally {
 			sending = false;
 		}
@@ -412,11 +435,7 @@
 			}
 		}
 
-		try {
-			await executeSend();
-		} catch {
-			// Error toast already reported in executeSend.
-		}
+		await executeSend(false);
 	}
 </script>
 
@@ -810,7 +829,7 @@
 			? m.share_warn_empty_title()
 			: m.share_warn_unfinished_title()}
 		confirmLabel={m.share_send_anyway()}
-		onconfirm={executeSend}
+		onconfirm={() => executeSend(true)}
 		onclose={() => (readinessPrompt = null)}
 	>
 		{#snippet description()}

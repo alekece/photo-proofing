@@ -1,6 +1,6 @@
 //! Warm Paper multipart email rendering and SMTP transport.
 
-use std::{fmt, time::Duration};
+use std::{error::Error, fmt, time::Duration};
 
 use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
@@ -32,24 +32,50 @@ const LOGO_CID: &str = "studio-logo@photoproofing";
 const COVER_CID: &str = "gallery-cover@photoproofing";
 const SMTP_TIMEOUT: Duration = Duration::from_secs(15);
 
+type BoxError = Box<dyn Error + Send + Sync>;
+
 /// Failure while constructing or delivering an outgoing email.
 #[derive(Debug, Error)]
 pub enum MailError {
-    #[error("invalid email address: {0}")]
-    Address(#[from] AddressError),
-    #[error("invalid MIME content type: {0}")]
-    ContentType(#[from] ContentTypeErr),
-    #[error("failed to assemble MIME message: {0}")]
-    Message(#[from] LettreError),
-    #[error("SMTP error: {0}")]
-    Smtp(#[from] SmtpError),
+    #[error("invalid email address")]
+    Address(#[source] BoxError),
+    #[error("invalid MIME content type")]
+    ContentType(#[source] BoxError),
+    #[error("failed to assemble MIME message")]
+    Message(#[source] BoxError),
+    #[error("SMTP delivery failed")]
+    Smtp(#[source] BoxError),
+}
+
+impl From<AddressError> for MailError {
+    fn from(error: AddressError) -> Self {
+        Self::Address(Box::new(error))
+    }
+}
+
+impl From<ContentTypeErr> for MailError {
+    fn from(error: ContentTypeErr) -> Self {
+        Self::ContentType(Box::new(error))
+    }
+}
+
+impl From<LettreError> for MailError {
+    fn from(error: LettreError) -> Self {
+        Self::Message(Box::new(error))
+    }
+}
+
+impl From<SmtpError> for MailError {
+    fn from(error: SmtpError) -> Self {
+        Self::Smtp(Box::new(error))
+    }
 }
 
 /// Optional inline JPEG cover attached to a Warm Paper invitation card.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CoverPhoto {
-    pub jpeg: Vec<u8>,
-    pub focal_point: FocalPoint,
+pub(crate) struct CoverPhoto {
+    pub(crate) jpeg: Vec<u8>,
+    pub(crate) focal_point: FocalPoint,
 }
 
 /// Escapes untrusted text for HTML element bodies and double-quoted attributes.
@@ -72,7 +98,7 @@ impl fmt::Display for HtmlEscaped<'_> {
     }
 }
 
-///Localized static copy for one `(InvitationStage, Language)` pair.
+/// Localized static copy for one `(InvitationStage, Language)` pair.
 #[derive(Clone, Copy)]
 struct EmailCopy {
     stage: InvitationStage,
@@ -163,7 +189,7 @@ impl EmailCopy {
 
 /// Complete data required to build one Warm Paper multipart invitation message.
 #[derive(Debug, Clone)]
-pub struct WarmPaperEmail {
+pub(crate) struct WarmPaperEmail {
     pub from_email: Email,
     pub from_name: Option<String>,
     pub reply_to: Option<Email>,
@@ -253,6 +279,7 @@ impl WarmPaperEmail {
 
             if has_logo {
                 let alt = if studio.is_empty() { "Studio" } else { studio };
+
                 signature_html.push_str(&format!(
                     r#"<img src="cid:{LOGO_CID}" alt="{}" style="display:block;max-height:44px;max-width:180px;width:auto;height:auto;margin:0 auto 8px auto;border:0;" />"#,
                     HtmlEscaped(alt)
@@ -272,6 +299,7 @@ impl WarmPaperEmail {
         let cover_html = if let Some(cover) = &self.cover {
             let x = cover.focal_point.x.get();
             let y = cover.focal_point.y.get();
+
             format!(
                 r#"<tr><td style="padding:12px 24px 0 24px;"><img src="cid:{COVER_CID}" alt="{}" width="472" style="display:block;width:100%;max-width:472px;max-height:300px;object-fit:cover;object-position:{x}% {y}%;border-radius:2px;border:0;" /></td></tr>"#,
                 HtmlEscaped(title)
@@ -302,6 +330,7 @@ impl WarmPaperEmail {
 
         let expiry_html = if let Some(expires_at) = self.expires_at {
             let line = copy.format_expiry(expires_at);
+
             format!(
                 r#"<tr><td align="center" style="padding:0 32px 28px 32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;color:#78716c;">{}</td></tr>"#,
                 HtmlEscaped(&line)
@@ -349,7 +378,7 @@ impl WarmPaperEmail {
 
     /// Assembles the RFC 5322 / MIME `multipart/alternative` (and `multipart/related` when inline
     /// CID images are present) message ready for SMTP delivery.
-    pub fn into_message(self) -> Result<Message, MailError> {
+    pub(crate) fn into_message(self) -> Result<Message, MailError> {
         let copy = EmailCopy {
             stage: self.stage,
             language: self.language,
@@ -379,12 +408,14 @@ impl WarmPaperEmail {
             if let Some(logo_bytes) = inline_logo {
                 let logo_part = Attachment::new_inline(LOGO_CID.to_owned())
                     .body(Body::new(logo_bytes), ContentType::parse("image/png")?);
+
                 related = related.singlepart(logo_part);
             }
 
             if let Some(cover_bytes) = inline_cover {
                 let cover_part = Attachment::new_inline(COVER_CID.to_owned())
                     .body(Body::new(cover_bytes), ContentType::parse("image/jpeg")?);
+
                 related = related.singlepart(cover_part);
             }
 
@@ -442,15 +473,15 @@ impl SmtpMailer {
         })
     }
 
-    pub const fn from_email(&self) -> &Email {
+    pub(crate) const fn sender_email(&self) -> &Email {
         &self.from_email
     }
 
-    pub fn from_name(&self) -> Option<&str> {
+    pub(crate) fn sender_name(&self) -> Option<&str> {
         self.from_name.as_deref()
     }
 
-    pub async fn send(&self, message: Message) -> Result<(), MailError> {
+    pub(crate) async fn send(&self, message: Message) -> Result<(), MailError> {
         self.transport.send(message).await?;
 
         Ok(())
@@ -459,7 +490,10 @@ impl SmtpMailer {
 
 #[cfg(test)]
 mod tests {
+    use std::{error::Error, num::NonZeroUsize};
+
     use pp_core::{
+        config::{SmtpSettings, SmtpTlsMode},
         email::{Email, EmailMessage, EmailSubject},
         types::{access_code::GalleryAccessCode, timestamp::Timestamp},
     };
@@ -470,7 +504,7 @@ mod tests {
     };
     use serde_json::from_str;
 
-    use super::{CoverPhoto, WarmPaperEmail};
+    use super::{CoverPhoto, SmtpMailer, WarmPaperEmail};
 
     fn decode_quoted_printable(raw: &str) -> String {
         let unfolded = raw.replace("=\r\n", "");
@@ -586,5 +620,52 @@ mod tests {
         assert!(!decoded.contains("Disponible jusqu’au"));
         assert!(decoded.contains("Photos retouchées prêtes"));
         assert!(decoded.contains("Voir les photos retouchées"));
+    }
+
+    #[tokio::test]
+    async fn mail_error_separates_display_from_source() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let closed_port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let mailer = SmtpMailer::new(&SmtpSettings {
+            host: "127.0.0.1".to_owned(),
+            port: closed_port,
+            tls: SmtpTlsMode::None,
+            credentials: None,
+            from_email: "noreply@example.test".parse::<Email>().unwrap(),
+            from_name: None,
+            max_recipients_per_send: NonZeroUsize::new(25).unwrap(),
+        })
+        .unwrap();
+        let message = WarmPaperEmail {
+            from_email: "noreply@example.test".parse::<Email>().unwrap(),
+            from_name: None,
+            reply_to: None,
+            to_email: "client@example.test".parse::<Email>().unwrap(),
+            to_name: None,
+            subject: "Test".parse::<EmailSubject>().unwrap(),
+            studio_name: String::new(),
+            signature: CoverSignature::None,
+            logo_png: None,
+            cover: None,
+            gallery_title: String::new(),
+            stage: InvitationStage::Proofing,
+            language: Language::En,
+            message: "Hello".parse::<EmailMessage>().unwrap(),
+            share_url: "https://photos.example.test/g/tok".to_owned(),
+            access_code: None,
+            expires_at: None,
+        }
+        .into_message()
+        .unwrap();
+
+        let error = mailer.send(message).await.unwrap_err();
+        let source = error.source().expect("MailError exposes underlying cause");
+
+        assert!(
+            !error.to_string().contains(&source.to_string()),
+            "Display ({error}) must not duplicate source ({source})"
+        );
     }
 }

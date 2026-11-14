@@ -258,4 +258,110 @@ describe('GallerySharePanel', () => {
 		expect(screen.getByText('This gallery has expired')).toBeTruthy();
 		expect((await axe(expired.container)).violations).toEqual([]);
 	});
+
+	it('enables canSend and recipientCount immediately from uncommitted draft input and syncs contacts after send', async () => {
+		let linked: Contact[] = [];
+		const loadLinkedContacts = vi.fn().mockImplementation(async () => linked);
+		const sharedGallery: Gallery = {
+			...baseGallery,
+			share_token: 'T'.repeat(22),
+			states: ['shared']
+		};
+		const sendInvitations = vi.fn().mockResolvedValue({ gallery: sharedGallery, queued_count: 1 });
+		const user = userEvent.setup();
+
+		let liveCount = 0;
+		let liveCanSend = false;
+
+		const props = {
+			gallery: baseGallery,
+			settings: smtpSettings,
+			contactsRevision: 0,
+			loadLinkedContacts,
+			loadPhotos: vi.fn().mockResolvedValue([readyPhoto]),
+			sendInvitations,
+			get recipientCount() {
+				return liveCount;
+			},
+			set recipientCount(v: number) {
+				liveCount = v;
+			},
+			get canSend() {
+				return liveCanSend;
+			},
+			set canSend(v: boolean) {
+				liveCanSend = v;
+			}
+		};
+		const view = render(GallerySharePanel, props);
+
+		await vi.waitFor(() => expect(loadLinkedContacts).toHaveBeenCalledTimes(1));
+		expect(liveCanSend).toBe(false);
+		expect(liveCount).toBe(0);
+
+		// Typing a valid recipient WITHOUT pressing Enter/comma immediately sets recipientCount=1 and canSend=true
+		const toInput = screen.getByLabelText('To');
+		await user.type(toInput, 'camille@example.com');
+		expect(liveCount).toBe(1);
+		expect(liveCanSend).toBe(true);
+
+		await view.component.requestSend();
+		expect(sendInvitations).toHaveBeenCalledOnce();
+
+		// Follow-up contactsRevision after send reloads newly linked/updated contacts because recipientsDirty was reset
+		linked = [camille, lucas];
+		await view.rerender({
+			...props,
+			gallery: sharedGallery,
+			contactsRevision: 1
+		});
+		await vi.waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Remove lucas@example.com' })).toBeTruthy()
+		);
+	});
+
+	it('surfaces a single localized inline error inside ConfirmDialog on network failure and redirects on 401', async () => {
+		const loadLinkedContacts = vi.fn().mockResolvedValue([camille]);
+		const loadPhotos = vi.fn().mockResolvedValue([]);
+		const sendInvitations = vi
+			.fn()
+			.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+			.mockRejectedValueOnce(
+				new (await import('#lib/gallery/api.js')).GalleryApiError(401, 'unauthorized', 'Expired')
+			);
+		const nav = await import('$app/navigation');
+		const gotoSpy = vi.spyOn(nav, 'goto').mockResolvedValue();
+		const user = userEvent.setup();
+
+		const view = render(GallerySharePanel, {
+			gallery: baseGallery,
+			settings: smtpSettings,
+			photoCount: 0,
+			loadLinkedContacts,
+			loadPhotos,
+			sendInvitations
+		});
+
+		await vi.waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Remove camille@example.com' })).toBeTruthy()
+		);
+
+		await view.component.requestSend();
+		const sendAnyway = screen.getByRole('button', { name: 'Send anyway' });
+
+		// 1st attempt: network TypeError inside ConfirmDialog -> 0 toasts, localized inline alert (not raw "Failed to fetch")
+		await user.click(sendAnyway);
+		await vi.waitFor(() => expect(sendInvitations).toHaveBeenCalledTimes(1));
+		expect(toasts.items).toHaveLength(0);
+		const alert = screen.getByRole('alert');
+		expect(alert.textContent).toBe('Couldn’t send invitations. Please try again.');
+		expect(alert.textContent).not.toContain('Failed to fetch');
+
+		// 2nd attempt: 401 unauthorized redirects to /login?expired=1
+		await user.click(sendAnyway);
+		await vi.waitFor(() =>
+			expect(gotoSpy).toHaveBeenCalledWith('/login?expired=1', { refreshAll: true })
+		);
+		gotoSpy.mockRestore();
+	});
 });

@@ -17,6 +17,7 @@ use pp_core::{
         DEFAULT_EXPORT_MAX_SIZE, DEFAULT_EXPORT_RETENTION, ExportConfig, SmtpConfigError,
         SmtpSettings,
     },
+    types::access_code::{AccessCodeCipher, UNLOCK_COOKIE_NAME},
     url::Origin,
 };
 use pp_database::{
@@ -34,7 +35,6 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    access_code::{AccessCodeCipher, UNLOCK_COOKIE_NAME},
     comment_limiter::CommentLimiter,
     config::{
         ApiConfig, AuthConfig, CommentsConfig, CookieDuration, CookieName,

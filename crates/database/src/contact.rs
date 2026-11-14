@@ -634,12 +634,12 @@ impl ContactRepository<'_> {
             .await;
 
             match insert_result {
-                Ok(done) => {
+                Ok(outcome) => {
                     sqlx::query("RELEASE SAVEPOINT contact_share_token")
                         .execute(&mut **tx)
                         .await?;
 
-                    if done.rows_affected() == 1 {
+                    if outcome.rows_affected() == 1 {
                         return Ok(contact_id);
                     }
 

@@ -482,6 +482,7 @@
 						onsent={(result) => {
 							oninvitationsent?.(result);
 							contactsPanelRevision += 1;
+							shareContactsRevision += 1;
 							toasts.success(m.share_invitations_queued({ count: result.queued_count }));
 							leaveShare();
 						}}

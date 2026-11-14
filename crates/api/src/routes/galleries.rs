@@ -30,6 +30,7 @@ use actix_web::{
     web::{self, Data, Json, Path, ServiceConfig},
 };
 use actix_web_lab::extract::Query as LabQuery;
+use pp_core::types::access_code::AccessCodeCipher;
 use pp_database::gallery::{
     Delivery, Gallery, GalleryAccessCode, GalleryChanges, GalleryId, GalleryRepository,
     GallerySort, GalleryState,
@@ -41,8 +42,8 @@ use pp_storage::Variant;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    access_code::AccessCodeCipher, api::ApiState, error::ErrorResponse,
-    extractors::identity::Authenticated, response::ResponseBuilderExt,
+    api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
+    response::ResponseBuilderExt,
 };
 
 mod comments;
@@ -320,6 +321,7 @@ async fn deliver_gallery(
 #[cfg(test)]
 mod tests {
     use actix_web::{App, cookie::Cookie, http::StatusCode, test};
+    use pp_core::types::access_code::EncryptionKey;
     use pp_database::{Database, gallery::GalleryRepository};
     use serde_json::{Value, json};
     use sqlx::PgPool;
@@ -989,7 +991,7 @@ mod tests {
         let (configured_state, _dir2) = app_state(pool).await;
         let key = "0123456789abcdef"
             .repeat(4)
-            .parse::<crate::access_code::EncryptionKey>()
+            .parse::<EncryptionKey>()
             .unwrap();
         let configured_state =
             configured_state.with_gallery_password(&crate::config::GalleryPasswordConfig {

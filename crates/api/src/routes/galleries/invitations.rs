@@ -97,7 +97,7 @@ async fn send_invitations(
         subject: request.subject,
         message: request.message,
     };
-    let queued = galleries
+    let outcome = galleries
         .queue_invitations(
             identity.workspace_id,
             gallery_id,
@@ -106,11 +106,11 @@ async fn send_invitations(
         )
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
-    let view = GalleryView::try_new(queued.gallery, state.access_code_cipher())?;
+    let view = GalleryView::try_new(outcome.gallery, state.access_code_cipher())?;
 
     Ok(HttpResponse::Ok().no_store().json(SendInvitationsResponse {
         gallery: view,
-        queued_count: queued.queued_count,
+        queued_count: outcome.queued_count,
     }))
 }
 

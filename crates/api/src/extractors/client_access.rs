@@ -1,12 +1,13 @@
 use std::{future::Future, pin::Pin};
 
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
+use pp_core::types::access_code::UNLOCK_COOKIE_NAME;
 use pp_database::{
     gallery::{GalleryRepository, ShareToken, SharedAccess},
     photo::{PhotoKind, PhotoLocation, Watermarked},
 };
 
-use crate::{access_code::UNLOCK_COOKIE_NAME, api::ApiState, error::ErrorResponse};
+use crate::{api::ApiState, error::ErrorResponse};
 
 /// Active shared gallery behind `{token}`, together with whether the viewer has unlocked it.
 ///

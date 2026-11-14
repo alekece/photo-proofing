@@ -652,5 +652,128 @@ mod tests {
 
         assert!(cipher.verify_cookie_bytes(b"cookie-payload", &tag));
         assert!(!cipher.verify_cookie_bytes(b"tampered", &tag));
+
+        let wrong_code: GalleryAccessCode = "042818".parse().unwrap();
+        let other_cipher = AccessCodeCipher::new(&EncryptionKey::from_bytes([0x22; KEY_BYTES]));
+        let second = cipher.encrypt(gallery_id, &code).unwrap();
+
+        assert_ne!(
+            encrypted, second,
+            "random 96-bit nonce must vary per encryption"
+        );
+        assert!(cipher.verify_code(gallery_id, &encrypted, &code).unwrap());
+        assert!(
+            !cipher
+                .verify_code(gallery_id, &encrypted, &wrong_code)
+                .unwrap()
+        );
+        assert!(
+            cipher
+                .verify_code(other_gallery_id, &encrypted, &code)
+                .is_err()
+        );
+        assert!(other_cipher.decrypt(gallery_id, &encrypted).is_err());
+
+        let mut tampered = *encrypted.as_array().unwrap();
+        tampered[15] ^= 0x01;
+        let tampered = EncryptedAccessCode::from(tampered);
+
+        assert!(cipher.decrypt(gallery_id, &tampered).is_err());
+    }
+
+    #[test]
+    fn encryption_key_parses_hex_and_canonical_base64url_and_redacts_debug() {
+        let bytes = [0x5au8; KEY_BYTES];
+        let hex_lower = "5a".repeat(KEY_BYTES);
+        let hex_upper = "5A".repeat(KEY_BYTES);
+        let b64 = URL_SAFE_NO_PAD.encode(bytes);
+
+        assert_eq!(b64.len(), 43);
+        assert_eq!(
+            hex_lower.parse::<EncryptionKey>().unwrap().as_bytes(),
+            &bytes
+        );
+        assert_eq!(
+            hex_upper.parse::<EncryptionKey>().unwrap().as_bytes(),
+            &bytes
+        );
+        assert_eq!(b64.parse::<EncryptionKey>().unwrap().as_bytes(), &bytes);
+
+        let non_canonical_b64 = format!("{}B", "A".repeat(42));
+
+        for invalid in [
+            "",
+            "short",
+            &"5a".repeat(31),
+            &"5a".repeat(33),
+            &"zz".repeat(32),
+            &format!("{}=", URL_SAFE_NO_PAD.encode(bytes)),
+            non_canonical_b64.as_str(),
+        ] {
+            let err = invalid.parse::<EncryptionKey>().unwrap_err();
+
+            if !invalid.is_empty() {
+                assert!(!err.to_string().contains(invalid), "{invalid:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn unlock_cookie_supports_multiple_galleries_caps_at_sixteen_and_rejects_tampering() {
+        let cipher = AccessCodeCipher::new(&EncryptionKey::from_bytes([0x33; KEY_BYTES]));
+        let other_cipher = AccessCodeCipher::new(&EncryptionKey::from_bytes([0x44; KEY_BYTES]));
+        let code: GalleryAccessCode = "901234".parse().unwrap();
+
+        let mut galleries = Vec::new();
+        let mut cookie: Option<String> = None;
+
+        for _ in 0..18 {
+            let id = Uuid::new_v4();
+            let encrypted = cipher.encrypt(id, &code).unwrap();
+            let next = cipher.issue_unlock_cookie_value(cookie.as_deref(), id, &encrypted);
+
+            assert!(!next.contains("901234"));
+            assert!(cipher.is_unlocked(Some(&next), id, &encrypted));
+            cookie = Some(next);
+            galleries.push((id, encrypted));
+        }
+
+        let cookie = cookie.unwrap();
+
+        assert!(!cipher.is_unlocked(Some(&cookie), galleries[0].0, &galleries[0].1));
+        assert!(!cipher.is_unlocked(Some(&cookie), galleries[1].0, &galleries[1].1));
+
+        for (id, encrypted) in &galleries[2..18] {
+            assert!(cipher.is_unlocked(Some(&cookie), *id, encrypted));
+            assert!(!other_cipher.is_unlocked(Some(&cookie), *id, encrypted));
+        }
+
+        let refreshed =
+            cipher.issue_unlock_cookie_value(Some(&cookie), galleries[2].0, &galleries[2].1);
+        let extra_id = Uuid::new_v4();
+        let extra_enc = cipher.encrypt(extra_id, &code).unwrap();
+        let after_extra = cipher.issue_unlock_cookie_value(Some(&refreshed), extra_id, &extra_enc);
+
+        assert!(cipher.is_unlocked(Some(&after_extra), galleries[2].0, &galleries[2].1));
+        assert!(!cipher.is_unlocked(Some(&after_extra), galleries[3].0, &galleries[3].1));
+        assert!(cipher.is_unlocked(Some(&after_extra), extra_id, &extra_enc));
+
+        let rotated_enc = cipher.encrypt(extra_id, &code).unwrap();
+
+        assert!(!cipher.is_unlocked(Some(&after_extra), extra_id, &rotated_enc));
+
+        let mut raw = URL_SAFE_NO_PAD.decode(&after_extra).unwrap();
+        let last = raw.len() - 1;
+        raw[last] ^= 0x01;
+        let forged = URL_SAFE_NO_PAD.encode(raw);
+
+        assert!(!cipher.is_unlocked(Some(&forged), extra_id, &extra_enc));
+        assert!(!cipher.is_unlocked(None, extra_id, &extra_enc));
+        assert!(!cipher.is_unlocked(Some(""), extra_id, &extra_enc));
+        assert!(!cipher.is_unlocked(Some(&"A".repeat(2000)), extra_id, &extra_enc));
+
+        let recovered = cipher.issue_unlock_cookie_value(Some(&forged), extra_id, &extra_enc);
+
+        assert!(cipher.is_unlocked(Some(&recovered), extra_id, &extra_enc));
     }
 }

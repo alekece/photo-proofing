@@ -5,15 +5,15 @@ use email_address::EmailAddress;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Debug, Error)]
-#[error("invalid email address")]
-pub struct ParseEmailError;
-
 /// Maximum length in Unicode scalar values of an [`EmailSubject`].
 pub const MAX_EMAIL_SUBJECT_CHARS: usize = 200;
 
 /// Maximum length in Unicode scalar values of an [`EmailMessage`].
 pub const MAX_EMAIL_MESSAGE_CHARS: usize = 5000;
+
+#[derive(Debug, Error)]
+#[error("invalid email address")]
+pub struct ParseEmailError;
 
 /// Invalid [`EmailSubject`]: blank, exceeds [`MAX_EMAIL_SUBJECT_CHARS`], or contains CR/LF/NUL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]

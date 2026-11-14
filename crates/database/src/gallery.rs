@@ -94,6 +94,22 @@ impl GalleryError {
     }
 }
 
+/// Why [`GalleryRepository::queue_invitations`] could not enqueue invitations.
+#[derive(Debug, Error)]
+pub enum InvitationError {
+    #[error("archived galleries cannot send invitations")]
+    Archived,
+    #[error("expired galleries cannot send invitations")]
+    Expired,
+    #[error(transparent)]
+    Database(#[from] DatabaseError),
+}
+
+/// A focal-point percentage outside `0..=100`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("focal coordinate {0} is out of range")]
+pub struct FocalCoordinateError(pub u8);
+
 /// A primary recipient in an [`InvitationBatch`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvitationContact {
@@ -116,22 +132,6 @@ pub struct QueuedInvitations {
     pub gallery: Gallery,
     pub queued_count: usize,
 }
-
-/// Why [`GalleryRepository::queue_invitations`] could not enqueue invitations.
-#[derive(Debug, Error)]
-pub enum InvitationError {
-    #[error("archived galleries cannot send invitations")]
-    Archived,
-    #[error("expired galleries cannot send invitations")]
-    Expired,
-    #[error(transparent)]
-    Database(#[from] DatabaseError),
-}
-
-/// A focal-point percentage outside `0..=100`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[error("focal coordinate {0} is out of range")]
-pub struct FocalCoordinateError(pub u8);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(transparent)]
