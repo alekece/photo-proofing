@@ -3,9 +3,12 @@
 use std::collections::HashSet;
 
 use actix_web::{
-    HttpResponse, post,
-    web::{Data, Json, Path, ServiceConfig},
+    FromRequest, HttpRequest, HttpResponse,
+    dev::Payload,
+    post,
+    web::{Data, JsonBody, Path, ServiceConfig},
 };
+use futures_util::future::LocalBoxFuture;
 use pp_core::email::{Email, EmailMessage, EmailSubject};
 use pp_database::{
     contact::ContactName,
@@ -38,6 +41,23 @@ struct SendInvitationsRequest {
     message: EmailMessage,
 }
 
+impl SendInvitationsRequest {
+    /// Fits up to 500 named contacts plus a 5,000-character UTF-8 message and JSON framing.
+    const JSON_LIMIT: usize = 256 * 1024;
+}
+
+/// Reads the invitation batch with its own size limit, larger than the shared 4 KiB JSON limit.
+impl FromRequest for SendInvitationsRequest {
+    type Error = ErrorResponse;
+    type Future = LocalBoxFuture<'static, Result<Self, ErrorResponse>>;
+
+    fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let body = JsonBody::<Self>::new(request, payload, None, true).limit(Self::JSON_LIMIT);
+
+        Box::pin(async move { Ok(body.await?) })
+    }
+}
+
 #[derive(Serialize)]
 struct SendInvitationsResponse {
     gallery: GalleryView,
@@ -54,10 +74,9 @@ async fn send_invitations(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: Path<GalleryId>,
-    request: Json<SendInvitationsRequest>,
+    request: SendInvitationsRequest,
 ) -> Result<HttpResponse, ErrorResponse> {
     let smtp = state.smtp().ok_or_else(ErrorResponse::email_unavailable)?;
-    let request = request.into_inner();
 
     if request.to.is_empty() && request.bcc.is_empty() {
         return Err(ErrorResponse::bad_request().with_context("at least one recipient is required"));
@@ -329,7 +348,21 @@ mod tests {
         .await;
         assert_eq!(subj_status, StatusCode::UNPROCESSABLE_ENTITY);
 
-        // Valid send: shares Draft gallery, links To contacts, deduplicates mixed-case BCC, returns decrypted access_code.
+        // Oversized JSON payload (> 256 KiB) -> 413 payload_too_large.
+        let (oversized_status, oversized_err) = call(
+            &app,
+            authed(test::TestRequest::post(), &uri, &cookie).set_json(json!({
+                "to": [{"email": "a@example.test"}],
+                "subject": "Ready",
+                "message": "A".repeat(300 * 1024)
+            })),
+        )
+        .await;
+        assert_eq!(oversized_status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(oversized_err["code"], "payload_too_large");
+
+        // Valid send (with a near-max 4,800-char personal message exceeding the default 4 KiB JSON limit):
+        // shares Draft gallery, links To contacts, deduplicates mixed-case BCC, returns decrypted access_code.
         let (status, response) = call(
             &app,
             authed(test::TestRequest::post(), &uri, &cookie).set_json(json!({
@@ -339,7 +372,7 @@ mod tests {
                 ],
                 "bcc": ["camille@example.test", "press@example.test"],
                 "subject": "Camille & Hugo — Your gallery is ready",
-                "message": "Here is your private link."
+                "message": "A".repeat(4800)
             })),
         )
         .await;
