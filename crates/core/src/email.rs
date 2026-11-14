@@ -30,7 +30,7 @@ pub struct ParseEmailMessageError;
 ///
 /// Normalizing at parse time makes the stored and compared form unique, so an account
 /// cannot be looked up or created under two spellings of the same address.
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
 #[serde(try_from = "String", into = "String")]
 pub struct Email(String);

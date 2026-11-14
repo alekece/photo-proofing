@@ -7,16 +7,19 @@
 //! front end, which knows the viewer's language. Value limits live in the database as CHECK constraints, which are the
 //! single authority; violations surface as [`GalleryError`] variants.
 
-use std::{num::NonZeroUsize, time::Duration};
+use std::{collections::HashSet, num::NonZeroUsize, time::Duration};
 
 use derive_more::Display;
+use pp_core::email::{Email, EmailMessage, EmailSubject};
 pub use pp_core::types::access_code::{
     ACCESS_CODE_DIGITS, ENCRYPTED_ACCESS_CODE_LEN, EncryptedAccessCode, EncryptedAccessCodeError,
     GalleryAccessCode, ParseAccessCodeError,
 };
 use pp_core::types::{generate::Generate, timestamp::Timestamp};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
-use sqlx::{AssertSqlSafe, FromRow, PgExecutor, PgPool, Row, Type, postgres::PgRow};
+use sqlx::{
+    AssertSqlSafe, FromRow, PgExecutor, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow,
+};
 use thiserror::Error;
 use time::Date;
 use uuid::Uuid;
@@ -25,7 +28,9 @@ pub use self::share::{ShareToken, SharedAccess, SharedGallery, SharedGalleryGate
 use crate::{
     Repository,
     auth::WorkspaceId,
+    contact::{ContactName, ContactRepository},
     error::DatabaseError,
+    jobs::{EmailRecipient, InvitationStage, JobOptions, JobRepository, SendEmail},
     photo::{PhotoId, PhotoLocation},
 };
 
@@ -87,6 +92,40 @@ impl GalleryError {
 
         violation.unwrap_or_else(|| Self::Database(DatabaseError::from(error)))
     }
+}
+
+/// A primary recipient in an [`InvitationBatch`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvitationContact {
+    pub email: Email,
+    pub name: Option<ContactName>,
+}
+
+/// Recipients and message body to queue as gallery invitation emails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvitationBatch {
+    pub to: Vec<InvitationContact>,
+    pub bcc: Vec<Email>,
+    pub subject: EmailSubject,
+    pub message: EmailMessage,
+}
+
+/// Outcome of [`GalleryRepository::queue_invitations`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueuedInvitations {
+    pub gallery: Gallery,
+    pub queued_count: usize,
+}
+
+/// Why [`GalleryRepository::queue_invitations`] could not enqueue invitations.
+#[derive(Debug, Error)]
+pub enum InvitationError {
+    #[error("archived galleries cannot send invitations")]
+    Archived,
+    #[error("expired galleries cannot send invitations")]
+    Expired,
+    #[error(transparent)]
+    Database(#[from] DatabaseError),
 }
 
 /// A focal-point percentage outside `0..=100`.
@@ -863,6 +902,187 @@ impl GalleryRepository<'_> {
         }
     }
 
+    async fn share_in(
+        tx: &mut Transaction<'_, Postgres>,
+        workspace_id: WorkspaceId,
+        id: GalleryId,
+        mut next_token: impl FnMut() -> ShareToken,
+    ) -> Result<Gallery, DatabaseError> {
+        loop {
+            sqlx::query("SAVEPOINT gallery_share_token")
+                .execute(&mut **tx)
+                .await?;
+
+            let candidate = next_token();
+            let update_result = sqlx::query_as::<_, Gallery>(AssertSqlSafe(format!(
+                "UPDATE galleries SET share_token = COALESCE(share_token, $3),
+                     shared_at = COALESCE(shared_at, now())
+                 WHERE id = $1 AND workspace_id = $2
+                   AND (share_token IS NOT NULL
+                        OR NOT EXISTS (SELECT 1 FROM gallery_contacts WHERE share_token = $3))
+                 RETURNING {}",
+                Self::COLUMNS
+            )))
+            .bind(id)
+            .bind(workspace_id)
+            .bind(candidate)
+            .fetch_optional(&mut **tx)
+            .await;
+
+            match update_result {
+                Ok(Some(gallery)) => {
+                    sqlx::query("RELEASE SAVEPOINT gallery_share_token")
+                        .execute(&mut **tx)
+                        .await?;
+
+                    return Ok(gallery);
+                }
+                Ok(None) => {
+                    sqlx::query("RELEASE SAVEPOINT gallery_share_token")
+                        .execute(&mut **tx)
+                        .await?;
+                }
+                Err(error) if Self::is_token_collision(&error) => {
+                    sqlx::query("ROLLBACK TO SAVEPOINT gallery_share_token")
+                        .execute(&mut **tx)
+                        .await?;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
+    /// Atomically publishes a draft gallery if needed, upserts and links primary `To` contacts,
+    /// deduplicates recipients across `To` and `BCC` (`To` wins), and enqueues one
+    /// [`SendEmail`] job per unique recipient.
+    ///
+    /// Returns `Ok(None)` when `gallery_id` does not exist in `workspace_id`, or
+    /// [`InvitationError::Archived`] / [`InvitationError::Expired`] without modifying the
+    /// gallery or enqueuing jobs.
+    pub async fn queue_invitations(
+        &self,
+        workspace_id: WorkspaceId,
+        gallery_id: GalleryId,
+        batch: &InvitationBatch,
+        job_options: JobOptions,
+    ) -> Result<Option<QueuedInvitations>, InvitationError> {
+        let mut tx = self.pool.begin().await.map_err(DatabaseError::from)?;
+        let state_row = sqlx::query(
+            "SELECT archived_at IS NOT NULL AS archived,
+                    (expires_at IS NOT NULL AND expires_at <= now()) AS expired,
+                    delivered_at IS NOT NULL AS delivered
+             FROM galleries
+             WHERE id = $1 AND workspace_id = $2
+             FOR UPDATE",
+        )
+        .bind(gallery_id)
+        .bind(workspace_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(DatabaseError::from)?;
+
+        let Some(state_row) = state_row else {
+            tx.rollback().await.map_err(DatabaseError::from)?;
+
+            return Ok(None);
+        };
+
+        let archived: bool = state_row.try_get("archived").map_err(DatabaseError::from)?;
+
+        if archived {
+            tx.rollback().await.map_err(DatabaseError::from)?;
+
+            return Err(InvitationError::Archived);
+        }
+
+        let expired: bool = state_row.try_get("expired").map_err(DatabaseError::from)?;
+
+        if expired {
+            tx.rollback().await.map_err(DatabaseError::from)?;
+
+            return Err(InvitationError::Expired);
+        }
+
+        let delivered: bool = state_row
+            .try_get("delivered")
+            .map_err(DatabaseError::from)?;
+        let stage = if delivered {
+            InvitationStage::Finals
+        } else {
+            InvitationStage::Proofing
+        };
+
+        let gallery =
+            Self::share_in(&mut tx, workspace_id, gallery_id, ShareToken::generate).await?;
+        let mut seen = HashSet::new();
+        let mut queued_count = 0usize;
+
+        for recipient in &batch.to {
+            if !seen.insert(recipient.email.clone()) {
+                continue;
+            }
+
+            let fallback = recipient
+                .name
+                .clone()
+                .unwrap_or_else(|| ContactName::from_email_local_part(&recipient.email));
+            let contact_id = ContactRepository::upsert_and_link_in(
+                &mut tx,
+                workspace_id,
+                gallery_id,
+                &recipient.email,
+                &fallback,
+                ShareToken::generate,
+            )
+            .await?;
+
+            JobRepository::enqueue_in(
+                &mut tx,
+                SendEmail {
+                    workspace_id,
+                    gallery_id,
+                    recipient: EmailRecipient::Contact { contact_id },
+                    stage,
+                    subject: batch.subject.clone(),
+                    message: batch.message.clone(),
+                },
+                job_options.max_attempts,
+            )
+            .await?;
+            queued_count += 1;
+        }
+
+        for bcc_email in &batch.bcc {
+            if !seen.insert(bcc_email.clone()) {
+                continue;
+            }
+
+            JobRepository::enqueue_in(
+                &mut tx,
+                SendEmail {
+                    workspace_id,
+                    gallery_id,
+                    recipient: EmailRecipient::Bcc {
+                        email: bcc_email.clone(),
+                    },
+                    stage,
+                    subject: batch.subject.clone(),
+                    message: batch.message.clone(),
+                },
+                job_options.max_attempts,
+            )
+            .await?;
+            queued_count += 1;
+        }
+
+        tx.commit().await.map_err(DatabaseError::from)?;
+
+        Ok(Some(QueuedInvitations {
+            gallery,
+            queued_count,
+        }))
+    }
+
     /// Finds the gallery behind a general or per-contact private link, with where its photos
     /// live. Unshared, unknown, archived and expired links are the same `None`, so a client
     /// cannot tell them apart; the database clock decides expiry.
@@ -1044,14 +1264,16 @@ impl GalleryRepository<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, time::SystemTime};
 
     use serde_json::json;
 
     use super::*;
     use crate::{
         Database,
-        jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
+        auth::AuthRepository,
+        contact::NewContact,
+        jobs::{JobKind, JobOptions, JobPayload, JobRepository, ProcessPhoto},
         photo::{PhotoKind, PhotoRepository, PhotoStatus, Watermarked},
         tests::TestRepository,
         workspace_deletion::WorkspaceDeletion,
@@ -3091,5 +3313,249 @@ mod tests {
             serde_json::from_value::<GalleryChanges<GalleryAccessCode>>(json!({"favorite": null}))
                 .is_err()
         );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn queue_invitations_shares_draft_upserts_contacts_deduplicates_and_guards_states(
+        pool: PgPool,
+    ) {
+        let database = Database::new(pool.clone());
+        let galleries = database.repository::<GalleryRepository>();
+        let contacts = database.repository::<ContactRepository>();
+        let jobs = database.repository::<JobRepository>();
+        let auth = database.repository::<AuthRepository>();
+
+        let owner_email: Email = "photographer@example.test".parse().unwrap();
+        let identity = auth
+            .create_account(
+                &owner_email,
+                "hash",
+                &[0x11; 32],
+                SystemTime::now() + Duration::from_secs(3600),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let workspace = identity.workspace_id;
+        let other_workspace = super::tests::workspace(&pool).await;
+
+        assert_eq!(
+            auth.account_email(workspace).await.unwrap(),
+            Some(owner_email)
+        );
+        assert_eq!(auth.account_email(other_workspace).await.unwrap(), None);
+
+        // Existing workspace contact whose rich name must be preserved even if omitted in `to`.
+        let existing_contact = contacts
+            .create(
+                workspace,
+                &NewContact {
+                    name: "Camille & Hugo".parse().unwrap(),
+                    email: "camille@example.test".parse().unwrap(),
+                    phone: None,
+                    notes: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        let draft = galleries.create(workspace).await.unwrap();
+        assert!(draft.share_token.is_none());
+
+        let batch = InvitationBatch {
+            to: vec![
+                InvitationContact {
+                    email: "Camille@Example.test".parse().unwrap(),
+                    name: None,
+                },
+                InvitationContact {
+                    email: "claire.dupont@example.test".parse().unwrap(),
+                    name: None,
+                },
+                InvitationContact {
+                    email: "camille@example.test".parse().unwrap(),
+                    name: Some("Ignored Duplicate".parse().unwrap()),
+                },
+            ],
+            bcc: vec![
+                "CAMILLE@example.test".parse().unwrap(),
+                "planner@example.test".parse().unwrap(),
+                "Planner@Example.test".parse().unwrap(),
+            ],
+            subject: "Camille & Hugo — Your gallery is ready".parse().unwrap(),
+            message: "Bonjour,\n\nVos photos vous attendent.".parse().unwrap(),
+        };
+
+        // Foreign workspace sees `Ok(None)`.
+        assert!(
+            galleries
+                .queue_invitations(other_workspace, draft.id, &batch, JobOptions::default())
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        let queued = galleries
+            .queue_invitations(workspace, draft.id, &batch, JobOptions::default())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(queued.queued_count, 3);
+        assert!(queued.gallery.share_token.is_some());
+        assert!(queued.gallery.states.contains(&GalleryState::Shared));
+
+        // Existing contact kept its name; new contact derived local-part; BCC did not create a contact!
+        let all_contacts = contacts.list(workspace).await.unwrap();
+        assert_eq!(all_contacts.len(), 2);
+
+        let camille = all_contacts
+            .iter()
+            .find(|c| c.id == existing_contact.id)
+            .unwrap();
+        assert_eq!(camille.name.as_str(), "Camille & Hugo");
+
+        let claire = all_contacts
+            .iter()
+            .find(|c| c.email.as_str() == "claire.dupont@example.test")
+            .unwrap();
+        assert_eq!(claire.name.as_str(), "claire.dupont");
+
+        let linked = contacts
+            .list_for_gallery(workspace, draft.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(linked.len(), 2);
+        assert!(
+            contacts
+                .find_gallery_link(workspace, draft.id, claire.id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        // Claim the 3 jobs and confirm zero secrets in raw JSON payloads and exact stage/recipients.
+        let raw_payloads: Vec<String> =
+            sqlx::query_scalar("SELECT payload::text FROM jobs ORDER BY created_at, id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(raw_payloads.len(), 3);
+        let gallery_token_str: String =
+            sqlx::query_scalar("SELECT share_token FROM galleries WHERE id = $1")
+                .bind(draft.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let contact_tokens: Vec<String> =
+            sqlx::query_scalar("SELECT share_token FROM gallery_contacts WHERE gallery_id = $1")
+                .bind(draft.id)
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(contact_tokens.len(), 2);
+
+        for raw in &raw_payloads {
+            assert!(!raw.contains(&gallery_token_str));
+
+            for contact_token in &contact_tokens {
+                assert!(!raw.contains(contact_token));
+            }
+        }
+
+        let mut recipients = Vec::new();
+
+        while let Some(job) = jobs
+            .claim(&[JobKind::SendEmail], Duration::from_secs(30))
+            .await
+            .unwrap()
+        {
+            let send: SendEmail = job.payload().unwrap();
+            assert_eq!(send.stage, InvitationStage::Proofing);
+            recipients.push(send.recipient);
+            assert!(jobs.complete(&job).await.unwrap().is_current());
+        }
+
+        assert_eq!(
+            recipients,
+            vec![
+                EmailRecipient::Contact {
+                    contact_id: existing_contact.id
+                },
+                EmailRecipient::Contact {
+                    contact_id: claire.id
+                },
+                EmailRecipient::Bcc {
+                    email: "planner@example.test".parse().unwrap()
+                },
+            ]
+        );
+
+        // Delivered gallery queues `InvitationStage::Finals`.
+        galleries.deliver(workspace, draft.id).await.unwrap();
+        let finals_queued = galleries
+            .queue_invitations(
+                workspace,
+                draft.id,
+                &InvitationBatch {
+                    to: vec![],
+                    bcc: vec!["family@example.test".parse().unwrap()],
+                    subject: "Final photos".parse().unwrap(),
+                    message: "Enjoy!".parse().unwrap(),
+                },
+                JobOptions::default(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(finals_queued.queued_count, 1);
+
+        let finals_job = jobs
+            .claim(&[JobKind::SendEmail], Duration::from_secs(30))
+            .await
+            .unwrap()
+            .unwrap();
+        let finals_payload: SendEmail = finals_job.payload().unwrap();
+        assert_eq!(finals_payload.stage, InvitationStage::Finals);
+        assert!(jobs.complete(&finals_job).await.unwrap().is_current());
+
+        // Expired gallery refuses invitations without sharing or enqueuing.
+        let expired_draft = galleries.create(workspace).await.unwrap();
+        set_column(
+            &pool,
+            expired_draft.id,
+            "expires_at",
+            "now() - interval '1 hour'",
+        )
+        .await;
+        assert!(matches!(
+            galleries
+                .queue_invitations(workspace, expired_draft.id, &batch, JobOptions::default())
+                .await,
+            Err(InvitationError::Expired)
+        ));
+        assert!(
+            galleries
+                .get(workspace, expired_draft.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .share_token
+                .is_none()
+        );
+
+        // Archived gallery refuses invitations.
+        let archived_draft = galleries.create(workspace).await.unwrap();
+        galleries
+            .archive(workspace, archived_draft.id)
+            .await
+            .unwrap();
+        assert!(matches!(
+            galleries
+                .queue_invitations(workspace, archived_draft.id, &batch, JobOptions::default())
+                .await,
+            Err(InvitationError::Archived)
+        ));
     }
 }

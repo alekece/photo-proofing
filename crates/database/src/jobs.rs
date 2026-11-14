@@ -31,7 +31,10 @@ use std::{
     time::Duration,
 };
 
-use pp_core::types::generate::Generate;
+use pp_core::{
+    email::{Email, EmailMessage, EmailSubject},
+    types::generate::Generate,
+};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Error as JsonError, Value};
 use sqlx::{
@@ -44,6 +47,7 @@ use crate::photo::PhotoId;
 use crate::{
     Repository,
     auth::WorkspaceId,
+    contact::ContactId,
     error::DatabaseError,
     export::{ExportId, ExportRepository},
     gallery::GalleryId,
@@ -100,6 +104,7 @@ pub enum JobKind {
     CleanupGallery,
     CleanupPhotos,
     ZipExport,
+    SendEmail,
 }
 
 impl JobKind {
@@ -107,6 +112,36 @@ impl JobKind {
     pub fn as_str(self) -> &'static str {
         self.into()
     }
+}
+
+/// Which gallery lifecycle stage an invitation email announces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InvitationStage {
+    Proofing,
+    Finals,
+}
+
+/// Who receives a queued gallery invitation.
+///
+/// Primary recipients reference their linked workspace contact by ID so per-contact private
+/// link tokens stay out of `jobs.payload`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EmailRecipient {
+    Contact { contact_id: ContactId },
+    Bcc { email: Email },
+}
+
+/// Sends one gallery invitation email, resolving share tokens and access codes at send time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendEmail {
+    pub workspace_id: WorkspaceId,
+    pub gallery_id: GalleryId,
+    pub recipient: EmailRecipient,
+    pub stage: InvitationStage,
+    pub subject: EmailSubject,
+    pub message: EmailMessage,
 }
 
 /// Turns one uploaded original into its derivatives.
@@ -145,11 +180,18 @@ pub enum JobPayload {
     CleanupGallery(CleanupGallery),
     CleanupPhotos(CleanupPhotos),
     ZipExport(ZipExport),
+    SendEmail(SendEmail),
 }
 
 impl From<ZipExport> for JobPayload {
     fn from(payload: ZipExport) -> Self {
         Self::ZipExport(payload)
+    }
+}
+
+impl From<SendEmail> for JobPayload {
+    fn from(payload: SendEmail) -> Self {
+        Self::SendEmail(payload)
     }
 }
 
@@ -179,6 +221,7 @@ impl JobPayload {
             Self::CleanupGallery(_) => JobKind::CleanupGallery,
             Self::CleanupPhotos(_) => JobKind::CleanupPhotos,
             Self::ZipExport(_) => JobKind::ZipExport,
+            Self::SendEmail(_) => JobKind::SendEmail,
         }
     }
 }
@@ -1446,5 +1489,39 @@ mod tests {
 
         assert!(!completion.is_current());
         assert_eq!(update, PhotoUpdate::Missing);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn send_email_payload_round_trips_and_claims_cleanly(pool: PgPool) {
+        let database = Database::new(pool);
+        let jobs = database.repository::<JobRepository>();
+        let expected = SendEmail {
+            workspace_id: WorkspaceId::generate(),
+            gallery_id: GalleryId::generate(),
+            recipient: EmailRecipient::Bcc {
+                email: "press@example.test".parse().unwrap(),
+            },
+            stage: InvitationStage::Proofing,
+            subject: "Camille & Hugo — Your gallery is ready".parse().unwrap(),
+            message: "Bonjour,\n\nVoici votre galerie.".parse().unwrap(),
+        };
+        let payload = JobPayload::from(expected.clone());
+
+        assert_eq!(payload.kind(), JobKind::SendEmail);
+        assert_eq!(payload.kind().as_str(), "send_email");
+
+        jobs.enqueue(payload, NonZeroU16::new(3).unwrap())
+            .await
+            .unwrap();
+
+        let claimed = jobs
+            .claim(&[JobKind::SendEmail], LEASE)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(claimed.kind(), JobKind::SendEmail);
+        assert_eq!(claimed.payload::<SendEmail>().unwrap(), expected);
+        assert!(jobs.complete(&claimed).await.unwrap().is_current());
     }
 }
