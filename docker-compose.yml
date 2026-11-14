@@ -43,6 +43,7 @@ services:
     environment:
       PP_LOG_LEVEL: ${PP_LOG_LEVEL:-info}
       PP_DATABASE_URL: postgres://${POSTGRES_USER:-pp}:${POSTGRES_PASSWORD:-pp-local-only}@postgres:5432/${POSTGRES_DB:-pp}
+      PP_APP_ORIGIN: ${PP_APP_ORIGIN:-http://localhost:8000}
       PP_PHOTO_DIR: /var/lib/pp/photos
     volumes:
       - photo-data:/var/lib/pp/photos

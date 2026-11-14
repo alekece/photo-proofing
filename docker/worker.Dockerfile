@@ -10,7 +10,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cargo build --release -p pp-image-worker && cp target/release/pp-image-worker /pp-image-worker
 
 FROM debian:trixie-slim
-RUN apt-get update && apt-get install -y --no-install-recommends libvips42t64 fonts-dejavu-core \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libvips42t64 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --no-create-home pp \
     && install -d -o pp -g pp /var/lib/pp/photos

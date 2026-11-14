@@ -34,27 +34,29 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
   - **Collection** navigation with counts: **Photos**, **Favorites** (accented when over allowance,
     padlock once published), **Comments**, and **Final** (`Favorites`, `Comments`, and `Final` stay
     visible and disabled before the first share, with tooltip `"Available once the gallery is shared"`).
-  - **Studio** navigation (always enabled): **Design**, **Contacts** (with linked-contact count), and **Settings**.
+  - **Studio** navigation: **Design**, **Share** (disabled with tooltip when archived), **Contacts** (with linked-contact count), and **Settings**.
   - On phones (`< md`), `nav` becomes a horizontally scrollable pill strip below the Journey bar.
 - **Top Journey Wizard & action bar (`journey`):**
   - Actionable 4-step wizard on Warm Paper: **Upload → Share → Collect favorites → Publish** (hidden
     when archived; collapses to four progress bars + the active step label and fact on phones).
-  - Right-aligned actions: **Preview** (outline) and the stage CTA (**Share** on a draft,
-    **Publish** during Prepublish, nothing once published, **Restore** when archived).
+  - Right-aligned actions: **Preview** (outline) and the stage CTA (**Share** on a draft, opening
+    `Studio → Share`; **Publish** during Prepublish; nothing once published; **Restore** when
+    archived). While `Studio → Share` is active, the top-right actions swap to **Cancel** (returning
+    to the previously active studio section) and **✉ Send invitation (N)**.
 
-## Studio views (`Design`, `Contacts`, and `Settings`)
+## Studio views (`Design`, `Share`, `Contacts`, and `Settings`)
 
 | View / Card | Content |
 |---|---|
 | **Design** | Two-column workspace (stacking on `390 px` phones): **Cover** (**Select cover** / **Change cover** modal over ready proofs + **Remove cover**, four visual cover-template mini-cards — **Full bleed**, **Split editorial**, **Framed paper**, **Minimal banner** — and an interactive rule-of-thirds **Focal point** crosshair pad with `Reset`, disabled without a cover photo), **Typography** (four self-hosted heading-font specimen cards — **Editorial**, **Fine Art**, **Timeless**, **Modern** — rendered in their own typefaces), **Photo Grid & Spacing** (**Layout** icon buttons for staggered columns vs even rows, **Grid density** segmented **Compact** / **Large**, and **Spacing** segmented **Compact** / **Generous**), and a live scrollable **Client preview** with **Desktop** / **Phone** toggle |
+| **Share** | Two centered `660 px` Warm Paper sheets: **Envelope** (**To** pre-populated from linked gallery contacts with inline `email` / `Name <email>` chips + **+ Contacts** workspace directory picker, collapsible **+ BCC** private recipients that are never added to contacts, and editable stage-aware **Subject**) above a **Live Warm Paper Email Preview** (`StudioSignature`, `3:2` hero preview with focal point or `CoverBackdrop` stand-in, Georgia gallery title + shoot-date/photo-count metadata, inline editable personal message `<textarea>`, conditional 6-digit **Access code** monospace callout, stage-aware CTA pill, and optional `Available until {date}` footer). Shows an inline configuration notice when `[smtp]` is unconfigured or when the gallery is expired |
 | **Contacts** | Linked contacts list (monogram, **Name**, **Email**, optional **Phone**, **Unlink**), **Manage directory** (`/contacts`), and **+ Link contact** dialog (search unlinked workspace contacts or create a new contact inline and link it in one step) |
 | **Settings → General** | **Shoot date**, **Included photos** (number input, disabled once published), and **Open until** (date picker with one-click relative presets from 1 week to 1 year); all optional |
-| **Settings → Privacy & Protection** | **Client link** (Draft: `"Not shared yet"`; once shared: link and **Copy**), **Require access code** (Draft: switch + 6-digit numeric input + **Generate** + **Copy**; once shared: locked read-only 6-digit monospace code + **Copy** when set, or disabled switch noting none can be added after sharing), and **Enable watermarks** switch |
+| **Settings → Privacy & Protection** | **Client link** (Draft: `"Not shared yet"` + inline **Share link** button opening the direct-link confirmation dialog; once shared: link and **Copy**), **Require access code** (Draft: switch + 6-digit numeric input + **Generate** + **Copy**; once shared: locked read-only 6-digit monospace code + **Copy** when set, or disabled switch noting none can be added after sharing), and **Enable watermarks** switch |
 | **Settings → Actions** | **Archive** (or **Restore**) and destructive **Delete**, each with a short consequence hint and confirmation dialog |
 
-- All seven panels (**Photos**, **Favorites**, **Comments**, **Final**, **Design**, **Contacts**,
-  **Settings**) stay mounted so counts load on open and in-place edits, uploads, or open viewers
-  survive section switches and autosaves.
+- Collection and Studio panels stay mounted once opened so counts load on open and in-place edits,
+  uploads, invitation drafts, or open viewers survive section switches and autosaves.
 - In-place inputs save on change without success rings or repeated `"Saved"` toasts. An invalid
   value shows a red toast and reverts. A past `"Open until"` marks the gallery Expired; a future or
   cleared one lifts it.
@@ -139,9 +141,9 @@ Deliver counts and warns about finals only; proofs do not contribute to that dia
 | Delete photos | Stack of the photos, count; mentions client favorites only if one is a favorite | — |
 
 Photos still uploading or failed are mentioned as a warning line ("2 are still uploading and 1
-failed."). After Share the photo stack flies out, a green check pops and the dialog becomes "Your
-gallery is shared" with **Copy link**. The prototype also shows Email and SMS; those are future
-scope, not MVP.
+failed."). After **Settings → Privacy & Protection → Share link**, the photo stack flies out, a green
+check pops and the dialog becomes "Your gallery is shared" with **Copy link**. Email invitations
+live in **Studio → Share** when `[smtp]` is configured; SMS remains future scope.
 
 ![Dialog motion](gallery/confirm-motion.gif)
 ![Dialog frames](gallery/confirm-motion.frames.png)
