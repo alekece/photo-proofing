@@ -89,8 +89,12 @@ pub enum CoverSignature {
 }
 
 impl CoverSignature {
-    const fn shows_logo(self) -> bool {
+    pub const fn shows_logo(self) -> bool {
         matches!(self, Self::Logo | Self::Both)
+    }
+
+    pub const fn shows_name(self) -> bool {
+        matches!(self, Self::Name | Self::Both)
     }
 }
 

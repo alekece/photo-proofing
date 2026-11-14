@@ -13,6 +13,7 @@ use thiserror::Error;
 pub mod cleanup;
 pub mod export;
 pub mod process_photo;
+pub mod send_email;
 
 type BoxError = Box<dyn Error + Send + Sync>;
 type FinishFuture = Pin<Box<dyn Future<Output = Result<JobCompletion, HandlerError>> + Send>>;

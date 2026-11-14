@@ -25,6 +25,7 @@ base64 = "0.23"
 chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc"] }
 derive_more = { version = "2.1.1", features = ["display", "from", "from_str", "deref"] }
 hmac = "0.13"
+lettre = { version = "0.11", default-features = false, features = ["builder", "hostname", "ring", "rustls-native-certs", "smtp-transport", "tokio1", "tokio1-rustls"] }
 pp-core = { path = "crates/core" }
 pp-database = { path = "crates/database" }
 pp-storage = { path = "crates/storage" }

@@ -18,7 +18,11 @@ use thiserror::Error;
 use tracing::level_filters::LevelFilter;
 use url::Url;
 
-use crate::{email::Email, time::BoundedDuration, types::access_code::EncryptionKey};
+use crate::{
+    email::Email,
+    time::BoundedDuration,
+    types::access_code::{AccessCodeCipher, EncryptionKey},
+};
 
 /// Default SMTP submission port (`STARTTLS`).
 pub const DEFAULT_SMTP_PORT: u16 = 587;
@@ -171,6 +175,13 @@ pub struct GalleryPasswordConfig {
     )]
     #[config(value_format = EncryptionKey::encode_base64url)]
     pub encryption_key: Option<EncryptionKey>,
+}
+
+impl GalleryPasswordConfig {
+    /// Builds an [`AccessCodeCipher`] when `encryption_key` is configured.
+    pub fn cipher(&self) -> Option<AccessCodeCipher> {
+        self.encryption_key.as_ref().map(AccessCodeCipher::new)
+    }
 }
 
 /// Transport encryption mode for outbound SMTP connections.

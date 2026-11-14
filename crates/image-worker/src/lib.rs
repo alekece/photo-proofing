@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod handlers;
+pub mod mail;
 pub mod maintenance;
 pub mod render;
 pub mod runtime;
