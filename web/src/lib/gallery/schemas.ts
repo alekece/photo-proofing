@@ -37,6 +37,7 @@ export const accessCodeSchema = v.pipe(v.string(), v.regex(/^[0-9]{6}$/));
 const baseGalleryEntries = {
 	id: v.string(),
 	title: v.nullable(v.string()),
+	favorite: v.optional(v.boolean()),
 	layout: galleryLayoutSchema,
 	cover_layout: v.optional(coverLayoutSchema, 'full_bleed'),
 	focal_point: v.optional(focalPointSchema, () => ({ ...DEFAULT_FOCAL_POINT })),

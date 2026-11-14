@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { GalleryOverview } from '#lib/gallery/api.js';
 import GalleryCard from './GalleryCard.svelte';
@@ -8,6 +9,7 @@ import GalleryCard from './GalleryCard.svelte';
 const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 	id: 'g1',
 	title: 'Martin Wedding',
+	favorite: false,
 	layout: 'grid',
 	cover_layout: 'full_bleed',
 	focal_point: { x: 50, y: 35 },
@@ -131,6 +133,40 @@ describe('GalleryCard', () => {
 		});
 		expect(screen.queryByRole('img', { name: 'Protected by an access code' })).toBeNull();
 		expect(screen.getByRole('img', { name: 'Closed to clients' })).toBeTruthy();
+		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
+			[]
+		);
+	});
+
+	it('renders an inline Star when favorited and a sibling selection button with zero axe violations', async () => {
+		const onselect = vi.fn();
+		const user = userEvent.setup();
+		const { container, rerender } = render(GalleryCard, {
+			gallery: gallery({ favorite: true }),
+			query: '',
+			selected: false,
+			selecting: false,
+			onselect
+		});
+
+		expect(screen.getByRole('img', { name: 'Favorited gallery' })).toBeTruthy();
+
+		const selectBtn = screen.getByRole('button', { name: 'Select Martin Wedding' });
+		const link = screen.getByRole('link', { name: /Martin Wedding/ });
+		expect(link.contains(selectBtn)).toBe(false);
+		expect(selectBtn.getAttribute('aria-pressed')).toBe('false');
+
+		await user.click(selectBtn);
+		expect(onselect).toHaveBeenCalledOnce();
+
+		await rerender({
+			gallery: gallery({ favorite: true }),
+			query: '',
+			selected: true,
+			selecting: true,
+			onselect
+		});
+		expect(selectBtn.getAttribute('aria-pressed')).toBe('true');
 		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
 			[]
 		);

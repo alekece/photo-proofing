@@ -28,9 +28,9 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
 - **Left studio rail (`identity` + `nav`):**
   - `← Back to galleries` link and a `3:2` framed cover thumbnail button (`44 × 34 px` on phones)
     showing the hero preview or a compact `CoverBackdrop` stand-in; clicking it opens **Design**.
-  - Inline-editable Georgia gallery title paired on its right with the read-only status chip
-    (**Draft**, **Prepublish**, **Publish**, **Expired**, **Archived**), plus `Shot` (or `Created`)
-    and, once shared, `Last opened` (`Not yet` until first opened).
+  - Inline-editable Georgia gallery title paired on its right with a favorite-pin **Star** toggle
+    and the read-only status chip (**Draft**, **Prepublish**, **Publish**, **Expired**, **Archived**),
+    plus `Shot` (or `Created`) and, once shared, `Last opened` (`Not yet` until first opened).
   - **Collection** navigation with counts: **Photos**, **Favorites** (accented when over allowance,
     padlock once published), **Comments**, and **Final** (`Favorites`, `Comments`, and `Final` stay
     visible and disabled before the first share, with tooltip `"Available once the gallery is shared"`).

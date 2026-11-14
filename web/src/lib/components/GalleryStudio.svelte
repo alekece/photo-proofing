@@ -14,6 +14,7 @@
 		MessageSquare,
 		Palette,
 		SlidersHorizontal,
+		Star,
 		Users
 	} from '@lucide/svelte';
 	import type { Component, Snippet } from 'svelte';
@@ -90,7 +91,20 @@
 	const coverId = $derived(heroId !== undefined ? heroId : gallery.hero_id);
 	// svelte-ignore state_referenced_locally
 	let liveFocalPoint = $state<FocalPoint>(gallery.focal_point ?? DEFAULT_FOCAL_POINT);
+	const savedFavorite = $derived(gallery.favorite ?? false);
+	let favorite = $derived(savedFavorite);
 	const status = $derived(galleryStatus(gallery.states));
+
+	async function toggleFavorite() {
+		const previous = favorite;
+		const next = !favorite;
+
+		favorite = next;
+
+		if (!(await onsave({ favorite: next }))) {
+			favorite = previous;
+		}
+	}
 	const shared = $derived(shareToken !== null);
 	const delivered = $derived(gallery.states.includes('delivered'));
 	const archived = $derived(status === 'archived');
@@ -258,6 +272,18 @@
 		<div class="grid min-w-0 flex-1 gap-0.5 md:gap-1">
 			<div class="flex flex-wrap items-center gap-2">
 				{@render heading()}
+				<button
+					type="button"
+					aria-label={favorite ? m.studio_favorite_remove() : m.studio_favorite_add()}
+					title={favorite ? m.studio_favorite_remove() : m.studio_favorite_add()}
+					aria-pressed={favorite}
+					onclick={() => void toggleFavorite()}
+					class="inline-grid size-7 shrink-0 cursor-pointer place-items-center rounded-full border border-transparent transition-colors hover:bg-border/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus {favorite
+						? 'text-[#c9921a]'
+						: 'text-muted-foreground hover:text-foreground'}"
+				>
+					<Star size={15} fill={favorite ? 'currentColor' : 'none'} aria-hidden="true" />
+				</button>
 				<StatusChip {status} dot class="shrink-0" />
 			</div>
 			<p class="truncate text-xs text-muted-foreground">
