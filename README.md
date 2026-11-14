@@ -112,7 +112,9 @@ Dashboard setup (private LAN/VPN only, authentication enabled; it has Docker soc
 
 - Manage the Docker daemon where staging runs and keep the project name `pp-staging`.
 - Bind the dashboard's secret-manager integration to the stack with a read-only service token for the
-  staging config. The secret manager supplies `POSTGRES_PASSWORD` and a URL-encoded `PP_DATABASE_URL`.
+  staging config. The secret manager supplies `POSTGRES_PASSWORD` and a URL-encoded `PP_DATABASE_URL`,
+  plus optional `PP_GALLERY_PASSWORD_KEY` and `PP_SMTP_PASSWORD` (and any optional `PP_SMTP_*`
+  settings not kept in `/etc/pp/config.toml`).
 - Set `PP_APP_ORIGIN`, `PP_STAGING_HOST`, `PP_BIND_ADDRESS` and the four existing volume
   names (`PP_POSTGRES_VOLUME`, `PP_PHOTO_VOLUME`, `PP_CADDY_DATA_VOLUME`,
   `PP_CADDY_CONFIG_VOLUME`) as stack variables in the dashboard, never in Git. A fresh

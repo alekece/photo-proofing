@@ -16,6 +16,17 @@ x-runtime: &runtime
 x-app-config: &app-config
   PP_CONFIG: /etc/pp/config.toml
   PP_DATABASE_URL: ${PP_DATABASE_URL:?the secret manager must supply the URL-encoded database URL}
+  # Optional secrets and SMTP settings; forwarded only when supplied so empty values are never
+  # passed and /etc/pp/config.toml values remain in effect when unset.
+  PP_GALLERY_PASSWORD_KEY:
+  PP_SMTP_HOST:
+  PP_SMTP_PORT:
+  PP_SMTP_TLS:
+  PP_SMTP_USERNAME:
+  PP_SMTP_PASSWORD:
+  PP_SMTP_FROM_EMAIL:
+  PP_SMTP_FROM_NAME:
+  PP_SMTP_MAX_RECIPIENTS_PER_SEND:
 
 x-config-mount: &config-mount
   type: bind
@@ -44,10 +55,7 @@ services:
   api:
     <<: *runtime
     image: ghcr.io/alekece/pp-api:staging
-    environment:
-      <<: *app-config
-      # Forwarded only when the secret manager supplies it; the API rejects an empty value.
-      PP_GALLERY_PASSWORD_KEY:
+    environment: *app-config
     volumes:
       - photo-data:/var/lib/pp/photos
       - *config-mount
