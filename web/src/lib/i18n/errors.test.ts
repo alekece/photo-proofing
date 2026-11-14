@@ -29,6 +29,18 @@ describe('apiErrorMessage in English', () => {
 		expect(apiErrorMessage(503, 'access_code_unavailable')).toBe(
 			'Access codes aren’t configured on this server.'
 		);
+		expect(apiErrorMessage(503, 'email_unavailable')).toBe(
+			'Email sending isn’t configured on this server.'
+		);
+		expect(apiErrorMessage(409, 'gallery_archived')).toBe(
+			'Archived galleries can’t send invitations. Restore the gallery first.'
+		);
+		expect(apiErrorMessage(409, 'gallery_expired')).toBe(
+			'This gallery has expired. Update its Open until date in Settings first.'
+		);
+		expect(apiErrorMessage(400, 'too_many_recipients')).toBe(
+			'Too many recipients for a single send. Split the list into smaller batches.'
+		);
 		expect(apiErrorMessage(422, 'unknown')).toBe(apiErrorMessage(422));
 		expect(apiErrorMessage(409, 'constructor')).toBe(apiErrorMessage(409));
 		expect(apiErrorMessage(418)).toBe('Something went wrong. Please try again.');
@@ -56,6 +68,18 @@ describe('apiErrorMessage in French', () => {
 		);
 		expect(apiErrorMessage(503, 'access_code_unavailable')).toBe(
 			'Les codes d’accès ne sont pas configurés sur ce serveur.'
+		);
+		expect(apiErrorMessage(503, 'email_unavailable')).toBe(
+			'L’envoi d’e-mails n’est pas configuré sur ce serveur.'
+		);
+		expect(apiErrorMessage(409, 'gallery_archived')).toBe(
+			'Une galerie archivée ne peut pas envoyer d’invitations. Restaurez-la d’abord.'
+		);
+		expect(apiErrorMessage(409, 'gallery_expired')).toBe(
+			'Cette galerie est expirée. Mettez d’abord à jour la date Ouverte jusqu’au dans Réglages.'
+		);
+		expect(apiErrorMessage(400, 'too_many_recipients')).toBe(
+			'Trop de destinataires pour un seul envoi. Divisez la liste en plusieurs envois.'
 		);
 		expect(apiErrorMessage(418)).toBe('Une erreur s’est produite. Veuillez réessayer.');
 	});

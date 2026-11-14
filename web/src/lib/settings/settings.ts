@@ -32,6 +32,8 @@ export type WorkspaceSettings = {
 	signatureSize: number;
 	/** How sharp thumbnails and previews are; changing it regenerates all of them. */
 	proofQuality: Quality;
+	/** Whether `[smtp]` is configured on the server so email invitations can be queued. */
+	emailEnabled?: boolean;
 };
 
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
@@ -43,7 +45,8 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
 	size: DEFAULT_SIZE,
 	signature: 'name',
 	signatureSize: DEFAULT_SIZE,
-	proofQuality: 'medium'
+	proofQuality: 'medium',
+	emailEnabled: false
 };
 
 /** Whether saving needs the watermarked proofs rebuilt. */
@@ -88,7 +91,8 @@ const settingsResponseSchema = v.object({
 	signature: v.picklist(SIGNATURES),
 	signature_size: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(SIZE_STEPS - 1)),
 	proof_quality: v.picklist(QUALITIES),
-	has_logo: v.boolean()
+	has_logo: v.boolean(),
+	email_enabled: v.optional(v.boolean(), false)
 });
 
 /** The settings as the page uses them, or `null` when `body` is not what the API returns. */
@@ -108,7 +112,8 @@ export function parseSettings(body: unknown, logoUrl: string = LOGO_URL): Worksp
 		size: settings.size,
 		signature: settings.signature,
 		signatureSize: settings.signature_size,
-		proofQuality: settings.proof_quality
+		proofQuality: settings.proof_quality,
+		emailEnabled: settings.email_enabled
 	};
 }
 

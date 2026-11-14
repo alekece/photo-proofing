@@ -20,6 +20,7 @@ function setup(over: Partial<Gallery> = {}, saves = true, shareToken: string | n
 	const onsave = vi.fn().mockResolvedValue(saves);
 	const schedule = vi.fn();
 	const cancel = vi.fn();
+	const onsharelink = vi.fn();
 	const onarchive = vi.fn();
 	const onrestore = vi.fn();
 	const ondelete = vi.fn();
@@ -31,6 +32,7 @@ function setup(over: Partial<Gallery> = {}, saves = true, shareToken: string | n
 		onsave,
 		schedule,
 		cancel,
+		onsharelink,
 		onarchive,
 		onrestore,
 		ondelete
@@ -41,6 +43,7 @@ function setup(over: Partial<Gallery> = {}, saves = true, shareToken: string | n
 		onsave,
 		schedule,
 		cancel,
+		onsharelink,
 		onarchive,
 		onrestore,
 		ondelete,
@@ -64,15 +67,24 @@ describe('GallerySettingsPanel', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('says a draft is not shared and offers the link once shared', () => {
+	it('says a draft is not shared, offers Share link, and reveals Copy once shared', async () => {
 		const first = setup();
 
 		expect(screen.getByText('Not shared yet')).toBeTruthy();
+		await first.user.click(screen.getByRole('button', { name: 'Share link' }));
+		expect(first.onsharelink).toHaveBeenCalledOnce();
 		first.unmount();
+
+		const archivedDraft = setup({ states: ['draft', 'archived'] });
+		expect((screen.getByRole('button', { name: 'Share link' }) as HTMLButtonElement).disabled).toBe(
+			true
+		);
+		archivedDraft.unmount();
 
 		setup({}, true, 'A'.repeat(22));
 
 		expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Share link' })).toBeNull();
 		expect(screen.queryByRole('link', { name: 'Open' })).toBeNull();
 	});
 

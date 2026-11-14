@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { ArchiveRestore, Eye, Send } from '@lucide/svelte';
+	import { ArchiveRestore, Eye, Mail, Send } from '@lucide/svelte';
 	import JourneySteps from '#lib/components/JourneySteps.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import type { Gallery } from '#lib/gallery/api.js';
@@ -14,18 +14,30 @@
 		gallery,
 		photoCount = null,
 		favoriteCount = null,
+		sharing = false,
+		recipientCount = 0,
+		canSend = false,
+		sending = false,
 		onpreview,
 		onshare,
 		onpublish,
-		onrestore
+		onrestore,
+		oncancelshare,
+		onsendinvitations
 	}: {
 		gallery: Gallery;
 		photoCount?: number | null;
 		favoriteCount?: number | null;
+		sharing?: boolean;
+		recipientCount?: number;
+		canSend?: boolean;
+		sending?: boolean;
 		onpreview: () => void;
 		onshare: () => void;
 		onpublish: () => void;
 		onrestore: () => void;
+		oncancelshare?: () => void;
+		onsendinvitations?: () => void;
 	} = $props();
 
 	const status = $derived(galleryStatus(gallery.states));
@@ -74,22 +86,48 @@
 	{/if}
 
 	<div class="ml-auto flex shrink-0 items-center gap-2">
-		<Button variant="outline" size="sm" class="min-h-9! gap-2 px-3!" onclick={onpreview}>
-			<Eye size={16} aria-hidden="true" />
-			<span class="max-sm:sr-only">{m.action_preview()}</span>
-		</Button>
-		{#if archived}
-			<Button size="sm" class="min-h-9! gap-2" onclick={onrestore}>
-				<ArchiveRestore size={16} aria-hidden="true" />{m.action_restore()}
+		{#if sharing}
+			<Button
+				variant="outline"
+				size="sm"
+				class="min-h-9! px-3!"
+				disabled={sending}
+				onclick={oncancelshare}
+			>
+				{m.common_cancel()}
 			</Button>
-		{:else if !shared}
-			<Button data-share-trigger size="sm" class="min-h-9! gap-2" onclick={onshare}>
-				<Send size={16} aria-hidden="true" />{m.action_share()}
+			<Button
+				data-share-trigger
+				size="sm"
+				class="min-h-9! gap-2"
+				disabled={!canSend || sending}
+				onclick={onsendinvitations}
+			>
+				<Mail size={16} aria-hidden="true" />
+				{sending
+					? m.share_sending()
+					: recipientCount > 0
+						? m.share_send_invitation_count({ count: recipientCount })
+						: m.share_send_invitation()}
 			</Button>
-		{:else if !delivered}
-			<Button size="sm" class="min-h-9! gap-2" onclick={onpublish}>
-				<Send size={16} aria-hidden="true" />{m.action_deliver()}
+		{:else}
+			<Button variant="outline" size="sm" class="min-h-9! gap-2 px-3!" onclick={onpreview}>
+				<Eye size={16} aria-hidden="true" />
+				<span class="max-sm:sr-only">{m.action_preview()}</span>
 			</Button>
+			{#if archived}
+				<Button size="sm" class="min-h-9! gap-2" onclick={onrestore}>
+					<ArchiveRestore size={16} aria-hidden="true" />{m.action_restore()}
+				</Button>
+			{:else if !shared}
+				<Button data-share-trigger size="sm" class="min-h-9! gap-2" onclick={onshare}>
+					<Send size={16} aria-hidden="true" />{m.action_share()}
+				</Button>
+			{:else if !delivered}
+				<Button size="sm" class="min-h-9! gap-2" onclick={onpublish}>
+					<Send size={16} aria-hidden="true" />{m.action_deliver()}
+				</Button>
+			{/if}
 		{/if}
 	</div>
 </div>

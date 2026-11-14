@@ -5,8 +5,9 @@ use std::num::{NonZeroU8, NonZeroU64, NonZeroUsize};
 use clap::Args;
 use clap_config_fallback::ConfigArgs;
 use pp_core::{
-    config::{DEFAULT_MAX_PIXELS, DatabaseConfig},
+    config::{DEFAULT_MAX_PIXELS, DatabaseConfig, GalleryPasswordConfig, SmtpConfig},
     time::BoundedDuration,
+    url::Origin,
 };
 use pp_database::jobs::Backoff;
 
@@ -39,6 +40,28 @@ pub struct WorkerConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub cleanup: CleanupConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub auth: WorkerAuthConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub gallery_password: GalleryPasswordConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub smtp: SmtpConfig,
+}
+
+/// Public browser origin used when building `/g/{share_token}` links in outgoing emails.
+///
+/// Shares `[auth]` with [`ApiConfig`] so a single `config.toml` serves both binaries.
+#[derive(Args, ConfigArgs, Debug, Clone)]
+pub struct WorkerAuthConfig {
+    #[arg(
+        long = "app-origin",
+        env = "PP_APP_ORIGIN",
+        default_value = "http://localhost:5173"
+    )]
+    pub app_origin: Origin,
 }
 
 /// How the worker runs its maintenance: orphan sweeps, export expiry and archive sweeps.
@@ -221,5 +244,42 @@ mod tests {
         ] {
             assert!(parse(&args).is_err(), "{args:?}");
         }
+    }
+
+    #[test]
+    fn shared_config_file_parses_app_origin_password_key_and_smtp() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shared.toml");
+        fs::write(
+            &path,
+            r#"
+[auth]
+app_origin = "https://photos.example.test"
+hash_concurrency = 4
+
+[gallery_password]
+encryption_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+[smtp]
+host = "smtp.example.test"
+port = 2525
+tls = "none"
+from_email = "studio@example.test"
+from_name = "Studio Lumière"
+"#,
+        )
+        .unwrap();
+
+        let worker = parse(&["--config", path.to_str().unwrap()]).unwrap().worker;
+
+        assert_eq!(
+            worker.auth.app_origin.as_str(),
+            "https://photos.example.test"
+        );
+        assert!(worker.gallery_password.cipher().is_some());
+        let smtp = worker.smtp.resolve().unwrap().unwrap();
+
+        assert_eq!(smtp.host, "smtp.example.test");
+        assert_eq!(smtp.port, 2525);
     }
 }

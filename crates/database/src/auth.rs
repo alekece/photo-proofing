@@ -137,6 +137,20 @@ impl AuthRepository<'_> {
         )
     }
 
+    /// Returns the photographer's account email for `workspace_id`, or `None` if no account
+    /// owns that workspace.
+    pub async fn account_email(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Option<Email>, DatabaseError> {
+        Ok(
+            sqlx::query_scalar("SELECT email FROM accounts WHERE workspace_id = $1")
+                .bind(workspace_id)
+                .fetch_optional(self.pool)
+                .await?,
+        )
+    }
+
     /// Inserts a session, first deleting `replaced_hash` (the caller's previous session on
     /// the same account) so repeated logins from one browser do not accumulate rows.
     /// Other devices' sessions are untouched.

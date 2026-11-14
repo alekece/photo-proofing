@@ -15,6 +15,7 @@ const SAME_IN_BOTH: string[] = [
 	'design_spacing_compact',
 	'header_notifications',
 	'settings_actions',
+	'share_add_contacts',
 	'studio_group_collection',
 	'studio_group_studio',
 	'summary_photos',

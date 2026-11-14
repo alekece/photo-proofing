@@ -32,6 +32,7 @@ use actix_web::{
     post, put,
     web::{Data, Json, Path, ServiceConfig},
 };
+use pp_core::types::access_code::UNLOCK_COOKIE_NAME;
 use pp_database::export::{DeliveryZip, ExportRepository};
 use pp_database::photo::PhotoId;
 use pp_database::{
@@ -44,7 +45,6 @@ use serde::{Deserialize, Serialize};
 
 use super::DerivativePhoto;
 use crate::{
-    access_code::UNLOCK_COOKIE_NAME,
     api::ApiState,
     error::ErrorResponse,
     extractors::client_access::{ClientAccess, ClientPhotoSet, SharedLinkAccess},
@@ -497,6 +497,7 @@ mod tests {
         http::StatusCode,
         test,
     };
+    use pp_core::types::access_code::EncryptionKey;
     use pp_database::{
         Database,
         gallery::{GalleryAccessCode, GalleryChanges, GalleryId, GalleryRepository, ShareToken},
@@ -1529,7 +1530,7 @@ mod tests {
         let cfg = upload_config(1024, 100);
         let key = "0123456789abcdef"
             .repeat(4)
-            .parse::<crate::access_code::EncryptionKey>()
+            .parse::<EncryptionKey>()
             .unwrap();
         let state = crate::tests::state_with_upload(pool.clone(), storage, cfg.clone())
             .with_gallery_password(&crate::config::GalleryPasswordConfig {
@@ -1743,7 +1744,7 @@ mod tests {
         let unlock_cookie = unlock_res
             .response()
             .cookies()
-            .find(|c| c.name() == crate::access_code::UNLOCK_COOKIE_NAME)
+            .find(|c| c.name() == UNLOCK_COOKIE_NAME)
             .unwrap()
             .into_owned();
         assert_eq!(unlock_cookie.http_only(), Some(true));
@@ -1791,7 +1792,7 @@ mod tests {
         let both_cookie = second_unlock_res
             .response()
             .cookies()
-            .find(|c| c.name() == crate::access_code::UNLOCK_COOKIE_NAME)
+            .find(|c| c.name() == UNLOCK_COOKIE_NAME)
             .unwrap()
             .into_owned();
 
@@ -1854,7 +1855,7 @@ mod tests {
         let (state, _directory) = app_state(pool).await;
         let key = "0123456789abcdef"
             .repeat(4)
-            .parse::<crate::access_code::EncryptionKey>()
+            .parse::<EncryptionKey>()
             .unwrap();
         let state = state.with_gallery_password(&crate::config::GalleryPasswordConfig {
             encryption_key: Some(key),

@@ -153,12 +153,14 @@ describe('GalleryStudio', () => {
 		const comments = screen.getByRole('tab', { name: /^Comments/ }) as HTMLButtonElement;
 		const finals = screen.getByRole('tab', { name: /^Final/ }) as HTMLButtonElement;
 		const design = screen.getByRole('tab', { name: 'Design' });
+		const share = screen.getByRole('tab', { name: 'Share' }) as HTMLButtonElement;
 		const contacts = screen.getByRole('tab', { name: /^Contacts/ }) as HTMLButtonElement;
 		const settings = screen.getByRole('tab', { name: 'Settings' });
 
 		expect(favorites.disabled).toBe(true);
 		expect(comments.disabled).toBe(true);
 		expect(finals.disabled).toBe(true);
+		expect(share.disabled).toBe(false);
 		expect(contacts.disabled).toBe(false);
 		expect(favorites.title).toBe('Available once the gallery is shared');
 
@@ -166,6 +168,9 @@ describe('GalleryStudio', () => {
 		expect(design.getAttribute('aria-selected')).toBe('true');
 
 		await fireEvent.keyDown(design, { key: 'ArrowRight' });
+		expect(share.getAttribute('aria-selected')).toBe('true');
+
+		await fireEvent.keyDown(share, { key: 'ArrowRight' });
 		expect(contacts.getAttribute('aria-selected')).toBe('true');
 
 		await fireEvent.keyDown(contacts, { key: 'ArrowRight' });
@@ -221,5 +226,43 @@ describe('GalleryStudio', () => {
 				screen.getByRole('button', { name: 'Unpin gallery' }).getAttribute('aria-pressed')
 			).toBe('true')
 		);
+	});
+
+	it('opens Studio → Share from the top bar, returns on Cancel, and disables Share when archived', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('[]')));
+		const view = setup({ share_token: null, states: ['draft'] });
+
+		await view.user.click(screen.getByRole('tab', { name: 'Design' }));
+		await view.user.click(screen.getByRole('button', { name: 'Share' }));
+
+		expect(screen.getByRole('tab', { name: 'Share' }).getAttribute('aria-selected')).toBe('true');
+		expect(view.onshare).not.toHaveBeenCalled();
+		expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+
+		await view.user.click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(screen.getByRole('tab', { name: 'Design' }).getAttribute('aria-selected')).toBe('true');
+
+		// Archive disables the Share tab and resets section to Photos if Share was active
+		await view.user.click(screen.getByRole('tab', { name: 'Share' }));
+		await view.rerender({
+			gallery: { ...base, states: ['draft', 'archived'] },
+			shareToken: null,
+			origin: 'https://pp.test',
+			heading,
+			onsave: view.onsave,
+			schedule: view.schedule,
+			cancel: view.cancel,
+			onpreview: view.onpreview,
+			onshare: view.onshare,
+			onpublish: view.onpublish,
+			onarchive: view.onarchive,
+			onrestore: view.onrestore,
+			ondelete: view.ondelete
+		});
+
+		const shareTab = screen.getByRole('tab', { name: 'Share' }) as HTMLButtonElement;
+		expect(shareTab.disabled).toBe(true);
+		expect(screen.getByRole('tab', { name: /^Photos/ }).getAttribute('aria-selected')).toBe('true');
+		vi.unstubAllGlobals();
 	});
 });

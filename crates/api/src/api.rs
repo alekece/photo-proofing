@@ -13,7 +13,11 @@ use actix_web::{
 };
 use derive_more::From;
 use pp_core::{
-    config::{DEFAULT_EXPORT_MAX_SIZE, DEFAULT_EXPORT_RETENTION, ExportConfig},
+    config::{
+        DEFAULT_EXPORT_MAX_SIZE, DEFAULT_EXPORT_RETENTION, ExportConfig, SmtpConfigError,
+        SmtpSettings,
+    },
+    types::access_code::{AccessCodeCipher, UNLOCK_COOKIE_NAME},
     url::Origin,
 };
 use pp_database::{
@@ -31,7 +35,6 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    access_code::{AccessCodeCipher, UNLOCK_COOKIE_NAME},
     comment_limiter::CommentLimiter,
     config::{
         ApiConfig, AuthConfig, CommentsConfig, CookieDuration, CookieName,
@@ -71,6 +74,8 @@ pub enum ApiError {
     SessionLifetime(#[source] ConversionRange),
     #[error("password hashing unavailable")]
     Hashing(#[source] HashError),
+    #[error("SMTP configuration invalid")]
+    Smtp(#[source] SmtpConfigError),
     #[error("server failed")]
     Serve(#[source] IoError),
 }
@@ -99,6 +104,7 @@ pub(crate) struct ApiState {
     comment_limiter: CommentLimiter,
     comment_limit: NonZeroU16,
     access_code_cipher: Option<AccessCodeCipher>,
+    smtp: Option<SmtpSettings>,
 }
 
 impl ApiState {
@@ -136,6 +142,7 @@ impl ApiState {
             comment_limiter: CommentLimiter::new(DEFAULT_COMMENT_INTERVAL),
             comment_limit: DEFAULT_COMMENT_LIMIT,
             access_code_cipher: None,
+            smtp: None,
         })
     }
 
@@ -152,6 +159,17 @@ impl ApiState {
 
     pub fn access_code_cipher(&self) -> Option<&AccessCodeCipher> {
         self.access_code_cipher.as_ref()
+    }
+
+    #[must_use]
+    pub fn with_smtp(mut self, smtp: Option<SmtpSettings>) -> Self {
+        self.smtp = smtp;
+
+        self
+    }
+
+    pub fn smtp(&self) -> Option<&SmtpSettings> {
+        self.smtp.as_ref()
     }
 
     pub fn unlock_cookie(&self, value: String) -> Cookie<'static> {
@@ -334,6 +352,7 @@ pub struct Api {
 
 impl Api {
     pub async fn init(config: ApiConfig) -> Result<Self, ApiError> {
+        let smtp = config.smtp.resolve()?;
         let storage = PhotoStorage::open(&config.photo.dir).await?;
 
         jpeg::install()?;
@@ -357,7 +376,8 @@ impl Api {
         )?
         .with_export(&config.export)
         .with_comments(&config.comments)
-        .with_gallery_password(&config.gallery_password);
+        .with_gallery_password(&config.gallery_password)
+        .with_smtp(smtp);
 
         Ok(Self {
             http: config.http,

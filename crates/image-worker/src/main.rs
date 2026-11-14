@@ -12,7 +12,9 @@ use pp_image_worker::{
         cleanup::CleanupHandler,
         export::{ExportFinalizer, ExportHandler},
         process_photo::{ProcessPhotoFinalizer, ProcessPhotoHandler},
+        send_email::SendEmailHandler,
     },
+    mail::SmtpMailer,
     maintenance::Maintenance,
     render::ImageRenderer,
     runtime::Worker,
@@ -57,6 +59,15 @@ async fn main() -> Result<()> {
 
     let renderer = ImageRenderer::new(cli.worker.process.max_pixels)?;
     let storage = PhotoStorage::open(&cli.photo.dir).await?;
+    let app_origin = cli.worker.auth.app_origin.clone();
+    let cipher = cli.worker.gallery_password.cipher();
+    let mailer = cli
+        .worker
+        .smtp
+        .resolve()?
+        .as_ref()
+        .map(SmtpMailer::new)
+        .transpose()?;
 
     tracing::info!("image worker started");
 
@@ -89,7 +100,14 @@ async fn main() -> Result<()> {
         let process_finalizer = ProcessPhotoFinalizer::new(database.clone(), storage.clone());
         let export_handler = Arc::new(ExportHandler::new(database.clone(), storage.clone()));
         let export_finalizer = ExportFinalizer::new(database.clone(), storage.clone());
-        let cleanup_handler = Arc::new(CleanupHandler::new(storage));
+        let cleanup_handler = Arc::new(CleanupHandler::new(storage.clone()));
+        let send_email_handler = Arc::new(SendEmailHandler::new(
+            database.clone(),
+            storage,
+            app_origin,
+            cipher,
+            mailer,
+        ));
 
         HandlerRegistry::default()
             .register(
@@ -116,6 +134,11 @@ async fn main() -> Result<()> {
                 move |payload| Arc::clone(&export_handler).run(payload),
                 export_finalizer,
             )
+            .register(
+                JobKind::SendEmail,
+                move |payload| Arc::clone(&send_email_handler).run(payload),
+                CompleteJob::new(database.clone()),
+            )
     })
     .await?;
     let maintenance = Maintenance::new(
@@ -133,4 +156,16 @@ async fn main() -> Result<()> {
 
     tracing::info!("image worker stopping");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory;
+
+    use super::Cli;
+
+    #[test]
+    fn cli_arguments_are_valid_and_unique() {
+        Cli::command().debug_assert();
+    }
 }

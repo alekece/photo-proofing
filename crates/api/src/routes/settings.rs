@@ -44,10 +44,11 @@ struct SettingsView {
     signature_size: SizeStep,
     proof_quality: ProofQuality,
     has_logo: bool,
+    email_enabled: bool,
 }
 
-impl From<WorkspaceSettings> for SettingsView {
-    fn from(settings: WorkspaceSettings) -> Self {
+impl SettingsView {
+    fn new(settings: WorkspaceSettings, email_enabled: bool) -> Self {
         Self {
             studio_name: settings.studio_name,
             mark: settings.mark,
@@ -58,6 +59,7 @@ impl From<WorkspaceSettings> for SettingsView {
             signature_size: settings.signature_size,
             proof_quality: settings.proof_quality,
             has_logo: settings.logo.is_some(),
+            email_enabled,
         }
     }
 }
@@ -172,7 +174,7 @@ async fn show_settings(
 
     Ok(HttpResponse::Ok()
         .no_store()
-        .json(SettingsView::from(settings)))
+        .json(SettingsView::new(settings, state.smtp().is_some())))
 }
 
 #[put("")]
@@ -191,7 +193,7 @@ async fn save_settings(
 
     Ok(HttpResponse::Ok()
         .no_store()
-        .json(SettingsView::from(settings)))
+        .json(SettingsView::new(settings, state.smtp().is_some())))
 }
 
 #[get("/logo")]
@@ -216,8 +218,11 @@ async fn show_logo(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use actix_web::{App, cookie::Cookie, http::StatusCode, test};
     use libvips::ops::{black, pngsave_buffer};
+    use pp_core::config::{SmtpSettings, SmtpTlsMode};
     use serde_json::{Value, json};
     use sqlx::PgPool;
 
@@ -472,5 +477,54 @@ mod tests {
 
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert_eq!(missing, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn settings_report_whether_smtp_email_is_configured(pool: PgPool) {
+        signed_in_app!(pool.clone(), app_without_smtp, cookie_without_smtp);
+        let (status, without_smtp) = call(
+            &app_without_smtp,
+            request(test::TestRequest::get(), &cookie_without_smtp),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(without_smtp["email_enabled"], false);
+
+        let (state, _directory) = app_state(pool).await;
+        let state = state.with_smtp(Some(SmtpSettings {
+            host: "127.0.0.1".to_owned(),
+            port: 1025,
+            tls: SmtpTlsMode::None,
+            credentials: None,
+            from_email: "noreply@example.test".parse().unwrap(),
+            from_name: None,
+            max_recipients_per_send: NonZeroUsize::new(50).unwrap(),
+        }));
+        let app_with_smtp = test::init_service(
+            App::new()
+                .app_data(actix_web::web::Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+
+        let (status, with_smtp) = call(
+            &app_with_smtp,
+            request(test::TestRequest::get(), &cookie_without_smtp),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(with_smtp["email_enabled"], true);
+
+        let (status, saved_with_smtp) = call(
+            &app_with_smtp,
+            request(test::TestRequest::put(), &cookie_without_smtp)
+                .set_json(body(json!({"studio_name": "Atelier"}))),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(saved_with_smtp["email_enabled"], true);
     }
 }

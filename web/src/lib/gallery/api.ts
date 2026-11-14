@@ -1,13 +1,15 @@
 import {
 	gallerySchema,
 	parseOrNull,
+	queuedInvitationsSchema,
 	type CoverLayout,
 	type FocalPoint,
 	type Gallery,
 	type GalleryLayout,
 	type GridDensity,
 	type GridSpacing,
-	type HeadingFont
+	type HeadingFont,
+	type QueuedInvitations
 } from './schemas';
 import { apiErrorMessage, readResponseErrorCode } from '#lib/i18n/errors.js';
 
@@ -20,8 +22,21 @@ export type {
 	GallerySort,
 	GridDensity,
 	GridSpacing,
-	HeadingFont
+	HeadingFont,
+	QueuedInvitations
 } from './schemas';
+
+export interface InvitationRecipientInput {
+	email: string;
+	name?: string | null;
+}
+
+export interface SendInvitationsInput {
+	to: InvitationRecipientInput[];
+	bcc?: string[];
+	subject: string;
+	message: string;
+}
 
 /** Subset of settings sent by a PATCH: a missing key is kept, `null` clears the optional ones. */
 export interface GalleryChanges {
@@ -89,6 +104,32 @@ export function updateGallery(
 /** Creates the private link on first call and returns the same one afterwards. */
 export function shareGallery(id: string, fetcher: typeof fetch = fetch): Promise<Gallery> {
 	return galleryRequest(`/${encodeURIComponent(id)}/share`, { method: 'POST' }, fetcher);
+}
+
+/** Shares the gallery if needed, upserts/links `To` contacts, and queues invitation emails. */
+export async function sendGalleryInvitations(
+	id: string,
+	payload: SendInvitationsInput,
+	fetcher: typeof fetch = fetch
+): Promise<QueuedInvitations> {
+	const response = await fetcher(`/api/v1/galleries/${encodeURIComponent(id)}/invitations`, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload)
+	});
+
+	if (!response.ok) {
+		const code = await readResponseErrorCode(response);
+
+		throw new GalleryApiError(response.status, apiErrorMessage(response.status, code), code);
+	}
+
+	const queued = parseOrNull(queuedInvitationsSchema, await response.json().catch(() => null));
+
+	if (!queued) throw new GalleryApiError(502, apiErrorMessage(502));
+
+	return queued;
 }
 
 /** Switches the private link to the finished photos; delivering twice changes nothing. */

@@ -9,6 +9,7 @@ use std::{
 use clap::Args;
 use clap_config_fallback::ConfigArgs;
 use derive_more::Display;
+pub use pp_core::config::{GalleryPasswordConfig, SmtpConfig};
 use pp_core::{
     config::{DEFAULT_MAX_PIXELS, DatabaseConfig, ExportConfig, PhotoConfig},
     time::BoundedDuration,
@@ -17,8 +18,6 @@ use pp_core::{
 use pp_database::jobs::DEFAULT_CLEANUP_BATCH;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-
-use crate::access_code::EncryptionKey;
 
 /// Longest [`CookieDuration`]: far beyond any sensible policy, yet small enough that adding it
 /// to the current time cannot overflow a timestamp.
@@ -107,22 +106,9 @@ pub struct ApiConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub gallery_password: GalleryPasswordConfig,
-}
-
-/// Optional encryption key for per-gallery 6-digit access codes (`[gallery_password]`).
-/// Deliberately omits `Debug` because it holds secret key material.
-#[derive(Args, ConfigArgs, Default, Clone)]
-pub struct GalleryPasswordConfig {
-    /// 256-bit key (64 hex digits or 43 unpadded base64url characters) encrypting gallery access
-    /// codes at rest and signing client unlock cookies.
-    #[arg(
-        long = "gallery-password-key",
-        env = "PP_GALLERY_PASSWORD_KEY",
-        hide_env_values = true,
-        value_parser = EncryptionKey::value_parser()
-    )]
-    #[config(value_format = EncryptionKey::encode_base64url)]
-    pub encryption_key: Option<EncryptionKey>,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub smtp: SmtpConfig,
 }
 
 /// Where the HTTP server listens.

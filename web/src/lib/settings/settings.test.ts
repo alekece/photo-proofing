@@ -40,8 +40,10 @@ it('maps the API settings and rejects a malformed body', () => {
 		size: 3,
 		signature: 'logo',
 		signatureSize: 4,
-		proofQuality: 'high'
+		proofQuality: 'high',
+		emailEnabled: false
 	});
+	expect(parseSettings({ ...body, email_enabled: true })?.emailEnabled).toBe(true);
 	expect(parseSettings({ ...body, proof_quality: 'ultra' })).toBeNull();
 	expect(parseSettings({ ...body, position: 9 })).toBeNull();
 	expect(parseSettings({ ...body, mark: 'x' })).toBeNull();

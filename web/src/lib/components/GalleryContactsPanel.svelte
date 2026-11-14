@@ -21,9 +21,11 @@
 
 	let {
 		galleryId,
+		revision = 0,
 		oncount
 	}: {
 		galleryId: string;
+		revision?: number;
 		oncount?: (count: number) => void;
 	} = $props();
 
@@ -50,6 +52,7 @@
 
 	$effect(() => {
 		const currentGalleryId = galleryId;
+		void revision;
 		let cancelled = false;
 
 		loading = true;
