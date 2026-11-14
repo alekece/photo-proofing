@@ -71,6 +71,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: synthetic
           PP_DATABASE_URL: postgres://pp:synthetic@postgres:5432/pp
+          MP_UI_AUTH: staging:synthetic
           PP_APP_ORIGIN: https://proofing.example
           PP_STAGING_HOST: proofing.example
           PP_BIND_ADDRESS: 127.0.0.1
