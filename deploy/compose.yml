@@ -70,6 +70,9 @@ services:
     volumes:
       - photo-data:/var/lib/pp/photos
       - *config-mount
+    networks:
+      - default
+      - mail
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,13 +81,25 @@ services:
 
   mailpit:
     <<: *runtime
-    image: axllent/mailpit:v1
+    image: axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       MP_MAX_MESSAGES: "500"
-      # Optional "user:password" from the secret manager to password-protect the web UI.
-      MP_UI_AUTH:
+      MP_DISABLE_VERSION_CHECK: "true"
+      MP_BLOCK_REMOTE_CSS_AND_FONTS: "true"
+      MP_ALLOWED_HOSTS: "${PP_BIND_ADDRESS:?Select a loopback or LAN address},${PP_MAILPIT_BIND_ADDRESS:-127.0.0.1},${PP_STAGING_HOST:?Set the HTTPS hostname from auth.app_origin},localhost"
+      MP_UI_AUTH: ${MP_UI_AUTH:?the secret manager must supply MP_UI_AUTH}
     ports:
-      - "${PP_BIND_ADDRESS:?Select a loopback or LAN address}:${PP_MAILPIT_PORT:-8025}:8025"
+      - "${PP_MAILPIT_BIND_ADDRESS:-${PP_BIND_ADDRESS:?Select a loopback or LAN address}}:${PP_MAILPIT_PORT:-8025}:8025"
+    networks:
+      - mail
     healthcheck:
       test: ["CMD", "/mailpit", "readyz"]
       interval: 5s
@@ -171,3 +186,6 @@ volumes:
   caddy-config:
     external: true
     name: ${PP_CADDY_CONFIG_VOLUME:?Select the existing Caddy config volume}
+
+networks:
+  mail:
