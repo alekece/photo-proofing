@@ -27,7 +27,7 @@ pub use self::share::{ShareToken, SharedAccess, SharedGallery, SharedGalleryGate
 use crate::{
     Repository,
     auth::WorkspaceId,
-    contact::{ContactName, ContactRepository},
+    contact::{ContactName, ContactNameExt, ContactRepository},
     error::DatabaseError,
     jobs::{EmailRecipient, InvitationStage, JobOptions, JobRepository, SendEmail},
     photo::{PhotoId, PhotoLocation},
@@ -104,7 +104,7 @@ pub enum InvitationError {
     Database(#[from] DatabaseError),
 }
 
-pub use pp_core::types::studio::{FocalCoordinate, FocalCoordinateError, FocalPoint};
+pub use pp_core::types::studio::{FocalCoordinate, FocalPoint};
 
 /// A primary recipient in an [`InvitationBatch`].
 #[derive(Debug, Clone, PartialEq, Eq)]

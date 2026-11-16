@@ -1,7 +1,14 @@
 //! Studio, cover, and invitation value types shared across database, API, and email crates.
 
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
+
+use super::bounded::BoundedU8;
+
+/// Default horizontal cover crop coordinate (`50%`).
+pub const DEFAULT_FOCAL_X: FocalCoordinate = FocalCoordinate::constant::<50>();
+
+/// Default vertical cover crop coordinate (`35%`), keeping portrait faces in frame.
+pub const DEFAULT_FOCAL_Y: FocalCoordinate = FocalCoordinate::constant::<35>();
 
 /// How the studio signs the client cover and outgoing invitation cards.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,11 +56,6 @@ pub enum InvitationStage {
     Finals,
 }
 
-/// A focal-point percentage outside `0..=100`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[error("focal coordinate {0} is out of range")]
-pub struct FocalCoordinateError(pub u8);
-
 /// Percentage coordinate along one cover axis, bounded to `0..=100`.
 ///
 /// ```
@@ -63,40 +65,7 @@ pub struct FocalCoordinateError(pub u8);
 /// assert_eq!(FocalCoordinate::try_from(100).unwrap().get(), 100);
 /// assert!(FocalCoordinate::try_from(101).is_err());
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "u8", into = "u8")]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
-pub struct FocalCoordinate(i16);
-
-impl FocalCoordinate {
-    pub const MIN: Self = Self(0);
-    pub const MAX: Self = Self(100);
-    pub const DEFAULT_X: Self = Self(50);
-    pub const DEFAULT_Y: Self = Self(35);
-
-    /// The percentage coordinate, `0` to `100`.
-    pub const fn get(self) -> u8 {
-        self.0 as u8
-    }
-}
-
-impl TryFrom<u8> for FocalCoordinate {
-    type Error = FocalCoordinateError;
-
-    fn try_from(coordinate: u8) -> Result<Self, Self::Error> {
-        if coordinate > Self::MAX.get() {
-            return Err(FocalCoordinateError(coordinate));
-        }
-
-        Ok(Self(i16::from(coordinate)))
-    }
-}
-
-impl From<FocalCoordinate> for u8 {
-    fn from(coordinate: FocalCoordinate) -> Self {
-        coordinate.get()
-    }
-}
+pub type FocalCoordinate = BoundedU8<0, 100>;
 
 /// Horizontal and vertical cover crop anchor, in `0..=100` percentages from the top-left corner.
 ///
@@ -122,8 +91,8 @@ pub struct FocalPoint {
 impl Default for FocalPoint {
     fn default() -> Self {
         Self {
-            x: FocalCoordinate::DEFAULT_X,
-            y: FocalCoordinate::DEFAULT_Y,
+            x: DEFAULT_FOCAL_X,
+            y: DEFAULT_FOCAL_Y,
         }
     }
 }

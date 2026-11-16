@@ -63,8 +63,6 @@ pub(crate) enum ErrorCode {
     InvalidTitle,
     InvalidIncludedPhotos,
     InvalidStudioName,
-    InvalidPosition,
-    InvalidSize,
     TooManyAttempts,
     Busy,
     StorageFull,
@@ -328,8 +326,6 @@ impl From<SettingsError> for ErrorResponse {
                 ErrorCode::InvalidStudioName
             }
             SettingsError::LogoRequired => ErrorCode::LogoRequired,
-            SettingsError::GridCell(_) => ErrorCode::InvalidPosition,
-            SettingsError::SizeStep(_) => ErrorCode::InvalidSize,
             SettingsError::Database(_) => return Self::unavailable(),
         };
 
@@ -490,8 +486,6 @@ mod tests {
             (ErrorCode::InvalidTitle, "invalid_title"),
             (ErrorCode::InvalidIncludedPhotos, "invalid_included_photos"),
             (ErrorCode::InvalidStudioName, "invalid_studio_name"),
-            (ErrorCode::InvalidPosition, "invalid_position"),
-            (ErrorCode::InvalidSize, "invalid_size"),
             (ErrorCode::TooManyAttempts, "too_many_attempts"),
             (ErrorCode::Busy, "busy"),
             (ErrorCode::StorageFull, "storage_full"),

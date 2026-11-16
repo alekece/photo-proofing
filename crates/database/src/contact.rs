@@ -6,12 +6,9 @@
 //! [`ContactError::DuplicateEmail`]. Linking a contact to a gallery stores a dedicated
 //! [`ShareToken`] on the association without exposing that token in [`Contact`].
 
-use std::str::FromStr;
-
-use derive_more::Display;
 use pp_core::{
     email::Email,
-    types::{generate::Generate, timestamp::Timestamp},
+    types::{bounded::BoundedText, generate::Generate, timestamp::Timestamp},
 };
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sqlx::{AssertSqlSafe, FromRow, PgPool, Postgres, Transaction, Type};
@@ -31,18 +28,6 @@ pub const MAX_NOTES_CHARS: usize = 2000;
 
 const WORKSPACE_EMAIL_UNIQUE: &str = "contacts_workspace_email_unique";
 const GALLERY_CONTACT_TOKEN_UNIQUE: &str = "gallery_contacts_share_token_unique";
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("contact name must contain between 1 and 120 characters")]
-pub struct ContactNameError;
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("contact phone must contain between 1 and 40 characters")]
-pub struct ContactPhoneError;
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("contact notes must contain at most 2000 characters")]
-pub struct ContactNotesError;
 
 #[derive(Debug, Error)]
 pub enum ContactError {
@@ -86,65 +71,7 @@ impl Generate for ContactId {
 /// assert_eq!(name.as_str(), "Camille & Hugo");
 /// assert!("   ".parse::<ContactName>().is_err());
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize, Type)]
-#[serde(try_from = "String", into = "String")]
-#[sqlx(transparent)]
-pub struct ContactName(String);
-
-impl ContactName {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// Derives a fallback display name from `email`'s local part (before `@`), bounded to
-    /// [`MAX_NAME_CHARS`].
-    pub fn from_email_local_part(email: &Email) -> Self {
-        let local = email
-            .as_str()
-            .split_once('@')
-            .map_or(email.as_str(), |(local, _)| local)
-            .trim();
-        let bounded: String = local
-            .chars()
-            .filter(|ch| *ch != '\0')
-            .take(MAX_NAME_CHARS)
-            .collect();
-
-        if bounded.is_empty() {
-            return Self("Client".to_owned());
-        }
-
-        Self(bounded)
-    }
-}
-
-impl FromStr for ContactName {
-    type Err = ContactNameError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let trimmed = value.trim();
-
-        if !(1..=MAX_NAME_CHARS).contains(&trimmed.chars().count()) || trimmed.contains('\0') {
-            return Err(ContactNameError);
-        }
-
-        Ok(Self(trimmed.to_owned()))
-    }
-}
-
-impl TryFrom<String> for ContactName {
-    type Error = ContactNameError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-
-impl From<ContactName> for String {
-    fn from(name: ContactName) -> Self {
-        name.0
-    }
-}
+pub type ContactName = BoundedText<1, MAX_NAME_CHARS>;
 
 /// An optional phone number, trimmed to between 1 and [`MAX_PHONE_CHARS`] characters.
 ///
@@ -155,44 +82,7 @@ impl From<ContactName> for String {
 /// assert_eq!(phone.as_str(), "+33 6 12 34 56 78");
 /// assert!("".parse::<ContactPhone>().is_err());
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize, Type)]
-#[serde(try_from = "String", into = "String")]
-#[sqlx(transparent)]
-pub struct ContactPhone(String);
-
-impl ContactPhone {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl FromStr for ContactPhone {
-    type Err = ContactPhoneError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let trimmed = value.trim();
-
-        if !(1..=MAX_PHONE_CHARS).contains(&trimmed.chars().count()) || trimmed.contains('\0') {
-            return Err(ContactPhoneError);
-        }
-
-        Ok(Self(trimmed.to_owned()))
-    }
-}
-
-impl TryFrom<String> for ContactPhone {
-    type Error = ContactPhoneError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-
-impl From<ContactPhone> for String {
-    fn from(phone: ContactPhone) -> Self {
-        phone.0
-    }
-}
+pub type ContactPhone = BoundedText<1, MAX_PHONE_CHARS>;
 
 /// Free-form studio notes on a contact, trimmed to at most [`MAX_NOTES_CHARS`] characters.
 ///
@@ -202,44 +92,7 @@ impl From<ContactPhone> for String {
 /// let notes: ContactNotes = "  Prefers matte prints  ".parse().unwrap();
 /// assert_eq!(notes.as_str(), "Prefers matte prints");
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize, Type)]
-#[serde(try_from = "String", into = "String")]
-#[sqlx(transparent)]
-pub struct ContactNotes(String);
-
-impl ContactNotes {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl FromStr for ContactNotes {
-    type Err = ContactNotesError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let trimmed = value.trim();
-
-        if trimmed.chars().count() > MAX_NOTES_CHARS || trimmed.contains('\0') {
-            return Err(ContactNotesError);
-        }
-
-        Ok(Self(trimmed.to_owned()))
-    }
-}
-
-impl TryFrom<String> for ContactNotes {
-    type Error = ContactNotesError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-
-impl From<ContactNotes> for String {
-    fn from(notes: ContactNotes) -> Self {
-        notes.0
-    }
-}
+pub type ContactNotes = BoundedText<0, MAX_NOTES_CHARS>;
 
 /// A gallery linked to a [`Contact`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -779,6 +632,38 @@ impl ContactRepository<'_> {
         .await?;
 
         Ok(result.rows_affected() == 1)
+    }
+}
+
+/// Extension methods specific to [`ContactName`].
+pub trait ContactNameExt {
+    /// Derives a fallback display name from `email`'s local part (before `@`), bounded to
+    /// [`MAX_NAME_CHARS`].
+    fn from_email_local_part(email: &Email) -> ContactName;
+}
+
+impl ContactNameExt for ContactName {
+    fn from_email_local_part(email: &Email) -> ContactName {
+        let local = email
+            .as_str()
+            .split_once('@')
+            .map_or(email.as_str(), |(local, _)| local)
+            .trim();
+        let candidate: String = local
+            .chars()
+            .filter(|ch| *ch != '\0')
+            .take(MAX_NAME_CHARS)
+            .collect();
+
+        if let Ok(name) = candidate.parse() {
+            return name;
+        }
+
+        // `"Client"` is 6 ASCII letters with no NUL bytes, within `1..=MAX_NAME_CHARS`.
+        #[allow(clippy::expect_used)]
+        "Client"
+            .parse()
+            .expect("static fallback name satisfies ContactName bounds")
     }
 }
 

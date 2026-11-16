@@ -2,6 +2,7 @@
 //! database encodings.
 
 pub mod access_code;
+pub mod bounded;
 pub mod generate;
 pub mod studio;
 pub mod timestamp;
