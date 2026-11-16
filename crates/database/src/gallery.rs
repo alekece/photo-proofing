@@ -29,7 +29,7 @@ use crate::{
     Repository,
     auth::WorkspaceId,
     contact::{ContactName, ContactNameExt, ContactRepository},
-    error::DatabaseError,
+    error::{DatabaseError, UniqueViolation},
     jobs::{EmailRecipient, InvitationStage, JobOptions, JobRepository, SendEmail},
     patch::Present,
     photo::{PhotoId, PhotoLocation},
@@ -42,9 +42,6 @@ const INVALID_BYTE_SEQUENCE: &str = "22021";
 
 /// The CHECK constraint bounding the title length; see the migration.
 const TITLE_LENGTH_CONSTRAINT: &str = "galleries_title_length";
-
-/// Unique constraint on a gallery's general share token.
-const SHARE_TOKEN_UNIQUE: &str = "galleries_share_token_unique";
 
 /// A setting that failed validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
@@ -119,7 +116,7 @@ pub struct InvitationContact {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawInvitationBatch {
+struct InvitationBatchWire {
     #[serde(default)]
     to: Vec<InvitationContact>,
     #[serde(default)]
@@ -133,7 +130,7 @@ struct RawInvitationBatch {
 /// Construction and JSON deserialization deduplicate `to` (keeping the first occurrence) and
 /// drop any `bcc` address already present in `to` or earlier in `bcc`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(from = "RawInvitationBatch")]
+#[serde(from = "InvitationBatchWire")]
 pub struct InvitationBatch {
     to: Vec<InvitationContact>,
     bcc: Vec<Email>,
@@ -185,9 +182,9 @@ impl InvitationBatch {
     }
 }
 
-impl From<RawInvitationBatch> for InvitationBatch {
-    fn from(raw: RawInvitationBatch) -> Self {
-        Self::new(raw.to, raw.bcc, raw.subject, raw.message)
+impl From<InvitationBatchWire> for InvitationBatch {
+    fn from(wire: InvitationBatchWire) -> Self {
+        Self::new(wire.to, wire.bcc, wire.subject, wire.message)
     }
 }
 
@@ -814,19 +811,23 @@ impl GalleryRepository<'_> {
         id: GalleryId,
         next_token: impl FnMut() -> ShareToken,
     ) -> Result<Option<Gallery>, DatabaseError> {
-        ShareToken::retry_on_collision(SHARE_TOKEN_UNIQUE, next_token, |candidate| async move {
-            if let Some(gallery) =
-                Self::assign_share_token(self.pool, workspace_id, id, &candidate).await?
-            {
-                return Ok(TokenAttempt::Done(Some(gallery)));
-            }
+        ShareToken::retry_on_collision(
+            UniqueViolation::GalleryShareToken,
+            next_token,
+            |candidate| async move {
+                if let Some(gallery) =
+                    Self::assign_share_token(self.pool, workspace_id, id, &candidate).await?
+                {
+                    return Ok(TokenAttempt::Done(Some(gallery)));
+                }
 
-            if !Self::exists_in_workspace(self.pool, workspace_id, id).await? {
-                return Ok(TokenAttempt::Done(None));
-            }
+                if !Self::exists_in_workspace(self.pool, workspace_id, id).await? {
+                    return Ok(TokenAttempt::Done(None));
+                }
 
-            Ok(TokenAttempt::Collision)
-        })
+                Ok(TokenAttempt::Collision)
+            },
+        )
         .await
     }
 
@@ -836,19 +837,24 @@ impl GalleryRepository<'_> {
         id: GalleryId,
         next_token: impl FnMut() -> ShareToken,
     ) -> Result<Option<Gallery>, DatabaseError> {
-        ShareToken::retry_in_tx(tx, SHARE_TOKEN_UNIQUE, next_token, async |tx, candidate| {
-            if let Some(gallery) =
-                Self::assign_share_token(&mut **tx, workspace_id, id, &candidate).await?
-            {
-                return Ok(TokenAttempt::Done(Some(gallery)));
-            }
+        ShareToken::retry_in(
+            tx,
+            UniqueViolation::GalleryShareToken,
+            next_token,
+            async |tx, candidate| {
+                if let Some(gallery) =
+                    Self::assign_share_token(&mut **tx, workspace_id, id, &candidate).await?
+                {
+                    return Ok(TokenAttempt::Done(Some(gallery)));
+                }
 
-            if !Self::exists_in_workspace(&mut **tx, workspace_id, id).await? {
-                return Ok(TokenAttempt::Done(None));
-            }
+                if !Self::exists_in_workspace(&mut **tx, workspace_id, id).await? {
+                    return Ok(TokenAttempt::Done(None));
+                }
 
-            Ok(TokenAttempt::Collision)
-        })
+                Ok(TokenAttempt::Collision)
+            },
+        )
         .await
     }
 

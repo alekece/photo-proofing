@@ -348,10 +348,10 @@ impl SmtpConfig {
             return Ok(None);
         }
 
-        let Some(raw_host) = self.host.as_deref() else {
+        let Some(host) = self.host.as_deref() else {
             return Err(SmtpConfigError::MissingRequiredField);
         };
-        let host = raw_host.trim();
+        let host = host.trim();
 
         if host.is_empty() || host.chars().any(|ch| ch.is_whitespace() || ch.is_control()) {
             return Err(SmtpConfigError::InvalidHost);
@@ -363,14 +363,14 @@ impl SmtpConfig {
 
         let credentials = match (&self.username, &self.password) {
             (None, None) => None,
-            (Some(raw_user), Some(raw_password)) => {
-                let user = raw_user.trim();
+            (Some(user), Some(password)) => {
+                let user = user.trim();
 
                 if user.is_empty() || user.chars().any(char::is_control) {
                     return Err(SmtpConfigError::IncompleteCredentials);
                 }
 
-                let password = SmtpPassword::try_from(raw_password.clone())
+                let password = SmtpPassword::try_from(password.clone())
                     .map_err(|_| SmtpConfigError::InvalidPassword)?;
 
                 Some((user.to_owned(), password))
@@ -382,14 +382,14 @@ impl SmtpConfig {
 
         let from_name = match self.from_name.as_deref() {
             None => None,
-            Some(raw_name) => {
-                if raw_name.chars().any(char::is_control) {
+            Some(name) => {
+                if name.chars().any(char::is_control) {
                     return Err(SmtpConfigError::InvalidFromName);
                 }
 
-                let trimmed = raw_name.trim();
+                let name = name.trim();
 
-                (!trimmed.is_empty()).then(|| trimmed.to_owned())
+                (!name.is_empty()).then(|| name.to_owned())
             }
         };
 
@@ -562,12 +562,12 @@ mod tests {
 
     #[test]
     fn smtp_resolve_rejects_empty_or_nul_password_without_echoing_secret() {
-        for raw_password in [String::new(), "top-secret\0bad".to_owned()] {
+        for password in [String::new(), "top-secret\0bad".to_owned()] {
             let config = SmtpConfig {
                 host: Some("smtp.example.test".to_owned()),
                 from_email: Some("studio@example.test".parse().unwrap()),
                 username: Some("apikey".to_owned()),
-                password: Some(raw_password),
+                password: Some(password),
                 ..SmtpConfig::default()
             };
             let error = config.resolve().unwrap_err();

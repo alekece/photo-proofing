@@ -167,9 +167,9 @@ where
     fn decode(
         value: <DB as sqlx::Database>::ValueRef<'r>,
     ) -> Result<Self, sqlx::error::BoxDynError> {
-        let raw = <i16 as sqlx::Decode<'r, DB>>::decode(value)?;
+        let value = <i16 as sqlx::Decode<'r, DB>>::decode(value)?;
 
-        Ok(Self::from_smallint(raw)?)
+        Ok(Self::from_smallint(value)?)
     }
 }
 
@@ -300,9 +300,9 @@ where
     fn decode(
         value: <DB as sqlx::Database>::ValueRef<'r>,
     ) -> Result<Self, sqlx::error::BoxDynError> {
-        let raw = <String as sqlx::Decode<'r, DB>>::decode(value)?;
+        let value = <String as sqlx::Decode<'r, DB>>::decode(value)?;
 
-        Ok(Self::try_from(raw)?)
+        Ok(Self::try_from(value)?)
     }
 }
 

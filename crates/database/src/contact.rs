@@ -18,7 +18,7 @@ use uuid::Uuid;
 use crate::{
     Repository,
     auth::WorkspaceId,
-    error::DatabaseError,
+    error::{DatabaseError, UniqueViolation},
     gallery::{GalleryId, ShareToken, TokenAttempt},
     patch::Present,
 };
@@ -26,9 +26,6 @@ use crate::{
 pub const MAX_NAME_CHARS: usize = 120;
 pub const MAX_PHONE_CHARS: usize = 40;
 pub const MAX_NOTES_CHARS: usize = 2000;
-
-const WORKSPACE_EMAIL_UNIQUE: &str = "contacts_workspace_email_unique";
-const GALLERY_CONTACT_TOKEN_UNIQUE: &str = "gallery_contacts_share_token_unique";
 
 #[derive(Debug, Error)]
 pub enum ContactError {
@@ -42,7 +39,7 @@ impl ContactError {
     fn classify(error: sqlx::Error) -> Self {
         let error = DatabaseError::from(error);
 
-        if error.is_unique_violation(WORKSPACE_EMAIL_UNIQUE) {
+        if error.is_unique_violation(UniqueViolation::ContactWorkspaceEmail) {
             return Self::DuplicateEmail;
         }
 
@@ -437,9 +434,9 @@ impl ContactRepository<'_> {
             return Ok(contact_id);
         }
 
-        ShareToken::retry_in_tx(
+        ShareToken::retry_in(
             tx,
-            GALLERY_CONTACT_TOKEN_UNIQUE,
+            UniqueViolation::GalleryContactShareToken,
             next_token,
             async |tx, candidate| {
                 let outcome = sqlx::query(
@@ -487,7 +484,7 @@ impl ContactRepository<'_> {
         next_token: impl FnMut() -> ShareToken,
     ) -> Result<Option<GalleryContactLink>, DatabaseError> {
         ShareToken::retry_on_collision(
-            GALLERY_CONTACT_TOKEN_UNIQUE,
+            UniqueViolation::GalleryContactShareToken,
             next_token,
             |candidate| async move {
                 sqlx::query(

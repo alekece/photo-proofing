@@ -16,6 +16,30 @@ const AUTHORIZATION_CLASS: &str = "28";
 /// SQLSTATE for unique-constraint violations (`23505`).
 const UNIQUE_VIOLATION: &str = "23505";
 
+/// PostgreSQL `UNIQUE` constraint violations (`23505`) classified by [`DatabaseError`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UniqueViolation {
+    /// `galleries_share_token_unique` (`0003_share_tokens.sql`).
+    GalleryShareToken,
+    /// `contacts_workspace_email_unique` (`0031_contacts.sql`).
+    ContactWorkspaceEmail,
+    /// `gallery_contacts_share_token_unique` (`0031_contacts.sql`).
+    GalleryContactShareToken,
+    /// Any other unique-constraint violation not yet explicitly modeled.
+    Unknown,
+}
+
+impl UniqueViolation {
+    fn from_constraint(constraint: Option<&str>) -> Self {
+        match constraint {
+            Some("galleries_share_token_unique") => Self::GalleryShareToken,
+            Some("contacts_workspace_email_unique") => Self::ContactWorkspaceEmail,
+            Some("gallery_contacts_share_token_unique") => Self::GalleryContactShareToken,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum DatabaseError {
     #[error("database unreachable")]
@@ -32,9 +56,13 @@ pub enum DatabaseError {
     #[error("database migration failed: {0}")]
     Migration(String),
     #[error("database rejected the request: {message}")]
+    UniqueViolation {
+        violation: UniqueViolation,
+        message: String,
+    },
+    #[error("database rejected the request: {message}")]
     Server {
         code: Option<String>,
-        constraint: Option<String>,
         message: String,
     },
     #[error("database error: {0}")]
@@ -42,16 +70,14 @@ pub enum DatabaseError {
 }
 
 impl DatabaseError {
-    /// Whether this error is a PostgreSQL unique-constraint violation (`23505`) on `expected`.
-    pub fn is_unique_violation(&self, expected: &str) -> bool {
-        matches!(
-            self,
-            Self::Server {
-                code: Some(code),
-                constraint: Some(constraint),
-                ..
-            } if code == UNIQUE_VIOLATION && constraint == expected
-        )
+    /// Whether this error is a PostgreSQL unique-constraint violation (`23505`) matching
+    /// `expected`.
+    pub fn is_unique_violation(&self, expected: UniqueViolation) -> bool {
+        !matches!(expected, UniqueViolation::Unknown)
+            && matches!(
+                self,
+                Self::UniqueViolation { violation, .. } if *violation == expected
+            )
     }
 }
 
@@ -65,7 +91,6 @@ impl From<sqlx::Error> for DatabaseError {
             sqlx::Error::Migrate(error) => Self::from(*error),
             sqlx::Error::Database(error) => {
                 let code = error.code().map(String::from);
-                let constraint = error.constraint().map(String::from);
                 let message = error.message().to_owned();
 
                 // The detail can hold row values, so it is only shown in debug builds.
@@ -79,14 +104,14 @@ impl From<sqlx::Error> for DatabaseError {
                 };
 
                 match code {
+                    Some(code) if code == UNIQUE_VIOLATION => Self::UniqueViolation {
+                        violation: UniqueViolation::from_constraint(error.constraint()),
+                        message,
+                    },
                     Some(code) if code.starts_with(AUTHORIZATION_CLASS) => {
                         Self::Authentication(message)
                     }
-                    code => Self::Server {
-                        code,
-                        constraint,
-                        message,
-                    },
+                    code => Self::Server { code, message },
                 }
             }
             error => Self::Other(error.to_string()),
@@ -143,22 +168,16 @@ mod tests {
     async fn server_errors_keep_code_and_message(pool: PgPool) {
         let error = sqlx::query("SELECT 1/0").execute(&pool).await.unwrap_err();
 
-        let DatabaseError::Server {
-            code,
-            constraint,
-            message,
-        } = DatabaseError::from(error)
-        else {
+        let DatabaseError::Server { code, message } = DatabaseError::from(error) else {
             panic!("expected a server error");
         };
 
         assert_eq!(code.as_deref(), Some("22012"));
-        assert_eq!(constraint, None);
         assert!(message.contains("division by zero"));
     }
 
     #[sqlx::test]
-    async fn unique_violation_matches_only_expected_constraint_name(pool: PgPool) {
+    async fn unmapped_unique_violation_maps_to_unknown(pool: PgPool) {
         sqlx::query(
             "CREATE TABLE unique_probe (
                  email TEXT NOT NULL CONSTRAINT unique_probe_email_key UNIQUE
@@ -178,7 +197,44 @@ mod tests {
             .unwrap_err();
         let error = DatabaseError::from(dup);
 
-        assert!(error.is_unique_violation("unique_probe_email_key"));
-        assert!(!error.is_unique_violation("other_constraint"));
+        assert!(matches!(
+            error,
+            DatabaseError::UniqueViolation {
+                violation: UniqueViolation::Unknown,
+                ..
+            }
+        ));
+        assert!(!error.is_unique_violation(UniqueViolation::Unknown));
+        assert!(!error.is_unique_violation(UniqueViolation::ContactWorkspaceEmail));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn unique_violation_variants_match_migrated_constraints(pool: PgPool) {
+        let constraints: Vec<String> =
+            sqlx::query_scalar("SELECT conname FROM pg_constraint WHERE contype = 'u'")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+
+        for (name, expected) in [
+            (
+                "galleries_share_token_unique",
+                UniqueViolation::GalleryShareToken,
+            ),
+            (
+                "contacts_workspace_email_unique",
+                UniqueViolation::ContactWorkspaceEmail,
+            ),
+            (
+                "gallery_contacts_share_token_unique",
+                UniqueViolation::GalleryContactShareToken,
+            ),
+        ] {
+            assert!(
+                constraints.iter().any(|conname| conname == name),
+                "missing migrated UNIQUE constraint {name}"
+            );
+            assert_eq!(UniqueViolation::from_constraint(Some(name)), expected);
+        }
     }
 }

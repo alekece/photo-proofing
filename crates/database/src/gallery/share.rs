@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     contact::ContactId,
-    error::DatabaseError,
+    error::{DatabaseError, UniqueViolation},
     photo::{PhotoId, PhotoLocation},
 };
 
@@ -41,9 +41,9 @@ impl ShareToken {
     }
 
     /// Retries `attempt` with fresh tokens from `next_token` whenever a candidate collides with
-    /// `constraint` or reports [`TokenAttempt::Collision`].
+    /// `violation` or reports [`TokenAttempt::Collision`].
     pub(crate) async fn retry_on_collision<T, F, Fut>(
-        constraint: &str,
+        violation: UniqueViolation,
         mut next_token: impl FnMut() -> Self,
         mut attempt: F,
     ) -> Result<T, DatabaseError>
@@ -55,7 +55,7 @@ impl ShareToken {
             match attempt(next_token()).await {
                 Ok(TokenAttempt::Done(output)) => return Ok(output),
                 Ok(TokenAttempt::Collision) => {}
-                Err(error) if error.is_unique_violation(constraint) => {}
+                Err(error) if error.is_unique_violation(violation) => {}
                 Err(error) => return Err(error),
             }
         }
@@ -63,9 +63,9 @@ impl ShareToken {
 
     /// Retries `attempt` inside `tx` behind a savepoint so a unique-violation collision rolls back
     /// only the failed candidate without aborting the surrounding transaction.
-    pub(crate) async fn retry_in_tx<T>(
+    pub(crate) async fn retry_in<T>(
         tx: &mut Transaction<'_, Postgres>,
-        constraint: &str,
+        violation: UniqueViolation,
         mut next_token: impl FnMut() -> Self,
         mut attempt: impl AsyncFnMut(
             &mut Transaction<'_, Postgres>,
@@ -90,7 +90,7 @@ impl ShareToken {
                         .execute(&mut **tx)
                         .await?;
                 }
-                Err(error) if error.is_unique_violation(constraint) => {
+                Err(error) if error.is_unique_violation(violation) => {
                     sqlx::query("ROLLBACK TO SAVEPOINT share_token_attempt")
                         .execute(&mut **tx)
                         .await?;
