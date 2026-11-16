@@ -8,7 +8,7 @@ const gallery = {
 	id: 'g1',
 	title: 'Wedding',
 	layout: 'grid',
-	expires_at: '2020-01-01T00:00:00Z',
+	expires_at: '2020-01-01',
 	share_token: null,
 	states: ['draft'],
 	watermark_enabled: false

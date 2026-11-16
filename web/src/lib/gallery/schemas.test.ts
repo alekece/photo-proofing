@@ -73,15 +73,26 @@ describe('schemas', () => {
 		).not.toBeNull();
 	});
 
-	it('accept a calendar-day shoot date and reject anything else', () => {
-		expect(parseOrNull(gallerySchema, { ...gallery, shoot_date: '2026-06-14' })).not.toBeNull();
+	it('accept a calendar-day shoot date or expires_at and reject timestamps or invalid dates', () => {
+		expect(
+			parseOrNull(gallerySchema, {
+				...gallery,
+				shoot_date: '2026-06-14',
+				expires_at: '2026-10-31'
+			})
+		).not.toBeNull();
 		expect(parseOrNull(gallerySchema, { ...gallery, shoot_date: 'x' })).toBeNull();
+		expect(
+			parseOrNull(gallerySchema, { ...gallery, expires_at: '2026-10-31T23:59:59Z' })
+		).toBeNull();
+		expect(parseOrNull(gallerySchema, { ...gallery, expires_at: '31/10/2026' })).toBeNull();
+		expect(parseOrNull(gallerySchema, { ...gallery, expires_at: '2026-02-30' })).toBeNull();
 		expect(
 			parseOrNull(sharedGallerySchema, {
 				title: 'T',
 				layout: 'grid',
 				shoot_date: '2026-06-14',
-				expires_at: null,
+				expires_at: '2026-10-31',
 				included_photos: null,
 				delivered: false,
 				hero_id: null
@@ -89,8 +100,19 @@ describe('schemas', () => {
 		)?.toMatchObject({
 			cover_layout: 'full_bleed',
 			focal_point: { x: 50, y: 35 },
-			shoot_date: '2026-06-14'
+			shoot_date: '2026-06-14',
+			expires_at: '2026-10-31'
 		});
+		expect(
+			parseOrNull(sharedGallerySchema, {
+				title: 'T',
+				layout: 'grid',
+				expires_at: '2026-10-31T23:59:59Z',
+				included_photos: null,
+				delivered: false,
+				hero_id: null
+			})
+		).toBeNull();
 	});
 
 	it('default and validate cover_layout and focal_point bounds on owner and shared galleries', () => {

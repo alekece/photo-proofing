@@ -107,7 +107,7 @@ describe('client gallery route', () => {
 		const { container, unmount } = open(shared());
 		expect(container.textContent).not.toMatch(/Open until/);
 		unmount();
-		const second = open(shared({ expires_at: '2099-01-01T00:00:00Z' }));
+		const second = open(shared({ expires_at: '2099-01-01' }));
 		expect(second.container.textContent).toMatch(/Open until/);
 	});
 

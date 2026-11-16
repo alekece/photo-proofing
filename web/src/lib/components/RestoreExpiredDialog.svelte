@@ -1,17 +1,18 @@
 <script lang="ts">
+	import { getLocalTimeZone, today } from '@internationalized/date';
 	import { m } from '#lib/paraglide/messages.js';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import DatePicker from '#lib/components/ui/DatePicker/DatePicker.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
-	import { endOfLocalDay, formatShortDate, toLocalDate } from '#lib/gallery/format.js';
+	import { formatShortDate } from '#lib/gallery/format.js';
 
 	/**
 	 * Offered after restoring a gallery that is still expired. `onsave` returns whether the new
 	 * expiry was saved; the page reports failures itself, so a refusal just keeps the dialog open.
 	 */
 	type Props = {
-		/** When the link expired, as an ISO date. */
+		/** Calendar day when the link expired (`YYYY-MM-DD`). */
 		expiresAt: string;
 		onsave: (expiresAt: string | null) => Promise<boolean>;
 		onclose: () => void;
@@ -20,7 +21,7 @@
 	let { expiresAt, onsave, onclose }: Props = $props();
 
 	const id = $props.id();
-	const today = toLocalDate(new Date().toISOString());
+	const minDay = today(getLocalTimeZone()).toString();
 
 	let day = $state('');
 	let error = $state('');
@@ -31,7 +32,7 @@
 	async function save(value: string | null, close: () => void) {
 		if (pending) return;
 
-		if (value !== null && value < today) {
+		if (value !== null && value < minDay) {
 			error = m.restore_date_past();
 
 			return;
@@ -41,7 +42,7 @@
 		pending = true;
 
 		try {
-			if (await onsave(value === null ? null : endOfLocalDay(value))) close();
+			if (await onsave(value)) close();
 		} finally {
 			pending = false;
 		}
@@ -75,7 +76,7 @@
 				<DatePicker
 					id="{id}-day"
 					class="w-full"
-					min={today}
+					min={minDay}
 					presets
 					value={day || null}
 					onchange={(picked) => (day = picked ?? '')}

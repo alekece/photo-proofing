@@ -216,9 +216,7 @@
 		messageEl.style.height = `${Math.max(messageEl.scrollHeight, 96)}px`;
 	});
 
-	const shootDateText = $derived(
-		gallery.shoot_date ? formatLongDate(`${gallery.shoot_date}T12:00`) : null
-	);
+	const shootDateText = $derived(gallery.shoot_date ? formatLongDate(gallery.shoot_date) : null);
 	const visibleCount = $derived(delivered ? finalCount : photoCount);
 	const countText = $derived(
 		visibleCount !== null ? m.summary_photos({ count: visibleCount }) : null

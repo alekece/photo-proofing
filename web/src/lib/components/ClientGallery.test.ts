@@ -192,7 +192,7 @@ describe('ClientGallery', () => {
 	});
 
 	it('names the deadline on the cover', () => {
-		show({ gallery: { ...gallery, expires_at: '2999-01-01T00:00:00Z' } });
+		show({ gallery: { ...gallery, expires_at: '2999-01-01' } });
 
 		expect(screen.getAllByText(/Open until/).length).toBeGreaterThan(0);
 	});
@@ -414,7 +414,7 @@ describe('ClientGallery', () => {
 					cover_layout,
 					focal_point: { x: 24, y: 68 },
 					shoot_date: '2026-06-14',
-					expires_at: '2999-01-01T00:00:00Z',
+					expires_at: '2999-01-01',
 					delivered: true
 				},
 				studio: 'Studio Lune',

@@ -4,7 +4,13 @@ import { getLocale } from '#lib/paraglide/runtime.js';
 /** Longest gallery title the API accepts, in characters. */
 export const TITLE_MAX = 255;
 
-const pad = (value: number) => String(value).padStart(2, '0');
+const CALENDAR_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseDateInput(iso: string): { date: Date; calendar: boolean } {
+	return CALENDAR_DATE_RE.test(iso)
+		? { date: new Date(`${iso}T00:00:00Z`), calendar: true }
+		: { date: new Date(iso), calendar: false };
+}
 
 /** Short "last edited" text: relative for the last day, otherwise a local date. */
 export function formatEdited(iso: string, now: Date = new Date()): string {
@@ -16,12 +22,6 @@ export function formatEdited(iso: string, now: Date = new Date()): string {
 	return formatLongDate(iso);
 }
 
-/** `YYYY-MM-DD` of an instant in the browser's time zone, as `<input type=date>` expects. */
-export function toLocalDate(iso: string): string {
-	const date = new Date(iso);
-	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
 /** The regional format of each app language; English keeps the US month names. */
 const DATE_LOCALES = { en: 'en-US', fr: 'fr-FR' } as const;
 
@@ -30,27 +30,34 @@ export function dateLocale(): string {
 	return DATE_LOCALES[getLocale()];
 }
 
-/** "7 Sep" or "7 sept.": the day first in both languages. */
+/** "7 Sep" or "7 sept.": the day first in both languages; `YYYY-MM-DD` stays in UTC. */
 export function formatShortDate(iso: string): string {
-	const date = new Date(iso);
+	const { date, calendar } = parseDateInput(iso);
 
-	return `${date.getDate()} ${date.toLocaleString(DATE_LOCALES[getLocale()], { month: 'short' })}`;
+	return calendar
+		? `${date.getUTCDate()} ${date.toLocaleString(DATE_LOCALES[getLocale()], { month: 'short', timeZone: 'UTC' })}`
+		: `${date.getDate()} ${date.toLocaleString(DATE_LOCALES[getLocale()], { month: 'short' })}`;
 }
 
 /** "7 Sep 2026": like `formatShortDate`, with the year. */
 export function formatLongDate(iso: string): string {
-	return `${formatShortDate(iso)} ${new Date(iso).getFullYear()}`;
+	const { date, calendar } = parseDateInput(iso);
+
+	return `${formatShortDate(iso)} ${calendar ? date.getUTCFullYear() : date.getFullYear()}`;
 }
 
-/** "September 7, 2026" or "7 septembre 2026", in `timeZone` or the browser's. */
+/** "September 7, 2026" or "7 septembre 2026"; `YYYY-MM-DD` calendar dates never shift across time zones. */
 export function formatFullDate(
 	iso: string,
 	timeZone?: string,
 	dateStyle: 'long' | 'medium' = 'long'
 ): string {
-	return new Intl.DateTimeFormat(DATE_LOCALES[getLocale()], { dateStyle, timeZone }).format(
-		new Date(iso)
-	);
+	const { date, calendar } = parseDateInput(iso);
+
+	return new Intl.DateTimeFormat(DATE_LOCALES[getLocale()], {
+		dateStyle,
+		timeZone: calendar ? 'UTC' : timeZone
+	}).format(date);
 }
 
 /** "Nov 9, 2026, 2:38 PM" or "9 nov. 2026, 14:38", in `timeZone` or the browser's. */
@@ -60,12 +67,6 @@ export function formatDateTime(iso: string, timeZone?: string): string {
 		timeStyle: 'short',
 		timeZone
 	}).format(new Date(iso));
-}
-
-/** 23:59:59 of the chosen day in the browser's time zone, as an RFC 3339 instant. */
-export function endOfLocalDay(day: string): string {
-	const [year, month, date] = day.split('-').map(Number);
-	return new Date(year, month - 1, date, 23, 59, 59).toISOString();
 }
 
 /** The one status a gallery shows: archived and expired win over its progress state. */
@@ -119,7 +120,13 @@ export interface SummaryPart {
 function expiredAgo(iso: string | null, now: Date): string {
 	if (iso === null) return m.summary_expired();
 
-	const days = Math.floor((now.getTime() - new Date(iso).getTime()) / DAY_MS);
+	const days = CALENDAR_DATE_RE.test(iso)
+		? Math.floor(
+				(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) -
+					Date.parse(`${iso}T00:00:00Z`)) /
+					DAY_MS
+			)
+		: Math.floor((now.getTime() - new Date(iso).getTime()) / DAY_MS);
 
 	if (days < 1) return m.summary_expired_today();
 	if (days === 1) return m.summary_expired_yesterday();

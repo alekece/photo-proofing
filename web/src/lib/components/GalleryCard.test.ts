@@ -62,7 +62,7 @@ describe('GalleryCard', () => {
 
 	it('shows only the winning status when the gallery is also expired', () => {
 		render(GalleryCard, {
-			gallery: gallery({ states: ['shared', 'expired'], expires_at: '2026-01-01T00:00:00Z' }),
+			gallery: gallery({ states: ['shared', 'expired'], expires_at: '2026-01-01' }),
 			query: ''
 		});
 
@@ -120,7 +120,7 @@ describe('GalleryCard', () => {
 			gallery: gallery({
 				access_code: '042819',
 				states: ['shared', 'expired'],
-				expires_at: '2026-01-01T00:00:00Z'
+				expires_at: '2026-01-01'
 			}),
 			query: ''
 		});

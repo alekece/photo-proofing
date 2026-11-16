@@ -236,7 +236,7 @@ describe('dashboard', () => {
 						id: 'b',
 						title: 'Two',
 						states: ['shared', 'expired'],
-						expires_at: '2026-01-01T00:00:00Z'
+						expires_at: '2026-01-01'
 					})
 				])
 			});

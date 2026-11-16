@@ -12,7 +12,6 @@
 	import Switch from '#lib/components/ui/Switch/Switch.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import type { Gallery, GalleryChanges } from '#lib/gallery/api.js';
-	import { endOfLocalDay, toLocalDate } from '#lib/gallery/format.js';
 
 	/**
 	 * Studio `Settings` view, split into three Warm Paper cards:
@@ -47,7 +46,7 @@
 		ondelete: () => void;
 	} = $props();
 
-	const savedExpiry = $derived(gallery.expires_at ? toLocalDate(gallery.expires_at) : '');
+	const savedExpiry = $derived(gallery.expires_at ?? '');
 	const savedShootDate = $derived(gallery.shoot_date);
 	const savedIncluded = $derived(gallery.included_photos);
 	const savedWatermark = $derived(gallery.watermark_enabled);
@@ -130,10 +129,7 @@
 		const next = day ?? '';
 
 		expiryDay = next;
-		void commit(
-			{ expires_at: next ? endOfLocalDay(next) : null },
-			() => (expiryDay = gallery.expires_at ? toLocalDate(gallery.expires_at) : '')
-		);
+		void commit({ expires_at: next || null }, () => (expiryDay = gallery.expires_at ?? ''));
 	}
 
 	/** While typing, a half-typed value is left alone; leaving the field is where it is judged. */

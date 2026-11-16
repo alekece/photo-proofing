@@ -8,7 +8,7 @@ afterEach(() => {
 });
 
 const open = (onsave = vi.fn().mockResolvedValue(true), onclose = vi.fn()) => {
-	render(RestoreExpiredDialog, { expiresAt: '2026-09-07T21:59:59Z', onsave, onclose });
+	render(RestoreExpiredDialog, { expiresAt: '2026-09-07', onsave, onclose });
 
 	return { onsave, onclose };
 };
@@ -31,7 +31,7 @@ describe('Restore expired dialog', () => {
 		expect(screen.getByLabelText('Open until')).toBe(document.activeElement);
 	});
 
-	it('keeps Set date disabled until a date is picked, then saves its end of day', async () => {
+	it('keeps Set date disabled until a date is picked, then saves that calendar day', async () => {
 		const { onsave } = open();
 		const user = userEvent.setup();
 		const set = screen.getByRole('button', { name: 'Set date' }) as HTMLButtonElement;
@@ -43,7 +43,7 @@ describe('Restore expired dialog', () => {
 		await user.click(set);
 
 		expect(onsave).toHaveBeenCalledOnce();
-		expect(new Date(onsave.mock.calls[0][0]).getTime()).toBeGreaterThan(Date.now());
+		expect(onsave.mock.calls[0][0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 	});
 
 	it('does not offer days before today', async () => {
@@ -120,6 +120,6 @@ describe('Restore expired dialog', () => {
 
 		await user.click(set);
 
-		expect(onsave).toHaveBeenCalledWith(new Date(2026, 6, 1, 23, 59, 59).toISOString());
+		expect(onsave).toHaveBeenCalledWith('2026-07-01');
 	});
 });
