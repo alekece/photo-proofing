@@ -131,6 +131,30 @@ describe('GalleryStudio', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
+	it('wires every tab aria-controls to a mounted tabpanel and hides inactive panels', async () => {
+		const { container, user } = setup({ share_token: null, states: ['draft'] });
+		const assertTabPanels = (activeTabId: string) => {
+			const tabs = screen.getAllByRole('tab');
+			expect(tabs).toHaveLength(8);
+
+			for (const tab of tabs) {
+				const controlsId = tab.getAttribute('aria-controls');
+				expect(controlsId).toBeTruthy();
+				const panel = document.getElementById(controlsId!);
+				expect(panel).not.toBeNull();
+				expect(panel?.getAttribute('role')).toBe('tabpanel');
+				expect(panel?.getAttribute('aria-labelledby')).toBe(tab.id);
+				expect(panel?.hidden).toBe(tab.id !== activeTabId);
+			}
+		};
+
+		assertTabPanels('tab-photos');
+
+		await user.click(screen.getByRole('tab', { name: 'Design' }));
+		assertTabPanels('tab-design');
+		expect((await axe(container)).violations).toEqual([]);
+	});
+
 	it('formats shoot_date at local noon and shows Last opened only once shared', () => {
 		const unshared = setup({ shoot_date: '2026-06-14' });
 
