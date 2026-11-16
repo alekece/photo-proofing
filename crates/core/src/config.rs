@@ -18,11 +18,7 @@ use thiserror::Error;
 use tracing::level_filters::LevelFilter;
 use url::Url;
 
-use crate::{
-    email::Email,
-    time::BoundedDuration,
-    types::access_code::{AccessCodeCipher, EncryptionKey},
-};
+use crate::{email::Email, time::BoundedDuration};
 
 /// Default SMTP submission port (`STARTTLS`).
 pub const DEFAULT_SMTP_PORT: u16 = 587;
@@ -159,29 +155,6 @@ pub struct ExportConfig {
         default_value = "15m"
     )]
     pub retention: ExportRetention,
-}
-
-/// Optional encryption key for per-gallery 6-digit access codes (`[gallery_password]`).
-/// Deliberately omits `Debug` because it holds secret key material.
-#[derive(Args, ConfigArgs, Default, Clone)]
-pub struct GalleryPasswordConfig {
-    /// 256-bit key (64 hex digits or 43 unpadded base64url characters) encrypting gallery access
-    /// codes at rest and signing client unlock cookies.
-    #[arg(
-        long = "gallery-password-key",
-        env = "PP_GALLERY_PASSWORD_KEY",
-        hide_env_values = true,
-        value_parser = EncryptionKey::value_parser()
-    )]
-    #[config(value_format = EncryptionKey::encode_base64url)]
-    pub encryption_key: Option<EncryptionKey>,
-}
-
-impl GalleryPasswordConfig {
-    /// Builds an [`AccessCodeCipher`] when `encryption_key` is configured.
-    pub fn cipher(&self) -> Option<AccessCodeCipher> {
-        self.encryption_key.as_ref().map(AccessCodeCipher::new)
-    }
 }
 
 /// Transport encryption mode for outbound SMTP connections.
