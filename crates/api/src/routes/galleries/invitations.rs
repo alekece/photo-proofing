@@ -46,12 +46,9 @@ async fn send_invitations(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: Path<GalleryId>,
-    request: SendInvitationsRequest,
+    SendInvitationsRequest(batch): SendInvitationsRequest,
 ) -> Result<HttpResponse, ErrorResponse> {
     let smtp = state.smtp().ok_or_else(ErrorResponse::email_unavailable)?;
-    let mut batch = request.0;
-
-    batch.deduplicate();
 
     if batch.is_empty() {
         return Err(ErrorResponse::bad_request().with_context("at least one recipient is required"));

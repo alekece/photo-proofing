@@ -1441,4 +1441,64 @@ mod tests {
                 .is_some()
         );
     }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn upsert_and_link_in_retries_both_collision_paths_and_commits_transaction(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let contacts = database.repository::<ContactRepository>();
+        let galleries = database.repository::<GalleryRepository>();
+        let workspace_id = workspace(&pool).await;
+
+        let gallery = galleries.create(workspace_id).await.unwrap();
+        let shared = galleries
+            .share(workspace_id, gallery.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let gallery_token = shared.share_token.unwrap();
+
+        let existing = contacts
+            .create(
+                workspace_id,
+                &new_contact("Existing", "existing@example.test"),
+            )
+            .await
+            .unwrap();
+        let existing_link = contacts
+            .link_gallery(workspace_id, gallery.id, existing.id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let fresh_token = ShareToken::generate();
+        let mut candidates = vec![
+            gallery_token,
+            existing_link.share_token,
+            fresh_token.clone(),
+        ]
+        .into_iter();
+        let email: Email = "invited@example.test".parse().unwrap();
+        let fallback_name: ContactName = "Invited".parse().unwrap();
+
+        let mut tx = pool.begin().await.unwrap();
+        let contact_id = ContactRepository::upsert_and_link_in(
+            &mut tx,
+            workspace_id,
+            gallery.id,
+            &email,
+            &fallback_name,
+            || candidates.next().unwrap(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        let link = contacts
+            .find_gallery_link(workspace_id, gallery.id, contact_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(link.share_token, fresh_token);
+    }
 }

@@ -15,7 +15,7 @@ use thiserror::Error;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 #[error("{value} must be between {min} and {max}")]
 pub struct BoundedU8Error {
-    pub value: u8,
+    pub value: i16,
     pub min: u8,
     pub max: u8,
 }
@@ -29,8 +29,8 @@ pub struct BoundedTextError {
     pub max: usize,
 }
 
-/// Unsigned integer validated into `MIN..=MAX`, stored as `i16` for PostgreSQL `SMALLINT`
-/// compatibility.
+/// Unsigned integer validated into `MIN..=MAX`, encoded as PostgreSQL `SMALLINT` (`i16`) when
+/// the `sqlx` feature is enabled.
 ///
 /// ```
 /// use pp_core::types::bounded::BoundedU8;
@@ -43,18 +43,17 @@ pub struct BoundedTextError {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "u8", into = "u8")]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
-pub struct BoundedU8<const MIN: u8, const MAX: u8>(i16);
+pub struct BoundedU8<const MIN: u8, const MAX: u8>(u8);
 
 impl<const MIN: u8, const MAX: u8> BoundedU8<MIN, MAX> {
     pub const MIN: Self = {
         assert!(MIN <= MAX);
-        Self(MIN as i16)
+        Self(MIN)
     };
 
     pub const MAX: Self = {
         assert!(MIN <= MAX);
-        Self(MAX as i16)
+        Self(MAX)
     };
 
     /// Constructs a compile-time verified constant within `MIN..=MAX`.
@@ -65,7 +64,7 @@ impl<const MIN: u8, const MAX: u8> BoundedU8<MIN, MAX> {
             assert!(VALUE >= MIN && VALUE <= MAX);
         }
 
-        Self(VALUE as i16)
+        Self(VALUE)
     }
 
     /// Validates that `value` lies within `MIN..=MAX`.
@@ -76,25 +75,36 @@ impl<const MIN: u8, const MAX: u8> BoundedU8<MIN, MAX> {
 
         if value < MIN || value > MAX {
             return Err(BoundedU8Error {
-                value,
+                value: value as i16,
                 min: MIN,
                 max: MAX,
             });
         }
 
-        Ok(Self(value as i16))
+        Ok(Self(value))
+    }
+
+    #[cfg(any(test, feature = "sqlx"))]
+    fn from_smallint(value: i16) -> Result<Self, BoundedU8Error> {
+        let byte = u8::try_from(value).map_err(|_| BoundedU8Error {
+            value,
+            min: MIN,
+            max: MAX,
+        })?;
+
+        Self::new(byte)
     }
 
     /// Returns the validated integer in `MIN..=MAX`.
     #[must_use]
     pub const fn get(self) -> u8 {
-        self.0 as u8
+        self.0
     }
 }
 
 impl<const MIN: u8, const MAX: u8> fmt::Display for BoundedU8<MIN, MAX> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.get(), formatter)
+        fmt::Display::fmt(&self.0, formatter)
     }
 }
 
@@ -108,7 +118,58 @@ impl<const MIN: u8, const MAX: u8> TryFrom<u8> for BoundedU8<MIN, MAX> {
 
 impl<const MIN: u8, const MAX: u8> From<BoundedU8<MIN, MAX>> for u8 {
     fn from(bounded: BoundedU8<MIN, MAX>) -> Self {
-        bounded.get()
+        bounded.0
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl<const MIN: u8, const MAX: u8, DB: sqlx::Database> sqlx::Type<DB> for BoundedU8<MIN, MAX>
+where
+    i16: sqlx::Type<DB>,
+{
+    fn type_info() -> DB::TypeInfo {
+        <i16 as sqlx::Type<DB>>::type_info()
+    }
+
+    fn compatible(ty: &DB::TypeInfo) -> bool {
+        <i16 as sqlx::Type<DB>>::compatible(ty)
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl<'q, const MIN: u8, const MAX: u8, DB: sqlx::Database> sqlx::Encode<'q, DB>
+    for BoundedU8<MIN, MAX>
+where
+    i16: sqlx::Encode<'q, DB>,
+{
+    fn encode_by_ref(
+        &self,
+        buf: &mut <DB as sqlx::Database>::ArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        let widened = i16::from(self.0);
+
+        <i16 as sqlx::Encode<'q, DB>>::encode_by_ref(&widened, buf)
+    }
+
+    fn size_hint(&self) -> usize {
+        let widened = i16::from(self.0);
+
+        <i16 as sqlx::Encode<'q, DB>>::size_hint(&widened)
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl<'r, const MIN: u8, const MAX: u8, DB: sqlx::Database> sqlx::Decode<'r, DB>
+    for BoundedU8<MIN, MAX>
+where
+    i16: sqlx::Decode<'r, DB>,
+{
+    fn decode(
+        value: <DB as sqlx::Database>::ValueRef<'r>,
+    ) -> Result<Self, sqlx::error::BoxDynError> {
+        let raw = <i16 as sqlx::Decode<'r, DB>>::decode(value)?;
+
+        Ok(Self::from_smallint(raw)?)
     }
 }
 
@@ -294,11 +355,28 @@ mod tests {
         );
         assert_eq!(Digit::try_from(1).unwrap().get(), 1);
         assert_eq!(Digit::try_from(9).unwrap().get(), 9);
+        assert_eq!(Digit::from_smallint(9).unwrap().get(), 9);
         assert_eq!(u8::from(Digit::constant::<7>()), 7);
         assert_eq!(
             Digit::try_from(10),
             Err(BoundedU8Error {
                 value: 10,
+                min: 1,
+                max: 9,
+            })
+        );
+        assert_eq!(
+            Digit::from_smallint(-1),
+            Err(BoundedU8Error {
+                value: -1,
+                min: 1,
+                max: 9,
+            })
+        );
+        assert_eq!(
+            Digit::from_smallint(256),
+            Err(BoundedU8Error {
+                value: 256,
                 min: 1,
                 max: 9,
             })

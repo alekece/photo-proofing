@@ -117,19 +117,63 @@ pub struct InvitationContact {
     pub name: Option<ContactName>,
 }
 
-/// Recipients and message body to queue as gallery invitation emails.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawInvitationBatch {
+    #[serde(default)]
+    to: Vec<InvitationContact>,
+    #[serde(default)]
+    bcc: Vec<Email>,
+    subject: EmailSubject,
+    message: EmailMessage,
+}
+
+/// Deduplicated recipients and message body to queue as gallery invitation emails.
+///
+/// Construction and JSON deserialization deduplicate `to` (keeping the first occurrence) and
+/// drop any `bcc` address already present in `to` or earlier in `bcc`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(from = "RawInvitationBatch")]
 pub struct InvitationBatch {
-    #[serde(default)]
-    pub to: Vec<InvitationContact>,
-    #[serde(default)]
-    pub bcc: Vec<Email>,
+    to: Vec<InvitationContact>,
+    bcc: Vec<Email>,
     pub subject: EmailSubject,
     pub message: EmailMessage,
 }
 
 impl InvitationBatch {
+    /// Builds a deduplicated invitation batch, keeping the first occurrence in `to` and dropping
+    /// any `bcc` address already present in `to` or earlier in `bcc`.
+    #[must_use]
+    pub fn new(
+        mut to: Vec<InvitationContact>,
+        mut bcc: Vec<Email>,
+        subject: EmailSubject,
+        message: EmailMessage,
+    ) -> Self {
+        let mut seen = HashSet::with_capacity(to.len() + bcc.len());
+
+        to.retain(|contact| seen.insert(contact.email.clone()));
+        bcc.retain(|email| seen.insert(email.clone()));
+
+        Self {
+            to,
+            bcc,
+            subject,
+            message,
+        }
+    }
+
+    #[must_use]
+    pub fn to(&self) -> &[InvitationContact] {
+        &self.to
+    }
+
+    #[must_use]
+    pub fn bcc(&self) -> &[Email] {
+        &self.bcc
+    }
+
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.to.is_empty() && self.bcc.is_empty()
@@ -139,14 +183,11 @@ impl InvitationBatch {
     pub fn recipient_count(&self) -> usize {
         self.to.len() + self.bcc.len()
     }
+}
 
-    /// Removes duplicate recipients in place, keeping the first occurrence in `to` and
-    /// dropping any `bcc` address already present in `to` or earlier in `bcc`.
-    pub fn deduplicate(&mut self) {
-        let mut seen = HashSet::with_capacity(self.recipient_count());
-
-        self.to.retain(|contact| seen.insert(contact.email.clone()));
-        self.bcc.retain(|email| seen.insert(email.clone()));
+impl From<RawInvitationBatch> for InvitationBatch {
+    fn from(raw: RawInvitationBatch) -> Self {
+        Self::new(raw.to, raw.bcc, raw.subject, raw.message)
     }
 }
 
@@ -878,9 +919,6 @@ impl GalleryRepository<'_> {
 
             return Ok(None);
         };
-
-        let mut batch = batch.clone();
-        batch.deduplicate();
 
         for recipient in &batch.to {
             let fallback = recipient
@@ -3398,8 +3436,8 @@ mod tests {
         let draft = galleries.create(workspace).await.unwrap();
         assert!(draft.share_token.is_none());
 
-        let batch = InvitationBatch {
-            to: vec![
+        let batch = InvitationBatch::new(
+            vec![
                 InvitationContact {
                     email: "Camille@Example.test".parse().unwrap(),
                     name: None,
@@ -3413,14 +3451,14 @@ mod tests {
                     name: Some("Ignored Duplicate".parse().unwrap()),
                 },
             ],
-            bcc: vec![
+            vec![
                 "CAMILLE@example.test".parse().unwrap(),
                 "planner@example.test".parse().unwrap(),
                 "Planner@Example.test".parse().unwrap(),
             ],
-            subject: "Camille & Hugo — Your gallery is ready".parse().unwrap(),
-            message: "Bonjour,\n\nVos photos vous attendent.".parse().unwrap(),
-        };
+            "Camille & Hugo — Your gallery is ready".parse().unwrap(),
+            "Bonjour,\n\nVos photos vous attendent.".parse().unwrap(),
+        );
 
         // Foreign workspace sees `Ok(None)`.
         assert!(
@@ -3534,12 +3572,12 @@ mod tests {
             .queue_invitations(
                 workspace,
                 draft.id,
-                &InvitationBatch {
-                    to: vec![],
-                    bcc: vec!["family@example.test".parse().unwrap()],
-                    subject: "Final photos".parse().unwrap(),
-                    message: "Enjoy!".parse().unwrap(),
-                },
+                &InvitationBatch::new(
+                    vec![],
+                    vec!["family@example.test".parse().unwrap()],
+                    "Final photos".parse().unwrap(),
+                    "Enjoy!".parse().unwrap(),
+                ),
                 JobOptions::default(),
             )
             .await
@@ -3671,7 +3709,7 @@ mod tests {
             .is_err()
         );
 
-        let mut batch: InvitationBatch = serde_json::from_value(json!({
+        let batch: InvitationBatch = serde_json::from_value(json!({
             "to": [
                 {"email": "Camille@Example.test", "name": "Camille"},
                 {"email": "hugo@example.test"},
@@ -3688,12 +3726,10 @@ mod tests {
         .unwrap();
 
         assert!(!batch.is_empty());
-        batch.deduplicate();
-
         assert_eq!(batch.recipient_count(), 3);
         assert_eq!(
-            batch.to,
-            vec![
+            batch.to(),
+            &[
                 InvitationContact {
                     email: "camille@example.test".parse().unwrap(),
                     name: Some("Camille".parse().unwrap()),
@@ -3705,8 +3741,32 @@ mod tests {
             ]
         );
         assert_eq!(
-            batch.bcc,
-            vec!["press@example.test".parse::<Email>().unwrap()]
+            batch.bcc(),
+            &["press@example.test".parse::<Email>().unwrap()]
         );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn bounded_u8_sql_decode_enforces_range_bounds(pool: PgPool) {
+        let zero: FocalCoordinate = sqlx::query_scalar("SELECT 0::smallint")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let hundred: FocalCoordinate = sqlx::query_scalar("SELECT 100::smallint")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(zero.get(), 0);
+        assert_eq!(hundred.get(), 100);
+
+        for out_of_range in [-1i16, 101, 256] {
+            let decoded = sqlx::query_scalar::<_, FocalCoordinate>("SELECT $1::smallint")
+                .bind(out_of_range)
+                .fetch_one(&pool)
+                .await;
+
+            assert!(decoded.is_err(), "{out_of_range} must fail SQL decode");
+        }
     }
 }
