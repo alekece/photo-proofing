@@ -401,7 +401,12 @@
 	{/snippet}
 </GalleryStudio>
 {#if previewing}
-	<ClientPreview gallery={saved} onclose={() => (previewing = false)} />
+	<ClientPreview
+		gallery={saved}
+		settings={data.settings ?? DEFAULT_SETTINGS}
+		{heroRevision}
+		onclose={() => (previewing = false)}
+	/>
 {/if}
 {#if confirming === 'archive'}
 	<ArchiveGalleryDialog onconfirm={archive} onclose={() => (confirming = null)} />

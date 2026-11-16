@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Gallery } from '#lib/gallery/api.js';
+import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
 import ClientPreview from './ClientPreview.svelte';
 
 const gallery = {
@@ -26,34 +27,25 @@ const photo = (id: string, status = 'ready') => ({
 });
 
 const stub = (photos: unknown[]) => {
-	const fetcher = vi.fn<typeof fetch>(
-		async (url) =>
-			new Response(
-				JSON.stringify(
-					String(url) === '/api/v1/settings'
-						? {
-								studio_name: '',
-								mark: 'name',
-								pattern: 'repeat',
-								position: 8,
-								size: 2,
-								signature: 'name',
-								signature_size: 4,
-								proof_quality: 'medium',
-								has_logo: false
-							}
-						: String(url).includes('?watermark=')
-							? photos.filter(
-									(photo) =>
-										typeof photo === 'object' &&
-										photo !== null &&
-										'status' in photo &&
-										photo.status === 'ready'
-								)
-							: photos
-				)
+	const fetcher = vi.fn<typeof fetch>(async (url) => {
+		const path = String(url);
+		if (path === '/api/v1/settings') {
+			throw new Error('ClientPreview must not fetch /api/v1/settings');
+		}
+		return new Response(
+			JSON.stringify(
+				path.includes('?watermark=')
+					? photos.filter(
+							(photo) =>
+								typeof photo === 'object' &&
+								photo !== null &&
+								'status' in photo &&
+								photo.status === 'ready'
+						)
+					: photos
 			)
-	);
+		);
+	});
 	vi.stubGlobal('fetch', fetcher);
 
 	return fetcher;
@@ -66,7 +58,9 @@ describe('ClientPreview', () => {
 		const fetcher = vi.fn<typeof fetch>(async (url) => {
 			const path = String(url);
 
-			if (path === '/api/v1/settings') return stub([]).getMockImplementation()!(url);
+			if (path === '/api/v1/settings') {
+				throw new Error('ClientPreview must not fetch /api/v1/settings');
+			}
 			if (path.endsWith('?finals=true')) return Response.json([photo('f1'), photo('f2')]);
 
 			return Response.json([photo('a'), photo('b'), photo('c')]);
@@ -74,6 +68,7 @@ describe('ClientPreview', () => {
 		vi.stubGlobal('fetch', fetcher);
 		render(ClientPreview, {
 			gallery: { ...gallery, states: ['shared', 'delivered'], hero_id: 'a' },
+			heroRevision: 3,
 			onclose: () => {}
 		});
 
@@ -91,9 +86,11 @@ describe('ClientPreview', () => {
 		expect(screen.getByRole('button', { name: 'Pause slideshow' })).toBeTruthy();
 		await userEvent.setup().click(screen.getByRole('button', { name: 'Close viewer' }));
 		expect(screen.getByRole('img', { name: 'Gallery cover' }).getAttribute('src')).toBe(
-			'/api/v1/galleries/g1/photos/a/preview'
+			'/api/v1/galleries/g1/photos/a/preview?revision=3'
 		);
-		expect(fetcher.mock.calls.some(([url]) => String(url).includes('?watermark='))).toBe(false);
+		expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+			'/api/v1/galleries/g1/photos?finals=true'
+		]);
 	});
 
 	it('refreshes mounted client media when the gallery switch changes', async () => {
@@ -127,35 +124,25 @@ describe('ClientPreview', () => {
 		);
 	});
 
-	it('uses saved studio signature and owner logo without a client credential', async () => {
-		vi.stubGlobal(
-			'fetch',
-			async (url: RequestInfo | URL) =>
-				new Response(
-					JSON.stringify(
-						String(url) === '/api/v1/settings'
-							? {
-									studio_name: 'Studio',
-									mark: 'name',
-									pattern: 'repeat',
-									position: 8,
-									size: 2,
-									signature: 'both',
-									signature_size: 4,
-									proof_quality: 'medium',
-									has_logo: true
-								}
-							: []
-					)
-				)
-		);
-		render(ClientPreview, { gallery, onclose: () => {} });
+	it('uses SSR studio settings prop and owner logo without fetching /api/v1/settings', async () => {
+		const fetcher = stub([]);
+		render(ClientPreview, {
+			gallery,
+			settings: {
+				...DEFAULT_SETTINGS,
+				studioName: 'Studio',
+				signature: 'both',
+				logo: '/api/v1/settings/logo'
+			},
+			onclose: () => {}
+		});
 
 		await screen.findByText('Your photos are on their way.');
 		expect(screen.getAllByText('Studio').length).toBeGreaterThan(0);
 		expect(
 			document.querySelector('[data-testid="studio-signature"] img')?.getAttribute('src')
 		).toBe('/api/v1/settings/logo');
+		expect(fetcher.mock.calls.some(([url]) => String(url) === '/api/v1/settings')).toBe(false);
 	});
 
 	it('shows an unshared, expired gallery with its ready photos, from owner routes only', async () => {
@@ -170,8 +157,7 @@ describe('ClientPreview', () => {
 		const urls = fetcher.mock.calls.map(([url]) => String(url));
 		expect(urls).toEqual([
 			'/api/v1/galleries/g1/photos',
-			'/api/v1/galleries/g1/photos?watermark=false',
-			'/api/v1/settings'
+			'/api/v1/galleries/g1/photos?watermark=false'
 		]);
 		expect(screen.getByRole('img').getAttribute('src')).toBe(
 			'/api/v1/galleries/g1/photos/a/thumbnail?watermark=false'

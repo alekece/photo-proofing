@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { Check, Eye, ImagePlus, Monitor, RotateCcw, Smartphone, X } from '@lucide/svelte';
+	import { Check, Eye, ImagePlus, RotateCcw, X } from '@lucide/svelte';
 	import ClientGallery from '#lib/components/ClientGallery.svelte';
+	import PreviewFrame from '#lib/components/PreviewFrame.svelte';
 	import LayoutRowsIcon from '#lib/components/icons/LayoutRowsIcon.svelte';
 	import LayoutStaggeredIcon from '#lib/components/icons/LayoutStaggeredIcon.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
@@ -19,19 +20,27 @@
 		GridSpacing,
 		HeadingFont
 	} from '#lib/gallery/api.js';
-	import {
-		hasCleanPhoto,
-		listClientPreviewPhotos,
-		listPhotos,
-		previewUrl,
-		thumbnailUrl,
-		type Photo
-	} from '#lib/gallery/photos.js';
-	import { toClientPreviewProofs, toOwnerProofs } from '#lib/gallery/proofs.js';
+	import { hasCleanPhoto, previewUrl, thumbnailUrl, type Photo } from '#lib/gallery/photos.js';
+	import { loadClientPreviewData, type PreviewViewport } from '#lib/gallery/preview.js';
 	import { DEFAULT_FOCAL_POINT, HEADING_FONT_FAMILIES } from '#lib/gallery/schemas.js';
 	import type { Proof } from '#lib/gallery/types.js';
-	import { parseSettings, type WorkspaceSettings } from '#lib/settings/settings.js';
-	import { cn } from '#lib/utils.js';
+	import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
+
+	interface DesignFields {
+		layout: GalleryLayout;
+		cover_layout: CoverLayout;
+		heading_font: HeadingFont;
+		grid_density: GridDensity;
+		grid_spacing: GridSpacing;
+	}
+
+	const DESIGN_KEYS: (keyof DesignFields)[] = [
+		'layout',
+		'cover_layout',
+		'heading_font',
+		'grid_density',
+		'grid_spacing'
+	];
 
 	/**
 	 * Studio `Design` view: two-column workspace with cover picker, four cover templates,
@@ -40,6 +49,7 @@
 	 */
 	let {
 		gallery,
+		settings = DEFAULT_SETTINGS,
 		heroId = $bindable(),
 		heroRevision,
 		focalPoint = $bindable(),
@@ -49,6 +59,7 @@
 		cancel
 	}: {
 		gallery: Gallery;
+		settings?: WorkspaceSettings;
 		heroId?: string | null;
 		heroRevision?: number;
 		focalPoint?: FocalPoint;
@@ -60,24 +71,25 @@
 
 	const events = getLiveEvents();
 
-	const savedLayout = $derived<GalleryLayout>(gallery.layout);
-	const savedCoverLayout = $derived<CoverLayout>(gallery.cover_layout ?? 'full_bleed');
-	const savedHeadingFont = $derived<HeadingFont>(gallery.heading_font ?? 'editorial');
-	const savedGridDensity = $derived<GridDensity>(gallery.grid_density ?? 'compact');
-	const savedGridSpacing = $derived<GridSpacing>(gallery.grid_spacing ?? 'compact');
+	const savedDesign = $derived<DesignFields>({
+		layout: gallery.layout,
+		cover_layout: gallery.cover_layout ?? 'full_bleed',
+		heading_font: gallery.heading_font ?? 'editorial',
+		grid_density: gallery.grid_density ?? 'compact',
+		grid_spacing: gallery.grid_spacing ?? 'compact'
+	});
 	const savedHeroId = $derived<string | null>(heroId !== undefined ? heroId : gallery.hero_id);
 
-	let committedLayout = $derived<GalleryLayout>(savedLayout);
-	let committedCoverLayout = $derived<CoverLayout>(savedCoverLayout);
-	let committedHeadingFont = $derived<HeadingFont>(savedHeadingFont);
-	let committedGridDensity = $derived<GridDensity>(savedGridDensity);
-	let committedGridSpacing = $derived<GridSpacing>(savedGridSpacing);
+	let committed = $state<Partial<DesignFields>>({});
+	let overrides = $state<Partial<DesignFields>>({});
+	let fieldSeq: Partial<Record<keyof DesignFields, number>> = {};
+	let nextSeq = 0;
 
-	let currentLayout = $derived<GalleryLayout>(committedLayout);
-	let currentCoverLayout = $derived<CoverLayout>(committedCoverLayout);
-	let currentHeadingFont = $derived<HeadingFont>(committedHeadingFont);
-	let currentGridDensity = $derived<GridDensity>(committedGridDensity);
-	let currentGridSpacing = $derived<GridSpacing>(committedGridSpacing);
+	const design = $derived<DesignFields>({
+		...savedDesign,
+		...committed,
+		...overrides
+	});
 	let localHeroId = $derived<string | null>(savedHeroId);
 	const savedFocal = $derived<FocalPoint>(gallery.focal_point ?? { ...DEFAULT_FOCAL_POINT });
 	// svelte-ignore state_referenced_locally
@@ -86,12 +98,18 @@
 	// svelte-ignore state_referenced_locally
 	let lastGalleryId = gallery.id;
 	// svelte-ignore state_referenced_locally
+	let lastSavedDesign = savedDesign;
+	// svelte-ignore state_referenced_locally
 	let lastSavedFocal = savedFocal;
 
 	$effect.pre(() => {
 		if (gallery.id !== lastGalleryId) {
 			lastGalleryId = gallery.id;
+			lastSavedDesign = savedDesign;
 			lastSavedFocal = savedFocal;
+			committed = {};
+			overrides = {};
+			fieldSeq = {};
 			focalDirty = false;
 			localFocal = savedFocal;
 			focalPoint = savedFocal;
@@ -101,6 +119,18 @@
 			photosLoadFailed = false;
 
 			return;
+		}
+
+		for (const key of DESIGN_KEYS) {
+			if (savedDesign[key] !== lastSavedDesign[key]) {
+				lastSavedDesign = { ...lastSavedDesign, [key]: savedDesign[key] };
+
+				if (overrides[key] === undefined && committed[key] !== undefined) {
+					const nextCommitted = { ...committed };
+					delete nextCommitted[key];
+					committed = nextCommitted;
+				}
+			}
 		}
 
 		if (savedFocal.x !== lastSavedFocal.x || savedFocal.y !== lastSavedFocal.y) {
@@ -115,14 +145,13 @@
 
 	let pickingCover = $state(false);
 	let draggingFocal = $state(false);
-	let previewMode = $state<'desktop' | 'phone'>('desktop');
+	let previewMode = $state<PreviewViewport>('desktop');
 	// svelte-ignore state_referenced_locally
 	let opened = $state(active);
 	let proofPhotos = $state<Photo[]>([]);
 	let photosLoadFailed = $state(false);
 	let previewProofs = $state<Proof[]>([]);
 	let previewFavorites = $state<string[]>([]);
-	let studioSettings = $state<WorkspaceSettings | null>(null);
 	let refreshTick = $state(0);
 
 	$effect(() => {
@@ -168,11 +197,6 @@
 		{ id: 'generous', label: m.design_spacing_generous() }
 	]);
 
-	const previewViews = $derived([
-		{ id: 'desktop' as const, label: m.preview_desktop(), icon: Monitor },
-		{ id: 'phone' as const, label: m.preview_phone(), icon: Smartphone }
-	]);
-
 	const sectionCard = 'grid gap-3 rounded-[0.875rem] border border-border bg-panel p-4 sm:p-5';
 	const sectionHeading =
 		'font-sans! text-[0.6875rem] leading-none font-semibold! tracking-[0.08em] text-muted-foreground uppercase';
@@ -190,35 +214,18 @@
 		void refreshTick;
 		let alive = true;
 
-		Promise.all([
-			listPhotos(id),
-			finals ? listPhotos(id, fetch, 'finals') : Promise.resolve([] as Photo[]),
-			finals ? Promise.resolve([]) : listClientPreviewPhotos(id, watermarked),
-			fetch('/api/v1/settings')
-				.then(async (response) => (response.ok ? parseSettings(await response.json()) : null))
-				.catch(() => null)
-		])
-			.then(([allProofs, finalPhotos, visibleProofs, studio]) => {
+		loadClientPreviewData(id, {
+			delivered: finals,
+			watermarked,
+			includeOwnerProofs: true
+		})
+			.then((data) => {
 				if (!alive) return;
 
 				photosLoadFailed = false;
-				proofPhotos = allProofs;
-				if (studio) studioSettings = studio;
-
-				if (finals) {
-					previewProofs = toOwnerProofs(id, finalPhotos, 'finals').map((proof) => ({
-						...proof,
-						downloadUrl: proof.previewUrl
-					}));
-					previewFavorites = [];
-
-					return;
-				}
-
-				previewProofs = toClientPreviewProofs(id, visibleProofs, watermarked);
-				previewFavorites = allProofs
-					.filter(({ favorited_at }) => favorited_at)
-					.map(({ id: photoId }) => photoId);
+				proofPhotos = data.proofPhotos;
+				previewProofs = data.proofs;
+				previewFavorites = data.favorites;
 			})
 			.catch(() => {
 				if (!alive) return;
@@ -258,66 +265,25 @@
 		focalPoint = next;
 	}
 
-	async function setLayout(value: string) {
-		const next = value as GalleryLayout;
+	async function setDesignField<K extends keyof DesignFields>(key: K, next: DesignFields[K]) {
+		if (next === design[key]) return;
 
-		if (next === currentLayout) return;
+		const targetGalleryId = gallery.id;
+		const seq = ++nextSeq;
+		fieldSeq[key] = seq;
+		overrides = { ...overrides, [key]: next };
 
-		currentLayout = next;
+		const ok = await onsave({ [key]: next } as GalleryChanges).catch(() => false);
 
-		if (await onsave({ layout: next })) {
-			if (currentLayout === next) committedLayout = next;
-		} else if (currentLayout === next) {
-			currentLayout = committedLayout;
+		if (gallery.id !== targetGalleryId || fieldSeq[key] !== seq) return;
+
+		if (ok) {
+			committed = { ...committed, [key]: next };
 		}
-	}
 
-	async function setCoverLayout(next: CoverLayout) {
-		if (next === currentCoverLayout) return;
-
-		currentCoverLayout = next;
-
-		if (await onsave({ cover_layout: next })) {
-			if (currentCoverLayout === next) committedCoverLayout = next;
-		} else if (currentCoverLayout === next) {
-			currentCoverLayout = committedCoverLayout;
-		}
-	}
-
-	async function setHeadingFont(next: HeadingFont) {
-		if (next === currentHeadingFont) return;
-
-		currentHeadingFont = next;
-
-		if (await onsave({ heading_font: next })) {
-			if (currentHeadingFont === next) committedHeadingFont = next;
-		} else if (currentHeadingFont === next) {
-			currentHeadingFont = committedHeadingFont;
-		}
-	}
-
-	async function setGridDensity(next: GridDensity) {
-		if (next === currentGridDensity) return;
-
-		currentGridDensity = next;
-
-		if (await onsave({ grid_density: next })) {
-			if (currentGridDensity === next) committedGridDensity = next;
-		} else if (currentGridDensity === next) {
-			currentGridDensity = committedGridDensity;
-		}
-	}
-
-	async function setGridSpacing(next: GridSpacing) {
-		if (next === currentGridSpacing) return;
-
-		currentGridSpacing = next;
-
-		if (await onsave({ grid_spacing: next })) {
-			if (currentGridSpacing === next) committedGridSpacing = next;
-		} else if (currentGridSpacing === next) {
-			currentGridSpacing = committedGridSpacing;
-		}
+		const nextOverrides = { ...overrides };
+		delete nextOverrides[key];
+		overrides = nextOverrides;
 	}
 
 	async function chooseCover(nextId: string | null) {
@@ -498,11 +464,11 @@
 					<span class="text-sm text-foreground">{m.design_cover_style()}</span>
 					<div role="group" aria-label={m.design_cover_style()} class="grid grid-cols-2 gap-2">
 						{#each coverTemplates as item (item.id)}
-							{@const selected = currentCoverLayout === item.id}
+							{@const selected = design.cover_layout === item.id}
 							<button
 								type="button"
 								aria-pressed={selected}
-								onclick={() => void setCoverLayout(item.id)}
+								onclick={() => void setDesignField('cover_layout', item.id)}
 								class="flex cursor-pointer flex-col gap-1.5 rounded-[0.625rem] border p-2 text-left text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus {selected
 									? 'border-foreground bg-foreground text-panel'
 									: 'border-border bg-background text-foreground hover:border-border-strong'}"
@@ -604,12 +570,12 @@
 				</h3>
 				<div role="group" aria-label={m.design_heading_font()} class="grid grid-cols-2 gap-2">
 					{#each headingFonts as item (item.id)}
-						{@const selected = currentHeadingFont === item.id}
+						{@const selected = design.heading_font === item.id}
 						{@const fontFamily = HEADING_FONT_FAMILIES[item.id]}
 						<button
 							type="button"
 							aria-pressed={selected}
-							onclick={() => void setHeadingFont(item.id)}
+							onclick={() => void setDesignField('heading_font', item.id)}
 							class="flex cursor-pointer flex-col gap-1.5 rounded-[0.625rem] border px-3 py-2.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus {selected
 								? 'border-foreground bg-foreground text-panel'
 								: 'border-border bg-background text-foreground hover:border-border-strong'}"
@@ -630,10 +596,10 @@
 				<div class="flex flex-wrap items-center justify-between gap-2.5 text-sm">
 					<span class="text-foreground">{m.settings_layout()}</span>
 					<IconButtonGroup
-						value={currentLayout}
+						value={design.layout}
 						items={layouts}
 						label={m.settings_layout()}
-						onchange={(value) => void setLayout(value)}
+						onchange={(value) => void setDesignField('layout', value as GalleryLayout)}
 					/>
 				</div>
 				<div class="flex flex-wrap items-center justify-between gap-2.5 text-sm">
@@ -642,8 +608,8 @@
 						{#each gridDensities as item (item.id)}
 							<button
 								type="button"
-								aria-pressed={currentGridDensity === item.id}
-								onclick={() => void setGridDensity(item.id)}
+								aria-pressed={design.grid_density === item.id}
+								onclick={() => void setDesignField('grid_density', item.id)}
 								class={pillButton}
 							>
 								{item.label}
@@ -657,8 +623,8 @@
 						{#each gridSpacings as item (item.id)}
 							<button
 								type="button"
-								aria-pressed={currentGridSpacing === item.id}
-								onclick={() => void setGridSpacing(item.id)}
+								aria-pressed={design.grid_spacing === item.id}
+								onclick={() => void setDesignField('grid_spacing', item.id)}
 								class={pillButton}
 							>
 								{item.label}
@@ -673,86 +639,50 @@
 			aria-label={m.preview_label()}
 			class="flex min-w-0 flex-col overflow-hidden rounded-[0.875rem] border border-border bg-[#1d1815] shadow-[0_18px_40px_-24px_rgb(43_36_32/0.45)]"
 		>
-			<div
-				class="flex flex-wrap items-center justify-between gap-2.5 border-b border-[#3b322b] bg-foreground px-4 py-2.5 text-sm font-medium text-[#efe6da]"
+			<PreviewFrame
+				bind:mode={previewMode}
+				stageClass="h-[min(740px,calc(100dvh-11rem))] min-h-[520px]"
+				phoneClass="h-full max-h-[660px]"
 			>
-				<span class="flex items-center gap-2 font-semibold">
-					<Eye size={16} aria-hidden="true" />
-					<span>{m.preview_label()}</span>
-				</span>
-				<div
-					role="group"
-					aria-label={m.preview_size()}
-					class="flex rounded-full bg-[#3a302a] p-[3px]"
-				>
-					{#each previewViews as { id, label, icon: Icon } (id)}
-						<button
-							type="button"
-							aria-pressed={previewMode === id}
-							onclick={() => (previewMode = id)}
-							class="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1 text-[0.8125rem] font-semibold focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus {previewMode ===
-							id
-								? 'bg-panel text-foreground'
-								: 'text-[#cdbfae]'}"
-						>
-							<Icon size={15} aria-hidden="true" />
-							<span>{label}</span>
-						</button>
-					{/each}
-				</div>
-			</div>
-
-			<div
-				class={cn(
-					'h-[min(740px,calc(100dvh-11rem))] min-h-[520px]',
-					previewMode === 'phone'
-						? 'grid place-items-center overflow-hidden bg-[radial-gradient(circle_at_50%_40%,#3a302a,#1d1815_70%)] p-4 sm:p-6'
-						: 'overflow-auto bg-background'
-				)}
-			>
-				<div
-					data-frame={previewMode}
-					class={cn(
-						previewMode === 'phone' &&
-							'h-full max-h-[660px] w-[340px] max-w-full rounded-[40px] bg-black p-2.5 shadow-[0_30px_80px_rgb(0_0_0/0.5)]'
-					)}
-				>
+				{#snippet header(toggle)}
 					<div
-						class={cn(
-							'relative bg-background text-foreground',
-							previewMode === 'phone' &&
-								'h-full translate-z-0 [scrollbar-width:none] overflow-auto rounded-[30px]'
-						)}
+						class="flex flex-wrap items-center justify-between gap-2.5 border-b border-[#3b322b] bg-foreground px-4 py-2.5 text-sm font-medium text-[#efe6da]"
 					>
-						{#if opened}
-							<ClientGallery
-								gallery={{
-									...gallery,
-									layout: currentLayout,
-									cover_layout: currentCoverLayout,
-									focal_point: localFocal,
-									heading_font: currentHeadingFont,
-									grid_density: currentGridDensity,
-									grid_spacing: currentGridSpacing,
-									hero_id: localHeroId,
-									delivered
-								}}
-								coverUrl={coverImageUrl}
-								proofs={previewProofs}
-								favorites={previewFavorites}
-								studio={studioSettings?.studioName}
-								studioLogo={studioSettings?.logo}
-								signature={studioSettings?.signature}
-								signatureSize={studioSettings?.signatureSize}
-								preview
-								embedded
-								showCoverWhenEmpty
-								framed={previewMode === 'phone'}
-							/>
-						{/if}
+						<span class="flex items-center gap-2 font-semibold">
+							<Eye size={16} aria-hidden="true" />
+							<span>{m.preview_label()}</span>
+						</span>
+						{@render toggle()}
 					</div>
-				</div>
-			</div>
+				{/snippet}
+
+				{#if opened}
+					<ClientGallery
+						gallery={{
+							...gallery,
+							layout: design.layout,
+							cover_layout: design.cover_layout,
+							focal_point: localFocal,
+							heading_font: design.heading_font,
+							grid_density: design.grid_density,
+							grid_spacing: design.grid_spacing,
+							hero_id: localHeroId,
+							delivered
+						}}
+						coverUrl={coverImageUrl}
+						proofs={previewProofs}
+						favorites={previewFavorites}
+						studio={settings.studioName}
+						studioLogo={settings.logo}
+						signature={settings.signature}
+						signatureSize={settings.signatureSize}
+						preview
+						embedded
+						showCoverWhenEmpty
+						framed={previewMode === 'phone'}
+					/>
+				{/if}
+			</PreviewFrame>
 		</section>
 	</div>
 </div>

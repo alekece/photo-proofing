@@ -465,6 +465,7 @@
 		>
 			<GalleryDesignPanel
 				{gallery}
+				{settings}
 				bind:heroId={() => coverId, (next) => (heroId = next)}
 				{heroRevision}
 				bind:focalPoint={liveFocalPoint}

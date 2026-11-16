@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Gallery } from '#lib/gallery/api.js';
 import { useLocale } from '#lib/i18n/testing.js';
+import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
 import GalleryDesignPanel from './GalleryDesignPanel.svelte';
 
 const baseGallery: Gallery = {
@@ -59,17 +60,7 @@ function stubPreviewFetch(
 		const path = String(url);
 
 		if (path === '/api/v1/settings') {
-			return Response.json({
-				studio_name: 'Studio Lune',
-				mark: 'name',
-				pattern: 'repeat',
-				position: 8,
-				size: 4,
-				signature: 'name',
-				signature_size: 4,
-				proof_quality: 'medium',
-				has_logo: false
-			});
+			throw new Error('GalleryDesignPanel must not fetch /api/v1/settings');
 		}
 
 		if (path.includes('?watermark=')) {
@@ -89,7 +80,11 @@ function stubPreviewFetch(
 	return fetcher;
 }
 
-function setup(over: Partial<Gallery> = {}, saves = true) {
+function setup(
+	over: Partial<Gallery> = {},
+	saves = true,
+	settings: WorkspaceSettings = { ...DEFAULT_SETTINGS, studioName: 'Studio Lune' }
+) {
 	const onsave = vi.fn().mockResolvedValue(saves);
 	let scheduledRun: (() => void) | null = null;
 	const schedule = vi.fn((_field: string, run: () => void) => {
@@ -101,6 +96,7 @@ function setup(over: Partial<Gallery> = {}, saves = true) {
 	const gallery = { ...baseGallery, ...over };
 	const view = render(GalleryDesignPanel, {
 		gallery,
+		settings,
 		heroId: gallery.hero_id,
 		focalPoint: gallery.focal_point,
 		active: true,
@@ -128,7 +124,11 @@ describe('GalleryDesignPanel', () => {
 	});
 
 	it('renders Cover, Typography, and Photo Grid & Spacing cards plus live Desktop/Phone preview with no axe violations', async () => {
+		const fetcher = stubPreviewFetch();
 		const { container, user } = setup();
+
+		await waitFor(() => expect(screen.getAllByText('Studio Lune').length).toBeGreaterThan(0));
+		expect(fetcher.mock.calls.some(([url]) => String(url) === '/api/v1/settings')).toBe(false);
 
 		expect(screen.getByRole('heading', { name: 'Design' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Cover' })).toBeTruthy();
