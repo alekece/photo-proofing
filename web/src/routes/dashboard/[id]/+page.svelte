@@ -21,7 +21,6 @@
 		archiveGallery,
 		deliverGallery,
 		deleteGallery,
-		GalleryApiError,
 		restoreGallery,
 		shareGallery,
 		updateGallery,
@@ -30,6 +29,7 @@
 	import { goingToRetry } from '#lib/gallery/focus.js';
 	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
 	import { TITLE_MAX } from '#lib/gallery/format.js';
+	import { ApiError } from '#lib/http.js';
 	import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
 	import type { PageData } from './$types';
 
@@ -120,14 +120,14 @@
 
 			return true;
 		} catch (error) {
-			if (error instanceof GalleryApiError && error.status === 401) {
+			if (error instanceof ApiError && error.status === 401) {
 				await goto('/login?expired=1', { refreshAll: true });
 				return false;
 			}
 			if (inTitle) {
 				for (const key of keys.filter(isLatest)) failed = { ...failed, [key]: changes[key] };
 			} else {
-				toasts.error(error instanceof GalleryApiError ? error.message : m.gallery_save_failed());
+				toasts.error(error instanceof ApiError ? error.message : m.gallery_save_failed());
 			}
 
 			return false;
@@ -218,7 +218,7 @@
 				updated_at: shared.updated_at
 			};
 		} catch (error) {
-			if (error instanceof GalleryApiError && error.status === 401) {
+			if (error instanceof ApiError && error.status === 401) {
 				await goto('/login?expired=1', { refreshAll: true });
 			}
 
@@ -227,7 +227,7 @@
 	}
 	/** Sends the photographer to sign in on a 401; otherwise rethrows with a retryable message. */
 	async function failAction(error: unknown, message: string): Promise<never> {
-		if (error instanceof GalleryApiError && error.status === 401) {
+		if (error instanceof ApiError && error.status === 401) {
 			await goto('/login?expired=1', { refreshAll: true });
 		}
 
@@ -275,13 +275,13 @@
 			saved = { ...saved, states: restored.states, updated_at: restored.updated_at };
 			expiredSince = restored.states.includes('expired') ? restored.expires_at : null;
 		} catch (error) {
-			if (error instanceof GalleryApiError && error.status === 401) {
+			if (error instanceof ApiError && error.status === 401) {
 				await goto('/login?expired=1', { refreshAll: true });
 
 				return;
 			}
 
-			toasts.error(error instanceof GalleryApiError ? error.message : m.gallery_restore_failed());
+			toasts.error(error instanceof ApiError ? error.message : m.gallery_restore_failed());
 		}
 	}
 	async function logout() {

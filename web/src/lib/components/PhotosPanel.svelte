@@ -23,7 +23,8 @@
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
 	import { getLiveEvents, type PhotoEvent } from '#lib/events.js';
-	import { GalleryApiError, updateGallery } from '#lib/gallery/api.js';
+	import { updateGallery } from '#lib/gallery/api.js';
+	import { ApiError } from '#lib/http.js';
 	import {
 		BULK_DELETE_LIMIT,
 		deletePhoto,
@@ -203,7 +204,7 @@
 
 			if (galleryId === id) heroId = gallery.hero_id;
 		} catch (cause) {
-			if (cause instanceof GalleryApiError && cause.status === 401) {
+			if (cause instanceof ApiError && cause.status === 401) {
 				await signedOut();
 
 				return;
@@ -244,7 +245,7 @@
 		} catch (cause) {
 			if (view !== shown) return;
 
-			if (cause instanceof GalleryApiError && cause.status === 401) {
+			if (cause instanceof ApiError && cause.status === 401) {
 				await signedOut();
 
 				return;
@@ -340,13 +341,13 @@
 		try {
 			await deletePhoto(galleryId, photo.id, fetch, set);
 		} catch (cause) {
-			if (cause instanceof GalleryApiError && cause.status === 401) {
+			if (cause instanceof ApiError && cause.status === 401) {
 				await signedOut();
 
 				return;
 			}
 
-			if (!(cause instanceof GalleryApiError && cause.status === 404)) {
+			if (!(cause instanceof ApiError && cause.status === 404)) {
 				alert = m.photos_delete_failed({ name: photo.original_name });
 			}
 		}
@@ -374,7 +375,7 @@
 		try {
 			await retryPhoto(galleryId, photo.id, fetch, set);
 		} catch (cause) {
-			if (cause instanceof GalleryApiError && cause.status === 401) {
+			if (cause instanceof ApiError && cause.status === 401) {
 				await signedOut();
 
 				return;
@@ -484,7 +485,7 @@
 				summary
 			};
 		} catch (cause) {
-			if (cause instanceof GalleryApiError && cause.status === 401) {
+			if (cause instanceof ApiError && cause.status === 401) {
 				await signedOut();
 
 				return;

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ApiError } from '#lib/http.js';
 import { CommentsClient } from './comments';
-import { GalleryApiError } from './api';
 
 export const comment = {
 	id: 'c1',
@@ -54,6 +54,6 @@ describe('CommentsClient', () => {
 			status: 409,
 			code: 'gallery_delivered'
 		});
-		await expect(client.thread('p1')).rejects.toBeInstanceOf(GalleryApiError);
+		await expect(client.thread('p1')).rejects.toBeInstanceOf(ApiError);
 	});
 });

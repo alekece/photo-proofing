@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ApiError } from '#lib/http.js';
 import {
 	archiveGallery,
 	createGallery,
 	deleteGallery,
-	GalleryApiError,
 	restoreGallery,
 	sendGalleryInvitations,
 	shareGallery,
@@ -20,7 +20,7 @@ describe('gallery API errors', () => {
 			message: 'Enter a title of up to 255 characters.',
 			code: 'invalid_title'
 		});
-		await expect(updateGallery('g1', {}, fetcher)).rejects.toBeInstanceOf(GalleryApiError);
+		await expect(updateGallery('g1', {}, fetcher)).rejects.toBeInstanceOf(ApiError);
 	});
 });
 
@@ -56,7 +56,7 @@ describe('malformed gallery responses', () => {
 		for (const body of ['{"id":"g"}', 'null', 'not json']) {
 			const fetcher = vi.fn().mockResolvedValue(new Response(body));
 
-			await expect(call(fetcher)).rejects.toBeInstanceOf(GalleryApiError);
+			await expect(call(fetcher)).rejects.toBeInstanceOf(ApiError);
 		}
 	});
 });

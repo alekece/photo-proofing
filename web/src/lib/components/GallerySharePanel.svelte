@@ -10,24 +10,20 @@
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+	import { listContacts, type Contact } from '#lib/contacts/api.js';
+	import { contactInitials, sortContacts } from '#lib/contacts/format.js';
 	import {
-		contactInitials,
-		listContacts,
-		listGalleryContacts,
-		sortContacts,
-		type Contact
-	} from '#lib/contacts/api.js';
-	import {
-		GalleryApiError,
 		sendGalleryInvitations,
 		type FocalPoint,
 		type Gallery,
 		type InvitationRecipientInput,
 		type QueuedInvitations
 	} from '#lib/gallery/api.js';
+	import { listGalleryContacts } from '#lib/gallery/contacts.js';
 	import { formatLongDate } from '#lib/gallery/format.js';
 	import { listPhotos, previewUrl } from '#lib/gallery/photos.js';
 	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
+	import { ApiError } from '#lib/http.js';
 	import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
 
 	const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
@@ -382,13 +378,13 @@
 			bccDraft = '';
 			onsent?.(result);
 		} catch (err) {
-			if (err instanceof GalleryApiError && err.status === 401) {
+			if (err instanceof ApiError && err.status === 401) {
 				readinessPrompt = null;
 				await goto('/login?expired=1', { refreshAll: true });
 				return;
 			}
 
-			const detail = err instanceof GalleryApiError ? err.message : m.share_send_failed();
+			const detail = err instanceof ApiError ? err.message : m.share_send_failed();
 
 			if (fromConfirm) {
 				throw new Error(detail, { cause: err });

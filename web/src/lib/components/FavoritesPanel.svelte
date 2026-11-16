@@ -7,7 +7,7 @@
 	import PhotoTile, { GRID_CLASSES, ITEM_CLASSES } from '#lib/components/PhotoTile.svelte';
 	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
 	import ViewerButton from '#lib/components/ViewerButton.svelte';
-	import { GalleryApiError, type GalleryLayout } from '#lib/gallery/api.js';
+	import type { GalleryLayout } from '#lib/gallery/api.js';
 	import {
 		latestExport,
 		requestExport,
@@ -19,6 +19,7 @@
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { getLiveEvents } from '#lib/events.js';
+	import { ApiError } from '#lib/http.js';
 	import { apiErrorMessage } from '#lib/i18n/errors.js';
 	import { listPhotos, previewUrl, thumbnailUrl, type Photo } from '#lib/gallery/photos.js';
 	import { SelectMode } from '#lib/gallery/select-mode.svelte.js';
@@ -33,7 +34,7 @@
 			const url = `/api/v1/galleries/${encodeURIComponent(galleryId)}/photos/${encodeURIComponent(photos[0].id)}/download`;
 			const response = await fetch(url, { method: 'HEAD', credentials: 'same-origin' });
 			if (current !== generation) return;
-			if (!response.ok) throw new GalleryApiError(response.status, m.favorites_download_failed());
+			if (!response.ok) throw new ApiError(response.status, m.favorites_download_failed());
 			startDownload(url);
 		}
 	}: {
@@ -127,7 +128,7 @@
 		} catch (error) {
 			if (current === generation) {
 				zipError =
-					error instanceof GalleryApiError && error.status !== 502
+					error instanceof ApiError && error.status !== 502
 						? error.message
 						: m.favorites_zip_failed();
 			}

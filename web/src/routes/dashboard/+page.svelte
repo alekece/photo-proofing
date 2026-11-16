@@ -20,12 +20,8 @@
 	import { Pencil, Plus, Search, Star, Trash2, X } from '@lucide/svelte';
 	import GalleryStateFilter from '#lib/components/GalleryStateFilter.svelte';
 	import GallerySortMenu from '#lib/components/GallerySortMenu.svelte';
-	import {
-		deleteGallery,
-		GalleryApiError,
-		updateGallery,
-		type GalleryOverview
-	} from '#lib/gallery/api.js';
+	import { deleteGallery, updateGallery, type GalleryOverview } from '#lib/gallery/api.js';
+	import { ApiError } from '#lib/http.js';
 	import type { GallerySort, GalleryState } from '#lib/gallery/schemas.js';
 	import { ALL_STATES, DEFAULT_STATES } from '#lib/gallery/states.js';
 	import { galleryStatus } from '#lib/gallery/format.js';
@@ -202,7 +198,7 @@
 
 					mergeUpdated(updated);
 				} catch (cause) {
-					if (cause instanceof GalleryApiError && cause.status === 401) {
+					if (cause instanceof ApiError && cause.status === 401) {
 						await goto('/login', { refreshAll: true });
 
 						return;
@@ -228,7 +224,7 @@
 
 				mergeUpdated(updated);
 			} catch (cause) {
-				if (cause instanceof GalleryApiError && cause.status === 401) {
+				if (cause instanceof ApiError && cause.status === 401) {
 					await goto('/login', { refreshAll: true });
 
 					return null;
@@ -260,7 +256,7 @@
 					localGalleries = localGalleries.filter((g) => g.id !== item.id);
 				}
 			} catch (cause) {
-				if (cause instanceof GalleryApiError && cause.status === 401) {
+				if (cause instanceof ApiError && cause.status === 401) {
 					await goto('/login', { refreshAll: true });
 
 					return;

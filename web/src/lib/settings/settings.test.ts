@@ -1,10 +1,10 @@
 import { expect, it, vi } from 'vitest';
+import { ApiError } from '#lib/http.js';
 import {
 	DEFAULT_SETTINGS,
 	LOGO_URL,
 	parseSettings,
 	SettingsApi,
-	SettingsApiError,
 	settingsChanged,
 	watermarkChanged
 } from './settings.js';
@@ -100,7 +100,5 @@ it('refetches a replaced logo and reports a refusal with its setting', async () 
 		status: 422,
 		code: 'logo_required'
 	});
-	await expect(refused.save(DEFAULT_SETTINGS, DEFAULT_SETTINGS)).rejects.toBeInstanceOf(
-		SettingsApiError
-	);
+	await expect(refused.save(DEFAULT_SETTINGS, DEFAULT_SETTINGS)).rejects.toBeInstanceOf(ApiError);
 });

@@ -16,10 +16,10 @@
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import PageShell from '#lib/components/ui/PageShell/PageShell.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+	import { ApiError } from '#lib/http.js';
 	import {
 		LOGO_TYPES,
 		SettingsApi,
-		SettingsApiError,
 		settingsChanged,
 		type WorkspaceSettings
 	} from '#lib/settings/settings.js';
@@ -88,7 +88,7 @@
 			}
 			confirmSaved();
 		} catch (error) {
-			if (error instanceof SettingsApiError && (error.status === 422 || error.status === 413)) {
+			if (error instanceof ApiError && (error.status === 422 || error.status === 413)) {
 				toasts.error(error.message);
 			} else {
 				toasts.error(m.studio_save_failed(), () => void save());

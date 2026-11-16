@@ -1,4 +1,3 @@
-import { error, redirect } from '@sveltejs/kit';
 import * as v from 'valibot';
 import {
 	favoriteIdsSchema,
@@ -14,41 +13,10 @@ import {
 	type SharedGalleryResponse,
 	type SharedPhoto
 } from '#lib/gallery/schemas.js';
-import { apiUrl } from './api';
+import { readSharedJson, readWorkspaceJson } from './http.js';
 
-const UNLOCK_COOKIE_PATTERN = /^[A-Za-z0-9_-]+$/;
-
-async function readGalleries<const S extends v.GenericSchema>(
-	fetcher: typeof fetch,
-	cookie: string | null,
-	path: string,
-	schema: S
-) {
-	const url = apiUrl(`/api/v1/galleries${path}`);
-	let response: Response;
-
-	try {
-		response = await fetcher(url, {
-			headers: cookie ? { Cookie: cookie } : {},
-			cache: 'no-store',
-			redirect: 'error'
-		});
-	} catch {
-		error(503, 'Galleries are temporarily unavailable. Please try again.');
-	}
-	if (response.status === 401) redirect(303, '/login');
-	if (response.status === 404) error(404, 'Gallery not found');
-	if (!response.ok) error(503, 'Galleries are temporarily unavailable. Please try again.');
-	let body: unknown;
-	try {
-		body = await response.json();
-	} catch {
-		error(503, 'Galleries are temporarily unavailable. Please try again.');
-	}
-	const parsed = parseOrNull(schema, body);
-	if (parsed === null) error(503, 'Galleries are temporarily unavailable. Please try again.');
-	return parsed;
-}
+const UNAVAILABLE = 'Galleries are temporarily unavailable. Please try again.';
+const SHARED_UNAVAILABLE = 'This gallery is temporarily unavailable. Please try again.';
 
 /** Server-side read with the request cookie; 401 redirects to sign-in, other failures become 503. */
 export function listGalleries(
@@ -61,7 +29,13 @@ export function listGalleries(
 
 	for (const state of states) query.append('state', state);
 
-	return readGalleries(fetcher, cookie, `?${query}`, v.array(galleryOverviewSchema));
+	return readWorkspaceJson(
+		fetcher,
+		cookie,
+		`/api/v1/galleries?${query}`,
+		(body) => parseOrNull(v.array(galleryOverviewSchema), body),
+		{ unavailable: UNAVAILABLE }
+	);
 }
 
 /** Unknown, foreign and malformed ids are all a 404. */
@@ -70,40 +44,13 @@ export function getGallery(
 	cookie: string | null,
 	id: string
 ): Promise<Gallery> {
-	return readGalleries(fetcher, cookie, `/${encodeURIComponent(id)}`, gallerySchema);
-}
-
-async function readShared<const S extends v.GenericSchema>(
-	fetcher: typeof fetch,
-	token: string,
-	path: string,
-	schema: S,
-	unlockCookie?: string | null
-) {
-	const unavailable = 'This gallery is temporarily unavailable. Please try again.';
-	const url = apiUrl(`/api/v1/galleries/shared/${encodeURIComponent(token)}${path}`);
-	const headers: HeadersInit =
-		unlockCookie && UNLOCK_COOKIE_PATTERN.test(unlockCookie)
-			? { Cookie: `pp_gallery_unlock=${unlockCookie}` }
-			: {};
-	let response: Response;
-
-	try {
-		response = await fetcher(url, { headers, cache: 'no-store', redirect: 'error' });
-	} catch {
-		error(503, unavailable);
-	}
-	if (response.status === 404 || response.status === 401) return null;
-	if (!response.ok) error(503, unavailable);
-	let body: unknown;
-	try {
-		body = await response.json();
-	} catch {
-		error(503, unavailable);
-	}
-	const parsed = parseOrNull(schema, body);
-	if (parsed === null) error(503, unavailable);
-	return parsed;
+	return readWorkspaceJson(
+		fetcher,
+		cookie,
+		`/api/v1/galleries/${encodeURIComponent(id)}`,
+		(body) => parseOrNull(gallerySchema, body),
+		{ unavailable: UNAVAILABLE, notFound: 'Gallery not found' }
+	);
 }
 
 /**
@@ -116,7 +63,14 @@ export function getSharedGallery(
 	token: string,
 	unlockCookie?: string | null
 ): Promise<SharedGalleryResponse | null> {
-	return readShared(fetcher, token, '', sharedGalleryResponseSchema, unlockCookie);
+	return readSharedJson(
+		fetcher,
+		token,
+		'',
+		sharedGalleryResponseSchema,
+		unlockCookie,
+		SHARED_UNAVAILABLE
+	);
 }
 
 /** Lists the photos a client may see, with the same contract as `getSharedGallery`. */
@@ -125,7 +79,14 @@ export function getSharedPhotos(
 	token: string,
 	unlockCookie?: string | null
 ): Promise<SharedPhoto[] | null> {
-	return readShared(fetcher, token, '/photos', v.array(sharedPhotoSchema), unlockCookie);
+	return readSharedJson(
+		fetcher,
+		token,
+		'/photos',
+		v.array(sharedPhotoSchema),
+		unlockCookie,
+		SHARED_UNAVAILABLE
+	);
 }
 
 /** Lists the ids the client selected, with the same contract as `getSharedGallery`. */
@@ -134,5 +95,12 @@ export function getSharedFavorites(
 	token: string,
 	unlockCookie?: string | null
 ): Promise<string[] | null> {
-	return readShared(fetcher, token, '/favorites', favoriteIdsSchema, unlockCookie);
+	return readSharedJson(
+		fetcher,
+		token,
+		'/favorites',
+		favoriteIdsSchema,
+		unlockCookie,
+		SHARED_UNAVAILABLE
+	);
 }

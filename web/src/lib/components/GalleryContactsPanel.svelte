@@ -7,17 +7,14 @@
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+	import { createContact, listContacts, type Contact } from '#lib/contacts/api.js';
+	import { contactInitials, sortContacts } from '#lib/contacts/format.js';
 	import {
-		ContactApiError,
-		contactInitials,
-		createContact,
 		linkGalleryContact,
-		listContacts,
 		listGalleryContacts,
-		sortContacts,
-		unlinkGalleryContact,
-		type Contact
-	} from '#lib/contacts/api.js';
+		unlinkGalleryContact
+	} from '#lib/gallery/contacts.js';
+	import { ApiError } from '#lib/http.js';
 
 	let {
 		galleryId,
@@ -131,8 +128,7 @@
 			oncount?.(next.length);
 			close();
 		} catch (error) {
-			inlineError =
-				error instanceof ContactApiError ? error.message : m.gallery_contacts_link_failed();
+			inlineError = error instanceof ApiError ? error.message : m.gallery_contacts_link_failed();
 		} finally {
 			linkingId = null;
 		}
@@ -174,8 +170,7 @@
 			oncount?.(next.length);
 			close();
 		} catch (error) {
-			inlineError =
-				error instanceof ContactApiError ? error.message : m.gallery_contacts_link_failed();
+			inlineError = error instanceof ApiError ? error.message : m.gallery_contacts_link_failed();
 		} finally {
 			creatingAndLinking = false;
 		}

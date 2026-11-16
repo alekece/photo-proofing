@@ -1,5 +1,5 @@
 import * as v from 'valibot';
-import { apiErrorMessage, readResponseErrorCode } from '#lib/i18n/errors.js';
+import { requestJson } from '#lib/http.js';
 
 export const MARKS = ['name', 'logo', 'both'] as const;
 export const PATTERNS = ['repeat', 'once'] as const;
@@ -95,14 +95,10 @@ const settingsResponseSchema = v.object({
 	email_enabled: v.optional(v.boolean(), false)
 });
 
-/** The settings as the page uses them, or `null` when `body` is not what the API returns. */
-export function parseSettings(body: unknown, logoUrl: string = LOGO_URL): WorkspaceSettings | null {
-	const result = v.safeParse(settingsResponseSchema, body);
-
-	if (!result.success) return null;
-
-	const settings = result.output;
-
+function toWorkspaceSettings(
+	settings: v.InferOutput<typeof settingsResponseSchema>,
+	logoUrl: string
+): WorkspaceSettings {
 	return {
 		studioName: settings.studio_name,
 		logo: settings.has_logo ? logoUrl : null,
@@ -117,20 +113,16 @@ export function parseSettings(body: unknown, logoUrl: string = LOGO_URL): Worksp
 	};
 }
 
+/** The settings as the page uses them, or `null` when `body` is not what the API returns. */
+export function parseSettings(body: unknown, logoUrl: string = LOGO_URL): WorkspaceSettings | null {
+	const result = v.safeParse(settingsResponseSchema, body);
+
+	return result.success ? toWorkspaceSettings(result.output, logoUrl) : null;
+}
+
 /** How much larger than the original look a cover signature of this size step is drawn. */
 export function signatureScale(step: number) {
 	return SIGNATURE_SCALES[Math.min(Math.max(Math.trunc(step), 0), SIZE_STEPS - 1)];
-}
-
-export class SettingsApiError extends Error {
-	constructor(
-		public status: number,
-		message: string,
-		/** The API's error `code`, when it sent one. */
-		public code?: string
-	) {
-		super(message);
-	}
 }
 
 /** The `logo` field of a save: a new image is sent, a removed one dropped, anything else kept. */
@@ -147,37 +139,31 @@ export class SettingsApi {
 
 	/** Saves every setting; `saved` is what the server holds now, so a removal can be told. */
 	async save(settings: WorkspaceSettings, saved: WorkspaceSettings): Promise<WorkspaceSettings> {
-		const response = await this.fetcher('/api/v1/settings', {
-			method: 'PUT',
-			credentials: 'same-origin',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				studio_name: settings.studioName,
-				mark: settings.mark,
-				pattern: settings.pattern,
-				position: settings.position,
-				size: settings.size,
-				signature: settings.signature,
-				signature_size: settings.signatureSize,
-				proof_quality: settings.proofQuality,
-				logo: logoChange(settings.logo, saved.logo)
-			})
-		});
-
-		if (!response.ok) {
-			const code = await readResponseErrorCode(response);
-
-			throw new SettingsApiError(response.status, apiErrorMessage(response.status, code), code);
-		}
-
-		const logoReplaced = settings.logo?.startsWith('data:') ?? false;
-		const parsed = parseSettings(
-			await response.json().catch(() => null),
-			logoReplaced ? `${LOGO_URL}?v=${Date.now()}` : (saved.logo ?? LOGO_URL)
+		const raw = await requestJson(
+			'/api/v1/settings',
+			{
+				method: 'PUT',
+				body: JSON.stringify({
+					studio_name: settings.studioName,
+					mark: settings.mark,
+					pattern: settings.pattern,
+					position: settings.position,
+					size: settings.size,
+					signature: settings.signature,
+					signature_size: settings.signatureSize,
+					proof_quality: settings.proofQuality,
+					logo: logoChange(settings.logo, saved.logo)
+				})
+			},
+			settingsResponseSchema,
+			this.fetcher
 		);
 
-		if (!parsed) throw new SettingsApiError(502, apiErrorMessage(502));
+		const logoReplaced = settings.logo?.startsWith('data:') ?? false;
 
-		return parsed;
+		return toWorkspaceSettings(
+			raw,
+			logoReplaced ? `${LOGO_URL}?v=${Date.now()}` : (saved.logo ?? LOGO_URL)
+		);
 	}
 }

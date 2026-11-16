@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
 import { goto } from '$app/navigation';
-import { GalleryApiError, type Gallery } from '#lib/gallery/api.js';
+import type { Gallery } from '#lib/gallery/api.js';
+import { ApiError } from '#lib/http.js';
 import NewGalleryDialog from './NewGalleryDialog.svelte';
 
 const created = { id: 'new-id', title: null } as Gallery;
@@ -87,7 +88,7 @@ describe('NewGalleryDialog', () => {
 
 	it('still opens the created gallery when saving the title fails', async () => {
 		const { update, user } = setup();
-		update.mockRejectedValue(new GalleryApiError(500, 'boom'));
+		update.mockRejectedValue(new ApiError(500, 'boom'));
 
 		await user.type(titleField(), 'Portraits');
 		await submit(user);
@@ -97,7 +98,7 @@ describe('NewGalleryDialog', () => {
 
 	it('sends an expired session to sign in', async () => {
 		const { create, user } = setup();
-		create.mockRejectedValue(new GalleryApiError(401, 'unauthorized'));
+		create.mockRejectedValue(new ApiError(401, 'unauthorized'));
 
 		await user.type(titleField(), 'Portraits');
 		await submit(user);
@@ -109,7 +110,7 @@ describe('NewGalleryDialog', () => {
 
 	it('reports another failed creation and stays open', async () => {
 		const { create, user } = setup();
-		create.mockRejectedValue(new GalleryApiError(500, 'boom'));
+		create.mockRejectedValue(new ApiError(500, 'boom'));
 
 		await user.type(titleField(), 'Portraits');
 		await submit(user);
