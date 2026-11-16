@@ -1,11 +1,11 @@
 //! The private link token of a gallery and the client's view of a shared gallery.
 
-use std::num::NonZeroUsize;
+use std::{future::Future, num::NonZeroUsize, ops::AsyncFnMut};
 
 use derive_more::{Deref, FromStr};
 use pp_core::types::token::Token;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Row, Type, postgres::PgRow};
+use sqlx::{FromRow, Postgres, Row, Transaction, Type, postgres::PgRow};
 use time::Date;
 
 use super::{
@@ -14,8 +14,17 @@ use super::{
 };
 use crate::{
     contact::ContactId,
+    error::DatabaseError,
     photo::{PhotoId, PhotoLocation},
 };
+
+/// Outcome of one [`ShareToken`] persistence attempt.
+pub(crate) enum TokenAttempt<T> {
+    /// Persistence completed (or determined the target entity does not exist).
+    Done(T),
+    /// Candidate token collided with an existing `galleries` or `gallery_contacts` token.
+    Collision,
+}
 
 /// The unguessable value that makes up a gallery's private link.
 ///
@@ -29,6 +38,66 @@ pub struct ShareToken(Token<16>);
 impl ShareToken {
     pub fn generate() -> Self {
         Self(Token::generate())
+    }
+
+    /// Retries `attempt` with fresh tokens from `next_token` whenever a candidate collides with
+    /// `constraint` or reports [`TokenAttempt::Collision`].
+    pub(crate) async fn retry_on_collision<T, F, Fut>(
+        constraint: &str,
+        mut next_token: impl FnMut() -> Self,
+        mut attempt: F,
+    ) -> Result<T, DatabaseError>
+    where
+        F: FnMut(Self) -> Fut,
+        Fut: Future<Output = Result<TokenAttempt<T>, DatabaseError>>,
+    {
+        loop {
+            match attempt(next_token()).await {
+                Ok(TokenAttempt::Done(output)) => return Ok(output),
+                Ok(TokenAttempt::Collision) => {}
+                Err(error) if error.is_unique_violation(constraint) => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    /// Retries `attempt` inside `tx` behind a savepoint so a unique-violation collision rolls back
+    /// only the failed candidate without aborting the surrounding transaction.
+    pub(crate) async fn retry_in_tx<T>(
+        tx: &mut Transaction<'_, Postgres>,
+        constraint: &str,
+        mut next_token: impl FnMut() -> Self,
+        mut attempt: impl AsyncFnMut(
+            &mut Transaction<'_, Postgres>,
+            Self,
+        ) -> Result<TokenAttempt<T>, DatabaseError>,
+    ) -> Result<T, DatabaseError> {
+        loop {
+            sqlx::query("SAVEPOINT share_token_attempt")
+                .execute(&mut **tx)
+                .await?;
+
+            match attempt(tx, next_token()).await {
+                Ok(TokenAttempt::Done(output)) => {
+                    sqlx::query("RELEASE SAVEPOINT share_token_attempt")
+                        .execute(&mut **tx)
+                        .await?;
+
+                    return Ok(output);
+                }
+                Ok(TokenAttempt::Collision) => {
+                    sqlx::query("ROLLBACK TO SAVEPOINT share_token_attempt")
+                        .execute(&mut **tx)
+                        .await?;
+                }
+                Err(error) if error.is_unique_violation(constraint) => {
+                    sqlx::query("ROLLBACK TO SAVEPOINT share_token_attempt")
+                        .execute(&mut **tx)
+                        .await?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
     }
 }
 

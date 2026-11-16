@@ -13,6 +13,9 @@ use thiserror::Error;
 /// SQLSTATE class for invalid authorization specifications (`28xxx`).
 const AUTHORIZATION_CLASS: &str = "28";
 
+/// SQLSTATE for unique-constraint violations (`23505`).
+const UNIQUE_VIOLATION: &str = "23505";
+
 #[derive(Debug, Error)]
 pub enum DatabaseError {
     #[error("database unreachable")]
@@ -31,10 +34,25 @@ pub enum DatabaseError {
     #[error("database rejected the request: {message}")]
     Server {
         code: Option<String>,
+        constraint: Option<String>,
         message: String,
     },
     #[error("database error: {0}")]
     Other(String),
+}
+
+impl DatabaseError {
+    /// Whether this error is a PostgreSQL unique-constraint violation (`23505`) on `expected`.
+    pub fn is_unique_violation(&self, expected: &str) -> bool {
+        matches!(
+            self,
+            Self::Server {
+                code: Some(code),
+                constraint: Some(constraint),
+                ..
+            } if code == UNIQUE_VIOLATION && constraint == expected
+        )
+    }
 }
 
 impl From<sqlx::Error> for DatabaseError {
@@ -47,6 +65,7 @@ impl From<sqlx::Error> for DatabaseError {
             sqlx::Error::Migrate(error) => Self::from(*error),
             sqlx::Error::Database(error) => {
                 let code = error.code().map(String::from);
+                let constraint = error.constraint().map(String::from);
                 let message = error.message().to_owned();
 
                 // The detail can hold row values, so it is only shown in debug builds.
@@ -63,7 +82,11 @@ impl From<sqlx::Error> for DatabaseError {
                     Some(code) if code.starts_with(AUTHORIZATION_CLASS) => {
                         Self::Authentication(message)
                     }
-                    code => Self::Server { code, message },
+                    code => Self::Server {
+                        code,
+                        constraint,
+                        message,
+                    },
                 }
             }
             error => Self::Other(error.to_string()),
@@ -120,11 +143,42 @@ mod tests {
     async fn server_errors_keep_code_and_message(pool: PgPool) {
         let error = sqlx::query("SELECT 1/0").execute(&pool).await.unwrap_err();
 
-        let DatabaseError::Server { code, message } = DatabaseError::from(error) else {
+        let DatabaseError::Server {
+            code,
+            constraint,
+            message,
+        } = DatabaseError::from(error)
+        else {
             panic!("expected a server error");
         };
 
         assert_eq!(code.as_deref(), Some("22012"));
+        assert_eq!(constraint, None);
         assert!(message.contains("division by zero"));
+    }
+
+    #[sqlx::test]
+    async fn unique_violation_matches_only_expected_constraint_name(pool: PgPool) {
+        sqlx::query(
+            "CREATE TABLE unique_probe (
+                 email TEXT NOT NULL CONSTRAINT unique_probe_email_key UNIQUE
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO unique_probe(email) VALUES ('a@example.test')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let dup = sqlx::query("INSERT INTO unique_probe(email) VALUES ('a@example.test')")
+            .execute(&pool)
+            .await
+            .unwrap_err();
+        let error = DatabaseError::from(dup);
+
+        assert!(error.is_unique_violation("unique_probe_email_key"));
+        assert!(!error.is_unique_violation("other_constraint"));
     }
 }
