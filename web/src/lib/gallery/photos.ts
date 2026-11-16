@@ -57,6 +57,45 @@ export function hasCleanPhoto(photo: Photo): boolean {
 	return photo.clean_ready ?? photo.status === 'ready';
 }
 
+export type PhotoReadiness = {
+	ready: Photo[];
+	readyCount: number;
+	uploadingCount: number;
+	failedCount: number;
+	empty: boolean;
+	warned: boolean;
+};
+
+/** Summarizes ready, uploading, and failed photo counts for share and delivery prechecks. */
+export function summarizePhotoReadiness(
+	photos: readonly Photo[],
+	inFlightUploads = 0
+): PhotoReadiness {
+	const ready: Photo[] = [];
+	let uploadingCount = inFlightUploads;
+	let failedCount = 0;
+
+	for (const photo of photos) {
+		if (photo.status === 'ready') {
+			ready.push(photo);
+		} else if (photo.status === 'waiting' || photo.status === 'processing') {
+			uploadingCount += 1;
+		} else if (typeof photo.status === 'object') {
+			failedCount += 1;
+		}
+	}
+
+	const empty = ready.length === 0;
+	return {
+		ready,
+		readyCount: ready.length,
+		uploadingCount,
+		failedCount,
+		empty,
+		warned: empty || uploadingCount > 0 || failedCount > 0
+	};
+}
+
 /** The proofs ready in their marked or clean files, as the client gallery would show them. */
 export function listClientPreviewPhotos(
 	galleryId: string,

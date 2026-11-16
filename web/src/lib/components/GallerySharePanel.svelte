@@ -21,7 +21,7 @@
 	} from '#lib/gallery/api.js';
 	import { listGalleryContacts } from '#lib/gallery/contacts.js';
 	import { formatLongDate } from '#lib/gallery/format.js';
-	import { listPhotos, previewUrl } from '#lib/gallery/photos.js';
+	import { listPhotos, previewUrl, summarizePhotoReadiness } from '#lib/gallery/photos.js';
 	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
 	import { ApiError } from '#lib/http.js';
 	import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
@@ -408,19 +408,16 @@
 
 		if (gallery.share_token === null) {
 			try {
-				const photos = await loadPhotos(gallery.id, fetch, 'photos');
-				const readyCount = photos.filter((photo) => photo.status === 'ready').length;
-				const inFlightCount =
-					uploading +
-					photos.filter((photo) => photo.status === 'waiting' || photo.status === 'processing')
-						.length;
-				const failedCount = photos.filter((photo) => typeof photo.status === 'object').length;
+				const readiness = summarizePhotoReadiness(
+					await loadPhotos(gallery.id, fetch, 'photos'),
+					uploading
+				);
 
-				if (readyCount === 0) {
+				if (readiness.empty) {
 					readinessPrompt = 'empty';
 					return;
 				}
-				if (inFlightCount > 0 || failedCount > 0) {
+				if (readiness.warned) {
 					readinessPrompt = 'unfinished';
 					return;
 				}

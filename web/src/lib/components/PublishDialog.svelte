@@ -6,7 +6,7 @@
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
 	import { formatLongDate } from '#lib/gallery/format.js';
-	import { listPhotos, type Photo } from '#lib/gallery/photos.js';
+	import { listPhotos, summarizePhotoReadiness, type Photo } from '#lib/gallery/photos.js';
 
 	/**
 	 * Share and Deliver never refuse: when photos are missing, uploading or failed they warn and
@@ -40,14 +40,12 @@
 	let photos = $state<Photo[] | null>(null);
 	let checkFailed = $state(false);
 
-	let ready = $derived(photos?.filter(({ status }) => status === 'ready') ?? []);
-	let uploading = $derived(
-		uploadingFiles +
-			(photos?.filter(({ status }) => status === 'waiting' || status === 'processing').length ?? 0)
-	);
-	let failed = $derived(photos?.filter(({ status }) => typeof status === 'object').length ?? 0);
-	let empty = $derived(ready.length === 0);
-	let warned = $derived(empty || uploading > 0 || failed > 0);
+	const readiness = $derived(photos ? summarizePhotoReadiness(photos, uploadingFiles) : null);
+	let ready = $derived(readiness?.ready ?? []);
+	let uploading = $derived(readiness?.uploadingCount ?? uploadingFiles);
+	let failed = $derived(readiness?.failedCount ?? 0);
+	let empty = $derived(readiness?.empty ?? true);
+	let warned = $derived(readiness?.warned ?? true);
 	let until = $derived(expiresAt ? formatLongDate(expiresAt) : '');
 
 	let shareText = $derived(until ? m.publish_share_text_until({ until }) : m.publish_share_text());
