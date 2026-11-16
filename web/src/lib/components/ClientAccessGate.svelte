@@ -28,7 +28,7 @@
 
 	const title = $derived(gallery.title ?? m.gallery_untitled());
 	const formattedShootDate = $derived(
-		gallery.shoot_date ? formatFullDate(`${gallery.shoot_date}T12:00`) : null
+		gallery.shoot_date ? formatFullDate(gallery.shoot_date) : null
 	);
 	const studioLogo = $derived(
 		gallery.has_logo ? `/api/v1/galleries/shared/${encodeURIComponent(token)}/logo` : null

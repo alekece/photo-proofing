@@ -5,7 +5,9 @@ use clap_config_fallback::ConfigParser;
 use eyre::Result;
 use pp_core::config::{ExportConfig, LogConfig, PhotoConfig};
 use pp_database::jobs::JobKind;
-use pp_image_worker::{
+use pp_mail::smtp::SmtpMailer;
+use pp_storage::PhotoStorage;
+use pp_worker::{
     config::WorkerConfig,
     handlers::{
         CompleteJob, HandlerRegistry,
@@ -14,12 +16,10 @@ use pp_image_worker::{
         process_photo::{ProcessPhotoFinalizer, ProcessPhotoHandler},
         send_email::SendEmailHandler,
     },
-    mail::SmtpMailer,
     maintenance::Maintenance,
     render::ImageRenderer,
     runtime::Worker,
 };
-use pp_storage::PhotoStorage;
 use tokio::{
     signal::{
         self,
@@ -30,7 +30,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 #[derive(Parser, ConfigParser)]
-#[command(name = "pp-image-worker", about = "Gallery image worker")]
+#[command(name = "pp-worker", about = "Gallery background worker")]
 struct Cli {
     /// Optional TOML config file; see config.example.toml.
     #[arg(long, env = "PP_CONFIG")]
@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
         .map(SmtpMailer::new)
         .transpose()?;
 
-    tracing::info!("image worker started");
+    tracing::info!("worker started");
 
     // Listening starts before the database is reached so a stop signal during startup is
     // not lost.
@@ -152,7 +152,7 @@ async fn main() -> Result<()> {
     worker.run(shutdown).await;
     signals.abort();
 
-    tracing::info!("image worker stopping");
+    tracing::info!("worker stopping");
     Ok(())
 }
 

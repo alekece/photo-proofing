@@ -34,8 +34,8 @@ max_peers = 1024
 min_interval = "2s"
 max_per_photo = 100
 
-# Image worker queue. max_attempts is read by the API, which records it on each job it
-# enqueues; the other keys are read by pp-image-worker.
+# Background worker queue. max_attempts is read by the API, which records it on each job it
+# enqueues; the other keys are read by pp-worker.
 [queue]
 max_attempts = 5
 # Most photos one cleanup job names when photos are deleted; read by the API.
@@ -89,7 +89,7 @@ relay_backoff_cap = "30s"
 max_pixels = 100000000
 
 # Optional outbound SMTP settings for Studio -> Share gallery invitation emails; read by both
-# pp-api and pp-image-worker. Omit this section when email invitations are not used.
+# pp-api and pp-worker. Omit this section when email invitations are not used.
 # [smtp]
 # host = "smtp.example.invalid"
 # port = 587

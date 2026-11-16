@@ -20,7 +20,7 @@ async fn migrates_and_exits_cleanly_on_sigterm(pool: PgPool) {
             .get_database()
             .expect("test database name"),
     );
-    let mut child = Command::new(env!("CARGO_BIN_EXE_pp-image-worker"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pp-worker"))
         .env("PP_DATABASE_URL", url.as_str())
         .env("PP_PHOTO_DIR", photos.path())
         .stderr(Stdio::piped())
@@ -56,8 +56,8 @@ async fn migrates_and_exits_cleanly_on_sigterm(pool: PgPool) {
             let text = String::from_utf8_lossy(&out.stdout).to_string()
                 + &String::from_utf8_lossy(&out.stderr);
             assert!(status.success(), "exit status {status}");
-            assert!(text.contains("image worker started"), "{text}");
-            assert!(text.contains("image worker stopping"), "{text}");
+            assert!(text.contains("worker started"), "{text}");
+            assert!(text.contains("worker stopping"), "{text}");
             return;
         }
         thread::sleep(Duration::from_millis(50));
@@ -70,7 +70,7 @@ async fn migrates_and_exits_cleanly_on_sigterm(pool: PgPool) {
 #[test]
 fn refuses_to_start_without_a_photo_directory() {
     let dir = tempfile::tempdir().expect("temp dir should be created");
-    let output = Command::new(env!("CARGO_BIN_EXE_pp-image-worker"))
+    let output = Command::new(env!("CARGO_BIN_EXE_pp-worker"))
         .env("PP_PHOTO_DIR", dir.path().join("missing"))
         .output()
         .expect("worker binary should run");

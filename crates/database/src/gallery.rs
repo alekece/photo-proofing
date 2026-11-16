@@ -104,10 +104,7 @@ pub enum InvitationError {
     Database(#[from] DatabaseError),
 }
 
-/// A focal-point percentage outside `0..=100`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[error("focal coordinate {0} is out of range")]
-pub struct FocalCoordinateError(pub u8);
+pub use pp_core::types::studio::{FocalCoordinate, FocalCoordinateError, FocalPoint};
 
 /// A primary recipient in an [`InvitationBatch`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -203,79 +200,6 @@ pub enum GridSpacing {
     Generous,
 }
 
-/// Percentage coordinate along one cover axis, bounded to `0..=100`.
-///
-/// ```
-/// use pp_database::gallery::FocalCoordinate;
-///
-/// assert_eq!(FocalCoordinate::try_from(0).unwrap().get(), 0);
-/// assert_eq!(FocalCoordinate::try_from(100).unwrap().get(), 100);
-/// assert!(FocalCoordinate::try_from(101).is_err());
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(try_from = "u8", into = "u8")]
-#[sqlx(transparent)]
-pub struct FocalCoordinate(i16);
-
-impl FocalCoordinate {
-    pub const MIN: Self = Self(0);
-    pub const MAX: Self = Self(100);
-    pub const DEFAULT_X: Self = Self(50);
-    pub const DEFAULT_Y: Self = Self(35);
-
-    /// The percentage coordinate, `0` to `100`.
-    pub const fn get(self) -> u8 {
-        self.0 as u8
-    }
-}
-
-impl TryFrom<u8> for FocalCoordinate {
-    type Error = FocalCoordinateError;
-
-    fn try_from(coordinate: u8) -> Result<Self, Self::Error> {
-        if coordinate > Self::MAX.get() {
-            return Err(FocalCoordinateError(coordinate));
-        }
-
-        Ok(Self(i16::from(coordinate)))
-    }
-}
-
-impl From<FocalCoordinate> for u8 {
-    fn from(coordinate: FocalCoordinate) -> Self {
-        coordinate.get()
-    }
-}
-
-/// Horizontal and vertical cover crop anchor, in `0..=100` percentages from the top-left corner.
-///
-/// Defaults to `(50, 35)` so portraits keep faces in frame.
-///
-/// ```
-/// use pp_database::gallery::FocalPoint;
-///
-/// let point = FocalPoint::default();
-/// assert_eq!(point.x.get(), 50);
-/// assert_eq!(point.y.get(), 35);
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, FromRow)]
-#[serde(deny_unknown_fields)]
-pub struct FocalPoint {
-    #[sqlx(rename = "hero_focal_x")]
-    pub x: FocalCoordinate,
-    #[sqlx(rename = "hero_focal_y")]
-    pub y: FocalCoordinate,
-}
-
-impl Default for FocalPoint {
-    fn default() -> Self {
-        Self {
-            x: FocalCoordinate::DEFAULT_X,
-            y: FocalCoordinate::DEFAULT_Y,
-        }
-    }
-}
-
 /// The result of [`GalleryRepository::deliver`].
 #[derive(Debug)]
 pub enum Delivery {
@@ -310,8 +234,9 @@ pub struct Gallery {
     pub heading_font: HeadingFont,
     pub grid_density: GridDensity,
     pub grid_spacing: GridSpacing,
-    /// `None` means the gallery never expires.
-    pub expires_at: Option<Timestamp>,
+    /// `None` means the gallery never expires; when set, the gallery remains accessible through
+    /// the end of that UTC calendar day.
+    pub expires_at: Option<Date>,
     /// `None` means selection is unlimited.
     pub included_photos: Option<NonZeroUsize>,
     pub watermark_enabled: bool,
@@ -492,7 +417,7 @@ pub struct GalleryChanges {
         with = "serde_with::rust::double_option",
         skip_serializing_if = "Option::is_none"
     )]
-    pub expires_at: Option<Option<Timestamp>>,
+    pub expires_at: Option<Option<Date>>,
     #[serde(
         default,
         with = "serde_with::rust::double_option",
@@ -603,7 +528,7 @@ impl GalleryState {
             Self::Shared => "(shared_at IS NOT NULL AND delivered_at IS NULL)",
             Self::Delivered => "(delivered_at IS NOT NULL)",
             Self::Archived => "(archived_at IS NOT NULL)",
-            Self::Expired => "COALESCE(expires_at <= now(), false)",
+            Self::Expired => "COALESCE(expires_at < (now() AT TIME ZONE 'UTC')::date, false)",
         }
     }
 }
@@ -624,7 +549,7 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
 
 impl GalleryRepository<'_> {
     // Interpolated identifiers are fixed here or selected from GallerySort's closed enum.
-    const COLUMNS: &'static str = "id,title,favorite,layout,cover_layout,hero_focal_x,hero_focal_y,heading_font,grid_density,grid_spacing,expires_at,included_photos,watermark_enabled,access_code,hero_id,share_token,shared_at,last_opened_at,shoot_date,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
+    const COLUMNS: &'static str = "id,title,favorite,layout,cover_layout,hero_focal_x,hero_focal_y,heading_font,grid_density,grid_spacing,expires_at,included_photos,watermark_enabled,access_code,hero_id,share_token,shared_at,last_opened_at,shoot_date,delivered_at,archived_at,COALESCE(expires_at < (now() AT TIME ZONE 'UTC')::date, false) AS expired,created_at,updated_at";
 
     /// How long after a recorded client open later opens change nothing. Fixed, not configurable:
     /// a minute collapses reload bursts while "last opened" stays fresh enough to compare with
@@ -897,7 +822,7 @@ impl GalleryRepository<'_> {
         let mut tx = self.pool.begin().await.map_err(DatabaseError::from)?;
         let state_row = sqlx::query(
             "SELECT archived_at IS NOT NULL AS archived,
-                    (expires_at IS NOT NULL AND expires_at <= now()) AS expired,
+                    (expires_at IS NOT NULL AND expires_at < (now() AT TIME ZONE 'UTC')::date) AS expired,
                     delivered_at IS NOT NULL AS delivered
              FROM galleries
              WHERE id = $1 AND workspace_id = $2
@@ -1051,7 +976,7 @@ impl GalleryRepository<'_> {
              JOIN galleries g ON g.id = matched.gallery_id
              WHERE g.shared_at IS NOT NULL
                AND g.archived_at IS NULL
-               AND (g.expires_at IS NULL OR g.expires_at > now())
+               AND (g.expires_at IS NULL OR g.expires_at >= (now() AT TIME ZONE 'UTC')::date)
              ORDER BY matched.contact_id NULLS FIRST
              LIMIT 1",
         )
@@ -1068,7 +993,7 @@ impl GalleryRepository<'_> {
         let result = sqlx::query(
             "UPDATE galleries SET last_opened_at = now()
              WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL
-               AND (expires_at IS NULL OR expires_at > now())
+               AND (expires_at IS NULL OR expires_at >= (now() AT TIME ZONE 'UTC')::date)
                AND (last_opened_at IS NULL OR last_opened_at < now() - make_interval(secs => $3))",
         )
         .bind(location.gallery_id)
@@ -1267,12 +1192,24 @@ mod tests {
         let workspace = workspace(&pool).await;
         let gallery = store.create(workspace).await.unwrap();
 
-        set_column(&pool, gallery.id, "expires_at", "now() + interval '1 day'").await;
-        let future = store.get(workspace, gallery.id).await.unwrap().unwrap();
+        set_column(
+            &pool,
+            gallery.id,
+            "expires_at",
+            "(now() AT TIME ZONE 'UTC')::date",
+        )
+        .await;
+        let today = store.get(workspace, gallery.id).await.unwrap().unwrap();
 
-        assert_eq!(future.states, [GalleryState::Draft]);
+        assert_eq!(today.states, [GalleryState::Draft]);
 
-        set_column(&pool, gallery.id, "expires_at", "now() - interval '1 day'").await;
+        set_column(
+            &pool,
+            gallery.id,
+            "expires_at",
+            "(now() AT TIME ZONE 'UTC')::date - 1",
+        )
+        .await;
         set_column(&pool, gallery.id, "archived_at", "now()").await;
         let past = store.get(workspace, gallery.id).await.unwrap().unwrap();
 
@@ -1432,7 +1369,7 @@ mod tests {
                 &changes(json!({
                     "title": "  Wedding  ",
                     "layout": "masonry",
-                    "expires_at": "2030-01-02T03:04:05Z",
+                    "expires_at": "2030-01-02",
                     "included_photos": 25,
                     "watermark_enabled": true,
                 })),
@@ -1443,7 +1380,10 @@ mod tests {
 
         assert_eq!(set.title.as_deref(), Some("Wedding"));
         assert_eq!(set.layout, GalleryLayout::Masonry);
-        assert!(set.expires_at.is_some());
+        assert_eq!(
+            set.expires_at,
+            Some(Date::from_calendar_date(2030, time::Month::January, 2).unwrap())
+        );
         assert_eq!(set.included_photos, NonZeroUsize::new(25));
         assert!(set.watermark_enabled);
 
@@ -1556,8 +1496,10 @@ mod tests {
             json!({"included_photos": 0}),
             json!({"layout": "carousel"}),
             json!({"colour": "red"}),
+            json!({"expires_at": "2030-01-02T03:04:05Z"}),
             json!({"expires_at": "9999-12-31T23:59:59-01:00"}),
-            json!({"expires_at": "0000-01-01T00:00:00+01:00"}),
+            json!({"expires_at": "02/01/2030"}),
+            json!({"expires_at": "2030-02-30"}),
         ] {
             assert!(
                 serde_json::from_value::<GalleryChanges>(body.clone()).is_err(),
@@ -1959,7 +1901,13 @@ mod tests {
         set_column(&pool, ids[2], "shared_at", "now()").await;
         set_column(&pool, ids[2], "delivered_at", "now()").await;
         set_column(&pool, ids[3], "archived_at", "now()").await;
-        set_column(&pool, ids[4], "expires_at", "now() - interval '1 day'").await;
+        set_column(
+            &pool,
+            ids[4],
+            "expires_at",
+            "(now() AT TIME ZONE 'UTC')::date - 1",
+        )
+        .await;
 
         let titles = |sort, states: &'static [GalleryState]| async move {
             store
@@ -2168,7 +2116,7 @@ mod tests {
             .update(
                 workspace,
                 locations[1].0,
-                &changes(json!({"expires_at": "2000-01-01T00:00:00Z"})),
+                &changes(json!({"expires_at": "2000-01-01"})),
             )
             .await
             .unwrap();
@@ -2255,24 +2203,41 @@ mod tests {
         assert_eq!(found.gallery.layout, GalleryLayout::Masonry);
         assert_eq!(found.gallery.expires_at, None);
 
-        set_expiry(json!("2000-01-01T00:00:00Z")).await;
+        set_expiry(json!("2000-01-01")).await;
 
         assert_eq!(store.find_shared(&token).await.unwrap(), None);
 
-        set_expiry(json!("2999-01-01T00:00:00Z")).await;
+        let today_utc: Date = sqlx::query_scalar("SELECT (now() AT TIME ZONE 'UTC')::date")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        set_expiry(serde_json::to_value(today_utc).unwrap()).await;
 
-        assert!(
+        assert_eq!(
             store
                 .find_shared(&token)
                 .await
                 .unwrap()
                 .unwrap()
                 .gallery
-                .expires_at
-                .is_some()
+                .expires_at,
+            Some(today_utc)
         );
 
-        set_expiry(json!("2000-01-01T00:00:00Z")).await;
+        set_expiry(json!("2999-01-01")).await;
+
+        assert_eq!(
+            store
+                .find_shared(&token)
+                .await
+                .unwrap()
+                .unwrap()
+                .gallery
+                .expires_at,
+            Some(Date::from_calendar_date(2999, time::Month::January, 1).unwrap())
+        );
+
+        set_expiry(json!("2000-01-01")).await;
         set_expiry(serde_json::Value::Null).await;
 
         assert!(store.find_shared(&token).await.unwrap().is_some());
@@ -2408,7 +2373,13 @@ mod tests {
 
         store.share(workspace, id).await.unwrap();
         set_column(&pool, id, "delivered_at", "now()").await;
-        set_column(&pool, id, "expires_at", "now() - interval '1 day'").await;
+        set_column(
+            &pool,
+            id,
+            "expires_at",
+            "(now() AT TIME ZONE 'UTC')::date - 1",
+        )
+        .await;
         store.archive(workspace, id).await.unwrap();
 
         let restored = store.restore(workspace, id).await.unwrap().unwrap();
@@ -2982,6 +2953,115 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
+    async fn migration_0036_converts_timestamptz_expires_at_to_utc_date(pool: PgPool) {
+        let mut transaction = pool.begin().await.unwrap();
+        let schema = format!("expires_at_date_migration_{}", Uuid::new_v4().simple());
+
+        sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(AssertSqlSafe(format!("SET LOCAL search_path TO {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        for migration in [
+            include_str!("../migrations/0001_accounts_sessions.sql"),
+            include_str!("../migrations/0002_galleries.sql"),
+        ] {
+            sqlx::raw_sql(migration)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        let workspace_id = Uuid::new_v4();
+        let never_id = Uuid::new_v4();
+        let late_evening_id = Uuid::new_v4();
+        let next_day_utc_id = Uuid::new_v4();
+
+        sqlx::query("INSERT INTO workspaces(id) VALUES ($1)")
+            .bind(workspace_id)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO galleries(id, workspace_id) VALUES ($1, $2)")
+            .bind(never_id)
+            .bind(workspace_id)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO galleries(id, workspace_id, expires_at)
+             VALUES ($1, $2, '2026-10-31T22:59:59Z'::timestamptz)",
+        )
+        .bind(late_evening_id)
+        .bind(workspace_id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO galleries(id, workspace_id, expires_at)
+             VALUES ($1, $2, '2026-10-31T23:30:00-02:00'::timestamptz)",
+        )
+        .bind(next_day_utc_id)
+        .bind(workspace_id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../migrations/0036_gallery_expires_at_date.sql"
+        ))
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+
+        let data_type: String = sqlx::query_scalar(
+            "SELECT data_type FROM information_schema.columns
+             WHERE table_schema = $1 AND table_name = 'galleries' AND column_name = 'expires_at'",
+        )
+        .bind(&schema)
+        .fetch_one(&mut *transaction)
+        .await
+        .unwrap();
+
+        assert_eq!(data_type, "date");
+
+        let never_date: Option<Date> =
+            sqlx::query_scalar("SELECT expires_at FROM galleries WHERE id = $1")
+                .bind(never_id)
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap();
+        let oct_31: Option<Date> =
+            sqlx::query_scalar("SELECT expires_at FROM galleries WHERE id = $1")
+                .bind(late_evening_id)
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap();
+        let nov_1: Option<Date> =
+            sqlx::query_scalar("SELECT expires_at FROM galleries WHERE id = $1")
+                .bind(next_day_utc_id)
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap();
+
+        assert_eq!(never_date, None);
+        assert_eq!(
+            oct_31,
+            Some(Date::from_calendar_date(2026, time::Month::October, 31).unwrap())
+        );
+        assert_eq!(
+            nov_1,
+            Some(Date::from_calendar_date(2026, time::Month::November, 1).unwrap())
+        );
+
+        transaction.rollback().await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
     async fn access_code_edits_lock_once_shared_and_never_serialize_in_overview_or_shared_views(
         pool: PgPool,
     ) {
@@ -3480,7 +3560,7 @@ mod tests {
             &pool,
             expired_draft.id,
             "expires_at",
-            "now() - interval '1 hour'",
+            "(now() AT TIME ZONE 'UTC')::date - 1",
         )
         .await;
         assert!(matches!(

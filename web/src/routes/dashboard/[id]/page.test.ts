@@ -373,23 +373,19 @@ describe('gallery page', () => {
 		await waitFor(() => expect(goto).toHaveBeenCalledWith('/login?expired=1', expect.anything()));
 	});
 
-	it('sends the end of the chosen day in local time', async () => {
+	it('sends the chosen calendar day directly', async () => {
 		const patches = stubApi();
 		const user = userEvent.setup();
 		open();
 		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		await pickDay('Open until', 1, '4');
 		await waitFor(() => expect(patches()).toHaveLength(1));
-		const sent = new Date(JSON.parse(patches()[0][1]?.body as string).expires_at);
+		const sent = JSON.parse(patches()[0][1]?.body as string).expires_at as string;
 		const next = new Date();
 		next.setDate(1);
 		next.setMonth(next.getMonth() + 1);
-		expect([sent.getFullYear(), sent.getMonth(), sent.getDate()]).toEqual([
-			next.getFullYear(),
-			next.getMonth(),
-			4
-		]);
-		expect([sent.getHours(), sent.getMinutes(), sent.getSeconds()]).toEqual([23, 59, 59]);
+		const pad = (value: number) => String(value).padStart(2, '0');
+		expect(sent).toBe(`${next.getFullYear()}-${pad(next.getMonth() + 1)}-04`);
 	});
 
 	it('allows a past expiry, marks the gallery expired and clears it with null', async () => {
@@ -448,10 +444,9 @@ describe('gallery page', () => {
 		expect(screen.getByText('Expired')).toBeTruthy();
 	});
 
-	it('shows the stored expiry as a local date', async () => {
+	it('shows the stored expiry calendar date', async () => {
 		const user = userEvent.setup();
-		const stored = new Date(2030, 5, 15, 23, 59, 59).toISOString();
-		open({ expires_at: stored });
+		open({ expires_at: '2030-06-15' });
 		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		expect(screen.getByLabelText('Open until').textContent).toContain('Jun 15, 2030');
 	});
@@ -803,7 +798,7 @@ describe('gallery page', () => {
 		it('names the open-until date only when one is set when sharing link', async () => {
 			stubShareFlow();
 			const user = userEvent.setup();
-			open({ expires_at: '2026-09-12T12:00:00Z' });
+			open({ expires_at: '2026-09-12' });
 			await user.click(screen.getByRole('tab', { name: 'Settings' }));
 			await user.click(screen.getByRole('button', { name: 'Share link' }));
 			expect(await screen.findByText(/pick favorites until 12 Sep 2026\./)).toBeTruthy();
@@ -899,7 +894,7 @@ describe('gallery page', () => {
 	describe('restoring', () => {
 		const archived: Partial<Gallery> = {
 			states: ['shared', 'archived'],
-			expires_at: '2026-09-07T21:59:59Z'
+			expires_at: '2026-09-07'
 		};
 		// `restored` is the gallery the restore endpoint answers with; PATCH echoes the change.
 		const stubRestore = (changes: Partial<Gallery>, patchStatus = 200) => {

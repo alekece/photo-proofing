@@ -20,7 +20,7 @@ const baseGallery: Gallery = {
 	heading_font: 'editorial',
 	grid_density: 'compact',
 	grid_spacing: 'compact',
-	expires_at: '2026-09-30T21:59:59Z',
+	expires_at: '2026-09-30',
 	included_photos: 20,
 	watermark_enabled: true,
 	hero_id: 'p1',

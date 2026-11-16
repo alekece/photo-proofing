@@ -34,6 +34,21 @@ export const galleryStateSchema = v.picklist([
 ]);
 export const accessCodeSchema = v.pipe(v.string(), v.regex(/^[0-9]{6}$/));
 
+const calendarDateSchema = v.pipe(
+	v.string(),
+	v.isoDate(),
+	v.check((value) => {
+		const [year, month, day] = value.split('-').map(Number);
+		const date = new Date(Date.UTC(year, month - 1, day));
+
+		return (
+			date.getUTCFullYear() === year &&
+			date.getUTCMonth() === month - 1 &&
+			date.getUTCDate() === day
+		);
+	})
+);
+
 const baseGalleryEntries = {
 	id: v.string(),
 	title: v.nullable(v.string()),
@@ -44,7 +59,7 @@ const baseGalleryEntries = {
 	heading_font: v.optional(headingFontSchema, 'editorial'),
 	grid_density: v.optional(gridDensitySchema, 'compact'),
 	grid_spacing: v.optional(gridSpacingSchema, 'compact'),
-	expires_at: v.nullable(v.string()),
+	expires_at: v.nullable(calendarDateSchema),
 	included_photos: v.nullable(finite),
 	watermark_enabled: v.boolean(),
 	/** Optional 6-digit access code gating client access; `null` when unprotected. */
@@ -56,7 +71,7 @@ const baseGalleryEntries = {
 	/** When a client last opened the shared gallery; `null` until the first open. */
 	last_opened_at: v.nullable(v.string()),
 	/** The calendar day of the shoot (`YYYY-MM-DD`); `null` when not set. */
-	shoot_date: v.nullable(v.pipe(v.string(), v.isoDate())),
+	shoot_date: v.nullable(calendarDateSchema),
 	/** The progress state first, then `archived` and `expired` when they apply. */
 	states: v.array(galleryStateSchema),
 	created_at: v.string(),
@@ -94,9 +109,9 @@ export const sharedGallerySchema = v.object({
 	heading_font: v.optional(headingFontSchema, 'editorial'),
 	grid_density: v.optional(gridDensitySchema, 'compact'),
 	grid_spacing: v.optional(gridSpacingSchema, 'compact'),
-	shoot_date: v.optional(v.nullable(v.pipe(v.string(), v.isoDate())), null),
-	/** ISO 8601 access expiry; `null` means the link never expires. */
-	expires_at: v.nullable(v.string()),
+	shoot_date: v.optional(v.nullable(calendarDateSchema), null),
+	/** Calendar day (`YYYY-MM-DD`) through which client access stays open; `null` means never. */
+	expires_at: v.nullable(calendarDateSchema),
 	/** How many photos the package includes; `null` means no limit. */
 	included_photos: v.nullable(finite),
 	/** Once delivered, the selection is final and read-only. */
@@ -110,7 +125,7 @@ export const sharedGallerySchema = v.object({
 export const lockedSharedGallerySchema = v.object({
 	locked: v.literal(true),
 	title: v.nullable(v.string()),
-	shoot_date: v.optional(v.nullable(v.pipe(v.string(), v.isoDate())), null),
+	shoot_date: v.optional(v.nullable(calendarDateSchema), null),
 	has_cover: v.boolean(),
 	...sharedBrandingEntries
 });

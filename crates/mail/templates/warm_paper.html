@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background-color:#faf8f5;color:#1c1917;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#faf8f5;padding:36px 16px;">
+<tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background-color:#ffffff;border:1px solid #e6e0d6;border-radius:4px;">
+{%- if has_logo || studio_header.is_some() %}
+<tr><td align="center" style="padding:28px 32px 12px 32px;">
+{%- if has_logo %}
+<img src="cid:{{ logo_cid }}" alt="{{ logo_alt }}" style="display:block;max-height:44px;max-width:180px;width:auto;height:auto;margin:0 auto 8px auto;border:0;" />
+{%- endif %}
+{%- if let Some(studio) = studio_header %}
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#57534e;">{{ studio }}</div>
+{%- endif %}
+</td></tr>
+{%- endif %}
+{%- if let Some((focal_x, focal_y)) = cover_focal %}
+<tr><td style="padding:12px 24px 0 24px;"><img src="cid:{{ cover_cid }}" alt="{{ title }}" width="472" style="display:block;width:100%;max-width:472px;max-height:300px;object-fit:cover;object-position:{{ focal_x }}% {{ focal_y }}%;border-radius:2px;border:0;" /></td></tr>
+{%- else %}
+<tr><td align="center" style="padding:20px 32px 0 32px;"><div style="width:40px;height:1px;background-color:#d6cfc4;"></div></td></tr>
+{%- endif %}
+<tr><td align="center" style="padding:28px 32px 8px 32px;">
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#78716c;margin-bottom:8px;">{{ eyebrow }}</div>
+<h1 style="margin:0;font-family:Georgia,'Cormorant Garamond','Times New Roman',serif;font-size:28px;line-height:1.25;font-weight:400;color:#1c1917;">{{ title }}</h1>
+<div style="margin-top:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;color:#78716c;">{{ meta_line }}</div>
+</td></tr>
+<tr><td align="center" style="padding:12px 36px 28px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.65;color:#44403c;">{%- for line in message_lines -%}{{ line }}{%- if !loop.last -%}<br />{%- endif -%}{%- endfor -%}</td></tr>
+{%- if let Some(code) = access_code %}
+<tr><td align="center" style="padding:0 32px 24px 32px;"><table role="presentation" cellpadding="0" cellspacing="0" style="background-color:#f5f2ec;border:1px solid #e6e0d6;border-radius:4px;"><tr><td align="center" style="padding:12px 20px;"><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#78716c;margin-bottom:4px;">{{ access_code_label }}</div><div style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:18px;letter-spacing:0.22em;color:#1c1917;font-weight:600;">{{ code }}</div></td></tr></table></td></tr>
+{%- endif %}
+<tr><td align="center" style="padding:0 32px 28px 32px;">
+<a href="{{ share_url }}" style="display:inline-block;background-color:#1c1917;color:#faf8f5;text-decoration:none;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;font-weight:500;letter-spacing:0.06em;padding:13px 28px;border-radius:3px;">{{ cta }}</a>
+</td></tr>
+{%- if let Some(expiry) = expiry_line %}
+<tr><td align="center" style="padding:0 32px 28px 32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;color:#78716c;">{{ expiry }}</td></tr>
+{%- else %}
+<tr><td style="height:12px;"></td></tr>
+{%- endif %}
+</table>
+</td></tr>
+</table>
+</body>
+</html>

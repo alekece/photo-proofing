@@ -107,8 +107,8 @@ describe('GallerySettingsPanel', () => {
 		await vi.waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('false'));
 	});
 
-	it('saves the picked open-until date as the end of that day and clears it with null', async () => {
-		const { onsave, user } = setup({ expires_at: new Date(2030, 5, 15, 23, 59, 59).toISOString() });
+	it('saves the picked open-until calendar date directly and clears it with null', async () => {
+		const { onsave, user } = setup({ expires_at: '2030-06-15' });
 		const trigger = screen.getByLabelText('Open until');
 
 		expect(trigger.textContent).toContain('Jun 15, 2030');
@@ -121,7 +121,7 @@ describe('GallerySettingsPanel', () => {
 		);
 
 		expect(onsave).toHaveBeenCalledWith({
-			expires_at: new Date(2030, 5, 20, 23, 59, 59).toISOString()
+			expires_at: '2030-06-20'
 		});
 
 		await user.click(trigger);
@@ -144,7 +144,7 @@ describe('GallerySettingsPanel', () => {
 		await user.click(screen.getByRole('button', { name: 'In 2 weeks' }));
 
 		expect(onsave).toHaveBeenCalledWith({
-			expires_at: new Date(2026, 5, 15, 23, 59, 59).toISOString()
+			expires_at: '2026-06-15'
 		});
 		expect(screen.queryByRole('grid')).toBeNull();
 	});

@@ -16,7 +16,7 @@ Photographers usually pick the same expiry windows ("in two weeks", "in a month"
 ## Non-goals
 
 - Presets on shoot-date fields (`presets` defaults to `false`).
-- Changing how expiry is stored or saved: callers keep receiving `YYYY-MM-DD | null` and using the existing `endOfLocalDay` / save path.
+- Changing how preset dates are selected: callers receive `YYYY-MM-DD | null` calendar dates directly (`galleries.expires_at` is stored as a calendar `DATE`, valid through the end of that UTC day).
 - Configurable or custom presets.
 
 ## Constraints

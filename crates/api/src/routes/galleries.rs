@@ -337,7 +337,7 @@ mod tests {
                     "heading_font": "timeless",
                     "grid_density": "large",
                     "grid_spacing": "generous",
-                    "expires_at": "2030-01-02T03:04:05Z",
+                    "expires_at": "2030-01-02",
                     "included_photos": 30,
                     "watermark_enabled": true,
                 }),
@@ -353,7 +353,7 @@ mod tests {
         assert_eq!(updated["heading_font"], "timeless");
         assert_eq!(updated["grid_density"], "large");
         assert_eq!(updated["grid_spacing"], "generous");
-        assert_eq!(updated["expires_at"], "2030-01-02T03:04:05Z");
+        assert_eq!(updated["expires_at"], "2030-01-02");
         assert_eq!(updated["included_photos"], 30);
 
         let (_, cleared) = call(&app, patch(&id, &cookie, json!({"expires_at": null}))).await;
@@ -497,11 +497,7 @@ mod tests {
         .await;
         call(
             &app,
-            patch(
-                expired_id,
-                &cookie,
-                json!({"expires_at": "2000-01-01T00:00:00Z"}),
-            ),
+            patch(expired_id, &cookie, json!({"expires_at": "2000-01-01"})),
         )
         .await;
 
@@ -686,9 +682,15 @@ mod tests {
             (json!({"unknown": 1}), "invalid_request_body"),
             (json!({"expires_at": "tomorrow"}), "invalid_request_body"),
             (
+                json!({"expires_at": "2030-01-02T03:04:05Z"}),
+                "invalid_request_body",
+            ),
+            (
                 json!({"expires_at": "9999-12-31T23:59:59-01:00"}),
                 "invalid_request_body",
             ),
+            (json!({"expires_at": "02/01/2030"}), "invalid_request_body"),
+            (json!({"expires_at": "2026-02-30"}), "invalid_request_body"),
             (
                 json!({"shoot_date": "2026-06-14T10:00:00Z"}),
                 "invalid_request_body",

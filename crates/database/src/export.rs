@@ -723,7 +723,7 @@ impl ExportRepository<'_> {
             "SELECT e.id, e.workspace_id, e.gallery_id FROM exports e
              JOIN galleries g ON g.id = e.gallery_id
              WHERE e.kind = 'delivery'
-               AND (g.archived_at IS NOT NULL OR g.expires_at <= now())
+               AND (g.archived_at IS NOT NULL OR g.expires_at < (now() AT TIME ZONE 'UTC')::date)
              ORDER BY e.id FOR UPDATE OF e",
         )
         .fetch_all(&mut *transaction)
@@ -1696,5 +1696,49 @@ mod tests {
                 .await
                 .unwrap();
         }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn unreachable_deliveries_keep_today_and_remove_past_utc_expiry(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        fixture.final_photo("f.jpg").await;
+        fixture.deliver().await;
+        fixture.delivery().await;
+
+        sqlx::query(
+            "UPDATE galleries SET expires_at = (now() AT TIME ZONE 'UTC')::date WHERE id = $1",
+        )
+        .bind(fixture.gallery_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert!(
+            fixture
+                .exports()
+                .remove_unreachable_deliveries()
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(fixture.count(ExportKind::Delivery).await, 1);
+
+        sqlx::query(
+            "UPDATE galleries SET expires_at = (now() AT TIME ZONE 'UTC')::date - 1 WHERE id = $1",
+        )
+        .bind(fixture.gallery_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let removed = fixture
+            .exports()
+            .remove_unreachable_deliveries()
+            .await
+            .unwrap();
+
+        assert_eq!(removed.len(), 1);
+        assert_eq!(fixture.count(ExportKind::Delivery).await, 0);
     }
 }

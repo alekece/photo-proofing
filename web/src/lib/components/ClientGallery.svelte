@@ -167,7 +167,7 @@
 	const headingFont = $derived(gallery.heading_font ?? 'editorial');
 	const headingFontFamily = $derived(HEADING_FONT_FAMILIES[headingFont]);
 	const formattedShootDate = $derived(
-		gallery.shoot_date ? formatFullDate(`${gallery.shoot_date}T12:00`) : null
+		gallery.shoot_date ? formatFullDate(gallery.shoot_date) : null
 	);
 	const rootTag = $derived(embedded ? 'div' : 'main');
 </script>

@@ -9,6 +9,7 @@
 
 use std::num::NonZeroU16;
 
+pub use pp_core::types::studio::{CoverSignature, Language};
 use serde::{Deserialize, Serialize};
 use sqlx::{AssertSqlSafe, FromRow, PgConnection, PgPool, Postgres, Row, Transaction, Type};
 use thiserror::Error;
@@ -75,36 +76,6 @@ impl WatermarkMark {
 pub enum WatermarkPattern {
     Repeat,
     Once,
-}
-
-/// How the studio signs the client cover.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
-#[sqlx(type_name = "cover_signature", rename_all = "snake_case")]
-pub enum CoverSignature {
-    Name,
-    Logo,
-    Both,
-    None,
-}
-
-impl CoverSignature {
-    pub const fn shows_logo(self) -> bool {
-        matches!(self, Self::Logo | Self::Both)
-    }
-
-    pub const fn shows_name(self) -> bool {
-        matches!(self, Self::Name | Self::Both)
-    }
-}
-
-/// The language of the photographer app and every client page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
-#[sqlx(type_name = "ui_language", rename_all = "snake_case")]
-pub enum Language {
-    En,
-    Fr,
 }
 
 /// How sharp, and how heavy, thumbnails and previews of proofs are.

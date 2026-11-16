@@ -173,11 +173,8 @@
 		section = target;
 	}
 
-	// A shoot date is a calendar day: read at local noon so no time zone moves it.
 	const day = $derived(
-		gallery.shoot_date
-			? formatLongDate(`${gallery.shoot_date}T12:00`)
-			: formatLongDate(gallery.created_at)
+		gallery.shoot_date ? formatLongDate(gallery.shoot_date) : formatLongDate(gallery.created_at)
 	);
 	const dayLabel = $derived(gallery.shoot_date ? m.details_shot() : m.details_created());
 	const openedValue = $derived(

@@ -3,7 +3,7 @@
 use std::num::NonZeroUsize;
 
 use derive_more::{Deref, FromStr};
-use pp_core::types::{timestamp::Timestamp, token::Token};
+use pp_core::types::token::Token;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row, Type, postgres::PgRow};
 use time::Date;
@@ -45,8 +45,9 @@ pub struct SharedGallery {
     pub grid_spacing: GridSpacing,
     /// The day of the shoot; `None` means none was given.
     pub shoot_date: Option<Date>,
-    /// `None` means the gallery never expires.
-    pub expires_at: Option<Timestamp>,
+    /// `None` means the gallery never expires; when set, the gallery remains accessible through
+    /// the end of that UTC calendar day.
+    pub expires_at: Option<Date>,
     /// How many photos the client may pick before extra ones are charged; `None` means selection
     /// is unlimited.
     pub included_photos: Option<NonZeroUsize>,

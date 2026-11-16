@@ -31,6 +31,7 @@ use std::{
     time::Duration,
 };
 
+pub use pp_core::types::studio::InvitationStage;
 use pp_core::{
     email::{Email, EmailMessage, EmailSubject},
     types::generate::Generate,
@@ -112,14 +113,6 @@ impl JobKind {
     pub fn as_str(self) -> &'static str {
         self.into()
     }
-}
-
-/// Which gallery lifecycle stage an invitation email announces.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InvitationStage {
-    Proofing,
-    Finals,
 }
 
 /// Who receives a queued gallery invitation.

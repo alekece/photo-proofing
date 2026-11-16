@@ -28,8 +28,8 @@ jobs:
             image: ghcr.io/alekece/pp-api
             file: docker/api.Dockerfile
             sha_arg: true
-          - name: image-worker
-            image: ghcr.io/alekece/pp-image-worker
+          - name: worker
+            image: ghcr.io/alekece/pp-worker
             file: docker/worker.Dockerfile
             sha_arg: false
           - name: web
@@ -108,7 +108,7 @@ jobs:
           TAG: sha-${{ github.event.workflow_run.head_sha }}
         run: |
           docker buildx imagetools inspect "ghcr.io/alekece/pp-api:$TAG" >/dev/null
-          docker buildx imagetools inspect "ghcr.io/alekece/pp-image-worker:$TAG" >/dev/null
+          docker buildx imagetools inspect "ghcr.io/alekece/pp-worker:$TAG" >/dev/null
           docker buildx imagetools inspect "ghcr.io/alekece/pp-web:$TAG" >/dev/null
       - name: Advance staging tag
         env:
@@ -154,7 +154,7 @@ jobs:
             exit 0
           fi
 
-          for image in pp-api pp-image-worker pp-web; do
+          for image in pp-api pp-worker pp-web; do
             docker buildx imagetools create \
               --tag "ghcr.io/alekece/$image:staging" \
               "ghcr.io/alekece/$image:sha-$CANDIDATE"

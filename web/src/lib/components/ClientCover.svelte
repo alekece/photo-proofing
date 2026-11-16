@@ -54,8 +54,7 @@
 		'inline-flex cursor-pointer items-center gap-2 rounded-full border px-5 py-2.5 text-xs tracking-[0.16em] uppercase transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus';
 
 	const objectPosition = $derived(`${focalPoint.x}% ${focalPoint.y}%`);
-	// Shoot date is a calendar day: read at local noon so time zones never shift it.
-	const formattedShootDate = $derived(shootDate ? formatFullDate(`${shootDate}T12:00`) : null);
+	const formattedShootDate = $derived(shootDate ? formatFullDate(shootDate) : null);
 	const heightClass = $derived(
 		framed
 			? 'min-h-[600px] @max-[700px]:min-h-[600px]'

@@ -12,26 +12,49 @@ import {
 } from './format.js';
 
 const noon = '2026-09-12T12:00:00Z';
+const savedZone = process.env.TZ;
 
 describe('dates in English', () => {
 	useLocale('en');
 
-	it('read day first', () => {
+	it('read day first and never shift YYYY-MM-DD calendar dates across time zones', () => {
 		expect(formatShortDate(noon)).toBe('12 Sep');
 		expect(formatLongDate(noon)).toBe('12 Sep 2026');
 		expect(formatFullDate(noon, 'UTC')).toBe('September 12, 2026');
 		expect(formatDateTime('2026-11-09T14:38:00Z', 'UTC')).toBe('Nov 9, 2026, 2:38 PM');
+
+		try {
+			for (const zone of ['America/New_York', 'Pacific/Auckland']) {
+				process.env.TZ = zone;
+				expect(formatShortDate('2026-10-31')).toBe('31 Oct');
+				expect(formatLongDate('2026-10-31')).toBe('31 Oct 2026');
+				expect(formatFullDate('2026-10-31')).toBe('October 31, 2026');
+			}
+		} finally {
+			process.env.TZ = savedZone;
+		}
 	});
 });
 
 describe('dates in French', () => {
 	useLocale('fr');
 
-	it('follow the French conventions', () => {
+	it('follow the French conventions without shifting YYYY-MM-DD calendar dates', () => {
 		expect(formatShortDate(noon)).toBe('12 sept.');
 		expect(formatLongDate(noon)).toBe('12 sept. 2026');
 		expect(formatFullDate(noon, 'UTC')).toBe('12 septembre 2026');
 		expect(formatDateTime('2026-11-09T14:38:00Z', 'UTC')).toBe('9 nov. 2026, 14:38');
+
+		try {
+			for (const zone of ['America/New_York', 'Pacific/Auckland']) {
+				process.env.TZ = zone;
+				expect(formatShortDate('2026-10-31')).toBe('31 oct.');
+				expect(formatLongDate('2026-10-31')).toBe('31 oct. 2026');
+				expect(formatFullDate('2026-10-31')).toBe('31 octobre 2026');
+			}
+		} finally {
+			process.env.TZ = savedZone;
+		}
 	});
 });
 
@@ -123,11 +146,11 @@ describe('gallerySummary', () => {
 	it('says how long ago an expired gallery ended', () => {
 		const expired = { ...base, states: ['shared', 'expired'] as never };
 
-		expect(line({ ...expired, expires_at: '2026-11-07T12:00:00Z' })).toBe(
+		expect(line({ ...expired, expires_at: '2026-11-06' })).toBe(
 			'32 photos · 12\u00a0selected · expired 3 days ago'
 		);
-		expect(line({ ...expired, expires_at: '2026-11-09T12:00:00Z' })).toContain('expired yesterday');
-		expect(line({ ...expired, expires_at: '2026-11-10T08:00:00Z' })).toContain('expired today');
+		expect(line({ ...expired, expires_at: '2026-11-08' })).toContain('expired yesterday');
+		expect(line({ ...expired, expires_at: '2026-11-09' })).toContain('expired today');
 		expect(line(expired)).toMatch(/ · expired$/);
 	});
 });
@@ -157,7 +180,7 @@ describe('gallerySummary in French', () => {
 			line({ ...base, states: ['delivered'] as never, final_count: 20, downloaded_count: 1 })
 		).toBe('20 photos retouchées · 1\u00a0téléchargée');
 		expect(
-			line({ ...base, states: ['shared', 'expired'] as never, expires_at: '2026-11-07T12:00:00Z' })
+			line({ ...base, states: ['shared', 'expired'] as never, expires_at: '2026-11-06' })
 		).toBe('32 photos · 12\u00a0sélectionnées · expirée il y a 3 jours');
 	});
 });
