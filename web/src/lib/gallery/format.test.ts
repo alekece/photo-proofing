@@ -146,11 +146,11 @@ describe('gallerySummary', () => {
 	it('says how long ago an expired gallery ended', () => {
 		const expired = { ...base, states: ['shared', 'expired'] as never };
 
-		expect(line({ ...expired, expires_at: '2026-11-07' })).toBe(
+		expect(line({ ...expired, expires_at: '2026-11-06' })).toBe(
 			'32 photos · 12\u00a0selected · expired 3 days ago'
 		);
-		expect(line({ ...expired, expires_at: '2026-11-09' })).toContain('expired yesterday');
-		expect(line({ ...expired, expires_at: '2026-11-10' })).toContain('expired today');
+		expect(line({ ...expired, expires_at: '2026-11-08' })).toContain('expired yesterday');
+		expect(line({ ...expired, expires_at: '2026-11-09' })).toContain('expired today');
 		expect(line(expired)).toMatch(/ · expired$/);
 	});
 });
@@ -180,7 +180,7 @@ describe('gallerySummary in French', () => {
 			line({ ...base, states: ['delivered'] as never, final_count: 20, downloaded_count: 1 })
 		).toBe('20 photos retouchées · 1\u00a0téléchargée');
 		expect(
-			line({ ...base, states: ['shared', 'expired'] as never, expires_at: '2026-11-07' })
+			line({ ...base, states: ['shared', 'expired'] as never, expires_at: '2026-11-06' })
 		).toBe('32 photos · 12\u00a0sélectionnées · expirée il y a 3 jours');
 	});
 });

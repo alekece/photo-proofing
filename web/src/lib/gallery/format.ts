@@ -123,7 +123,7 @@ function expiredAgo(iso: string | null, now: Date): string {
 	const days = CALENDAR_DATE_RE.test(iso)
 		? Math.floor(
 				(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) -
-					Date.parse(`${iso}T00:00:00Z`)) /
+					(Date.parse(`${iso}T00:00:00Z`) + DAY_MS)) /
 					DAY_MS
 			)
 		: Math.floor((now.getTime() - new Date(iso).getTime()) / DAY_MS);

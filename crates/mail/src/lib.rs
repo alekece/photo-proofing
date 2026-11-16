@@ -93,7 +93,15 @@ pub struct CoverPhoto {
 }
 
 /// Complete data required to build one Warm Paper multipart email message.
-#[derive(Debug, Clone)]
+///
+/// `Debug` is intentionally omitted because `share_url` carries a bearer gallery token alongside
+/// recipient and message PII.
+///
+/// ```compile_fail
+/// fn assert_debug<T: std::fmt::Debug>() {}
+/// assert_debug::<pp_mail::WarmPaperEmail>();
+/// ```
+#[derive(Clone)]
 pub struct WarmPaperEmail {
     pub from_email: Email,
     pub from_name: Option<String>,
@@ -114,6 +122,134 @@ pub struct WarmPaperEmail {
     pub share_url: String,
     pub access_code: Option<GalleryAccessCode>,
     pub expires_at: Option<Date>,
+}
+
+impl WarmPaperEmail {
+    /// Sanitizes display names so CR/LF or control characters can never inject mail headers.
+    fn sanitize_display_name(raw: Option<&str>) -> Option<String> {
+        let raw = raw?;
+        let cleaned: String = raw.chars().filter(|ch| !ch.is_control()).collect();
+        let trimmed = cleaned.trim();
+
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        Some(trimmed.to_owned())
+    }
+
+    fn mailbox(name: Option<&str>, email: &Email) -> Result<Mailbox, MailError> {
+        Ok(Mailbox::new(
+            Self::sanitize_display_name(name),
+            email.as_str().parse()?,
+        ))
+    }
+
+    fn effective_title(&self, copy: EmailCopy) -> &str {
+        let trimmed = self.gallery_title.trim();
+
+        if trimmed.is_empty() {
+            copy.untitled_gallery()
+        } else {
+            trimmed
+        }
+    }
+
+    /// Assembles the RFC 5322 / MIME `multipart/alternative` (and `multipart/related` when inline
+    /// CID images are present) message ready for SMTP delivery.
+    pub fn into_message(self) -> Result<Message, MailError> {
+        let copy = EmailCopy {
+            kind: self.kind,
+            language: self.language,
+        };
+        let inline_logo = self
+            .logo_png
+            .as_ref()
+            .filter(|_| self.signature.shows_logo())
+            .cloned();
+        let studio = self.studio_name.trim();
+        let studio_header = (self.signature.shows_name() && !studio.is_empty()).then_some(studio);
+        let logo_alt = if studio.is_empty() { "Studio" } else { studio };
+        let title = self.effective_title(copy);
+        let meta_line = copy.format_meta_line(self.shoot_date, self.photo_count);
+        let expiry_line = self.expires_at.map(|date| copy.format_expiry(date));
+        let access_code = self.access_code.as_ref().map(GalleryAccessCode::as_str);
+        let cover_focal = self
+            .cover
+            .as_ref()
+            .map(|cover| (cover.focal_point.x.get(), cover.focal_point.y.get()));
+        let message_lines = self.message.as_str().split('\n').collect::<Vec<_>>();
+
+        let plain = WarmPaperTextTemplate {
+            studio_header,
+            eyebrow: copy.eyebrow(),
+            title,
+            meta_line: &meta_line,
+            message: self.message.as_str(),
+            access_code_label: copy.access_code_label(),
+            access_code,
+            cta: copy.cta(),
+            share_url: &self.share_url,
+            expiry_line: expiry_line.as_deref(),
+        }
+        .render()?;
+        let html = WarmPaperHtmlTemplate {
+            lang: copy.lang_code(),
+            has_logo: inline_logo.is_some(),
+            logo_cid: LOGO_CID,
+            logo_alt,
+            studio_header,
+            cover_cid: COVER_CID,
+            cover_focal,
+            eyebrow: copy.eyebrow(),
+            title,
+            meta_line: &meta_line,
+            message_lines,
+            access_code_label: copy.access_code_label(),
+            access_code,
+            share_url: &self.share_url,
+            cta: copy.cta(),
+            expiry_line: expiry_line.as_deref(),
+        }
+        .render()?;
+
+        let mut builder = Message::builder()
+            .from(Self::mailbox(self.from_name.as_deref(), &self.from_email)?)
+            .to(Self::mailbox(self.to_name.as_deref(), &self.to_email)?)
+            .subject(self.subject.as_str());
+
+        if let Some(reply_to) = &self.reply_to {
+            builder = builder.reply_to(Self::mailbox(None, reply_to)?);
+        }
+
+        let inline_cover = self.cover.map(|cover| cover.jpeg);
+
+        let multipart = if inline_logo.is_some() || inline_cover.is_some() {
+            let mut related = MultiPart::related().singlepart(SinglePart::html(html));
+
+            if let Some(logo_bytes) = inline_logo {
+                let logo_part = Attachment::new_inline(LOGO_CID.to_owned())
+                    .body(Body::new(logo_bytes), ContentType::parse("image/png")?);
+
+                related = related.singlepart(logo_part);
+            }
+
+            if let Some(cover_bytes) = inline_cover {
+                let cover_part = Attachment::new_inline(COVER_CID.to_owned())
+                    .body(Body::new(cover_bytes), ContentType::parse("image/jpeg")?);
+
+                related = related.singlepart(cover_part);
+            }
+
+            MultiPart::alternative()
+                .singlepart(SinglePart::plain(plain))
+                .multipart(related)
+        } else {
+            MultiPart::alternative_plain_html(plain, html)
+        };
+
+        Ok(builder.multipart(multipart)?)
+    }
 }
 
 /// Localized copy and formatting rules for one `(EmailKind, Language)` pair.
@@ -259,134 +395,6 @@ struct WarmPaperTextTemplate<'a> {
     cta: &'static str,
     share_url: &'a str,
     expiry_line: Option<&'a str>,
-}
-
-impl WarmPaperEmail {
-    /// Sanitizes display names so CR/LF or control characters can never inject mail headers.
-    fn sanitize_display_name(raw: Option<&str>) -> Option<String> {
-        let raw = raw?;
-        let cleaned: String = raw.chars().filter(|ch| !ch.is_control()).collect();
-        let trimmed = cleaned.trim();
-
-        if trimmed.is_empty() {
-            return None;
-        }
-
-        Some(trimmed.to_owned())
-    }
-
-    fn mailbox(name: Option<&str>, email: &Email) -> Result<Mailbox, MailError> {
-        Ok(Mailbox::new(
-            Self::sanitize_display_name(name),
-            email.as_str().parse()?,
-        ))
-    }
-
-    fn effective_title(&self, copy: EmailCopy) -> &str {
-        let trimmed = self.gallery_title.trim();
-
-        if trimmed.is_empty() {
-            copy.untitled_gallery()
-        } else {
-            trimmed
-        }
-    }
-
-    /// Assembles the RFC 5322 / MIME `multipart/alternative` (and `multipart/related` when inline
-    /// CID images are present) message ready for SMTP delivery.
-    pub fn into_message(self) -> Result<Message, MailError> {
-        let copy = EmailCopy {
-            kind: self.kind,
-            language: self.language,
-        };
-        let inline_logo = self
-            .logo_png
-            .as_ref()
-            .filter(|_| self.signature.shows_logo())
-            .cloned();
-        let studio = self.studio_name.trim();
-        let studio_header = (self.signature.shows_name() && !studio.is_empty()).then_some(studio);
-        let logo_alt = if studio.is_empty() { "Studio" } else { studio };
-        let title = self.effective_title(copy);
-        let meta_line = copy.format_meta_line(self.shoot_date, self.photo_count);
-        let expiry_line = self.expires_at.map(|date| copy.format_expiry(date));
-        let access_code = self.access_code.as_ref().map(GalleryAccessCode::as_str);
-        let cover_focal = self
-            .cover
-            .as_ref()
-            .map(|cover| (cover.focal_point.x.get(), cover.focal_point.y.get()));
-        let message_lines = self.message.as_str().split('\n').collect::<Vec<_>>();
-
-        let plain = WarmPaperTextTemplate {
-            studio_header,
-            eyebrow: copy.eyebrow(),
-            title,
-            meta_line: &meta_line,
-            message: self.message.as_str(),
-            access_code_label: copy.access_code_label(),
-            access_code,
-            cta: copy.cta(),
-            share_url: &self.share_url,
-            expiry_line: expiry_line.as_deref(),
-        }
-        .render()?;
-        let html = WarmPaperHtmlTemplate {
-            lang: copy.lang_code(),
-            has_logo: inline_logo.is_some(),
-            logo_cid: LOGO_CID,
-            logo_alt,
-            studio_header,
-            cover_cid: COVER_CID,
-            cover_focal,
-            eyebrow: copy.eyebrow(),
-            title,
-            meta_line: &meta_line,
-            message_lines,
-            access_code_label: copy.access_code_label(),
-            access_code,
-            share_url: &self.share_url,
-            cta: copy.cta(),
-            expiry_line: expiry_line.as_deref(),
-        }
-        .render()?;
-
-        let mut builder = Message::builder()
-            .from(Self::mailbox(self.from_name.as_deref(), &self.from_email)?)
-            .to(Self::mailbox(self.to_name.as_deref(), &self.to_email)?)
-            .subject(self.subject.as_str());
-
-        if let Some(reply_to) = &self.reply_to {
-            builder = builder.reply_to(Self::mailbox(None, reply_to)?);
-        }
-
-        let inline_cover = self.cover.map(|cover| cover.jpeg);
-
-        let multipart = if inline_logo.is_some() || inline_cover.is_some() {
-            let mut related = MultiPart::related().singlepart(SinglePart::html(html));
-
-            if let Some(logo_bytes) = inline_logo {
-                let logo_part = Attachment::new_inline(LOGO_CID.to_owned())
-                    .body(Body::new(logo_bytes), ContentType::parse("image/png")?);
-
-                related = related.singlepart(logo_part);
-            }
-
-            if let Some(cover_bytes) = inline_cover {
-                let cover_part = Attachment::new_inline(COVER_CID.to_owned())
-                    .body(Body::new(cover_bytes), ContentType::parse("image/jpeg")?);
-
-                related = related.singlepart(cover_part);
-            }
-
-            MultiPart::alternative()
-                .singlepart(SinglePart::plain(plain))
-                .multipart(related)
-        } else {
-            MultiPart::alternative_plain_html(plain, html)
-        };
-
-        Ok(builder.multipart(multipart)?)
-    }
 }
 
 /// Configured asynchronous SMTP transport shared across worker jobs.

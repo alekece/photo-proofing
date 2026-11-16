@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getLocalTimeZone, today } from '@internationalized/date';
+	import { today } from '@internationalized/date';
 	import { m } from '#lib/paraglide/messages.js';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
@@ -21,7 +21,7 @@
 	let { expiresAt, onsave, onclose }: Props = $props();
 
 	const id = $props.id();
-	const minDay = today(getLocalTimeZone()).toString();
+	const minDay = today('UTC').toString();
 
 	let day = $state('');
 	let error = $state('');

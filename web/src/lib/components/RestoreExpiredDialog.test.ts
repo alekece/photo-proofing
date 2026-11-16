@@ -46,15 +46,23 @@ describe('Restore expired dialog', () => {
 		expect(onsave.mock.calls[0][0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 	});
 
-	it('does not offer days before today', async () => {
-		open();
+	it('does not offer days before the current UTC day, even in a negative timezone after 00:00Z', async () => {
+		const savedZone = process.env.TZ;
+		process.env.TZ = 'America/New_York';
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date('2026-11-02T01:00:00Z'));
 
-		await userEvent.setup().click(screen.getByLabelText('Open until'));
+		try {
+			open();
+			await userEvent
+				.setup({ advanceTimers: vi.advanceTimersByTime })
+				.click(screen.getByLabelText('Open until'));
 
-		const today = new Date().getDate();
-
-		if (today > 1) expect(thisMonth(String(today - 1)).hasAttribute('data-disabled')).toBe(true);
-		expect(thisMonth(String(today)).hasAttribute('data-disabled')).toBe(false);
+			expect(thisMonth('1').hasAttribute('data-disabled')).toBe(true);
+			expect(thisMonth('2').hasAttribute('data-disabled')).toBe(false);
+		} finally {
+			process.env.TZ = savedZone;
+		}
 	});
 
 	it('clears the expiry with No expiry', async () => {
