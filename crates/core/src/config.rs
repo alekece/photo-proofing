@@ -1,5 +1,4 @@
 use std::{
-    ffi::OsStr,
     fmt,
     num::{NonZeroU64, NonZeroUsize},
     path::{Path, PathBuf},
@@ -7,9 +6,7 @@ use std::{
     time::Duration,
 };
 
-use clap::{
-    Arg, Args, Command, Error as ClapError, ValueEnum, builder::TypedValueParser, error::ErrorKind,
-};
+use clap::{Args, ValueEnum};
 use clap_config_fallback::ConfigArgs;
 use derive_more::Display as DeriveDisplay;
 use serde::{Deserialize, Serialize};
@@ -175,7 +172,7 @@ pub enum SmtpTlsMode {
 
 /// Empty or NUL-bearing [`SmtpPassword`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[error("SMTP password must not be empty")]
+#[error("SMTP password must not be empty or contain NUL characters")]
 pub struct ParseSmtpPasswordError;
 
 /// Incomplete or invalid `[smtp]` operator configuration.
@@ -187,11 +184,13 @@ pub enum SmtpConfigError {
     InvalidHost,
     #[error("[smtp] username and password must both be set when SMTP authentication is used")]
     IncompleteCredentials,
+    #[error("[smtp] password must not be empty or contain NUL characters")]
+    InvalidPassword,
     #[error("[smtp] from_name must not contain control characters")]
     InvalidFromName,
 }
 
-/// SMTP authentication secret with redacted [`fmt::Debug`] and hidden CLI/env error output.
+/// SMTP authentication secret with redacted [`fmt::Debug`].
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct SmtpPassword(String);
@@ -199,14 +198,6 @@ pub struct SmtpPassword(String);
 impl SmtpPassword {
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-
-    pub const fn value_parser() -> SmtpPasswordValueParser {
-        SmtpPasswordValueParser
-    }
-
-    pub fn into_inner(self) -> String {
-        self.0
     }
 }
 
@@ -239,38 +230,6 @@ impl TryFrom<String> for SmtpPassword {
 impl From<SmtpPassword> for String {
     fn from(password: SmtpPassword) -> Self {
         password.0
-    }
-}
-
-/// Clap parser for [`SmtpPassword`] that omits [`clap::error::ContextKind::InvalidValue`] so
-/// `PP_SMTP_PASSWORD` values are never echoed on parse errors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SmtpPasswordValueParser;
-
-impl TypedValueParser for SmtpPasswordValueParser {
-    type Value = SmtpPassword;
-
-    fn parse_ref(
-        &self,
-        cmd: &Command,
-        arg: Option<&Arg>,
-        value: &OsStr,
-    ) -> Result<Self::Value, ClapError> {
-        match value
-            .to_str()
-            .ok_or(ParseSmtpPasswordError)
-            .and_then(SmtpPassword::from_str)
-        {
-            Ok(password) => Ok(password),
-            Err(error) => {
-                let flag = arg.map_or_else(|| "--smtp-password".to_owned(), ToString::to_string);
-
-                Err(cmd.clone().error(
-                    ErrorKind::ValueValidation,
-                    format!("invalid value for '{flag}': {error}"),
-                ))
-            }
-        }
     }
 }
 
@@ -333,11 +292,9 @@ pub struct SmtpConfig {
         id = "smtp_password",
         long = "smtp-password",
         env = "PP_SMTP_PASSWORD",
-        hide_env_values = true,
-        value_parser = SmtpPassword::value_parser()
+        hide_env_values = true
     )]
-    #[config(value_format = SmtpPassword::into_inner)]
-    pub password: Option<SmtpPassword>,
+    pub password: Option<String>,
     /// Envelope and `From` email address for outbound studio emails.
     #[arg(
         id = "smtp_from_email",
@@ -406,14 +363,17 @@ impl SmtpConfig {
 
         let credentials = match (&self.username, &self.password) {
             (None, None) => None,
-            (Some(raw_user), Some(password)) => {
+            (Some(raw_user), Some(raw_password)) => {
                 let user = raw_user.trim();
 
                 if user.is_empty() || user.chars().any(char::is_control) {
                     return Err(SmtpConfigError::IncompleteCredentials);
                 }
 
-                Some((user.to_owned(), password.clone()))
+                let password = SmtpPassword::try_from(raw_password.clone())
+                    .map_err(|_| SmtpConfigError::InvalidPassword)?;
+
+                Some((user.to_owned(), password))
             }
             (Some(_), None) | (None, Some(_)) => {
                 return Err(SmtpConfigError::IncompleteCredentials);
@@ -561,7 +521,7 @@ mod tests {
             port: 465,
             tls: SmtpTlsMode::Tls,
             username: Some("apikey".to_owned()),
-            password: Some(password),
+            password: Some(password.as_str().to_owned()),
             from_email: Some("studio@example.test".parse().unwrap()),
             from_name: Some("  Atelier Lumière  ".to_owned()),
             max_recipients_per_send: std::num::NonZeroUsize::new(25).unwrap(),
@@ -598,5 +558,23 @@ mod tests {
         assert_eq!(from_file.tls, SmtpTlsMode::Starttls);
         assert_eq!(from_file.from_email.as_str(), "studio@example.test");
         assert_eq!(from_file.max_recipients_per_send.get(), 30);
+    }
+
+    #[test]
+    fn smtp_resolve_rejects_empty_or_nul_password_without_echoing_secret() {
+        for raw_password in [String::new(), "top-secret\0bad".to_owned()] {
+            let config = SmtpConfig {
+                host: Some("smtp.example.test".to_owned()),
+                from_email: Some("studio@example.test".parse().unwrap()),
+                username: Some("apikey".to_owned()),
+                password: Some(raw_password),
+                ..SmtpConfig::default()
+            };
+            let error = config.resolve().unwrap_err();
+
+            assert_eq!(error, SmtpConfigError::InvalidPassword);
+            assert!(!error.to_string().contains("top-secret"));
+            assert!(!format!("{error:?}").contains("top-secret"));
+        }
     }
 }
