@@ -3,5 +3,6 @@
 
 pub mod access_code;
 pub mod generate;
+pub mod studio;
 pub mod timestamp;
 pub mod token;

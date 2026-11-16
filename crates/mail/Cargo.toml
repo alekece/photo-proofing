@@ -1,0 +1,20 @@
+[package]
+name = "pp-mail"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+askama.workspace = true
+lettre.workspace = true
+pp-core.workspace = true
+thiserror.workspace = true
+time = "0.3"
+
+[dev-dependencies]
+time = { version = "0.3", features = ["macros"] }
+tokio.workspace = true
+
+[lints]
+workspace = true

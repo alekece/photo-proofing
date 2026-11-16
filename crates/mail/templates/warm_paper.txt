@@ -1,0 +1,19 @@
+{%- if let Some(studio) = studio_header -%}
+{{ studio }}
+
+{% endif -%}
+{{ eyebrow }}
+{{ title }}
+{{ meta_line }}
+
+{{ message }}
+
+{% if let Some(code) = access_code -%}
+{{ access_code_label }}: {{ code }}
+
+{% endif -%}
+{{ cta }}: {{ share_url }}
+{%- if let Some(expiry) = expiry_line %}
+
+{{ expiry }}
+{%- endif %}
