@@ -2,25 +2,23 @@
 
 use std::sync::Arc;
 
-use pp_core::url::Origin;
+use pp_core::{types::studio::InvitationStage, url::Origin};
 use pp_database::{
     Database,
     auth::AuthRepository,
     contact::ContactRepository,
     gallery::{GalleryRepository, ShareToken},
     jobs::{EmailRecipient, SendEmail},
-    photo::{PhotoId, PhotoLocation},
+    photo::{PhotoId, PhotoKind, PhotoLocation, PhotoRepository, Watermarked},
     settings::SettingsRepository,
 };
+use pp_mail::{CoverPhoto, EmailKind, SmtpMailer, WarmPaperEmail};
 use pp_storage::{PhotoKey, PhotoStorage, StorageError, Variant};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
 use tracing::info;
 
-use crate::{
-    handlers::HandlerError,
-    mail::{CoverPhoto, SmtpMailer, WarmPaperEmail},
-};
+use crate::handlers::HandlerError;
 
 #[derive(Debug, Error)]
 enum SendEmailError {
@@ -146,6 +144,18 @@ impl SendEmailHandler {
             .await
             .map_err(HandlerError::failed)?;
 
+        let (kind, variant) = match payload.stage {
+            InvitationStage::Proofing => (PhotoKind::Proof, Watermarked(shared.watermark_enabled)),
+            InvitationStage::Finals => (PhotoKind::Final, Watermarked(false)),
+        };
+
+        let photo_count = self
+            .database
+            .repository::<PhotoRepository>()
+            .count_ready(shared.location, kind, variant)
+            .await
+            .map_err(HandlerError::failed)?;
+
         let cover = match shared.gallery.hero_id {
             Some(hero_id) => self
                 .read_cover_jpeg(shared.location, hero_id)
@@ -176,7 +186,9 @@ impl SendEmailHandler {
             logo_png: settings.logo,
             cover,
             gallery_title: shared.gallery.title.unwrap_or_default(),
-            stage: payload.stage,
+            shoot_date: shared.gallery.shoot_date,
+            photo_count,
+            kind: EmailKind::Invitation(payload.stage),
             language,
             message: payload.message,
             share_url,
@@ -208,7 +220,7 @@ mod tests {
     use pp_core::{
         config::{PhotoDir, SmtpSettings, SmtpTlsMode},
         email::{Email, EmailMessage, EmailSubject},
-        types::{access_code::GalleryAccessCode, generate::Generate, timestamp::Timestamp},
+        types::{access_code::GalleryAccessCode, generate::Generate},
         url::Origin,
     };
     use pp_database::{
@@ -221,8 +233,9 @@ mod tests {
         settings::{CoverSignature, LogoChange, SettingsRepository, SettingsUpdate},
         tests::TestRepository,
     };
+    use pp_mail::SmtpMailer;
     use pp_storage::{PhotoKey, PhotoStorage, Variant};
-    use serde_json::from_str;
+    use time::{Date, Month};
     use tokio::{
         io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
         net::TcpListener,
@@ -230,10 +243,7 @@ mod tests {
     };
 
     use super::SendEmailHandler;
-    use crate::{
-        handlers::{CompleteJob, Finalizer},
-        mail::SmtpMailer,
-    };
+    use crate::handlers::{CompleteJob, Finalizer};
 
     #[derive(Debug, Clone)]
     struct CapturedMail {
@@ -368,14 +378,47 @@ mod tests {
             gallery_id: gallery.id,
         };
         let photo_id = PhotoId::generate();
+        let second_proof_id = PhotoId::generate();
+        let unready_proof_id = PhotoId::generate();
+        let ready_final_id = PhotoId::generate();
+        let unready_final_id = PhotoId::generate();
+
+        for id in [photo_id, second_proof_id] {
+            sqlx::query(
+                "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height,
+                                     status, clean_ready)
+                 VALUES ($1, $2, $3, 'cover.jpg', 5, 2, 2, 'ready', TRUE)",
+            )
+            .bind(id)
+            .bind(workspace_id)
+            .bind(gallery.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
         sqlx::query(
             "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height,
                                  status, clean_ready)
-             VALUES ($1, $2, $3, 'cover.jpg', 5, 2, 2, 'ready', TRUE)",
+             VALUES ($1, $2, $3, 'processing.jpg', 5, 2, 2, 'processing', FALSE)",
         )
-        .bind(photo_id)
+        .bind(unready_proof_id)
         .bind(workspace_id)
         .bind(gallery.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height,
+                                 kind, status, clean_ready)
+             VALUES ($1, $2, $3, 'final.jpg', 5, 2, 2, 'final', 'ready', FALSE),
+                    ($4, $2, $3, 'final2.jpg', 5, 2, 2, 'final', 'processing', FALSE)",
+        )
+        .bind(ready_final_id)
+        .bind(workspace_id)
+        .bind(gallery.id)
+        .bind(unready_final_id)
         .execute(&pool)
         .await
         .unwrap();
@@ -387,6 +430,12 @@ mod tests {
                 gallery.id,
                 &GalleryChanges {
                     title: Some(Some("Clara & Julien".to_owned())),
+                    shoot_date: Some(Some(
+                        Date::from_calendar_date(2026, Month::May, 10).unwrap(),
+                    )),
+                    expires_at: Some(Some(
+                        Date::from_calendar_date(2030, Month::June, 14).unwrap(),
+                    )),
                     access_code: Some(Some(code)),
                     hero_id: Some(Some(photo_id)),
                     ..GalleryChanges::default()
@@ -494,14 +543,18 @@ mod tests {
                     || from_header.contains("U3R1ZGlvIEx1bWnDqHJl")),
             "configured studio_name must take precedence over fallback smtp.from_name in From header, got: {from_header}"
         );
-        let decoded_alice = alice_mail.data.replace("=\r\n", "").replace("=3D", "=");
-        assert!(decoded_alice.contains(&format!(
-            "https://photos.example.test/g/{}",
-            alice_token.as_str()
-        )));
+        let decoded_alice = alice_mail
+            .data
+            .replace("=\r\n", "")
+            .replace("=3D", "=")
+            .replace("=C2=B7", "·");
+        let alice_url = format!("https://photos.example.test/g/{}", alice_token.as_str());
+        assert!(decoded_alice.contains(&alice_url));
         assert!(!decoded_alice.contains(general_token.as_str()));
         assert!(!decoded_alice.contains("archive@example.test"));
-        assert!(decoded_alice.contains("739104"));
+        assert!(decoded_alice.contains("10 May 2026 · 2 photos"));
+        assert!(decoded_alice.contains("Available until 14 Jun 2030"));
+        assert!(decoded_alice.find("739104").unwrap() < decoded_alice.find(&alice_url).unwrap());
         assert!(alice_mail.data.contains("Reply-To: studio@example.test"));
         assert!(
             alice_mail
@@ -513,7 +566,11 @@ mod tests {
             .iter()
             .find(|m| m.rcpt_to.iter().any(|r| r.contains("archive@example.test")))
             .unwrap();
-        let decoded_bcc = bcc_mail.data.replace("=\r\n", "").replace("=3D", "=");
+        let decoded_bcc = bcc_mail
+            .data
+            .replace("=\r\n", "")
+            .replace("=3D", "=")
+            .replace("=C2=B7", "·");
         assert!(decoded_bcc.contains(&format!(
             "https://photos.example.test/g/{}",
             general_token.as_str()
@@ -521,6 +578,56 @@ mod tests {
         assert!(!decoded_bcc.contains(alice_token.as_str()));
         assert!(!decoded_bcc.contains("alice@example.test"));
         assert!(decoded_bcc.contains("739104"));
+        drop(sent);
+
+        // Delivering the gallery switches the invitation stage to Finals and counts ready finals (1).
+        database
+            .repository::<GalleryRepository>()
+            .deliver(workspace_id, gallery.id)
+            .await
+            .unwrap();
+        database
+            .repository::<GalleryRepository>()
+            .queue_invitations(
+                workspace_id,
+                gallery.id,
+                &InvitationBatch {
+                    subject: "Clara & Julien — Finals".parse::<EmailSubject>().unwrap(),
+                    message: "Your finished photos are ready."
+                        .parse::<EmailMessage>()
+                        .unwrap(),
+                    to: vec![InvitationContact {
+                        email: "alice@example.test".parse::<Email>().unwrap(),
+                        name: None,
+                    }],
+                    bcc: vec![],
+                },
+                JobOptions::default(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        let finals_job = database
+            .repository::<JobRepository>()
+            .claim(&[JobKind::SendEmail], std::time::Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap();
+        let finals_payload: SendEmail = finals_job.payload().unwrap();
+        Arc::clone(&handler).run(finals_payload).await.unwrap();
+        let completion = finalizer.finalize(&finals_job, ()).await.unwrap();
+        assert!(completion.is_current());
+
+        let sent = smtp_server.messages.lock().await;
+        assert_eq!(sent.len(), 3);
+        let finals_decoded = sent[2]
+            .data
+            .replace("=\r\n", "")
+            .replace("=3D", "=")
+            .replace("=C2=B7", "·");
+        assert!(finals_decoded.contains("10 May 2026 · 1 photo"));
+        assert!(!finals_decoded.contains("10 May 2026 · 1 photos"));
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -639,7 +746,7 @@ mod tests {
                 gallery.id,
                 &GalleryChanges {
                     expires_at: Some(Some(
-                        from_str::<Timestamp>("\"2020-01-01T00:00:00Z\"").unwrap(),
+                        Date::from_calendar_date(2020, Month::January, 1).unwrap(),
                     )),
                     ..GalleryChanges::default()
                 },

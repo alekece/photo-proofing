@@ -262,7 +262,7 @@ jobs:
         include:
           - name: api
             file: docker/api.Dockerfile
-          - name: image-worker
+          - name: worker
             file: docker/worker.Dockerfile
           - name: web
             file: docker/web.production.Dockerfile

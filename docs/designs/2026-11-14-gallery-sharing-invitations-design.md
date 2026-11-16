@@ -2,7 +2,7 @@
 
 Issue: [#348](https://github.com/alekece/photo-proofing/issues/348). Builds on `GalleryStudio` ([#342](https://github.com/alekece/photo-proofing/issues/342)), workspace & gallery contacts ([#339](https://github.com/alekece/photo-proofing/issues/339)), and 6-digit gallery access codes ([#344](https://github.com/alekece/photo-proofing/issues/344)). Prepares shared SMTP transport and Warm Paper email rendering for automatic expiration reminders ([#349](https://github.com/alekece/photo-proofing/issues/349)) and sent-email activity events ([#350](https://github.com/alekece/photo-proofing/issues/350)).
 
-Touches `Cargo.toml`, `deny.toml` (only if required by permissive TLS crates), `config.example.toml`, `crates/core`, `crates/database`, `crates/api`, `crates/image-worker`, `web/`, `docs/SPECIFICATIONS.md`, `docs/releases/MVP.md`, and `docs/designs/ui/screens/gallery.md`. Requires no SQL schema migration (`jobs.payload` is already tagged JSONB).
+Touches `Cargo.toml`, `deny.toml` (only if required by permissive TLS crates), `config.example.toml`, `crates/core`, `crates/database`, `crates/mail`, `crates/api`, `crates/worker`, `web/`, `docs/SPECIFICATIONS.md`, `docs/releases/MVP.md`, and `docs/designs/ui/screens/gallery.md`. Requires no SQL schema migration (`jobs.payload` is already tagged JSONB).
 
 ## Intent
 
@@ -34,10 +34,10 @@ Sharing a gallery should feel like a complete, editorial client communication wo
   - The server-side invitation endpoint atomically transitions a `Draft` gallery to shared (`Prepublish`, generating `galleries.share_token` if absent and locking the access code), upserts/links `To` contacts, and enqueues outbound email jobs.
   - When the gallery is in `Publish` (`delivered`), default subject, default message body, and photo count reflect finished-photo delivery.
 - **Optional `[smtp]` configuration & durable worker delivery (`crates/`):**
-  - Optional `[smtp]` section shared by `pp-api` and `pp-image-worker` (`host`, `port`, `tls` mode `tls | starttls | none` for local LAN / Mailpit trials, optional `username` and redacted `password` via `PP_SMTP_PASSWORD`, `from_email`, and optional `from_name`), documented with synthetic placeholders in `config.example.toml`.
+  - Optional `[smtp]` section shared by `pp-api` and `pp-worker` (`host`, `port`, `tls` mode `tls | starttls | none` for local LAN / Mailpit trials, optional `username` and redacted `password` via `PP_SMTP_PASSWORD`, `from_email`, and optional `from_name`), documented with synthetic placeholders in `config.example.toml`.
   - Expose `email_enabled: bool` on `GET /api/v1/settings` (`SettingsView`). When `email_enabled` is `false`, `Studio → Share` shows a clear informational banner explaining SMTP is not configured on this installation and pointing to `Settings → Privacy & Protection` for the direct client link, while disabling `Send invitation`.
-  - Share `app_origin` (`Origin`) across `pp-core`, `pp-api`, and `pp-image-worker` so `JobPayload::SendEmail` stores **only** identifiers and text (`workspace_id`, `gallery_id`, recipient enum `Contact(ContactId)` vs `Bcc(Email)`, `stage`, `subject`, `message`) — never plaintext `ShareToken`s or 6-digit access codes in `jobs.payload`.
-  - `pp-image-worker` resolves the gallery, workspace settings, studio account `Reply-To` email, cover thumbnail + logo files from `PhotoStorage`, recipient URL (`/g/{per_contact_token}` for `To`, `/g/{gallery_share_token}` for `BCC`), and 6-digit `GalleryAccessCode` at send time, building an individual multipart (`text/plain` + `text/html` with inline `cid:` cover JPEG and PNG logo when present) email via `lettre` and sending one message per recipient (`BCC` recipients never see other recipients).
+  - Share `app_origin` (`Origin`) across `pp-core`, `pp-api`, and `pp-worker` so `JobPayload::SendEmail` stores **only** identifiers and text (`workspace_id`, `gallery_id`, recipient enum `Contact(ContactId)` vs `Bcc(Email)`, `stage`, `subject`, `message`) — never plaintext `ShareToken`s or 6-digit access codes in `jobs.payload`.
+  - `pp-worker` resolves the gallery, workspace settings, studio account `Reply-To` email, stage-ready photo count, cover thumbnail + logo files from `PhotoStorage`, recipient URL (`/g/{per_contact_token}` for `To`, `/g/{gallery_share_token}` for `BCC`), and 6-digit `GalleryAccessCode` at send time, building an individual multipart (`text/plain` + `text/html` with inline `cid:` cover JPEG and PNG logo when present) email via `pp-mail` (`askama` + `lettre`) and sending one message per recipient (`BCC` recipients never see other recipients).
 
 ## Non-goals
 
@@ -60,15 +60,15 @@ Sharing a gallery should feel like a complete, editorial client communication wo
   - Zero free functions outside `#[cfg(test)]`.
   - Put shared `SmtpConfig` (with redacted `Debug` on `SmtpPassword`) in `pp-core::config` (flattened into `ApiConfig` and `WorkerConfig`; `ApiConfig` only needs to know whether `[smtp]` is configured + validate config consistently, while `WorkerConfig` constructs the `Mailer` and also reads `[auth] app_origin`).
   - If the worker lacks `[smtp]`, `SendEmail` fails explicitly so retries/operators see the misconfiguration rather than silently dropping the email.
-  - If the gallery was deleted, archived, or expired (`expires_at <= now()`), or if a `To` contact was unlinked/deleted before the worker runs the job, complete the job cleanly as a no-op so dead links are never emailed *(design call)*.
+  - If the gallery was deleted, archived, or expired (`expires_at < (now() AT TIME ZONE 'UTC')::date`), or if a `To` contact was unlinked/deleted before the worker runs the job, complete the job cleanly as a no-op so dead links are never emailed *(design call)*.
 - **Frontend (`web/AGENTS.md`):**
   - PascalCase Svelte components (`GallerySharePanel.svelte`), all strings in `web/messages/{en,fr}.json` (both UI controls and default EN/FR email subject/body + worker email labels following workspace `Language`), zero `vitest-axe` violations, and clean responsive layout down to `390 px`.
 
 ## Approaches
 
-- **A. Per-recipient `JobPayload::SendEmail` resolved in `pp-image-worker` + inline `cid:` cover/logo parts (chosen).**
+- **A. Per-recipient `JobPayload::SendEmail` resolved in `pp-worker` + inline `cid:` cover/logo parts via `pp-mail` (chosen).**
   - `POST /api/v1/galleries/{id}/invitations` runs one DB transaction that shares the gallery if still in `Draft`, upserts/links `To` contacts, and enqueues one `SendEmail` job per recipient carrying only IDs and text.
-  - `pp-image-worker` loads current state (including any `GalleryAccessCode` on the gallery), attaches existing `PhotoStorage` clean cover thumbnail JPEG (`Variant::Thumbnail`) and `WorkspaceSettings.logo` PNG as `cid:` inline parts (`multipart/alternative` + `multipart/related`), and sends via `lettre`.
+  - `pp-worker` loads current state (including any `GalleryAccessCode` on the gallery), attaches existing `PhotoStorage` clean cover thumbnail JPEG (`Variant::Thumbnail`) and `WorkspaceSettings.logo` PNG as `cid:` inline parts (`multipart/alternative` + `multipart/related`) via `pp-mail`, and sends via `lettre`.
   - *Trade-off:* Moves `app_origin` + `[smtp]` into shared config read by the worker, in exchange for zero secret leakage in `jobs.payload`, independent per-recipient retries without extra tracking tables, reliable images on private LANs and webmail, and turnkey reuse in #349 and #350.
 - **B. Single batch job per send + remote `<img src>` URLs.**
   - Fewer rows in `jobs`, but partial SMTP failures either duplicate emails to earlier recipients on retry or need a separate batch-recipient state table, and remote `<img src>` URLs fail on private LANs and webmail image proxies; rejected.
@@ -85,7 +85,7 @@ Sharing a gallery should feel like a complete, editorial client communication wo
     - `message: EmailMessage` (trimmed, `1..=5000` chars, no NUL)
   - Rejects with:
     - `503 Service Unavailable` (`email_unavailable`) when `[smtp]` is not configured;
-    - `409 Conflict` (`gallery_archived` or `gallery_expired`) when the gallery is archived or expired (`expires_at <= now()`); in `Studio → Share`, an expired gallery shows an inline notice pointing to `Settings → General → Open until` and disables `Send invitation` *(design call)*;
+    - `409 Conflict` (`gallery_archived` or `gallery_expired`) when the gallery is archived or expired (`expires_at < (now() AT TIME ZONE 'UTC')::date`); in `Studio → Share`, an expired gallery shows an inline notice pointing to `Settings → General → Open until` and disables `Send invitation` *(design call)*;
     - `400 Bad Request` when `to.is_empty() && bcc.is_empty()`, when total recipients (`to.len() + bcc.len()`) exceed an operator-configurable cap (`[smtp] max_recipients_per_send`, default `50`), or when subject/message fail validation.
   - Deduplicates recipients case-insensitively (`to` wins if the same email is listed in both `to` and `bcc`).
   - For each `to` entry: finds existing workspace contact by normalized `Email` or creates one (using supplied `name` or fallback derived from the email's local part), then idempotently links `(gallery_id, contact_id)` in `gallery_contacts`.

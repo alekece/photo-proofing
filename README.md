@@ -93,7 +93,7 @@ it defaults to `./data/photos`, which must exist and be shared by both processes
 ## Published images
 
 Successful `main` builds publish private images as `ghcr.io/alekece/pp-api`,
-`ghcr.io/alekece/pp-image-worker`, and `ghcr.io/alekece/pp-web`, each tagged
+`ghcr.io/alekece/pp-worker`, and `ghcr.io/alekece/pp-web`, each tagged
 `sha-<full-commit-sha>`. The Git tag `staging` points to the newest commit with
 all three images published and advances only forward. The production web image
 listens on port `3000`; `PP_API_INTERNAL_URL` is required (the API's internal URL) and
@@ -191,7 +191,7 @@ Run each process in its own terminal; stop with `Ctrl-C`:
 
 ```sh
 cargo run -p pp-api
-cargo run -p pp-image-worker
+cargo run -p pp-worker
 pnpm --dir web dev
 ```
 

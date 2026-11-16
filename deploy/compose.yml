@@ -64,7 +64,7 @@ services:
 
   worker:
     <<: *runtime
-    image: ghcr.io/alekece/pp-image-worker:staging
+    image: ghcr.io/alekece/pp-worker:staging
     environment: *app-config
     volumes:
       - photo-data:/var/lib/pp/photos
