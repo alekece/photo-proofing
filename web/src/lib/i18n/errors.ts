@@ -9,7 +9,6 @@ const CODES: Record<string, () => string> = {
 	gallery_locked: m.api_error_gallery_locked,
 	invalid_access_code: m.api_error_invalid_access_code,
 	access_code_locked: m.api_error_access_code_locked,
-	access_code_unavailable: m.api_error_access_code_unavailable,
 	email_unavailable: m.api_error_email_unavailable,
 	gallery_archived: m.api_error_gallery_archived,
 	gallery_expired: m.api_error_gallery_expired,

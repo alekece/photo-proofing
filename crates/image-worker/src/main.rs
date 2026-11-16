@@ -60,7 +60,6 @@ async fn main() -> Result<()> {
     let renderer = ImageRenderer::new(cli.worker.process.max_pixels)?;
     let storage = PhotoStorage::open(&cli.photo.dir).await?;
     let app_origin = cli.worker.auth.app_origin.clone();
-    let cipher = cli.worker.gallery_password.cipher();
     let mailer = cli
         .worker
         .smtp
@@ -105,7 +104,6 @@ async fn main() -> Result<()> {
             database.clone(),
             storage,
             app_origin,
-            cipher,
             mailer,
         ));
 

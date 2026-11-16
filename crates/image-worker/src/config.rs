@@ -5,7 +5,7 @@ use std::num::{NonZeroU8, NonZeroU64, NonZeroUsize};
 use clap::Args;
 use clap_config_fallback::ConfigArgs;
 use pp_core::{
-    config::{DEFAULT_MAX_PIXELS, DatabaseConfig, GalleryPasswordConfig, SmtpConfig},
+    config::{DEFAULT_MAX_PIXELS, DatabaseConfig, SmtpConfig},
     time::BoundedDuration,
     url::Origin,
 };
@@ -43,9 +43,6 @@ pub struct WorkerConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub auth: WorkerAuthConfig,
-    #[command(flatten)]
-    #[config(no_flatten)]
-    pub gallery_password: GalleryPasswordConfig,
     #[command(flatten)]
     #[config(no_flatten)]
     pub smtp: SmtpConfig,
@@ -247,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_config_file_parses_app_origin_password_key_and_smtp() {
+    fn shared_config_file_parses_app_origin_and_smtp() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("shared.toml");
         fs::write(
@@ -256,9 +253,6 @@ mod tests {
 [auth]
 app_origin = "https://photos.example.test"
 hash_concurrency = 4
-
-[gallery_password]
-encryption_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 [smtp]
 host = "smtp.example.test"
@@ -276,7 +270,6 @@ from_name = "Studio Lumière"
             worker.auth.app_origin.as_str(),
             "https://photos.example.test"
         );
-        assert!(worker.gallery_password.cipher().is_some());
         let smtp = worker.smtp.resolve().unwrap().unwrap();
 
         assert_eq!(smtp.host, "smtp.example.test");

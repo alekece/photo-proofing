@@ -9,7 +9,7 @@ Remove the unnecessary `PP_GALLERY_PASSWORD_KEY` operator secret and `ChaCha20-P
 ## Goals
 
 - **Plain validated `GalleryAccessCode` in PostgreSQL:**
-  - Replace `galleries.access_code_ciphertext bytea` with `galleries.access_code text CONSTRAINT galleries_access_code_digits CHECK (access_code IS NULL OR access_code ~ '^[0-9]{6}$')`.
+  - Replace `galleries.access_code_ciphertext bytea` with `galleries.access_code text CONSTRAINT galleries_access_code_six_digits CHECK (access_code IS NULL OR access_code ~ '^[0-9]{6}$')`.
   - Derive `sqlx::Type` (`#[sqlx(transparent)]`) on `GalleryAccessCode`, keeping redacted `fmt::Debug`, constant-time `verify`, and `GalleryAccessCode::serialize_presence` so `GalleryOverview` continues exposing only `access_code_protected: bool` while single-gallery photographer views return `access_code: Option<GalleryAccessCode>` and client responses omit it.
   - Migrate any existing row where `access_code_ciphertext IS NOT NULL` to a random 6-digit `access_code` before dropping `access_code_ciphertext` so locked galleries never silently become public.
 - **In-memory `UnlockCookieSigner` in `pp-api`:**

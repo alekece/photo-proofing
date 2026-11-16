@@ -39,7 +39,6 @@ pub(crate) enum ErrorCode {
     GalleryLocked,
     InvalidAccessCode,
     AccessCodeLocked,
-    AccessCodeUnavailable,
     EmailUnavailable,
     GalleryArchived,
     GalleryExpired,
@@ -150,14 +149,6 @@ impl ErrorResponse {
     pub fn invalid_access_code() -> Self {
         Self::new(StatusCode::UNAUTHORIZED, ErrorCode::InvalidAccessCode)
             .with_context("incorrect gallery access code")
-    }
-
-    pub fn access_code_unavailable() -> Self {
-        Self::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            ErrorCode::AccessCodeUnavailable,
-        )
-        .with_context("gallery access codes are not configured")
     }
 
     pub fn email_unavailable() -> Self {
@@ -476,7 +467,6 @@ mod tests {
             (ErrorCode::GalleryLocked, "gallery_locked"),
             (ErrorCode::InvalidAccessCode, "invalid_access_code"),
             (ErrorCode::AccessCodeLocked, "access_code_locked"),
-            (ErrorCode::AccessCodeUnavailable, "access_code_unavailable"),
             (ErrorCode::EmailUnavailable, "email_unavailable"),
             (ErrorCode::GalleryArchived, "gallery_archived"),
             (ErrorCode::GalleryExpired, "gallery_expired"),

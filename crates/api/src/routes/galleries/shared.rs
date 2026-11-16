@@ -176,27 +176,21 @@ async fn unlock_shared_gallery(
     link: SharedLinkAccess,
     input: Json<UnlockInput>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let Some(ciphertext) = &link.access.access_code_ciphertext else {
+    let Some(expected) = &link.access.access_code else {
         return Ok(HttpResponse::NoContent().no_store().no_referrer().finish());
     };
-    let cipher = state
-        .access_code_cipher()
-        .ok_or_else(ErrorResponse::access_code_unavailable)?;
-    let matches = cipher
-        .verify_code(link.access.location.gallery_id, ciphertext, &input.code)
-        .map_err(|_| ErrorResponse::access_code_unavailable())?;
 
-    if !matches {
+    if !expected.verify(&input.code) {
         return Err(ErrorResponse::invalid_access_code());
     }
 
     let existing = request
         .cookie(UNLOCK_COOKIE_NAME)
         .map(|cookie| cookie.value().to_owned());
-    let cookie_value = cipher.issue_unlock_cookie_value(
+    let cookie_value = state.unlock_cookie_signer().issue_unlock_cookie_value(
         existing.as_deref(),
         link.access.location.gallery_id,
-        ciphertext,
+        expected,
     );
 
     Ok(HttpResponse::NoContent()
@@ -497,10 +491,9 @@ mod tests {
         http::StatusCode,
         test,
     };
-    use pp_core::types::access_code::EncryptionKey;
     use pp_database::{
         Database,
-        gallery::{GalleryAccessCode, GalleryChanges, GalleryId, GalleryRepository, ShareToken},
+        gallery::{GalleryChanges, GalleryId, GalleryRepository, ShareToken},
         tests::TestRepository,
     };
     use serde_json::{Value, json};
@@ -523,10 +516,7 @@ mod tests {
         let database = Database::new(pool.clone());
         let store = database.repository::<GalleryRepository>();
         let id = store.create(workspace).await.unwrap().id;
-        let changes = serde_json::from_value::<GalleryChanges<GalleryAccessCode>>(changes)
-            .unwrap()
-            .try_map_access_code(|_| Err(()))
-            .unwrap();
+        let changes = serde_json::from_value::<GalleryChanges>(changes).unwrap();
 
         store.update(workspace, id, &changes).await.unwrap();
 
@@ -1523,26 +1513,7 @@ mod tests {
     #[sqlx::test(migrations = "../database/migrations")]
     async fn locked_gallery_serves_only_gate_cover_and_logo_until_unlocked(pool: PgPool) {
         let directory = tempfile::tempdir().unwrap();
-        let photo_dir: pp_core::config::PhotoDir =
-            directory.path().to_path_buf().try_into().unwrap();
-        let storage = pp_storage::PhotoStorage::open(&photo_dir).await.unwrap();
-        crate::upload::jpeg::install().unwrap();
-        let cfg = upload_config(1024, 100);
-        let key = "0123456789abcdef"
-            .repeat(4)
-            .parse::<EncryptionKey>()
-            .unwrap();
-        let state = crate::tests::state_with_upload(pool.clone(), storage, cfg.clone())
-            .with_gallery_password(&crate::config::GalleryPasswordConfig {
-                encryption_key: Some(key),
-            });
-        let app = test::init_service(
-            App::new()
-                .app_data(Data::new(crate::upload::limiter::UploadLimiter::from(&cfg)))
-                .app_data(Data::new(state))
-                .configure(configure_routes),
-        )
-        .await;
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let owner_cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &owner_cookie).await;
         let photo = photo_in(&app, &pool, &owner_cookie, &gallery_id, Progress::Ready).await;
@@ -1808,6 +1779,29 @@ mod tests {
             assert_eq!(body["locked"], false);
         }
 
+        // A restarted API instance generates a fresh in-memory UnlockCookieSigner, so old cookies re-lock.
+        let restarted_app =
+            crate::tests::app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let (restarted_gate_status, restarted_gate) = call(
+            &restarted_app,
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/galleries/shared/{token}"))
+                .cookie(both_cookie.clone()),
+        )
+        .await;
+        assert_eq!(restarted_gate_status, StatusCode::OK);
+        assert_eq!(restarted_gate["locked"], true);
+
+        let (restarted_photos_status, restarted_photos_err) = call(
+            &restarted_app,
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/galleries/shared/{token}/photos"))
+                .cookie(both_cookie.clone()),
+        )
+        .await;
+        assert_eq!(restarted_photos_status, StatusCode::UNAUTHORIZED);
+        assert_eq!(restarted_photos_err["code"], "gallery_locked");
+
         // Archiving or expiring a protected gallery returns 404 everywhere, even with a valid unlock cookie.
         call(
             &app,
@@ -1853,13 +1847,6 @@ mod tests {
     #[sqlx::test(migrations = "../database/migrations")]
     async fn wrong_unlock_attempts_are_rate_limited_per_peer(pool: PgPool) {
         let (state, _directory) = app_state(pool).await;
-        let key = "0123456789abcdef"
-            .repeat(4)
-            .parse::<EncryptionKey>()
-            .unwrap();
-        let state = state.with_gallery_password(&crate::config::GalleryPasswordConfig {
-            encryption_key: Some(key),
-        });
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(state))

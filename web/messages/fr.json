@@ -645,7 +645,6 @@
 	"api_error_gallery_locked": "Saisissez le code d’accès à 6 chiffres pour ouvrir cette galerie.",
 	"api_error_invalid_access_code": "Code d’accès incorrect. Vérifiez les 6 chiffres et réessayez.",
 	"api_error_access_code_locked": "Le code d’accès ne peut plus être modifié une fois la galerie partagée.",
-	"api_error_access_code_unavailable": "Les codes d’accès ne sont pas configurés sur ce serveur.",
 	"card_access_code_protected": "Protégée par un code d’accès",
 	"card_client_access_closed": "Fermée aux clients",
 	"card_favorited": "Galerie épinglée en favori",

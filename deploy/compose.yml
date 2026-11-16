@@ -18,7 +18,6 @@ x-app-config: &app-config
   PP_DATABASE_URL: ${PP_DATABASE_URL:?the secret manager must supply the URL-encoded database URL}
   # Default staging SMTP to the internal Mailpit catch-all container; override in stack/secret
   # manager when testing an external relay. Bare keys forward only when set (never empty strings).
-  PP_GALLERY_PASSWORD_KEY:
   PP_SMTP_HOST: ${PP_SMTP_HOST:-mailpit}
   PP_SMTP_PORT: ${PP_SMTP_PORT:-1025}
   PP_SMTP_TLS: ${PP_SMTP_TLS:-none}

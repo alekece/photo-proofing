@@ -2132,7 +2132,6 @@ dependencies = [
 name = "pp-image-worker"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
  "clap",
  "clap-config-fallback",
  "color-eyre",

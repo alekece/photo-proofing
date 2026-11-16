@@ -583,7 +583,7 @@ describe('gallery page', () => {
 
 		// Share must NOT fire while the access-code PATCH is still in flight, and must abort if PATCH fails.
 		expect(shareCalls).toHaveLength(0);
-		resolvePatch(Response.json({ code: 'access_code_unavailable' }, { status: 503 }));
+		resolvePatch(Response.json({ code: 'unavailable' }, { status: 503 }));
 
 		await screen.findByText('Couldn’t share the gallery. Please try again.');
 		expect(shareCalls).toHaveLength(0);

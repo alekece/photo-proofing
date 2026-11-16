@@ -36,8 +36,8 @@ Sharing a gallery should feel like a complete, editorial client communication wo
 - **Optional `[smtp]` configuration & durable worker delivery (`crates/`):**
   - Optional `[smtp]` section shared by `pp-api` and `pp-image-worker` (`host`, `port`, `tls` mode `tls | starttls | none` for local LAN / Mailpit trials, optional `username` and redacted `password` via `PP_SMTP_PASSWORD`, `from_email`, and optional `from_name`), documented with synthetic placeholders in `config.example.toml`.
   - Expose `email_enabled: bool` on `GET /api/v1/settings` (`SettingsView`). When `email_enabled` is `false`, `Studio → Share` shows a clear informational banner explaining SMTP is not configured on this installation and pointing to `Settings → Privacy & Protection` for the direct client link, while disabling `Send invitation`.
-  - Share `[gallery_password]` (`AccessCodeCipher` / `EncryptionKey`) and `app_origin` (`Origin`) across `pp-core`, `pp-api`, and `pp-image-worker` so `JobPayload::SendEmail` stores **only** identifiers and text (`workspace_id`, `gallery_id`, recipient enum `Contact(ContactId)` vs `Bcc(Email)`, `stage`, `subject`, `message`) — never plaintext `ShareToken`s or 6-digit access codes in `jobs.payload`.
-  - `pp-image-worker` resolves the gallery, workspace settings, studio account `Reply-To` email, cover thumbnail + logo files from `PhotoStorage`, recipient URL (`/g/{per_contact_token}` for `To`, `/g/{gallery_share_token}` for `BCC`), and decrypted 6-digit access code at send time, building an individual multipart (`text/plain` + `text/html` with inline `cid:` cover JPEG and PNG logo when present) email via `lettre` and sending one message per recipient (`BCC` recipients never see other recipients).
+  - Share `app_origin` (`Origin`) across `pp-core`, `pp-api`, and `pp-image-worker` so `JobPayload::SendEmail` stores **only** identifiers and text (`workspace_id`, `gallery_id`, recipient enum `Contact(ContactId)` vs `Bcc(Email)`, `stage`, `subject`, `message`) — never plaintext `ShareToken`s or 6-digit access codes in `jobs.payload`.
+  - `pp-image-worker` resolves the gallery, workspace settings, studio account `Reply-To` email, cover thumbnail + logo files from `PhotoStorage`, recipient URL (`/g/{per_contact_token}` for `To`, `/g/{gallery_share_token}` for `BCC`), and 6-digit `GalleryAccessCode` at send time, building an individual multipart (`text/plain` + `text/html` with inline `cid:` cover JPEG and PNG logo when present) email via `lettre` and sending one message per recipient (`BCC` recipients never see other recipients).
 
 ## Non-goals
 
@@ -58,9 +58,8 @@ Sharing a gallery should feel like a complete, editorial client communication wo
 - **Dependencies (`Cargo.toml` & `deny.toml`):** Add `lettre` in `[workspace.dependencies]` with minimal features (`builder`, `smtp-transport`, `tokio1-rustls-tls` or compatible async transport) verified against `cargo deny check` (advisories, licenses, bans).
 - **Rust rules (`crates/AGENTS.md` & `REVIEW.md`):**
   - Zero free functions outside `#[cfg(test)]`.
-  - Move `AccessCodeCipher` / `EncryptionKey` from `crates/api/src/access_code.rs` into `pp-core` (keeping client unlock-cookie encoding in `pp-api` or `pp-core` cleanly) so both `pp-api` and `pp-image-worker` decrypt `access_code_ciphertext` without duplicating crypto code.
-  - Put shared `SmtpConfig` (with redacted `Debug` on `SmtpPassword`) in `pp-core::config` (flattened into `ApiConfig` and `WorkerConfig`; `ApiConfig` only needs to know whether `[smtp]` is configured + validate config consistently, while `WorkerConfig` constructs the `Mailer` and also reads `[auth] app_origin` and `[gallery_password] encryption_key`).
-  - If a gallery has `access_code_ciphertext IS NOT NULL` and the worker lacks `PP_GALLERY_PASSWORD_KEY`, or if the worker lacks `[smtp]`, `SendEmail` fails explicitly so retries/operators see the misconfiguration rather than silently omitting the required access code or dropping the email.
+  - Put shared `SmtpConfig` (with redacted `Debug` on `SmtpPassword`) in `pp-core::config` (flattened into `ApiConfig` and `WorkerConfig`; `ApiConfig` only needs to know whether `[smtp]` is configured + validate config consistently, while `WorkerConfig` constructs the `Mailer` and also reads `[auth] app_origin`).
+  - If the worker lacks `[smtp]`, `SendEmail` fails explicitly so retries/operators see the misconfiguration rather than silently dropping the email.
   - If the gallery was deleted, archived, or expired (`expires_at <= now()`), or if a `To` contact was unlinked/deleted before the worker runs the job, complete the job cleanly as a no-op so dead links are never emailed *(design call)*.
 - **Frontend (`web/AGENTS.md`):**
   - PascalCase Svelte components (`GallerySharePanel.svelte`), all strings in `web/messages/{en,fr}.json` (both UI controls and default EN/FR email subject/body + worker email labels following workspace `Language`), zero `vitest-axe` violations, and clean responsive layout down to `390 px`.
@@ -69,12 +68,12 @@ Sharing a gallery should feel like a complete, editorial client communication wo
 
 - **A. Per-recipient `JobPayload::SendEmail` resolved in `pp-image-worker` + inline `cid:` cover/logo parts (chosen).**
   - `POST /api/v1/galleries/{id}/invitations` runs one DB transaction that shares the gallery if still in `Draft`, upserts/links `To` contacts, and enqueues one `SendEmail` job per recipient carrying only IDs and text.
-  - `pp-image-worker` loads current state, decrypts any access code in memory, attaches existing `PhotoStorage` clean cover thumbnail JPEG (`Variant::Thumbnail`) and `WorkspaceSettings.logo` PNG as `cid:` inline parts (`multipart/alternative` + `multipart/related`), and sends via `lettre`.
-  - *Trade-off:* Moves `AccessCodeCipher` + `app_origin` + `[smtp]` into shared config read by the worker, in exchange for zero secret leakage in `jobs.payload`, independent per-recipient retries without extra tracking tables, reliable images on private LANs and webmail, and turnkey reuse in #349 and #350.
+  - `pp-image-worker` loads current state (including any `GalleryAccessCode` on the gallery), attaches existing `PhotoStorage` clean cover thumbnail JPEG (`Variant::Thumbnail`) and `WorkspaceSettings.logo` PNG as `cid:` inline parts (`multipart/alternative` + `multipart/related`), and sends via `lettre`.
+  - *Trade-off:* Moves `app_origin` + `[smtp]` into shared config read by the worker, in exchange for zero secret leakage in `jobs.payload`, independent per-recipient retries without extra tracking tables, reliable images on private LANs and webmail, and turnkey reuse in #349 and #350.
 - **B. Single batch job per send + remote `<img src>` URLs.**
   - Fewer rows in `jobs`, but partial SMTP failures either duplicate emails to earlier recipients on retry or need a separate batch-recipient state table, and remote `<img src>` URLs fail on private LANs and webmail image proxies; rejected.
 - **C. Pre-render MIME/HTML in `pp-api` and persist in `jobs.payload`.**
-  - Avoids sharing `AccessCodeCipher` with the worker, but writes decrypted 6-digit access codes and bearer `ShareToken` links into PostgreSQL JSON and cannot generate worker-driven reminders in #349; rejected.
+  - Writes 6-digit access codes and bearer `ShareToken` links into PostgreSQL JSON and cannot generate worker-driven reminders in #349; rejected.
 
 ## Decisions
 

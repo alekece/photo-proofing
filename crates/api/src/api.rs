@@ -17,7 +17,7 @@ use pp_core::{
         DEFAULT_EXPORT_MAX_SIZE, DEFAULT_EXPORT_RETENTION, ExportConfig, SmtpConfigError,
         SmtpSettings,
     },
-    types::access_code::{AccessCodeCipher, UNLOCK_COOKIE_NAME},
+    types::access_code::{UNLOCK_COOKIE_NAME, UnlockCookieSigner},
     url::Origin,
 };
 use pp_database::{
@@ -38,8 +38,8 @@ use crate::{
     comment_limiter::CommentLimiter,
     config::{
         ApiConfig, AuthConfig, CommentsConfig, CookieDuration, CookieName,
-        DEFAULT_COMMENT_INTERVAL, DEFAULT_COMMENT_LIMIT, GalleryPasswordConfig, HttpConfig,
-        LimiterConfig, QueueConfig, SessionConfig, UploadConfig,
+        DEFAULT_COMMENT_INTERVAL, DEFAULT_COMMENT_LIMIT, HttpConfig, LimiterConfig, QueueConfig,
+        SessionConfig, UploadConfig,
     },
     credentials::{HashError, PasswordHash},
     error::ErrorResponse,
@@ -103,7 +103,7 @@ pub(crate) struct ApiState {
     dummy_hash: PasswordHash,
     comment_limiter: CommentLimiter,
     comment_limit: NonZeroU16,
-    access_code_cipher: Option<AccessCodeCipher>,
+    unlock_cookie_signer: UnlockCookieSigner,
     smtp: Option<SmtpSettings>,
 }
 
@@ -141,7 +141,7 @@ impl ApiState {
             dummy_hash: PasswordHash::generate()?,
             comment_limiter: CommentLimiter::new(DEFAULT_COMMENT_INTERVAL),
             comment_limit: DEFAULT_COMMENT_LIMIT,
-            access_code_cipher: None,
+            unlock_cookie_signer: UnlockCookieSigner::generate(),
             smtp: None,
         })
     }
@@ -150,15 +150,8 @@ impl ApiState {
         &self.database
     }
 
-    #[must_use]
-    pub fn with_gallery_password(mut self, config: &GalleryPasswordConfig) -> Self {
-        self.access_code_cipher = config.encryption_key.as_ref().map(AccessCodeCipher::new);
-
-        self
-    }
-
-    pub fn access_code_cipher(&self) -> Option<&AccessCodeCipher> {
-        self.access_code_cipher.as_ref()
+    pub fn unlock_cookie_signer(&self) -> &UnlockCookieSigner {
+        &self.unlock_cookie_signer
     }
 
     #[must_use]
@@ -376,7 +369,6 @@ impl Api {
         )?
         .with_export(&config.export)
         .with_comments(&config.comments)
-        .with_gallery_password(&config.gallery_password)
         .with_smtp(smtp);
 
         Ok(Self {
