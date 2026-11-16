@@ -411,6 +411,28 @@ impl PhotoRepository<'_> {
         .await?)
     }
 
+    /// Counts photos in `location` of `kind` whose files for `variant` are ready.
+    pub async fn count_ready(
+        &self,
+        location: PhotoLocation,
+        kind: PhotoKind,
+        variant: Watermarked,
+    ) -> Result<usize, DatabaseError> {
+        let count: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
+            "SELECT COUNT(*) FROM photos AS p
+             WHERE workspace_id = $1 AND gallery_id = $2 AND kind = $3
+               AND {}",
+            variant.ready_condition()
+        )))
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .bind(kind)
+        .fetch_one(self.pool)
+        .await?;
+
+        Ok(usize::try_from(count).unwrap_or(0))
+    }
+
     /// Whether the gallery at `location` holds `id` with its files for `variant` ready.
     pub async fn is_ready(
         &self,
@@ -912,6 +934,65 @@ mod tests {
                     dimensions: dimensions(30, 40)
                 },
             ]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn count_ready_matches_list_ready_across_clean_marked_and_finals(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let other = gallery_location(&database, &pool).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        photo_in(&database, location, (20, 10), PhotoStatus::Ready, 10).await;
+        photo_in(&database, location, (30, 40), PhotoStatus::Ready, 20).await;
+        photo_in(&database, location, (20, 10), PhotoStatus::Processing, 30).await;
+        photo_in(&database, other, (20, 10), PhotoStatus::Ready, 5).await;
+
+        assert_eq!(
+            photos
+                .count_ready(location, PhotoKind::Proof, Watermarked(false))
+                .await
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            photos
+                .count_ready(location, PhotoKind::Proof, Watermarked(true))
+                .await
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            photos
+                .count_ready(location, PhotoKind::Final, Watermarked(false))
+                .await
+                .unwrap(),
+            0
+        );
+
+        sqlx::query(
+            "INSERT INTO workspace_settings(workspace_id, studio_name, watermark_revision)
+             VALUES ($1, 'Studio', 1)",
+        )
+        .bind(location.workspace_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            photos
+                .count_ready(location, PhotoKind::Proof, Watermarked(false))
+                .await
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            photos
+                .count_ready(location, PhotoKind::Proof, Watermarked(true))
+                .await
+                .unwrap(),
+            0
         );
     }
 

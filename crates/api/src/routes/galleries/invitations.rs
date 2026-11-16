@@ -398,7 +398,7 @@ mod tests {
 
         // Expired gallery -> 409 gallery_expired.
         sqlx::query(
-            "UPDATE galleries SET expires_at = now() - interval '5 minutes' WHERE id = $1::uuid",
+            "UPDATE galleries SET expires_at = (now() AT TIME ZONE 'UTC')::date - 1 WHERE id = $1::uuid",
         )
         .bind(&gallery_id)
         .execute(&pool)

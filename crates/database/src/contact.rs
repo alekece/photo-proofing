@@ -1496,9 +1496,32 @@ mod tests {
                 .is_some()
         );
 
-        // Expiry blocks both tokens; clearing expiry re-enables both.
+        // Expiring today (UTC) keeps both general and personal links active; yesterday blocks both.
         sqlx::query(AssertSqlSafe(
-            "UPDATE galleries SET expires_at = now() - interval '1 hour' WHERE id = $1",
+            "UPDATE galleries SET expires_at = (now() AT TIME ZONE 'UTC')::date WHERE id = $1",
+        ))
+        .bind(gallery.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert!(
+            galleries
+                .find_shared(&general_token)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            galleries
+                .find_shared(&linked.share_token)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        sqlx::query(AssertSqlSafe(
+            "UPDATE galleries SET expires_at = (now() AT TIME ZONE 'UTC')::date - 1 WHERE id = $1",
         ))
         .bind(gallery.id)
         .execute(&pool)

@@ -606,7 +606,7 @@ mod tests {
     #[sqlx::test(migrations = "../database/migrations")]
     async fn shared_signature_logo_requires_an_available_link(pool: PgPool) {
         let token = shared_gallery(&pool, json!({})).await;
-        let expired = shared_gallery(&pool, json!({"expires_at": "2000-01-01T00:00:00Z"})).await;
+        let expired = shared_gallery(&pool, json!({"expires_at": "2000-01-01"})).await;
         let workspace: uuid::Uuid =
             sqlx::query_scalar("SELECT workspace_id FROM galleries WHERE share_token = $1")
                 .bind(&token)
@@ -658,7 +658,7 @@ mod tests {
     #[sqlx::test(migrations = "../database/migrations")]
     async fn opening_records_the_last_open_only_for_available_links(pool: PgPool) {
         let live = shared_gallery(&pool, json!({})).await;
-        let expired = shared_gallery(&pool, json!({"expires_at": "2000-01-01T00:00:00Z"})).await;
+        let expired = shared_gallery(&pool, json!({"expires_at": "2000-01-01"})).await;
         let last_opened_at = |token: String| {
             let pool = pool.clone();
 
@@ -772,7 +772,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn unknown_malformed_and_expired_links_are_indistinguishable(pool: PgPool) {
-        let expired = shared_gallery(&pool, json!({"expires_at": "2000-01-01T00:00:00Z"})).await;
+        let expired = shared_gallery(&pool, json!({"expires_at": "2000-01-01"})).await;
         let live = shared_gallery(&pool, json!({})).await;
         let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
@@ -855,16 +855,16 @@ mod tests {
         .await;
         let token = shared["share_token"].as_str().unwrap();
 
-        call(&app, patch(json!("2000-01-01T00:00:00Z"))).await;
+        call(&app, patch(json!("2000-01-01"))).await;
 
         assert_eq!(call(&app, get(token)).await.0, StatusCode::NOT_FOUND);
 
-        call(&app, patch(json!("2999-01-01T00:00:00Z"))).await;
+        call(&app, patch(json!("2999-01-01"))).await;
 
         let (status, body) = call(&app, get(token)).await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["expires_at"], "2999-01-01T00:00:00Z");
+        assert_eq!(body["expires_at"], "2999-01-01");
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -923,7 +923,7 @@ mod tests {
             .uri(&format!("/api/v1/galleries/{gallery_id}"))
             .insert_header(("Origin", ORIGIN))
             .cookie(cookie.clone())
-            .set_json(json!({"expires_at": "2000-01-01T00:00:00Z"}));
+            .set_json(json!({"expires_at": "2000-01-01"}));
 
         assert_eq!(call(app, request).await.0, StatusCode::OK);
     }
@@ -1546,7 +1546,7 @@ mod tests {
                     "title": "Secret Shoot",
                     "shoot_date": "2026-07-04",
                     "included_photos": 20,
-                    "expires_at": "2999-01-01T00:00:00Z",
+                    "expires_at": "2999-01-01",
                     "hero_id": photo,
                     "access_code": "042819",
                 })),
