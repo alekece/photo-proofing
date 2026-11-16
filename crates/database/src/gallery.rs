@@ -109,23 +109,47 @@ pub enum InvitationError {
 pub use pp_core::types::studio::{FocalCoordinate, FocalPoint};
 
 /// A primary recipient in an [`InvitationBatch`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InvitationContact {
     pub email: Email,
+    #[serde(default)]
     pub name: Option<ContactName>,
 }
 
 /// Recipients and message body to queue as gallery invitation emails.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InvitationBatch {
+    #[serde(default)]
     pub to: Vec<InvitationContact>,
+    #[serde(default)]
     pub bcc: Vec<Email>,
     pub subject: EmailSubject,
     pub message: EmailMessage,
 }
 
+impl InvitationBatch {
+    pub fn is_empty(&self) -> bool {
+        self.to.is_empty() && self.bcc.is_empty()
+    }
+
+    pub fn recipient_count(&self) -> usize {
+        self.to.len() + self.bcc.len()
+    }
+
+    /// Removes duplicate recipients in place, keeping the first occurrence in `to` and
+    /// dropping any `bcc` address already present in `to` or earlier in `bcc`.
+    pub fn deduplicate(&mut self) {
+        let mut seen = HashSet::with_capacity(self.recipient_count());
+
+        self.to.retain(|contact| seen.insert(contact.email.clone()));
+        self.bcc.retain(|email| seen.insert(email.clone()));
+    }
+}
+
 /// Outcome of [`GalleryRepository::queue_invitations`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QueuedInvitations {
     pub gallery: Gallery,
     pub queued_count: usize,
@@ -852,14 +876,11 @@ impl GalleryRepository<'_> {
 
             return Ok(None);
         };
-        let mut seen = HashSet::new();
-        let mut queued_count = 0usize;
+
+        let mut batch = batch.clone();
+        batch.deduplicate();
 
         for recipient in &batch.to {
-            if !seen.insert(recipient.email.clone()) {
-                continue;
-            }
-
             let fallback = recipient
                 .name
                 .clone()
@@ -887,14 +908,9 @@ impl GalleryRepository<'_> {
                 job_options.max_attempts,
             )
             .await?;
-            queued_count += 1;
         }
 
         for bcc_email in &batch.bcc {
-            if !seen.insert(bcc_email.clone()) {
-                continue;
-            }
-
             JobRepository::enqueue_in(
                 &mut tx,
                 SendEmail {
@@ -910,14 +926,13 @@ impl GalleryRepository<'_> {
                 job_options.max_attempts,
             )
             .await?;
-            queued_count += 1;
         }
 
         tx.commit().await.map_err(DatabaseError::from)?;
 
         Ok(Some(QueuedInvitations {
             gallery,
-            queued_count,
+            queued_count: batch.recipient_count(),
         }))
     }
 
@@ -3625,5 +3640,71 @@ mod tests {
 
         assert_eq!(shared.share_token, Some(fresh_token));
         tx.commit().await.unwrap();
+    }
+
+    #[test]
+    fn invitation_batch_deserializes_deduplicates_in_place_and_rejects_unknown_fields() {
+        let empty: InvitationBatch = serde_json::from_value(json!({
+            "subject": "Ready",
+            "message": "Hello!"
+        }))
+        .unwrap();
+
+        assert!(empty.is_empty());
+        assert_eq!(empty.recipient_count(), 0);
+        assert!(
+            serde_json::from_value::<InvitationBatch>(json!({
+                "subject": "Ready",
+                "message": "Hello!",
+                "unexpected": true
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<InvitationBatch>(json!({
+                "to": [{"email": "a@example.test", "unexpected": true}],
+                "subject": "Ready",
+                "message": "Hello!"
+            }))
+            .is_err()
+        );
+
+        let mut batch: InvitationBatch = serde_json::from_value(json!({
+            "to": [
+                {"email": "Camille@Example.test", "name": "Camille"},
+                {"email": "hugo@example.test"},
+                {"email": "camille@example.test", "name": "Duplicate"}
+            ],
+            "bcc": [
+                "HUGO@example.test",
+                "press@example.test",
+                "Press@Example.test"
+            ],
+            "subject": "Your gallery",
+            "message": "Line 1\nLine 2"
+        }))
+        .unwrap();
+
+        assert!(!batch.is_empty());
+        batch.deduplicate();
+
+        assert_eq!(batch.recipient_count(), 3);
+        assert_eq!(
+            batch.to,
+            vec![
+                InvitationContact {
+                    email: "camille@example.test".parse().unwrap(),
+                    name: Some("Camille".parse().unwrap()),
+                },
+                InvitationContact {
+                    email: "hugo@example.test".parse().unwrap(),
+                    name: None,
+                },
+            ]
+        );
+        assert_eq!(
+            batch.bcc,
+            vec!["press@example.test".parse::<Email>().unwrap()]
+        );
     }
 }
