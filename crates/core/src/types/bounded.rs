@@ -58,6 +58,7 @@ impl<const MIN: u8, const MAX: u8> BoundedU8<MIN, MAX> {
     };
 
     /// Constructs a compile-time verified constant within `MIN..=MAX`.
+    #[must_use]
     pub const fn constant<const VALUE: u8>() -> Self {
         const {
             assert!(MIN <= MAX);
@@ -85,6 +86,7 @@ impl<const MIN: u8, const MAX: u8> BoundedU8<MIN, MAX> {
     }
 
     /// Returns the validated integer in `MIN..=MAX`.
+    #[must_use]
     pub const fn get(self) -> u8 {
         self.0 as u8
     }
@@ -139,6 +141,7 @@ pub struct BoundedText<const MIN: usize, const MAX: usize, L: LinePolicy = Multi
 );
 
 impl<const MIN: usize, const MAX: usize, L: LinePolicy> BoundedText<MIN, MAX, L> {
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }

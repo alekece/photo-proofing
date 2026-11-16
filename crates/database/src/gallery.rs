@@ -130,10 +130,12 @@ pub struct InvitationBatch {
 }
 
 impl InvitationBatch {
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.to.is_empty() && self.bcc.is_empty()
     }
 
+    #[must_use]
     pub fn recipient_count(&self) -> usize {
         self.to.len() + self.bcc.len()
     }

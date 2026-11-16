@@ -22,7 +22,7 @@ use crate::{
 pub(crate) enum TokenAttempt<T> {
     /// Persistence completed (or determined the target entity does not exist).
     Done(T),
-    /// Candidate token collided with an existing `galleries` or `gallery_contacts` token.
+    /// Candidate token collided with an existing token.
     Collision,
 }
 
