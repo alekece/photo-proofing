@@ -42,15 +42,13 @@ impl FromRequest for SharedLinkAccess {
                 .find_shared(&token)
                 .await?
                 .ok_or_else(ErrorResponse::not_found)?;
-            let unlocked = match &access.access_code_ciphertext {
+            let unlocked = match &access.access_code {
                 None => true,
-                Some(ciphertext) => state.access_code_cipher().is_some_and(|cipher| {
-                    cipher.is_unlocked(
-                        cookie_value.as_deref(),
-                        access.location.gallery_id,
-                        ciphertext,
-                    )
-                }),
+                Some(code) => state.cookie_signer().is_unlocked(
+                    cookie_value.as_deref(),
+                    access.location.gallery_id,
+                    code,
+                ),
             };
 
             Ok(Self { access, unlocked })

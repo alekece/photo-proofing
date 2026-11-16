@@ -12,11 +12,10 @@ use futures_util::future::LocalBoxFuture;
 use pp_core::email::{Email, EmailMessage, EmailSubject};
 use pp_database::{
     contact::ContactName,
-    gallery::{GalleryId, GalleryRepository, InvitationBatch, InvitationContact},
+    gallery::{Gallery, GalleryId, GalleryRepository, InvitationBatch, InvitationContact},
 };
 use serde::{Deserialize, Serialize};
 
-use super::GalleryView;
 use crate::{
     api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
     response::ResponseBuilderExt,
@@ -60,7 +59,7 @@ impl FromRequest for SendInvitationsRequest {
 
 #[derive(Serialize)]
 struct SendInvitationsResponse {
-    gallery: GalleryView,
+    gallery: Gallery,
     queued_count: usize,
 }
 
@@ -93,16 +92,6 @@ async fn send_invitations(
         return Err(ErrorResponse::too_many_recipients());
     }
 
-    let gallery_id = id.into_inner();
-    let galleries = state.database().repository::<GalleryRepository>();
-
-    if state.access_code_cipher().is_none()
-        && let Some(existing) = galleries.get(identity.workspace_id, gallery_id).await?
-        && existing.access_code_ciphertext.is_some()
-    {
-        return Err(ErrorResponse::access_code_unavailable());
-    }
-
     let batch = InvitationBatch {
         to: request
             .to
@@ -116,19 +105,20 @@ async fn send_invitations(
         subject: request.subject,
         message: request.message,
     };
-    let outcome = galleries
+    let outcome = state
+        .database()
+        .repository::<GalleryRepository>()
         .queue_invitations(
             identity.workspace_id,
-            gallery_id,
+            id.into_inner(),
             &batch,
             state.job_options(),
         )
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
-    let view = GalleryView::try_new(outcome.gallery, state.access_code_cipher())?;
 
     Ok(HttpResponse::Ok().no_store().json(SendInvitationsResponse {
-        gallery: view,
+        gallery: outcome.gallery,
         queued_count: outcome.queued_count,
     }))
 }
@@ -138,7 +128,7 @@ mod tests {
     use std::{num::NonZeroUsize, time::Duration};
 
     use actix_web::{App, cookie::Cookie, http::StatusCode, test, web::Data};
-    use pp_core::config::{GalleryPasswordConfig, SmtpSettings, SmtpTlsMode};
+    use pp_core::config::{SmtpSettings, SmtpTlsMode};
     use pp_database::{
         Database,
         gallery::GalleryRepository,
@@ -238,15 +228,7 @@ mod tests {
             .unwrap();
 
         let (state, _directory) = app_state(pool.clone()).await;
-        let state = state
-            .with_smtp(Some(smtp_settings(3)))
-            .with_gallery_password(&GalleryPasswordConfig {
-                encryption_key: Some(
-                    "0101010101010101010101010101010101010101010101010101010101010101"
-                        .parse()
-                        .unwrap(),
-                ),
-            });
+        let state = state.with_smtp(Some(smtp_settings(3)));
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(state))

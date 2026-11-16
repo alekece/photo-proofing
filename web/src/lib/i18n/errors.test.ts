@@ -26,9 +26,6 @@ describe('apiErrorMessage in English', () => {
 		expect(apiErrorMessage(409, 'access_code_locked')).toBe(
 			'The access code can’t be changed once the gallery is shared.'
 		);
-		expect(apiErrorMessage(503, 'access_code_unavailable')).toBe(
-			'Access codes aren’t configured on this server.'
-		);
 		expect(apiErrorMessage(503, 'email_unavailable')).toBe(
 			'Email sending isn’t configured on this server.'
 		);
@@ -65,9 +62,6 @@ describe('apiErrorMessage in French', () => {
 		);
 		expect(apiErrorMessage(409, 'access_code_locked')).toBe(
 			'Le code d’accès ne peut plus être modifié une fois la galerie partagée.'
-		);
-		expect(apiErrorMessage(503, 'access_code_unavailable')).toBe(
-			'Les codes d’accès ne sont pas configurés sur ce serveur.'
 		);
 		expect(apiErrorMessage(503, 'email_unavailable')).toBe(
 			'L’envoi d’e-mails n’est pas configuré sur ce serveur.'

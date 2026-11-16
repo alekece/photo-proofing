@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use pp_core::{types::access_code::AccessCodeCipher, url::Origin};
+use pp_core::url::Origin;
 use pp_database::{
     Database,
     auth::AuthRepository,
@@ -26,10 +26,6 @@ use crate::{
 enum SendEmailError {
     #[error("SMTP is not configured on the worker")]
     SmtpNotConfigured,
-    #[error("gallery password key is required to decrypt gallery access code")]
-    MissingPasswordKey,
-    #[error("gallery access code could not be decrypted")]
-    InvalidAccessCodeCiphertext,
 }
 
 /// Resolves live gallery/contact state and delivers one [`SendEmail`] job over SMTP.
@@ -37,7 +33,6 @@ pub struct SendEmailHandler {
     database: Database,
     storage: PhotoStorage,
     app_origin: Origin,
-    cipher: Option<AccessCodeCipher>,
     mailer: Option<SmtpMailer>,
 }
 
@@ -46,14 +41,12 @@ impl SendEmailHandler {
         database: Database,
         storage: PhotoStorage,
         app_origin: Origin,
-        cipher: Option<AccessCodeCipher>,
         mailer: Option<SmtpMailer>,
     ) -> Self {
         Self {
             database,
             storage,
             app_origin,
-            cipher,
             mailer,
         }
     }
@@ -137,23 +130,6 @@ impl SendEmailHandler {
             return Ok(());
         }
 
-        let access_code = match &shared.access_code_ciphertext {
-            Some(ciphertext) => {
-                let cipher = self
-                    .cipher
-                    .as_ref()
-                    .ok_or_else(|| HandlerError::failed(SendEmailError::MissingPasswordKey))?;
-                let code = cipher
-                    .decrypt(payload.gallery_id, ciphertext)
-                    .map_err(|_| {
-                        HandlerError::failed(SendEmailError::InvalidAccessCodeCiphertext)
-                    })?;
-
-                Some(code)
-            }
-            None => None,
-        };
-
         let settings_repo = self.database.repository::<SettingsRepository>();
         let settings = settings_repo
             .settings(payload.workspace_id)
@@ -204,7 +180,7 @@ impl SendEmailHandler {
             language,
             message: payload.message,
             share_url,
-            access_code,
+            access_code: shared.access_code,
             expires_at: shared.gallery.expires_at,
         };
 
@@ -229,15 +205,10 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
-    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use pp_core::{
         config::{PhotoDir, SmtpSettings, SmtpTlsMode},
         email::{Email, EmailMessage, EmailSubject},
-        types::{
-            access_code::{AccessCodeCipher, EncryptionKey, GalleryAccessCode},
-            generate::Generate,
-            timestamp::Timestamp,
-        },
+        types::{access_code::GalleryAccessCode, generate::Generate, timestamp::Timestamp},
         url::Origin,
     };
     use pp_database::{
@@ -342,9 +313,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn sends_per_contact_and_bcc_invitations_with_decrypted_access_code_and_cover(
-        pool: PgPool,
-    ) {
+    async fn sends_per_contact_and_bcc_invitations_with_access_code_and_cover(pool: PgPool) {
         let smtp_server = MockSmtp::start().await;
         let dir = tempfile::tempdir().unwrap();
         let storage = PhotoStorage::open(&PhotoDir::try_from(dir.path().to_owned()).unwrap())
@@ -388,15 +357,12 @@ mod tests {
             .await
             .unwrap();
 
-        let key: EncryptionKey = URL_SAFE_NO_PAD.encode([7_u8; 32]).parse().unwrap();
-        let cipher = AccessCodeCipher::new(&key);
         let gallery = database
             .repository::<GalleryRepository>()
             .create(workspace_id)
             .await
             .unwrap();
         let code: GalleryAccessCode = "739104".parse().unwrap();
-        let ciphertext = cipher.encrypt(gallery.id, &code).unwrap();
         let location = PhotoLocation {
             workspace_id,
             gallery_id: gallery.id,
@@ -421,7 +387,7 @@ mod tests {
                 gallery.id,
                 &GalleryChanges {
                     title: Some(Some("Clara & Julien".to_owned())),
-                    access_code: Some(Some(ciphertext)),
+                    access_code: Some(Some(code)),
                     hero_id: Some(Some(photo_id)),
                     ..GalleryChanges::default()
                 },
@@ -492,7 +458,6 @@ mod tests {
             database.clone(),
             storage,
             "https://photos.example.test".parse::<Origin>().unwrap(),
-            Some(cipher),
             Some(mailer),
         ));
         let finalizer = CompleteJob::new(database.clone());
@@ -559,9 +524,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn skips_archived_expired_or_unlinked_targets_and_fails_without_smtp_or_cipher(
-        pool: PgPool,
-    ) {
+    async fn skips_archived_expired_or_unlinked_targets_and_fails_without_smtp(pool: PgPool) {
         let smtp_server = MockSmtp::start().await;
         let dir = tempfile::tempdir().unwrap();
         let storage = PhotoStorage::open(&PhotoDir::try_from(dir.path().to_owned()).unwrap())
@@ -573,8 +536,6 @@ mod tests {
             .create_workspace()
             .await
             .unwrap();
-        let key: EncryptionKey = URL_SAFE_NO_PAD.encode([9_u8; 32]).parse().unwrap();
-        let cipher = AccessCodeCipher::new(&key);
 
         let gallery = database
             .repository::<GalleryRepository>()
@@ -588,7 +549,7 @@ mod tests {
                 workspace_id,
                 gallery.id,
                 &GalleryChanges {
-                    access_code: Some(Some(cipher.encrypt(gallery.id, &code).unwrap())),
+                    access_code: Some(Some(code)),
                     ..GalleryChanges::default()
                 },
             )
@@ -628,7 +589,6 @@ mod tests {
             database.clone(),
             storage.clone(),
             "https://photos.example.test".parse::<Origin>().unwrap(),
-            Some(cipher.clone()),
             None,
         ));
         assert!(no_smtp.run(payload.clone()).await.is_err());
@@ -644,25 +604,14 @@ mod tests {
         })
         .unwrap();
 
-        // 2. Password-protected gallery without cipher -> fails rather than omitting code
-        let no_cipher = Arc::new(SendEmailHandler::new(
-            database.clone(),
-            storage.clone(),
-            "https://photos.example.test".parse::<Origin>().unwrap(),
-            None,
-            Some(mailer.clone()),
-        ));
-        assert!(no_cipher.run(payload.clone()).await.is_err());
-
         let handler = Arc::new(SendEmailHandler::new(
             database.clone(),
             storage,
             "https://photos.example.test".parse::<Origin>().unwrap(),
-            Some(cipher),
             Some(mailer),
         ));
 
-        // 3. Unlinked contact -> clean no-op, zero emails sent
+        // 2. Unlinked contact -> clean no-op, zero emails sent
         let contacts = database
             .repository::<ContactRepository>()
             .list_for_gallery(workspace_id, gallery.id)

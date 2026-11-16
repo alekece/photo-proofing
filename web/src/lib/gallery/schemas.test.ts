@@ -251,15 +251,13 @@ describe('schemas', () => {
 		expect(parseGallerySort(null)).toBe('updated');
 	});
 
-	it('validates 6-digit access codes on owner galleries, omits them on overviews, and parses locked client gates', () => {
+	it('validates 6-digit access codes on galleries and overviews and parses locked client gates', () => {
 		expect(
 			parseOrNull(gallerySchema, {
 				...gallery,
-				access_code_protected: true,
 				access_code: '042819'
 			})
 		).toMatchObject({
-			access_code_protected: true,
 			access_code: '042819'
 		});
 		expect(parseOrNull(gallerySchema, { ...gallery, access_code: '12345' })).toBeNull();
@@ -267,14 +265,13 @@ describe('schemas', () => {
 
 		const overview = parseOrNull(galleryOverviewSchema, {
 			...gallery,
-			access_code_protected: true,
+			access_code: '042819',
 			photo_count: 3,
 			favorite_count: 1,
 			final_count: 0,
 			downloaded_count: 0
 		});
-		expect(overview).toMatchObject({ access_code_protected: true, photo_count: 3 });
-		expect(overview && 'access_code' in overview).toBe(false);
+		expect(overview).toMatchObject({ access_code: '042819', photo_count: 3 });
 
 		expect(
 			parseOrNull(sharedGalleryResponseSchema, {

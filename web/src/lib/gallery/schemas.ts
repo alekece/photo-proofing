@@ -47,8 +47,8 @@ const baseGalleryEntries = {
 	expires_at: v.nullable(v.string()),
 	included_photos: v.nullable(finite),
 	watermark_enabled: v.boolean(),
-	/** Whether clients must enter a 6-digit access code before viewing the shared gallery. */
-	access_code_protected: v.optional(v.boolean()),
+	/** Optional 6-digit access code gating client access; `null` when unprotected. */
+	access_code: v.optional(v.nullable(accessCodeSchema)),
 	/** The ready photo starred as the gallery's cover; `null` means none. */
 	hero_id: v.nullable(v.string()),
 	/** The private client link's token once shared; the link never changes afterwards. */
@@ -63,11 +63,7 @@ const baseGalleryEntries = {
 	updated_at: v.string()
 };
 
-export const gallerySchema = v.object({
-	...baseGalleryEntries,
-	/** Decrypted 6-digit access code on single-gallery owner views; omitted from dashboard lists. */
-	access_code: v.optional(v.nullable(accessCodeSchema))
-});
+export const gallerySchema = v.object(baseGalleryEntries);
 
 /** A gallery in the dashboard list, with totals over its ready photos. */
 export const galleryOverviewSchema = v.object({

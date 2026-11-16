@@ -12,8 +12,7 @@ use std::{collections::HashSet, num::NonZeroUsize, time::Duration};
 use derive_more::Display;
 use pp_core::email::{Email, EmailMessage, EmailSubject};
 pub use pp_core::types::access_code::{
-    ACCESS_CODE_DIGITS, ENCRYPTED_ACCESS_CODE_LEN, EncryptedAccessCode, EncryptedAccessCodeError,
-    GalleryAccessCode, ParseAccessCodeError,
+    ACCESS_CODE_DIGITS, GalleryAccessCode, ParseAccessCodeError,
 };
 use pp_core::types::{generate::Generate, timestamp::Timestamp};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
@@ -316,13 +315,8 @@ pub struct Gallery {
     /// `None` means selection is unlimited.
     pub included_photos: Option<NonZeroUsize>,
     pub watermark_enabled: bool,
-    /// Encrypted 6-digit access code; serializes only its boolean presence as
-    /// `access_code_protected` so list views never leak ciphertext or plaintext digits.
-    #[serde(
-        rename = "access_code_protected",
-        serialize_with = "EncryptedAccessCode::serialize_presence"
-    )]
-    pub access_code_ciphertext: Option<EncryptedAccessCode>,
+    /// Optional 6-digit access code; `None` means the shared link requires no code.
+    pub access_code: Option<GalleryAccessCode>,
     /// `None` means the gallery has no hero photo.
     pub hero_id: Option<PhotoId>,
     /// `None` means the gallery has not been shared.
@@ -339,11 +333,6 @@ pub struct Gallery {
 }
 
 impl Gallery {
-    /// Whether clients must enter a 6-digit access code before viewing the shared gallery.
-    pub const fn access_code_protected(&self) -> bool {
-        self.access_code_ciphertext.is_some()
-    }
-
     /// The photo allowance of a gallery row, where `None` means selection is unlimited.
     pub(crate) fn included_photos(row: &PgRow) -> Result<Option<NonZeroUsize>, sqlx::Error> {
         row.try_get::<Option<i32>, _>("included_photos")?
@@ -384,9 +373,6 @@ impl FromRow<'_, PgRow> for Gallery {
             states.push(GalleryState::Expired);
         }
 
-        let access_code_ciphertext: Option<EncryptedAccessCode> =
-            row.try_get("access_code_ciphertext")?;
-
         Ok(Self {
             id: row.try_get("id")?,
             title: row.try_get("title")?,
@@ -400,7 +386,7 @@ impl FromRow<'_, PgRow> for Gallery {
             expires_at: row.try_get("expires_at")?,
             included_photos,
             watermark_enabled: row.try_get("watermark_enabled")?,
-            access_code_ciphertext,
+            access_code: row.try_get("access_code")?,
             hero_id: row.try_get("hero_id")?,
             share_token: row.try_get("share_token")?,
             last_opened_at: row.try_get("last_opened_at")?,
@@ -450,12 +436,9 @@ impl FromRow<'_, PgRow> for GalleryOverview {
 /// For the optional settings the outer `Option` says whether the field was supplied and the
 /// inner one is the new value, so `Some(None)` clears it. Non-optional settings reject `null`
 /// and unknown fields are refused, so a typo never silently does nothing.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    deny_unknown_fields,
-    bound(serialize = "C: Serialize", deserialize = "C: Deserialize<'de>")
-)]
-pub struct GalleryChanges<C = EncryptedAccessCode> {
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GalleryChanges {
     #[serde(
         default,
         with = "serde_with::rust::double_option",
@@ -529,7 +512,7 @@ pub struct GalleryChanges<C = EncryptedAccessCode> {
         with = "serde_with::rust::double_option",
         skip_serializing_if = "Option::is_none"
     )]
-    pub access_code: Option<Option<C>>,
+    pub access_code: Option<Option<GalleryAccessCode>>,
     /// Must be a ready photo of the gallery; anything else leaves the gallery unchanged.
     #[serde(
         default,
@@ -546,32 +529,8 @@ pub struct GalleryChanges<C = EncryptedAccessCode> {
     pub shoot_date: Option<Option<Date>>,
 }
 
-impl<C> Default for GalleryChanges<C> {
-    fn default() -> Self {
-        Self {
-            title: None,
-            favorite: None,
-            layout: None,
-            cover_layout: None,
-            focal_point: None,
-            heading_font: None,
-            grid_density: None,
-            grid_spacing: None,
-            expires_at: None,
-            included_photos: None,
-            watermark_enabled: None,
-            access_code: None,
-            hero_id: None,
-            shoot_date: None,
-        }
-    }
-}
-
-impl<C> GalleryChanges<C> {
-    pub fn is_empty(&self) -> bool
-    where
-        C: PartialEq,
-    {
+impl GalleryChanges {
+    pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
 
@@ -593,37 +552,6 @@ impl<C> GalleryChanges<C> {
             || self.shoot_date.is_some()
     }
 
-    /// Transforms an inner `Some(Some(code))` access code while preserving `None` and `Some(None)`.
-    pub fn try_map_access_code<U, E>(
-        self,
-        transform: impl FnOnce(C) -> Result<U, E>,
-    ) -> Result<GalleryChanges<U>, E> {
-        let access_code = match self.access_code {
-            None => None,
-            Some(None) => Some(None),
-            Some(Some(code)) => Some(Some(transform(code)?)),
-        };
-
-        Ok(GalleryChanges {
-            title: self.title,
-            favorite: self.favorite,
-            layout: self.layout,
-            cover_layout: self.cover_layout,
-            focal_point: self.focal_point,
-            heading_font: self.heading_font,
-            grid_density: self.grid_density,
-            grid_spacing: self.grid_spacing,
-            expires_at: self.expires_at,
-            included_photos: self.included_photos,
-            watermark_enabled: self.watermark_enabled,
-            access_code,
-            hero_id: self.hero_id,
-            shoot_date: self.shoot_date,
-        })
-    }
-}
-
-impl GalleryChanges {
     /// Deserializes a supplied value as `Some` and rejects `null`.
     ///
     /// Plain `Option<T>` fields treat `null` like a missing field, so `{"layout": null}` would
@@ -696,7 +624,7 @@ impl<'db> Repository<'db> for GalleryRepository<'db> {
 
 impl GalleryRepository<'_> {
     // Interpolated identifiers are fixed here or selected from GallerySort's closed enum.
-    const COLUMNS: &'static str = "id,title,favorite,layout,cover_layout,hero_focal_x,hero_focal_y,heading_font,grid_density,grid_spacing,expires_at,included_photos,watermark_enabled,access_code_ciphertext,hero_id,share_token,shared_at,last_opened_at,shoot_date,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
+    const COLUMNS: &'static str = "id,title,favorite,layout,cover_layout,hero_focal_x,hero_focal_y,heading_font,grid_density,grid_spacing,expires_at,included_photos,watermark_enabled,access_code,hero_id,share_token,shared_at,last_opened_at,shoot_date,delivered_at,archived_at,COALESCE(expires_at <= now(), false) AS expired,created_at,updated_at";
 
     /// How long after a recorded client open later opens change nothing. Fixed, not configurable:
     /// a minute collapses reload bursts while "last opened" stays fresh enough to compare with
@@ -1105,7 +1033,7 @@ impl GalleryRepository<'_> {
                     g.expires_at,
                     g.included_photos,
                     g.watermark_enabled,
-                    g.access_code_ciphertext,
+                    g.access_code,
                     g.delivered_at IS NOT NULL AS delivered,
                     (SELECT p.id FROM photos p
                      WHERE p.id = g.hero_id AND p.clean_ready AND p.kind = 'proof'
@@ -1219,7 +1147,7 @@ impl GalleryRepository<'_> {
                 heading_font = COALESCE($18, heading_font),
                 grid_density = COALESCE($19, grid_density),
                 grid_spacing = COALESCE($20, grid_spacing),
-                access_code_ciphertext = CASE WHEN $21 THEN $22 ELSE access_code_ciphertext END,
+                access_code = CASE WHEN $21 THEN $22 ELSE access_code END,
                 favorite = COALESCE($23, favorite),
                 updated_at = CASE WHEN $24 THEN now() ELSE updated_at END
              WHERE id=$1 AND workspace_id=$2
@@ -1292,10 +1220,7 @@ mod tests {
     }
 
     fn changes(value: serde_json::Value) -> GalleryChanges {
-        serde_json::from_value::<GalleryChanges<GalleryAccessCode>>(value)
-            .unwrap()
-            .try_map_access_code(|_| Ok::<_, ()>(EncryptedAccessCode::from([7u8; 34])))
-            .unwrap()
+        serde_json::from_value(value).unwrap()
     }
 
     async fn set_column(pool: &PgPool, id: GalleryId, column: &str, value: &str) {
@@ -1635,7 +1560,7 @@ mod tests {
             json!({"expires_at": "0000-01-01T00:00:00+01:00"}),
         ] {
             assert!(
-                serde_json::from_value::<GalleryChanges<GalleryAccessCode>>(body.clone()).is_err(),
+                serde_json::from_value::<GalleryChanges>(body.clone()).is_err(),
                 "{body}"
             );
         }
@@ -1644,7 +1569,7 @@ mod tests {
         assert!(!changes(json!({"included_photos": null})).is_empty());
         assert!(!changes(json!({"title": null})).is_empty());
 
-        let partial = serde_json::from_value::<GalleryChanges<GalleryAccessCode>>(json!({
+        let partial = serde_json::from_value::<GalleryChanges>(json!({
             "title": null,
             "watermark_enabled": true
         }))
@@ -2923,7 +2848,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn migration_adds_access_code_ciphertext_length_constraint(pool: PgPool) {
+    async fn migration_replaces_access_code_ciphertext_with_plain_six_digit_code(pool: PgPool) {
         let mut transaction = pool.begin().await.unwrap();
         let schema = format!("access_code_migration_{}", Uuid::new_v4().simple());
 
@@ -2939,6 +2864,7 @@ mod tests {
         for migration in [
             include_str!("../migrations/0001_accounts_sessions.sql"),
             include_str!("../migrations/0002_galleries.sql"),
+            include_str!("../migrations/0033_gallery_access_code.sql"),
         ] {
             sqlx::raw_sql(migration)
                 .execute(&mut *transaction)
@@ -2947,63 +2873,107 @@ mod tests {
         }
 
         let workspace_id = Uuid::new_v4();
-        let gallery_id = Uuid::new_v4();
+        let unlocked_id = Uuid::new_v4();
+        let locked_a = Uuid::new_v4();
+        let locked_b = Uuid::new_v4();
 
         sqlx::query("INSERT INTO workspaces(id) VALUES ($1)")
             .bind(workspace_id)
             .execute(&mut *transaction)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO galleries(id, workspace_id) VALUES ($1, $2)")
-            .bind(gallery_id)
-            .bind(workspace_id)
-            .execute(&mut *transaction)
-            .await
-            .unwrap();
 
-        sqlx::raw_sql(include_str!("../migrations/0033_gallery_access_code.sql"))
-            .execute(&mut *transaction)
-            .await
-            .unwrap();
-
-        let initial: Option<Vec<u8>> =
-            sqlx::query_scalar("SELECT access_code_ciphertext FROM galleries WHERE id = $1")
-                .bind(gallery_id)
-                .fetch_one(&mut *transaction)
-                .await
-                .unwrap();
-
-        assert_eq!(initial, None);
-
-        for invalid_len in [0usize, 1, 33, 35] {
-            sqlx::raw_sql("SAVEPOINT invalid_access_code_len")
-                .execute(&mut *transaction)
-                .await
-                .unwrap();
-
-            let outcome =
-                sqlx::query("UPDATE galleries SET access_code_ciphertext = $1 WHERE id = $2")
-                    .bind(vec![0xabu8; invalid_len])
-                    .bind(gallery_id)
-                    .execute(&mut *transaction)
-                    .await;
-
-            assert!(outcome.is_err(), "length {invalid_len} must be rejected");
-
-            sqlx::raw_sql("ROLLBACK TO SAVEPOINT invalid_access_code_len")
+        for id in [unlocked_id, locked_a, locked_b] {
+            sqlx::query("INSERT INTO galleries(id, workspace_id) VALUES ($1, $2)")
+                .bind(id)
+                .bind(workspace_id)
                 .execute(&mut *transaction)
                 .await
                 .unwrap();
         }
 
-        sqlx::query("UPDATE galleries SET access_code_ciphertext = $1 WHERE id = $2")
-            .bind(vec![0xabu8; ENCRYPTED_ACCESS_CODE_LEN])
-            .bind(gallery_id)
+        for (id, byte) in [(locked_a, 0x11u8), (locked_b, 0x22u8)] {
+            sqlx::query("UPDATE galleries SET access_code_ciphertext = $1 WHERE id = $2")
+                .bind(vec![byte; 34])
+                .bind(id)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        sqlx::raw_sql(include_str!(
+            "../migrations/0035_plain_gallery_access_code.sql"
+        ))
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+
+        let legacy_column_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                 SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = $1
+                   AND table_name = 'galleries'
+                   AND column_name = 'access_code_ciphertext'
+             )",
+        )
+        .bind(&schema)
+        .fetch_one(&mut *transaction)
+        .await
+        .unwrap();
+
+        assert!(!legacy_column_exists);
+
+        let unlocked_code: Option<String> =
+            sqlx::query_scalar("SELECT access_code FROM galleries WHERE id = $1")
+                .bind(unlocked_id)
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap();
+
+        assert_eq!(unlocked_code, None);
+
+        for locked_id in [locked_a, locked_b] {
+            let migrated: Option<GalleryAccessCode> =
+                sqlx::query_scalar("SELECT access_code FROM galleries WHERE id = $1")
+                    .bind(locked_id)
+                    .fetch_one(&mut *transaction)
+                    .await
+                    .unwrap();
+
+            assert!(
+                migrated.is_some(),
+                "locked gallery {locked_id} must remain locked with a valid 6-digit code"
+            );
+        }
+
+        for invalid in ["", "12345", "1234567", "12345a", " 12345", "١٢٣٤٥٦"] {
+            sqlx::raw_sql("SAVEPOINT invalid_access_code")
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+
+            let outcome = sqlx::query("UPDATE galleries SET access_code = $1 WHERE id = $2")
+                .bind(invalid)
+                .bind(unlocked_id)
+                .execute(&mut *transaction)
+                .await;
+
+            assert!(outcome.is_err(), "{invalid:?} must be rejected");
+
+            sqlx::raw_sql("ROLLBACK TO SAVEPOINT invalid_access_code")
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        sqlx::query("UPDATE galleries SET access_code = $1 WHERE id = $2")
+            .bind("042819")
+            .bind(unlocked_id)
             .execute(&mut *transaction)
             .await
             .unwrap();
-        sqlx::query("UPDATE galleries SET access_code_ciphertext = NULL WHERE id = $1")
-            .bind(gallery_id)
+        sqlx::query("UPDATE galleries SET access_code = NULL WHERE id = $1")
+            .bind(unlocked_id)
             .execute(&mut *transaction)
             .await
             .unwrap();
@@ -3012,26 +2982,25 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn access_code_ciphertext_edits_lock_once_shared_and_never_serialize_raw_bytes(
+    async fn access_code_edits_lock_once_shared_and_never_serialize_in_overview_or_shared_views(
         pool: PgPool,
     ) {
         let database = Database::new(pool.clone());
         let store = database.repository::<GalleryRepository>();
         let (mine, other) = (workspace(&pool).await, workspace(&pool).await);
         let created = store.create(mine).await.unwrap();
-        let first_cipher = EncryptedAccessCode::from([0x11; ENCRYPTED_ACCESS_CODE_LEN]);
-        let second_cipher = EncryptedAccessCode::from([0x22; ENCRYPTED_ACCESS_CODE_LEN]);
+        let first_code: GalleryAccessCode = "042819".parse().unwrap();
+        let second_code: GalleryAccessCode = "901234".parse().unwrap();
 
-        assert!(!created.access_code_protected());
-        assert_eq!(created.access_code_ciphertext, None);
-        assert_eq!(format!("{first_cipher:?}"), "EncryptedAccessCode(..)");
+        assert_eq!(created.access_code, None);
+        assert_eq!(format!("{first_code:?}"), "GalleryAccessCode(..)");
 
         let protected = store
             .update(
                 mine,
                 created.id,
                 &GalleryChanges {
-                    access_code: Some(Some(first_cipher.clone())),
+                    access_code: Some(Some(first_code.clone())),
                     ..GalleryChanges::default()
                 },
             )
@@ -3039,19 +3008,15 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert!(protected.access_code_protected());
-        assert_eq!(
-            protected.access_code_ciphertext.as_ref(),
-            Some(&first_cipher)
-        );
+        assert_eq!(protected.access_code.as_ref(), Some(&first_code));
 
         let overview_json =
             serde_json::to_value(&store.list(mine, GallerySort::Updated, &[]).await.unwrap()[0])
                 .unwrap();
 
-        assert_eq!(overview_json["access_code_protected"], true);
+        assert_eq!(overview_json["access_code"], "042819");
         assert!(overview_json.get("access_code_ciphertext").is_none());
-        assert!(overview_json.get("access_code").is_none());
+        assert!(overview_json.get("access_code_protected").is_none());
 
         let cleared = store
             .update(
@@ -3066,15 +3031,14 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert!(!cleared.access_code_protected());
-        assert_eq!(cleared.access_code_ciphertext, None);
+        assert_eq!(cleared.access_code, None);
 
         store
             .update(
                 mine,
                 created.id,
                 &GalleryChanges {
-                    access_code: Some(Some(first_cipher.clone())),
+                    access_code: Some(Some(first_code.clone())),
                     ..GalleryChanges::default()
                 },
             )
@@ -3083,11 +3047,10 @@ mod tests {
             .unwrap();
 
         let shared = store.share(mine, created.id).await.unwrap().unwrap();
-        assert!(shared.access_code_protected());
-        assert_eq!(shared.access_code_ciphertext.as_ref(), Some(&first_cipher));
+        assert_eq!(shared.access_code.as_ref(), Some(&first_code));
         let token = shared.share_token.unwrap();
 
-        for forbidden in [Some(second_cipher.clone()), None] {
+        for forbidden in [Some(second_code.clone()), None] {
             let outcome = store
                 .update(
                     mine,
@@ -3109,7 +3072,7 @@ mod tests {
                     other,
                     created.id,
                     &GalleryChanges {
-                        access_code: Some(Some(second_cipher)),
+                        access_code: Some(Some(second_code)),
                         ..GalleryChanges::default()
                     },
                 )
@@ -3126,15 +3089,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(retitled.title.as_deref(), Some("Locked Shoot"));
-        assert_eq!(
-            retitled.access_code_ciphertext.as_ref(),
-            Some(&first_cipher)
-        );
+        assert_eq!(retitled.access_code.as_ref(), Some(&first_code));
 
         let found = store.find_shared(&token).await.unwrap().unwrap();
         let shared_json = serde_json::to_value(&found.gallery).unwrap();
 
-        assert_eq!(found.access_code_ciphertext.as_ref(), Some(&first_cipher));
+        assert_eq!(found.access_code.as_ref(), Some(&first_code));
         assert!(shared_json.get("access_code_ciphertext").is_none());
         assert!(shared_json.get("access_code").is_none());
 
@@ -3158,10 +3118,7 @@ mod tests {
         .unwrap();
 
         let contact_found = store.find_shared(&contact_token).await.unwrap().unwrap();
-        assert_eq!(
-            contact_found.access_code_ciphertext.as_ref(),
-            Some(&first_cipher)
-        );
+        assert_eq!(contact_found.access_code.as_ref(), Some(&first_code));
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -3309,10 +3266,7 @@ mod tests {
             .collect();
 
         assert_eq!(updated_ids, vec![second.id, first.id]);
-        assert!(
-            serde_json::from_value::<GalleryChanges<GalleryAccessCode>>(json!({"favorite": null}))
-                .is_err()
-        );
+        assert!(serde_json::from_value::<GalleryChanges>(json!({"favorite": null})).is_err());
     }
 
     #[sqlx::test(migrations = "./migrations")]
