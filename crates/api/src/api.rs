@@ -17,7 +17,7 @@ use pp_core::{
         DEFAULT_EXPORT_MAX_SIZE, DEFAULT_EXPORT_RETENTION, ExportConfig, SmtpConfigError,
         SmtpSettings,
     },
-    types::access_code::{UNLOCK_COOKIE_NAME, UnlockCookieSigner},
+    types::access_code::{CookieSigner, UNLOCK_COOKIE_NAME},
     url::Origin,
 };
 use pp_database::{
@@ -103,7 +103,7 @@ pub(crate) struct ApiState {
     dummy_hash: PasswordHash,
     comment_limiter: CommentLimiter,
     comment_limit: NonZeroU16,
-    unlock_cookie_signer: UnlockCookieSigner,
+    cookie_signer: CookieSigner,
     smtp: Option<SmtpSettings>,
 }
 
@@ -141,7 +141,7 @@ impl ApiState {
             dummy_hash: PasswordHash::generate()?,
             comment_limiter: CommentLimiter::new(DEFAULT_COMMENT_INTERVAL),
             comment_limit: DEFAULT_COMMENT_LIMIT,
-            unlock_cookie_signer: UnlockCookieSigner::generate(),
+            cookie_signer: CookieSigner::generate(),
             smtp: None,
         })
     }
@@ -150,8 +150,8 @@ impl ApiState {
         &self.database
     }
 
-    pub fn unlock_cookie_signer(&self) -> &UnlockCookieSigner {
-        &self.unlock_cookie_signer
+    pub fn cookie_signer(&self) -> &CookieSigner {
+        &self.cookie_signer
     }
 
     #[must_use]

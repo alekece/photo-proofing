@@ -104,9 +104,9 @@ describe('GalleryCard', () => {
 		expect(screen.getByText('New downloads')).toBeTruthy();
 	});
 
-	it('shows inline Lock when access_code_protected and EyeOff when Expired or Archived with zero axe violations', async () => {
+	it('shows inline Lock when access_code is set and EyeOff when Expired or Archived with zero axe violations', async () => {
 		const { container, rerender } = render(GalleryCard, {
-			gallery: gallery({ access_code_protected: true }),
+			gallery: gallery({ access_code: '042819' }),
 			query: ''
 		});
 
@@ -118,7 +118,7 @@ describe('GalleryCard', () => {
 
 		await rerender({
 			gallery: gallery({
-				access_code_protected: true,
+				access_code: '042819',
 				states: ['shared', 'expired'],
 				expires_at: '2026-01-01T00:00:00Z'
 			}),
@@ -128,7 +128,7 @@ describe('GalleryCard', () => {
 		expect(screen.getByRole('img', { name: 'Closed to clients' })).toBeTruthy();
 
 		await rerender({
-			gallery: gallery({ access_code_protected: false, states: ['shared', 'archived'] }),
+			gallery: gallery({ access_code: null, states: ['shared', 'archived'] }),
 			query: ''
 		});
 		expect(screen.queryByRole('img', { name: 'Protected by an access code' })).toBeNull();

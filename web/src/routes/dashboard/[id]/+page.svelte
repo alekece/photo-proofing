@@ -111,9 +111,6 @@
 			const current = keys.filter(isLatest);
 			for (const key of current) {
 				saved = { ...saved, [key]: result[key], updated_at: result.updated_at };
-				if (key === 'access_code') {
-					saved = { ...saved, access_code_protected: result.access_code_protected };
-				}
 				delete failed[key];
 			}
 			// A response for another field may still describe an older expiry.
@@ -217,7 +214,6 @@
 				...saved,
 				share_token: shared.share_token,
 				access_code: shared.access_code,
-				access_code_protected: shared.access_code_protected,
 				states: shared.states,
 				updated_at: shared.updated_at
 			};
@@ -356,7 +352,6 @@
 			...saved,
 			share_token: updated.share_token,
 			access_code: updated.access_code,
-			access_code_protected: updated.access_code_protected,
 			states: updated.states,
 			updated_at: updated.updated_at
 		};

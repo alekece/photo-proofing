@@ -563,7 +563,6 @@ describe('gallery page', () => {
 						...base,
 						share_token: 'A'.repeat(22),
 						access_code: '042819',
-						access_code_protected: true,
 						states: ['shared']
 					});
 				}
@@ -603,14 +602,13 @@ describe('gallery page', () => {
 						...base,
 						share_token: 'B'.repeat(22),
 						access_code: '042819',
-						access_code_protected: true,
 						states: ['shared']
 					});
 				}
 				await new Promise<void>((r) => (finishOkPatch = r));
 				const patch = JSON.parse(init?.body as string);
 				events.push('patch-done');
-				return Response.json({ ...base, ...patch, access_code_protected: true });
+				return Response.json({ ...base, ...patch });
 			})
 		);
 
@@ -641,8 +639,7 @@ describe('gallery page', () => {
 				const patch = JSON.parse(init?.body as string);
 				return Response.json({
 					...base,
-					...patch,
-					access_code_protected: Boolean(patch.access_code)
+					...patch
 				});
 			})
 		);

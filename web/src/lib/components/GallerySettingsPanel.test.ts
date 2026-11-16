@@ -210,7 +210,7 @@ describe('GallerySettingsPanel', () => {
 	});
 
 	it('generates, edits, copies, and clears a 6-digit access code in Draft and reverts on failure', async () => {
-		const draft = setup({ access_code: null, access_code_protected: false });
+		const draft = setup({ access_code: null });
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		Object.defineProperty(navigator, 'clipboard', {
 			value: { writeText },
@@ -245,7 +245,7 @@ describe('GallerySettingsPanel', () => {
 		expect(draft.onsave).toHaveBeenLastCalledWith({ access_code: null });
 		draft.unmount();
 
-		const failing = setup({ access_code: null, access_code_protected: false }, false);
+		const failing = setup({ access_code: null }, false);
 		const failToggle = screen.getByRole('switch', { name: 'Require access code' });
 		await failing.user.click(failToggle);
 		await vi.waitFor(() => expect(failToggle.getAttribute('aria-checked')).toBe('false'));
@@ -253,7 +253,7 @@ describe('GallerySettingsPanel', () => {
 
 	it('locks access-code controls once shared, keeping Copy when set and disabling the switch when unset', async () => {
 		const sharedWithCode = setup(
-			{ access_code: '042819', access_code_protected: true, states: ['shared'] },
+			{ access_code: '042819', states: ['shared'] },
 			true,
 			'A'.repeat(22)
 		);
@@ -276,7 +276,7 @@ describe('GallerySettingsPanel', () => {
 		sharedWithCode.unmount();
 
 		const sharedWithoutCode = setup(
-			{ access_code: null, access_code_protected: false, states: ['shared'] },
+			{ access_code: null, states: ['shared'] },
 			true,
 			'A'.repeat(22)
 		);
@@ -303,7 +303,7 @@ describe('GallerySettingsPanel', () => {
 
 		const user = userEvent.setup();
 		render(GallerySettingsPanel, {
-			gallery: { ...gallery, access_code: null, access_code_protected: false },
+			gallery: { ...gallery, access_code: null },
 			shareToken: null,
 			origin: 'https://pp.test',
 			onsave,
@@ -348,7 +348,7 @@ describe('GallerySettingsPanel', () => {
 
 		const user = userEvent.setup();
 		render(GallerySettingsPanel, {
-			gallery: { ...gallery, access_code: null, access_code_protected: false },
+			gallery: { ...gallery, access_code: null },
 			shareToken: null,
 			origin: 'https://pp.test',
 			onsave,

@@ -179,13 +179,7 @@
 		if (!localGalleries) return;
 
 		localGalleries = localGalleries.map((item) =>
-			item.id === updated.id
-				? {
-						...item,
-						...updated,
-						access_code_protected: updated.access_code_protected ?? item.access_code_protected
-					}
-				: item
+			item.id === updated.id ? { ...item, ...updated } : item
 		);
 	}
 

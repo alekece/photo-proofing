@@ -12,11 +12,10 @@ use futures_util::future::LocalBoxFuture;
 use pp_core::email::{Email, EmailMessage, EmailSubject};
 use pp_database::{
     contact::ContactName,
-    gallery::{GalleryId, GalleryRepository, InvitationBatch, InvitationContact},
+    gallery::{Gallery, GalleryId, GalleryRepository, InvitationBatch, InvitationContact},
 };
 use serde::{Deserialize, Serialize};
 
-use super::GalleryView;
 use crate::{
     api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
     response::ResponseBuilderExt,
@@ -60,7 +59,7 @@ impl FromRequest for SendInvitationsRequest {
 
 #[derive(Serialize)]
 struct SendInvitationsResponse {
-    gallery: GalleryView,
+    gallery: Gallery,
     queued_count: usize,
 }
 
@@ -119,7 +118,7 @@ async fn send_invitations(
         .ok_or_else(ErrorResponse::not_found)?;
 
     Ok(HttpResponse::Ok().no_store().json(SendInvitationsResponse {
-        gallery: GalleryView::from(outcome.gallery),
+        gallery: outcome.gallery,
         queued_count: outcome.queued_count,
     }))
 }

@@ -315,12 +315,7 @@ pub struct Gallery {
     /// `None` means selection is unlimited.
     pub included_photos: Option<NonZeroUsize>,
     pub watermark_enabled: bool,
-    /// Optional 6-digit access code; serializes only its boolean presence as
-    /// `access_code_protected` so dashboard list views never leak raw digits.
-    #[serde(
-        rename = "access_code_protected",
-        serialize_with = "GalleryAccessCode::serialize_presence"
-    )]
+    /// Optional 6-digit access code; `None` means the shared link requires no code.
     pub access_code: Option<GalleryAccessCode>,
     /// `None` means the gallery has no hero photo.
     pub hero_id: Option<PhotoId>,
@@ -338,11 +333,6 @@ pub struct Gallery {
 }
 
 impl Gallery {
-    /// Whether clients must enter a 6-digit access code before viewing the shared gallery.
-    pub const fn access_code_protected(&self) -> bool {
-        self.access_code.is_some()
-    }
-
     /// The photo allowance of a gallery row, where `None` means selection is unlimited.
     pub(crate) fn included_photos(row: &PgRow) -> Result<Option<NonZeroUsize>, sqlx::Error> {
         row.try_get::<Option<i32>, _>("included_photos")?
@@ -3002,7 +2992,6 @@ mod tests {
         let first_code: GalleryAccessCode = "042819".parse().unwrap();
         let second_code: GalleryAccessCode = "901234".parse().unwrap();
 
-        assert!(!created.access_code_protected());
         assert_eq!(created.access_code, None);
         assert_eq!(format!("{first_code:?}"), "GalleryAccessCode(..)");
 
@@ -3019,16 +3008,15 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert!(protected.access_code_protected());
         assert_eq!(protected.access_code.as_ref(), Some(&first_code));
 
         let overview_json =
             serde_json::to_value(&store.list(mine, GallerySort::Updated, &[]).await.unwrap()[0])
                 .unwrap();
 
-        assert_eq!(overview_json["access_code_protected"], true);
+        assert_eq!(overview_json["access_code"], "042819");
         assert!(overview_json.get("access_code_ciphertext").is_none());
-        assert!(overview_json.get("access_code").is_none());
+        assert!(overview_json.get("access_code_protected").is_none());
 
         let cleared = store
             .update(
@@ -3043,7 +3031,6 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert!(!cleared.access_code_protected());
         assert_eq!(cleared.access_code, None);
 
         store
@@ -3060,7 +3047,6 @@ mod tests {
             .unwrap();
 
         let shared = store.share(mine, created.id).await.unwrap().unwrap();
-        assert!(shared.access_code_protected());
         assert_eq!(shared.access_code.as_ref(), Some(&first_code));
         let token = shared.share_token.unwrap();
 

@@ -176,21 +176,21 @@ async fn unlock_shared_gallery(
     link: SharedLinkAccess,
     input: Json<UnlockInput>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let Some(expected) = &link.access.access_code else {
+    let Some(access_code) = &link.access.access_code else {
         return Ok(HttpResponse::NoContent().no_store().no_referrer().finish());
     };
 
-    if !expected.verify(&input.code) {
+    if !access_code.verify(&input.code) {
         return Err(ErrorResponse::invalid_access_code());
     }
 
     let existing = request
         .cookie(UNLOCK_COOKIE_NAME)
         .map(|cookie| cookie.value().to_owned());
-    let cookie_value = state.unlock_cookie_signer().issue_unlock_cookie_value(
+    let cookie_value = state.cookie_signer().unlock(
         existing.as_deref(),
         link.access.location.gallery_id,
-        expected,
+        access_code,
     );
 
     Ok(HttpResponse::NoContent()
@@ -1779,7 +1779,7 @@ mod tests {
             assert_eq!(body["locked"], false);
         }
 
-        // A restarted API instance generates a fresh in-memory UnlockCookieSigner, so old cookies re-lock.
+        // A restarted API instance generates a fresh in-memory CookieSigner, so old cookies re-lock.
         let restarted_app =
             crate::tests::app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let (restarted_gate_status, restarted_gate) = call(

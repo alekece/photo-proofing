@@ -44,7 +44,7 @@ impl FromRequest for SharedLinkAccess {
                 .ok_or_else(ErrorResponse::not_found)?;
             let unlocked = match &access.access_code {
                 None => true,
-                Some(code) => state.unlock_cookie_signer().is_unlocked(
+                Some(code) => state.cookie_signer().is_unlocked(
                     cookie_value.as_deref(),
                     access.location.gallery_id,
                     code,

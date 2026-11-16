@@ -31,14 +31,13 @@ use actix_web::{
 };
 use actix_web_lab::extract::Query as LabQuery;
 use pp_database::gallery::{
-    Delivery, Gallery, GalleryAccessCode, GalleryChanges, GalleryId, GalleryRepository,
-    GallerySort, GalleryState,
+    Delivery, GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
 };
 use pp_database::photo::{PhotoLocation, Watermarked};
 use pp_database::settings::SettingsRepository;
 use pp_database::workspace_deletion::WorkspaceDeletion;
 use pp_storage::Variant;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::{
     api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
@@ -83,28 +82,6 @@ struct ListQuery {
     states: Vec<GalleryState>,
 }
 
-/// Photographer view of a single gallery, adding the 6-digit access code when set.
-///
-/// Dashboard list responses ([`pp_database::gallery::GalleryOverview`]) deliberately omit
-/// `access_code` and carry only `access_code_protected`.
-#[derive(Serialize)]
-struct GalleryView {
-    #[serde(flatten)]
-    gallery: Gallery,
-    access_code: Option<GalleryAccessCode>,
-}
-
-impl From<Gallery> for GalleryView {
-    fn from(gallery: Gallery) -> Self {
-        let access_code = gallery.access_code.clone();
-
-        Self {
-            gallery,
-            access_code,
-        }
-    }
-}
-
 /// Registers the gallery routes.
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(
@@ -138,9 +115,7 @@ async fn create_gallery(
         .create(identity.workspace_id)
         .await?;
 
-    Ok(HttpResponse::Created()
-        .no_store()
-        .json(GalleryView::from(gallery)))
+    Ok(HttpResponse::Created().no_store().json(gallery))
 }
 
 #[get("")]
@@ -175,9 +150,7 @@ async fn show_gallery(
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(HttpResponse::Ok()
-        .no_store()
-        .json(GalleryView::from(gallery)))
+    Ok(HttpResponse::Ok().no_store().json(gallery))
 }
 
 #[patch("/{id}")]
@@ -194,9 +167,7 @@ async fn update_gallery(
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(HttpResponse::Ok()
-        .no_store()
-        .json(GalleryView::from(gallery)))
+    Ok(HttpResponse::Ok().no_store().json(gallery))
 }
 
 #[post("/{id}/archive")]
@@ -212,9 +183,7 @@ async fn archive_gallery(
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(HttpResponse::Ok()
-        .no_store()
-        .json(GalleryView::from(gallery)))
+    Ok(HttpResponse::Ok().no_store().json(gallery))
 }
 
 #[post("/{id}/restore")]
@@ -230,9 +199,7 @@ async fn restore_gallery(
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(HttpResponse::Ok()
-        .no_store()
-        .json(GalleryView::from(gallery)))
+    Ok(HttpResponse::Ok().no_store().json(gallery))
 }
 
 #[delete("/{id}")]
@@ -267,9 +234,7 @@ async fn share_gallery(
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(HttpResponse::Ok()
-        .no_store()
-        .json(GalleryView::from(gallery)))
+    Ok(HttpResponse::Ok().no_store().json(gallery))
 }
 
 #[post("/{id}/deliver")]
@@ -296,9 +261,7 @@ async fn deliver_gallery(
                 tracing::warn!(%error, "delivery ZIP could not be started");
             }
 
-            Ok(HttpResponse::Ok()
-                .no_store()
-                .json(GalleryView::from(gallery)))
+            Ok(HttpResponse::Ok().no_store().json(gallery))
         }
         Delivery::NotDeliverable => Err(ErrorResponse::gallery_not_shared()),
         Delivery::NotFound => Err(ErrorResponse::not_found()),
@@ -938,9 +901,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn access_code_round_trips_in_draft_locks_after_share_and_stays_out_of_overview(
-        pool: PgPool,
-    ) {
+    async fn access_code_round_trips_in_draft_and_locks_after_share(pool: PgPool) {
         let (state, _dir) = app_state(pool).await;
         let app = test::init_service(
             App::new()
@@ -953,16 +914,16 @@ mod tests {
         let id = created["id"].as_str().unwrap().to_owned();
 
         assert_eq!(status, StatusCode::CREATED);
-        assert_eq!(created["access_code_protected"], false);
         assert_eq!(created["access_code"], Value::Null);
+        assert!(created.get("access_code_protected").is_none());
 
         let (status, protected) =
             call(&app, patch(&id, &cookie, json!({"access_code": "042819"}))).await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(protected["access_code_protected"], true);
         assert_eq!(protected["access_code"], "042819");
         assert!(protected.get("access_code_ciphertext").is_none());
+        assert!(protected.get("access_code_protected").is_none());
 
         let (_, list) = call(
             &app,
@@ -972,9 +933,9 @@ mod tests {
         )
         .await;
 
-        assert_eq!(list[0]["access_code_protected"], true);
-        assert!(list[0].get("access_code").is_none());
+        assert_eq!(list[0]["access_code"], "042819");
         assert!(list[0].get("access_code_ciphertext").is_none());
+        assert!(list[0].get("access_code_protected").is_none());
 
         let (_, shown) = call(
             &app,
@@ -984,12 +945,10 @@ mod tests {
         )
         .await;
 
-        assert_eq!(shown["access_code_protected"], true);
         assert_eq!(shown["access_code"], "042819");
 
         let (_, cleared) = call(&app, patch(&id, &cookie, json!({"access_code": null}))).await;
 
-        assert_eq!(cleared["access_code_protected"], false);
         assert_eq!(cleared["access_code"], Value::Null);
 
         call(&app, patch(&id, &cookie, json!({"access_code": "007123"}))).await;
@@ -997,7 +956,6 @@ mod tests {
         let (status, shared) = call(&app, share(&id, Some(&cookie), Some(ORIGIN))).await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(shared["access_code_protected"], true);
         assert_eq!(shared["access_code"], "007123");
 
         for forbidden in [json!("999999"), Value::Null] {

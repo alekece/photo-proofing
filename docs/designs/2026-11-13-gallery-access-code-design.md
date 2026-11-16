@@ -15,7 +15,7 @@ Photographers need optional access-code protection for sensitive client gallerie
 - **Validated storage & redacted diagnostics:**
   - Stored directly in PostgreSQL (`galleries.access_code text`, constrained to `NULL` or `^[0-9]{6}$`; see [`2026-11-16-plain-gallery-access-code-design.md`](2026-11-16-plain-gallery-access-code-design.md)) without requiring any separate operator encryption key.
   - Never log or print the 6-digit code or unlock cookie in `Debug` or tracing spans (`crates/AGENTS.md`).
-  - Readable by the backend so the photographer's `GET /api/v1/galleries/{id}` view and outgoing invitation/reminder emails can show the 6-digit code, while `GET /api/v1/galleries` (`GalleryOverview`) only exposes `access_code_protected: boolean` (omitting the code from dashboard list responses).
+  - Readable by the backend so photographer `GET /api/v1/galleries` and `GET /api/v1/galleries/{id}` responses and outgoing invitation/reminder emails serialize `access_code: string | null` directly, while client `/shared/{token}` responses omit it.
 - **Client access-code gate (`/g/{token}`):**
   - Active (`shared_at IS NOT NULL`, non-expired, non-archived) code-protected galleries show a full-screen gate with the **Studio Signature** at top and **Gallery Title** (+ optional formatted `shoot_date`) centered over a **darkened clean cover photograph** (`brightness ~0.38` + vignette, or warm dark `CoverBackdrop` if no cover is set), with a frosted 6-digit numeric input (`inputmode="numeric"`, `autocomplete="one-time-code"`) + **`Enter`** button.
   - Before unlock, ONLY the minimal gate metadata (`locked: true`, `title`, `shoot_date`, `has_cover`, studio signature/logo) and `/shared/{token}/cover` + `/shared/{token}/logo` are served; `/photos`, `/photos/{id}/thumbnail|preview|download`, `/download`, `/favorites`, `/comments`, and `/open` all return `401 Unauthorized` (`gallery_locked`) until unlocked!
@@ -36,7 +36,7 @@ Photographers need optional access-code protection for sensitive client gallerie
 - **Database schema (`0033_gallery_access_code.sql` + `0035_plain_gallery_access_code.sql`):**
   - `galleries.access_code text CONSTRAINT galleries_access_code_six_digits CHECK (access_code IS NULL OR access_code ~ '^[0-9]{6}$')`.
 - **Rust rules (`crates/AGENTS.md`):**
-  - Validated `GalleryAccessCode` (`^[0-9]{6}$`, omitting raw `Debug`, deriving `sqlx::Type` transparently) and `UnlockCookieSigner` (wrapping a random in-memory 32-byte HMAC key with redacted `Debug`). Zero free functions outside `#[cfg(test)]`.
+  - Validated `GalleryAccessCode` (`^[0-9]{6}$`, omitting raw `Debug`, deriving `sqlx::Type` transparently) and `CookieSigner` (wrapping a random in-memory 32-byte HMAC key with redacted `Debug`). Zero free functions outside `#[cfg(test)]`.
 
 ## Approaches
 
@@ -46,7 +46,7 @@ Photographers need optional access-code protection for sensitive client gallerie
 ## Decisions
 
 - Plaintext format: strictly 6 ASCII digits (`000000`–`999999`), validated by `GalleryAccessCode`.
-- Unlock cookie: `pp_gallery_unlock` (holding a bounded list of up to 16 unlocked `gallery_id:tag` entries signed by `UnlockCookieSigner` so unlocking gallery B does not evict gallery A; `secure_cookie` follows `session.secure_cookie`), `HttpOnly`, `SameSite=Lax`, `Path=/`.
+- Unlock cookie: `pp_gallery_unlock` (holding a bounded list of up to 16 unlocked `gallery_id:tag` entries signed by `CookieSigner` so unlocking gallery B does not evict gallery A; `secure_cookie` follows `session.secure_cookie`), `HttpOnly`, `SameSite=Lax`, `Path=/`.
 - Update `docs/SPECIFICATIONS.md` (`FR-03`, `FR-04`, `Scope & Exclusions`, `AC-01`), `docs/releases/MVP.md`, and screen docs (`dashboard.md`, `gallery.md`, `client.md`).
 
 ## Left to the builder

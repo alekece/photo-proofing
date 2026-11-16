@@ -1,7 +1,7 @@
 //! Per-gallery 6-digit access codes and stateless `pp_gallery_unlock` cookie signing.
 //!
 //! [`GalleryAccessCode`] validates the 6 ASCII digits (`000000`–`999999`) stored in PostgreSQL
-//! and compares submitted codes in constant time. [`UnlockCookieSigner`] holds a random 256-bit
+//! and compares submitted codes in constant time. [`CookieSigner`] holds a random 256-bit
 //! in-memory HMAC-SHA256 key generated when `pp-api` starts, authenticating up to
 //! [`MAX_UNLOCKED_GALLERIES`] `(gallery_id, code)` entries in the `HttpOnly`
 //! [`UNLOCK_COOKIE_NAME`] cookie without storing client unlock sessions in the database.
@@ -14,7 +14,7 @@ use std::{fmt, str::FromStr};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, KeyInit as _, Mac};
 use rand::Rng;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
 use thiserror::Error;
@@ -73,15 +73,6 @@ impl GalleryAccessCode {
     /// Compares `self` with `submitted` in constant time.
     pub fn verify(&self, submitted: &Self) -> bool {
         bool::from(self.as_bytes().ct_eq(submitted.as_bytes()))
-    }
-
-    /// Serializes only whether an access code is present (`true` or `false`), keeping raw digits
-    /// out of dashboard overview responses.
-    pub fn serialize_presence<S>(value: &Option<Self>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bool(value.is_some())
     }
 }
 
@@ -149,23 +140,23 @@ impl UnlockRecord {
 /// [`Debug`](fmt::Debug) redacts the signing key so state dumps never leak secret bytes.
 ///
 /// ```
-/// use pp_core::types::access_code::{GalleryAccessCode, UnlockCookieSigner};
+/// use pp_core::types::access_code::{CookieSigner, GalleryAccessCode};
 /// use uuid::Uuid;
 ///
-/// let signer = UnlockCookieSigner::generate();
+/// let signer = CookieSigner::generate();
 /// let gallery_id = Uuid::new_v4();
 /// let code: GalleryAccessCode = "042819".parse().unwrap();
-/// let cookie = signer.issue_unlock_cookie_value(None, gallery_id, &code);
+/// let cookie = signer.unlock(None, gallery_id, &code);
 ///
 /// assert!(signer.is_unlocked(Some(&cookie), gallery_id, &code));
-/// assert_eq!(format!("{signer:?}"), "UnlockCookieSigner(..)");
+/// assert_eq!(format!("{signer:?}"), "CookieSigner(..)");
 /// ```
 #[derive(Clone)]
-pub struct UnlockCookieSigner {
+pub struct CookieSigner {
     key: [u8; KEY_BYTES],
 }
 
-impl UnlockCookieSigner {
+impl CookieSigner {
     /// Generates a fresh random 256-bit signing key from the OS CSPRNG.
     pub fn generate() -> Self {
         let mut key = [0u8; KEY_BYTES];
@@ -203,7 +194,7 @@ impl UnlockCookieSigner {
 
     /// Produces an updated base64url cookie value recording `(gallery_id, code)` while preserving
     /// up to `MAX_UNLOCKED_GALLERIES - 1` previously unlocked galleries.
-    pub fn issue_unlock_cookie_value(
+    pub fn unlock(
         &self,
         existing_cookie_value: Option<&str>,
         gallery_id: impl Into<Uuid>,
@@ -284,24 +275,17 @@ impl UnlockCookieSigner {
     }
 }
 
-impl fmt::Debug for UnlockCookieSigner {
+impl fmt::Debug for CookieSigner {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("UnlockCookieSigner(..)")
+        formatter.write_str("CookieSigner(..)")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use serde::Serialize;
     use serde_json::json;
 
     use super::*;
-
-    #[derive(Serialize)]
-    struct PresenceHolder {
-        #[serde(serialize_with = "GalleryAccessCode::serialize_presence")]
-        protected: Option<GalleryAccessCode>,
-    }
 
     #[test]
     fn accepts_only_six_ascii_digits_and_verifies_in_constant_time() {
@@ -347,36 +331,27 @@ mod tests {
     }
 
     #[test]
-    fn debug_redacts_digits_and_serialize_presence_emits_only_boolean() {
+    fn debug_redacts_digits() {
         let code: GalleryAccessCode = "042819".parse().unwrap();
 
         assert_eq!(format!("{code:?}"), "GalleryAccessCode(..)");
         assert!(!format!("{code:?}").contains("042819"));
-
-        let some_json = serde_json::to_value(PresenceHolder {
-            protected: Some(code),
-        })
-        .unwrap();
-        let none_json = serde_json::to_value(PresenceHolder { protected: None }).unwrap();
-
-        assert_eq!(some_json, json!({ "protected": true }));
-        assert_eq!(none_json, json!({ "protected": false }));
     }
 
     #[test]
-    fn unlock_cookie_signer_binds_gallery_and_code_caps_at_sixteen_and_rejects_tampering() {
-        let signer = UnlockCookieSigner::from_bytes([0x33; KEY_BYTES]);
-        let other_signer = UnlockCookieSigner::from_bytes([0x44; KEY_BYTES]);
-        let generated = UnlockCookieSigner::generate();
+    fn cookie_signer_binds_gallery_and_code_caps_at_sixteen_and_rejects_tampering() {
+        let signer = CookieSigner::from_bytes([0x33; KEY_BYTES]);
+        let other_signer = CookieSigner::from_bytes([0x44; KEY_BYTES]);
+        let generated = CookieSigner::generate();
         let code: GalleryAccessCode = "901234".parse().unwrap();
         let rotated_code: GalleryAccessCode = "901235".parse().unwrap();
 
-        assert_eq!(format!("{signer:?}"), "UnlockCookieSigner(..)");
-        assert_eq!(format!("{generated:?}"), "UnlockCookieSigner(..)");
+        assert_eq!(format!("{signer:?}"), "CookieSigner(..)");
+        assert_eq!(format!("{generated:?}"), "CookieSigner(..)");
 
         let gallery_a = Uuid::new_v4();
         let gallery_b = Uuid::new_v4();
-        let cookie_a = signer.issue_unlock_cookie_value(None, gallery_a, &code);
+        let cookie_a = signer.unlock(None, gallery_a, &code);
 
         assert!(signer.is_unlocked(Some(&cookie_a), gallery_a, &code));
         assert!(
@@ -391,7 +366,7 @@ mod tests {
 
         for _ in 0..18 {
             let id = Uuid::new_v4();
-            let next = signer.issue_unlock_cookie_value(cookie.as_deref(), id, &code);
+            let next = signer.unlock(cookie.as_deref(), id, &code);
 
             assert!(!next.contains("901234"));
             assert!(signer.is_unlocked(Some(&next), id, &code));
@@ -409,9 +384,9 @@ mod tests {
             assert!(!other_signer.is_unlocked(Some(&cookie), *id, &code));
         }
 
-        let refreshed = signer.issue_unlock_cookie_value(Some(&cookie), galleries[2], &code);
+        let refreshed = signer.unlock(Some(&cookie), galleries[2], &code);
         let extra_id = Uuid::new_v4();
-        let after_extra = signer.issue_unlock_cookie_value(Some(&refreshed), extra_id, &code);
+        let after_extra = signer.unlock(Some(&refreshed), extra_id, &code);
 
         assert!(signer.is_unlocked(Some(&after_extra), galleries[2], &code));
         assert!(!signer.is_unlocked(Some(&after_extra), galleries[3], &code));
@@ -444,7 +419,7 @@ mod tests {
             );
         }
 
-        let recovered = signer.issue_unlock_cookie_value(Some(&wrong_len), extra_id, &code);
+        let recovered = signer.unlock(Some(&wrong_len), extra_id, &code);
 
         assert!(signer.is_unlocked(Some(&recovered), extra_id, &code));
     }

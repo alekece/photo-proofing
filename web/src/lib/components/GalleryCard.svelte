@@ -93,7 +93,7 @@
 						<Star class="size-3.5 fill-current sm:size-4" aria-hidden="true" />
 					</span>
 				{/if}
-				{#if gallery.access_code_protected}
+				{#if gallery.access_code}
 					<span
 						role="img"
 						aria-label={m.card_access_code_protected()}
