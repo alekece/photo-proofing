@@ -12,7 +12,10 @@ use pp_database::{
     photo::{PhotoId, PhotoKind, PhotoLocation, PhotoRepository, Watermarked},
     settings::SettingsRepository,
 };
-use pp_mail::{CoverPhoto, EmailKind, SmtpMailer, WarmPaperEmail};
+use pp_mail::{
+    smtp::SmtpMailer,
+    warm_paper::{CoverPhoto, EmailKind, WarmPaperEmail},
+};
 use pp_storage::{PhotoKey, PhotoStorage, StorageError, Variant};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
@@ -233,7 +236,7 @@ mod tests {
         settings::{CoverSignature, LogoChange, SettingsRepository, SettingsUpdate},
         tests::TestRepository,
     };
-    use pp_mail::SmtpMailer;
+    use pp_mail::smtp::SmtpMailer;
     use pp_storage::{PhotoKey, PhotoStorage, Variant};
     use time::{Date, Month};
     use tokio::{

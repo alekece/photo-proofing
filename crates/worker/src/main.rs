@@ -5,7 +5,7 @@ use clap_config_fallback::ConfigParser;
 use eyre::Result;
 use pp_core::config::{ExportConfig, LogConfig, PhotoConfig};
 use pp_database::jobs::JobKind;
-use pp_mail::SmtpMailer;
+use pp_mail::smtp::SmtpMailer;
 use pp_storage::PhotoStorage;
 use pp_worker::{
     config::WorkerConfig,
