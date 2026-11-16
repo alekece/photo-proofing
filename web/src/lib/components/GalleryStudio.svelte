@@ -416,103 +416,130 @@
 	</div>
 
 	<main class="min-w-0 px-3.5 pt-4 pb-10 [grid-area:stage] sm:px-7 sm:pt-5 sm:pb-12">
-		<div role="tabpanel" id={`panel-${section}`} aria-labelledby={`tab-${section}`}>
-			<!-- All panels stay mounted so counts load on open and in-flight edits survive tab switches. -->
-			<div hidden={section !== 'photos'}>
-				<PhotosPanel
-					galleryId={id}
-					bind:heroId={() => coverId, (next) => (heroId = next)}
-					bind:heroRevision
-					layout={gallery.layout}
-					oncount={(n) => (photoCount = n)}
-				/>
-			</div>
-			<div hidden={section !== 'favorites'} class="grid gap-4">
-				<FavoritesPanel
-					galleryId={id}
-					layout={gallery.layout}
-					oncount={(n) => (favoriteCount = n)}
-				/>
-			</div>
-			<div hidden={section !== 'comments'} class="grid gap-4">
-				<CommentsPanel galleryId={id} layout={gallery.layout} oncount={(n) => (commentCount = n)} />
-			</div>
-			<div hidden={section !== 'final'}>
-				<PhotosPanel
-					set="finals"
-					galleryId={id}
-					layout={gallery.layout}
-					oncount={(n) => (finalCount = n)}
-				/>
-			</div>
-			<div hidden={section !== 'design'}>
-				<GalleryDesignPanel
-					{gallery}
-					bind:heroId={() => coverId, (next) => (heroId = next)}
+		<!-- All panels stay mounted so counts load on open and in-flight edits survive tab switches. -->
+		<div
+			role="tabpanel"
+			id="panel-photos"
+			aria-labelledby="tab-photos"
+			hidden={section !== 'photos'}
+		>
+			<PhotosPanel
+				galleryId={id}
+				bind:heroId={() => coverId, (next) => (heroId = next)}
+				bind:heroRevision
+				layout={gallery.layout}
+				oncount={(n) => (photoCount = n)}
+			/>
+		</div>
+		<div
+			role="tabpanel"
+			id="panel-favorites"
+			aria-labelledby="tab-favorites"
+			hidden={section !== 'favorites'}
+			class={section === 'favorites' ? 'grid gap-4' : undefined}
+		>
+			<FavoritesPanel galleryId={id} layout={gallery.layout} oncount={(n) => (favoriteCount = n)} />
+		</div>
+		<div
+			role="tabpanel"
+			id="panel-comments"
+			aria-labelledby="tab-comments"
+			hidden={section !== 'comments'}
+			class={section === 'comments' ? 'grid gap-4' : undefined}
+		>
+			<CommentsPanel galleryId={id} layout={gallery.layout} oncount={(n) => (commentCount = n)} />
+		</div>
+		<div role="tabpanel" id="panel-final" aria-labelledby="tab-final" hidden={section !== 'final'}>
+			<PhotosPanel
+				set="finals"
+				galleryId={id}
+				layout={gallery.layout}
+				oncount={(n) => (finalCount = n)}
+			/>
+		</div>
+		<div
+			role="tabpanel"
+			id="panel-design"
+			aria-labelledby="tab-design"
+			hidden={section !== 'design'}
+		>
+			<GalleryDesignPanel
+				{gallery}
+				{settings}
+				bind:heroId={() => coverId, (next) => (heroId = next)}
+				{heroRevision}
+				bind:focalPoint={liveFocalPoint}
+				active={section === 'design'}
+				{onsave}
+				{schedule}
+				{cancel}
+			/>
+		</div>
+		<div role="tabpanel" id="panel-share" aria-labelledby="tab-share" hidden={section !== 'share'}>
+			{#if shareOpened}
+				<GallerySharePanel
+					bind:this={sharePanel}
+					gallery={{ ...gallery, share_token: shareToken }}
+					{settings}
+					{coverId}
 					{heroRevision}
-					bind:focalPoint={liveFocalPoint}
-					active={section === 'design'}
-					{onsave}
-					{schedule}
-					{cancel}
-				/>
-			</div>
-			<div hidden={section !== 'share'}>
-				{#if shareOpened}
-					<GallerySharePanel
-						bind:this={sharePanel}
-						gallery={{ ...gallery, share_token: shareToken }}
-						{settings}
-						{coverId}
-						{heroRevision}
-						focalPoint={liveFocalPoint}
-						{photoCount}
-						{finalCount}
-						{uploading}
-						accessCode={previewAccessCode}
-						contactsRevision={shareContactsRevision}
-						bind:recipientCount={shareRecipientCount}
-						bind:canSend={shareCanSend}
-						bind:sending={shareSending}
-						{onbeforesend}
-						onopensettings={() => selectSection('settings')}
-						onsent={(result) => {
-							oninvitationsent?.(result);
-							contactsPanelRevision += 1;
-							shareContactsRevision += 1;
-							toasts.success(m.share_invitations_queued({ count: result.queued_count }));
-							leaveShare();
-						}}
-					/>
-				{/if}
-			</div>
-			<div hidden={section !== 'contacts'}>
-				<GalleryContactsPanel
-					galleryId={id}
-					revision={contactsPanelRevision}
-					oncount={(n) => {
-						if (contactCount !== null && contactCount !== n) {
-							shareContactsRevision += 1;
-						}
-						contactCount = n;
+					focalPoint={liveFocalPoint}
+					{photoCount}
+					{finalCount}
+					{uploading}
+					accessCode={previewAccessCode}
+					contactsRevision={shareContactsRevision}
+					bind:recipientCount={shareRecipientCount}
+					bind:canSend={shareCanSend}
+					bind:sending={shareSending}
+					{onbeforesend}
+					onopensettings={() => selectSection('settings')}
+					onsent={(result) => {
+						oninvitationsent?.(result);
+						contactsPanelRevision += 1;
+						shareContactsRevision += 1;
+						toasts.success(m.share_invitations_queued({ count: result.queued_count }));
+						leaveShare();
 					}}
 				/>
-			</div>
-			<div hidden={section !== 'settings'}>
-				<GallerySettingsPanel
-					{gallery}
-					{shareToken}
-					{origin}
-					bind:expectedAccessCode
-					{onsave}
-					{schedule}
-					{cancel}
-					onsharelink={onshare}
-					{onarchive}
-					{onrestore}
-					{ondelete}
-				/>
-			</div>
+			{/if}
+		</div>
+		<div
+			role="tabpanel"
+			id="panel-contacts"
+			aria-labelledby="tab-contacts"
+			hidden={section !== 'contacts'}
+		>
+			<GalleryContactsPanel
+				galleryId={id}
+				revision={contactsPanelRevision}
+				oncount={(n) => {
+					if (contactCount !== null && contactCount !== n) {
+						shareContactsRevision += 1;
+					}
+					contactCount = n;
+				}}
+			/>
+		</div>
+		<div
+			role="tabpanel"
+			id="panel-settings"
+			aria-labelledby="tab-settings"
+			hidden={section !== 'settings'}
+		>
+			<GallerySettingsPanel
+				{gallery}
+				{shareToken}
+				{origin}
+				bind:expectedAccessCode
+				{onsave}
+				{schedule}
+				{cancel}
+				onsharelink={onshare}
+				{onarchive}
+				{onrestore}
+				{ondelete}
+			/>
 		</div>
 	</main>
 </div>

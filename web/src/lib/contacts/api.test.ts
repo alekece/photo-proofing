@@ -1,16 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-	ContactApiError,
-	contactInitials,
-	createContact,
-	deleteContact,
-	linkGalleryContact,
-	listContacts,
-	listGalleryContacts,
-	unlinkGalleryContact,
-	updateContact,
-	type Contact
-} from './api.js';
+import { ApiError } from '#lib/http.js';
+import { createContact, deleteContact, listContacts, updateContact, type Contact } from './api.js';
 
 const sample: Contact = {
 	id: 'c1',
@@ -23,16 +13,8 @@ const sample: Contact = {
 	updated_at: '2026-11-13T10:00:00Z'
 };
 
-describe('contactInitials', () => {
-	it('builds a 1-2 character monogram skipping connectors', () => {
-		expect(contactInitials('Camille & Hugo')).toBe('CH');
-		expect(contactInitials('Zoé')).toBe('Z');
-		expect(contactInitials('  Jean-Luc Picard  ')).toBe('JP');
-	});
-});
-
 describe('contacts client API', () => {
-	it('lists, creates, updates, deletes, and manages gallery links', async () => {
+	it('lists, creates, updates, and deletes contacts', async () => {
 		const listFetch = vi.fn(async () => new Response(JSON.stringify([sample]), { status: 200 }));
 		expect(await listContacts(listFetch)).toEqual([sample]);
 		expect(listFetch).toHaveBeenCalledWith(
@@ -54,21 +36,9 @@ describe('contacts client API', () => {
 			'/api/v1/contacts/c1',
 			expect.objectContaining({ method: 'DELETE' })
 		);
-
-		expect(await listGalleryContacts('g1', listFetch)).toEqual([sample]);
-
-		const linkFetch = vi.fn(async () => new Response(JSON.stringify(sample), { status: 200 }));
-		expect(await linkGalleryContact('g1', 'c1', linkFetch)).toEqual(sample);
-
-		const unlinkFetch = vi.fn(async () => new Response(null, { status: 204 }));
-		await unlinkGalleryContact('g1', 'c1', unlinkFetch);
-		expect(unlinkFetch).toHaveBeenCalledWith(
-			'/api/v1/galleries/g1/contacts/c1',
-			expect.objectContaining({ method: 'DELETE' })
-		);
 	});
 
-	it('translates duplicate email 409 into ContactApiError with code contact_email_taken', async () => {
+	it('translates duplicate email 409 into ApiError with code contact_email_taken', async () => {
 		const conflictFetch = vi.fn(
 			async () =>
 				new Response(JSON.stringify({ code: 'contact_email_taken' }), {
@@ -83,6 +53,6 @@ describe('contacts client API', () => {
 			status: 409,
 			code: 'contact_email_taken',
 			message: 'A contact with this email already exists.'
-		} satisfies Partial<ContactApiError>);
+		} satisfies Partial<ApiError>);
 	});
 });

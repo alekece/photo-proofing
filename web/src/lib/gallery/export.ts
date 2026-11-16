@@ -1,6 +1,5 @@
-import { GalleryApiError } from './api';
-import { parseOrNull, exportSchema, type Export } from './schemas';
-import { apiErrorMessage, readResponseErrorCode } from '#lib/i18n/errors.js';
+import { requestJson } from '#lib/http.js';
+import { exportSchema, type Export } from './schemas';
 
 export type { Export } from './schemas';
 
@@ -8,57 +7,31 @@ function exportPath(galleryId: string) {
 	return `/api/v1/galleries/${encodeURIComponent(galleryId)}/export`;
 }
 
-async function call(
-	path: string,
-	method: 'GET' | 'POST',
-	fetcher: typeof fetch,
-	photoIds?: string[]
-) {
-	const response = await fetcher(path, {
-		method,
-		credentials: 'same-origin',
-		...(photoIds === undefined
-			? {}
-			: {
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ photo_ids: photoIds })
-				})
-	});
-
-	if (!response.ok) {
-		const code = await readResponseErrorCode(response);
-
-		throw new GalleryApiError(response.status, apiErrorMessage(response.status, code), code);
-	}
-
-	return response;
-}
-
-async function parse(response: Response) {
-	const parsed = parseOrNull(exportSchema, await response.json().catch(() => null));
-
-	if (!parsed) throw new GalleryApiError(502, apiErrorMessage(502));
-
-	return parsed;
-}
-
 /** Stores favorite proofs and queues their ZIP; an active preparation rejects a competing request. */
-export async function requestExport(
+export function requestExport(
 	galleryId: string,
 	fetcher: typeof fetch = fetch,
 	photoIds?: string[]
-) {
-	return parse(await call(exportPath(galleryId), 'POST', fetcher, photoIds));
+): Promise<Export> {
+	return requestJson(
+		exportPath(galleryId),
+		{
+			method: 'POST',
+			...(photoIds === undefined ? {} : { body: JSON.stringify({ photo_ids: photoIds }) })
+		},
+		exportSchema,
+		fetcher
+	);
 }
 
 /** The newest ZIP of the gallery, or `null` when there is none or it expired. */
-export async function latestExport(
+export function latestExport(
 	galleryId: string,
 	fetcher: typeof fetch = fetch
 ): Promise<Export | null> {
-	const response = await call(exportPath(galleryId), 'GET', fetcher);
-
-	return response.status === 204 ? null : parse(response);
+	return requestJson(exportPath(galleryId), { method: 'GET' }, exportSchema, fetcher, {
+		emptyAsNull: true
+	});
 }
 
 export function exportUrl(galleryId: string, exportId: string) {

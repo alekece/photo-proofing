@@ -13,15 +13,9 @@
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
-	import {
-		ContactApiError,
-		contactInitials,
-		createContact,
-		deleteContact,
-		sortContacts,
-		updateContact,
-		type Contact
-	} from '#lib/contacts/api.js';
+	import { createContact, deleteContact, updateContact, type Contact } from '#lib/contacts/api.js';
+	import { contactInitials, sortContacts } from '#lib/contacts/format.js';
+	import { ApiError } from '#lib/http.js';
 	import type { PageData } from './$types';
 
 	const SAVED_MS = 1600;
@@ -210,7 +204,7 @@
 			selectedId = created.id;
 			mobileDetailOpen = true;
 		} catch (error) {
-			if (error instanceof ContactApiError && (error.status === 409 || error.status === 422)) {
+			if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {
 				formError = error.message;
 			} else {
 				toasts.error(m.contacts_save_failed(), () => void submitCreate());
@@ -243,7 +237,7 @@
 		} catch (error) {
 			saveStatus = 'idle';
 
-			if (error instanceof ContactApiError && (error.status === 409 || error.status === 422)) {
+			if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {
 				formError = error.message;
 			} else {
 				toasts.error(m.contacts_save_failed(), () => void submitSave());
@@ -259,10 +253,9 @@
 		try {
 			await deleteContact(targetId);
 		} catch (error) {
-			throw new Error(
-				error instanceof ContactApiError ? error.message : m.contacts_delete_failed(),
-				{ cause: error }
-			);
+			throw new Error(error instanceof ApiError ? error.message : m.contacts_delete_failed(), {
+				cause: error
+			});
 		}
 
 		const remaining = contacts.filter((item) => item.id !== targetId);

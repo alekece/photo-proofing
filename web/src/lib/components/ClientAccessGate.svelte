@@ -3,9 +3,10 @@
 	import { Lock } from '@lucide/svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
 	import StudioSignature from '#lib/components/StudioSignature.svelte';
-	import { GalleryApiError, unlockSharedGallery } from '#lib/gallery/api.js';
+	import { unlockSharedGallery } from '#lib/gallery/api.js';
 	import { formatFullDate } from '#lib/gallery/format.js';
 	import type { LockedSharedGallery } from '#lib/gallery/types.js';
+	import { ApiError } from '#lib/http.js';
 	import { DEFAULT_SIZE } from '#lib/settings/settings.js';
 
 	const ACCESS_CODE_RE = /^[0-9]{6}$/;
@@ -50,7 +51,7 @@
 			await unlockSharedGallery(token, code);
 			await onunlock();
 		} catch (error) {
-			if (error instanceof GalleryApiError) {
+			if (error instanceof ApiError) {
 				if (error.status === 401) {
 					errorMessage = m.client_gate_wrong_code();
 				} else if (error.status === 429) {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { GalleryApiError } from './api';
+import { ApiError } from '#lib/http.js';
 import {
 	deletePhoto,
 	deletePhotos,
@@ -7,6 +7,7 @@ import {
 	listPhotos,
 	previewUrl,
 	retryPhoto,
+	summarizePhotoReadiness,
 	thumbnailUrl,
 	uploadPhoto
 } from './photos';
@@ -150,9 +151,9 @@ describe('photo requests', () => {
 		);
 	});
 
-	it('throws a GalleryApiError with the status on failure', async () => {
+	it('throws an ApiError with the status on failure', async () => {
 		await expect(deletePhoto('g1', 'p1', respond(404, { error: 'not found' }))).rejects.toEqual(
-			new GalleryApiError(404, 'This item no longer exists.')
+			new ApiError(404, 'This item no longer exists.')
 		);
 		await expect(listPhotos('g1', respond(500))).rejects.toMatchObject({ status: 500 });
 	});
@@ -178,6 +179,45 @@ describe('malformed success bodies', () => {
 		['deletePhotos', (f: typeof fetch) => deletePhotos('g1', ['p'], f), { deleted: 'many' }],
 		['getUploadLimits', (f: typeof fetch) => getUploadLimits(f), { concurrency: 4 }]
 	])('%s rejects an unexpected body', async (_name, call, body) => {
-		await expect(call(respond(200, body))).rejects.toBeInstanceOf(GalleryApiError);
+		await expect(call(respond(200, body))).rejects.toBeInstanceOf(ApiError);
+	});
+});
+
+describe('summarizePhotoReadiness', () => {
+	it('counts ready, waiting/processing + in-flight uploads, and failed photos', () => {
+		const readyA = { ...photo, id: 'r1', status: 'ready' as const };
+		const readyB = { ...photo, id: 'r2', status: 'ready' as const };
+		const waiting = { ...photo, id: 'w1', status: 'waiting' as const };
+		const processing = { ...photo, id: 'p2', status: 'processing' as const };
+		const failed = { ...photo, id: 'f1', status: { failed: 'corrupt' } };
+
+		expect(summarizePhotoReadiness([readyA, waiting, readyB, processing, failed], 2)).toEqual({
+			ready: [readyA, readyB],
+			readyCount: 2,
+			uploadingCount: 4,
+			failedCount: 1,
+			empty: false,
+			warned: true
+		});
+
+		expect(summarizePhotoReadiness([readyA])).toEqual({
+			ready: [readyA],
+			readyCount: 1,
+			uploadingCount: 0,
+			failedCount: 0,
+			empty: false,
+			warned: false
+		});
+	});
+
+	it('marks an empty ready set as empty and warned even with no uploads or failures', () => {
+		expect(summarizePhotoReadiness([])).toEqual({
+			ready: [],
+			readyCount: 0,
+			uploadingCount: 0,
+			failedCount: 0,
+			empty: true,
+			warned: true
+		});
 	});
 });

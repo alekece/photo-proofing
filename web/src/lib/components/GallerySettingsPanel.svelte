@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { onDestroy } from 'svelte';
-	import { Archive, ArchiveRestore, Check, Link2, RotateCw, Trash2 } from '@lucide/svelte';
-	import ClickPop from '#lib/components/ClickPop.svelte';
+	import { Archive, ArchiveRestore, Link2, RotateCw, Trash2 } from '@lucide/svelte';
+	import CopyButton from '#lib/components/CopyButton.svelte';
+	import CopyLink from '#lib/components/CopyLink.svelte';
 	import ShareLink from '#lib/components/ShareLink.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Card from '#lib/components/ui/Card/Card.svelte';
@@ -76,13 +76,7 @@
 	let accessCodeSaving = false;
 	// svelte-ignore state_referenced_locally
 	let lastPropAccessCode = savedAccessCode;
-	let codeCopied = $state(false);
-	let codePopping = $state(false);
-	let codeCopyFailed = $state(false);
 	let codeInput = $state<HTMLInputElement | null>(null);
-	let copyTimer: ReturnType<typeof setTimeout> | undefined;
-
-	onDestroy(() => clearTimeout(copyTimer));
 
 	$effect.pre(() => {
 		if (savedIncluded !== lastSavedIncluded) {
@@ -270,23 +264,6 @@
 
 		requestAccessCodeSave(candidate);
 	}
-
-	async function copyAccessCode(code: string) {
-		if (!ACCESS_CODE_RE.test(code)) return;
-		clearTimeout(copyTimer);
-		try {
-			await navigator.clipboard.writeText(code);
-			codeCopyFailed = false;
-			codeCopied = true;
-			codePopping = true;
-			copyTimer = setTimeout(() => (codeCopied = false), 3000);
-		} catch {
-			codeCopied = false;
-			codeCopyFailed = true;
-			codeInput?.focus();
-			codeInput?.select();
-		}
-	}
 </script>
 
 <div class="grid max-w-2xl gap-4">
@@ -376,36 +353,14 @@
 						<span class="text-xs text-muted-foreground">{m.settings_access_code_locked_hint()}</span
 						>
 					</div>
-					<div class="grid gap-1.5">
-						<div class="flex items-center gap-2">
-							<Input
-								bind:ref={codeInput}
-								readonly
-								value={lockedAccessCode}
-								aria-label={m.settings_access_code_label()}
-								class="bg-muted/40 min-h-0 w-28 cursor-default rounded-lg border-border px-2.5 py-1.5 text-center font-mono text-sm font-semibold tracking-[0.18em] text-foreground focus-visible:outline-none"
-							/>
-							<Button
-								size="sm"
-								class="min-h-9! min-w-24 gap-1.5"
-								onclick={() => copyAccessCode(lockedAccessCode ?? '')}
-							>
-								{#if codeCopied}
-									<span class="text-ok-on-dark">
-										<ClickPop active={codePopping} onend={() => (codePopping = false)}>
-											<Check size={16} aria-hidden="true" />
-										</ClickPop>
-									</span>
-									{m.copy_copied()}
-								{:else}
-									{m.copy_copy()}
-								{/if}
-							</Button>
-						</div>
-						<p class={codeCopyFailed ? 'text-xs text-danger' : 'sr-only'} role="status">
-							{codeCopied ? m.copy_copied() : codeCopyFailed ? m.copy_failed() : ''}
-						</p>
-					</div>
+					<CopyLink
+						link={lockedAccessCode}
+						label={m.settings_access_code_label()}
+						class="items-center gap-y-1.5"
+						inputClass="w-28 flex-none py-1.5 text-center font-semibold tracking-[0.18em] text-foreground"
+						buttonClass="min-w-24"
+						statusClass="basis-full text-xs text-danger"
+					/>
 				</div>
 			{:else}
 				<div class={row}>
@@ -470,29 +425,13 @@
 								class="mr-1.5"
 							/>{m.settings_access_code_generate()}
 						</Button>
-						<Button
-							size="sm"
-							class="min-h-9! min-w-24 gap-1.5"
+						<CopyButton
+							value={accessCodeDraft}
 							disabled={!ACCESS_CODE_RE.test(accessCodeDraft)}
-							onclick={() => copyAccessCode(accessCodeDraft)}
-						>
-							{#if codeCopied}
-								<span class="text-ok-on-dark">
-									<ClickPop active={codePopping} onend={() => (codePopping = false)}>
-										<Check size={16} aria-hidden="true" />
-									</ClickPop>
-								</span>
-								{m.copy_copied()}
-							{:else}
-								{m.copy_copy()}
-							{/if}
-						</Button>
-						<p
-							class={codeCopyFailed ? 'basis-full text-right text-xs text-danger' : 'sr-only'}
-							role="status"
-						>
-							{codeCopied ? m.copy_copied() : codeCopyFailed ? m.copy_failed() : ''}
-						</p>
+							fallbackInput={codeInput}
+							class="min-w-24"
+							statusClass="basis-full text-right text-xs text-danger"
+						/>
 					</div>
 				{/if}
 			</div>

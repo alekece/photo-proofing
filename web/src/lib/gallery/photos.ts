@@ -1,5 +1,4 @@
 import { m } from '#lib/paraglide/messages.js';
-import { GalleryApiError } from './api';
 import {
 	deletedPhotosSchema,
 	parseOrNull,
@@ -9,7 +8,7 @@ import {
 	type Photo
 } from './schemas';
 import * as v from 'valibot';
-import { apiErrorMessage, readResponseErrorCode } from '#lib/i18n/errors.js';
+import { requestEmpty, requestJson } from '#lib/http.js';
 
 export type { Photo, PhotoStatus, UploadLimits } from './schemas';
 
@@ -45,32 +44,12 @@ function photosPath(
 	return set === 'finals' ? `${path}?finals=true` : path;
 }
 
-const unexpected = () => new GalleryApiError(502, apiErrorMessage(502));
-
-async function request(path: string, init: RequestInit, fetcher: typeof fetch) {
-	const response = await fetcher(path, { ...init, credentials: 'same-origin' });
-
-	if (!response.ok) {
-		const code = await readResponseErrorCode(response);
-
-		throw new GalleryApiError(response.status, apiErrorMessage(response.status, code), code);
-	}
-
-	return response;
-}
-
-export async function listPhotos(
+export function listPhotos(
 	galleryId: string,
 	fetcher: typeof fetch = fetch,
 	set: PhotoSet = 'photos'
 ) {
-	const response = await request(photosPath(galleryId, { set }), {}, fetcher);
-
-	const photos = parseOrNull(v.array(photoSchema), await response.json().catch(() => null));
-
-	if (!photos) throw unexpected();
-
-	return photos;
+	return requestJson(photosPath(galleryId, { set }), {}, v.array(photoSchema), fetcher);
 }
 
 /** Clean files remain usable while marked copies are being regenerated. */
@@ -78,31 +57,66 @@ export function hasCleanPhoto(photo: Photo): boolean {
 	return photo.clean_ready ?? photo.status === 'ready';
 }
 
+export type PhotoReadiness = {
+	ready: Photo[];
+	readyCount: number;
+	uploadingCount: number;
+	failedCount: number;
+	empty: boolean;
+	warned: boolean;
+};
+
+/** Summarizes ready, uploading, and failed photo counts for share and delivery prechecks. */
+export function summarizePhotoReadiness(
+	photos: readonly Photo[],
+	inFlightUploads = 0
+): PhotoReadiness {
+	const ready: Photo[] = [];
+	let uploadingCount = inFlightUploads;
+	let failedCount = 0;
+
+	for (const photo of photos) {
+		if (photo.status === 'ready') {
+			ready.push(photo);
+		} else if (photo.status === 'waiting' || photo.status === 'processing') {
+			uploadingCount += 1;
+		} else if (typeof photo.status === 'object') {
+			failedCount += 1;
+		}
+	}
+
+	const empty = ready.length === 0;
+	return {
+		ready,
+		readyCount: ready.length,
+		uploadingCount,
+		failedCount,
+		empty,
+		warned: empty || uploadingCount > 0 || failedCount > 0
+	};
+}
+
 /** The proofs ready in their marked or clean files, as the client gallery would show them. */
-export async function listClientPreviewPhotos(
+export function listClientPreviewPhotos(
 	galleryId: string,
 	watermarked: boolean,
 	fetcher: typeof fetch = fetch
 ) {
-	const response = await request(
+	return requestJson(
 		`/api/v1/galleries/${encodeURIComponent(galleryId)}/photos?watermark=${watermarked}`,
 		{},
+		v.array(sharedPhotoSchema),
 		fetcher
 	);
-	const photos = parseOrNull(v.array(sharedPhotoSchema), await response.json().catch(() => null));
-
-	if (!photos) throw unexpected();
-
-	return photos;
 }
 
-export async function deletePhoto(
+export function deletePhoto(
 	galleryId: string,
 	photoId: string,
 	fetcher = fetch,
 	set: PhotoSet = 'photos'
 ) {
-	await request(photosPath(galleryId, { photoId, set }), { method: 'DELETE' }, fetcher);
+	return requestEmpty(photosPath(galleryId, { photoId, set }), { method: 'DELETE' }, fetcher);
 }
 
 /** Most photos one bulk delete request accepts. */
@@ -115,44 +129,34 @@ export async function deletePhotos(
 	fetcher = fetch,
 	set: PhotoSet = 'photos'
 ) {
-	const response = await request(
+	const body = await requestJson(
 		photosPath(galleryId, { action: 'delete', set }),
 		{
 			method: 'POST',
-			body: JSON.stringify({ photo_ids: photoIds }),
-			headers: { 'Content-Type': 'application/json' }
+			body: JSON.stringify({ photo_ids: photoIds })
 		},
+		deletedPhotosSchema,
 		fetcher
 	);
-
-	const body = parseOrNull(deletedPhotosSchema, await response.json().catch(() => null));
-
-	if (!body) throw unexpected();
 
 	return body.deleted;
 }
 
-export async function retryPhoto(
+export function retryPhoto(
 	galleryId: string,
 	photoId: string,
 	fetcher = fetch,
 	set: PhotoSet = 'photos'
 ) {
-	await request(
+	return requestEmpty(
 		photosPath(galleryId, { photoId, action: 'retry', set }),
 		{ method: 'POST' },
 		fetcher
 	);
 }
 
-export async function getUploadLimits(fetcher: typeof fetch = fetch) {
-	const response = await request('/api/v1/upload/limits', {}, fetcher);
-
-	const limits = parseOrNull(uploadLimitsSchema, await response.json().catch(() => null));
-
-	if (!limits) throw unexpected();
-
-	return limits;
+export function getUploadLimits(fetcher: typeof fetch = fetch) {
+	return requestJson('/api/v1/upload/limits', {}, uploadLimitsSchema, fetcher);
 }
 
 /** Sends one file; only an abort throws, every server answer becomes an outcome. */

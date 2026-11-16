@@ -7,8 +7,9 @@
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
-	import { createGallery, GalleryApiError, updateGallery } from '#lib/gallery/api.js';
+	import { createGallery, updateGallery } from '#lib/gallery/api.js';
 	import { TITLE_MAX } from '#lib/gallery/format.js';
+	import { ApiError } from '#lib/http.js';
 
 	let {
 		onclose,
@@ -58,7 +59,7 @@
 			).catch(() => undefined);
 			await goto(`/dashboard/${gallery.id}`);
 		} catch (cause) {
-			if (cause instanceof GalleryApiError && cause.status === 401) {
+			if (cause instanceof ApiError && cause.status === 401) {
 				await goto('/login?expired=1', { refreshAll: true });
 
 				return;

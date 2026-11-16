@@ -327,7 +327,7 @@ describe('GallerySharePanel', () => {
 			.fn()
 			.mockRejectedValueOnce(new TypeError('Failed to fetch'))
 			.mockRejectedValueOnce(
-				new (await import('#lib/gallery/api.js')).GalleryApiError(401, 'unauthorized', 'Expired')
+				new (await import('#lib/http.js')).ApiError(401, 'unauthorized', 'Expired')
 			);
 		const nav = await import('$app/navigation');
 		const gotoSpy = vi.spyOn(nav, 'goto').mockResolvedValue();
