@@ -1,5 +1,6 @@
 //! PostgreSQL persistence and versioned application migrations.
 
+pub mod activity;
 pub mod auth;
 pub mod comments;
 pub mod contact;

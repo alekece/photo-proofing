@@ -154,6 +154,28 @@ pub struct ExportConfig {
     pub retention: ExportRetention,
 }
 
+/// Longest configurable activity window: a day, beyond which coalescing rapid repeats into one
+/// line would start merging activity a reader no longer thinks of as "just now".
+const MAX_ACTIVITY_WINDOW_MILLIS: u64 = 24 * 60 * 60 * 1000;
+
+/// How long repeated activity of the same gallery, contact and kind keeps extending one line,
+/// from one minute up to a day.
+pub type ActivityWindow = BoundedDuration<60_000, MAX_ACTIVITY_WINDOW_MILLIS>;
+
+/// How long the workspace activity log coalesces repeats into one line; shared by the API, which
+/// reads the log, and the worker, which writes `email` lines to it.
+#[derive(Args, ConfigArgs, Debug, Clone)]
+pub struct ActivityConfig {
+    /// Activity of the same gallery, contact and kind within this window extends one line
+    /// instead of opening a new one.
+    #[arg(
+        long = "activity-window",
+        env = "PP_ACTIVITY_WINDOW",
+        default_value = "30m"
+    )]
+    pub window: ActivityWindow,
+}
+
 /// Transport encryption mode for outbound SMTP connections.
 #[derive(
     ValueEnum, Display, Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq,
