@@ -1,8 +1,9 @@
-//! The workspace activity log, under `/api/v1`.
+//! The workspace activity log, under `/api/v1`. The paths say `timeline`, not `activity`, because
+//! browser blockers cancel requests whose path contains that word.
 //!
-//! - `GET /activity` lists what clients did across the workspace's galleries, newest first,
+//! - `GET /timeline` lists what clients did across the workspace's galleries, newest first,
 //!   leaving out archived galleries.
-//! - `GET /galleries/{id}/activity` lists one gallery's lines, archived or not; a gallery of
+//! - `GET /galleries/{id}/timeline` lists one gallery's lines, archived or not; a gallery of
 //!   another workspace is a 404.
 //!
 //! Both take the optional filters `contact` (a contact id or `anonymous`), `kind`, `range`
@@ -57,7 +58,7 @@ impl ActivityFilters {
     }
 }
 
-#[get("/activity")]
+#[get("/timeline")]
 async fn list_activity(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
@@ -74,7 +75,7 @@ async fn list_activity(
     Ok(HttpResponse::Ok().no_store().json(page))
 }
 
-#[get("/galleries/{id}/activity")]
+#[get("/galleries/{id}/timeline")]
 async fn list_gallery_activity(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
@@ -197,11 +198,11 @@ mod tests {
             .await
             .unwrap();
 
-        let (status, _) = call(&app, test::TestRequest::get().uri("/api/v1/activity")).await;
+        let (status, _) = call(&app, test::TestRequest::get().uri("/api/v1/timeline")).await;
 
         assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-        let (status, feed) = call(&app, get("/api/v1/activity", &cookie)).await;
+        let (status, feed) = call(&app, get("/api/v1/timeline", &cookie)).await;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(feed["events"].as_array().unwrap().len(), 1);
@@ -212,7 +213,7 @@ mod tests {
         let (status, own) = call(
             &app,
             get(
-                &format!("/api/v1/galleries/{}/activity", archived.1.0),
+                &format!("/api/v1/galleries/{}/timeline", archived.1.0),
                 &cookie,
             ),
         )
@@ -248,14 +249,14 @@ mod tests {
 
         insert_line(&pool, gallery, "comment", 31).await;
 
-        let (_, first) = call(&app, get("/api/v1/activity", &cookie)).await;
+        let (_, first) = call(&app, get("/api/v1/timeline", &cookie)).await;
 
         assert_eq!(first["events"].as_array().unwrap().len(), 30);
 
         let cursor = first["next"].as_str().unwrap();
         let (_, second) = call(
             &app,
-            get(&format!("/api/v1/activity?cursor={cursor}"), &cookie),
+            get(&format!("/api/v1/timeline?cursor={cursor}"), &cookie),
         )
         .await;
 
@@ -263,23 +264,23 @@ mod tests {
         assert_eq!(second["events"][0]["kind"], "comment");
         assert_eq!(second["next"], Value::Null);
 
-        let (_, comments) = call(&app, get("/api/v1/activity?kind=comment", &cookie)).await;
+        let (_, comments) = call(&app, get("/api/v1/timeline?kind=comment", &cookie)).await;
 
         assert_eq!(comments["events"].as_array().unwrap().len(), 1);
 
         let (_, anonymous) = call(
             &app,
-            get("/api/v1/activity?contact=anonymous&range=7d", &cookie),
+            get("/api/v1/timeline?contact=anonymous&range=7d", &cookie),
         )
         .await;
 
         assert_eq!(anonymous["events"].as_array().unwrap().len(), 30);
 
         for uri in [
-            "/api/v1/activity?cursor=garbage",
-            "/api/v1/activity?contact=nobody",
-            "/api/v1/activity?kind=unknown",
-            "/api/v1/activity?range=1y",
+            "/api/v1/timeline?cursor=garbage",
+            "/api/v1/timeline?contact=nobody",
+            "/api/v1/timeline?kind=unknown",
+            "/api/v1/timeline?range=1y",
         ] {
             let (status, _) = call(&app, get(uri, &cookie)).await;
 
@@ -310,12 +311,12 @@ mod tests {
         let (status, _) = call(
             &app,
             get(
-                &format!("/api/v1/galleries/{}/activity", foreign.0),
+                &format!("/api/v1/galleries/{}/timeline", foreign.0),
                 &cookie,
             ),
         )
         .await;
-        let (_, feed) = call(&app, get("/api/v1/activity", &cookie)).await;
+        let (_, feed) = call(&app, get("/api/v1/timeline", &cookie)).await;
 
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert!(feed["events"].as_array().unwrap().is_empty());
