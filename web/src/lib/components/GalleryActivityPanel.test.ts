@@ -57,7 +57,7 @@ describe('GalleryActivityPanel', () => {
 		await userEvent.setup().click(screen.getByRole('button', { name: 'Comments' }));
 
 		expect(fetcher).toHaveBeenLastCalledWith(
-			'/api/v1/galleries/g1/activity?kind=comment',
+			'/api/v1/galleries/g1/timeline?kind=comment',
 			expect.anything()
 		);
 	});
