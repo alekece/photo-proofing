@@ -572,6 +572,16 @@ mod tests {
         assert_eq!(headers.get("cache-control").unwrap(), "private, no-store");
         assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
         assert!(body.starts_with(b"PK"));
+
+        // The photographer's own ZIP download is never client activity.
+        let activity: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM activity_events WHERE gallery_id = $1")
+                .bind(Uuid::parse_str(&gallery_id).unwrap())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert_eq!(activity, 0);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

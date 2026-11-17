@@ -483,11 +483,16 @@ mod tests {
         http::StatusCode,
         test,
     };
+    use pp_core::{config::PhotoDir, types::generate::Generate};
     use pp_database::{
         Database,
+        contact::ContactId,
+        export::ExportId,
         gallery::{GalleryChanges, GalleryId, GalleryRepository, ShareToken},
+        photo::PhotoLocation,
         tests::TestRepository,
     };
+    use pp_storage::{ArchiveEntry, PhotoStorage};
     use serde_json::{Value, json};
     use sqlx::PgPool;
 
@@ -700,6 +705,41 @@ mod tests {
         }
 
         assert_eq!(last_opened_at(expired).await, None);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn opening_through_a_personal_link_is_attributed_to_its_contact(pool: PgPool) {
+        // Two galleries, not one open per link, because the first open throttles later ones
+        // of the same gallery for a minute regardless of which link made them.
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let general_gallery_id = create_gallery(&app, &cookie).await;
+        let general_token = share(&app, &cookie, &general_gallery_id).await;
+        let personal_gallery_id = create_gallery(&app, &cookie).await;
+
+        share(&app, &cookie, &personal_gallery_id).await;
+
+        let (contact_id, personal_token) =
+            personal_link(&app, &cookie, &personal_gallery_id, &pool).await;
+
+        assert_eq!(
+            call(&app, open(&general_token)).await.0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call(&app, open(&personal_token)).await.0,
+            StatusCode::NO_CONTENT
+        );
+
+        assert_eq!(
+            activity_lines(&pool, &general_gallery_id, "open").await,
+            vec![(None, 1, vec![])]
+        );
+        assert_eq!(
+            activity_lines(&pool, &personal_gallery_id, "open").await,
+            vec![(Some(contact_id), 1, vec![])]
+        );
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -924,6 +964,75 @@ mod tests {
         test::TestRequest::get()
             .uri(&format!("/api/v1/galleries/shared/{token}{path}"))
             .to_request()
+    }
+
+    /// Links a new personal contact to the gallery, following the same HTTP flow a
+    /// photographer uses, and returns its id and the resulting personal share token.
+    async fn personal_link<S>(
+        app: &S,
+        cookie: &Cookie<'static>,
+        gallery_id: &str,
+        pool: &PgPool,
+    ) -> (ContactId, String)
+    where
+        S: Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
+    {
+        let (_, created) = call(
+            app,
+            test::TestRequest::post()
+                .uri("/api/v1/contacts")
+                .insert_header(("Origin", ORIGIN))
+                .cookie(cookie.clone())
+                .set_json(json!({"name": "Claire", "email": "claire@example.test"})),
+        )
+        .await;
+        let contact_id = created["id"].as_str().unwrap().to_owned();
+
+        call(
+            app,
+            test::TestRequest::put()
+                .uri(&format!(
+                    "/api/v1/galleries/{gallery_id}/contacts/{contact_id}"
+                ))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(cookie.clone()),
+        )
+        .await;
+
+        let token: String = sqlx::query_scalar(
+            "SELECT share_token FROM gallery_contacts WHERE gallery_id = $1::uuid",
+        )
+        .bind(gallery_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+
+        (
+            ContactId(uuid::Uuid::parse_str(&contact_id).unwrap()),
+            token,
+        )
+    }
+
+    /// The gallery's activity lines of `kind`, as `(contact_id, count, photo_ids)`, oldest first.
+    async fn activity_lines(
+        pool: &PgPool,
+        gallery_id: &str,
+        kind: &str,
+    ) -> Vec<(Option<ContactId>, i32, Vec<PhotoId>)> {
+        sqlx::query_as(
+            "SELECT contact_id, count, photo_ids FROM activity_events
+             WHERE gallery_id = $1::uuid AND kind = $2
+             ORDER BY first_at, id",
+        )
+        .bind(gallery_id)
+        .bind(kind)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    fn photo_id(id: &str) -> PhotoId {
+        PhotoId::from(uuid::Uuid::parse_str(id).unwrap())
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -1230,6 +1339,56 @@ mod tests {
         let (_, shared) = call_request(&app, client_request(&token, "")).await;
 
         assert_eq!(shared["delivered"], false);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_personal_links_favorite_is_attributed_and_a_repeat_adds_no_line(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let first = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        let second = photo_in(&app, &pool, &cookie, &gallery_id, Progress::Ready).await;
+        let general_token = share(&app, &cookie, &gallery_id).await;
+        let (contact_id, personal_token) = personal_link(&app, &cookie, &gallery_id, &pool).await;
+
+        for _ in 0..2 {
+            let (status, _) =
+                call_request(&app, favorite_request("PUT", &personal_token, &first)).await;
+
+            assert_eq!(status, StatusCode::NO_CONTENT);
+        }
+
+        assert_eq!(
+            activity_lines(&pool, &gallery_id, "favorite").await,
+            vec![(Some(contact_id), 1, vec![photo_id(&first)])]
+        );
+
+        let (status, _) =
+            call_request(&app, favorite_request("DELETE", &personal_token, &first)).await;
+
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(
+            activity_lines(&pool, &gallery_id, "unfavorite").await,
+            vec![(Some(contact_id), 1, vec![photo_id(&first)])]
+        );
+
+        let (status, _) =
+            call_request(&app, favorite_request("PUT", &general_token, &second)).await;
+
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let mut favorites = activity_lines(&pool, &gallery_id, "favorite").await;
+
+        favorites.sort_by_key(|(contact, ..)| contact.is_none());
+
+        assert_eq!(
+            favorites,
+            vec![
+                (Some(contact_id), 1, vec![photo_id(&first)]),
+                (None, 1, vec![photo_id(&second)]),
+            ]
+        );
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -1884,5 +2043,129 @@ mod tests {
 
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(body["code"], "too_many_attempts");
+    }
+
+    /// Inserts a ready final photo directly, bypassing the delivery pipeline, and returns its id.
+    async fn final_photo_in(pool: &PgPool, gallery_id: &str, name: &str) -> PhotoId {
+        let id = PhotoId::generate();
+
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height,
+                                 status, kind)
+             SELECT $1, workspace_id, id, $3, 5, 2, 2, 'ready', 'final' FROM galleries WHERE id = $2",
+        )
+        .bind(id)
+        .bind(uuid::Uuid::parse_str(gallery_id).unwrap())
+        .bind(name)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        id
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn downloading_a_final_then_its_zip_extend_one_merged_download_line(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let first = final_photo_in(&pool, &gallery_id, "first.jpg").await;
+        let second = final_photo_in(&pool, &gallery_id, "second.jpg").await;
+        let token = share(&app, &cookie, &gallery_id).await;
+
+        sqlx::query("UPDATE galleries SET delivered_at = now() WHERE id = $1::uuid")
+            .bind(&gallery_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let location = PhotoLocation {
+            workspace_id: sqlx::query_scalar("SELECT workspace_id FROM galleries WHERE id = $1")
+                .bind(uuid::Uuid::parse_str(&gallery_id).unwrap())
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            gallery_id: GalleryId(uuid::Uuid::parse_str(&gallery_id).unwrap()),
+        };
+        let storage = PhotoStorage::open(&PhotoDir::try_from(directory.path().to_owned()).unwrap())
+            .await
+            .unwrap();
+        let mut entries = Vec::new();
+
+        for (id, name) in [(first, "first.jpg"), (second, "second.jpg")] {
+            let key = PhotoKey::with_location(location, id, Variant::Original);
+            let mut staged = storage.stage().await.unwrap();
+
+            staged.write(name.as_bytes()).await.unwrap();
+            staged.commit(&key).await.unwrap();
+            entries.push(ArchiveEntry {
+                source: key,
+                original_name: name.to_owned(),
+            });
+        }
+
+        // The individual download of the first final records one download line.
+        let (status, _) = call_request(
+            &app,
+            client_request(&token, &format!("/photos/{first}/download")),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            activity_lines(&pool, &gallery_id, "download").await,
+            vec![(None, 1, vec![first])]
+        );
+
+        // Preparing the ZIP never records; only sending it, once ready, does.
+        let (status, build) = call(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/shared/{token}/download"))
+                .insert_header(("Origin", ORIGIN)),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(build["status"], "building");
+
+        let export_id: uuid::Uuid =
+            sqlx::query_scalar("SELECT id FROM exports WHERE gallery_id = $1::uuid")
+                .bind(&gallery_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        sqlx::query(
+            "UPDATE exports SET status = '{\"kind\": \"ready\"}', finished_at = now()
+             WHERE id = $1",
+        )
+        .bind(export_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        storage
+            .build_archive(
+                &ArchiveKey {
+                    workspace: location.workspace_id,
+                    gallery: location.gallery_id,
+                    export: ExportId(export_id),
+                },
+                entries,
+            )
+            .await
+            .unwrap();
+
+        let (status, _) = call_request(&app, client_request(&token, "/download")).await;
+
+        assert_eq!(status, StatusCode::OK);
+
+        // The ZIP's download newly marks only the second final, extending the same line.
+        assert_eq!(
+            activity_lines(&pool, &gallery_id, "download").await,
+            vec![(None, 2, vec![first, second])]
+        );
     }
 }
