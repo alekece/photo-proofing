@@ -22,6 +22,11 @@ const MAX_NOTIFICATION_RETENTION_MILLIS: u64 = 365 * 24 * 60 * 60 * 1000;
 /// How long a read notification is kept, from one minute up to a year.
 pub type NotificationRetention = BoundedDuration<60_000, MAX_NOTIFICATION_RETENTION_MILLIS>;
 
+const MAX_ACTIVITY_RETENTION_MILLIS: u64 = 3 * 365 * 24 * 60 * 60 * 1000;
+
+/// How long an activity line is kept after its last event, from one minute up to three years.
+pub type ActivityRetention = BoundedDuration<60_000, MAX_ACTIVITY_RETENTION_MILLIS>;
+
 /// A queue duration of at least one second, the resolution operators think in.
 pub type QueueDuration = BoundedDuration<1_000, MAX_QUEUE_MILLIS>;
 
@@ -87,6 +92,13 @@ pub struct CleanupConfig {
         default_value = "30d"
     )]
     pub notification_retention: NotificationRetention,
+    /// How long an activity line is kept after its last event before the sweep deletes it.
+    #[arg(
+        long = "cleanup-activity-retention",
+        env = "PP_CLEANUP_ACTIVITY_RETENTION",
+        default_value = "90d"
+    )]
+    pub activity_retention: ActivityRetention,
 }
 
 /// Limits on the originals the worker renders into proof derivatives.

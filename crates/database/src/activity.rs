@@ -7,9 +7,10 @@ use std::time::Duration;
 
 use pp_core::config::DEFAULT_ACTIVITY_WINDOW;
 use serde::{Deserialize, Serialize};
-use sqlx::{PgConnection, Type};
+use sqlx::{PgConnection, PgPool, Type};
 
 use crate::{
+    Repository,
     contact::ContactId,
     error::DatabaseError,
     photo::{PhotoId, PhotoLocation},
@@ -166,6 +167,55 @@ impl ActivityRecorder for PgConnection {
         .await?;
 
         Ok(())
+    }
+}
+
+/// Logs what the worker itself does, which has no repository write to piggyback on, and prunes
+/// old lines.
+#[derive(Clone, Copy)]
+pub struct ActivityRepository<'db> {
+    pool: &'db PgPool,
+    options: ActivityOptions,
+}
+
+impl<'db> Repository<'db> for ActivityRepository<'db> {
+    type Options = ActivityOptions;
+
+    fn open(pool: &'db PgPool, options: Self::Options) -> Self {
+        Self { pool, options }
+    }
+}
+
+impl ActivityRepository<'_> {
+    /// Logs a sent email on the line of `contact_id`, or of nobody (`None`) when it went to a
+    /// bare address. The options' own client is ignored: the recipient owns the line.
+    pub async fn record_email(
+        &self,
+        location: PhotoLocation,
+        contact_id: Option<ContactId>,
+        detail: &str,
+    ) -> Result<(), DatabaseError> {
+        let options = self.options.client(Some(Client { contact_id }));
+        let mut transaction = self.pool.begin().await?;
+
+        transaction
+            .record_activity(&options, location, ActivityKind::Email, &[], Some(detail))
+            .await?;
+        transaction.commit().await?;
+
+        Ok(())
+    }
+
+    /// Deletes lines whose last activity is older than `retention`.
+    pub async fn expire(&self, retention: Duration) -> Result<u64, DatabaseError> {
+        let removed = sqlx::query(
+            "DELETE FROM activity_events WHERE last_at < now() - make_interval(secs => $1)",
+        )
+        .bind(retention.as_secs_f64())
+        .execute(self.pool)
+        .await?;
+
+        Ok(removed.rows_affected())
     }
 }
 
@@ -505,5 +555,60 @@ mod tests {
             );
             assert_silent(&mut listener).await;
         }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_sent_email_records_an_email_line_for_its_contact(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let contact = fixture.insert_contact("alice@example.test").await;
+        let activity = ActivityRepository::open(&pool, ActivityOptions::default());
+
+        activity
+            .record_email(fixture.location, Some(contact), "invitation")
+            .await
+            .unwrap();
+        activity
+            .record_email(fixture.location, None, "invitation")
+            .await
+            .unwrap();
+
+        let lines = fixture.lines().await;
+
+        assert_eq!(
+            lines
+                .iter()
+                .map(|line| (line.contact_id, line.kind, line.count))
+                .collect::<Vec<_>>(),
+            vec![
+                (Some(contact), ActivityKind::Email, 1),
+                (None, ActivityKind::Email, 1)
+            ]
+        );
+        assert_eq!(fixture.bell().await, None);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn expire_deletes_only_lines_older_than_the_retention(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let activity = ActivityRepository::open(&pool, ActivityOptions::default());
+
+        fixture.record(CLIENT, ActivityKind::Open, &[]).await;
+        fixture.record(CLIENT, ActivityKind::Comment, &[]).await;
+        sqlx::query(
+            "UPDATE activity_events SET last_at = now() - interval '91 days' WHERE kind = 'open'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let removed = activity
+            .expire(Duration::from_secs(90 * 24 * 60 * 60))
+            .await
+            .unwrap();
+        let lines = fixture.lines().await;
+
+        assert_eq!(removed, 1);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].kind, ActivityKind::Comment);
     }
 }

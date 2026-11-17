@@ -3,8 +3,8 @@ use std::{path::PathBuf, sync::Arc};
 use clap::Parser;
 use clap_config_fallback::ConfigParser;
 use eyre::Result;
-use pp_core::config::{ExportConfig, LogConfig, PhotoConfig};
-use pp_database::jobs::JobKind;
+use pp_core::config::{ActivityConfig, ExportConfig, LogConfig, PhotoConfig};
+use pp_database::{activity::ActivityOptions, jobs::JobKind};
 use pp_mail::smtp::SmtpMailer;
 use pp_storage::PhotoStorage;
 use pp_worker::{
@@ -46,6 +46,9 @@ struct Cli {
     #[command(flatten)]
     #[config(no_flatten)]
     export: ExportConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    activity: ActivityConfig,
 }
 
 #[tokio::main]
@@ -88,6 +91,11 @@ async fn main() -> Result<()> {
     let orphan_grace = cli.worker.cleanup.orphan_grace.get();
     let sweep_interval = cli.worker.cleanup.sweep_interval.get();
     let notification_retention = cli.worker.cleanup.notification_retention.get();
+    let activity_retention = cli.worker.cleanup.activity_retention.get();
+    let activity = ActivityOptions {
+        window: cli.activity.window.get(),
+        ..ActivityOptions::default()
+    };
     let retention = cli.export.retention.get();
     let maintenance_storage = storage.clone();
     let worker = Worker::connect(cli.worker, |database| {
@@ -105,6 +113,7 @@ async fn main() -> Result<()> {
             storage,
             app_origin,
             mailer,
+            activity,
         ));
 
         HandlerRegistry::default()
@@ -146,6 +155,7 @@ async fn main() -> Result<()> {
         orphan_grace,
         retention,
         notification_retention,
+        activity_retention,
     );
     let worker = worker.with_maintenance(maintenance);
 

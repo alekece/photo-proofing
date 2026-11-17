@@ -5,8 +5,9 @@ use std::sync::Arc;
 use pp_core::{types::studio::InvitationStage, url::Origin};
 use pp_database::{
     Database,
+    activity::{ActivityOptions, ActivityRepository},
     auth::AuthRepository,
-    contact::ContactRepository,
+    contact::{ContactId, ContactRepository},
     gallery::{GalleryRepository, ShareToken},
     jobs::{EmailRecipient, SendEmail},
     photo::{PhotoId, PhotoKind, PhotoLocation, PhotoRepository, Watermarked},
@@ -19,7 +20,7 @@ use pp_mail::{
 use pp_storage::{PhotoKey, PhotoStorage, StorageError, Variant};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::handlers::HandlerError;
 
@@ -35,6 +36,7 @@ pub struct SendEmailHandler {
     storage: PhotoStorage,
     app_origin: Origin,
     mailer: Option<SmtpMailer>,
+    activity: ActivityOptions,
 }
 
 impl SendEmailHandler {
@@ -43,12 +45,14 @@ impl SendEmailHandler {
         storage: PhotoStorage,
         app_origin: Origin,
         mailer: Option<SmtpMailer>,
+        activity: ActivityOptions,
     ) -> Self {
         Self {
             database,
             storage,
             app_origin,
             mailer,
+            activity,
         }
     }
 
@@ -77,43 +81,48 @@ impl SendEmailHandler {
             return Err(HandlerError::failed(SendEmailError::SmtpNotConfigured));
         };
 
-        let (to_email, to_name, share_token): (_, Option<String>, ShareToken) =
-            match payload.recipient {
-                EmailRecipient::Contact { contact_id } => {
-                    let Some(link) = self
-                        .database
-                        .repository::<ContactRepository>()
-                        .find_gallery_link(payload.workspace_id, payload.gallery_id, contact_id)
-                        .await
-                        .map_err(HandlerError::failed)?
-                    else {
-                        return Ok(());
-                    };
+        let (to_email, to_name, share_token, contact_id): (
+            _,
+            Option<String>,
+            ShareToken,
+            Option<ContactId>,
+        ) = match payload.recipient {
+            EmailRecipient::Contact { contact_id } => {
+                let Some(link) = self
+                    .database
+                    .repository::<ContactRepository>()
+                    .find_gallery_link(payload.workspace_id, payload.gallery_id, contact_id)
+                    .await
+                    .map_err(HandlerError::failed)?
+                else {
+                    return Ok(());
+                };
 
-                    (
-                        link.contact.email,
-                        Some(link.contact.name.as_str().to_owned()),
-                        link.share_token,
-                    )
-                }
-                EmailRecipient::Bcc { email } => {
-                    let Some(gallery) = self
-                        .database
-                        .repository::<GalleryRepository>()
-                        .get(payload.workspace_id, payload.gallery_id)
-                        .await
-                        .map_err(HandlerError::failed)?
-                    else {
-                        return Ok(());
-                    };
+                (
+                    link.contact.email,
+                    Some(link.contact.name.as_str().to_owned()),
+                    link.share_token,
+                    Some(contact_id),
+                )
+            }
+            EmailRecipient::Bcc { email } => {
+                let Some(gallery) = self
+                    .database
+                    .repository::<GalleryRepository>()
+                    .get(payload.workspace_id, payload.gallery_id)
+                    .await
+                    .map_err(HandlerError::failed)?
+                else {
+                    return Ok(());
+                };
 
-                    let Some(share_token) = gallery.share_token else {
-                        return Ok(());
-                    };
+                let Some(share_token) = gallery.share_token else {
+                    return Ok(());
+                };
 
-                    (email, None, share_token)
-                }
-            };
+                (email, None, share_token, None)
+            }
+        };
 
         let Some(shared) = self
             .database
@@ -202,6 +211,17 @@ impl SendEmailHandler {
         let message = email.into_message().map_err(HandlerError::failed)?;
 
         mailer.send(message).await.map_err(HandlerError::failed)?;
+
+        // The email is already out, so a failed log line must not fail the job and resend it.
+        if let Err(error) = self
+            .database
+            .repository_with::<ActivityRepository>(self.activity)
+            .record_email(shared.location, contact_id, "invitation")
+            .await
+        {
+            warn!(%error, "sent email could not be logged as activity");
+        }
+
         info!(
             gallery = %payload.gallery_id.0,
             stage = ?payload.stage,
@@ -228,8 +248,9 @@ mod tests {
     };
     use pp_database::{
         Database, PgPool,
+        activity::ActivityOptions,
         auth::AuthRepository,
-        contact::ContactRepository,
+        contact::{ContactId, ContactRepository},
         gallery::{GalleryChanges, GalleryRepository, InvitationBatch, InvitationContact},
         jobs::{JobKind, JobOptions, JobRepository, SendEmail},
         photo::{PhotoId, PhotoLocation},
@@ -247,6 +268,15 @@ mod tests {
 
     use super::SendEmailHandler;
     use crate::handlers::{CompleteJob, Finalizer};
+
+    async fn email_lines(pool: &PgPool) -> Vec<(Option<ContactId>, i32)> {
+        sqlx::query_as(
+            "SELECT contact_id, count FROM activity_events WHERE kind = 'email' ORDER BY id",
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
 
     #[derive(Debug, Clone)]
     struct CapturedMail {
@@ -511,6 +541,7 @@ mod tests {
             storage,
             "https://photos.example.test".parse::<Origin>().unwrap(),
             Some(mailer),
+            ActivityOptions::default(),
         ));
         let finalizer = CompleteJob::new(database.clone());
 
@@ -583,6 +614,11 @@ mod tests {
         assert!(decoded_bcc.contains("739104"));
         drop(sent);
 
+        let mut lines = email_lines(&pool).await;
+
+        lines.sort_by_key(|(contact_id, _)| contact_id.is_none());
+        assert_eq!(lines, vec![(Some(contacts[0].id), 1), (None, 1)]);
+
         // Delivering the gallery switches the invitation stage to Finals and counts ready finals (1).
         database
             .repository::<GalleryRepository>()
@@ -640,7 +676,7 @@ mod tests {
         let storage = PhotoStorage::open(&PhotoDir::try_from(dir.path().to_owned()).unwrap())
             .await
             .unwrap();
-        let database = Database::new(pool);
+        let database = Database::new(pool.clone());
         let workspace_id = database
             .repository::<TestRepository>()
             .create_workspace()
@@ -700,6 +736,7 @@ mod tests {
             storage.clone(),
             "https://photos.example.test".parse::<Origin>().unwrap(),
             None,
+            ActivityOptions::default(),
         ));
         assert!(no_smtp.run(payload.clone()).await.is_err());
 
@@ -719,6 +756,7 @@ mod tests {
             storage,
             "https://photos.example.test".parse::<Origin>().unwrap(),
             Some(mailer),
+            ActivityOptions::default(),
         ));
 
         // 2. Unlinked contact -> clean no-op, zero emails sent
@@ -758,5 +796,6 @@ mod tests {
             .unwrap();
         Arc::clone(&handler).run(payload).await.unwrap();
         assert!(smtp_server.messages.lock().await.is_empty());
+        assert!(email_lines(&pool).await.is_empty());
     }
 }

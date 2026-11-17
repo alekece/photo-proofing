@@ -52,6 +52,8 @@ shutdown_grace = "30s"
 orphan_grace = "24h"
 # Time between maintenance runs (orphan sweep, export expiry, archive sweep).
 sweep_interval = "1h"
+# How long an activity line is kept after its last event (1m to 3y).
+activity_retention = "90d"
 
 # Selection ZIPs built by the worker for the photographer's Favorites tab; read by both.
 [export]
