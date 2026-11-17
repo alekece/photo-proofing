@@ -60,6 +60,11 @@ size_limit = 2147483648
 # How long a finished ZIP stays downloadable (1m to 30d); its file is removed afterwards.
 retention = "24h"
 
+[activity]
+# Activity of the same gallery, contact and kind within this window (1m to 1d) extends one
+# line instead of opening a new one.
+window = "30m"
+
 [photo]
 # Private photo files; the API and the worker must share this directory.
 dir = "./data/photos"

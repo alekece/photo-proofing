@@ -84,7 +84,7 @@ async fn add(
 ) -> Result<HttpResponse, ErrorResponse> {
     let comment = state
         .database()
-        .repository::<CommentRepository>()
+        .repository_with::<CommentRepository>(state.activity_options(access.client))
         .add(
             access.location,
             path.photo_id,

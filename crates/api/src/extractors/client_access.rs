@@ -3,6 +3,7 @@ use std::{future::Future, pin::Pin};
 use actix_web::{FromRequest, HttpRequest, dev::Payload, web::Data};
 use pp_core::types::access_code::UNLOCK_COOKIE_NAME;
 use pp_database::{
+    activity::Client,
     gallery::{GalleryRepository, ShareToken, SharedAccess},
     photo::{PhotoKind, PhotoLocation, Watermarked},
 };
@@ -99,6 +100,14 @@ impl ClientAccess {
     /// never are. Never chosen by the request.
     pub(crate) fn watermarked(&self) -> Watermarked {
         Watermarked(self.0.watermark_enabled && self.photo_set() == ClientPhotoSet::Proofs)
+    }
+
+    /// The contact behind the personal link this client used, or anonymous for the general
+    /// link, for attributing the activity it records.
+    pub(crate) fn client(&self) -> Client {
+        Client {
+            contact_id: self.0.contact_id,
+        }
     }
 }
 

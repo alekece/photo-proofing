@@ -2,6 +2,7 @@ use std::{future::Future, pin::Pin};
 
 use actix_web::{FromRequest, HttpRequest, dev::Payload, http::Method, web::Data};
 use pp_database::{
+    activity::Client,
     comments::CommentAuthor,
     gallery::{GalleryId, GalleryRepository},
     photo::PhotoLocation,
@@ -20,6 +21,9 @@ use crate::{
 pub(crate) struct CommentAccess {
     pub(crate) location: PhotoLocation,
     pub(crate) author: CommentAuthor,
+    /// The client behind the personal or general link, for attributing a client comment's
+    /// activity; always `None` for the photographer.
+    pub(crate) client: Option<Client>,
 }
 
 impl FromRequest for CommentAccess {
@@ -35,6 +39,7 @@ impl FromRequest for CommentAccess {
             return Box::pin(async move {
                 let access = access.await?;
                 let location = access.open_for_comments()?;
+                let client = access.client();
 
                 if writes {
                     let state = state.ok_or_else(ErrorResponse::unavailable)?;
@@ -45,6 +50,7 @@ impl FromRequest for CommentAccess {
                 Ok(Self {
                     location,
                     author: CommentAuthor::Client,
+                    client: Some(client),
                 })
             });
         }
@@ -75,6 +81,7 @@ impl FromRequest for CommentAccess {
                     gallery_id,
                 },
                 author: CommentAuthor::Photographer,
+                client: None,
             })
         })
     }

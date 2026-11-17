@@ -173,6 +173,7 @@ pub struct ActivityConfig {
     /// Activity of the same gallery, contact and kind within this window extends one line
     /// instead of opening a new one.
     #[arg(
+        id = "activity_window",
         long = "activity-window",
         env = "PP_ACTIVITY_WINDOW",
         default_value = "30m"

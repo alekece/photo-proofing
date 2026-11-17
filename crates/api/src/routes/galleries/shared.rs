@@ -224,7 +224,7 @@ async fn record_open(
 ) -> Result<HttpResponse, ErrorResponse> {
     state
         .database()
-        .repository::<GalleryRepository>()
+        .repository_with::<GalleryRepository>(state.activity_options(Some(access.client())))
         .record_opened(access.0.location)
         .await?;
 
@@ -271,7 +271,7 @@ async fn add_favorite(
 ) -> Result<HttpResponse, ErrorResponse> {
     let change = state
         .database()
-        .repository::<PhotoRepository>()
+        .repository_with::<PhotoRepository>(state.activity_options(Some(access.client())))
         .set_favorite(
             access.0.location,
             path.into_inner().1,
@@ -294,7 +294,7 @@ async fn remove_favorite(
 ) -> Result<HttpResponse, ErrorResponse> {
     let change = state
         .database()
-        .repository::<PhotoRepository>()
+        .repository_with::<PhotoRepository>(state.activity_options(Some(access.client())))
         .set_favorite(
             access.0.location,
             path.into_inner().1,
@@ -345,7 +345,9 @@ async fn download_shared_photo(
 ) -> Result<Attachment, ErrorResponse> {
     let (_, photo_id) = path.into_inner();
     let location = access.0.location;
-    let photos = state.database().repository::<PhotoRepository>();
+    let photos = state
+        .database()
+        .repository_with::<PhotoRepository>(state.activity_options(Some(access.client())));
 
     if access.photo_set() != ClientPhotoSet::Finals
         || !photos
@@ -432,7 +434,7 @@ async fn download_shared_zip(
 
     state
         .database()
-        .repository::<ExportRepository>()
+        .repository_with::<ExportRepository>(state.export_options(Some(access.client())))
         .mark_downloaded(export.id)
         .await?;
 

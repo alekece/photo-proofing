@@ -11,7 +11,7 @@ use clap_config_fallback::ConfigArgs;
 use derive_more::Display;
 pub use pp_core::config::SmtpConfig;
 use pp_core::{
-    config::{DEFAULT_MAX_PIXELS, DatabaseConfig, ExportConfig, PhotoConfig},
+    config::{ActivityConfig, DEFAULT_MAX_PIXELS, DatabaseConfig, ExportConfig, PhotoConfig},
     time::BoundedDuration,
     url::Origin,
 };
@@ -103,6 +103,9 @@ pub struct ApiConfig {
     #[command(flatten)]
     #[config(no_flatten)]
     pub export: ExportConfig,
+    #[command(flatten)]
+    #[config(no_flatten)]
+    pub activity: ActivityConfig,
     #[command(flatten)]
     #[config(no_flatten)]
     pub smtp: SmtpConfig,
