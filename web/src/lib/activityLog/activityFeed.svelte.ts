@@ -23,7 +23,9 @@ export class ActivityFeed {
 	#galleryId: string | undefined;
 	#fetcher: typeof fetch;
 	#latest = 0;
+	#refreshes = 0;
 	#generation = 0;
+	#pendingLoad: Promise<void> | undefined;
 
 	constructor({ galleryId, fetcher = fetch }: { galleryId?: string; fetcher?: typeof fetch } = {}) {
 		this.#galleryId = galleryId;
@@ -35,7 +37,17 @@ export class ActivityFeed {
 	}
 
 	/** Replaces the list with the first page of the current filters; the old list stays until then. */
-	async load(): Promise<void> {
+	load(): Promise<void> {
+		const pending = this.#load().finally(() => {
+			if (this.#pendingLoad === pending) this.#pendingLoad = undefined;
+		});
+
+		this.#pendingLoad = pending;
+
+		return pending;
+	}
+
+	async #load(): Promise<void> {
 		const ticket = ++this.#latest;
 
 		this.#generation += 1;
@@ -81,14 +93,21 @@ export class ActivityFeed {
 		}
 	}
 
-	/** Folds the latest first page into the list, keeping every older page already loaded. */
+	/**
+	 * Folds the latest first page into the list, keeping every older page already loaded. It waits
+	 * for a pending load and yields to one that starts meanwhile, since a load replaces the list.
+	 */
 	async refresh(): Promise<void> {
-		const ticket = ++this.#latest;
+		const ticket = ++this.#refreshes;
+
+		if (this.#pendingLoad) await this.#pendingLoad;
+
+		const generation = this.#generation;
 
 		try {
 			const page = await this.#fetch();
 
-			if (ticket !== this.#latest) return;
+			if (ticket !== this.#refreshes || generation !== this.#generation) return;
 
 			const oldest = this.events.at(-1);
 			const fresh = page.events.at(-1);
@@ -101,7 +120,7 @@ export class ActivityFeed {
 			this.failed = false;
 			this.loaded = true;
 		} catch {
-			if (ticket === this.#latest) this.failed = true;
+			if (ticket === this.#refreshes && generation === this.#generation) this.failed = true;
 		}
 	}
 

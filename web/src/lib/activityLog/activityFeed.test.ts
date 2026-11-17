@@ -157,6 +157,26 @@ describe('ActivityFeed', () => {
 		expect(ids(feed)).toEqual(['new']);
 	});
 
+	it('applies a filter change even when a live refresh arrives while it loads', async () => {
+		const fetcher = vi.fn<(url: string) => Promise<Response>>(async (url) =>
+			url.includes('kind=comment')
+				? page([line('c', '2026-11-10T09:00:00Z', { kind: 'comment' })])
+				: page([line('f', '2026-11-10T10:00:00Z')])
+		);
+		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
+
+		await feed.load();
+		feed.filters = { kind: 'comment' };
+
+		const loading = feed.load();
+		const refreshing = feed.refresh();
+
+		await Promise.all([loading, refreshing]);
+
+		expect(ids(feed)).toEqual(['c']);
+		expect(feed.loading).toBe(false);
+	});
+
 	it('keeps what it shows when a refresh fails', async () => {
 		const fetcher = vi
 			.fn()
