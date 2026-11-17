@@ -1,7 +1,5 @@
 //! Gallery email invitation endpoint under `/api/v1/galleries/{id}/invitations`.
 
-use std::collections::HashSet;
-
 use actix_web::{
     FromRequest, HttpRequest, HttpResponse,
     dev::Payload,
@@ -9,12 +7,8 @@ use actix_web::{
     web::{Data, JsonBody, Path, ServiceConfig},
 };
 use futures_util::future::LocalBoxFuture;
-use pp_core::email::{Email, EmailMessage, EmailSubject};
-use pp_database::{
-    contact::ContactName,
-    gallery::{Gallery, GalleryId, GalleryRepository, InvitationBatch, InvitationContact},
-};
-use serde::{Deserialize, Serialize};
+use pp_database::gallery::{GalleryId, GalleryRepository, InvitationBatch};
+use serde::Deserialize;
 
 use crate::{
     api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
@@ -22,23 +16,8 @@ use crate::{
 };
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct InvitationContactInput {
-    email: Email,
-    #[serde(default)]
-    name: Option<ContactName>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SendInvitationsRequest {
-    #[serde(default)]
-    to: Vec<InvitationContactInput>,
-    #[serde(default)]
-    bcc: Vec<Email>,
-    subject: EmailSubject,
-    message: EmailMessage,
-}
+#[serde(transparent)]
+struct SendInvitationsRequest(InvitationBatch);
 
 impl SendInvitationsRequest {
     /// Fits up to 500 named contacts plus a 5,000-character UTF-8 message and JSON framing.
@@ -57,12 +36,6 @@ impl FromRequest for SendInvitationsRequest {
     }
 }
 
-#[derive(Serialize)]
-struct SendInvitationsResponse {
-    gallery: Gallery,
-    queued_count: usize,
-}
-
 /// Registers the gallery invitations route inside `/api/v1/galleries`.
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(send_invitations);
@@ -73,38 +46,18 @@ async fn send_invitations(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: Path<GalleryId>,
-    request: SendInvitationsRequest,
+    SendInvitationsRequest(batch): SendInvitationsRequest,
 ) -> Result<HttpResponse, ErrorResponse> {
     let smtp = state.smtp().ok_or_else(ErrorResponse::email_unavailable)?;
 
-    if request.to.is_empty() && request.bcc.is_empty() {
+    if batch.is_empty() {
         return Err(ErrorResponse::bad_request().with_context("at least one recipient is required"));
     }
 
-    let unique_recipients: HashSet<&Email> = request
-        .to
-        .iter()
-        .map(|contact| &contact.email)
-        .chain(request.bcc.iter())
-        .collect();
-
-    if unique_recipients.len() > smtp.max_recipients_per_send.get() {
+    if batch.recipient_count() > smtp.max_recipients_per_send.get() {
         return Err(ErrorResponse::too_many_recipients());
     }
 
-    let batch = InvitationBatch {
-        to: request
-            .to
-            .into_iter()
-            .map(|contact| InvitationContact {
-                email: contact.email,
-                name: contact.name,
-            })
-            .collect(),
-        bcc: request.bcc,
-        subject: request.subject,
-        message: request.message,
-    };
     let outcome = state
         .database()
         .repository::<GalleryRepository>()
@@ -117,10 +70,7 @@ async fn send_invitations(
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(HttpResponse::Ok().no_store().json(SendInvitationsResponse {
-        gallery: outcome.gallery,
-        queued_count: outcome.queued_count,
-    }))
+    Ok(HttpResponse::Ok().no_store().json(outcome))
 }
 
 #[cfg(test)]
@@ -439,5 +389,66 @@ mod tests {
         .await;
         assert_eq!(arch_status, StatusCode::CONFLICT);
         assert_eq!(arch_err["code"], "gallery_archived");
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn invitations_deduplicate_before_recipient_cap_and_reject_unknown_fields(pool: PgPool) {
+        let (state, _directory) = app_state(pool).await;
+        let state = state.with_smtp(Some(smtp_settings(2)));
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+
+        let (_, gallery) = call(
+            &app,
+            authed(test::TestRequest::post(), "/api/v1/galleries", &cookie),
+        )
+        .await;
+        let gallery_id = gallery["id"].as_str().unwrap();
+        let uri = format!("/api/v1/galleries/{gallery_id}/invitations");
+
+        let (unknown_root, _) = call(
+            &app,
+            authed(test::TestRequest::post(), &uri, &cookie).set_json(json!({
+                "to": [{"email": "a@example.test"}],
+                "subject": "Ready",
+                "message": "Hi",
+                "extra": true
+            })),
+        )
+        .await;
+        assert_eq!(unknown_root, StatusCode::UNPROCESSABLE_ENTITY);
+
+        let (unknown_contact, _) = call(
+            &app,
+            authed(test::TestRequest::post(), &uri, &cookie).set_json(json!({
+                "to": [{"email": "a@example.test", "extra": true}],
+                "subject": "Ready",
+                "message": "Hi"
+            })),
+        )
+        .await;
+        assert_eq!(unknown_contact, StatusCode::UNPROCESSABLE_ENTITY);
+
+        let (status, response) = call(
+            &app,
+            authed(test::TestRequest::post(), &uri, &cookie).set_json(json!({
+                "to": [
+                    {"email": "a@example.test", "name": "Alpha"},
+                    {"email": "A@Example.test", "name": "Duplicate"}
+                ],
+                "bcc": ["b@example.test", "a@example.test"],
+                "subject": "Ready",
+                "message": "Hi"
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(response["queued_count"], 2);
     }
 }

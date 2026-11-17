@@ -6,14 +6,11 @@
 //! [`ContactError::DuplicateEmail`]. Linking a contact to a gallery stores a dedicated
 //! [`ShareToken`] on the association without exposing that token in [`Contact`].
 
-use std::str::FromStr;
-
-use derive_more::Display;
 use pp_core::{
     email::Email,
-    types::{generate::Generate, timestamp::Timestamp},
+    types::{bounded::BoundedText, generate::Generate, timestamp::Timestamp},
 };
-use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
+use serde::{Deserialize, Serialize};
 use sqlx::{AssertSqlSafe, FromRow, PgPool, Postgres, Transaction, Type};
 use thiserror::Error;
 use uuid::Uuid;
@@ -21,28 +18,14 @@ use uuid::Uuid;
 use crate::{
     Repository,
     auth::WorkspaceId,
-    error::DatabaseError,
-    gallery::{GalleryId, ShareToken},
+    error::{DatabaseError, UniqueViolation},
+    gallery::{GalleryId, ShareToken, TokenAttempt},
+    patch::Present,
 };
 
 pub const MAX_NAME_CHARS: usize = 120;
 pub const MAX_PHONE_CHARS: usize = 40;
 pub const MAX_NOTES_CHARS: usize = 2000;
-
-const WORKSPACE_EMAIL_UNIQUE: &str = "contacts_workspace_email_unique";
-const GALLERY_CONTACT_TOKEN_UNIQUE: &str = "gallery_contacts_share_token_unique";
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("contact name must contain between 1 and 120 characters")]
-pub struct ContactNameError;
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("contact phone must contain between 1 and 40 characters")]
-pub struct ContactPhoneError;
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("contact notes must contain at most 2000 characters")]
-pub struct ContactNotesError;
 
 #[derive(Debug, Error)]
 pub enum ContactError {
@@ -54,15 +37,13 @@ pub enum ContactError {
 
 impl ContactError {
     fn classify(error: sqlx::Error) -> Self {
-        let is_duplicate = error
-            .as_database_error()
-            .is_some_and(|db| db.constraint() == Some(WORKSPACE_EMAIL_UNIQUE));
+        let error = DatabaseError::from(error);
 
-        if is_duplicate {
+        if error.is_unique_violation(UniqueViolation::ContactWorkspaceEmail) {
             return Self::DuplicateEmail;
         }
 
-        Self::Database(DatabaseError::from(error))
+        Self::Database(error)
     }
 }
 
@@ -86,65 +67,7 @@ impl Generate for ContactId {
 /// assert_eq!(name.as_str(), "Camille & Hugo");
 /// assert!("   ".parse::<ContactName>().is_err());
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize, Type)]
-#[serde(try_from = "String", into = "String")]
-#[sqlx(transparent)]
-pub struct ContactName(String);
-
-impl ContactName {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// Derives a fallback display name from `email`'s local part (before `@`), bounded to
-    /// [`MAX_NAME_CHARS`].
-    pub fn from_email_local_part(email: &Email) -> Self {
-        let local = email
-            .as_str()
-            .split_once('@')
-            .map_or(email.as_str(), |(local, _)| local)
-            .trim();
-        let bounded: String = local
-            .chars()
-            .filter(|ch| *ch != '\0')
-            .take(MAX_NAME_CHARS)
-            .collect();
-
-        if bounded.is_empty() {
-            return Self("Client".to_owned());
-        }
-
-        Self(bounded)
-    }
-}
-
-impl FromStr for ContactName {
-    type Err = ContactNameError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let trimmed = value.trim();
-
-        if !(1..=MAX_NAME_CHARS).contains(&trimmed.chars().count()) || trimmed.contains('\0') {
-            return Err(ContactNameError);
-        }
-
-        Ok(Self(trimmed.to_owned()))
-    }
-}
-
-impl TryFrom<String> for ContactName {
-    type Error = ContactNameError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-
-impl From<ContactName> for String {
-    fn from(name: ContactName) -> Self {
-        name.0
-    }
-}
+pub type ContactName = BoundedText<1, MAX_NAME_CHARS>;
 
 /// An optional phone number, trimmed to between 1 and [`MAX_PHONE_CHARS`] characters.
 ///
@@ -155,44 +78,7 @@ impl From<ContactName> for String {
 /// assert_eq!(phone.as_str(), "+33 6 12 34 56 78");
 /// assert!("".parse::<ContactPhone>().is_err());
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize, Type)]
-#[serde(try_from = "String", into = "String")]
-#[sqlx(transparent)]
-pub struct ContactPhone(String);
-
-impl ContactPhone {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl FromStr for ContactPhone {
-    type Err = ContactPhoneError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let trimmed = value.trim();
-
-        if !(1..=MAX_PHONE_CHARS).contains(&trimmed.chars().count()) || trimmed.contains('\0') {
-            return Err(ContactPhoneError);
-        }
-
-        Ok(Self(trimmed.to_owned()))
-    }
-}
-
-impl TryFrom<String> for ContactPhone {
-    type Error = ContactPhoneError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-
-impl From<ContactPhone> for String {
-    fn from(phone: ContactPhone) -> Self {
-        phone.0
-    }
-}
+pub type ContactPhone = BoundedText<1, MAX_PHONE_CHARS>;
 
 /// Free-form studio notes on a contact, trimmed to at most [`MAX_NOTES_CHARS`] characters.
 ///
@@ -202,44 +88,7 @@ impl From<ContactPhone> for String {
 /// let notes: ContactNotes = "  Prefers matte prints  ".parse().unwrap();
 /// assert_eq!(notes.as_str(), "Prefers matte prints");
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize, Type)]
-#[serde(try_from = "String", into = "String")]
-#[sqlx(transparent)]
-pub struct ContactNotes(String);
-
-impl ContactNotes {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl FromStr for ContactNotes {
-    type Err = ContactNotesError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let trimmed = value.trim();
-
-        if trimmed.chars().count() > MAX_NOTES_CHARS || trimmed.contains('\0') {
-            return Err(ContactNotesError);
-        }
-
-        Ok(Self(trimmed.to_owned()))
-    }
-}
-
-impl TryFrom<String> for ContactNotes {
-    type Error = ContactNotesError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-
-impl From<ContactNotes> for String {
-    fn from(notes: ContactNotes) -> Self {
-        notes.0
-    }
-}
+pub type ContactNotes = BoundedText<0, MAX_NOTES_CHARS>;
 
 /// A gallery linked to a [`Contact`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -267,8 +116,9 @@ pub struct Contact {
 /// Intentionally omits `Serialize` so route handlers return [`Self::contact`] and never send
 /// raw per-contact tokens over photographer JSON endpoints. [`ShareToken`] redacts the secret
 /// in [`Debug`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct GalleryContactLink {
+    #[sqlx(flatten)]
     pub contact: Contact,
     pub share_token: ShareToken,
 }
@@ -283,20 +133,6 @@ pub struct NewContact {
     pub phone: Option<ContactPhone>,
     #[serde(default)]
     pub notes: Option<ContactNotes>,
-}
-
-struct Present;
-
-impl Present {
-    fn deserialize<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: Deserialize<'de>,
-    {
-        Option::<T>::deserialize(deserializer)?
-            .map(Some)
-            .ok_or_else(|| D::Error::custom("null is not allowed"))
-    }
 }
 
 /// Partial update for a [`Contact`]: omitted fields keep their stored value, `null` clears
@@ -360,7 +196,7 @@ impl<'db> Repository<'db> for ContactRepository<'db> {
 }
 
 impl ContactRepository<'_> {
-    const SELECT_CONTACT: &'static str = "SELECT c.id,
+    const CONTACT_PROJECTION: &'static str = "c.id,
                 c.name,
                 c.email,
                 c.phone,
@@ -376,21 +212,30 @@ impl ContactRepository<'_> {
                     '[]'::jsonb
                 ) AS galleries,
                 c.created_at,
-                c.updated_at
-         FROM contacts AS c";
+                c.updated_at";
 
-    fn is_token_collision(error: &sqlx::Error) -> bool {
-        error
-            .as_database_error()
-            .is_some_and(|db| db.constraint() == Some(GALLERY_CONTACT_TOKEN_UNIQUE))
+    async fn has_link_in(
+        tx: &mut Transaction<'_, Postgres>,
+        gallery_id: GalleryId,
+        contact_id: ContactId,
+    ) -> Result<bool, DatabaseError> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS (
+                 SELECT 1 FROM gallery_contacts WHERE gallery_id = $1 AND contact_id = $2
+             )",
+        )
+        .bind(gallery_id)
+        .bind(contact_id)
+        .fetch_one(&mut **tx)
+        .await?)
     }
 
     /// Lists all contacts in `workspace_id`, ordered alphabetically by name (case-insensitive)
     /// and id, each with its linked workspace galleries.
     pub async fn list(&self, workspace_id: WorkspaceId) -> Result<Vec<Contact>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
-            "{} WHERE c.workspace_id = $1 ORDER BY lower(c.name), c.id",
-            Self::SELECT_CONTACT
+            "SELECT {} FROM contacts AS c WHERE c.workspace_id = $1 ORDER BY lower(c.name), c.id",
+            Self::CONTACT_PROJECTION
         )))
         .bind(workspace_id)
         .fetch_all(self.pool)
@@ -404,8 +249,8 @@ impl ContactRepository<'_> {
         id: ContactId,
     ) -> Result<Option<Contact>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
-            "{} WHERE c.workspace_id = $1 AND c.id = $2",
-            Self::SELECT_CONTACT
+            "SELECT {} FROM contacts AS c WHERE c.workspace_id = $1 AND c.id = $2",
+            Self::CONTACT_PROJECTION
         )))
         .bind(workspace_id)
         .bind(id)
@@ -458,16 +303,17 @@ impl ContactRepository<'_> {
             .as_ref()
             .map(|value| value.as_ref().filter(|notes| !notes.as_str().is_empty()));
 
-        let updated_id: Option<ContactId> = sqlx::query_scalar(
-            "UPDATE contacts SET
-                 name = COALESCE($3, name),
-                 email = COALESCE($4, email),
-                 phone = CASE WHEN $5 THEN $6 ELSE phone END,
-                 notes = CASE WHEN $7 THEN $8 ELSE notes END,
+        sqlx::query_as(AssertSqlSafe(format!(
+            "UPDATE contacts AS c SET
+                 name = COALESCE($3, c.name),
+                 email = COALESCE($4, c.email),
+                 phone = CASE WHEN $5 THEN $6 ELSE c.phone END,
+                 notes = CASE WHEN $7 THEN $8 ELSE c.notes END,
                  updated_at = now()
-             WHERE workspace_id = $1 AND id = $2
-             RETURNING id",
-        )
+             WHERE c.workspace_id = $1 AND c.id = $2
+             RETURNING {}",
+            Self::CONTACT_PROJECTION
+        )))
         .bind(workspace_id)
         .bind(id)
         .bind(&changes.name)
@@ -478,13 +324,7 @@ impl ContactRepository<'_> {
         .bind(notes.flatten())
         .fetch_optional(self.pool)
         .await
-        .map_err(ContactError::classify)?;
-
-        let Some(updated_id) = updated_id else {
-            return Ok(None);
-        };
-
-        Ok(self.get(workspace_id, updated_id).await?)
+        .map_err(ContactError::classify)
     }
 
     /// Deletes a contact in `workspace_id`, cascading its gallery links.
@@ -522,11 +362,12 @@ impl ContactRepository<'_> {
         }
 
         let contacts = sqlx::query_as(AssertSqlSafe(format!(
-            "{} JOIN gallery_contacts AS link
-                    ON link.contact_id = c.id AND link.gallery_id = $2
+            "SELECT {} FROM contacts AS c
+             JOIN gallery_contacts AS link
+               ON link.contact_id = c.id AND link.gallery_id = $2
              WHERE c.workspace_id = $1
              ORDER BY lower(c.name), c.id",
-            Self::SELECT_CONTACT
+            Self::CONTACT_PROJECTION
         )))
         .bind(workspace_id)
         .bind(gallery_id)
@@ -544,32 +385,20 @@ impl ContactRepository<'_> {
         gallery_id: GalleryId,
         contact_id: ContactId,
     ) -> Result<Option<GalleryContactLink>, DatabaseError> {
-        let share_token: Option<ShareToken> = sqlx::query_scalar(
-            "SELECT gc.share_token
-             FROM gallery_contacts AS gc
-             JOIN galleries AS g ON g.id = gc.gallery_id
-             JOIN contacts AS c ON c.id = gc.contact_id
-             WHERE g.workspace_id = $1 AND c.workspace_id = $1
-               AND gc.gallery_id = $2 AND gc.contact_id = $3",
-        )
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {}, link.share_token
+             FROM gallery_contacts AS link
+             JOIN galleries AS linked_gallery ON linked_gallery.id = link.gallery_id
+             JOIN contacts AS c ON c.id = link.contact_id
+             WHERE linked_gallery.workspace_id = $1 AND c.workspace_id = $1
+               AND link.gallery_id = $2 AND link.contact_id = $3",
+            Self::CONTACT_PROJECTION
+        )))
         .bind(workspace_id)
         .bind(gallery_id)
         .bind(contact_id)
         .fetch_optional(self.pool)
-        .await?;
-
-        let Some(share_token) = share_token else {
-            return Ok(None);
-        };
-
-        let Some(contact) = self.get(workspace_id, contact_id).await? else {
-            return Ok(None);
-        };
-
-        Ok(Some(GalleryContactLink {
-            contact,
-            share_token,
-        }))
+        .await?)
     }
 
     /// Ensures `(workspace_id, email)` exists in `contacts` without overwriting an existing
@@ -580,7 +409,7 @@ impl ContactRepository<'_> {
         gallery_id: GalleryId,
         email: &Email,
         fallback_name: &ContactName,
-        mut next_token: impl FnMut() -> ShareToken,
+        next_token: impl FnMut() -> ShareToken,
     ) -> Result<ContactId, DatabaseError> {
         sqlx::query(
             "INSERT INTO contacts (id, workspace_id, name, email)
@@ -601,71 +430,37 @@ impl ContactRepository<'_> {
                 .fetch_one(&mut **tx)
                 .await?;
 
-        let already_linked: bool = sqlx::query_scalar(
-            "SELECT EXISTS (
-                 SELECT 1 FROM gallery_contacts WHERE gallery_id = $1 AND contact_id = $2
-             )",
-        )
-        .bind(gallery_id)
-        .bind(contact_id)
-        .fetch_one(&mut **tx)
-        .await?;
-
-        if already_linked {
+        if Self::has_link_in(tx, gallery_id, contact_id).await? {
             return Ok(contact_id);
         }
 
-        loop {
-            sqlx::query("SAVEPOINT contact_share_token")
+        ShareToken::retry_in(
+            tx,
+            UniqueViolation::GalleryContactShareToken,
+            next_token,
+            async |tx, candidate| {
+                let outcome = sqlx::query(
+                    "INSERT INTO gallery_contacts (gallery_id, contact_id, share_token)
+                     SELECT $1, $2, $3
+                     WHERE NOT EXISTS (SELECT 1 FROM galleries WHERE share_token = $3)
+                     ON CONFLICT (gallery_id, contact_id) DO NOTHING",
+                )
+                .bind(gallery_id)
+                .bind(contact_id)
+                .bind(&candidate)
                 .execute(&mut **tx)
                 .await?;
 
-            let candidate = next_token();
-            let insert_result = sqlx::query(
-                "INSERT INTO gallery_contacts (gallery_id, contact_id, share_token)
-                 SELECT $1, $2, $3
-                 WHERE NOT EXISTS (SELECT 1 FROM galleries WHERE share_token = $3)
-                 ON CONFLICT (gallery_id, contact_id) DO NOTHING",
-            )
-            .bind(gallery_id)
-            .bind(contact_id)
-            .bind(&candidate)
-            .execute(&mut **tx)
-            .await;
-
-            match insert_result {
-                Ok(outcome) => {
-                    sqlx::query("RELEASE SAVEPOINT contact_share_token")
-                        .execute(&mut **tx)
-                        .await?;
-
-                    if outcome.rows_affected() == 1 {
-                        return Ok(contact_id);
-                    }
-
-                    let linked: bool = sqlx::query_scalar(
-                        "SELECT EXISTS (
-                             SELECT 1 FROM gallery_contacts
-                             WHERE gallery_id = $1 AND contact_id = $2
-                         )",
-                    )
-                    .bind(gallery_id)
-                    .bind(contact_id)
-                    .fetch_one(&mut **tx)
-                    .await?;
-
-                    if linked {
-                        return Ok(contact_id);
-                    }
+                if outcome.rows_affected() == 1
+                    || Self::has_link_in(tx, gallery_id, contact_id).await?
+                {
+                    return Ok(TokenAttempt::Done(contact_id));
                 }
-                Err(error) if Self::is_token_collision(&error) => {
-                    sqlx::query("ROLLBACK TO SAVEPOINT contact_share_token")
-                        .execute(&mut **tx)
-                        .await?;
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
+
+                Ok(TokenAttempt::Collision)
+            },
+        )
+        .await
     }
 
     /// Idempotently links `contact_id` to `gallery_id` within `workspace_id`, generating a
@@ -686,75 +481,57 @@ impl ContactRepository<'_> {
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
         contact_id: ContactId,
-        mut next_token: impl FnMut() -> ShareToken,
+        next_token: impl FnMut() -> ShareToken,
     ) -> Result<Option<GalleryContactLink>, DatabaseError> {
-        loop {
-            let candidate = next_token();
-            let insert_result = sqlx::query(
-                "INSERT INTO gallery_contacts (gallery_id, contact_id, share_token)
-                 SELECT g.id, c.id, $4
-                 FROM galleries AS g
-                 JOIN contacts AS c ON c.workspace_id = g.workspace_id
-                 WHERE g.workspace_id = $1 AND g.id = $2 AND c.id = $3
-                   AND NOT EXISTS (SELECT 1 FROM galleries WHERE share_token = $4)
-                 ON CONFLICT (gallery_id, contact_id) DO NOTHING",
-            )
-            .bind(workspace_id)
-            .bind(gallery_id)
-            .bind(contact_id)
-            .bind(&candidate)
-            .execute(self.pool)
-            .await;
-
-            match insert_result {
-                Ok(_) => {}
-                Err(error) if Self::is_token_collision(&error) => continue,
-                Err(error) => return Err(error.into()),
-            }
-
-            let existing_token: Option<ShareToken> = sqlx::query_scalar(
-                "SELECT gc.share_token
-                 FROM gallery_contacts AS gc
-                 JOIN galleries AS g ON g.id = gc.gallery_id
-                 JOIN contacts AS c ON c.id = gc.contact_id
-                 WHERE g.workspace_id = $1 AND c.workspace_id = $1
-                   AND gc.gallery_id = $2 AND gc.contact_id = $3",
-            )
-            .bind(workspace_id)
-            .bind(gallery_id)
-            .bind(contact_id)
-            .fetch_optional(self.pool)
-            .await?;
-
-            if let Some(share_token) = existing_token {
-                if let Some(contact) = self.get(workspace_id, contact_id).await? {
-                    return Ok(Some(GalleryContactLink {
-                        contact,
-                        share_token,
-                    }));
-                }
-
-                return Ok(None);
-            }
-
-            let pair_exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS (
-                     SELECT 1
+        ShareToken::retry_on_collision(
+            UniqueViolation::GalleryContactShareToken,
+            next_token,
+            |candidate| async move {
+                sqlx::query(
+                    "INSERT INTO gallery_contacts (gallery_id, contact_id, share_token)
+                     SELECT g.id, c.id, $4
                      FROM galleries AS g
                      JOIN contacts AS c ON c.workspace_id = g.workspace_id
                      WHERE g.workspace_id = $1 AND g.id = $2 AND c.id = $3
-                 )",
-            )
-            .bind(workspace_id)
-            .bind(gallery_id)
-            .bind(contact_id)
-            .fetch_one(self.pool)
-            .await?;
+                       AND NOT EXISTS (SELECT 1 FROM galleries WHERE share_token = $4)
+                     ON CONFLICT (gallery_id, contact_id) DO NOTHING",
+                )
+                .bind(workspace_id)
+                .bind(gallery_id)
+                .bind(contact_id)
+                .bind(&candidate)
+                .execute(self.pool)
+                .await?;
 
-            if !pair_exists {
-                return Ok(None);
-            }
-        }
+                if let Some(link) = self
+                    .find_gallery_link(workspace_id, gallery_id, contact_id)
+                    .await?
+                {
+                    return Ok(TokenAttempt::Done(Some(link)));
+                }
+
+                let pair_exists: bool = sqlx::query_scalar(
+                    "SELECT EXISTS (
+                         SELECT 1
+                         FROM galleries AS g
+                         JOIN contacts AS c ON c.workspace_id = g.workspace_id
+                         WHERE g.workspace_id = $1 AND g.id = $2 AND c.id = $3
+                     )",
+                )
+                .bind(workspace_id)
+                .bind(gallery_id)
+                .bind(contact_id)
+                .fetch_one(self.pool)
+                .await?;
+
+                if !pair_exists {
+                    return Ok(TokenAttempt::Done(None));
+                }
+
+                Ok(TokenAttempt::Collision)
+            },
+        )
+        .await
     }
 
     /// Removes the link between `gallery_id` and `contact_id` in `workspace_id` without deleting
@@ -779,6 +556,38 @@ impl ContactRepository<'_> {
         .await?;
 
         Ok(result.rows_affected() == 1)
+    }
+}
+
+/// Extension methods specific to [`ContactName`].
+pub trait ContactNameExt {
+    /// Derives a fallback display name from `email`'s local part (before `@`), bounded to
+    /// [`MAX_NAME_CHARS`].
+    fn from_email_local_part(email: &Email) -> ContactName;
+}
+
+impl ContactNameExt for ContactName {
+    fn from_email_local_part(email: &Email) -> ContactName {
+        let local = email
+            .as_str()
+            .split_once('@')
+            .map_or(email.as_str(), |(local, _)| local)
+            .trim();
+        let candidate: String = local
+            .chars()
+            .filter(|ch| *ch != '\0')
+            .take(MAX_NAME_CHARS)
+            .collect();
+
+        if let Ok(name) = candidate.parse() {
+            return name;
+        }
+
+        // `"Client"` is 6 ASCII letters with no NUL bytes, within `1..=MAX_NAME_CHARS`.
+        #[allow(clippy::expect_used)]
+        "Client"
+            .parse()
+            .expect("static fallback name satisfies ContactName bounds")
     }
 }
 
@@ -1147,9 +956,11 @@ mod tests {
         assert_ne!(other_zoe.id, zoe.id);
         assert_eq!(contacts.get(other, zoe.id).await.unwrap(), None);
 
-        // Link Camille to two galleries and check alphabetical ordering on both contacts and galleries.
+        // Link Camille to two titled galleries plus one untitled gallery (`NULLS LAST`) and verify
+        // `list`, `find_gallery_link`, and `update` all return the same sorted `galleries` list.
         let gallery_b = galleries.create(mine).await.unwrap();
         let gallery_a = galleries.create(mine).await.unwrap();
+        let gallery_untitled = galleries.create(mine).await.unwrap();
 
         galleries
             .update(
@@ -1179,30 +990,67 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        contacts
+        let link_a = contacts
             .link_gallery(mine, gallery_a.id, camille.id)
             .await
             .unwrap()
             .unwrap();
+        contacts
+            .link_gallery(mine, gallery_untitled.id, camille.id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let expected_galleries = vec![
+            LinkedGallery {
+                id: gallery_a.id,
+                title: Some("engagement".to_owned()),
+            },
+            LinkedGallery {
+                id: gallery_b.id,
+                title: Some("Wedding Day".to_owned()),
+            },
+            LinkedGallery {
+                id: gallery_untitled.id,
+                title: None,
+            },
+        ];
 
         let listed = contacts.list(mine).await.unwrap();
 
         assert_eq!(listed.len(), 2);
         assert_eq!(listed[0].id, camille.id);
         assert_eq!(listed[1].id, zoe.id);
+        assert_eq!(listed[0].galleries, expected_galleries);
+
+        let found_link = contacts
+            .find_gallery_link(mine, gallery_a.id, camille.id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(found_link.share_token, link_a.share_token);
+        assert_eq!(found_link.contact.galleries, expected_galleries);
         assert_eq!(
-            listed[0].galleries,
-            vec![
-                LinkedGallery {
-                    id: gallery_a.id,
-                    title: Some("engagement".to_owned()),
-                },
-                LinkedGallery {
-                    id: gallery_b.id,
-                    title: Some("Wedding Day".to_owned()),
-                },
-            ]
+            contacts
+                .find_gallery_link(mine, gallery_a.id, zoe.id)
+                .await
+                .unwrap(),
+            None
         );
+
+        let updated_camille = contacts
+            .update(
+                mine,
+                camille.id,
+                &serde_json::from_value(json!({"name": "Camille & Hugo"})).unwrap(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(updated_camille.name.as_str(), "Camille & Hugo");
+        assert_eq!(updated_camille.galleries, expected_galleries);
 
         // Empty update does not bump updated_at.
         let unchanged = contacts
@@ -1589,5 +1437,65 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn upsert_and_link_in_retries_both_collision_paths_and_commits_transaction(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let contacts = database.repository::<ContactRepository>();
+        let galleries = database.repository::<GalleryRepository>();
+        let workspace_id = workspace(&pool).await;
+
+        let gallery = galleries.create(workspace_id).await.unwrap();
+        let shared = galleries
+            .share(workspace_id, gallery.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let gallery_token = shared.share_token.unwrap();
+
+        let existing = contacts
+            .create(
+                workspace_id,
+                &new_contact("Existing", "existing@example.test"),
+            )
+            .await
+            .unwrap();
+        let existing_link = contacts
+            .link_gallery(workspace_id, gallery.id, existing.id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let fresh_token = ShareToken::generate();
+        let mut candidates = vec![
+            gallery_token,
+            existing_link.share_token,
+            fresh_token.clone(),
+        ]
+        .into_iter();
+        let email: Email = "invited@example.test".parse().unwrap();
+        let fallback_name: ContactName = "Invited".parse().unwrap();
+
+        let mut tx = pool.begin().await.unwrap();
+        let contact_id = ContactRepository::upsert_and_link_in(
+            &mut tx,
+            workspace_id,
+            gallery.id,
+            &email,
+            &fallback_name,
+            || candidates.next().unwrap(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        let link = contacts
+            .find_gallery_link(workspace_id, gallery.id, contact_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(link.share_token, fresh_token);
     }
 }

@@ -15,7 +15,7 @@ pub use pp_core::types::access_code::{
     ACCESS_CODE_DIGITS, GalleryAccessCode, ParseAccessCodeError,
 };
 use pp_core::types::{generate::Generate, timestamp::Timestamp};
-use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
+use serde::{Deserialize, Serialize};
 use sqlx::{
     AssertSqlSafe, FromRow, PgExecutor, PgPool, Postgres, Row, Transaction, Type, postgres::PgRow,
 };
@@ -23,13 +23,15 @@ use thiserror::Error;
 use time::Date;
 use uuid::Uuid;
 
+pub(crate) use self::share::TokenAttempt;
 pub use self::share::{ShareToken, SharedAccess, SharedGallery, SharedGalleryGate};
 use crate::{
     Repository,
     auth::WorkspaceId,
-    contact::{ContactName, ContactRepository},
-    error::DatabaseError,
+    contact::{ContactName, ContactNameExt, ContactRepository},
+    error::{DatabaseError, UniqueViolation},
     jobs::{EmailRecipient, InvitationStage, JobOptions, JobRepository, SendEmail},
+    patch::Present,
     photo::{PhotoId, PhotoLocation},
 };
 
@@ -40,9 +42,6 @@ const INVALID_BYTE_SEQUENCE: &str = "22021";
 
 /// The CHECK constraint bounding the title length; see the migration.
 const TITLE_LENGTH_CONSTRAINT: &str = "galleries_title_length";
-
-/// Unique constraint on a gallery's general share token.
-const SHARE_TOKEN_UNIQUE: &str = "galleries_share_token_unique";
 
 /// A setting that failed validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
@@ -104,26 +103,93 @@ pub enum InvitationError {
     Database(#[from] DatabaseError),
 }
 
-pub use pp_core::types::studio::{FocalCoordinate, FocalCoordinateError, FocalPoint};
+pub use pp_core::types::studio::{FocalCoordinate, FocalPoint};
 
 /// A primary recipient in an [`InvitationBatch`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InvitationContact {
     pub email: Email,
+    #[serde(default)]
     pub name: Option<ContactName>,
 }
 
-/// Recipients and message body to queue as gallery invitation emails.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InvitationBatchWire {
+    #[serde(default)]
+    to: Vec<InvitationContact>,
+    #[serde(default)]
+    bcc: Vec<Email>,
+    subject: EmailSubject,
+    message: EmailMessage,
+}
+
+/// Deduplicated recipients and message body to queue as gallery invitation emails.
+///
+/// Construction and JSON deserialization deduplicate `to` (keeping the first occurrence) and
+/// drop any `bcc` address already present in `to` or earlier in `bcc`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(from = "InvitationBatchWire")]
 pub struct InvitationBatch {
-    pub to: Vec<InvitationContact>,
-    pub bcc: Vec<Email>,
+    to: Vec<InvitationContact>,
+    bcc: Vec<Email>,
     pub subject: EmailSubject,
     pub message: EmailMessage,
 }
 
+impl InvitationBatch {
+    /// Builds a deduplicated invitation batch, keeping the first occurrence in `to` and dropping
+    /// any `bcc` address already present in `to` or earlier in `bcc`.
+    #[must_use]
+    pub fn new(
+        mut to: Vec<InvitationContact>,
+        mut bcc: Vec<Email>,
+        subject: EmailSubject,
+        message: EmailMessage,
+    ) -> Self {
+        let mut seen = HashSet::with_capacity(to.len() + bcc.len());
+
+        to.retain(|contact| seen.insert(contact.email.clone()));
+        bcc.retain(|email| seen.insert(email.clone()));
+
+        Self {
+            to,
+            bcc,
+            subject,
+            message,
+        }
+    }
+
+    #[must_use]
+    pub fn to(&self) -> &[InvitationContact] {
+        &self.to
+    }
+
+    #[must_use]
+    pub fn bcc(&self) -> &[Email] {
+        &self.bcc
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.to.is_empty() && self.bcc.is_empty()
+    }
+
+    #[must_use]
+    pub fn recipient_count(&self) -> usize {
+        self.to.len() + self.bcc.len()
+    }
+}
+
+impl From<InvitationBatchWire> for InvitationBatch {
+    fn from(wire: InvitationBatchWire) -> Self {
+        Self::new(wire.to, wire.bcc, wire.subject, wire.message)
+    }
+}
+
 /// Outcome of [`GalleryRepository::queue_invitations`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QueuedInvitations {
     pub gallery: Gallery,
     pub queued_count: usize,
@@ -372,43 +438,43 @@ pub struct GalleryChanges {
     pub title: Option<Option<String>>,
     #[serde(
         default,
-        deserialize_with = "GalleryChanges::deserialize_present",
+        deserialize_with = "Present::deserialize",
         skip_serializing_if = "Option::is_none"
     )]
     pub favorite: Option<bool>,
     #[serde(
         default,
-        deserialize_with = "GalleryChanges::deserialize_present",
+        deserialize_with = "Present::deserialize",
         skip_serializing_if = "Option::is_none"
     )]
     pub layout: Option<GalleryLayout>,
     #[serde(
         default,
-        deserialize_with = "GalleryChanges::deserialize_present",
+        deserialize_with = "Present::deserialize",
         skip_serializing_if = "Option::is_none"
     )]
     pub cover_layout: Option<CoverLayout>,
     #[serde(
         default,
-        deserialize_with = "GalleryChanges::deserialize_present",
+        deserialize_with = "Present::deserialize",
         skip_serializing_if = "Option::is_none"
     )]
     pub focal_point: Option<FocalPoint>,
     #[serde(
         default,
-        deserialize_with = "GalleryChanges::deserialize_present",
+        deserialize_with = "Present::deserialize",
         skip_serializing_if = "Option::is_none"
     )]
     pub heading_font: Option<HeadingFont>,
     #[serde(
         default,
-        deserialize_with = "GalleryChanges::deserialize_present",
+        deserialize_with = "Present::deserialize",
         skip_serializing_if = "Option::is_none"
     )]
     pub grid_density: Option<GridDensity>,
     #[serde(
         default,
-        deserialize_with = "GalleryChanges::deserialize_present",
+        deserialize_with = "Present::deserialize",
         skip_serializing_if = "Option::is_none"
     )]
     pub grid_spacing: Option<GridSpacing>,
@@ -426,7 +492,7 @@ pub struct GalleryChanges {
     pub included_photos: Option<Option<NonZeroUsize>>,
     #[serde(
         default,
-        deserialize_with = "GalleryChanges::deserialize_present",
+        deserialize_with = "Present::deserialize",
         skip_serializing_if = "Option::is_none"
     )]
     pub watermark_enabled: Option<bool>,
@@ -475,22 +541,6 @@ impl GalleryChanges {
             || self.access_code.is_some()
             || self.hero_id.is_some()
             || self.shoot_date.is_some()
-    }
-
-    /// Deserializes a supplied value as `Some` and rejects `null`.
-    ///
-    /// Plain `Option<T>` fields treat `null` like a missing field, so `{"layout": null}` would
-    /// silently change nothing; settings that cannot be cleared fail instead.
-    fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: Deserialize<'de>,
-    {
-        // Going through `Option` makes `null` a data error for every `T`; deserializing `T`
-        // directly makes some types (enums) report it as a syntax error instead.
-        Option::<T>::deserialize(deserializer)?
-            .map(Some)
-            .ok_or_else(|| D::Error::custom("null is not allowed"))
     }
 }
 
@@ -701,10 +751,47 @@ impl GalleryRepository<'_> {
         )
     }
 
-    fn is_token_collision(error: &sqlx::Error) -> bool {
-        error
-            .as_database_error()
-            .is_some_and(|db| db.constraint() == Some(SHARE_TOKEN_UNIQUE))
+    async fn assign_share_token<'c, E>(
+        executor: E,
+        workspace_id: WorkspaceId,
+        id: GalleryId,
+        candidate: &ShareToken,
+    ) -> Result<Option<Gallery>, DatabaseError>
+    where
+        E: PgExecutor<'c>,
+    {
+        // The row lock taken by UPDATE makes concurrent calls converge on the first token.
+        Ok(sqlx::query_as::<_, Gallery>(AssertSqlSafe(format!(
+            "UPDATE galleries SET share_token = COALESCE(share_token, $3),
+                 shared_at = COALESCE(shared_at, now())
+             WHERE id = $1 AND workspace_id = $2
+               AND (share_token IS NOT NULL
+                    OR NOT EXISTS (SELECT 1 FROM gallery_contacts WHERE share_token = $3))
+             RETURNING {}",
+            Self::COLUMNS
+        )))
+        .bind(id)
+        .bind(workspace_id)
+        .bind(candidate)
+        .fetch_optional(executor)
+        .await?)
+    }
+
+    async fn exists_in_workspace<'c, E>(
+        executor: E,
+        workspace_id: WorkspaceId,
+        id: GalleryId,
+    ) -> Result<bool, DatabaseError>
+    where
+        E: PgExecutor<'c>,
+    {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM galleries WHERE id = $1 AND workspace_id = $2)",
+        )
+        .bind(id)
+        .bind(workspace_id)
+        .fetch_one(executor)
+        .await?)
     }
 
     /// Returns the gallery with its private link, creating the link if it has none. A shared
@@ -722,87 +809,53 @@ impl GalleryRepository<'_> {
         &self,
         workspace_id: WorkspaceId,
         id: GalleryId,
-        mut next_token: impl FnMut() -> ShareToken,
+        next_token: impl FnMut() -> ShareToken,
     ) -> Result<Option<Gallery>, DatabaseError> {
-        loop {
-            let candidate = next_token();
-            // The row lock taken by UPDATE makes concurrent calls converge on the first token.
-            let update_result = sqlx::query_as::<_, Gallery>(AssertSqlSafe(format!(
-                "UPDATE galleries SET share_token = COALESCE(share_token, $3),
-                     shared_at = COALESCE(shared_at, now())
-                 WHERE id = $1 AND workspace_id = $2
-                   AND (share_token IS NOT NULL
-                        OR NOT EXISTS (SELECT 1 FROM gallery_contacts WHERE share_token = $3))
-                 RETURNING {}",
-                Self::COLUMNS
-            )))
-            .bind(id)
-            .bind(workspace_id)
-            .bind(candidate)
-            .fetch_optional(self.pool)
-            .await;
-
-            match update_result {
-                Ok(Some(gallery)) => return Ok(Some(gallery)),
-                Ok(None) => {
-                    if self.get(workspace_id, id).await?.is_none() {
-                        return Ok(None);
-                    }
+        ShareToken::retry_on_collision(
+            UniqueViolation::GalleryShareToken,
+            next_token,
+            |candidate| async move {
+                if let Some(gallery) =
+                    Self::assign_share_token(self.pool, workspace_id, id, &candidate).await?
+                {
+                    return Ok(TokenAttempt::Done(Some(gallery)));
                 }
-                Err(error) if Self::is_token_collision(&error) => continue,
-                Err(error) => return Err(error.into()),
-            }
-        }
+
+                if !Self::exists_in_workspace(self.pool, workspace_id, id).await? {
+                    return Ok(TokenAttempt::Done(None));
+                }
+
+                Ok(TokenAttempt::Collision)
+            },
+        )
+        .await
     }
 
-    async fn share_in(
+    pub(crate) async fn share_in(
         tx: &mut Transaction<'_, Postgres>,
         workspace_id: WorkspaceId,
         id: GalleryId,
-        mut next_token: impl FnMut() -> ShareToken,
-    ) -> Result<Gallery, DatabaseError> {
-        loop {
-            sqlx::query("SAVEPOINT gallery_share_token")
-                .execute(&mut **tx)
-                .await?;
-
-            let candidate = next_token();
-            let update_result = sqlx::query_as::<_, Gallery>(AssertSqlSafe(format!(
-                "UPDATE galleries SET share_token = COALESCE(share_token, $3),
-                     shared_at = COALESCE(shared_at, now())
-                 WHERE id = $1 AND workspace_id = $2
-                   AND (share_token IS NOT NULL
-                        OR NOT EXISTS (SELECT 1 FROM gallery_contacts WHERE share_token = $3))
-                 RETURNING {}",
-                Self::COLUMNS
-            )))
-            .bind(id)
-            .bind(workspace_id)
-            .bind(candidate)
-            .fetch_optional(&mut **tx)
-            .await;
-
-            match update_result {
-                Ok(Some(gallery)) => {
-                    sqlx::query("RELEASE SAVEPOINT gallery_share_token")
-                        .execute(&mut **tx)
-                        .await?;
-
-                    return Ok(gallery);
+        next_token: impl FnMut() -> ShareToken,
+    ) -> Result<Option<Gallery>, DatabaseError> {
+        ShareToken::retry_in(
+            tx,
+            UniqueViolation::GalleryShareToken,
+            next_token,
+            async |tx, candidate| {
+                if let Some(gallery) =
+                    Self::assign_share_token(&mut **tx, workspace_id, id, &candidate).await?
+                {
+                    return Ok(TokenAttempt::Done(Some(gallery)));
                 }
-                Ok(None) => {
-                    sqlx::query("RELEASE SAVEPOINT gallery_share_token")
-                        .execute(&mut **tx)
-                        .await?;
+
+                if !Self::exists_in_workspace(&mut **tx, workspace_id, id).await? {
+                    return Ok(TokenAttempt::Done(None));
                 }
-                Err(error) if Self::is_token_collision(&error) => {
-                    sqlx::query("ROLLBACK TO SAVEPOINT gallery_share_token")
-                        .execute(&mut **tx)
-                        .await?;
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
+
+                Ok(TokenAttempt::Collision)
+            },
+        )
+        .await
     }
 
     /// Atomically publishes a draft gallery if needed, upserts and links primary `To` contacts,
@@ -865,16 +918,15 @@ impl GalleryRepository<'_> {
             InvitationStage::Proofing
         };
 
-        let gallery =
-            Self::share_in(&mut tx, workspace_id, gallery_id, ShareToken::generate).await?;
-        let mut seen = HashSet::new();
-        let mut queued_count = 0usize;
+        let Some(gallery) =
+            Self::share_in(&mut tx, workspace_id, gallery_id, ShareToken::generate).await?
+        else {
+            tx.rollback().await.map_err(DatabaseError::from)?;
+
+            return Ok(None);
+        };
 
         for recipient in &batch.to {
-            if !seen.insert(recipient.email.clone()) {
-                continue;
-            }
-
             let fallback = recipient
                 .name
                 .clone()
@@ -902,14 +954,9 @@ impl GalleryRepository<'_> {
                 job_options.max_attempts,
             )
             .await?;
-            queued_count += 1;
         }
 
         for bcc_email in &batch.bcc {
-            if !seen.insert(bcc_email.clone()) {
-                continue;
-            }
-
             JobRepository::enqueue_in(
                 &mut tx,
                 SendEmail {
@@ -925,14 +972,13 @@ impl GalleryRepository<'_> {
                 job_options.max_attempts,
             )
             .await?;
-            queued_count += 1;
         }
 
         tx.commit().await.map_err(DatabaseError::from)?;
 
         Ok(Some(QueuedInvitations {
             gallery,
-            queued_count,
+            queued_count: batch.recipient_count(),
         }))
     }
 
@@ -3396,8 +3442,8 @@ mod tests {
         let draft = galleries.create(workspace).await.unwrap();
         assert!(draft.share_token.is_none());
 
-        let batch = InvitationBatch {
-            to: vec![
+        let batch = InvitationBatch::new(
+            vec![
                 InvitationContact {
                     email: "Camille@Example.test".parse().unwrap(),
                     name: None,
@@ -3411,14 +3457,14 @@ mod tests {
                     name: Some("Ignored Duplicate".parse().unwrap()),
                 },
             ],
-            bcc: vec![
+            vec![
                 "CAMILLE@example.test".parse().unwrap(),
                 "planner@example.test".parse().unwrap(),
                 "Planner@Example.test".parse().unwrap(),
             ],
-            subject: "Camille & Hugo — Your gallery is ready".parse().unwrap(),
-            message: "Bonjour,\n\nVos photos vous attendent.".parse().unwrap(),
-        };
+            "Camille & Hugo — Your gallery is ready".parse().unwrap(),
+            "Bonjour,\n\nVos photos vous attendent.".parse().unwrap(),
+        );
 
         // Foreign workspace sees `Ok(None)`.
         assert!(
@@ -3532,12 +3578,12 @@ mod tests {
             .queue_invitations(
                 workspace,
                 draft.id,
-                &InvitationBatch {
-                    to: vec![],
-                    bcc: vec!["family@example.test".parse().unwrap()],
-                    subject: "Final photos".parse().unwrap(),
-                    message: "Enjoy!".parse().unwrap(),
-                },
+                &InvitationBatch::new(
+                    vec![],
+                    vec!["family@example.test".parse().unwrap()],
+                    "Final photos".parse().unwrap(),
+                    "Enjoy!".parse().unwrap(),
+                ),
                 JobOptions::default(),
             )
             .await
@@ -3591,5 +3637,142 @@ mod tests {
                 .await,
             Err(InvitationError::Archived)
         ));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn share_in_returns_none_for_missing_or_foreign_gallery_and_retries_token_collisions(
+        pool: PgPool,
+    ) {
+        let database = Database::new(pool.clone());
+        let galleries = database.repository::<GalleryRepository>();
+        let (mine, other) = (workspace(&pool).await, workspace(&pool).await);
+        let first = galleries.create(mine).await.unwrap();
+        let second = galleries.create(mine).await.unwrap();
+        let existing_token = galleries
+            .share(mine, first.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .share_token
+            .unwrap();
+
+        let mut tx = pool.begin().await.unwrap();
+
+        assert_eq!(
+            GalleryRepository::share_in(
+                &mut tx,
+                mine,
+                GalleryId::generate(),
+                ShareToken::generate,
+            )
+            .await
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            GalleryRepository::share_in(&mut tx, other, second.id, ShareToken::generate)
+                .await
+                .unwrap(),
+            None
+        );
+
+        let fresh_token = ShareToken::generate();
+        let mut candidates = vec![existing_token, fresh_token.clone()].into_iter();
+        let shared =
+            GalleryRepository::share_in(&mut tx, mine, second.id, || candidates.next().unwrap())
+                .await
+                .unwrap()
+                .unwrap();
+
+        assert_eq!(shared.share_token, Some(fresh_token));
+        tx.commit().await.unwrap();
+    }
+
+    #[test]
+    fn invitation_batch_deserializes_deduplicates_in_place_and_rejects_unknown_fields() {
+        let empty: InvitationBatch = serde_json::from_value(json!({
+            "subject": "Ready",
+            "message": "Hello!"
+        }))
+        .unwrap();
+
+        assert!(empty.is_empty());
+        assert_eq!(empty.recipient_count(), 0);
+        assert!(
+            serde_json::from_value::<InvitationBatch>(json!({
+                "subject": "Ready",
+                "message": "Hello!",
+                "unexpected": true
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<InvitationBatch>(json!({
+                "to": [{"email": "a@example.test", "unexpected": true}],
+                "subject": "Ready",
+                "message": "Hello!"
+            }))
+            .is_err()
+        );
+
+        let batch: InvitationBatch = serde_json::from_value(json!({
+            "to": [
+                {"email": "Camille@Example.test", "name": "Camille"},
+                {"email": "hugo@example.test"},
+                {"email": "camille@example.test", "name": "Duplicate"}
+            ],
+            "bcc": [
+                "HUGO@example.test",
+                "press@example.test",
+                "Press@Example.test"
+            ],
+            "subject": "Your gallery",
+            "message": "Line 1\nLine 2"
+        }))
+        .unwrap();
+
+        assert!(!batch.is_empty());
+        assert_eq!(batch.recipient_count(), 3);
+        assert_eq!(
+            batch.to(),
+            &[
+                InvitationContact {
+                    email: "camille@example.test".parse().unwrap(),
+                    name: Some("Camille".parse().unwrap()),
+                },
+                InvitationContact {
+                    email: "hugo@example.test".parse().unwrap(),
+                    name: None,
+                },
+            ]
+        );
+        assert_eq!(
+            batch.bcc(),
+            &["press@example.test".parse::<Email>().unwrap()]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn bounded_u8_sql_decode_enforces_range_bounds(pool: PgPool) {
+        let zero: FocalCoordinate = sqlx::query_scalar("SELECT 0::smallint")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let hundred: FocalCoordinate = sqlx::query_scalar("SELECT 100::smallint")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(zero.get(), 0);
+        assert_eq!(hundred.get(), 100);
+
+        for out_of_range in [-1i16, 101, 256] {
+            let decoded = sqlx::query_scalar::<_, FocalCoordinate>("SELECT $1::smallint")
+                .bind(out_of_range)
+                .fetch_one(&pool)
+                .await;
+
+            assert!(decoded.is_err(), "{out_of_range} must fail SQL decode");
+        }
     }
 }

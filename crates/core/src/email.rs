@@ -5,6 +5,8 @@ use email_address::EmailAddress;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::types::bounded::{BoundedText, MultiLine, SingleLine};
+
 /// Maximum length in Unicode scalar values of an [`EmailSubject`].
 pub const MAX_EMAIL_SUBJECT_CHARS: usize = 200;
 
@@ -14,16 +16,6 @@ pub const MAX_EMAIL_MESSAGE_CHARS: usize = 5000;
 #[derive(Debug, Error)]
 #[error("invalid email address")]
 pub struct ParseEmailError;
-
-/// Invalid [`EmailSubject`]: blank, exceeds [`MAX_EMAIL_SUBJECT_CHARS`], or contains CR/LF/NUL.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[error("email subject must be 1..={MAX_EMAIL_SUBJECT_CHARS} single-line characters")]
-pub struct ParseEmailSubjectError;
-
-/// Invalid [`EmailMessage`]: blank, exceeds [`MAX_EMAIL_MESSAGE_CHARS`], or contains NUL.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[error("email message must be 1..={MAX_EMAIL_MESSAGE_CHARS} characters")]
-pub struct ParseEmailMessageError;
 
 /// A syntactically valid email address in its canonical form: trimmed and lowercased, at
 /// most 254 characters.
@@ -73,95 +65,11 @@ impl From<Email> for String {
 
 /// Validated single-line email subject (`1..=200` trimmed characters, rejecting `\r`, `\n`, `\0`
 /// so header injection is unrepresentable).
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
-#[serde(try_from = "String", into = "String")]
-pub struct EmailSubject(String);
-
-impl EmailSubject {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl FromStr for EmailSubject {
-    type Err = ParseEmailSubjectError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        if value.contains(['\r', '\n', '\0']) {
-            return Err(ParseEmailSubjectError);
-        }
-
-        let trimmed = value.trim();
-        let count = trimmed.chars().count();
-
-        if count == 0 || count > MAX_EMAIL_SUBJECT_CHARS {
-            return Err(ParseEmailSubjectError);
-        }
-
-        Ok(Self(trimmed.to_owned()))
-    }
-}
-
-impl TryFrom<String> for EmailSubject {
-    type Error = ParseEmailSubjectError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-
-impl From<EmailSubject> for String {
-    fn from(subject: EmailSubject) -> Self {
-        subject.0
-    }
-}
+pub type EmailSubject = BoundedText<1, MAX_EMAIL_SUBJECT_CHARS, SingleLine>;
 
 /// Validated plain-text personal message body (`1..=5000` trimmed characters, preserving
 /// paragraph line breaks while rejecting `\0`).
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type), sqlx(transparent))]
-#[serde(try_from = "String", into = "String")]
-pub struct EmailMessage(String);
-
-impl EmailMessage {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl FromStr for EmailMessage {
-    type Err = ParseEmailMessageError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        if value.contains('\0') {
-            return Err(ParseEmailMessageError);
-        }
-
-        let trimmed = value.trim();
-        let count = trimmed.chars().count();
-
-        if count == 0 || count > MAX_EMAIL_MESSAGE_CHARS {
-            return Err(ParseEmailMessageError);
-        }
-
-        Ok(Self(trimmed.to_owned()))
-    }
-}
-
-impl TryFrom<String> for EmailMessage {
-    type Error = ParseEmailMessageError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.parse()
-    }
-}
-
-impl From<EmailMessage> for String {
-    fn from(message: EmailMessage) -> Self {
-        message.0
-    }
-}
+pub type EmailMessage = BoundedText<1, MAX_EMAIL_MESSAGE_CHARS, MultiLine>;
 
 #[cfg(test)]
 mod tests {

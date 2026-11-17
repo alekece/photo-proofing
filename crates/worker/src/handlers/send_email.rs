@@ -463,17 +463,17 @@ mod tests {
             .queue_invitations(
                 workspace_id,
                 gallery.id,
-                &InvitationBatch {
-                    subject: "Clara & Julien — Proofing".parse::<EmailSubject>().unwrap(),
-                    message: "Please pick your favorites."
-                        .parse::<EmailMessage>()
-                        .unwrap(),
-                    to: vec![InvitationContact {
+                &InvitationBatch::new(
+                    vec![InvitationContact {
                         email: "alice@example.test".parse::<Email>().unwrap(),
                         name: None,
                     }],
-                    bcc: vec!["archive@example.test".parse::<Email>().unwrap()],
-                },
+                    vec!["archive@example.test".parse::<Email>().unwrap()],
+                    "Clara & Julien — Proofing".parse::<EmailSubject>().unwrap(),
+                    "Please pick your favorites."
+                        .parse::<EmailMessage>()
+                        .unwrap(),
+                ),
                 JobOptions::default(),
             )
             .await
@@ -594,17 +594,17 @@ mod tests {
             .queue_invitations(
                 workspace_id,
                 gallery.id,
-                &InvitationBatch {
-                    subject: "Clara & Julien — Finals".parse::<EmailSubject>().unwrap(),
-                    message: "Your finished photos are ready."
-                        .parse::<EmailMessage>()
-                        .unwrap(),
-                    to: vec![InvitationContact {
+                &InvitationBatch::new(
+                    vec![InvitationContact {
                         email: "alice@example.test".parse::<Email>().unwrap(),
                         name: None,
                     }],
-                    bcc: vec![],
-                },
+                    vec![],
+                    "Clara & Julien — Finals".parse::<EmailSubject>().unwrap(),
+                    "Your finished photos are ready."
+                        .parse::<EmailMessage>()
+                        .unwrap(),
+                ),
                 JobOptions::default(),
             )
             .await
@@ -671,15 +671,15 @@ mod tests {
             .queue_invitations(
                 workspace_id,
                 gallery.id,
-                &InvitationBatch {
-                    subject: "Invite".parse::<EmailSubject>().unwrap(),
-                    message: "Welcome".parse::<EmailMessage>().unwrap(),
-                    to: vec![InvitationContact {
+                &InvitationBatch::new(
+                    vec![InvitationContact {
                         email: "bob@example.test".parse::<Email>().unwrap(),
                         name: None,
                     }],
-                    bcc: vec![],
-                },
+                    vec![],
+                    "Invite".parse::<EmailSubject>().unwrap(),
+                    "Welcome".parse::<EmailMessage>().unwrap(),
+                ),
                 JobOptions::default(),
             )
             .await

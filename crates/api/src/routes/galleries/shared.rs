@@ -71,19 +71,12 @@ struct StudioBranding {
 
 impl From<WorkspaceSettings> for StudioBranding {
     fn from(settings: WorkspaceSettings) -> Self {
-        let studio_name = if matches!(
-            settings.signature,
-            CoverSignature::Name | CoverSignature::Both
-        ) {
+        let studio_name = if settings.signature.shows_name() {
             settings.studio_name
         } else {
             String::new()
         };
-        let has_logo = settings.logo.is_some()
-            && matches!(
-                settings.signature,
-                CoverSignature::Logo | CoverSignature::Both
-            );
+        let has_logo = settings.logo.is_some() && settings.signature.shows_logo();
 
         Self {
             studio_name,
@@ -211,10 +204,7 @@ async fn serve_shared_logo(
         .settings(link.access.location.workspace_id)
         .await?;
 
-    if !matches!(
-        settings.signature,
-        CoverSignature::Logo | CoverSignature::Both
-    ) {
+    if !settings.signature.shows_logo() {
         return Err(ErrorResponse::not_found());
     }
 

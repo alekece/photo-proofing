@@ -4,10 +4,9 @@
 
 use std::num::NonZeroU16;
 
-use pp_core::types::timestamp::Timestamp;
+use pp_core::types::{bounded::BoundedText, timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Postgres, Transaction, Type};
-use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{
@@ -18,34 +17,7 @@ use crate::{
 
 pub const MAX_BODY_CHARS: usize = 500;
 
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("comment must contain between 1 and 500 characters")]
-pub struct CommentBodyError;
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Type)]
-#[serde(try_from = "String")]
-#[sqlx(transparent)]
-pub struct CommentBody(String);
-
-impl CommentBody {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl TryFrom<String> for CommentBody {
-    type Error = CommentBodyError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        let value = value.trim();
-
-        if !(1..=MAX_BODY_CHARS).contains(&value.chars().count()) || value.contains('\0') {
-            return Err(CommentBodyError);
-        }
-
-        Ok(Self(value.to_owned()))
-    }
-}
+pub type CommentBody = BoundedText<1, MAX_BODY_CHARS>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(transparent)]

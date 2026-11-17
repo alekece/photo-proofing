@@ -9,6 +9,7 @@
 
 use std::num::NonZeroU16;
 
+use pp_core::types::bounded::BoundedU8;
 pub use pp_core::types::studio::{CoverSignature, Language};
 use serde::{Deserialize, Serialize};
 use sqlx::{AssertSqlSafe, FromRow, PgConnection, PgPool, Postgres, Row, Transaction, Type};
@@ -26,6 +27,12 @@ use crate::{
 /// Longest studio name, in characters.
 pub const STUDIO_NAME_MAX_CHARS: usize = 100;
 
+/// Default watermark grid cell: bottom right (`8`).
+pub const DEFAULT_GRID_CELL: GridCell = GridCell::constant::<8>();
+
+/// Default watermark and cover-signature size step (`4`).
+pub const DEFAULT_SIZE_STEP: SizeStep = SizeStep::constant::<4>();
+
 /// Why settings were refused.
 #[derive(Debug, Error)]
 pub enum SettingsError {
@@ -35,10 +42,6 @@ pub enum SettingsError {
     NameTooLong,
     #[error("a logo is required when the watermark or cover signature shows it")]
     LogoRequired,
-    #[error("grid cell {0} is out of range")]
-    GridCell(u8),
-    #[error("size step {0} is out of range")]
-    SizeStep(u8),
     #[error("database error")]
     Database(#[from] DatabaseError),
 }
@@ -120,78 +123,10 @@ impl ProofQuality {
 }
 
 /// A cell of the 3 × 3 position grid, 0 (top left) to 8 (bottom right).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(try_from = "u8", into = "u8")]
-#[sqlx(transparent)]
-pub struct GridCell(i16);
-
-impl GridCell {
-    pub const BOTTOM_RIGHT: Self = Self(8);
-
-    /// The cell's index, 0 to 8.
-    pub const fn get(self) -> u8 {
-        self.0 as u8
-    }
-}
-
-impl TryFrom<u8> for GridCell {
-    type Error = SettingsError;
-
-    fn try_from(cell: u8) -> Result<Self, Self::Error> {
-        if cell > Self::BOTTOM_RIGHT.get() {
-            return Err(SettingsError::GridCell(cell));
-        }
-
-        Ok(Self(i16::from(cell)))
-    }
-}
-
-impl From<GridCell> for u8 {
-    fn from(cell: GridCell) -> Self {
-        cell.get()
-    }
-}
+pub type GridCell = BoundedU8<0, 8>;
 
 /// How large the watermark or the cover signature is: 0 (small) to 9 (large).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(try_from = "u8", into = "u8")]
-#[sqlx(transparent)]
-pub struct SizeStep(i16);
-
-impl SizeStep {
-    pub const MIN: Self = Self(0);
-    pub const MAX: Self = Self(9);
-
-    /// The step, 0 to 9.
-    pub const fn get(self) -> u8 {
-        self.0 as u8
-    }
-}
-
-impl Default for SizeStep {
-    /// The step that matches the original fixed look.
-    fn default() -> Self {
-        Self(4)
-    }
-}
-
-impl TryFrom<u8> for SizeStep {
-    type Error = SettingsError;
-
-    fn try_from(step: u8) -> Result<Self, Self::Error> {
-        if step > Self::MAX.get() {
-            return Err(SettingsError::SizeStep(step));
-        }
-
-        Ok(Self(i16::from(step)))
-    }
-}
-
-impl From<SizeStep> for u8 {
-    fn from(step: SizeStep) -> Self {
-        step.get()
-    }
-}
+pub type SizeStep = BoundedU8<0, 9>;
 
 /// Where a watermark goes on a photo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,10 +170,10 @@ impl Default for WorkspaceSettings {
             studio_name: String::new(),
             mark: WatermarkMark::Name,
             pattern: WatermarkPattern::Repeat,
-            position: GridCell::BOTTOM_RIGHT,
-            size: SizeStep::default(),
+            position: DEFAULT_GRID_CELL,
+            size: DEFAULT_SIZE_STEP,
             signature: CoverSignature::Name,
-            signature_size: SizeStep::default(),
+            signature_size: DEFAULT_SIZE_STEP,
             proof_quality: ProofQuality::default(),
             logo: None,
         }
@@ -748,10 +683,10 @@ mod tests {
             studio_name: name.to_owned(),
             mark: WatermarkMark::Name,
             pattern: WatermarkPattern::Repeat,
-            position: GridCell::BOTTOM_RIGHT,
-            size: SizeStep(2),
+            position: DEFAULT_GRID_CELL,
+            size: SizeStep::constant::<2>(),
             signature: CoverSignature::Name,
-            signature_size: SizeStep::default(),
+            signature_size: DEFAULT_SIZE_STEP,
             proof_quality: ProofQuality::Medium,
             logo: LogoChange::Keep,
         }
@@ -849,9 +784,9 @@ mod tests {
                 mark: WatermarkMark::Both,
                 pattern: WatermarkPattern::Once,
                 position: GridCell::try_from(4).unwrap(),
-                size: SizeStep(4),
+                size: SizeStep::constant::<4>(),
                 signature: CoverSignature::None,
-                signature_size: SizeStep(7),
+                signature_size: SizeStep::constant::<7>(),
                 logo: LogoChange::Replace(PNG.to_vec()),
                 ..update("  Studio Lumière ")
             })
@@ -871,7 +806,7 @@ mod tests {
                 text: Some("Studio Lumière".to_owned()),
                 logo: Some(PNG.to_vec()),
                 placement: WatermarkPlacement::Once(GridCell::try_from(4).unwrap()),
-                size: SizeStep(4),
+                size: SizeStep::constant::<4>(),
             })
         );
     }
@@ -1052,7 +987,7 @@ mod tests {
         fixture
             .save(SettingsUpdate {
                 signature: CoverSignature::None,
-                signature_size: SizeStep(9),
+                signature_size: SizeStep::constant::<9>(),
                 position: GridCell::try_from(0).unwrap(),
                 logo: LogoChange::Replace(PNG.to_vec()),
                 ..update("Studio")
@@ -1065,7 +1000,7 @@ mod tests {
 
         fixture
             .save(SettingsUpdate {
-                size: SizeStep(3),
+                size: SizeStep::constant::<3>(),
                 ..update("Studio")
             })
             .await
@@ -1080,7 +1015,7 @@ mod tests {
 
         fixture
             .save(SettingsUpdate {
-                size: SizeStep(3),
+                size: SizeStep::constant::<3>(),
                 ..update("Studio")
             })
             .await
