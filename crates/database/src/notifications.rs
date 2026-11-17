@@ -1,10 +1,9 @@
 //! The photographer's notifications about client activity.
 //!
-//! Database triggers keep at most one unread notification per gallery: a selection change, the
-//! first download of a final or a recorded client open adds to it, and activity after it was read
-//! opens a new one (see migrations `0021_notifications.sql` and `0026_notification_opened.sql`).
-//! Reading is workspace-wide and persistent. A change is announced on [`NotificationEvent`]'s
-//! channel.
+//! A database trigger keeps at most one unread notification per gallery: a recorded
+//! [`crate::activity`] event adds to it, and activity after it was read opens a new one (see
+//! migration `0037_activity_events.sql`). Reading is workspace-wide and persistent. A change is
+//! announced on [`NotificationEvent`]'s channel.
 
 use std::time::Duration;
 
@@ -203,11 +202,16 @@ impl NotificationRepository<'_> {
 
 #[cfg(test)]
 mod tests {
-    use sqlx::AssertSqlSafe;
+    use sqlx::{AssertSqlSafe, PgConnection};
 
     use super::*;
     use crate::{
-        Database, export::ExportRepository, gallery::GalleryRepository, tests::TestRepository,
+        Database,
+        activity::{ActivityKind, ActivityOptions, ActivityRecorder, Client},
+        export::{ExportOptions, ExportRepository},
+        gallery::GalleryRepository,
+        photo::PhotoLocation,
+        tests::TestRepository,
     };
 
     struct Fixture {
@@ -271,16 +275,28 @@ mod tests {
             .execute(&self.pool)
             .await
             .unwrap();
+
+            let kind = if favorite {
+                ActivityKind::Favorite
+            } else {
+                ActivityKind::Unfavorite
+            };
+
+            self.record(kind, &[id]).await;
         }
 
         async fn download(&self, id: PhotoId) {
-            sqlx::query(
+            let marked = sqlx::query(
                 "UPDATE photos SET downloaded_at = now() WHERE id = $1 AND downloaded_at IS NULL",
             )
             .bind(id)
             .execute(&self.pool)
             .await
             .unwrap();
+
+            if marked.rows_affected() == 1 {
+                self.record(ActivityKind::Download, &[id]).await;
+            }
         }
 
         async fn open(&self) {
@@ -289,6 +305,27 @@ mod tests {
                 .execute(&self.pool)
                 .await
                 .unwrap();
+
+            self.record(ActivityKind::Open, &[]).await;
+        }
+
+        /// Records a client-attributed activity event, as a repository write would in the same
+        /// transaction as its own change; the writes above make theirs separately, since the bell
+        /// here is only exercising the trigger on `activity_events`, not a repository's own
+        /// throttling or readiness rules.
+        async fn record(&self, kind: ActivityKind, photo_ids: &[PhotoId]) {
+            let location = PhotoLocation {
+                workspace_id: self.workspace_id,
+                gallery_id: self.gallery_id,
+            };
+            let options = ActivityOptions::default().client(Some(Client { contact_id: None }));
+            let mut transaction = self.pool.begin().await.unwrap();
+
+            transaction
+                .record_activity(&options, location, kind, photo_ids, None)
+                .await
+                .unwrap();
+            transaction.commit().await.unwrap();
         }
 
         /// The next notification event; the listener also reports other channels.
@@ -428,7 +465,10 @@ mod tests {
 
         fixture
             .database
-            .repository::<ExportRepository>()
+            .repository_with::<ExportRepository>(ExportOptions {
+                activity: ActivityOptions::default().client(Some(Client { contact_id: None })),
+                ..Default::default()
+            })
             .mark_downloaded(export_id)
             .await
             .unwrap();
@@ -776,6 +816,304 @@ mod tests {
         .await;
 
         assert!(unknown.is_err(), "other kinds stay rejected");
+
+        transaction.rollback().await.unwrap();
+    }
+
+    /// Inserts a gallery and returns its id, so each scenario below keeps its own unread row.
+    async fn insert_gallery(transaction: &mut PgConnection, workspace: WorkspaceId) -> GalleryId {
+        let id = GalleryId(Uuid::new_v4());
+
+        sqlx::query("INSERT INTO galleries (id, workspace_id) VALUES ($1, $2)")
+            .bind(id)
+            .bind(workspace)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        id
+    }
+
+    /// The gallery's one notification row, as `(kind, count, unread)`.
+    async fn snapshot_notification(
+        transaction: &mut PgConnection,
+        gallery: GalleryId,
+    ) -> (String, i32, bool) {
+        sqlx::query_as(
+            "SELECT kind, count, read_at IS NULL FROM notifications WHERE gallery_id = $1",
+        )
+        .bind(gallery)
+        .fetch_one(&mut *transaction)
+        .await
+        .unwrap()
+    }
+
+    /// Drives each of the five old triggers (migration `0021`/`0026`/`0029`) with the base-table
+    /// write it fires on, in its own gallery, and returns the resulting notification snapshots in
+    /// a fixed scenario order.
+    async fn drive_old_triggers(
+        transaction: &mut PgConnection,
+        workspace: WorkspaceId,
+    ) -> Vec<(String, i32, bool)> {
+        let favorite = insert_gallery(transaction, workspace).await;
+        let photo = PhotoId::from(Uuid::new_v4());
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height)
+             VALUES ($1, $2, $3, 'a.jpg', 1, 1, 1)",
+        )
+        .bind(photo)
+        .bind(workspace)
+        .bind(favorite)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE photos SET favorited_at = now() WHERE id = $1")
+            .bind(photo)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let unfavorite = insert_gallery(transaction, workspace).await;
+        let photo = PhotoId::from(Uuid::new_v4());
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height, favorited_at)
+             VALUES ($1, $2, $3, 'a.jpg', 1, 1, 1, now())",
+        )
+        .bind(photo)
+        .bind(workspace)
+        .bind(unfavorite)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE photos SET favorited_at = NULL WHERE id = $1")
+            .bind(photo)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let download_photo = insert_gallery(transaction, workspace).await;
+        let photo = PhotoId::from(Uuid::new_v4());
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height, kind)
+             VALUES ($1, $2, $3, 'a.jpg', 1, 1, 1, 'final')",
+        )
+        .bind(photo)
+        .bind(workspace)
+        .bind(download_photo)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE photos SET downloaded_at = now() WHERE id = $1")
+            .bind(photo)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let download_zip = insert_gallery(transaction, workspace).await;
+        let export = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO exports (id, workspace_id, gallery_id, photo_count, size, kind)
+             VALUES ($1, $2, $3, 1, 100, 'delivery')",
+        )
+        .bind(export)
+        .bind(workspace)
+        .bind(download_zip)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE exports SET downloaded_at = now() WHERE id = $1")
+            .bind(export)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let open = insert_gallery(transaction, workspace).await;
+        sqlx::query("UPDATE galleries SET last_opened_at = now() WHERE id = $1")
+            .bind(open)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let comment = insert_gallery(transaction, workspace).await;
+        let photo = PhotoId::from(Uuid::new_v4());
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height)
+             VALUES ($1, $2, $3, 'a.jpg', 1, 1, 1)",
+        )
+        .bind(photo)
+        .bind(workspace)
+        .bind(comment)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO photo_comments (workspace_id, gallery_id, photo_id, author, body)
+             VALUES ($1, $2, $3, 'client', 'Love these!')",
+        )
+        .bind(workspace)
+        .bind(comment)
+        .bind(photo)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+
+        let mut snapshots = Vec::new();
+        for gallery in [
+            favorite,
+            unfavorite,
+            download_photo,
+            download_zip,
+            open,
+            comment,
+        ] {
+            snapshots.push(snapshot_notification(transaction, gallery).await);
+        }
+
+        snapshots
+    }
+
+    /// Drives the new path (migration `0038` onward) with one [`ActivityRecorder::record_activity`]
+    /// call per scenario, in the same fixed order as [`drive_old_triggers`].
+    async fn drive_activity_events(
+        transaction: &mut PgConnection,
+        workspace: WorkspaceId,
+    ) -> Vec<(String, i32, bool)> {
+        let options = ActivityOptions::default().client(Some(Client { contact_id: None }));
+        let mut galleries = Vec::new();
+
+        for kind in [
+            ActivityKind::Favorite,
+            ActivityKind::Unfavorite,
+            ActivityKind::Download,
+            ActivityKind::Download,
+            ActivityKind::Open,
+            ActivityKind::Comment,
+        ] {
+            let gallery = insert_gallery(transaction, workspace).await;
+            let location = PhotoLocation {
+                workspace_id: workspace,
+                gallery_id: gallery,
+            };
+            // The ZIP scenario (the second download) marks no photo as newly downloaded.
+            let photo_ids = if kind == ActivityKind::Download && galleries.len() == 3 {
+                vec![]
+            } else {
+                vec![PhotoId::from(Uuid::new_v4())]
+            };
+
+            transaction
+                .record_activity(&options, location, kind, &photo_ids, None)
+                .await
+                .unwrap();
+            galleries.push(gallery);
+        }
+
+        let mut snapshots = Vec::new();
+        for gallery in galleries {
+            snapshots.push(snapshot_notification(transaction, gallery).await);
+        }
+
+        snapshots
+    }
+
+    /// Regression test for migration `0038`: the bell, read only from its stored `kind`, `count`
+    /// and `read_at` columns, must react identically whether client activity comes from the five
+    /// old per-table triggers it drops or from [`ActivityRecorder::record_activity`] writing
+    /// `activity_events` afterwards. The photos table's live `selected` count is not part of this
+    /// comparison; only the notification row itself is.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn the_bell_matches_the_old_triggers(pool: PgPool) {
+        let mut transaction = pool.begin().await.unwrap();
+        let schema = format!("bell_matches_old_triggers_{}", Uuid::new_v4().simple());
+
+        sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        sqlx::query(AssertSqlSafe(format!("SET LOCAL search_path TO {schema}")))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        for migration in [
+            include_str!("../migrations/0001_accounts_sessions.sql"),
+            include_str!("../migrations/0002_galleries.sql"),
+            include_str!("../migrations/0003_share_tokens.sql"),
+            include_str!("../migrations/0004_jobs.sql"),
+            include_str!("../migrations/0005_job_payload_enum.sql"),
+            include_str!("../migrations/0006_photos.sql"),
+            include_str!("../migrations/0007_photo_events.sql"),
+            include_str!("../migrations/0008_gallery_states.sql"),
+            include_str!("../migrations/0009_gallery_hero.sql"),
+            include_str!("../migrations/0010_photo_favorites.sql"),
+            include_str!("../migrations/0011_job_runs.sql"),
+            include_str!("../migrations/0012_gallery_last_opened.sql"),
+            include_str!("../migrations/0013_finals_draft.sql"),
+            include_str!("../migrations/0014_exports.sql"),
+            include_str!("../migrations/0015_workspace_watermark.sql"),
+            include_str!("../migrations/0016_photo_render_revision.sql"),
+            include_str!("../migrations/0017_proof_variants.sql"),
+            include_str!("../migrations/0018_drop_job_runs.sql"),
+            include_str!("../migrations/0019_deliver_step.sql"),
+            include_str!("../migrations/0020_client_downloads.sql"),
+            include_str!("../migrations/0021_notifications.sql"),
+            include_str!("../migrations/0022_workspace_language.sql"),
+            include_str!("../migrations/0023_export_failure_codes.sql"),
+            include_str!("../migrations/0024_photo_favorite_dates.sql"),
+            include_str!("../migrations/0025_proof_quality.sql"),
+            include_str!("../migrations/0026_notification_opened.sql"),
+            include_str!("../migrations/0027_ten_size_steps.sql"),
+            include_str!("../migrations/0028_gallery_shoot_date.sql"),
+            include_str!("../migrations/0029_photo_comments.sql"),
+            include_str!("../migrations/0030_cover_layout_and_focal_point.sql"),
+            include_str!("../migrations/0031_contacts.sql"),
+            include_str!("../migrations/0032_gallery_typography_and_grid_presets.sql"),
+            include_str!("../migrations/0033_gallery_access_code.sql"),
+            include_str!("../migrations/0034_gallery_favorite.sql"),
+            include_str!("../migrations/0035_plain_gallery_access_code.sql"),
+            include_str!("../migrations/0036_gallery_expires_at_date.sql"),
+            include_str!("../migrations/0037_activity_events.sql"),
+        ] {
+            sqlx::raw_sql(migration)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+        }
+
+        let workspace = WorkspaceId(Uuid::new_v4());
+        sqlx::query("INSERT INTO workspaces (id) VALUES ($1)")
+            .bind(workspace)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+
+        let before = drive_old_triggers(&mut transaction, workspace).await;
+
+        sqlx::raw_sql(include_str!(
+            "../migrations/0038_drop_notification_triggers.sql"
+        ))
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+
+        let after = drive_activity_events(&mut transaction, workspace).await;
+
+        assert_eq!(
+            before,
+            [
+                ("selection".to_owned(), 0, true),
+                ("selection".to_owned(), 0, true),
+                ("download".to_owned(), 1, true),
+                ("download".to_owned(), 0, true),
+                ("open".to_owned(), 1, true),
+                ("comment".to_owned(), 1, true),
+            ],
+            "documents the old triggers' behaviour this migration must preserve"
+        );
+        assert_eq!(
+            after, before,
+            "the new activity-events path must notify exactly like the old triggers did"
+        );
 
         transaction.rollback().await.unwrap();
     }

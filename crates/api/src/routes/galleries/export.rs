@@ -14,7 +14,7 @@ use actix_web::{
 use pp_core::types::timestamp::Timestamp;
 use pp_database::photo::PhotoId;
 use pp_database::{
-    export::{Export, ExportId, ExportRepository, ExportRequest},
+    export::{Export, ExportId, ExportOptions, ExportRepository, ExportRequest},
     gallery::GalleryId,
 };
 use pp_storage::{ArchiveKey, StorageError};
@@ -88,7 +88,10 @@ async fn request_export(
     };
     let outcome = state
         .database()
-        .repository_with::<ExportRepository>(state.job_options())
+        .repository_with::<ExportRepository>(ExportOptions {
+            job: state.job_options(),
+            ..Default::default()
+        })
         .request_selected(
             identity.workspace_id,
             gallery_id,

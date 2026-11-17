@@ -14,7 +14,13 @@ use sqlx::{
 };
 use uuid::Uuid;
 
-use crate::{Repository, auth::WorkspaceId, error::DatabaseError, gallery::GalleryId};
+use crate::{
+    Repository,
+    activity::{ActivityKind, ActivityOptions, ActivityRecorder},
+    auth::WorkspaceId,
+    error::DatabaseError,
+    gallery::GalleryId,
+};
 
 /// Identifies a photo.
 #[derive(
@@ -253,13 +259,14 @@ pub enum FavoriteChange {
 #[derive(Clone, Copy)]
 pub struct PhotoRepository<'db> {
     pool: &'db PgPool,
+    options: ActivityOptions,
 }
 
 impl<'db> Repository<'db> for PhotoRepository<'db> {
-    type Options = ();
+    type Options = ActivityOptions;
 
-    fn open(pool: &'db PgPool, (): Self::Options) -> Self {
-        Self { pool }
+    fn open(pool: &'db PgPool, options: Self::Options) -> Self {
+        Self { pool, options }
     }
 }
 
@@ -462,7 +469,8 @@ impl PhotoRepository<'_> {
         location: PhotoLocation,
         id: PhotoId,
     ) -> Result<(), DatabaseError> {
-        sqlx::query(
+        let mut transaction = self.pool.begin().await?;
+        let marked = sqlx::query(
             "UPDATE photos SET downloaded_at = now()
              WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3
                AND kind = 'final' AND status = 'ready' AND downloaded_at IS NULL",
@@ -470,8 +478,16 @@ impl PhotoRepository<'_> {
         .bind(location.workspace_id)
         .bind(location.gallery_id)
         .bind(id)
-        .execute(self.pool)
+        .execute(&mut *transaction)
         .await?;
+
+        if marked.rows_affected() == 1 {
+            transaction
+                .record_activity(&self.options, location, ActivityKind::Download, &[id], None)
+                .await?;
+        }
+
+        transaction.commit().await?;
 
         Ok(())
     }
@@ -480,7 +496,8 @@ impl PhotoRepository<'_> {
     ///
     /// One conditional `UPDATE` decides everything, so repeated and concurrent calls converge. The
     /// photo must be one of the gallery at `location` with its files for `variant` ready; a
-    /// delivered gallery's selection no longer changes.
+    /// delivered gallery's selection no longer changes. Records a favorite or unfavorite only
+    /// when the flag actually flipped, never for a repeat of its current value.
     pub async fn set_favorite(
         &self,
         location: PhotoLocation,
@@ -489,7 +506,8 @@ impl PhotoRepository<'_> {
         kind: PhotoKind,
         variant: Watermarked,
     ) -> Result<FavoriteChange, DatabaseError> {
-        let delivered: Option<bool> = sqlx::query_scalar(AssertSqlSafe(format!(
+        let mut transaction = self.pool.begin().await?;
+        let row: Option<(bool, bool)> = sqlx::query_as(AssertSqlSafe(format!(
             "WITH target AS (
                  SELECT p.id, g.delivered_at IS NOT NULL AS delivered
                  FROM photos AS p JOIN galleries AS g ON g.id = p.gallery_id
@@ -501,8 +519,10 @@ impl PhotoRepository<'_> {
                  UPDATE photos SET favorited_at = CASE WHEN $4 THEN now() END
                  WHERE id IN (SELECT id FROM target WHERE NOT delivered)
                    AND (favorited_at IS NOT NULL) IS DISTINCT FROM $4
+                 RETURNING id
              )
-             SELECT delivered FROM target",
+             SELECT target.delivered, changed.id IS NOT NULL AS flipped
+             FROM target LEFT JOIN changed ON changed.id = target.id",
             variant.ready_condition()
         )))
         .bind(location.workspace_id)
@@ -510,14 +530,32 @@ impl PhotoRepository<'_> {
         .bind(id)
         .bind(favorite)
         .bind(kind)
-        .fetch_optional(self.pool)
+        .fetch_optional(&mut *transaction)
         .await?;
 
-        Ok(match delivered {
+        let outcome = match row {
             None => FavoriteChange::NotFound,
-            Some(true) => FavoriteChange::Delivered,
-            Some(false) => FavoriteChange::Applied,
-        })
+            Some((true, _)) => FavoriteChange::Delivered,
+            Some((false, flipped)) => {
+                if flipped {
+                    let kind = if favorite {
+                        ActivityKind::Favorite
+                    } else {
+                        ActivityKind::Unfavorite
+                    };
+
+                    transaction
+                        .record_activity(&self.options, location, kind, &[id], None)
+                        .await?;
+                }
+
+                FavoriteChange::Applied
+            }
+        };
+
+        transaction.commit().await?;
+
+        Ok(outcome)
     }
 
     /// Lists the ids of the gallery's favorites in the same order as its photos.
@@ -636,6 +674,7 @@ mod tests {
     use super::*;
     use crate::{
         Database,
+        activity::Client,
         auth::WorkspaceId,
         gallery::{GalleryId, GalleryRepository},
         jobs::{DEFAULT_CLEANUP_BATCH, JobOptions},
@@ -2274,6 +2313,112 @@ mod tests {
         }
 
         assert_eq!(announced, 1);
+    }
+
+    /// The gallery's activity lines, as `(kind, count)`, oldest first.
+    async fn activity_lines(pool: &PgPool, location: PhotoLocation) -> Vec<(ActivityKind, i32)> {
+        sqlx::query_as(
+            "SELECT kind, count FROM activity_events
+             WHERE gallery_id = $1 ORDER BY first_at, id",
+        )
+        .bind(location.gallery_id)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn set_favorite_records_once_per_flip_and_ignores_a_repeated_value(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let photo = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let client = Some(Client { contact_id: None });
+        let photos =
+            database.repository_with::<PhotoRepository>(ActivityOptions::default().client(client));
+
+        photos
+            .set_favorite(location, photo, true, PhotoKind::Proof, Watermarked(false))
+            .await
+            .unwrap();
+        // Repeating the same value is not a flip and must not add another event.
+        photos
+            .set_favorite(location, photo, true, PhotoKind::Proof, Watermarked(false))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            activity_lines(&pool, location).await,
+            [(ActivityKind::Favorite, 1)]
+        );
+
+        photos
+            .set_favorite(location, photo, false, PhotoKind::Proof, Watermarked(false))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            activity_lines(&pool, location).await,
+            [(ActivityKind::Favorite, 1), (ActivityKind::Unfavorite, 1)]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn set_favorite_without_a_client_records_nothing(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let photo = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+        let photos = database.repository::<PhotoRepository>();
+
+        photos
+            .set_favorite(location, photo, true, PhotoKind::Proof, Watermarked(false))
+            .await
+            .unwrap();
+
+        assert!(activity_lines(&pool, location).await.is_empty());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn mark_downloaded_records_once_for_the_first_download_only(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let photo = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+
+        sqlx::query("UPDATE photos SET kind = 'final' WHERE id = $1")
+            .bind(photo)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let client = Some(Client { contact_id: None });
+        let photos =
+            database.repository_with::<PhotoRepository>(ActivityOptions::default().client(client));
+
+        photos.mark_downloaded(location, photo).await.unwrap();
+        photos.mark_downloaded(location, photo).await.unwrap();
+
+        assert_eq!(
+            activity_lines(&pool, location).await,
+            [(ActivityKind::Download, 1)]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn mark_downloaded_without_a_client_records_nothing(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let location = gallery_location(&database, &pool).await;
+        let photo = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 1).await;
+
+        sqlx::query("UPDATE photos SET kind = 'final' WHERE id = $1")
+            .bind(photo)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let photos = database.repository::<PhotoRepository>();
+
+        photos.mark_downloaded(location, photo).await.unwrap();
+
+        assert!(activity_lines(&pool, location).await.is_empty());
     }
 
     async fn favorited_at(pool: &PgPool, id: PhotoId) -> Option<Timestamp> {

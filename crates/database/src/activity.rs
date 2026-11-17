@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use pp_core::config::DEFAULT_ACTIVITY_WINDOW;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgConnection, Type};
 
@@ -34,7 +35,7 @@ pub struct ActivityOptions {
 impl Default for ActivityOptions {
     fn default() -> Self {
         Self {
-            window: Duration::from_secs(30 * 60),
+            window: DEFAULT_ACTIVITY_WINDOW,
             client: None,
         }
     }
@@ -66,9 +67,6 @@ impl ActivityKind {
     /// How much one call adds to the line's `count`. A download call logs the number of photos
     /// it newly affected, which a ZIP's first download may make zero; every other kind is one
     /// flip, comment or open, regardless of how many photos it names for the thumbnails.
-    // Only `ActivityRecorder::record_activity` calls this today; repositories adopt both once
-    // they start recording.
-    #[allow(dead_code)]
     fn delta(self, photo_ids: &[PhotoId]) -> i32 {
         match self {
             Self::Download => i32::try_from(photo_ids.len()).unwrap_or(i32::MAX),
@@ -85,8 +83,6 @@ impl ActivityKind {
 /// `detail`, when given, replaces the line's. A transaction-scoped advisory lock on the gallery,
 /// contact and kind orders concurrent calls on the same line, so none of them are lost and the
 /// window is never split.
-// Repositories adopt this in a later task; until then nothing outside the tests below calls it.
-#[allow(dead_code)]
 pub(crate) trait ActivityRecorder {
     async fn record_activity(
         &mut self,

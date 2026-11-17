@@ -24,7 +24,7 @@ use pp_database::{
     Database,
     auth::AuthRepository,
     error::DatabaseError,
-    export::{DeliveryZip, ExportRepository},
+    export::{DeliveryZip, ExportOptions, ExportRepository},
     gallery::GalleryId,
     jobs::JobOptions,
     photo::PhotoLocation,
@@ -225,7 +225,10 @@ impl ApiState {
     ) -> Result<DeliveryZip, DatabaseError> {
         let delivery = self
             .database
-            .repository_with::<ExportRepository>(self.job_options)
+            .repository_with::<ExportRepository>(ExportOptions {
+                job: self.job_options,
+                ..Default::default()
+            })
             .ensure_delivery(location.workspace_id, location.gallery_id)
             .await?;
 

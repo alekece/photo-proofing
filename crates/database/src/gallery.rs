@@ -27,6 +27,7 @@ pub(crate) use self::share::TokenAttempt;
 pub use self::share::{ShareToken, SharedAccess, SharedGallery, SharedGalleryGate};
 use crate::{
     Repository,
+    activity::{ActivityKind, ActivityOptions, ActivityRecorder},
     auth::WorkspaceId,
     contact::{ContactName, ContactNameExt, ContactRepository},
     error::{DatabaseError, UniqueViolation},
@@ -587,13 +588,14 @@ impl GalleryState {
 #[derive(Clone, Copy)]
 pub struct GalleryRepository<'db> {
     pool: &'db PgPool,
+    options: ActivityOptions,
 }
 
 impl<'db> Repository<'db> for GalleryRepository<'db> {
-    type Options = ();
+    type Options = ActivityOptions;
 
-    fn open(pool: &'db PgPool, (): Self::Options) -> Self {
-        Self { pool }
+    fn open(pool: &'db PgPool, options: Self::Options) -> Self {
+        Self { pool, options }
     }
 }
 
@@ -1036,6 +1038,7 @@ impl GalleryRepository<'_> {
     /// repeat visits at the price of precision. An archived or expired gallery is not marked. Returns whether this
     /// call recorded the open.
     pub async fn record_opened(&self, location: PhotoLocation) -> Result<bool, DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
         let result = sqlx::query(
             "UPDATE galleries SET last_opened_at = now()
              WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL
@@ -1045,10 +1048,19 @@ impl GalleryRepository<'_> {
         .bind(location.gallery_id)
         .bind(location.workspace_id)
         .bind(Self::OPEN_THROTTLE.as_secs_f64())
-        .execute(self.pool)
+        .execute(&mut *transaction)
         .await?;
+        let opened = result.rows_affected() == 1;
 
-        Ok(result.rows_affected() == 1)
+        if opened {
+            transaction
+                .record_activity(&self.options, location, ActivityKind::Open, &[], None)
+                .await?;
+        }
+
+        transaction.commit().await?;
+
+        Ok(opened)
     }
 
     /// Applies `changes` and returns the gallery, or `None` if the workspace has no such
@@ -1170,6 +1182,7 @@ mod tests {
     use super::*;
     use crate::{
         Database,
+        activity::Client,
         auth::AuthRepository,
         contact::NewContact,
         jobs::{JobKind, JobOptions, JobPayload, JobRepository, ProcessPhoto},
@@ -2132,6 +2145,65 @@ mod tests {
 
         assert!(store.record_opened(location).await.unwrap());
         assert!(last_opened_at().await > aged);
+    }
+
+    /// The gallery's activity lines, as `(kind, count)`, oldest first.
+    async fn activity_lines(pool: &PgPool, gallery_id: GalleryId) -> Vec<(ActivityKind, i32)> {
+        sqlx::query_as(
+            "SELECT kind, count FROM activity_events
+             WHERE gallery_id = $1 ORDER BY first_at, id",
+        )
+        .bind(gallery_id)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn record_opened_records_only_when_it_actually_opens(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let workspace = workspace(&pool).await;
+        let client = Some(Client { contact_id: None });
+        let store = database
+            .repository_with::<GalleryRepository>(ActivityOptions::default().client(client));
+        let gallery = store.create(workspace).await.unwrap();
+        let token = store
+            .share(workspace, gallery.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .share_token
+            .unwrap();
+        let location = store.find_shared(&token).await.unwrap().unwrap().location;
+
+        assert!(store.record_opened(location).await.unwrap());
+        // Still inside the throttle: no new open, so no new event either.
+        assert!(!store.record_opened(location).await.unwrap());
+
+        assert_eq!(
+            activity_lines(&pool, gallery.id).await,
+            [(ActivityKind::Open, 1)]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn record_opened_without_a_client_records_nothing(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let workspace = workspace(&pool).await;
+        let store = database.repository::<GalleryRepository>();
+        let gallery = store.create(workspace).await.unwrap();
+        let token = store
+            .share(workspace, gallery.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .share_token
+            .unwrap();
+        let location = store.find_shared(&token).await.unwrap().unwrap().location;
+
+        assert!(store.record_opened(location).await.unwrap());
+
+        assert!(activity_lines(&pool, gallery.id).await.is_empty());
     }
 
     #[sqlx::test(migrations = "./migrations")]

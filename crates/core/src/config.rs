@@ -162,6 +162,10 @@ const MAX_ACTIVITY_WINDOW_MILLIS: u64 = 24 * 60 * 60 * 1000;
 /// from one minute up to a day.
 pub type ActivityWindow = BoundedDuration<60_000, MAX_ACTIVITY_WINDOW_MILLIS>;
 
+/// Default activity window, matching [`ActivityConfig::window`]'s default: the one value the
+/// recorder falls back to when nothing configures it.
+pub const DEFAULT_ACTIVITY_WINDOW: Duration = Duration::from_secs(30 * 60);
+
 /// How long the workspace activity log coalesces repeats into one line; shared by the API, which
 /// reads the log, and the worker, which writes `email` lines to it.
 #[derive(Args, ConfigArgs, Debug, Clone)]

@@ -9,6 +9,7 @@ use thiserror::Error;
 
 use crate::{
     Repository,
+    activity::ActivityOptions,
     error::DatabaseError,
     jobs::{JobOptions, JobPayload, JobRepository, ProcessPhoto},
     photo::{NewPhoto, Photo, PhotoInsertOutcome, PhotoRepository},
@@ -131,7 +132,7 @@ impl PhotoIntake<'_> {
 
     async fn accept(&self, photo: &NewPhoto) -> Result<Option<Photo>, PhotoIntakeError> {
         let mut transaction = self.pool.begin().await?;
-        let outcome = PhotoRepository::open(self.pool, ())
+        let outcome = PhotoRepository::open(self.pool, ActivityOptions::default())
             .insert_in(&mut transaction, photo)
             .await?;
 
