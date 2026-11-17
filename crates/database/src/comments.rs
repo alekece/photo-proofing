@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::{
     Repository,
+    activity::{ActivityKind, ActivityOptions, ActivityRecorder},
     error::DatabaseError,
     photo::{PhotoId, PhotoLocation},
 };
@@ -61,13 +62,14 @@ pub enum CommentChange<T> {
 #[derive(Clone, Copy)]
 pub struct CommentRepository<'db> {
     pool: &'db PgPool,
+    options: ActivityOptions,
 }
 
 impl<'db> Repository<'db> for CommentRepository<'db> {
-    type Options = ();
+    type Options = ActivityOptions;
 
-    fn open(pool: &'db PgPool, (): ()) -> Self {
-        Self { pool }
+    fn open(pool: &'db PgPool, options: Self::Options) -> Self {
+        Self { pool, options }
     }
 }
 
@@ -209,6 +211,17 @@ impl CommentRepository<'_> {
         .fetch_one(&mut *tx)
         .await?;
 
+        if author == CommentAuthor::Client {
+            tx.record_activity(
+                &self.options,
+                location,
+                ActivityKind::Comment,
+                &[photo],
+                None,
+            )
+            .await?;
+        }
+
         tx.commit().await?;
 
         Ok(CommentChange::Applied(comment))
@@ -331,6 +344,7 @@ mod tests {
     use super::*;
     use crate::{
         Database,
+        activity::Client,
         gallery::GalleryRepository,
         notifications::{NotificationKind, NotificationRepository},
         tests::TestRepository,
@@ -388,9 +402,10 @@ mod tests {
         }
 
         async fn add(&self, author: CommentAuthor) -> Comment {
+            let options = ActivityOptions::default().client(Some(Client { contact_id: None }));
             let CommentChange::Applied(comment) = self
                 .database
-                .repository::<CommentRepository>()
+                .repository_with::<CommentRepository>(options)
                 .add(
                     self.location,
                     self.proof,
@@ -764,5 +779,24 @@ mod tests {
             NotificationKind::Comment
         );
         assert_eq!(notifications.notifications[0].count, 2);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn add_records_client_comments_only(pool: PgPool) {
+        let f = Fixture::new(&pool).await;
+
+        f.add(CommentAuthor::Photographer).await;
+        f.add(CommentAuthor::Client).await;
+
+        let lines: Vec<(ActivityKind, i32)> = sqlx::query_as(
+            "SELECT kind, count FROM activity_events
+             WHERE gallery_id = $1 ORDER BY first_at, id",
+        )
+        .bind(f.location.gallery_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(lines, [(ActivityKind::Comment, 1)]);
     }
 }

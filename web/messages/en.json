@@ -685,7 +685,6 @@
 	"nav_sections": "Main sections",
 	"nav_galleries": "Galleries",
 	"nav_activity": "Activity",
-	"nav_coming_soon": "Coming soon",
 	"contacts_title": "Contacts",
 	"contacts_new": "+ New contact",
 	"contacts_new_heading": "New contact",
@@ -802,5 +801,86 @@
 	"share_warn_empty_title": "Send invitation with no ready photos?",
 	"share_warn_unfinished_title": "Send invitation while photos aren’t all ready?",
 	"share_warn_body": "Your client will receive the email right away and see the gallery before every proof is ready.",
-	"share_send_anyway": "Send anyway"
+	"share_send_anyway": "Send anyway",
+	"activity_title": "Activity",
+	"activity_subtitle": "What your clients did, across your galleries.",
+	"activity_filters": "Filters",
+	"activity_filter_gallery": "Gallery",
+	"activity_all_galleries": "All galleries",
+	"activity_filter_visitor": "Visitor",
+	"activity_all_visitors": "All visitors",
+	"activity_anonymous": "Anonymous client",
+	"activity_filter_date": "Date",
+	"activity_range_any": "Any time",
+	"activity_range_today": "Last 24 hours",
+	"activity_range_7d": "Last 7 days",
+	"activity_range_30d": "Last 30 days",
+	"activity_filter_type": "Type",
+	"activity_type_all": "All",
+	"activity_type_favorites": "Favorites",
+	"activity_type_comments": "Comments",
+	"activity_type_downloads": "Downloads",
+	"activity_type_views": "Views",
+	"activity_type_emails": "Emails",
+	"activity_day_today": "Today",
+	"activity_day_yesterday": "Yesterday",
+	"activity_open": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{actor} opened the gallery",
+				"countPlural=*": "{actor} opened the gallery {count} times"
+			}
+		}
+	],
+	"activity_favorite": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{actor} favorited a photo",
+				"countPlural=*": "{actor} favorited {count} photos"
+			}
+		}
+	],
+	"activity_unfavorite": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{actor} un-picked a photo",
+				"countPlural=*": "{actor} un-picked {count} photos"
+			}
+		}
+	],
+	"activity_comment": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{actor} left a comment",
+				"countPlural=*": "{actor} left {count} comments"
+			}
+		}
+	],
+	"activity_download": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{actor} downloaded a photo",
+				"countPlural=*": "{actor} downloaded {count} photos"
+			}
+		}
+	],
+	"activity_download_zip": "{actor} downloaded the ZIP",
+	"activity_email": "Invitation email sent to {actor}",
+	"activity_photo_alt": "Photo",
+	"activity_load_more": "Load more",
+	"activity_loading": "Loading activity…",
+	"activity_empty_title": "No activity yet",
+	"activity_empty_body": "When a client opens, picks, comments on or downloads from a gallery, it shows up here.",
+	"activity_empty_filtered": "Nothing matches these filters.",
+	"activity_error": "Activity could not be loaded. Please try again."
 }

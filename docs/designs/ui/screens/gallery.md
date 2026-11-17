@@ -32,7 +32,7 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
     and the read-only status chip (**Draft**, **Prepublish**, **Publish**, **Expired**, **Archived**),
     plus `Shot` (or `Created`) and, once shared, `Last opened` (`Not yet` until first opened).
   - **Collection** navigation with counts: **Photos**, **Favorites** (accented when over allowance,
-    padlock once published), **Comments**, and **Final** (`Favorites`, `Comments`, and `Final` stay
+    padlock once published), **Comments**, **Final**, and **Activity** (`Favorites`, `Comments`, `Final`, and `Activity` stay
     visible and disabled before the first share, with tooltip `"Available once the gallery is shared"`).
   - **Studio** navigation: **Design**, **Share** (disabled with tooltip when archived), **Contacts** (with linked-contact count), and **Settings**.
   - On phones (`< md`), `nav` becomes a horizontally scrollable pill strip below the Journey bar.

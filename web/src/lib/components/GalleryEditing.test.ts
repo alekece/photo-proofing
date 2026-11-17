@@ -71,7 +71,7 @@ describe('gallery editing integration', () => {
 		};
 		const props = { gallery, queue, events };
 		const view = render(Harness, { props });
-		await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(9));
+		await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(11));
 		const user = userEvent.setup();
 		await user.click(screen.getByRole('tab', { name: 'Design' }));
 		await user.click(screen.getByRole('tab', { name: /^Contacts/ }));

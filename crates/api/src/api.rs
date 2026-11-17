@@ -14,17 +14,18 @@ use actix_web::{
 use derive_more::From;
 use pp_core::{
     config::{
-        DEFAULT_EXPORT_MAX_SIZE, DEFAULT_EXPORT_RETENTION, ExportConfig, SmtpConfigError,
-        SmtpSettings,
+        ActivityConfig, DEFAULT_ACTIVITY_WINDOW, DEFAULT_EXPORT_MAX_SIZE, DEFAULT_EXPORT_RETENTION,
+        ExportConfig, SmtpConfigError, SmtpSettings,
     },
     types::access_code::{CookieSigner, UNLOCK_COOKIE_NAME},
     url::Origin,
 };
 use pp_database::{
     Database,
+    activity::{ActivityOptions, Client},
     auth::AuthRepository,
     error::DatabaseError,
-    export::{DeliveryZip, ExportRepository},
+    export::{DeliveryZip, ExportOptions, ExportRepository},
     gallery::GalleryId,
     jobs::JobOptions,
     photo::PhotoLocation,
@@ -99,6 +100,7 @@ pub(crate) struct ApiState {
     job_options: JobOptions,
     export_max_size: NonZeroU64,
     export_retention: Duration,
+    activity_window: Duration,
     failed_attempts: AttemptLimiter,
     dummy_hash: PasswordHash,
     comment_limiter: CommentLimiter,
@@ -137,6 +139,7 @@ impl ApiState {
             job_options,
             export_max_size: DEFAULT_EXPORT_MAX_SIZE,
             export_retention: DEFAULT_EXPORT_RETENTION,
+            activity_window: DEFAULT_ACTIVITY_WINDOW,
             failed_attempts: AttemptLimiter::new(limiter),
             dummy_hash: PasswordHash::generate()?,
             comment_limiter: CommentLimiter::new(DEFAULT_COMMENT_INTERVAL),
@@ -217,6 +220,33 @@ impl ApiState {
         self.job_options
     }
 
+    /// Applies the activity log's coalescing window; without it [`DEFAULT_ACTIVITY_WINDOW`]
+    /// holds.
+    #[must_use]
+    pub fn with_activity(mut self, config: &ActivityConfig) -> Self {
+        self.activity_window = config.window.get();
+
+        self
+    }
+
+    /// Builds the activity options for one request: `client` is `None` for the photographer,
+    /// whose own actions record nothing, and `Some` for a client reached through a share link.
+    pub fn activity_options(&self, client: Option<Client>) -> ActivityOptions {
+        ActivityOptions {
+            window: self.activity_window,
+            client,
+        }
+    }
+
+    /// Builds the export options for one request, carrying the job retry policy and the
+    /// client's activity attribution.
+    pub fn export_options(&self, client: Option<Client>) -> ExportOptions {
+        ExportOptions {
+            job: self.job_options,
+            activity: self.activity_options(client),
+        }
+    }
+
     /// The state of the gallery's delivery ZIP, starting a build when none matches the finals.
     /// The files of replaced ZIPs are removed; one that cannot be is left to the sweep.
     pub async fn ensure_delivery(
@@ -225,7 +255,10 @@ impl ApiState {
     ) -> Result<DeliveryZip, DatabaseError> {
         let delivery = self
             .database
-            .repository_with::<ExportRepository>(self.job_options)
+            .repository_with::<ExportRepository>(ExportOptions {
+                job: self.job_options,
+                ..Default::default()
+            })
             .ensure_delivery(location.workspace_id, location.gallery_id)
             .await?;
 
@@ -368,6 +401,7 @@ impl Api {
             config.queue,
         )?
         .with_export(&config.export)
+        .with_activity(&config.activity)
         .with_comments(&config.comments)
         .with_smtp(smtp);
 
@@ -453,6 +487,7 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
             .configure(routes::contacts::configure)
             .configure(routes::settings::configure)
             .configure(routes::notifications::configure)
+            .configure(routes::activity::configure)
             .configure(routes::galleries::configure),
     );
 }

@@ -18,6 +18,7 @@ use thiserror::Error;
 use crate::photo::PhotoId;
 use crate::{
     Repository,
+    activity::ActivityOptions,
     auth::WorkspaceId,
     error::DatabaseError,
     gallery::{Gallery, GalleryChanges, GalleryError, GalleryId, GalleryRepository},
@@ -442,7 +443,7 @@ impl SettingsRepository<'_> {
         id: GalleryId,
         changes: &GalleryChanges,
     ) -> Result<Option<Gallery>, GalleryError> {
-        GalleryRepository::open(self.pool, ())
+        GalleryRepository::open(self.pool, ActivityOptions::default())
             .update(workspace_id, id, changes)
             .await
     }

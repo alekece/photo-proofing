@@ -1,11 +1,20 @@
 <script module lang="ts">
 	export type StudioSection =
-		'photos' | 'favorites' | 'comments' | 'final' | 'design' | 'share' | 'contacts' | 'settings';
+		| 'photos'
+		| 'favorites'
+		| 'comments'
+		| 'final'
+		| 'activity'
+		| 'design'
+		| 'share'
+		| 'contacts'
+		| 'settings';
 </script>
 
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import {
+		Activity as ActivityIcon,
 		ArrowLeft,
 		CheckCircle2,
 		Heart,
@@ -21,6 +30,7 @@
 	import type { Component, Snippet } from 'svelte';
 	import CommentsPanel from '#lib/components/CommentsPanel.svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
+	import GalleryActivityPanel from '#lib/components/GalleryActivityPanel.svelte';
 	import FavoritesPanel from '#lib/components/FavoritesPanel.svelte';
 	import GalleryActionBar from '#lib/components/GalleryActionBar.svelte';
 	import GalleryContactsPanel from '#lib/components/GalleryContactsPanel.svelte';
@@ -211,6 +221,13 @@
 			label: m.tab_final(),
 			icon: CheckCircle2,
 			count: finalCount,
+			disabled: !shared,
+			title: shared ? undefined : m.tab_after_sharing()
+		},
+		{
+			id: 'activity',
+			label: m.nav_activity(),
+			icon: ActivityIcon,
 			disabled: !shared,
 			title: shared ? undefined : m.tab_after_sharing()
 		}
@@ -456,6 +473,14 @@
 				layout={gallery.layout}
 				oncount={(n) => (finalCount = n)}
 			/>
+		</div>
+		<div
+			role="tabpanel"
+			id="panel-activity"
+			aria-labelledby="tab-activity"
+			hidden={section !== 'activity'}
+		>
+			<GalleryActivityPanel galleryId={id} />
 		</div>
 		<div
 			role="tabpanel"

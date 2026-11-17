@@ -99,13 +99,28 @@ async fn read_one(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU16;
+
     use actix_web::{App, http::StatusCode, test, web::Data};
+    use pp_database::{
+        Database,
+        activity::{ActivityOptions, Client},
+        auth::WorkspaceId,
+        comments::{CommentAuthor, CommentBody, CommentChange, CommentRepository},
+        gallery::GalleryId,
+        photo::{PhotoId, PhotoKind, PhotoLocation, PhotoRepository, Watermarked},
+    };
+    use serde_json::Value;
     use sqlx::PgPool;
+    use uuid::Uuid;
 
     use crate::{
         api::configure_routes,
         tests::{ORIGIN, app_state, call, other_workspace, sign_up},
     };
+
+    /// The client behind the general link, used to record activity the bell derives from.
+    const CLIENT: Option<Client> = Some(Client { contact_id: None });
 
     fn request(
         method: test::TestRequest,
@@ -116,6 +131,84 @@ mod tests {
             .uri(uri)
             .cookie(cookie.clone())
             .insert_header(("Origin", ORIGIN))
+    }
+
+    /// The gallery a `POST /api/v1/galleries` response named, resolved to its location.
+    async fn location_of(pool: &PgPool, gallery: &Value) -> PhotoLocation {
+        let gallery_id = GalleryId(gallery["id"].as_str().unwrap().parse().unwrap());
+        let workspace_id: WorkspaceId =
+            sqlx::query_scalar("SELECT workspace_id FROM galleries WHERE id = $1")
+                .bind(gallery_id)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+
+        PhotoLocation {
+            workspace_id,
+            gallery_id,
+        }
+    }
+
+    /// Inserts a ready proof photo at `location` and favorites it as a client, recording the
+    /// activity the bell's `selection` notification derives from.
+    async fn favorite_a_ready_photo(pool: &PgPool, location: PhotoLocation) {
+        let photo_id = PhotoId::from(Uuid::new_v4());
+
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width,
+                                  height, status, kind, clean_ready)
+             VALUES ($1, $2, $3, 'a.jpg', 1, 1, 1, 'ready', 'proof', true)",
+        )
+        .bind(photo_id)
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        Database::new(pool.clone())
+            .repository_with::<PhotoRepository>(ActivityOptions::default().client(CLIENT))
+            .set_favorite(
+                location,
+                photo_id,
+                true,
+                PhotoKind::Proof,
+                Watermarked(false),
+            )
+            .await
+            .unwrap();
+    }
+
+    /// Inserts a ready proof photo at `location` and comments on it as a client, recording the
+    /// activity the bell's `comment` notification derives from.
+    async fn comment_on_a_ready_photo(pool: &PgPool, location: PhotoLocation) {
+        let photo_id = PhotoId::from(Uuid::new_v4());
+
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width,
+                                  height, status, kind, clean_ready)
+             VALUES ($1, $2, $3, 'a.jpg', 1, 1, 1, 'ready', 'proof', true)",
+        )
+        .bind(photo_id)
+        .bind(location.workspace_id)
+        .bind(location.gallery_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        let comment = Database::new(pool.clone())
+            .repository_with::<CommentRepository>(ActivityOptions::default().client(CLIENT))
+            .add(
+                location,
+                photo_id,
+                CommentAuthor::Client,
+                &CommentBody::try_from("Nice".to_owned()).unwrap(),
+                NonZeroU16::new(100).unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert!(matches!(comment, CommentChange::Applied(_)));
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -129,21 +222,14 @@ mod tests {
         .await;
         let cookie = sign_up(&app).await;
 
-        call(
+        let (_, gallery) = call(
             &app,
             request(test::TestRequest::post(), "/api/v1/galleries", &cookie),
         )
         .await;
-        sqlx::query(
-            "WITH photo AS (
-            INSERT INTO photos (id,workspace_id,gallery_id,original_name,size,width,height)
-            SELECT gen_random_uuid(),workspace_id,id,'a.jpg',1,1,1 FROM galleries RETURNING *
-        ) INSERT INTO photo_comments (workspace_id,gallery_id,photo_id,author,body)
-          SELECT workspace_id,gallery_id,id,'client','Nice' FROM photo",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        let location = location_of(&pool, &gallery).await;
+
+        comment_on_a_ready_photo(&pool, location).await;
 
         let (status, list) = call(
             &app,
@@ -176,20 +262,9 @@ mod tests {
             request(test::TestRequest::post(), "/api/v1/galleries", &cookie),
         )
         .await;
+        let location = location_of(&pool, &gallery).await;
 
-        sqlx::query(
-            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height,
-                                 status, favorited_at)
-             SELECT gen_random_uuid(), workspace_id, id, 'a.jpg', 1, 1, 1, 'ready', NULL
-             FROM galleries",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query("UPDATE photos SET favorited_at = now()")
-            .execute(&pool)
-            .await
-            .unwrap();
+        favorite_a_ready_photo(&pool, location).await;
 
         let (status, list) = call(
             &app,
@@ -260,6 +335,7 @@ mod tests {
         .await;
         let cookie = sign_up(&app).await;
         let mut galleries = Vec::new();
+        let mut locations = Vec::new();
 
         for _ in 0..2 {
             let (_, gallery) = call(
@@ -268,30 +344,31 @@ mod tests {
             )
             .await;
 
+            locations.push(location_of(&pool, &gallery).await);
             galleries.push(gallery["id"].as_str().unwrap().to_owned());
         }
 
+        let foreign_workspace = other_workspace(&pool).await;
         let foreign: uuid::Uuid = sqlx::query_scalar(
             "INSERT INTO galleries (id, workspace_id) VALUES (gen_random_uuid(), $1) RETURNING id",
         )
-        .bind(other_workspace(&pool).await)
+        .bind(foreign_workspace)
         .fetch_one(&pool)
         .await
         .unwrap();
 
-        sqlx::query(
-            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height,
-                                 status, favorited_at)
-             SELECT gen_random_uuid(), workspace_id, id, 'a.jpg', 1, 1, 1, 'ready', NULL
-             FROM galleries",
+        for location in &locations {
+            favorite_a_ready_photo(&pool, *location).await;
+        }
+
+        favorite_a_ready_photo(
+            &pool,
+            PhotoLocation {
+                workspace_id: foreign_workspace,
+                gallery_id: GalleryId(foreign),
+            },
         )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query("UPDATE photos SET favorited_at = now()")
-            .execute(&pool)
-            .await
-            .unwrap();
+        .await;
 
         let read_gallery = |gallery: String| {
             request(

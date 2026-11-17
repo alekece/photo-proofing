@@ -84,7 +84,7 @@ async fn add(
 ) -> Result<HttpResponse, ErrorResponse> {
     let comment = state
         .database()
-        .repository::<CommentRepository>()
+        .repository_with::<CommentRepository>(state.activity_options(access.client))
         .add(
             access.location,
             path.photo_id,
@@ -245,6 +245,101 @@ mod tests {
         let (_, bell) = call(&app, request("GET", "/api/v1/notifications", Some(&cookie))).await;
 
         assert_eq!(bell["notifications"][0]["kind"], "comment");
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_comment_through_a_personal_link_is_attributed_to_its_contact(pool: PgPool) {
+        let (state, _dir) = app_state(pool.clone()).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+
+        call(&app, request("POST", "/api/v1/galleries", Some(&cookie))).await;
+        let (gallery_id, _general_token, photo) = gallery(&pool).await;
+        let (_, created_contact) = call(
+            &app,
+            request("POST", "/api/v1/contacts", Some(&cookie))
+                .set_json(json!({"name": "Claire", "email": "claire@example.test"})),
+        )
+        .await;
+        let contact_id = created_contact["id"].as_str().unwrap().to_owned();
+
+        call(
+            &app,
+            request(
+                "PUT",
+                &format!("/api/v1/galleries/{gallery_id}/contacts/{contact_id}"),
+                Some(&cookie),
+            ),
+        )
+        .await;
+
+        let personal_token: String = sqlx::query_scalar(
+            "SELECT share_token FROM gallery_contacts WHERE gallery_id = $1::uuid",
+        )
+        .bind(&gallery_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let path = format!("/api/v1/galleries/shared/{personal_token}/photos/{photo}/comments");
+        let (status, _) = call(
+            &app,
+            request("POST", &path, None).set_json(json!({"body": "Lovely"})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+
+        let recorded: (Option<Uuid>, i32) = sqlx::query_as(
+            "SELECT contact_id, count FROM activity_events
+             WHERE gallery_id = $1::uuid AND kind = 'comment'",
+        )
+        .bind(&gallery_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(recorded, (Some(Uuid::parse_str(&contact_id).unwrap()), 1));
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_photographers_own_comment_records_no_activity(pool: PgPool) {
+        let (state, _dir) = app_state(pool.clone()).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+
+        call(&app, request("POST", "/api/v1/galleries", Some(&cookie))).await;
+        let (gallery_id, _token, photo) = gallery(&pool).await;
+        let (status, _) = call(
+            &app,
+            request(
+                "POST",
+                &format!("/api/v1/galleries/{gallery_id}/photos/{photo}/comments"),
+                Some(&cookie),
+            )
+            .set_json(json!({"body": "My own reply"})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM activity_events WHERE gallery_id = $1::uuid")
+                .bind(&gallery_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert_eq!(count, 0);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

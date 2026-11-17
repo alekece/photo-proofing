@@ -33,6 +33,7 @@
 	});
 	const galleriesActive = $derived(pathname === '/dashboard' || pathname.startsWith('/dashboard/'));
 	const contactsActive = $derived(pathname === '/contacts' || pathname.startsWith('/contacts/'));
+	const activityActive = $derived(pathname === '/activity' || pathname.startsWith('/activity/'));
 </script>
 
 <header
@@ -65,12 +66,15 @@
 					: 'font-medium text-muted-foreground hover:bg-border/60 hover:text-foreground'
 			)}>{m.contacts_title()}</a
 		>
-		<button
-			type="button"
-			disabled
-			title={m.nav_coming_soon()}
-			class={cn(pill, 'cursor-not-allowed font-medium text-muted-foreground/70 opacity-60')}
-			>{m.nav_activity()}</button
+		<a
+			href="/activity"
+			aria-current={activityActive ? 'page' : undefined}
+			class={cn(
+				pill,
+				activityActive
+					? 'bg-foreground font-semibold text-background'
+					: 'font-medium text-muted-foreground hover:bg-border/60 hover:text-foreground'
+			)}>{m.nav_activity()}</a
 		>
 	</nav>
 	<span class="flex-1"></span>

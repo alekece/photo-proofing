@@ -19,6 +19,9 @@ vi.mock('#lib/components/FavoritesPanel.svelte', async () => ({
 vi.mock('#lib/components/CommentsPanel.svelte', async () => ({
 	default: (await import('#lib/components/CommentsPanelStub.test.svelte')).default
 }));
+vi.mock('#lib/components/GalleryActivityPanel.svelte', async () => ({
+	default: (await import('#lib/components/GalleryActivityPanelStub.test.svelte')).default
+}));
 vi.mock('#lib/components/GalleryContactsPanel.svelte', async () => ({
 	default: (await import('#lib/components/GalleryContactsPanelStub.test.svelte')).default
 }));
@@ -1085,6 +1088,7 @@ describe('gallery page', () => {
 				'Favorites',
 				'Comments',
 				'Final',
+				'Activity',
 				'Design',
 				'Share',
 				'Contacts',

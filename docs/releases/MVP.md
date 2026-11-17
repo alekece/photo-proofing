@@ -20,6 +20,7 @@ A photographer can prepare and share JPEG proofs, receive a shared client select
 - Editable favorites with informational overflow, one-click selection ZIP preparation/download, and single or multi-select favorite downloads ([FR-08–FR-09](../SPECIFICATIONS.md#fr-08)).
 - Private preparation and explicit delivery of independent finished-photo sets, later updates, individual/ZIP client downloads ([FR-10](../SPECIFICATIONS.md#fr-10)).
 - Gallery-card activity and top-bar grouped selection/download notifications with explicit reads ([FR-11–FR-12](../SPECIFICATIONS.md#fr-11)).
+- A workspace activity page and per-gallery Activity tab with filters and live updates ([FR-12a](../SPECIFICATIONS.md#fr-12a)).
 - Expiry, archive/restore, confirmed deletion, persistent local storage, durable processing, and SSE updates ([FR-13](../SPECIFICATIONS.md#fr-13), [NF-01–NF-04](../SPECIFICATIONS.md#nf-01), [TC-01–TC-05](../SPECIFICATIONS.md#tc-01)).
 - Responsive photographer and client journeys in mobile and desktop browsers.
 
@@ -70,6 +71,8 @@ Run with synthetic/replaceable photos whose originals are retained elsewhere. Th
 
 - [ ] Selection edits and finished-photo download requests update gallery-card activity and accumulate in one unread top-bar notification per gallery. Repeated downloads do not inflate distinct-photo counts; an all-photo request covers its included files ([FR-11–FR-12](../SPECIFICATIONS.md#fr-11)).
 - [ ] Opening the panel or navigating independently to the gallery does not clear unread status. Clicking the notification navigates and marks that gallery's notification read; the single Mark all as read link clears the rest without navigation. Subsequent activity creates a new unread notification ([FR-12](../SPECIFICATIONS.md#fr-12)).
+- [ ] Open a shared gallery by a contact's link and by the general link, favorite and unfavorite photos, comment, download and send an invitation: the workspace **Activity** page and the gallery **Activity** tab show day-grouped lines attributed to that contact or to "Anonymous client", with repeats inside the window merged into one counted line ([FR-12a](../SPECIFICATIONS.md#fr-12a)).
+- [ ] Filter Activity by gallery, visitor, date and type; load older days with **Load more**. A new client action appears live without a blink and without dropping lines already shown. Lines older than the retention period disappear ([FR-12a](../SPECIFICATIONS.md#fr-12a)).
 - [ ] Read state belongs to the workspace, not a browser. Delivered-set updates recalculate relevant counts: newly added photos start undownloaded and removed photos no longer contribute. All downloaded is never inferred from an empty set or claimed as proof of a saved file ([FR-02](../SPECIFICATIONS.md#fr-02), [FR-11](../SPECIFICATIONS.md#fr-11)).
 
 ### Lifecycle and recovery

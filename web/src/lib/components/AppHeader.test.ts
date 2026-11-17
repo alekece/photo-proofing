@@ -21,7 +21,7 @@ beforeEach(() => {
 });
 
 describe('AppHeader', () => {
-	it('shows the brand and main section pills with active state and disabled Activity', () => {
+	it('shows the brand and main section pills with their active state', () => {
 		render(AppHeader);
 
 		expect(screen.getByRole('link', { name: 'PhotoProofing' }).getAttribute('href')).toBe(
@@ -30,14 +30,24 @@ describe('AppHeader', () => {
 
 		const galleries = screen.getByRole('link', { name: 'Galleries' });
 		const contacts = screen.getByRole('link', { name: 'Contacts' });
-		const activity = screen.getByRole('button', { name: 'Activity' }) as HTMLButtonElement;
+		const activity = screen.getByRole('link', { name: 'Activity' });
 
 		expect(galleries.getAttribute('href')).toBe('/dashboard');
 		expect(galleries.getAttribute('aria-current')).toBe('page');
 		expect(contacts.getAttribute('href')).toBe('/contacts');
 		expect(contacts.getAttribute('aria-current')).toBeNull();
-		expect(activity.disabled).toBe(true);
-		expect(activity.title).toBe('Coming soon');
+		expect(activity.getAttribute('href')).toBe('/activity');
+		expect(activity.getAttribute('aria-current')).toBeNull();
+	});
+
+	it('marks Activity as active when viewing /activity', () => {
+		state.page.url = new URL('http://localhost/activity');
+		render(AppHeader);
+
+		expect(screen.getByRole('link', { name: 'Activity' }).getAttribute('aria-current')).toBe(
+			'page'
+		);
+		expect(screen.getByRole('link', { name: 'Galleries' }).getAttribute('aria-current')).toBeNull();
 	});
 
 	it('marks Contacts as active when viewing /contacts', () => {
@@ -87,14 +97,12 @@ describe('AppHeader', () => {
 describe('AppHeader in French', () => {
 	useLocale('fr');
 
-	it('translates navigation pills and Coming soon tooltip', async () => {
+	it('translates the navigation pills', async () => {
 		const { container } = render(AppHeader);
 
 		expect(screen.getByRole('link', { name: 'Galeries' })).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'Contacts' })).toBeTruthy();
-		const activity = screen.getByRole('button', { name: 'Activité' }) as HTMLButtonElement;
-		expect(activity.disabled).toBe(true);
-		expect(activity.title).toBe('Bientôt disponible');
+		expect(screen.getByRole('link', { name: 'Activité' }).getAttribute('href')).toBe('/activity');
 		expect((await axe(container)).violations).toEqual([]);
 	});
 });

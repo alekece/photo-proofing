@@ -52,6 +52,8 @@ shutdown_grace = "30s"
 orphan_grace = "24h"
 # Time between maintenance runs (orphan sweep, export expiry, archive sweep).
 sweep_interval = "1h"
+# How long an activity line is kept after its last event (1m to 3y).
+activity_retention = "90d"
 
 # Selection ZIPs built by the worker for the photographer's Favorites tab; read by both.
 [export]
@@ -59,6 +61,11 @@ sweep_interval = "1h"
 size_limit = 2147483648
 # How long a finished ZIP stays downloadable (1m to 30d); its file is removed afterwards.
 retention = "24h"
+
+[activity]
+# Activity of the same gallery, contact and kind within this window (1m to 1d) extends one
+# line instead of opening a new one.
+window = "30m"
 
 [photo]
 # Private photo files; the API and the worker must share this directory.

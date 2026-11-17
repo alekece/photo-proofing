@@ -21,11 +21,12 @@ use uuid::Uuid;
 
 use crate::{
     Repository,
+    activity::{ActivityKind, ActivityOptions, ActivityRecorder},
     auth::WorkspaceId,
     error::DatabaseError,
     gallery::GalleryId,
     jobs::{Job, JobCompletion, JobOptions, JobRepository, ZipExport},
-    photo::PhotoId,
+    photo::{PhotoId, PhotoLocation},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
@@ -195,13 +196,21 @@ pub struct ExpiredExport {
     pub gallery_id: GalleryId,
 }
 
+/// [`ExportRepository`]'s configuration: job retry policy plus client attribution for the
+/// activity it records.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ExportOptions {
+    pub job: JobOptions,
+    pub activity: ActivityOptions,
+}
+
 pub struct ExportRepository<'db> {
     pool: &'db PgPool,
-    options: JobOptions,
+    options: ExportOptions,
 }
 
 impl<'db> Repository<'db> for ExportRepository<'db> {
-    type Options = JobOptions;
+    type Options = ExportOptions;
 
     fn open(pool: &'db PgPool, options: Self::Options) -> Self {
         Self { pool, options }
@@ -490,7 +499,7 @@ impl ExportRepository<'_> {
         JobRepository::enqueue_in(
             transaction,
             ZipExport { export_id: id },
-            self.options.max_attempts,
+            self.options.job.max_attempts,
         )
         .await?;
 
@@ -662,26 +671,45 @@ impl ExportRepository<'_> {
     }
 
     /// Records the first download of the delivery ZIP: on the export and on every final it holds
-    /// that was not downloaded yet, in one transaction. Later requests change nothing.
+    /// that was not downloaded yet, in one transaction. Later requests change nothing. Always
+    /// logs one download line for the first request, even when every final was already
+    /// downloaded individually and none is newly marked.
     pub async fn mark_downloaded(&self, id: ExportId) -> Result<(), DatabaseError> {
         let mut transaction = self.pool.begin().await?;
-        let first = sqlx::query(
+        let first: Option<(WorkspaceId, GalleryId)> = sqlx::query_as(
             "UPDATE exports SET downloaded_at = now()
-             WHERE id = $1 AND kind = 'delivery' AND downloaded_at IS NULL",
+             WHERE id = $1 AND kind = 'delivery' AND downloaded_at IS NULL
+             RETURNING workspace_id, gallery_id",
         )
         .bind(id)
-        .execute(&mut *transaction)
+        .fetch_optional(&mut *transaction)
         .await?;
 
-        if first.rows_affected() == 1 {
-            sqlx::query(
+        if let Some((workspace_id, gallery_id)) = first {
+            let photo_ids: Vec<PhotoId> = sqlx::query_scalar(
                 "UPDATE photos SET downloaded_at = now()
                  WHERE downloaded_at IS NULL AND kind = 'final'
-                   AND id IN (SELECT photo_id FROM export_photos WHERE export_id = $1)",
+                   AND id IN (SELECT photo_id FROM export_photos WHERE export_id = $1)
+                 RETURNING id",
             )
             .bind(id)
-            .execute(&mut *transaction)
+            .fetch_all(&mut *transaction)
             .await?;
+
+            let location = PhotoLocation {
+                workspace_id,
+                gallery_id,
+            };
+
+            transaction
+                .record_activity(
+                    &self.options.activity,
+                    location,
+                    ActivityKind::Download,
+                    &photo_ids,
+                    None,
+                )
+                .await?;
         }
 
         transaction.commit().await?;
@@ -797,6 +825,7 @@ mod tests {
     use super::*;
     use crate::{
         Database,
+        activity::Client,
         gallery::GalleryRepository,
         jobs::{Backoff, JobKind, JobState},
         tests::TestRepository,
@@ -1678,6 +1707,108 @@ mod tests {
         fixture.exports().mark_downloaded(id).await.unwrap();
 
         assert_eq!(fixture.downloaded_at(first).await, marked);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn mark_downloaded_records_only_the_newly_marked_finals(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        fixture.final_photo("f.jpg").await;
+        let second = fixture.final_photo("g.jpg").await;
+
+        fixture.deliver().await;
+        fixture.delivery().await;
+
+        let job = fixture.claim().await;
+        let id: ExportId = sqlx::query_scalar("SELECT id FROM exports")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        let _ = fixture.exports().complete(&job, id).await.unwrap();
+        // Already downloaded individually, so marking the ZIP must not count it again.
+        fixture.mark_downloaded_at(second).await;
+
+        fixture
+            .exports_with(Some(Client { contact_id: None }))
+            .mark_downloaded(id)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fixture.activity_lines().await,
+            [(ActivityKind::Download, 1)]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn mark_downloaded_logs_a_line_even_when_nothing_is_newly_marked(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let only = fixture.final_photo("f.jpg").await;
+
+        fixture.deliver().await;
+        fixture.delivery().await;
+
+        let job = fixture.claim().await;
+        let id: ExportId = sqlx::query_scalar("SELECT id FROM exports")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        let _ = fixture.exports().complete(&job, id).await.unwrap();
+        fixture.mark_downloaded_at(only).await;
+
+        fixture
+            .exports_with(Some(Client { contact_id: None }))
+            .mark_downloaded(id)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fixture.activity_lines().await,
+            [(ActivityKind::Download, 0)]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn mark_downloaded_without_a_client_records_nothing(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        fixture.final_photo("f.jpg").await;
+        fixture.deliver().await;
+        fixture.delivery().await;
+
+        let job = fixture.claim().await;
+        let id: ExportId = sqlx::query_scalar("SELECT id FROM exports")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        let _ = fixture.exports().complete(&job, id).await.unwrap();
+        fixture.exports().mark_downloaded(id).await.unwrap();
+
+        assert!(fixture.activity_lines().await.is_empty());
+    }
+
+    impl Fixture {
+        fn exports_with(&self, client: Option<Client>) -> ExportRepository<'_> {
+            self.database
+                .repository_with::<ExportRepository>(ExportOptions {
+                    activity: ActivityOptions::default().client(client),
+                    ..Default::default()
+                })
+        }
+
+        /// The gallery's activity lines, as `(kind, count)`, oldest first.
+        async fn activity_lines(&self) -> Vec<(ActivityKind, i32)> {
+            sqlx::query_as(
+                "SELECT kind, count FROM activity_events
+                 WHERE gallery_id = $1 ORDER BY first_at, id",
+            )
+            .bind(self.gallery_id)
+            .fetch_all(&self.pool)
+            .await
+            .unwrap()
+        }
     }
 
     impl Fixture {

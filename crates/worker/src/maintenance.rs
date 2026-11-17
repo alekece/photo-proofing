@@ -12,6 +12,7 @@ use std::{sync::Arc, time::Duration};
 
 use pp_database::{
     Database,
+    activity::ActivityRepository,
     export::ExportRepository,
     notifications::NotificationRepository,
     photo::{PhotoLocation, PhotoRepository},
@@ -34,6 +35,8 @@ pub struct Maintenance {
     orphan_grace: Duration,
     /// How long an export is kept after it finished.
     retention: Duration,
+    /// How long an activity line is kept after its last event.
+    activity_retention: Duration,
     /// How long a read notification is kept.
     notification_retention: Duration,
 }
@@ -46,6 +49,7 @@ impl Maintenance {
         orphan_grace: Duration,
         retention: Duration,
         notification_retention: Duration,
+        activity_retention: Duration,
     ) -> Self {
         Self {
             database,
@@ -54,6 +58,7 @@ impl Maintenance {
             orphan_grace,
             retention,
             notification_retention,
+            activity_retention,
         }
     }
 
@@ -88,6 +93,7 @@ impl Maintenance {
     pub async fn run(&self) {
         self.expire_exports().await;
         self.expire_notifications().await;
+        self.expire_activity().await;
         self.sweep_photos().await;
         self.sweep_archives().await;
     }
@@ -135,6 +141,19 @@ impl Maintenance {
         {
             Ok(removed) => info!(removed, "read notifications expired"),
             Err(error) => warn!(%error, "read notifications could not be expired"),
+        }
+    }
+
+    /// Deletes activity lines whose last event is long past.
+    async fn expire_activity(&self) {
+        match self
+            .database
+            .repository::<ActivityRepository>()
+            .expire(self.activity_retention)
+            .await
+        {
+            Ok(removed) => info!(removed, "old activity expired"),
+            Err(error) => warn!(%error, "old activity could not be expired"),
         }
     }
 
@@ -242,6 +261,7 @@ mod tests {
                 orphan_grace,
                 retention,
                 Duration::from_secs(30 * 24 * 60 * 60),
+                90 * DAY,
             )
         }
 
@@ -369,6 +389,34 @@ mod tests {
                 .await
                 .unwrap()
         );
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_run_removes_activity_older_than_its_retention(pool: PgPool) {
+        let fixture = Fixture::new(pool.clone()).await;
+
+        for (kind, age) in [("open", "91 days"), ("comment", "89 days")] {
+            sqlx::query(
+                "INSERT INTO activity_events (workspace_id, gallery_id, kind, count, last_at)
+                 VALUES ($1, $2, $3, 1, now() - $4::interval)",
+            )
+            .bind(fixture.location.workspace_id)
+            .bind(fixture.location.gallery_id)
+            .bind(kind)
+            .bind(age)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        fixture.maintenance(DAY, DAY).run().await;
+
+        let kinds: Vec<String> = sqlx::query_scalar("SELECT kind FROM activity_events")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(kinds, ["comment"]);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

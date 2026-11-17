@@ -14,7 +14,7 @@ use actix_web::{
 use pp_core::types::timestamp::Timestamp;
 use pp_database::photo::PhotoId;
 use pp_database::{
-    export::{Export, ExportId, ExportRepository, ExportRequest},
+    export::{Export, ExportId, ExportOptions, ExportRepository, ExportRequest},
     gallery::GalleryId,
 };
 use pp_storage::{ArchiveKey, StorageError};
@@ -88,7 +88,10 @@ async fn request_export(
     };
     let outcome = state
         .database()
-        .repository_with::<ExportRepository>(state.job_options())
+        .repository_with::<ExportRepository>(ExportOptions {
+            job: state.job_options(),
+            ..Default::default()
+        })
         .request_selected(
             identity.workspace_id,
             gallery_id,
@@ -569,6 +572,16 @@ mod tests {
         assert_eq!(headers.get("cache-control").unwrap(), "private, no-store");
         assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
         assert!(body.starts_with(b"PK"));
+
+        // The photographer's own ZIP download is never client activity.
+        let activity: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM activity_events WHERE gallery_id = $1")
+                .bind(Uuid::parse_str(&gallery_id).unwrap())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert_eq!(activity, 0);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
