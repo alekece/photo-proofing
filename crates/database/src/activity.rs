@@ -3,18 +3,26 @@
 //! trigger derives the photographer's bell notification from the change in each line's count, so
 //! the two can never disagree.
 
-use std::time::Duration;
+use std::{fmt, str::FromStr, time::Duration};
 
-use pp_core::config::DEFAULT_ACTIVITY_WINDOW;
+use pp_core::{config::DEFAULT_ACTIVITY_WINDOW, types::timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgConnection, PgPool, Type};
+use sqlx::{FromRow, PgConnection, PgPool, Row, Type, postgres::PgRow};
+use thiserror::Error;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use uuid::Uuid;
 
 use crate::{
     Repository,
+    auth::WorkspaceId,
     contact::ContactId,
     error::DatabaseError,
+    gallery::GalleryId,
     photo::{PhotoId, PhotoLocation},
 };
+
+/// Lines in one page of [`ActivityRepository::list`].
+pub const PAGE_SIZE: usize = 30;
 
 /// The contact behind the personal link an activity was recorded through, or anonymous (`None`)
 /// for the gallery's general link.
@@ -170,6 +178,178 @@ impl ActivityRecorder for PgConnection {
     }
 }
 
+/// Identifies one activity line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(transparent)]
+#[sqlx(transparent)]
+pub struct ActivityEventId(pub Uuid);
+
+/// Why a string is not an [`ActivityCursor`] or a [`ContactFilter`].
+#[derive(Debug, Error)]
+#[error("not a valid activity {0}")]
+pub struct InvalidActivityParameter(&'static str);
+
+/// Where the next page of the list starts: just after one line, which a line that is extended
+/// meanwhile can no longer be. Serialized as an opaque string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub struct ActivityCursor {
+    last_at: Timestamp,
+    id: ActivityEventId,
+}
+
+impl fmt::Display for ActivityCursor {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let last_at = self.last_at.0.format(&Rfc3339).map_err(|_| fmt::Error)?;
+
+        write!(formatter, "{last_at}_{}", self.id.0)
+    }
+}
+
+impl FromStr for ActivityCursor {
+    type Err = InvalidActivityParameter;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let invalid = || InvalidActivityParameter("cursor");
+        let (last_at, id) = text.split_once('_').ok_or_else(invalid)?;
+        let last_at = OffsetDateTime::parse(last_at, &Rfc3339).map_err(|_| invalid())?;
+        let id = id.parse().map_err(|_| invalid())?;
+
+        Ok(Self {
+            last_at: Timestamp(last_at),
+            id: ActivityEventId(id),
+        })
+    }
+}
+
+impl From<ActivityCursor> for String {
+    fn from(cursor: ActivityCursor) -> Self {
+        cursor.to_string()
+    }
+}
+
+impl TryFrom<String> for ActivityCursor {
+    type Error = InvalidActivityParameter;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        text.parse()
+    }
+}
+
+/// Which clients' lines to list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "String")]
+pub enum ContactFilter {
+    /// Lines of the general link's visitors, who are not a contact.
+    Anonymous,
+    Contact(ContactId),
+}
+
+impl TryFrom<String> for ContactFilter {
+    type Error = InvalidActivityParameter;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        if text == "anonymous" {
+            return Ok(Self::Anonymous);
+        }
+
+        text.parse()
+            .map(|id| Self::Contact(ContactId(id)))
+            .map_err(|_| InvalidActivityParameter("contact"))
+    }
+}
+
+/// How far back to list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum ActivityRange {
+    /// The last 24 hours.
+    #[serde(rename = "today")]
+    Today,
+    #[serde(rename = "7d")]
+    Week,
+    #[serde(rename = "30d")]
+    Month,
+}
+
+impl ActivityRange {
+    fn duration(self) -> Duration {
+        const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+
+        match self {
+            Self::Today => DAY,
+            Self::Week => 7 * DAY,
+            Self::Month => 30 * DAY,
+        }
+    }
+}
+
+/// What [`ActivityRepository::list`] lists; every filter that is `None` lets all lines through.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ActivityQuery {
+    pub gallery: Option<GalleryId>,
+    pub contact: Option<ContactFilter>,
+    pub kind: Option<ActivityKind>,
+    pub range: Option<ActivityRange>,
+    pub cursor: Option<ActivityCursor>,
+    pub include_archived: bool,
+}
+
+/// The contact a line is attributed to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ActivityContact {
+    pub id: ContactId,
+    pub name: String,
+}
+
+/// One line of the log, with what the timeline shows of its gallery and contact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ActivityEvent {
+    pub id: ActivityEventId,
+    pub gallery_id: GalleryId,
+    pub gallery_title: Option<String>,
+    /// `None` for the general link's visitors.
+    pub contact: Option<ActivityContact>,
+    pub kind: ActivityKind,
+    pub count: usize,
+    /// The photos the line is about that still exist, at most four.
+    pub photo_ids: Vec<PhotoId>,
+    pub detail: Option<String>,
+    pub first_at: Timestamp,
+    pub last_at: Timestamp,
+}
+
+impl FromRow<'_, PgRow> for ActivityEvent {
+    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+        let contact = row
+            .try_get::<Option<ContactId>, _>("contact_id")?
+            .zip(row.try_get::<Option<String>, _>("contact_name")?)
+            .map(|(id, name)| ActivityContact { id, name });
+        let count = usize::try_from(row.try_get::<i32, _>("count")?)
+            .map_err(|error| sqlx::Error::Decode(error.into()))?;
+
+        Ok(Self {
+            id: row.try_get("id")?,
+            gallery_id: row.try_get("gallery_id")?,
+            gallery_title: row.try_get("gallery_title")?,
+            contact,
+            kind: row.try_get("kind")?,
+            count,
+            photo_ids: row.try_get("photo_ids")?,
+            detail: row.try_get("detail")?,
+            first_at: row.try_get("first_at")?,
+            last_at: row.try_get("last_at")?,
+        })
+    }
+}
+
+/// One page of lines, newest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ActivityPage {
+    pub events: Vec<ActivityEvent>,
+    /// Where the next page starts; `None` on the last one.
+    pub next: Option<ActivityCursor>,
+}
+
 /// Logs what the worker itself does, which has no repository write to piggyback on, and prunes
 /// old lines.
 #[derive(Clone, Copy)]
@@ -206,6 +386,68 @@ impl ActivityRepository<'_> {
         Ok(())
     }
 
+    /// Lists the workspace's lines that pass `query`, newest first, [`PAGE_SIZE`] at a time.
+    /// Archived galleries are left out unless the query asks for them.
+    pub async fn list(
+        &self,
+        workspace_id: WorkspaceId,
+        query: ActivityQuery,
+    ) -> Result<ActivityPage, DatabaseError> {
+        let contact = match query.contact {
+            Some(ContactFilter::Contact(id)) => Some(id),
+            _ => None,
+        };
+        let anonymous = query.contact == Some(ContactFilter::Anonymous);
+        let limit = i64::try_from(PAGE_SIZE + 1).unwrap_or(i64::MAX);
+        let mut events: Vec<ActivityEvent> = sqlx::query_as(
+            "SELECT e.id, e.gallery_id, g.title AS gallery_title, e.contact_id,
+                    c.name AS contact_name, e.kind, e.count,
+                    ARRAY(SELECT p.id
+                          FROM unnest(e.photo_ids) WITH ORDINALITY AS line(photo_id, position)
+                          JOIN photos p ON p.id = line.photo_id
+                          ORDER BY line.position) AS photo_ids,
+                    e.detail, e.first_at, e.last_at
+             FROM activity_events e
+             JOIN galleries g ON g.id = e.gallery_id
+             LEFT JOIN contacts c ON c.id = e.contact_id
+             WHERE e.workspace_id = $1
+               AND ($2::uuid IS NULL OR e.gallery_id = $2)
+               AND ($3::uuid IS NULL OR e.contact_id = $3)
+               AND (NOT $4 OR e.contact_id IS NULL)
+               AND ($5::text IS NULL OR e.kind = $5)
+               AND ($6::float8 IS NULL OR e.last_at >= now() - make_interval(secs => $6))
+               AND ($7::timestamptz IS NULL OR (e.last_at, e.id) < ($7, $8::uuid))
+               AND ($9 OR g.archived_at IS NULL)
+             ORDER BY e.last_at DESC, e.id DESC
+             LIMIT $10",
+        )
+        .bind(workspace_id)
+        .bind(query.gallery)
+        .bind(contact)
+        .bind(anonymous)
+        .bind(query.kind)
+        .bind(query.range.map(|range| range.duration().as_secs_f64()))
+        .bind(query.cursor.map(|cursor| cursor.last_at))
+        .bind(query.cursor.map(|cursor| cursor.id))
+        .bind(query.include_archived)
+        .bind(limit)
+        .fetch_all(self.pool)
+        .await?;
+        let has_more = events.len() > PAGE_SIZE;
+
+        events.truncate(PAGE_SIZE);
+
+        let next = events
+            .last()
+            .filter(|_| has_more)
+            .map(|event| ActivityCursor {
+                last_at: event.last_at,
+                id: event.id,
+            });
+
+        Ok(ActivityPage { events, next })
+    }
+
     /// Deletes lines whose last activity is older than `retention`.
     pub async fn expire(&self, retention: Duration) -> Result<u64, DatabaseError> {
         let removed = sqlx::query(
@@ -230,7 +472,7 @@ mod tests {
     use super::*;
     use crate::{
         Database, Repository,
-        gallery::GalleryRepository,
+        gallery::{GalleryId, GalleryRepository},
         listener::{Listener, Notification},
         notifications::{NotificationEvent, NotificationKind},
         tests::TestRepository,
@@ -610,5 +852,284 @@ mod tests {
         assert_eq!(removed, 1);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].kind, ActivityKind::Comment);
+    }
+
+    impl Fixture {
+        async fn insert_gallery(&self) -> GalleryId {
+            GalleryRepository::open(&self.pool, ActivityOptions::default())
+                .create(self.location.workspace_id)
+                .await
+                .unwrap()
+                .id
+        }
+
+        async fn insert_line(
+            &self,
+            gallery_id: GalleryId,
+            contact_id: Option<ContactId>,
+            kind: ActivityKind,
+            age: &str,
+            photo_ids: &[PhotoId],
+        ) {
+            sqlx::query(
+                "INSERT INTO activity_events (workspace_id, gallery_id, contact_id, kind, count,
+                                              photo_ids, first_at, last_at)
+                 VALUES ($1, $2, $3, $4, 1, $5, now() - $6::interval, now() - $6::interval)",
+            )
+            .bind(self.location.workspace_id)
+            .bind(gallery_id)
+            .bind(contact_id)
+            .bind(kind)
+            .bind(photo_ids)
+            .bind(age)
+            .execute(&self.pool)
+            .await
+            .unwrap();
+        }
+
+        async fn list(&self, query: ActivityQuery) -> ActivityPage {
+            ActivityRepository::open(&self.pool, ActivityOptions::default())
+                .list(self.location.workspace_id, query)
+                .await
+                .unwrap()
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn lines_are_listed_newest_first_and_paged_by_cursor(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let gallery_id = fixture.location.gallery_id;
+
+        for minutes in 0..=PAGE_SIZE {
+            fixture
+                .insert_line(
+                    gallery_id,
+                    None,
+                    ActivityKind::Open,
+                    &format!("{minutes} minutes"),
+                    &[],
+                )
+                .await;
+        }
+
+        let first = fixture.list(ActivityQuery::default()).await;
+
+        assert_eq!(first.events.len(), PAGE_SIZE);
+        assert!(
+            first
+                .events
+                .windows(2)
+                .all(|pair| pair[0].last_at > pair[1].last_at)
+        );
+
+        let second = fixture
+            .list(ActivityQuery {
+                cursor: first.next,
+                ..ActivityQuery::default()
+            })
+            .await;
+
+        assert_eq!(second.events.len(), 1);
+        assert_eq!(second.next, None);
+        assert!(second.events[0].last_at < first.events[PAGE_SIZE - 1].last_at);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn each_filter_narrows_the_list(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let alice = fixture.insert_contact("alice@example.test").await;
+        let first = fixture.location.gallery_id;
+        let second = fixture.insert_gallery().await;
+
+        fixture
+            .insert_line(first, Some(alice), ActivityKind::Favorite, "1 hour", &[])
+            .await;
+        fixture
+            .insert_line(first, None, ActivityKind::Comment, "3 days", &[])
+            .await;
+        fixture
+            .insert_line(second, Some(alice), ActivityKind::Open, "40 days", &[])
+            .await;
+
+        let kinds = async |query: ActivityQuery| {
+            fixture
+                .list(query)
+                .await
+                .events
+                .into_iter()
+                .map(|event| event.kind)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            kinds(ActivityQuery::default()).await,
+            [
+                ActivityKind::Favorite,
+                ActivityKind::Comment,
+                ActivityKind::Open
+            ]
+        );
+        assert_eq!(
+            kinds(ActivityQuery {
+                gallery: Some(second),
+                ..ActivityQuery::default()
+            })
+            .await,
+            [ActivityKind::Open]
+        );
+        assert_eq!(
+            kinds(ActivityQuery {
+                contact: Some(ContactFilter::Contact(alice)),
+                ..ActivityQuery::default()
+            })
+            .await,
+            [ActivityKind::Favorite, ActivityKind::Open]
+        );
+        assert_eq!(
+            kinds(ActivityQuery {
+                contact: Some(ContactFilter::Anonymous),
+                ..ActivityQuery::default()
+            })
+            .await,
+            [ActivityKind::Comment]
+        );
+        assert_eq!(
+            kinds(ActivityQuery {
+                kind: Some(ActivityKind::Comment),
+                ..ActivityQuery::default()
+            })
+            .await,
+            [ActivityKind::Comment]
+        );
+        assert_eq!(
+            kinds(ActivityQuery {
+                range: Some(ActivityRange::Today),
+                ..ActivityQuery::default()
+            })
+            .await,
+            [ActivityKind::Favorite]
+        );
+        assert_eq!(
+            kinds(ActivityQuery {
+                range: Some(ActivityRange::Week),
+                ..ActivityQuery::default()
+            })
+            .await,
+            [ActivityKind::Favorite, ActivityKind::Comment]
+        );
+        assert_eq!(
+            kinds(ActivityQuery {
+                range: Some(ActivityRange::Month),
+                ..ActivityQuery::default()
+            })
+            .await,
+            [ActivityKind::Favorite, ActivityKind::Comment]
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn archived_galleries_are_hidden_unless_asked_for(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+
+        fixture
+            .insert_line(
+                fixture.location.gallery_id,
+                None,
+                ActivityKind::Open,
+                "1 hour",
+                &[],
+            )
+            .await;
+        sqlx::query("UPDATE galleries SET archived_at = now() WHERE id = $1")
+            .bind(fixture.location.gallery_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert!(
+            fixture
+                .list(ActivityQuery::default())
+                .await
+                .events
+                .is_empty()
+        );
+        assert_eq!(
+            fixture
+                .list(ActivityQuery {
+                    include_archived: true,
+                    ..ActivityQuery::default()
+                })
+                .await
+                .events
+                .len(),
+            1
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_workspace_only_lists_its_own_lines(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let other = Fixture::new(&pool).await;
+
+        fixture
+            .insert_line(
+                fixture.location.gallery_id,
+                None,
+                ActivityKind::Open,
+                "1 hour",
+                &[],
+            )
+            .await;
+
+        assert!(other.list(ActivityQuery::default()).await.events.is_empty());
+        assert_eq!(fixture.list(ActivityQuery::default()).await.events.len(), 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_line_names_its_contact_and_only_the_photos_that_still_exist(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let alice = fixture.insert_contact("alice@example.test").await;
+        let [kept, deleted] = [PhotoId::generate(), PhotoId::generate()];
+
+        for id in [kept, deleted] {
+            sqlx::query(
+                "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width,
+                                     height, status, kind, clean_ready)
+                 VALUES ($1, $2, $3, 'a.jpg', 1, 1, 1, 'ready', 'proof', true)",
+            )
+            .bind(id)
+            .bind(fixture.location.workspace_id)
+            .bind(fixture.location.gallery_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        fixture
+            .insert_line(
+                fixture.location.gallery_id,
+                Some(alice),
+                ActivityKind::Favorite,
+                "1 hour",
+                &[deleted, kept],
+            )
+            .await;
+        sqlx::query("DELETE FROM photos WHERE id = $1")
+            .bind(deleted)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let events = fixture.list(ActivityQuery::default()).await.events;
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].photo_ids, [kept]);
+        assert_eq!(
+            events[0]
+                .contact
+                .as_ref()
+                .map(|contact| (contact.id, contact.name.as_str())),
+            Some((alice, "A Client"))
+        );
     }
 }
