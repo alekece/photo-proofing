@@ -1,6 +1,7 @@
 [advisories]
 ignore = [
     { id = "RUSTSEC-2026-0258", reason = "Low severity. h2 0.3 comes from actix-http, which has no patched release (fixed only in h2 >=0.4.16). Remove once actix-http moves to h2 0.4." },
+    { id = "RUSTSEC-2026-0542", reason = "Unmaintained only, no vulnerability. humantime wraps the unmaintained chrono and has no safe upgrade; it only parses and formats durations in pp-core. Remove once a maintained replacement is adopted." },
 ]
 
 [licenses]
