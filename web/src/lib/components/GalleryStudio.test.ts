@@ -1,5 +1,5 @@
 import { createRawSnippet } from 'svelte';
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { describe, expect, it, vi } from 'vitest';
@@ -12,6 +12,9 @@ vi.mock('#lib/components/FavoritesPanel.svelte', async () => ({
 }));
 vi.mock('#lib/components/CommentsPanel.svelte', async () => ({
 	default: (await import('#lib/components/CommentsPanelStub.test.svelte')).default
+}));
+vi.mock('#lib/components/GalleryActivityPanel.svelte', async () => ({
+	default: (await import('#lib/components/GalleryActivityPanelStub.test.svelte')).default
 }));
 vi.mock('#lib/components/GalleryContactsPanel.svelte', async () => ({
 	default: (await import('#lib/components/GalleryContactsPanelStub.test.svelte')).default
@@ -69,6 +72,24 @@ function setup(over: Partial<Gallery> = {}, shareToken: string | null = over.sha
 }
 
 describe('GalleryStudio', () => {
+	it('opens the gallery activity once shared, and not before', async () => {
+		setup({ share_token: null, states: ['draft'] });
+
+		expect((screen.getByRole('tab', { name: 'Activity' }) as HTMLButtonElement).disabled).toBe(
+			true
+		);
+
+		cleanup();
+
+		const view = setup({ share_token: 'tok', states: ['shared'] }, 'tok');
+		const tab = screen.getByRole('tab', { name: 'Activity' });
+
+		await view.user.click(tab);
+
+		expect(tab.getAttribute('aria-selected')).toBe('true');
+		expect(screen.getByText('Activity of g1')).toBeTruthy();
+	});
+
 	it('keeps the cover img node across title edits and opens Design when the cover is clicked', async () => {
 		const view = setup({ hero_id: 'p1' });
 		const coverButton = screen.getByRole('button', { name: 'Edit cover and design' });
@@ -135,7 +156,7 @@ describe('GalleryStudio', () => {
 		const { container, user } = setup({ share_token: null, states: ['draft'] });
 		const assertTabPanels = (activeTabId: string) => {
 			const tabs = screen.getAllByRole('tab');
-			expect(tabs).toHaveLength(8);
+			expect(tabs).toHaveLength(9);
 
 			for (const tab of tabs) {
 				const controlsId = tab.getAttribute('aria-controls');
