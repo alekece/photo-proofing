@@ -14,8 +14,9 @@ Unsplash, so it needs a network connection.
 
 | Screen | Doc | What it covers |
 |---|---|---|
-| Dashboard | [dashboard](screens/dashboard.md) | Top section nav (`Galleries`, `Contacts`, disabled `Activity`), greeting, gallery cards, search, status filter, sort, notifications, account menu, new gallery, empty workspace |
+| Dashboard | [dashboard](screens/dashboard.md) | Top section nav (`Galleries`, `Contacts`, `Activity`), greeting, gallery cards, search, status filter, sort, notifications, account menu, new gallery, empty workspace |
 | Contacts | [contacts](screens/contacts.md) | Workspace contact directory, search by name/email/phone, master-detail editor, linked gallery pills, create and delete |
+| Activity | [activity](screens/activity.md) | Workspace activity page: day-grouped lines, filters (gallery, visitor, date, type), load more, live refresh; the same timeline backs the gallery `Activity` tab |
 | Gallery | [gallery](screens/gallery.md) | Left studio rail (`Collection` + `Studio`), top Journey Wizard bar, `Photos`, `Favorites`, `Comments`, `Final`, `Design`, `Contacts` and `Settings` views, Share, Publish and Delete dialogs |
 | Photo viewer | [viewer](screens/viewer.md) | Full-screen photo with set or remove hero, delete, favorite state |
 | Preview | [preview](screens/preview.md) | The client page inside the app, Desktop and Phone |

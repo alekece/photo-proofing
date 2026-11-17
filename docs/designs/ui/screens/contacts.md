@@ -1,12 +1,12 @@
 # Contacts
 
 Workspace-wide client directory. Route `/contacts`, reached from the top `AppHeader` section
-pills (**Galleries**, **Contacts**, and disabled **Activity** with tooltip `"Coming soon"`).
+pills (**Galleries**, **Contacts**, and **Activity**).
 
 ## Layout
 
 1. **Top navigation (`AppHeader`):** beside the `PhotoProofing` brand sit three pills:
-   **Galleries** (`/dashboard`), **Contacts** (`/contacts`), and disabled **Activity**. Active
+   **Galleries** (`/dashboard`), **Contacts** (`/contacts`), and **Activity** (`/activity`). Active
    section uses ink fill (`#2b2420`); on `390 px` phones the section pills wrap cleanly onto a
    second row below the brand and account controls so nothing clips or scrolls horizontally.
 2. **Page header & search:**
