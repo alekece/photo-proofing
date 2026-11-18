@@ -230,11 +230,18 @@
 			const updated = await updateContact(targetId, parsed);
 
 			contacts = sortContacts(contacts.map((item) => (item.id === targetId ? updated : item)));
+
+			// The user may have switched to another contact while this save was in flight;
+			// only reflect the save's own status on the panel that's still showing it.
+			if (selectedId !== targetId) return;
+
 			saveStatus = 'saved';
 			savedTimer = setTimeout(() => {
 				saveStatus = 'idle';
 			}, SAVED_MS);
 		} catch (error) {
+			if (selectedId !== targetId) return;
+
 			saveStatus = 'idle';
 
 			if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {

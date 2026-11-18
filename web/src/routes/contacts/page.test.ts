@@ -149,6 +149,53 @@ describe('/contacts page', () => {
 		).toBeTruthy();
 	});
 
+	it('ignores a stale save completion after the user has switched to another contact', async () => {
+		const user = userEvent.setup();
+		const camille = contact();
+		const zoe = contact({
+			id: 'c2',
+			name: 'Zoé Laurent',
+			email: 'zoe@studio.test',
+			phone: '0601020304',
+			notes: null,
+			galleries: []
+		});
+		let resolvePatch: (value: Response) => void = () => {};
+		const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = typeof input === 'string' ? input : input.toString();
+			if (url.includes('/auth/')) return new Response(null, { status: 204 });
+			if (init?.method === 'PATCH') {
+				return new Promise<Response>((resolve) => {
+					resolvePatch = resolve;
+				});
+			}
+			return new Response(null, { status: 204 });
+		});
+		vi.stubGlobal('fetch', fetcher);
+
+		open([camille, zoe]);
+
+		const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
+		await user.clear(nameInput);
+		await user.type(nameInput, 'Camille Laurent');
+		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+		// Switch to the other contact while the save for Camille is still in flight.
+		await user.click(screen.getByText('Zoé Laurent'));
+		expect(screen.getByRole('heading', { level: 2, name: 'Zoé Laurent' })).toBeTruthy();
+
+		resolvePatch(
+			new Response(JSON.stringify(contact({ name: 'Camille Laurent', phone: null })), {
+				status: 200
+			})
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		// Zoé's panel must not show a stale "Saved" confirmation meant for Camille's edit.
+		expect(screen.queryByRole('button', { name: 'Saved' })).toBeNull();
+		expect(screen.getByRole('heading', { level: 2, name: 'Zoé Laurent' })).toBeTruthy();
+	});
+
 	it('edits and deletes a selected contact after confirmation', async () => {
 		const user = userEvent.setup();
 		const initial = contact();

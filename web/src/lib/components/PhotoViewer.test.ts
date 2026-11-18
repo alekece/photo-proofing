@@ -134,6 +134,24 @@ describe('PhotoViewer', () => {
 		expect(onretry).toHaveBeenCalledWith('p1');
 	});
 
+	it('hides the actions snippet while the photo is not ready, keeping trailing actions like Delete available', () => {
+		const actions = createRawSnippet(() => ({
+			render: () => '<button type="button">Set as cover</button>'
+		}));
+		const trailing = createRawSnippet(() => ({
+			render: () => '<button type="button">Delete</button>'
+		}));
+		render(PhotoViewer, {
+			proofs: [{ ...proofs[0], status: 'processing' }],
+			index: 0,
+			onclose: () => {},
+			actions,
+			trailing
+		});
+		expect(screen.queryByRole('button', { name: 'Set as cover' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy();
+	});
+
 	it('navigates with arrows, Home and End, stopping at the ends', async () => {
 		const user = userEvent.setup();
 		render(PhotoViewer, { proofs, index: 0, onclose: () => {} });

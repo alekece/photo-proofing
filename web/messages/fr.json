@@ -736,6 +736,7 @@
 	"gallery_contacts_link": "+ Associer un contact",
 	"gallery_contacts_dialog_title": "Associer un contact",
 	"gallery_contacts_link_action": "Associer",
+	"gallery_contacts_linked_state": "Associé",
 	"gallery_contacts_create_and_link": "Créer et associer",
 	"gallery_contacts_new_inline": "Créer un nouveau contact",
 	"gallery_contacts_choose_existing": "Choisir un contact existant",

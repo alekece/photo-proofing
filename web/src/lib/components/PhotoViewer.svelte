@@ -278,7 +278,9 @@
 					<Download size={17} aria-hidden="true" />{m.action_download()}
 				</a>
 			{/if}
-			{@render actions?.(proof)}
+			{#if status === 'ready'}
+				{@render actions?.(proof)}
+			{/if}
 			{#if thread}
 				{@const count = commentCount?.(proof.id) ?? 0}
 				<button
