@@ -8,5 +8,6 @@ pub mod galleries;
 pub mod health;
 pub mod language;
 pub mod notifications;
+pub mod photos;
 pub mod settings;
 pub mod upload;

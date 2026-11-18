@@ -1,6 +1,6 @@
 # Photographer workspace UX refresh — design
 
-Status: proposed.  
+Status: approved.  
 Owner: maintainer review required.
 Issues: #391, #390, #389.
 

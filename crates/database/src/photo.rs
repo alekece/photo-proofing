@@ -98,6 +98,23 @@ pub struct ReadyPhoto {
     pub dimensions: PhotoDimensions,
 }
 
+/// A row of the workspace-wide All Photos index: a ready proof or final from any gallery in any
+/// state (including archived and expired), with just enough gallery context to link back to it.
+/// Never carries original paths, access codes, or share tokens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, FromRow)]
+pub struct WorkspacePhoto {
+    pub id: PhotoId,
+    pub gallery_id: GalleryId,
+    /// `None` means the gallery has no title yet.
+    pub gallery_title: Option<String>,
+    pub kind: PhotoKind,
+    pub revision: i64,
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    pub dimensions: PhotoDimensions,
+    pub created_at: Timestamp,
+}
+
 /// A photo exposed by the workspace-scoped photo repository.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Photo {
@@ -418,6 +435,28 @@ impl PhotoRepository<'_> {
         .await?)
     }
 
+    /// Lists every ready proof and final in the workspace's All Photos index, across every
+    /// gallery regardless of its draft/shared/delivered/archived/expired state, newest-first and
+    /// stably ordered. A photo appears once its clean files are ready for its kind: the same
+    /// readiness `Watermarked(false)` checks for a single gallery.
+    pub async fn list_ready_for_workspace(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<WorkspacePhoto>, DatabaseError> {
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT p.id, p.gallery_id, g.title AS gallery_title, p.kind, p.revision,
+                    p.width, p.height, p.created_at
+             FROM photos AS p
+             JOIN galleries AS g ON g.id = p.gallery_id
+             WHERE p.workspace_id = $1 AND {}
+             ORDER BY p.created_at DESC, p.id DESC",
+            Watermarked(false).ready_condition()
+        )))
+        .bind(workspace_id)
+        .fetch_all(self.pool)
+        .await?)
+    }
+
     /// Counts photos in `location` of `kind` whose files for `variant` are ready.
     pub async fn count_ready(
         &self,
@@ -676,7 +715,7 @@ mod tests {
         Database,
         activity::Client,
         auth::WorkspaceId,
-        gallery::{GalleryId, GalleryRepository},
+        gallery::{GalleryChanges, GalleryId, GalleryRepository},
         jobs::{DEFAULT_CLEANUP_BATCH, JobOptions},
         listener::Notification,
         photo_events::PhotoChange,
@@ -974,6 +1013,164 @@ mod tests {
                 },
             ]
         );
+    }
+
+    async fn final_photo_in(
+        database: &Database,
+        location: PhotoLocation,
+        (width, height): (u32, u32),
+        status: PhotoStatus,
+        created_at: i64,
+    ) -> PhotoId {
+        let id = PhotoId::from(Uuid::new_v4());
+        let mut photo = new_photo(location.workspace_id, location.gallery_id, id, "final.jpg");
+        photo.kind = PhotoKind::Final;
+        photo.dimensions = PhotoDimensions {
+            width: NonZeroU32::new(width).unwrap(),
+            height: NonZeroU32::new(height).unwrap(),
+        };
+        let tests = database.repository::<TestRepository>();
+
+        database
+            .repository::<PhotoIntake>()
+            .try_accept(photo)
+            .await
+            .unwrap()
+            .unwrap();
+        tests.force_photo_status(id, &status).await.unwrap();
+        tests
+            .set_photo_created_at(id, OffsetDateTime::from_unix_timestamp(created_at).unwrap())
+            .await
+            .unwrap();
+
+        id
+    }
+
+    async fn titled_gallery_location(
+        database: &Database,
+        workspace_id: WorkspaceId,
+        title: Option<&str>,
+    ) -> PhotoLocation {
+        let gallery = database
+            .repository::<GalleryRepository>()
+            .create(workspace_id)
+            .await
+            .unwrap();
+
+        if let Some(title) = title {
+            database
+                .repository::<GalleryRepository>()
+                .update(
+                    workspace_id,
+                    gallery.id,
+                    &GalleryChanges {
+                        title: Some(Some(title.to_owned())),
+                        ..GalleryChanges::default()
+                    },
+                )
+                .await
+                .unwrap();
+        }
+
+        PhotoLocation {
+            workspace_id,
+            gallery_id: gallery.id,
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn list_ready_for_workspace_lists_ready_proofs_and_finals_across_gallery_states_newest_first_excluding_unready(
+        pool: PgPool,
+    ) {
+        let database = Database::new(pool.clone());
+        let workspace_id = workspace(&pool).await;
+
+        let draft = titled_gallery_location(&database, workspace_id, None).await;
+        let archived =
+            titled_gallery_location(&database, workspace_id, Some("Smith Wedding")).await;
+        let expired = titled_gallery_location(&database, workspace_id, Some("Expired Shoot")).await;
+
+        sqlx::query("UPDATE galleries SET archived_at = now() WHERE id = $1")
+            .bind(archived.gallery_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE galleries SET expires_at = '2000-01-01' WHERE id = $1")
+            .bind(expired.gallery_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let proof_a = photo_in(&database, draft, (20, 10), PhotoStatus::Ready, 10).await;
+        let final_a = final_photo_in(&database, draft, (40, 30), PhotoStatus::Ready, 50).await;
+        let proof_b = photo_in(&database, archived, (50, 60), PhotoStatus::Ready, 30).await;
+        let final_c = final_photo_in(&database, expired, (70, 80), PhotoStatus::Ready, 20).await;
+
+        // Omitted regardless of how recent: waiting, processing, failed.
+        for (status, created_at) in [
+            (PhotoStatus::Waiting, 100),
+            (PhotoStatus::Processing, 99),
+            (PhotoStatus::Failed("broken".to_owned()), 98),
+        ] {
+            photo_in(&database, draft, (20, 10), status.clone(), created_at).await;
+            final_photo_in(&database, draft, (20, 10), status, created_at).await;
+        }
+
+        let listed = database
+            .repository::<PhotoRepository>()
+            .list_ready_for_workspace(workspace_id)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            listed.iter().map(|photo| photo.id).collect::<Vec<_>>(),
+            [final_a, proof_b, final_c, proof_a]
+        );
+
+        assert_eq!(listed[0].gallery_id, draft.gallery_id);
+        assert_eq!(listed[0].gallery_title, None);
+        assert_eq!(listed[0].kind, PhotoKind::Final);
+        assert_eq!(
+            listed[0].dimensions,
+            PhotoDimensions {
+                width: NonZeroU32::new(40).unwrap(),
+                height: NonZeroU32::new(30).unwrap(),
+            }
+        );
+
+        assert_eq!(listed[1].gallery_id, archived.gallery_id);
+        assert_eq!(listed[1].gallery_title, Some("Smith Wedding".to_owned()));
+        assert_eq!(listed[1].kind, PhotoKind::Proof);
+
+        assert_eq!(listed[2].gallery_id, expired.gallery_id);
+        assert_eq!(listed[2].gallery_title, Some("Expired Shoot".to_owned()));
+        assert_eq!(listed[2].kind, PhotoKind::Final);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn list_ready_for_workspace_breaks_same_timestamp_ties_by_id_and_excludes_other_workspaces(
+        pool: PgPool,
+    ) {
+        let database = Database::new(pool.clone());
+        let workspace_id = workspace(&pool).await;
+        let other_workspace_id = workspace(&pool).await;
+        let location = titled_gallery_location(&database, workspace_id, None).await;
+        let other = titled_gallery_location(&database, other_workspace_id, None).await;
+
+        let first = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 10).await;
+        let second = photo_in(&database, location, (20, 10), PhotoStatus::Ready, 10).await;
+        photo_in(&database, other, (20, 10), PhotoStatus::Ready, 999).await;
+
+        let listed = database
+            .repository::<PhotoRepository>()
+            .list_ready_for_workspace(workspace_id)
+            .await
+            .unwrap();
+        let ids: Vec<_> = listed.iter().map(|photo| photo.id).collect();
+        let mut expected = [first, second];
+        expected.sort_by(|a, b| b.cmp(a));
+
+        assert_eq!(ids, expected);
     }
 
     #[sqlx::test(migrations = "./migrations")]
