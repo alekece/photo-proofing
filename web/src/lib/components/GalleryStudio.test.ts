@@ -1,5 +1,5 @@
 import { createRawSnippet } from 'svelte';
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { describe, expect, it, vi } from 'vitest';
@@ -324,5 +324,47 @@ describe('GalleryStudio', () => {
 		expect(shareTab.disabled).toBe(true);
 		expect(screen.getByRole('tab', { name: /^Photos/ }).getAttribute('aria-selected')).toBe('true');
 		vi.unstubAllGlobals();
+	});
+
+	it('keeps the gallery identity stable and free of a preview action across every collection section', async () => {
+		const view = setup({ share_token: 'T'.repeat(22), states: ['shared'], hero_id: 'p1' });
+		const identity = document.querySelector('[data-slot="gallery-identity"]');
+
+		expect(identity).not.toBeNull();
+
+		const sections = ['Photos', 'Favorites', 'Comments', 'Final', 'Activity', 'Design', 'Contacts'];
+
+		for (const name of sections) {
+			const tab = screen.getByRole('tab', { name: new RegExp(`^${name}`) });
+
+			await view.user.click(tab);
+
+			// Identity keeps the same cover, title and favorite control; no preview action lives here.
+			expect(document.querySelector('[data-slot="gallery-identity"]')).toBe(identity);
+			expect(identity?.querySelector('button[aria-label="Edit cover and design"]')).not.toBeNull();
+			expect(
+				within(identity as HTMLElement).getByRole('button', { name: 'Pin gallery to top' })
+			).toBeTruthy();
+			expect(identity?.textContent).toContain('Camille & Lucas');
+			expect(within(identity as HTMLElement).queryByRole('button', { name: 'Preview' })).toBeNull();
+		}
+	});
+
+	it('keeps Preview and Share actions in the same content header on every section', async () => {
+		const view = setup({ share_token: 'T'.repeat(22), states: ['shared'], hero_id: 'p1' });
+		const header = document.querySelector('[data-slot="gallery-content-header"]') as HTMLElement;
+
+		expect(header).not.toBeNull();
+
+		const sections = ['Photos', 'Favorites', 'Comments', 'Final', 'Activity', 'Design', 'Contacts'];
+
+		for (const name of sections) {
+			const tab = screen.getByRole('tab', { name: new RegExp(`^${name}`) });
+
+			await view.user.click(tab);
+
+			expect(document.querySelector('[data-slot="gallery-content-header"]')).toBe(header);
+			expect(within(header).getByRole('button', { name: 'Preview' })).toBeTruthy();
+		}
 	});
 });

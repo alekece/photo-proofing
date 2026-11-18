@@ -428,6 +428,7 @@
 	"preview_desktop": "Ordinateur",
 	"preview_phone": "Téléphone",
 	"preview_close": "Fermer l’aperçu",
+	"preview_open_full": "Ouvrir l’aperçu complet",
 	"preview_load_failed": "Impossible de charger les photos. Fermez et réessayez.",
 	"upload_not_jpeg": "Pas un JPEG",
 	"upload_too_large": "Trop lourd",

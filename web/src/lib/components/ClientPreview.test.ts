@@ -253,4 +253,50 @@ describe('ClientPreview', () => {
 		await user.click(await screen.findByRole('button', { name: /open proof 1 of 1/i }));
 		expect(viewer()).toBeTruthy();
 	});
+
+	describe('inline variant', () => {
+		it('renders an embedded stage without a dialog, fixed height or its own scrollbar', async () => {
+			stub([]);
+			render(ClientPreview, { gallery, variant: 'inline', onexpand: () => {} });
+
+			await screen.findByText('Your photos are on their way.');
+			expect(screen.queryByRole('dialog')).toBeNull();
+			expect(screen.queryByRole('button', { name: 'Close preview' })).toBeNull();
+
+			const stage = document.querySelector('[data-frame="desktop"]')?.parentElement as HTMLElement;
+
+			expect(stage.className).not.toMatch(/overflow-auto/);
+			expect(stage.className).not.toMatch(/h-dvh|max-h-dvh|h-\[/);
+		});
+
+		it('offers an Open full preview action instead of Close, and keeps switching views', async () => {
+			stub([]);
+			const user = userEvent.setup();
+			const onexpand = vi.fn();
+			render(ClientPreview, { gallery, variant: 'inline', onexpand });
+
+			await user.click(screen.getByRole('button', { name: 'Open full preview' }));
+			expect(onexpand).toHaveBeenCalledTimes(1);
+
+			const mobile = screen.getByRole('button', { name: 'Phone' });
+
+			await user.click(mobile);
+			expect(mobile.getAttribute('aria-pressed')).toBe('true');
+			expect(document.querySelector('[data-frame="phone"]')).not.toBeNull();
+		});
+
+		it('does not lock background scroll or steal focus, unlike the modal variant', async () => {
+			stub([]);
+			const input = document.createElement('input');
+
+			document.body.appendChild(input);
+			input.focus();
+			render(ClientPreview, { gallery, variant: 'inline', onexpand: () => {} });
+
+			await screen.findByText('Your photos are on their way.');
+			expect(document.activeElement).toBe(input);
+			expect(document.body.style.overflow).not.toBe('hidden');
+			input.remove();
+		});
+	});
 });

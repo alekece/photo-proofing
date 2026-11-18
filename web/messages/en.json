@@ -425,6 +425,7 @@
 	"preview_desktop": "Desktop",
 	"preview_phone": "Phone",
 	"preview_close": "Close preview",
+	"preview_open_full": "Open full preview",
 	"preview_load_failed": "Couldn’t load the photos. Close and try again.",
 	"upload_not_jpeg": "Not a JPEG",
 	"upload_too_large": "Too large",

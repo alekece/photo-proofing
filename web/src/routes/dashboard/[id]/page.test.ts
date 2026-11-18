@@ -166,6 +166,27 @@ describe('gallery page', () => {
 		expect(screen.queryByLabelText('Client link')).toBeNull();
 	});
 
+	it('keeps the full-screen Preview action available from any gallery section, as a single-scroll modal', async () => {
+		stubApi();
+		const user = userEvent.setup();
+		open({ share_token: 'T'.repeat(22), states: ['shared'], hero_id: 'p1' });
+
+		await user.click(screen.getByRole('tab', { name: 'Contacts' }));
+		await user.click(screen.getByRole('button', { name: 'Preview' }));
+
+		const dialog = screen.getByRole('dialog', { name: 'Client preview' });
+
+		expect(dialog).toBeTruthy();
+		// A single scroller lives inside the modal; the dialog element itself does not scroll.
+		expect(dialog.className).not.toMatch(/overflow-auto/);
+		expect(
+			document.querySelector('[data-frame="desktop"]')?.closest('div')?.parentElement
+		).toBeTruthy();
+
+		await user.click(screen.getByRole('button', { name: 'Close preview' }));
+		expect(screen.queryByRole('dialog', { name: 'Client preview' })).toBeNull();
+	});
+
 	it('renders the share control inside Settings with a link built from the page origin', async () => {
 		const user = userEvent.setup();
 		open({ share_token: 'B'.repeat(22) });
