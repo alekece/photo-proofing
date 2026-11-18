@@ -299,7 +299,7 @@
 </script>
 
 <svelte:head><title>{saved.title ?? m.gallery_untitled()} — PhotoProofing</title></svelte:head>
-<AppHeader onsignout={logout} />
+<AppHeader onsignout={logout} legacy />
 {#if signOutError}
 	<p
 		role="alert"

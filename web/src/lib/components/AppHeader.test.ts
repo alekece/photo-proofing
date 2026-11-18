@@ -21,19 +21,28 @@ beforeEach(() => {
 });
 
 describe('AppHeader', () => {
-	it('shows the brand and main section pills with their active state', () => {
+	it('shows the brand and the rail links in order with their active state', () => {
 		render(AppHeader);
 
 		expect(screen.getByRole('link', { name: 'PhotoProofing' }).getAttribute('href')).toBe(
 			'/dashboard'
 		);
 
+		const nav = screen.getByRole('navigation', { name: 'Main sections' });
+		const links = nav.querySelectorAll('a');
+		const names = [...links].map((link) => link.textContent?.trim());
+
+		expect(names).toEqual(['Galleries', 'All Photos', 'Contacts', 'Activity']);
+
 		const galleries = screen.getByRole('link', { name: 'Galleries' });
+		const allPhotos = screen.getByRole('link', { name: 'All Photos' });
 		const contacts = screen.getByRole('link', { name: 'Contacts' });
 		const activity = screen.getByRole('link', { name: 'Activity' });
 
 		expect(galleries.getAttribute('href')).toBe('/dashboard');
 		expect(galleries.getAttribute('aria-current')).toBe('page');
+		expect(allPhotos.getAttribute('href')).toBe('/photos');
+		expect(allPhotos.getAttribute('aria-current')).toBeNull();
 		expect(contacts.getAttribute('href')).toBe('/contacts');
 		expect(contacts.getAttribute('aria-current')).toBeNull();
 		expect(activity.getAttribute('href')).toBe('/activity');
@@ -60,15 +69,25 @@ describe('AppHeader', () => {
 		expect(screen.getByRole('link', { name: 'Galleries' }).getAttribute('aria-current')).toBeNull();
 	});
 
-	it('links to Settings from the account menu', async () => {
+	it('marks All Photos as active when viewing /photos', () => {
+		state.page.url = new URL('http://localhost/photos');
 		render(AppHeader);
 
-		await userEvent.setup().click(screen.getByRole('button', { name: 'Account menu' }));
-
-		expect(screen.getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings');
+		expect(screen.getByRole('link', { name: 'All Photos' }).getAttribute('aria-current')).toBe(
+			'page'
+		);
+		expect(screen.getByRole('link', { name: 'Galleries' }).getAttribute('aria-current')).toBeNull();
 	});
 
-	it('calls onsignout when Sign out is pressed', async () => {
+	it('exposes direct Settings, language and account controls in the rail', () => {
+		render(AppHeader);
+
+		expect(screen.getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings');
+		expect(screen.getByRole('button', { name: 'Language: English' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Account menu' })).toBeTruthy();
+	});
+
+	it('calls onsignout when Sign out is pressed from the account menu', async () => {
 		const onsignout = vi.fn();
 		render(AppHeader, { onsignout });
 
@@ -87,6 +106,24 @@ describe('AppHeader', () => {
 		expect(screen.getByRole('button', { name: 'Notifications' })).toBeTruthy();
 	});
 
+	it('collapses into a compact row on small screens and a column rail on larger ones', () => {
+		render(AppHeader);
+
+		const nav = screen.getByRole('navigation', { name: 'Main sections' });
+
+		expect(nav.className).toContain('flex-wrap');
+		expect(nav.className).toContain('sm:flex-col');
+	});
+
+	it('keeps the legacy compact bar for gallery pages pending the gallery-specific rail', () => {
+		render(AppHeader, { legacy: true });
+
+		const nav = screen.getByRole('navigation', { name: 'Main sections' });
+
+		expect(nav.className).not.toContain('sm:flex-col');
+		expect(screen.queryByRole('link', { name: 'All Photos' })).toBeNull();
+	});
+
 	it('has no axe violations', async () => {
 		const { container } = render(AppHeader);
 
@@ -97,10 +134,11 @@ describe('AppHeader', () => {
 describe('AppHeader in French', () => {
 	useLocale('fr');
 
-	it('translates the navigation pills', async () => {
+	it('translates the rail links', async () => {
 		const { container } = render(AppHeader);
 
 		expect(screen.getByRole('link', { name: 'Galeries' })).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Toutes les photos' })).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'Contacts' })).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'Activité' }).getAttribute('href')).toBe('/activity');
 		expect((await axe(container)).violations).toEqual([]);

@@ -286,7 +286,7 @@
 
 <AppHeader onsignout={logout} />
 
-<main class="flex flex-1 flex-col px-3.5 pt-4 pb-12 sm:px-8 sm:pt-6">
+<main class="flex flex-1 flex-col px-3.5 pt-4 pb-12 sm:px-8 sm:pt-6 sm:pl-60">
 	{#if signOutError}
 		<p role="alert" class="mb-3 text-sm text-danger">{signOutError}</p>
 	{/if}
@@ -323,11 +323,11 @@
 	</div>
 
 	{#if loadFailed}
-		<EmptyState class="rounded-card border border-border bg-panel">
+		<EmptyState variant="plain" class="rounded-card">
 			<h2 class="text-[1.625rem] text-foreground sm:text-[1.75rem]">{m.contacts_load_failed()}</h2>
 		</EmptyState>
 	{:else if contacts.length === 0 && !creating}
-		<EmptyState class="rounded-card border border-border bg-panel py-14">
+		<EmptyState variant="plain" class="rounded-card py-14">
 			<Users size={28} aria-hidden="true" class="text-muted-foreground" />
 			<h2 class="text-[1.625rem] text-foreground sm:text-[1.75rem]">{m.contacts_empty()}</h2>
 			<p class="max-w-sm text-sm">{m.contacts_empty_body()}</p>

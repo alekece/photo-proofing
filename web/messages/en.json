@@ -302,9 +302,7 @@
 		}
 	],
 	"dashboard_empty": "No galleries in focus.",
-	"dashboard_empty_pun_1": "Say cheese… or at least “New gallery”.",
-	"dashboard_empty_pun_2": "Zero shots. Zero stress.",
-	"dashboard_empty_pun_3": "Your next hit is one click away.",
+	"dashboard_empty_body": "Create a gallery and it will show up here.",
 	"action_preview": "Preview",
 	"action_restore": "Restore",
 	"action_share": "Share",
@@ -684,6 +682,7 @@
 	"api_error_contact_email_taken": "A contact with this email already exists.",
 	"nav_sections": "Main sections",
 	"nav_galleries": "Galleries",
+	"nav_all_photos": "All Photos",
 	"nav_activity": "Activity",
 	"contacts_title": "Contacts",
 	"contacts_new": "+ New contact",
