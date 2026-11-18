@@ -172,8 +172,12 @@
 	let hasDraft = $derived([...selectedIds].some((id) => draftById.has(id)));
 
 	function toggleSelect(id: string) {
-		if (selectedIds.has(id)) selectedIds.delete(id);
-		else selectedIds.add(id);
+		if (selectedIds.has(id)) {
+			// Deselecting a card discards its draft too: a card that isn't selected has no
+			// Apply/Cancel path, so leaving its staged change behind would orphan it.
+			selectedIds.delete(id);
+			draftById.delete(id);
+		} else selectedIds.add(id);
 	}
 
 	function clearSelection() {
@@ -503,6 +507,7 @@
 	<SelectActions
 		count={selectedGalleries.length}
 		total={visible.length}
+		rail="dashboard"
 		onselectall={() => {
 			for (const gallery of visible) selectedIds.add(gallery.id);
 		}}

@@ -337,6 +337,10 @@ describe('dashboard', () => {
 			expect(screen.getByRole('link', { name: /Portraits/ }).getAttribute('href')).toBe(
 				'/dashboard/g2'
 			);
+			// Clears the dashboard's sm:w-60 rail, not the gallery studio's md:w-[16.5rem] one.
+			const bar = document.querySelector<HTMLElement>('[data-slot="select-actions"]')!;
+			expect(bar.className).toMatch(/sm:left-\[calc\(50%\+7\.5rem\)\]/);
+			expect(bar.className).not.toMatch(/md:left-/);
 
 			await user.click(screen.getByRole('button', { name: 'Select all' }));
 			expect(screen.getByText('2 selected')).toBeTruthy();
@@ -380,6 +384,33 @@ describe('dashboard', () => {
 			expect(cardTitles()).toEqual(['Wedding', 'Portraits']);
 			expect(screen.queryByText('Unapplied changes')).toBeNull();
 			expect(screen.queryByText(/selected/)).toBeNull();
+		});
+
+		it('discards the draft when a card is deselected, so no orphaned badge or draft remains', async () => {
+			const stored = new Map<string, GalleryOverview>([
+				['g1', gallery({ id: 'g1', title: 'Wedding' })],
+				['g2', gallery({ id: 'g2', title: 'Portraits' })]
+			]);
+			const fetcher = stubPatchAndDeleteFetch(stored);
+			const user = userEvent.setup();
+			render(Dashboard, { props: props([...stored.values()]) });
+
+			await user.click(screen.getByRole('button', { name: 'Select Portraits' }));
+			await user.click(screen.getByRole('button', { name: 'Favorite' }));
+			expect(screen.getByText('Unapplied changes')).toBeTruthy();
+
+			// Deselect the card's circle again, without ever applying or cancelling the draft.
+			await user.click(screen.getByRole('button', { name: 'Select Portraits' }));
+
+			expect(screen.queryByText(/selected/)).toBeNull();
+			expect(screen.queryByText('Unapplied changes')).toBeNull();
+
+			// Reselecting shows the real, unfavorited server state: the draft was discarded, not
+			// left behind for a later selection to silently inherit.
+			await user.click(screen.getByRole('button', { name: 'Select Portraits' }));
+			expect(screen.getByRole('button', { name: 'Favorite' })).toBeTruthy();
+			expect(screen.queryByText('Unapplied changes')).toBeNull();
+			expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
 		});
 
 		it('cancels a staged favorite and quick edit without mutating state or calling the server', async () => {

@@ -263,6 +263,7 @@
 	<SelectActions
 		count={mode.count}
 		total={favorites.length}
+		rail="gallery"
 		onselectall={() => mode.selectAll(favorites.map(({ id }) => id))}
 		onunselectall={() => mode.unselectAll()}
 		onexit={() => mode.leave()}

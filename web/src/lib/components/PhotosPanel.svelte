@@ -558,6 +558,7 @@
 		<SelectActions
 			count={selection.length}
 			total={photos.length}
+			rail="gallery"
 			onselectall={selectAll}
 			onunselectall={() => selected.clear()}
 			onexit={() => void finishSelecting()}
