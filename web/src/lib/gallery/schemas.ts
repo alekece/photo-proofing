@@ -135,6 +135,19 @@ export const sharedGalleryResponseSchema = v.union([
 	sharedGallerySchema
 ]);
 
+/** A ready photo in the workspace-wide All Photos list; mirrors the API's `WorkspacePhoto`. */
+export const workspacePhotoSchema = v.object({
+	id: v.string(),
+	gallery_id: v.string(),
+	/** The owning gallery's title; `null` for an untitled gallery. */
+	gallery_title: v.nullable(v.string()),
+	kind: v.picklist(['proof', 'final']),
+	revision: v.pipe(finite, v.integer(), v.minValue(0)),
+	width: finite,
+	height: finite,
+	created_at: v.string()
+});
+
 /** A photo a client may see; mirrors the API's `ReadyPhoto`. */
 export const sharedPhotoSchema = v.object({
 	id: v.string(),
@@ -276,6 +289,7 @@ export type LockedSharedGallery = v.InferOutput<typeof lockedSharedGallerySchema
 export type SharedGalleryResponse = v.InferOutput<typeof sharedGalleryResponseSchema>;
 export type SharedPhoto = v.InferOutput<typeof sharedPhotoSchema>;
 export type Photo = v.InferOutput<typeof photoSchema>;
+export type WorkspacePhoto = v.InferOutput<typeof workspacePhotoSchema>;
 export type PhotoStatus = v.InferOutput<typeof photoStatusSchema>;
 export type UploadLimits = v.InferOutput<typeof uploadLimitsSchema>;
 export type PhotoEvent = v.InferOutput<typeof photoEventSchema>;

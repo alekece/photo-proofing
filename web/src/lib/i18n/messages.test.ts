@@ -17,6 +17,7 @@ const SAME_IN_BOTH: string[] = [
 	'contacts_total',
 	'design_spacing_compact',
 	'header_notifications',
+	'photos_filter_type',
 	'settings_actions',
 	'share_add_contacts',
 	'studio_group_collection',

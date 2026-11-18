@@ -894,5 +894,21 @@
 	"activity_empty_title": "Aucune activité pour le moment",
 	"activity_empty_body": "Quand un client ouvre une galerie, choisit, commente ou télécharge, cela apparaît ici.",
 	"activity_empty_filtered": "Rien ne correspond à ces filtres.",
-	"activity_error": "Impossible de charger l’activité. Veuillez réessayer."
+	"activity_error": "Impossible de charger l’activité. Veuillez réessayer.",
+	"photos_kind_proof": "Épreuve",
+	"photos_kind_final": "Retouchée",
+	"photos_head": "Toutes les photos",
+	"photos_search": "Rechercher par galerie ou photo",
+	"photos_filter_gallery": "Galerie",
+	"photos_filter_gallery_all": "Toutes les galeries",
+	"photos_filter_type": "Type",
+	"photos_filter_type_all": "Tous les types",
+	"photos_sort": "Trier",
+	"photos_sort_newest": "Plus récentes",
+	"photos_sort_oldest": "Plus anciennes",
+	"photos_empty": "Pas encore de photos.",
+	"photos_empty_body": "Les épreuves prêtes et les photos retouchées de chaque galerie apparaissent ici.",
+	"photos_no_match": "Aucune photo ne correspond à ces filtres.",
+	"photos_clear_filters": "Effacer la recherche et les filtres",
+	"photos_download_some_failed": "Certaines photos n’ont pas pu être téléchargées. Veuillez réessayer."
 }

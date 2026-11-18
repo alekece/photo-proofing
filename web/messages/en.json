@@ -882,5 +882,21 @@
 	"activity_empty_title": "No activity yet",
 	"activity_empty_body": "When a client opens, picks, comments on or downloads from a gallery, it shows up here.",
 	"activity_empty_filtered": "Nothing matches these filters.",
-	"activity_error": "Activity could not be loaded. Please try again."
+	"activity_error": "Activity could not be loaded. Please try again.",
+	"photos_kind_proof": "Proof",
+	"photos_kind_final": "Final",
+	"photos_head": "All Photos",
+	"photos_search": "Search by gallery or photo",
+	"photos_filter_gallery": "Gallery",
+	"photos_filter_gallery_all": "All galleries",
+	"photos_filter_type": "Type",
+	"photos_filter_type_all": "All types",
+	"photos_sort": "Sort",
+	"photos_sort_newest": "Newest first",
+	"photos_sort_oldest": "Oldest first",
+	"photos_empty": "No photos yet.",
+	"photos_empty_body": "Ready proofs and finished photos from every gallery show up here.",
+	"photos_no_match": "No photos match these filters.",
+	"photos_clear_filters": "Clear search and filters",
+	"photos_download_some_failed": "Some photos couldn’t be downloaded. Please try again."
 }

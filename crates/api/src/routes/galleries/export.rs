@@ -237,6 +237,25 @@ mod tests {
             .cookie(cookie.clone())
     }
 
+    /// Inserts a ready final photo directly, skipping upload/processing.
+    async fn ready_final(pool: &PgPool, gallery_id: &str, name: &str) -> PhotoId {
+        let id = PhotoId::generate();
+
+        sqlx::query(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height,
+                                 status, kind)
+             SELECT $1, workspace_id, id, $3, 5, 2, 2, 'ready', 'final' FROM galleries WHERE id = $2",
+        )
+        .bind(id)
+        .bind(Uuid::parse_str(gallery_id).unwrap())
+        .bind(name)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        id
+    }
+
     #[sqlx::test(migrations = "../database/migrations")]
     async fn individual_original_is_an_owner_only_unchanged_attachment(pool: PgPool) {
         let directory = tempfile::tempdir().unwrap();
@@ -313,6 +332,61 @@ mod tests {
             .uri(&format!("{uri}?finals=true"))
             .cookie(cookie);
         assert_eq!(call(&app, finals).await.0, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn individual_final_original_is_downloadable_with_the_finals_query(pool: PgPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery_id = create_gallery(&app, &cookie).await;
+        let photo = ready_final(&pool, &gallery_id, "final.jpg").await;
+        let location = PhotoLocation {
+            workspace_id: sqlx::query_scalar("SELECT workspace_id FROM galleries WHERE id = $1")
+                .bind(Uuid::parse_str(&gallery_id).unwrap())
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            gallery_id: GalleryId(Uuid::parse_str(&gallery_id).unwrap()),
+        };
+        let storage = PhotoStorage::open(&PhotoDir::try_from(directory.path().to_owned()).unwrap())
+            .await
+            .unwrap();
+        let mut staged = storage.stage().await.unwrap();
+        staged.write(b"unchanged final").await.unwrap();
+        staged
+            .commit(&PhotoKey::with_location(location, photo, Variant::Original))
+            .await
+            .unwrap();
+        let uri = format!("/api/v1/galleries/{gallery_id}/photos/{photo}/download?finals=true");
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&uri)
+                .cookie(cookie.clone())
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get("content-disposition").unwrap(),
+            "attachment; filename=\"final.jpg\""
+        );
+        assert_eq!(test::read_body(response).await.as_ref(), b"unchanged final");
+
+        // The same id without `?finals=true` is a proof lookup, which this id never satisfies.
+        let proof_uri = format!("/api/v1/galleries/{gallery_id}/photos/{photo}/download");
+        assert_eq!(
+            call(
+                &app,
+                test::TestRequest::get().uri(&proof_uri).cookie(cookie)
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
