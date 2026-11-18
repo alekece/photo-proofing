@@ -81,7 +81,7 @@ calendar date picker, and any change to what the bell shows or how it is read.
   favorited photo is the photographer's action and still notifies. The `notifications` table, its read
   state and its endpoints do not change. A migration regression test proves the bell is identical before
   and after.
-- **API.** `GET /api/v1/activity` (workspace) and `GET /api/v1/galleries/{id}/activity` return lines with
+- **API.** `GET /api/v1/timeline` (workspace) and `GET /api/v1/galleries/{id}/timeline` return lines with
   gallery id and title, contact name (or none), kind, count, photo ids, detail and the two times, newest
   first, cursor-paged on `(last_at, id)`, 30 per page. Filters are server-side: `gallery`, `contact`
   (including anonymous), `kind` and `range` (`today`, `7d`, `30d`). The workspace feed hides archived

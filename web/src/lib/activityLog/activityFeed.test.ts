@@ -57,7 +57,7 @@ describe('ActivityFeed', () => {
 		await feed.load();
 
 		expect(fetcher.mock.calls[0]?.[0]).toBe(
-			'/api/v1/activity?gallery=g1&contact=anonymous&kind=comment&range=7d'
+			'/api/v1/timeline?gallery=g1&contact=anonymous&kind=comment&range=7d'
 		);
 		expect(ids(feed)).toEqual(['a']);
 		expect(feed.next).toBe('cursor-1');
@@ -69,7 +69,7 @@ describe('ActivityFeed', () => {
 
 		await feed.load();
 
-		expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/galleries/g%201/activity');
+		expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/galleries/g%201/timeline');
 	});
 
 	it('appends the next page without repeating a line', async () => {
@@ -84,7 +84,7 @@ describe('ActivityFeed', () => {
 		await feed.load();
 		await feed.loadMore();
 
-		expect(fetcher.mock.calls[1]?.[0]).toBe('/api/v1/activity?cursor=c1');
+		expect(fetcher.mock.calls[1]?.[0]).toBe('/api/v1/timeline?cursor=c1');
 		expect(ids(feed)).toEqual(['a', 'b']);
 		expect(feed.next).toBeNull();
 	});

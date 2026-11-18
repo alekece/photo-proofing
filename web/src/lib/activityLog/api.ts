@@ -58,8 +58,8 @@ export function listActivity(
 
 	const path =
 		galleryId === undefined
-			? '/api/v1/activity'
-			: `/api/v1/galleries/${encodeURIComponent(galleryId)}/activity`;
+			? '/api/v1/timeline'
+			: `/api/v1/galleries/${encodeURIComponent(galleryId)}/timeline`;
 	const suffix = query.size > 0 ? `?${query}` : '';
 
 	return requestJson(`${path}${suffix}`, { method: 'GET' }, activityPageSchema, fetcher);
