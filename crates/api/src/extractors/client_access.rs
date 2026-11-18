@@ -48,6 +48,7 @@ impl FromRequest for SharedLinkAccess {
                 Some(code) => state.cookie_signer().is_unlocked(
                     cookie_value.as_deref(),
                     access.location.gallery_id,
+                    &access.link_token,
                     code,
                 ),
             };

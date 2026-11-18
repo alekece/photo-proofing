@@ -183,6 +183,7 @@ async fn unlock_shared_gallery(
     let cookie_value = state.cookie_signer().unlock(
         existing.as_deref(),
         link.access.location.gallery_id,
+        &link.access.link_token,
         access_code,
     );
 
@@ -1748,6 +1749,37 @@ mod tests {
 
         let token = share(&app, &owner_cookie, &gallery_id).await;
 
+        // A second personal link on the same gallery, so unlocking one never unlocks the other.
+        let (_, dana_contact) = call(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/v1/contacts")
+                .insert_header(("Origin", ORIGIN))
+                .cookie(owner_cookie.clone())
+                .set_json(json!({"name": "Dana", "email": "dana@example.test"})),
+        )
+        .await;
+        let dana_contact_id = dana_contact["id"].as_str().unwrap();
+        call(
+            &app,
+            test::TestRequest::put()
+                .uri(&format!(
+                    "/api/v1/galleries/{gallery_id}/contacts/{dana_contact_id}"
+                ))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(owner_cookie.clone()),
+        )
+        .await;
+        let dana_token: String = sqlx::query_scalar(
+            "SELECT share_token FROM gallery_contacts
+             WHERE gallery_id = $1::uuid AND contact_id = $2::uuid",
+        )
+        .bind(&gallery_id)
+        .bind(dana_contact_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
         // Second protected gallery to verify multi-gallery cookie retention.
         let second_id = create_gallery(&app, &owner_cookie).await;
         call(
@@ -1852,7 +1884,8 @@ mod tests {
         let wrong_body: Value = test::read_body_json(wrong_res).await;
         assert_eq!(wrong_body["code"], "invalid_access_code");
 
-        // Correct code sets HttpOnly SameSite=Lax cookie and unlocks both general and contact tokens.
+        // Correct code sets an HttpOnly SameSite=Lax cookie and unlocks only the general link;
+        // the personal links on the very same gallery stay locked until unlocked on their own.
         let unlock_res = test::call_service(
             &app,
             test::TestRequest::post()
@@ -1876,7 +1909,144 @@ mod tests {
         );
         assert_eq!(unlock_cookie.path(), Some("/"));
 
-        for link in [&token, &contact_token] {
+        let (status, unlocked_general) = call(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/galleries/shared/{token}"))
+                .cookie(unlock_cookie.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(unlocked_general["locked"], false);
+        assert_eq!(unlocked_general["included_photos"], 20);
+
+        let (status, general_photos) = call(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/galleries/shared/{token}/photos"))
+                .cookie(unlock_cookie.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(general_photos.as_array().unwrap().len(), 1);
+
+        // Switching to either personal link on the same gallery reprompts: the general link's
+        // unlock never carries over.
+        for personal in [&contact_token, &dana_token] {
+            let (status, locked_body) = call(
+                &app,
+                test::TestRequest::get()
+                    .uri(&format!("/api/v1/galleries/shared/{personal}"))
+                    .cookie(unlock_cookie.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(locked_body["locked"], true);
+
+            let (status, locked_err) = call(
+                &app,
+                test::TestRequest::get()
+                    .uri(&format!("/api/v1/galleries/shared/{personal}/photos"))
+                    .cookie(unlock_cookie.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(locked_err["code"], "gallery_locked");
+        }
+
+        // Unlocking Claire's personal link authorizes only that link: Dana's link and the
+        // general link (already unlocked above) remain independent.
+        let claire_unlock_res = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/shared/{contact_token}/unlock"))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(unlock_cookie.clone())
+                .set_json(json!({"code": "042819"}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(claire_unlock_res.status(), StatusCode::NO_CONTENT);
+        let two_links_cookie = claire_unlock_res
+            .response()
+            .cookies()
+            .find(|c| c.name() == UNLOCK_COOKIE_NAME)
+            .unwrap()
+            .into_owned();
+
+        let (status, claire_body) = call(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/galleries/shared/{contact_token}"))
+                .cookie(two_links_cookie.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(claire_body["locked"], false);
+
+        let (status, dana_still_locked) = call(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/v1/galleries/shared/{dana_token}"))
+                .cookie(two_links_cookie.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(dana_still_locked["locked"], true);
+
+        // Unlocking Dana's link independently brings all three links on this gallery unlocked
+        // at once, each authorized by its own entry.
+        let dana_unlock_res = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/shared/{dana_token}/unlock"))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(two_links_cookie)
+                .set_json(json!({"code": "042819"}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(dana_unlock_res.status(), StatusCode::NO_CONTENT);
+        let all_links_cookie = dana_unlock_res
+            .response()
+            .cookies()
+            .find(|c| c.name() == UNLOCK_COOKIE_NAME)
+            .unwrap()
+            .into_owned();
+
+        for link in [&token, &contact_token, &dana_token] {
+            let (status, unlocked_body) = call(
+                &app,
+                test::TestRequest::get()
+                    .uri(&format!("/api/v1/galleries/shared/{link}"))
+                    .cookie(all_links_cookie.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(unlocked_body["locked"], false);
+        }
+
+        // Reusing an already-unlocked link (the general link again) is idempotent and keeps
+        // every other link on the gallery unlocked.
+        let reuse_res = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/v1/galleries/shared/{token}/unlock"))
+                .insert_header(("Origin", ORIGIN))
+                .cookie(all_links_cookie)
+                .set_json(json!({"code": "042819"}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(reuse_res.status(), StatusCode::NO_CONTENT);
+        let unlock_cookie = reuse_res
+            .response()
+            .cookies()
+            .find(|c| c.name() == UNLOCK_COOKIE_NAME)
+            .unwrap()
+            .into_owned();
+
+        for link in [&token, &contact_token, &dana_token] {
             let (status, unlocked_body) = call(
                 &app,
                 test::TestRequest::get()
@@ -1886,17 +2056,6 @@ mod tests {
             .await;
             assert_eq!(status, StatusCode::OK);
             assert_eq!(unlocked_body["locked"], false);
-            assert_eq!(unlocked_body["included_photos"], 20);
-
-            let (status, photos) = call(
-                &app,
-                test::TestRequest::get()
-                    .uri(&format!("/api/v1/galleries/shared/{link}/photos"))
-                    .cookie(unlock_cookie.clone()),
-            )
-            .await;
-            assert_eq!(status, StatusCode::OK);
-            assert_eq!(photos.as_array().unwrap().len(), 1);
         }
 
         // Unlocking second gallery keeps the first gallery unlocked in the same cookie.

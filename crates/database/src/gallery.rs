@@ -1011,7 +1011,8 @@ impl GalleryRepository<'_> {
                     (SELECT p.id FROM photos p
                      WHERE p.id = g.hero_id AND p.clean_ready AND p.kind = 'proof'
                        AND p.gallery_id = g.id AND p.workspace_id = g.workspace_id) AS hero_id,
-                    matched.contact_id
+                    matched.contact_id,
+                    $1 AS link_token
              FROM (
                  SELECT id AS gallery_id, NULL::uuid AS contact_id
                  FROM galleries
