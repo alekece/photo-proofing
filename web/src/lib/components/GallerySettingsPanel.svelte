@@ -15,7 +15,7 @@
 
 	/**
 	 * Studio `Settings` view, split into three Warm Paper cards:
-	 * 1. General (`Shoot date`, `Included photos`, `Open until`)
+	 * 1. General (`Shoot date`, `Open until`, `Included photos`)
 	 * 2. Privacy & Protection (`Client link`, `Enable watermarks`)
 	 * 3. Actions (`Archive` / `Restore`, `Delete`)
 	 */
@@ -285,6 +285,20 @@
 			/>
 		</div>
 		<div class={row}>
+			<Label for="expiry" class="shrink-0 text-foreground">{m.expiry_open_until()}</Label>
+			<DatePicker
+				id="expiry"
+				placeholder="–"
+				align="end"
+				presets
+				rootClass="w-44 min-w-0"
+				class="min-h-0 w-full rounded-lg bg-white px-2.5 py-1.5 text-sm font-semibold [&>span]:flex-1 [&>span]:text-center"
+				value={expiryDay || null}
+				clearable
+				onchange={setExpiry}
+			/>
+		</div>
+		<div class={row}>
 			<Label for="included" class="text-foreground">{m.settings_included()}</Label>
 			<Input
 				id="included"
@@ -303,20 +317,6 @@
 					cancel('included_photos');
 					saveIncluded(true);
 				}}
-			/>
-		</div>
-		<div class={row}>
-			<Label for="expiry" class="shrink-0 text-foreground">{m.expiry_open_until()}</Label>
-			<DatePicker
-				id="expiry"
-				placeholder="–"
-				align="end"
-				presets
-				rootClass="w-44 min-w-0"
-				class="min-h-0 w-full rounded-lg bg-white px-2.5 py-1.5 text-sm font-semibold [&>span]:flex-1 [&>span]:text-center"
-				value={expiryDay || null}
-				clearable
-				onchange={setExpiry}
 			/>
 		</div>
 	</Card>

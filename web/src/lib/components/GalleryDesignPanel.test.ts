@@ -171,6 +171,69 @@ describe('GalleryDesignPanel', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
+	it('orders cover image, Change/Remove, then focal point ahead of the compact sections', async () => {
+		const { container } = setup({ hero_id: 'p1' });
+
+		await waitFor(() => expect(screen.getAllByText('Studio Lune').length).toBeGreaterThan(0));
+
+		const image = container.querySelector('[data-slot="design-cover-image"]');
+		const actions = container.querySelector('[data-slot="design-cover-actions"]');
+		const focal = container.querySelector('[data-slot="design-cover-focal"]');
+
+		expect(image).toBeTruthy();
+		expect(actions).toBeTruthy();
+		expect(focal).toBeTruthy();
+		expect(
+			image!.compareDocumentPosition(actions!) & Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+		expect(
+			actions!.compareDocumentPosition(focal!) & Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+
+		const coverStyleHeading = screen.getByRole('heading', { name: 'Cover style' });
+		expect(
+			focal!.compareDocumentPosition(coverStyleHeading) & Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+
+		const typographyHeading = screen.getByRole('heading', { name: 'Typography' });
+		expect(
+			coverStyleHeading.compareDocumentPosition(typographyHeading) &
+				Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+	});
+
+	it('splits into a one-third controls / two-thirds preview layout at lg and omits the inline stage below it', async () => {
+		const { container } = setup();
+
+		await waitFor(() => expect(screen.getAllByText('Studio Lune').length).toBeGreaterThan(0));
+
+		const splitRoot = container.querySelector('[data-slot="design-split"]');
+		expect(splitRoot).toBeTruthy();
+		expect(splitRoot!.className).toMatch(/lg:grid-cols-\[minmax\([^)]+\)_minmax\([^)]+\)\]/);
+
+		const previewStage = screen.getByRole('region', { name: 'Client preview' });
+		expect(previewStage.className).toContain('hidden');
+		expect(previewStage.className).toContain('lg:flex');
+	});
+
+	it('opens a full-screen preview from "Open full preview" reflecting unsaved design edits', async () => {
+		const { container, user } = setup({ hero_id: 'p1' });
+
+		await waitFor(() => expect(screen.getByRole('list', { name: 'Proofs' })).toBeTruthy());
+
+		await user.click(screen.getByRole('button', { name: 'Split editorial' }));
+
+		await user.click(screen.getByRole('button', { name: 'Open full preview' }));
+
+		const dialog = screen.getByRole('dialog', { name: 'Client preview' });
+		expect(dialog).toBeTruthy();
+		expect(within(dialog).queryByRole('button', { name: 'Open full preview' })).toBeNull();
+		expect(container.querySelector('[data-cover-layout="split"]')).toBeTruthy();
+
+		await user.click(within(dialog).getByRole('button', { name: 'Close preview' }));
+		expect(screen.queryByRole('dialog', { name: 'Client preview' })).toBeNull();
+	});
+
 	it('picks, changes, and removes the cover photo over ready proof photos only', async () => {
 		stubPreviewFetch([
 			readyPhoto('p1', 'Ceremony.jpg'),

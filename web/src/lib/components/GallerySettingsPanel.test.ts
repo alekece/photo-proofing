@@ -67,6 +67,29 @@ describe('GallerySettingsPanel', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
+	it('orders General rows as Shoot date, Open until, Included photos', () => {
+		setup();
+
+		const labels = screen
+			.getAllByText(/^(Shoot date|Open until|Included photos)$/)
+			.map((node) => node.textContent);
+
+		expect(labels).toEqual(['Shoot date', 'Open until', 'Included photos']);
+	});
+
+	it('keeps Archive and Delete as distinct lifecycle actions in Actions', () => {
+		setup();
+
+		const actionsCard = screen.getByRole('heading', { name: 'Actions' }).closest('section')!;
+		const archiveButton = within(actionsCard).getByRole('button', { name: 'Archive' });
+		const deleteButton = within(actionsCard).getByRole('button', { name: 'Delete' });
+
+		expect(archiveButton).not.toBe(deleteButton);
+		expect(
+			archiveButton.compareDocumentPosition(deleteButton) & Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+	});
+
 	it('says a draft is not shared, offers Share link, and reveals Copy once shared', async () => {
 		const first = setup();
 

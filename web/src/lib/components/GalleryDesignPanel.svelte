@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { Check, Eye, ImagePlus, RotateCcw, X } from '@lucide/svelte';
+	import { Check, Eye, ImagePlus, Maximize2, RotateCcw, X } from '@lucide/svelte';
 	import ClientGallery from '#lib/components/ClientGallery.svelte';
+	import ClientPreview from '#lib/components/ClientPreview.svelte';
 	import PreviewFrame from '#lib/components/PreviewFrame.svelte';
 	import LayoutRowsIcon from '#lib/components/icons/LayoutRowsIcon.svelte';
 	import LayoutStaggeredIcon from '#lib/components/icons/LayoutStaggeredIcon.svelte';
@@ -43,9 +44,11 @@
 	];
 
 	/**
-	 * Studio `Design` view: two-column workspace with cover picker, four cover templates,
-	 * rule-of-thirds focal-point pad, heading typography presets, photo grid layout/density/spacing
-	 * controls, and a live scrollable client preview.
+	 * Studio `Design` view: compact controls (cover image, Change/Remove, focal point, then the
+	 * cover style/typography/grid sections) alongside a live client preview. At `lg` and up this is
+	 * a one-third/two-thirds split with the inline preview growing with the page (no fixed height
+	 * or own scrollbar); below `lg` the inline stage is omitted and "Open full preview" (plus the
+	 * gallery content header's Preview action) opens the same full-screen `ClientPreview` modal.
 	 */
 	let {
 		gallery,
@@ -144,6 +147,7 @@
 	});
 
 	let pickingCover = $state(false);
+	let expanded = $state(false);
 	let draggingFocal = $state(false);
 	let previewMode = $state<PreviewViewport>('desktop');
 	// svelte-ignore state_referenced_locally
@@ -167,6 +171,18 @@
 	const isDefaultFocal = $derived(
 		localFocal.x === DEFAULT_FOCAL_POINT.x && localFocal.y === DEFAULT_FOCAL_POINT.y
 	);
+	// Carries unsaved local edits (layout, cover, focal point...) into both the embedded live
+	// preview and the "Open full preview" overlay, so neither waits on a PATCH to reflect them.
+	const previewGallery = $derived<Gallery>({
+		...gallery,
+		layout: design.layout,
+		cover_layout: design.cover_layout,
+		focal_point: localFocal,
+		heading_font: design.heading_font,
+		grid_density: design.grid_density,
+		grid_spacing: design.grid_spacing,
+		hero_id: localHeroId
+	});
 
 	const layouts = $derived([
 		{ id: 'masonry', label: m.settings_layout_masonry(), icon: LayoutStaggeredIcon },
@@ -440,7 +456,8 @@
 	<h2 class="text-2xl leading-tight">{m.tab_design()}</h2>
 
 	<div
-		class="grid items-start gap-5 lg:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]"
+		data-slot="design-split"
+		class="grid items-start gap-5 lg:grid-cols-[minmax(20rem,1fr)_minmax(0,2fr)]"
 	>
 		<div class="grid gap-4">
 			<Card as="section" class="gap-4 {sectionCard}">
@@ -448,7 +465,27 @@
 					{m.design_cover()}
 				</h3>
 
-				<div class="flex flex-wrap items-center gap-2">
+				<div
+					data-slot="design-cover-image"
+					aria-hidden="true"
+					class="relative aspect-[3/2] w-full overflow-hidden rounded-[0.625rem] border border-border bg-dark"
+				>
+					{#if coverImageUrl}
+						<img
+							src={coverImageUrl}
+							alt=""
+							style:object-position="{localFocal.x}% {localFocal.y}%"
+							class="pointer-events-none size-full object-cover select-none"
+						/>
+					{:else}
+						<span
+							aria-hidden="true"
+							class="absolute inset-0 bg-[radial-gradient(80%_120%_at_20%_100%,#3a2a20,transparent_70%),linear-gradient(160deg,#2b211b,#16120f_70%)]"
+						></span>
+					{/if}
+				</div>
+
+				<div data-slot="design-cover-actions" class="flex flex-wrap items-center gap-2">
 					<Button variant="outline" size="sm" onclick={() => (pickingCover = true)}>
 						<ImagePlus size={15} aria-hidden="true" class="mr-1.5" />
 						{hasCover ? m.design_change_cover() : m.design_select_cover()}
@@ -460,27 +497,7 @@
 					{/if}
 				</div>
 
-				<div class="grid gap-2">
-					<span class="text-sm text-foreground">{m.design_cover_style()}</span>
-					<div role="group" aria-label={m.design_cover_style()} class="grid grid-cols-2 gap-2">
-						{#each coverTemplates as item (item.id)}
-							{@const selected = design.cover_layout === item.id}
-							<button
-								type="button"
-								aria-pressed={selected}
-								onclick={() => void setDesignField('cover_layout', item.id)}
-								class="flex cursor-pointer flex-col gap-1.5 rounded-[0.625rem] border p-2 text-left text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus {selected
-									? 'border-foreground bg-foreground text-panel'
-									: 'border-border bg-background text-foreground hover:border-border-strong'}"
-							>
-								{@render templateDiagram(item.id, selected)}
-								<span class="truncate">{item.label}</span>
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<div class="grid gap-2">
+				<div data-slot="design-cover-focal" class="grid gap-2">
 					<div class="flex items-center justify-between gap-2 text-sm">
 						<span class="text-foreground">{m.design_focal_point()}</span>
 						<div class="flex items-center gap-2">
@@ -566,6 +583,28 @@
 
 			<Card as="section" class={sectionCard}>
 				<h3 class={sectionHeading}>
+					{m.design_cover_style()}
+				</h3>
+				<div role="group" aria-label={m.design_cover_style()} class="grid grid-cols-2 gap-2">
+					{#each coverTemplates as item (item.id)}
+						{@const selected = design.cover_layout === item.id}
+						<button
+							type="button"
+							aria-pressed={selected}
+							onclick={() => void setDesignField('cover_layout', item.id)}
+							class="flex cursor-pointer flex-col gap-1.5 rounded-[0.625rem] border p-2 text-left text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus {selected
+								? 'border-foreground bg-foreground text-panel'
+								: 'border-border bg-background text-foreground hover:border-border-strong'}"
+						>
+							{@render templateDiagram(item.id, selected)}
+							<span class="truncate">{item.label}</span>
+						</button>
+					{/each}
+				</div>
+			</Card>
+
+			<Card as="section" class={sectionCard}>
+				<h3 class={sectionHeading}>
 					{m.design_typography()}
 				</h3>
 				<div role="group" aria-label={m.design_heading_font()} class="grid grid-cols-2 gap-2">
@@ -637,13 +676,9 @@
 
 		<section
 			aria-label={m.preview_label()}
-			class="flex min-w-0 flex-col overflow-hidden rounded-[0.875rem] border border-border bg-[#1d1815] shadow-[0_18px_40px_-24px_rgb(43_36_32/0.45)]"
+			class="hidden min-w-0 flex-col overflow-hidden rounded-[0.875rem] border border-border bg-[#1d1815] shadow-[0_18px_40px_-24px_rgb(43_36_32/0.45)] lg:flex"
 		>
-			<PreviewFrame
-				bind:mode={previewMode}
-				stageClass="h-[min(740px,calc(100dvh-11rem))] min-h-[520px]"
-				phoneClass="h-full max-h-[660px]"
-			>
+			<PreviewFrame bind:mode={previewMode} stageClass="flex-1" scrollable={false}>
 				{#snippet header(toggle)}
 					<div
 						class="flex flex-wrap items-center justify-between gap-2.5 border-b border-[#3b322b] bg-foreground px-4 py-2.5 text-sm font-medium text-[#efe6da]"
@@ -653,22 +688,20 @@
 							<span>{m.preview_label()}</span>
 						</span>
 						{@render toggle()}
+						<button
+							type="button"
+							onclick={() => (expanded = true)}
+							class="flex cursor-pointer items-center gap-1.5 rounded-full border border-[#4a3f37] px-3.5 py-[7px] text-[0.8125rem] font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+						>
+							<Maximize2 size={14} aria-hidden="true" />
+							{m.preview_open_full()}
+						</button>
 					</div>
 				{/snippet}
 
 				{#if opened}
 					<ClientGallery
-						gallery={{
-							...gallery,
-							layout: design.layout,
-							cover_layout: design.cover_layout,
-							focal_point: localFocal,
-							heading_font: design.heading_font,
-							grid_density: design.grid_density,
-							grid_spacing: design.grid_spacing,
-							hero_id: localHeroId,
-							delivered
-						}}
+						gallery={{ ...previewGallery, delivered }}
 						coverUrl={coverImageUrl}
 						proofs={previewProofs}
 						favorites={previewFavorites}
@@ -686,6 +719,15 @@
 		</section>
 	</div>
 </div>
+
+{#if expanded}
+	<ClientPreview
+		gallery={previewGallery}
+		{settings}
+		{heroRevision}
+		onclose={() => (expanded = false)}
+	/>
+{/if}
 
 {#if pickingCover}
 	<Dialog
