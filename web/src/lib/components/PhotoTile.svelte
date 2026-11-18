@@ -89,7 +89,7 @@
 		onhero?: () => void;
 		commentCount?: number;
 		/**
-		 * Shows a always-present selection circle alongside `onopen`, instead of the two being
+		 * Shows an always-present selection circle alongside `onopen`, instead of the two being
 		 * mutually exclusive: the tile opens on click, and the circle (not the tile) toggles
 		 * `selected`. Requires both `onopen` and `onselect`.
 		 */
@@ -244,7 +244,8 @@
 			<button
 				type="button"
 				class={[
-					'absolute top-2 left-2 grid size-[1.875rem] cursor-pointer place-items-center rounded-full bg-panel/95',
+					'absolute top-2 grid size-[1.875rem] cursor-pointer place-items-center rounded-full bg-panel/95',
+					persistentSelect && onselect ? 'left-10' : 'left-2',
 					hero ? 'text-hero opacity-100' : `text-foreground ${reveal}`
 				]}
 				aria-label={hero ? m.cover_remove() : m.cover_set()}

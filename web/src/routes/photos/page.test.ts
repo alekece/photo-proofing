@@ -23,6 +23,7 @@ const photo = (over: Partial<WorkspacePhoto> = {}): WorkspacePhoto => ({
 	id: 'p1',
 	gallery_id: 'g1',
 	gallery_title: 'Wedding',
+	original_name: 'DSC_1234.jpg',
 	kind: 'proof',
 	revision: 0,
 	width: 4,
@@ -140,12 +141,21 @@ describe('/photos page', () => {
 		expect(titlesInOrder()[0]).toMatch(/Older/);
 	});
 
-	it('opens the source gallery from a tile without selecting it', async () => {
+	it.each(['proof', 'final'] as const)('opens a %s in its source gallery viewer', async (kind) => {
 		const user = userEvent.setup();
-		open([photo({ id: 'p1', gallery_id: 'g1', gallery_title: 'Wedding' })]);
+		open([photo({ id: 'p1', gallery_id: 'g1', gallery_title: 'Wedding', kind })]);
 
 		await user.click(screen.getByRole('button', { name: /^Open/ }));
-		expect(goto).toHaveBeenCalledWith('/dashboard/g1');
+		expect(goto).toHaveBeenCalledWith(`/dashboard/g1?photo=p1&kind=${kind}`);
+	});
+
+	it('shows and searches the original filename', async () => {
+		open([photo()]);
+		expect(screen.getByText('DSC_1234.jpg')).toBeTruthy();
+		await userEvent
+			.setup()
+			.type(screen.getByRole('searchbox', { name: 'Search by gallery or photo' }), 'dsc_1234');
+		expect(screen.getByRole('button', { name: /^Open.*DSC_1234/ })).toBeTruthy();
 	});
 
 	it('selects photos from their circle, offers select all, and shows only Download and Delete', async () => {

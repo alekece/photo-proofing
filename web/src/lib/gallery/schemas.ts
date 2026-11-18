@@ -138,6 +138,7 @@ export const sharedGalleryResponseSchema = v.union([
 /** A ready photo in the workspace-wide All Photos list; mirrors the API's `WorkspacePhoto`. */
 export const workspacePhotoSchema = v.object({
 	id: v.string(),
+	original_name: v.string(),
 	gallery_id: v.string(),
 	/** The owning gallery's title; `null` for an untitled gallery. */
 	gallery_title: v.nullable(v.string()),

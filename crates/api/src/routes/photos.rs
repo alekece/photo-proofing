@@ -90,7 +90,7 @@ mod tests {
             kind,
             workspace_id: location.workspace_id,
             gallery_id: location.gallery_id,
-            original_name: "photo.jpg".to_owned(),
+            original_name: "../private\\photo\r\n.jpg".to_owned(),
             size: NonZeroU64::new(1024).unwrap(),
             dimensions: PhotoDimensions {
                 width: NonZeroU32::new(20).unwrap(),
@@ -255,8 +255,9 @@ mod tests {
             assert!(row.get("width").is_some());
             assert!(row.get("height").is_some());
             assert!(row.get("created_at").is_some());
+            assert_eq!(row["original_name"], "photo.jpg");
 
-            for forbidden in ["original_name", "share_token", "access_code", "size"] {
+            for forbidden in ["original_path", "share_token", "access_code", "size"] {
                 assert!(
                     row.get(forbidden).is_none(),
                     "row must not expose {forbidden}"

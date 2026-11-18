@@ -119,6 +119,10 @@ Opening a tile opens the photo in its gallery context. Per-photo actions remain 
 workspace photo view does not expose invalid actions merely because another gallery tab supports
 them.
 
+The index shows and searches the uploaded basename, stripped of directory segments and control
+characters by the photographer-only API. Source links carry the photo id and Proof/Final kind in
+the gallery URL; the matching collection opens its existing viewer once that photo has loaded.
+
 All Photos is for archive-wide maintenance, so a selection may contain any mix of galleries, proof
 photos, final photos, and favorite state. Its floating action bar offers Download and Delete for that
 mix. Set as cover and other gallery-specific actions remain in the source gallery. Deletion still

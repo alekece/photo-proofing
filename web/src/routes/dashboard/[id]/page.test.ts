@@ -8,7 +8,8 @@ vi.mock('$app/navigation', () => ({
 	beforeNavigate: vi.fn(),
 	goto: vi.fn()
 }));
-vi.mock('$app/state', () => ({ page: { url: new URL('https://pp.test/dashboard/g1') } }));
+const state = vi.hoisted(() => ({ page: { url: new URL('https://pp.test/dashboard/g1') } }));
+vi.mock('$app/state', () => state);
 // The photos tab has its own tests; here it only has to receive the gallery.
 vi.mock('#lib/components/PhotosPanel.svelte', async () => ({
 	default: (await import('#lib/components/PhotosPanelStub.test.svelte')).default
@@ -96,6 +97,7 @@ const stubApi = (status = 200) => {
 };
 
 beforeEach(() => {
+	state.page.url = new URL('https://pp.test/dashboard/g1');
 	vi.mocked(goto).mockClear();
 	toasts.items = [];
 });
@@ -105,6 +107,12 @@ afterEach(() => {
 });
 
 describe('gallery page', () => {
+	it.each(['proof', 'final'] as const)('opens the source %s collection from the URL', (kind) => {
+		state.page.url = new URL(`https://pp.test/dashboard/g1?photo=p2&kind=${kind}`);
+		open();
+		expect(screen.getByRole('tabpanel').id).toBe(kind === 'final' ? 'panel-final' : 'panel-photos');
+	});
+
 	it('marks the gallery notifications read on open and when moving to another gallery', async () => {
 		vi.stubGlobal('fetch', async () => Response.json({ notifications: [], unread: 0 }));
 		const center = new NotificationCenter();

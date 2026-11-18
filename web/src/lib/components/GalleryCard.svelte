@@ -62,6 +62,7 @@
 			{status}
 			dot
 			cover
+			workspace
 			class="absolute top-2 right-2 px-2 py-[3px] text-[0.65625rem] sm:top-3 sm:right-3 sm:px-2.5 sm:py-1 sm:text-xs"
 		/>
 		<div class="absolute inset-x-0 bottom-0 px-3 py-2.5 sm:px-[1.125rem] sm:py-4">

@@ -104,6 +104,8 @@ pub struct ReadyPhoto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, FromRow)]
 pub struct WorkspacePhoto {
     pub id: PhotoId,
+    /// The uploaded basename without directory segments or control characters.
+    pub original_name: String,
     pub gallery_id: GalleryId,
     /// `None` means the gallery has no title yet.
     pub gallery_title: Option<String>,
@@ -139,8 +141,11 @@ impl Photo {
     /// A safe attachment name: the last path segment of the uploaded name, without control
     /// characters, or `photo.jpg` when nothing usable is left.
     pub fn download_name(&self) -> String {
-        let name: String = self
-            .original_name
+        Self::safe_name(&self.original_name)
+    }
+
+    fn safe_name(original_name: &str) -> String {
+        let name: String = original_name
             .rsplit(['/', '\\'])
             .next()
             .unwrap_or_default()
@@ -443,8 +448,8 @@ impl PhotoRepository<'_> {
         &self,
         workspace_id: WorkspaceId,
     ) -> Result<Vec<WorkspacePhoto>, DatabaseError> {
-        Ok(sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT p.id, p.gallery_id, g.title AS gallery_title, p.kind, p.revision,
+        let mut photos: Vec<WorkspacePhoto> = sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT p.id, p.original_name, p.gallery_id, g.title AS gallery_title, p.kind, p.revision,
                     p.width, p.height, p.created_at
              FROM photos AS p
              JOIN galleries AS g ON g.id = p.gallery_id
@@ -454,7 +459,13 @@ impl PhotoRepository<'_> {
         )))
         .bind(workspace_id)
         .fetch_all(self.pool)
-        .await?)
+        .await?;
+
+        for photo in &mut photos {
+            photo.original_name = Photo::safe_name(&photo.original_name);
+        }
+
+        Ok(photos)
     }
 
     /// Counts photos in `location` of `kind` whose files for `variant` are ready.

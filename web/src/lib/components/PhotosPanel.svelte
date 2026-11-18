@@ -3,7 +3,7 @@
 	import { CommentsClient } from '#lib/gallery/comments.js';
 	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
 	import CommentThread from './CommentThread.svelte';
-	import { CircleCheck, ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
+	import { ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -47,7 +47,8 @@
 		heroRevision = $bindable(),
 		layout = 'masonry',
 		oncount,
-		set = 'photos'
+		set = 'photos',
+		openPhotoId
 	}: {
 		galleryId: string;
 		heroId?: string | null;
@@ -59,6 +60,8 @@
 		/** Whether the gallery has watermarking on. */
 		/** The client proofs, or the photographer's finished photos, which have no hero or favorites. */
 		set?: PhotoSet;
+		/** Opens this photo once it has loaded, for a source-context link from All Photos. */
+		openPhotoId?: string;
 	} = $props();
 
 	const finals = $derived(set === 'finals');
@@ -85,10 +88,21 @@
 	let deletingSelection = $state<Photo[] | null>(null);
 	/** A one-off message, and the summary it went out with: it is cleared when that changes. */
 	let announcement = $state<{ text: string; summary: string } | null>(null);
-	let selectButton = $state<HTMLButtonElement | null>(null);
 	let uploadButton = $state<HTMLElement | null>(null);
 	let grid = $state<HTMLUListElement | null>(null);
 	const selected = new SvelteSet<string>();
+	let openedPhoto: string | undefined;
+
+	$effect(() => {
+		const key = `${galleryId}/${set}/${openPhotoId ?? ''}`;
+		const index = openPhotoId ? photos.findIndex(({ id }) => id === openPhotoId) : -1;
+
+		if (index !== -1 && openedPhoto !== key) {
+			openedPhoto = key;
+			viewIndex = index;
+			viewing = true;
+		}
+	});
 
 	// Bookkeeping that nothing renders. `shown` is bumped whenever the panel stops showing a
 	// gallery, by a change of gallery or unmounting, so a late list answer can tell it is stale.
@@ -391,14 +405,15 @@
 		selected.clear();
 	}
 
-	/** Leaves select mode from its own controls, which vanish, so focus lands back on Select. */
+	/** Returns focus to the persistent upload control when the floating bar disappears. */
 	async function finishSelecting() {
 		leaveSelectMode();
 		await tick();
-		(selectButton?.disabled ? uploadButton : selectButton)?.focus();
+		uploadButton?.focus();
 	}
 
 	function toggle(id: string) {
+		selecting = true;
 		if (!selected.delete(id)) selected.add(id);
 	}
 
@@ -513,36 +528,20 @@
 	ondragleave={() => (dragging = false)}
 	{ondrop}
 >
-	<div
-		class={[
-			'flex flex-wrap items-center justify-end gap-2',
-			selecting && !updatingWatermarks && 'hidden'
-		]}
-	>
+	<div class="flex flex-wrap items-center justify-end gap-2">
 		{#if updatingWatermarks}
 			<p class="mr-auto flex items-center gap-2 text-sm text-muted-foreground">
 				<LoaderCircle size={16} class="animate-spin-slow" aria-hidden="true" />
 				{m.photos_updating_watermarks()}
 			</p>
 		{/if}
-		{#if !selecting}
-			<Button
-				bind:ref={selectButton}
-				variant="outline"
-				size="sm"
-				class="min-h-9! gap-1.5"
-				disabled={photos.length === 0}
-				onclick={() => (selecting = true)}
-				><CircleCheck size={16} aria-hidden="true" />{m.action_select()}</Button
-			>
-			<Button
-				bind:ref={uploadButton}
-				size="sm"
-				class="min-h-9! gap-1.5"
-				onclick={() => picker?.click()}
-				><Upload size={16} aria-hidden="true" />{m.action_upload()}</Button
-			>
-		{/if}
+		<Button
+			bind:ref={uploadButton}
+			size="sm"
+			class="min-h-9! gap-1.5"
+			onclick={() => picker?.click()}
+			><Upload size={16} aria-hidden="true" />{m.action_upload()}</Button
+		>
 		<input
 			bind:this={picker}
 			type="file"
@@ -618,12 +617,13 @@
 						caption={finals && photo.downloaded_at
 							? { kind: 'downloaded', at: photo.downloaded_at }
 							: undefined}
-						onremove={() => (confirming = photo)}
-						onretry={() => retry(photo)}
+						onremove={selecting ? undefined : () => (confirming = photo)}
+						onretry={selecting ? undefined : () => retry(photo)}
 						onopen={() => open(photo)}
 						hero={!finals && photo.id === heroId}
-						onhero={finals ? undefined : () => toggleHero(photo)}
-						onselect={selecting ? () => toggle(photo.id) : undefined}
+						onhero={finals || selecting ? undefined : () => toggleHero(photo)}
+						persistentSelect
+						onselect={() => toggle(photo.id)}
 					/>
 				</li>
 			{/each}

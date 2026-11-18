@@ -64,6 +64,7 @@
 
 			return (
 				galleryLabel(entry).toLowerCase().includes(needle) ||
+				entry.original_name.toLowerCase().includes(needle) ||
 				entry.id.toLowerCase().includes(needle)
 			);
 		});
@@ -295,7 +296,7 @@
 	{:else}
 		<ul aria-label={m.photos_head()} class={GRID_CLASSES.grid}>
 			{#each visible as entry (entry.id)}
-				{@const name = `${galleryLabel(entry)} — ${
+				{@const name = `${galleryLabel(entry)} — ${entry.original_name} — ${
 					entry.kind === 'final' ? m.photos_kind_final() : m.photos_kind_proof()
 				}`}
 				<li>
@@ -312,10 +313,16 @@
 							entry.revision
 						)}
 						selected={selectedIds.has(entry.id)}
-						onopen={() => void goto(`/dashboard/${entry.gallery_id}`)}
+						onopen={() =>
+							void goto(
+								`/dashboard/${encodeURIComponent(entry.gallery_id)}?photo=${encodeURIComponent(entry.id)}&kind=${entry.kind}`
+							)}
 						onselect={() => toggleSelect(entry.id)}
 						source={{ title: galleryLabel(entry), kind: entry.kind }}
 					/>
+					<p class="truncate px-1 pt-1 text-xs text-muted-foreground" title={entry.original_name}>
+						{entry.original_name}
+					</p>
 				</li>
 			{/each}
 		</ul>

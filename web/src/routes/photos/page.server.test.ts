@@ -29,6 +29,7 @@ function run() {
 
 const photo = {
 	id: 'p1',
+	original_name: 'DSC_1234.jpg',
 	gallery_id: 'g1',
 	gallery_title: 'Wedding',
 	kind: 'proof' as const,
