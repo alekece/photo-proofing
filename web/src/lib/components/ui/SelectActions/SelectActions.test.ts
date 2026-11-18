@@ -43,4 +43,15 @@ describe('SelectActions', () => {
 
 		expect(button('Select all').disabled).toBe(true);
 	});
+
+	it('is a fixed bottom bar shifted clear of the workspace rail on desktop', () => {
+		const { container } = setup();
+		const bar = container.querySelector('[data-slot="select-actions"]') as HTMLElement;
+
+		expect(bar.className).toMatch(/\bfixed\b/);
+		expect(bar.className).toMatch(/\bbottom-/);
+		expect(bar.className).not.toMatch(/\bsticky\b/);
+		// Centres within the content area to the right of the fixed left rail, not the full viewport.
+		expect(bar.className).toMatch(/sm:left-\[calc\(50%\+7\.5rem\)\]/);
+	});
 });

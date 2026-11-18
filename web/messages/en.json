@@ -635,13 +635,14 @@
 	"card_client_access_closed": "Closed to clients",
 	"card_favorited": "Favorited gallery",
 	"card_select_gallery": "Select {title}",
+	"card_pending_changes": "Unapplied changes",
 	"studio_favorite_add": "Pin gallery to top",
 	"studio_favorite_remove": "Unpin gallery",
-	"dashboard_bulk_selected": "{count} selected",
-	"dashboard_bulk_clear": "Clear selection",
 	"dashboard_bulk_favorite": "Favorite",
 	"dashboard_bulk_unfavorite": "Unfavorite",
 	"dashboard_bulk_quick_edit": "Quick edit",
+	"dashboard_bulk_apply": "Apply changes",
+	"dashboard_bulk_cancel": "Cancel changes",
 	"dashboard_bulk_delete_title": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],

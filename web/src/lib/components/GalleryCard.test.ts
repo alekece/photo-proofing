@@ -171,4 +171,16 @@ describe('GalleryCard', () => {
 			[]
 		);
 	});
+
+	it('shows an unapplied-changes badge for a staged draft preview, with zero axe violations', async () => {
+		const { container, rerender } = render(GalleryCard, { gallery: gallery(), query: '' });
+
+		expect(screen.queryByText('Unapplied changes')).toBeNull();
+
+		await rerender({ gallery: gallery(), query: '', pending: true });
+		expect(screen.getByText('Unapplied changes')).toBeTruthy();
+		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
+			[]
+		);
+	});
 });

@@ -647,22 +647,14 @@
 	"card_client_access_closed": "Fermée aux clients",
 	"card_favorited": "Galerie épinglée en favori",
 	"card_select_gallery": "Sélectionner {title}",
+	"card_pending_changes": "Modifications non appliquées",
 	"studio_favorite_add": "Épingler la galerie en haut",
 	"studio_favorite_remove": "Retirer l’épingle de la galerie",
-	"dashboard_bulk_selected": [
-		{
-			"declarations": ["input count", "local countPlural = count: plural"],
-			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "{count} sélectionnée",
-				"countPlural=*": "{count} sélectionnées"
-			}
-		}
-	],
-	"dashboard_bulk_clear": "Effacer la sélection",
 	"dashboard_bulk_favorite": "Favori",
 	"dashboard_bulk_unfavorite": "Retirer des favoris",
 	"dashboard_bulk_quick_edit": "Modification rapide",
+	"dashboard_bulk_apply": "Appliquer les modifications",
+	"dashboard_bulk_cancel": "Annuler les modifications",
 	"dashboard_bulk_delete_title": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],

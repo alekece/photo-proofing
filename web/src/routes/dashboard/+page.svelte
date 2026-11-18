@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { navigating } from '$app/state';
 	import { authRequest } from '#lib/auth.js';
@@ -16,11 +16,17 @@
 	} from '#lib/components/QuickEditGalleriesDialog.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
+	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
-	import { Pencil, Plus, Search, Star, Trash2, X } from '@lucide/svelte';
+	import { Pencil, Plus, Search, Star, Trash2 } from '@lucide/svelte';
 	import GalleryStateFilter from '#lib/components/GalleryStateFilter.svelte';
 	import GallerySortMenu from '#lib/components/GallerySortMenu.svelte';
-	import { deleteGallery, updateGallery, type GalleryOverview } from '#lib/gallery/api.js';
+	import {
+		deleteGallery,
+		updateGallery,
+		type GalleryChanges,
+		type GalleryOverview
+	} from '#lib/gallery/api.js';
 	import { ApiError } from '#lib/http.js';
 	import type { GallerySort, GalleryState } from '#lib/gallery/schemas.js';
 	import { ALL_STATES, DEFAULT_STATES } from '#lib/gallery/states.js';
@@ -87,13 +93,35 @@
 		return left.id.localeCompare(right.id);
 	}
 
-	let all = $derived.by(() => {
-		if (!localGalleries) return [];
+	// A stable sort snapshot captured once per navigation (a fresh `data.galleries`/`data.sort`):
+	// pinning and draft edits never move a card under the pointer. Only a refresh or an explicit
+	// sort action re-sorts, because those are the only actions that change this derivation's inputs.
+	let sortedIds = $derived.by(() => {
+		if (!data.galleries) return [];
 
-		return [...localGalleries].sort((a, b) => compareGalleries(a, b, data.sort));
+		return [...data.galleries].sort((a, b) => compareGalleries(a, b, data.sort)).map((g) => g.id);
 	});
 
 	const selectedIds = new SvelteSet<string>();
+	// Staged bulk favorite/quick-edit changes: previewed on the card but never sent until Apply.
+	const draftById = new SvelteMap<string, GalleryChanges>();
+
+	function withDraft(gallery: GalleryOverview): GalleryOverview {
+		const changes = draftById.get(gallery.id);
+
+		return changes ? { ...gallery, ...changes } : gallery;
+	}
+
+	let all = $derived.by(() => {
+		if (!localGalleries) return [];
+
+		const byId = new Map(localGalleries.map((g) => [g.id, g]));
+
+		return sortedIds
+			.map((id) => byId.get(id))
+			.filter((g): g is GalleryOverview => g !== undefined)
+			.map(withDraft);
+	});
 
 	let counts = $derived(
 		Object.fromEntries(
@@ -124,12 +152,16 @@
 		matching.filter((gallery) => selected.includes(galleryStatus(gallery.states)))
 	);
 
-	// Prune selected IDs whenever search, status filters, or deletions hide/remove cards.
+	// Prune selected IDs (and their drafts) whenever search, status filters, or deletions hide or
+	// remove cards.
 	$effect(() => {
 		const visibleSet = new Set(visible.map((g) => g.id));
 
 		for (const id of [...selectedIds]) {
-			if (!visibleSet.has(id)) selectedIds.delete(id);
+			if (!visibleSet.has(id)) {
+				selectedIds.delete(id);
+				draftById.delete(id);
+			}
 		}
 	});
 
@@ -137,6 +169,7 @@
 	let allSelectedFavorited = $derived(
 		selectedGalleries.length > 0 && selectedGalleries.every((g) => g.favorite)
 	);
+	let hasDraft = $derived([...selectedIds].some((id) => draftById.has(id)));
 
 	function toggleSelect(id: string) {
 		if (selectedIds.has(id)) selectedIds.delete(id);
@@ -144,6 +177,7 @@
 	}
 
 	function clearSelection() {
+		for (const id of selectedIds) draftById.delete(id);
 		selectedIds.clear();
 	}
 
@@ -179,24 +213,63 @@
 		);
 	}
 
-	async function toggleBulkFavorite() {
-		if (bulkBusy || selectedGalleries.length === 0) return;
+	// Merges staged changes for a gallery, dropping any key that now matches the server value so an
+	// undone edit (e.g. toggling favorite back) clears the draft instead of leaving a no-op entry.
+	function stageChanges(id: string, changes: GalleryChanges) {
+		const applied = localGalleries?.find((g) => g.id === id);
 
-		const targetFavorite = !allSelectedFavorited;
-		const targets = selectedGalleries.filter((g) => Boolean(g.favorite) !== targetFavorite);
+		if (!applied) return;
 
-		if (targets.length === 0) return;
+		const merged: GalleryChanges = { ...draftById.get(id), ...changes };
+
+		for (const key of Object.keys(merged) as (keyof GalleryChanges)[]) {
+			if (merged[key] === applied[key]) delete merged[key];
+		}
+
+		if (Object.keys(merged).length === 0) draftById.delete(id);
+		else draftById.set(id, merged);
+	}
+
+	function toggleBulkFavorite() {
+		if (selectedGalleries.length === 0) return;
+
+		const target = !allSelectedFavorited;
+
+		for (const gallery of selectedGalleries) {
+			stageChanges(gallery.id, { favorite: target });
+		}
+	}
+
+	// The dialog remains the editor; it only hands back edits for the page to stage as a preview.
+	async function saveQuickEdits(edits: QuickGalleryEdit[]): Promise<string | null> {
+		for (const edit of edits) {
+			stageChanges(edit.id, edit.changes);
+		}
+
+		return null;
+	}
+
+	function cancelChanges() {
+		for (const id of selectedIds) draftById.delete(id);
+	}
+
+	async function applyChanges() {
+		const entries = [...draftById.entries()].filter(([id]) => selectedIds.has(id));
+
+		if (bulkBusy || entries.length === 0) return;
 
 		bulkBusy = true;
 
 		try {
 			let firstError: string | null = null;
 
-			for (const item of targets) {
+			for (const [id, changes] of entries) {
 				try {
-					const updated = await updateGallery(item.id, { favorite: targetFavorite });
+					const updated = await updateGallery(id, changes);
 
 					mergeUpdated(updated);
+					draftById.delete(id);
+					selectedIds.delete(id);
 				} catch (cause) {
 					if (cause instanceof ApiError && cause.status === 401) {
 						await goto('/login', { refreshAll: true });
@@ -204,6 +277,7 @@
 						return;
 					}
 
+					// Keep the draft and the selection for the failed id so the photographer can retry.
 					firstError ??= cause instanceof Error ? cause.message : m.api_error_generic();
 				}
 			}
@@ -214,36 +288,6 @@
 		}
 	}
 
-	async function saveQuickEdits(edits: QuickGalleryEdit[]): Promise<string | null> {
-		let firstError: string | null = null;
-		const failedIds: string[] = [];
-
-		for (const edit of edits) {
-			try {
-				const updated = await updateGallery(edit.id, edit.changes);
-
-				mergeUpdated(updated);
-			} catch (cause) {
-				if (cause instanceof ApiError && cause.status === 401) {
-					await goto('/login', { refreshAll: true });
-
-					return null;
-				}
-
-				failedIds.push(edit.id);
-				firstError ??= cause instanceof Error ? cause.message : m.api_error_generic();
-			}
-		}
-
-		if (failedIds.length > 0) {
-			for (const id of [...selectedIds]) {
-				if (!failedIds.includes(id)) selectedIds.delete(id);
-			}
-		}
-
-		return firstError;
-	}
-
 	async function confirmBulkDelete() {
 		const targets = [...selectedGalleries];
 		let firstError: string | null = null;
@@ -252,6 +296,7 @@
 			try {
 				await deleteGallery(item.id);
 				selectedIds.delete(item.id);
+				draftById.delete(item.id);
 				if (localGalleries) {
 					localGalleries = localGalleries.filter((g) => g.id !== item.id);
 				}
@@ -397,6 +442,7 @@
 					{news}
 					selected={selectedIds.has(gallery.id)}
 					selecting={selectedIds.size > 0}
+					pending={draftById.has(gallery.id)}
 					onselect={() => toggleSelect(gallery.id)}
 				/>
 			{:else}
@@ -454,64 +500,77 @@
 	{/if}
 </main>
 {#if selectedGalleries.length > 0}
-	<div
-		role="region"
-		aria-label={m.dashboard_bulk_selected({ count: selectedGalleries.length })}
-		class="fixed inset-x-2.5 bottom-4 z-20 mx-auto flex w-fit max-w-[calc(100vw-1.25rem)] items-center gap-1 rounded-full border border-white/12 bg-foreground px-2 py-1.5 text-[0.8125rem] font-semibold text-panel shadow-[0_20px_50px_-12px_rgb(0_0_0/0.55)] sm:bottom-6 sm:gap-1.5 sm:px-3 sm:py-2"
+	<SelectActions
+		count={selectedGalleries.length}
+		total={visible.length}
+		onselectall={() => {
+			for (const gallery of visible) selectedIds.add(gallery.id);
+		}}
+		onunselectall={clearSelection}
+		onexit={clearSelection}
 	>
-		<button
-			type="button"
-			aria-label={m.dashboard_bulk_clear()}
-			title={m.dashboard_bulk_clear()}
-			onclick={clearSelection}
-			class="inline-grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-panel/80 transition-colors hover:bg-white/12 hover:text-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
-		>
-			<X size={16} aria-hidden="true" />
-		</button>
-		<span class="px-1 whitespace-nowrap tabular-nums sm:px-1.5">
-			{m.dashboard_bulk_selected({ count: selectedGalleries.length })}
-		</span>
-		<span aria-hidden="true" class="mx-0.5 h-4 w-px shrink-0 bg-white/18"></span>
-		<button
-			type="button"
-			disabled={bulkBusy}
-			aria-label={allSelectedFavorited
-				? m.dashboard_bulk_unfavorite()
-				: m.dashboard_bulk_favorite()}
-			onclick={() => void toggleBulkFavorite()}
-			class="inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-panel transition-colors hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus disabled:cursor-not-allowed disabled:opacity-50 sm:px-3"
-		>
-			<Star
-				size={15}
-				fill={allSelectedFavorited ? 'currentColor' : 'none'}
-				class={allSelectedFavorited ? 'text-[#f2c063]' : ''}
-				aria-hidden="true"
-			/>
-			<span class="max-[460px]:sr-only">
-				{allSelectedFavorited ? m.dashboard_bulk_unfavorite() : m.dashboard_bulk_favorite()}
-			</span>
-		</button>
-		<button
-			type="button"
-			disabled={bulkBusy}
-			aria-label={m.dashboard_bulk_quick_edit()}
-			onclick={() => (quickEditOpen = true)}
-			class="inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-panel transition-colors hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus disabled:cursor-not-allowed disabled:opacity-50 sm:px-3"
-		>
-			<Pencil size={15} aria-hidden="true" />
-			<span class="max-[460px]:sr-only">{m.dashboard_bulk_quick_edit()}</span>
-		</button>
-		<button
-			type="button"
-			disabled={bulkBusy}
-			aria-label={m.action_delete()}
-			onclick={() => (deleteConfirmOpen = true)}
-			class="inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-warning-on-dark transition-colors hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus disabled:cursor-not-allowed disabled:opacity-50 sm:px-3"
-		>
-			<Trash2 size={15} aria-hidden="true" />
-			<span class="max-[460px]:sr-only">{m.action_delete()}</span>
-		</button>
-	</div>
+		{#snippet actions()}
+			<Button
+				variant="outline"
+				size="sm"
+				class="min-h-9! gap-1.5 px-3!"
+				disabled={bulkBusy}
+				aria-label={allSelectedFavorited
+					? m.dashboard_bulk_unfavorite()
+					: m.dashboard_bulk_favorite()}
+				onclick={toggleBulkFavorite}
+			>
+				<Star
+					size={15}
+					fill={allSelectedFavorited ? 'currentColor' : 'none'}
+					class={allSelectedFavorited ? 'text-[#b8792b]' : ''}
+					aria-hidden="true"
+				/>
+				<span class="max-sm:sr-only"
+					>{allSelectedFavorited
+						? m.dashboard_bulk_unfavorite()
+						: m.dashboard_bulk_favorite()}</span
+				>
+			</Button>
+			<Button
+				variant="outline"
+				size="sm"
+				class="min-h-9! gap-1.5 px-3!"
+				disabled={bulkBusy}
+				aria-label={m.dashboard_bulk_quick_edit()}
+				onclick={() => (quickEditOpen = true)}
+			>
+				<Pencil size={15} aria-hidden="true" />
+				<span class="max-sm:sr-only">{m.dashboard_bulk_quick_edit()}</span>
+			</Button>
+			{#if hasDraft}
+				<Button
+					variant="outline"
+					size="sm"
+					class="min-h-9! px-3!"
+					disabled={bulkBusy}
+					onclick={cancelChanges}>{m.dashboard_bulk_cancel()}</Button
+				>
+				<Button
+					size="sm"
+					class="min-h-9! px-3!"
+					disabled={bulkBusy}
+					onclick={() => void applyChanges()}>{m.dashboard_bulk_apply()}</Button
+				>
+			{/if}
+			<Button
+				variant="destructive"
+				size="sm"
+				class="min-h-9! gap-1.5 px-3!"
+				disabled={bulkBusy}
+				aria-label={m.action_delete()}
+				onclick={() => (deleteConfirmOpen = true)}
+			>
+				<Trash2 size={15} aria-hidden="true" />
+				<span class="max-sm:sr-only">{m.action_delete()}</span>
+			</Button>
+		{/snippet}
+	</SelectActions>
 {/if}
 {#if dialogOpen}
 	<NewGalleryDialog onclose={() => (dialogOpen = false)} />
