@@ -694,6 +694,8 @@
 	"contacts_created": "Contact saved",
 	"contacts_deleted": "Contact deleted",
 	"contacts_search": "Search by name, email or phone",
+	"contacts_sort_name_asc": "Name A–Z",
+	"contacts_sort_name_desc": "Name Z–A",
 	"contacts_clear_search": "Clear search",
 	"contacts_no_match": "No contact matching “{query}”",
 	"contacts_empty": "No contacts yet.",

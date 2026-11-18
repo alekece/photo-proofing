@@ -194,7 +194,10 @@ describe('ClientPreview', () => {
 
 		expect(mobile.getAttribute('aria-pressed')).toBe('true');
 		expect(desktop.getAttribute('aria-pressed')).toBe('false');
-		expect(document.querySelector('[data-frame="phone"]')).not.toBeNull();
+		const frame = document.querySelector('[data-frame="phone"]') as HTMLElement;
+		expect(frame.className).toContain('h-[min(680px,calc(100dvh-110px))]');
+		expect(frame.firstElementChild?.className).toContain('overflow-auto');
+		expect(frame.firstElementChild?.className).toContain('h-full');
 	});
 
 	it('closes with the Close button and with Escape', async () => {
@@ -261,6 +264,7 @@ describe('ClientPreview', () => {
 
 			await screen.findByText('Your photos are on their way.');
 			expect(screen.queryByRole('dialog')).toBeNull();
+			expect(screen.queryByRole('main')).toBeNull();
 			expect(screen.queryByRole('button', { name: 'Close preview' })).toBeNull();
 
 			const stage = document.querySelector('[data-frame="desktop"]')?.parentElement as HTMLElement;
@@ -282,7 +286,9 @@ describe('ClientPreview', () => {
 
 			await user.click(mobile);
 			expect(mobile.getAttribute('aria-pressed')).toBe('true');
-			expect(document.querySelector('[data-frame="phone"]')).not.toBeNull();
+			const frame = document.querySelector('[data-frame="phone"]') as HTMLElement;
+			expect(frame.className).not.toMatch(/(?:^|\s)(?:h-|max-h-)/);
+			expect(frame.firstElementChild?.className).not.toMatch(/overflow-auto|h-full/);
 		});
 
 		it('does not lock background scroll or steal focus, unlike the modal variant', async () => {

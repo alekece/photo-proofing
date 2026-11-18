@@ -2,7 +2,7 @@ import { createRawSnippet } from 'svelte';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('#lib/components/PhotosPanel.svelte', async () => ({
 	default: (await import('#lib/components/PhotosPanelStub.test.svelte')).default
@@ -21,6 +21,7 @@ vi.mock('#lib/components/GalleryContactsPanel.svelte', async () => ({
 }));
 
 import type { Gallery } from '#lib/gallery/api.js';
+import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
 import GalleryStudio from './GalleryStudio.svelte';
 
 const base: Gallery = {
@@ -46,6 +47,8 @@ const base: Gallery = {
 };
 
 const heading = createRawSnippet(() => ({ render: () => '<h1>Camille &amp; Lucas</h1>' }));
+
+afterEach(() => vi.unstubAllGlobals());
 
 function setup(
 	over: Partial<Gallery> = {},
@@ -348,6 +351,26 @@ describe('GalleryStudio', () => {
 			expect(identity?.textContent).toContain('Camille & Lucas');
 			expect(within(identity as HTMLElement).queryByRole('button', { name: 'Preview' })).toBeNull();
 		}
+	});
+
+	it('loads the Settings preview only when selected, using the live cover and studio props', async () => {
+		const fetcher = vi.fn<typeof fetch>(async () => Response.json([]));
+		vi.stubGlobal('fetch', fetcher);
+		const view = setup({ hero_id: 'saved' });
+		expect(fetcher).not.toHaveBeenCalled();
+		await view.rerender({
+			heroId: 'live',
+			heroRevision: 7,
+			settings: { ...DEFAULT_SETTINGS, studioName: 'Studio Lune' }
+		});
+		await view.user.click(screen.getByRole('tab', { name: 'Settings' }));
+		const panel = screen.getByRole('tabpanel', { name: 'Settings' });
+		const cover = await within(panel).findByRole('img', { name: 'Gallery cover' });
+		expect(cover.getAttribute('src')).toBe('/api/v1/galleries/g1/photos/live/preview?revision=7');
+		expect(within(panel).getAllByText('Studio Lune').length).toBeGreaterThan(0);
+		expect(
+			fetcher.mock.calls.every(([url]) => String(url).startsWith('/api/v1/galleries/g1/'))
+		).toBe(true);
 	});
 
 	it('keeps Preview and Share actions in the same content header on every section', async () => {

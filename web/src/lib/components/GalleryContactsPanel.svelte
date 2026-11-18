@@ -77,6 +77,10 @@
 		pending = rest;
 	}
 
+	function isBusy(contactId: string) {
+		return pending[contactId] === 'linking' || pending[contactId] === 'unlinking';
+	}
+
 	/** Applies a successful link response and starts the brief "Linked" confirmation. */
 	function applyLinked(contactId: string, added: Contact, token: number) {
 		const next = sortContacts([...linked.filter((item) => item.id !== added.id), added]);
@@ -159,7 +163,7 @@
 	}
 
 	async function linkRow(contactId: string) {
-		if (pending[contactId]) return;
+		if (isBusy(contactId)) return;
 
 		const token = nextToken(contactId);
 
@@ -181,7 +185,7 @@
 	}
 
 	async function unlinkRow(contactId: string) {
-		if (pending[contactId]) return;
+		if (isBusy(contactId)) return;
 
 		const token = nextToken(contactId);
 
@@ -235,12 +239,7 @@
 			pickerQuery = '';
 			dialogMode = 'existing';
 
-			const token = nextToken(created.id);
-			const added = await linkGalleryContact(galleryId, created.id);
-
-			if (!isCurrentToken(created.id, token)) return;
-
-			applyLinked(created.id, added, token);
+			await linkRow(created.id);
 		} catch (error) {
 			inlineError = error instanceof ApiError ? error.message : m.gallery_contacts_link_failed();
 		} finally {
@@ -304,7 +303,7 @@
 					<Button
 						variant="outline"
 						size="sm"
-						disabled={Boolean(pending[item.id])}
+						disabled={isBusy(item.id)}
 						onclick={() => void unlinkRow(item.id)}
 					>
 						{#if pending[item.id] === 'unlinking'}
@@ -402,7 +401,7 @@
 											<Button
 												size="sm"
 												variant={isLinked || rowState === 'linked' ? 'outline' : 'default'}
-												disabled={rowState === 'linking' || rowState === 'unlinking'}
+												disabled={isBusy(item.id)}
 												onclick={() => void (isLinked ? unlinkRow(item.id) : linkRow(item.id))}
 											>
 												{#if rowState === 'linking'}

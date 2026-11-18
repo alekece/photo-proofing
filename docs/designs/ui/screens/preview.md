@@ -10,7 +10,11 @@ will see, whatever the gallery's state. Opened by **Preview** in the gallery hea
 - Full-screen dark overlay. Its header has a "Preview" marker, a **Desktop** / **Phone** icon
   toggle and ✕. Esc closes and focus returns to the Preview button.
 - Desktop shows the page at full width; Phone shows it in a centred phone-width frame that
-  scrolls inside.
+  scrolls inside the fixed-height frame in the full-screen modal.
+- At `lg` and above, Design and Settings also show an inline preview beside compact controls
+  (one-third controls, two-thirds preview), with **Open full preview** at the top-right.
+  Both inline Desktop and Phone grow with their content: neither has a fixed-height scroller.
+  Below `lg`, the inline stage is hidden; the gallery header's **Preview** still opens the modal.
 - A delivered gallery previews the delivered page.
 - **Read-only.** Hearts and download buttons are shown, faded and not clickable (in the prototype
   only hearts are disabled; downloads must be too), so the

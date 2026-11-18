@@ -70,14 +70,14 @@
 		class={cn(
 			mode === 'phone' &&
 				'w-[340px] max-w-full rounded-[40px] bg-black p-2.5 shadow-[0_30px_80px_rgb(0_0_0/0.5)]',
-			mode === 'phone' && phoneClass
+			mode === 'phone' && scrollable && phoneClass
 		)}
 	>
 		<div
 			class={cn(
 				'relative bg-background text-foreground',
-				mode === 'phone' &&
-					'h-full translate-z-0 [scrollbar-width:none] overflow-auto rounded-[30px]'
+				mode === 'phone' && 'translate-z-0 rounded-[30px]',
+				mode === 'phone' && scrollable && 'h-full [scrollbar-width:none] overflow-auto'
 			)}
 		>
 			{@render children()}

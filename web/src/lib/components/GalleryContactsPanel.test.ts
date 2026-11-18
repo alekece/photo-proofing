@@ -111,6 +111,52 @@ describe('GalleryContactsPanel', () => {
 		expect(screen.queryByText('Camille & Hugo')).toBeNull();
 	});
 
+	it('undoes Linked immediately and keeps an in-flight unlink guarded after the feedback timer expires', async () => {
+		vi.useFakeTimers();
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		const slowLink = deferred<Response>();
+		const slowUnlink = deferred<Response>();
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(Response.json([camille]))
+			.mockResolvedValueOnce(Response.json([camille, zoe]))
+			.mockReturnValueOnce(slowLink.promise)
+			.mockReturnValueOnce(slowUnlink.promise);
+		vi.stubGlobal('fetch', fetcher);
+		render(GalleryContactsPanel, { galleryId: 'g1' });
+
+		await screen.findByText('Camille & Hugo');
+		await user.click(screen.getByRole('button', { name: '+ Link contact' }));
+		const dialog = await screen.findByRole('dialog');
+		const row = within(dialog).getByText('Zoé Laurent').closest('li') as HTMLElement;
+
+		await user.click(within(row).getByRole('button', { name: 'Link' }));
+		expect((within(row).getByRole('button', { name: 'Link' }) as HTMLButtonElement).disabled).toBe(
+			true
+		);
+		slowLink.resolve(Response.json(zoe));
+		await vi.advanceTimersByTimeAsync(0);
+
+		await user.click(within(row).getByRole('button', { name: 'Linked' }));
+		expect(fetcher).toHaveBeenLastCalledWith(
+			'/api/v1/galleries/g1/contacts/c2',
+			expect.objectContaining({ method: 'DELETE' })
+		);
+		const unlink = within(row).getByRole('button', { name: 'Unlink' }) as HTMLButtonElement;
+		expect(unlink.disabled).toBe(true);
+		await vi.advanceTimersByTimeAsync(600);
+		expect(unlink.disabled).toBe(true);
+		await user.click(unlink);
+		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1);
+
+		slowUnlink.resolve(new Response(null, { status: 204 }));
+		await vi.advanceTimersByTimeAsync(0);
+		expect((within(row).getByRole('button', { name: 'Link' }) as HTMLButtonElement).disabled).toBe(
+			false
+		);
+		expect(screen.getByRole('dialog')).toBe(dialog);
+	});
+
 	it('creates a new contact inline and links it without closing the dialog', async () => {
 		const user = userEvent.setup();
 		const oncount = vi.fn();

@@ -111,6 +111,7 @@
 			signature={settings.signature}
 			signatureSize={settings.signatureSize}
 			preview
+			embedded={variant === 'inline'}
 			framed={view === 'phone'}
 		/>
 	{/if}
@@ -130,7 +131,7 @@
 		>
 			{#snippet header(toggle)}
 				<header
-					class="grid grid-cols-[1fr_auto_1fr] items-center gap-3.5 border-b border-[#3b322b] bg-foreground px-4 py-2.5 text-sm font-medium text-[#efe6da] max-[700px]:grid-cols-[auto_1fr_auto] max-[700px]:gap-2 max-[700px]:px-2.5 max-[700px]:py-2"
+					class="flex flex-wrap items-center justify-between gap-2.5 border-b border-[#3b322b] bg-foreground px-4 py-2.5 text-sm font-medium text-[#efe6da]"
 				>
 					<span class="flex items-center gap-2 font-semibold">
 						<Eye size={18} aria-hidden="true" /><span class="max-[700px]:hidden"
@@ -142,7 +143,7 @@
 						type="button"
 						aria-label={m.preview_open_full()}
 						onclick={() => onexpand?.()}
-						class="flex cursor-pointer items-center gap-1.5 justify-self-end rounded-full border border-[#4a3f37] px-3.5 py-[7px] text-[0.8125rem] font-semibold focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
+						class="ml-auto flex cursor-pointer items-center gap-1.5 rounded-full border border-[#4a3f37] px-3.5 py-[7px] text-[0.8125rem] font-semibold focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
 					>
 						<Maximize2 size={14} aria-hidden="true" />
 						<span class="max-[700px]:hidden">{m.preview_open_full()}</span>

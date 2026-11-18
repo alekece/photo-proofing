@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { Archive, ArchiveRestore, Link2, RotateCw, Trash2 } from '@lucide/svelte';
+	import ClientPreview from '#lib/components/ClientPreview.svelte';
 	import CopyButton from '#lib/components/CopyButton.svelte';
 	import CopyLink from '#lib/components/CopyLink.svelte';
 	import ShareLink from '#lib/components/ShareLink.svelte';
@@ -12,15 +13,21 @@
 	import Switch from '#lib/components/ui/Switch/Switch.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import type { Gallery, GalleryChanges } from '#lib/gallery/api.js';
+	import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
 
 	/**
-	 * Studio `Settings` view, split into three Warm Paper cards:
+	 * Studio `Settings` view: compact controls beside the shared live client preview at `lg`.
+	 * Below `lg`, the content header's Preview action opens the full-screen preview.
+	 * Controls are split into three Warm Paper cards:
 	 * 1. General (`Shoot date`, `Open until`, `Included photos`)
 	 * 2. Privacy & Protection (`Client link`, `Enable watermarks`)
 	 * 3. Actions (`Archive` / `Restore`, `Delete`)
 	 */
 	let {
 		gallery,
+		settings = DEFAULT_SETTINGS,
+		heroRevision,
+		active = true,
 		shareToken,
 		origin,
 		expectedAccessCode = $bindable(),
@@ -33,6 +40,9 @@
 		ondelete
 	}: {
 		gallery: Gallery;
+		settings?: WorkspaceSettings;
+		heroRevision?: number;
+		active?: boolean;
 		shareToken: string | null;
 		origin: string;
 		/** Desired pre-share access code (`string`, `null`, or `'invalid'` while incomplete). */
@@ -55,6 +65,7 @@
 	let expiryDay = $derived(savedExpiry);
 	let shootDate = $derived(savedShootDate);
 	let watermark = $derived(savedWatermark);
+	let expanded = $state(false);
 	// svelte-ignore state_referenced_locally
 	let included = $state<number | null>(savedIncluded);
 	let includedDirty = false;
@@ -77,6 +88,14 @@
 	// svelte-ignore state_referenced_locally
 	let lastPropAccessCode = savedAccessCode;
 	let codeInput = $state<HTMLInputElement | null>(null);
+
+	const previewGallery = $derived<Gallery>({
+		...gallery,
+		shoot_date: shootDate,
+		expires_at: expiryDay || null,
+		included_photos: included,
+		watermark_enabled: watermark
+	});
 
 	$effect.pre(() => {
 		if (savedIncluded !== lastSavedIncluded) {
@@ -266,216 +285,257 @@
 	}
 </script>
 
-<div class="grid max-w-2xl gap-4">
+<div class="grid gap-4">
 	<h2 class="text-2xl leading-tight">{m.tab_settings()}</h2>
 
-	<Card as="section" class={card}>
-		<h3 class={heading}>{m.settings_general()}</h3>
-		<div class={row}>
-			<Label for="shoot-date" class="shrink-0 text-foreground">{m.shoot_date_label()}</Label>
-			<DatePicker
-				id="shoot-date"
-				placeholder="–"
-				align="end"
-				rootClass="w-44 min-w-0"
-				class="min-h-0 w-full rounded-lg bg-white px-2.5 py-1.5 text-sm font-semibold [&>span]:flex-1 [&>span]:text-center"
-				value={shootDate}
-				clearable
-				onchange={setShootDate}
-			/>
-		</div>
-		<div class={row}>
-			<Label for="expiry" class="shrink-0 text-foreground">{m.expiry_open_until()}</Label>
-			<DatePicker
-				id="expiry"
-				placeholder="–"
-				align="end"
-				presets
-				rootClass="w-44 min-w-0"
-				class="min-h-0 w-full rounded-lg bg-white px-2.5 py-1.5 text-sm font-semibold [&>span]:flex-1 [&>span]:text-center"
-				value={expiryDay || null}
-				clearable
-				onchange={setExpiry}
-			/>
-		</div>
-		<div class={row}>
-			<Label for="included" class="text-foreground">{m.settings_included()}</Label>
-			<Input
-				id="included"
-				placeholder="–"
-				type="number"
-				min="1"
-				step="1"
-				class="min-h-0 w-[4.75rem] [appearance:textfield] rounded-lg bg-white px-2 py-1.5 text-center text-sm font-semibold placeholder:text-muted-foreground/40 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-				bind:value={included}
-				disabled={delivered}
-				oninput={() => {
-					includedDirty = true;
-					schedule('included_photos', () => saveIncluded(false));
-				}}
-				onblur={() => {
-					cancel('included_photos');
-					saveIncluded(true);
-				}}
-			/>
-		</div>
-	</Card>
-
-	<Card as="section" class={card}>
-		<h3 class={heading}>{m.settings_privacy_protection()}</h3>
-		<div class={row}>
-			<span class="text-foreground">{m.copy_link_label()}</span>
-			{#if shareToken}
-				<div class="w-full sm:w-auto sm:min-w-64">
-					<ShareLink token={shareToken} {origin} />
-				</div>
-			{:else}
-				<div class="flex flex-wrap items-center gap-2.5">
-					<span class="text-sm text-muted-foreground">{m.settings_not_shared()}</span>
-					<Button
-						data-share-trigger
-						variant="outline"
-						size="sm"
-						class="min-h-9! gap-1.5 bg-white!"
-						disabled={archived}
-						onclick={onsharelink}
-					>
-						<Link2 size={15} aria-hidden="true" />{m.settings_share_link()}
-					</Button>
-				</div>
-			{/if}
-		</div>
-		{#if shareToken}
-			{#if lockedAccessCode !== null}
+	<div
+		data-slot="settings-split"
+		class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
+	>
+		<div class="grid min-w-0 gap-4">
+			<Card as="section" class={card}>
+				<h3 class={heading}>{m.settings_general()}</h3>
 				<div class={row}>
-					<div class="grid gap-0.5">
-						<span class="text-foreground">{m.settings_access_code()}</span>
-						<span class="text-xs text-muted-foreground">{m.settings_access_code_locked_hint()}</span
-						>
-					</div>
-					<CopyLink
-						link={lockedAccessCode}
-						label={m.settings_access_code_label()}
-						class="items-center gap-y-1.5"
-						inputClass="w-28 flex-none py-1.5 text-center font-semibold tracking-[0.18em] text-foreground"
-						buttonClass="min-w-24"
-						statusClass="basis-full text-xs text-danger"
+					<Label for="shoot-date" class="shrink-0 text-foreground">{m.shoot_date_label()}</Label>
+					<DatePicker
+						id="shoot-date"
+						placeholder="–"
+						align="end"
+						rootClass="w-44 max-w-full min-w-0"
+						class="min-h-0 w-full rounded-lg bg-white px-2.5 py-1.5 text-sm font-semibold [&>span]:flex-1 [&>span]:text-center"
+						value={shootDate}
+						clearable
+						onchange={setShootDate}
 					/>
 				</div>
-			{:else}
 				<div class={row}>
-					<div class="grid gap-0.5">
+					<Label for="expiry" class="shrink-0 text-foreground">{m.expiry_open_until()}</Label>
+					<DatePicker
+						id="expiry"
+						placeholder="–"
+						align="end"
+						presets
+						rootClass="w-44 max-w-full min-w-0"
+						class="min-h-0 w-full rounded-lg bg-white px-2.5 py-1.5 text-sm font-semibold [&>span]:flex-1 [&>span]:text-center"
+						value={expiryDay || null}
+						clearable
+						onchange={setExpiry}
+					/>
+				</div>
+				<div class={row}>
+					<Label for="included" class="text-foreground">{m.settings_included()}</Label>
+					<Input
+						id="included"
+						placeholder="–"
+						type="number"
+						min="1"
+						step="1"
+						class="min-h-0 w-[4.75rem] [appearance:textfield] rounded-lg bg-white px-2 py-1.5 text-center text-sm font-semibold placeholder:text-muted-foreground/40 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+						bind:value={included}
+						disabled={delivered}
+						oninput={() => {
+							includedDirty = true;
+							schedule('included_photos', () => saveIncluded(false));
+						}}
+						onblur={() => {
+							cancel('included_photos');
+							saveIncluded(true);
+						}}
+					/>
+				</div>
+			</Card>
+
+			<Card as="section" class={card}>
+				<h3 class={heading}>{m.settings_privacy_protection()}</h3>
+				<div class={row}>
+					<span class="text-foreground">{m.copy_link_label()}</span>
+					{#if shareToken}
+						<div class="w-full min-w-0">
+							<ShareLink token={shareToken} {origin} />
+						</div>
+					{:else}
+						<div class="flex flex-wrap items-center gap-2.5">
+							<span class="text-sm text-muted-foreground">{m.settings_not_shared()}</span>
+							<Button
+								data-share-trigger
+								variant="outline"
+								size="sm"
+								class="min-h-9! gap-1.5 bg-white!"
+								disabled={archived}
+								onclick={onsharelink}
+							>
+								<Link2 size={15} aria-hidden="true" />{m.settings_share_link()}
+							</Button>
+						</div>
+					{/if}
+				</div>
+				{#if shareToken}
+					{#if lockedAccessCode !== null}
+						<div class={row}>
+							<div class="grid gap-0.5">
+								<span class="text-foreground">{m.settings_access_code()}</span>
+								<span class="text-xs text-muted-foreground"
+									>{m.settings_access_code_locked_hint()}</span
+								>
+							</div>
+							<CopyLink
+								link={lockedAccessCode}
+								label={m.settings_access_code_label()}
+								class="items-center gap-y-1.5"
+								inputClass="w-28 flex-none py-1.5 text-center font-semibold tracking-[0.18em] text-foreground"
+								buttonClass="min-w-24"
+								statusClass="basis-full text-xs text-danger"
+							/>
+						</div>
+					{:else}
+						<div class={row}>
+							<div class="grid gap-0.5">
+								<Label for="access-code-switch" class="text-foreground"
+									>{m.settings_access_code()}</Label
+								>
+								<span class="text-xs text-muted-foreground"
+									>{m.settings_access_code_none_locked()}</span
+								>
+							</div>
+							<Switch id="access-code-switch" checked={false} disabled />
+						</div>
+					{/if}
+				{:else}
+					<div class={row}>
 						<Label for="access-code-switch" class="text-foreground"
 							>{m.settings_access_code()}</Label
 						>
-						<span class="text-xs text-muted-foreground">{m.settings_access_code_none_locked()}</span
+						<Switch
+							id="access-code-switch"
+							bind:checked={accessCodeEnabled}
+							onchange={toggleAccessCode}
+						/>
+						{#if accessCodeEnabled}
+							<div class="mt-1 flex basis-full flex-wrap items-center justify-end gap-2">
+								<Input
+									id="access-code-input"
+									bind:ref={codeInput}
+									type="text"
+									inputmode="numeric"
+									pattern="[0-9]{6}"
+									maxlength={6}
+									placeholder="000000"
+									aria-label={m.settings_access_code_label()}
+									value={accessCodeDraft}
+									oninput={(event) => {
+										const digits = (event.currentTarget as HTMLInputElement).value
+											.replace(/\D/g, '')
+											.slice(0, 6);
+										accessCodeDraft = digits;
+										(event.currentTarget as HTMLInputElement).value = digits;
+										accessCodeDirty = true;
+										if (ACCESS_CODE_RE.test(digits)) {
+											schedule('access_code', () => saveAccessCode(false));
+										} else {
+											cancel('access_code');
+										}
+									}}
+									onblur={(event) => {
+										cancel('access_code');
+										saveAccessCode(true, event);
+									}}
+									class="min-h-0 w-28 rounded-lg bg-white px-2.5 py-1.5 text-center font-mono text-sm font-semibold tracking-[0.18em] text-foreground placeholder:text-muted-foreground/40"
+								/>
+								<Button
+									variant="outline"
+									size="sm"
+									class="min-h-9! shrink-0 bg-white!"
+									onclick={regenerateAccessCode}
+								>
+									<RotateCw
+										size={15}
+										aria-hidden="true"
+										class="mr-1.5"
+									/>{m.settings_access_code_generate()}
+								</Button>
+								<CopyButton
+									value={accessCodeDraft}
+									disabled={!ACCESS_CODE_RE.test(accessCodeDraft)}
+									fallbackInput={codeInput}
+									class="min-w-24"
+									statusClass="basis-full text-right text-xs text-danger"
+								/>
+							</div>
+						{/if}
+					</div>
+				{/if}
+				<div class={row}>
+					<Label for="watermark" class="text-foreground">{m.settings_watermark()}</Label>
+					<Switch id="watermark" bind:checked={watermark} onchange={setWatermark} />
+				</div>
+			</Card>
+
+			<Card as="section" class={card}>
+				<h3 class={heading}>{m.settings_actions()}</h3>
+				<div class={row}>
+					<div class="grid gap-0.5">
+						<span class="font-medium text-foreground"
+							>{archived ? m.action_restore() : m.action_archive()}</span
+						>
+						<span class="text-xs text-muted-foreground"
+							>{archived ? m.settings_restore_hint() : m.settings_archive_hint()}</span
 						>
 					</div>
-					<Switch id="access-code-switch" checked={false} disabled />
-				</div>
-			{/if}
-		{:else}
-			<div class={row}>
-				<Label for="access-code-switch" class="text-foreground">{m.settings_access_code()}</Label>
-				<Switch
-					id="access-code-switch"
-					bind:checked={accessCodeEnabled}
-					onchange={toggleAccessCode}
-				/>
-				{#if accessCodeEnabled}
-					<div class="mt-1 flex basis-full flex-wrap items-center justify-end gap-2">
-						<Input
-							id="access-code-input"
-							bind:ref={codeInput}
-							type="text"
-							inputmode="numeric"
-							pattern="[0-9]{6}"
-							maxlength={6}
-							placeholder="000000"
-							aria-label={m.settings_access_code_label()}
-							value={accessCodeDraft}
-							oninput={(event) => {
-								const digits = (event.currentTarget as HTMLInputElement).value
-									.replace(/\D/g, '')
-									.slice(0, 6);
-								accessCodeDraft = digits;
-								(event.currentTarget as HTMLInputElement).value = digits;
-								accessCodeDirty = true;
-								if (ACCESS_CODE_RE.test(digits)) {
-									schedule('access_code', () => saveAccessCode(false));
-								} else {
-									cancel('access_code');
-								}
-							}}
-							onblur={(event) => {
-								cancel('access_code');
-								saveAccessCode(true, event);
-							}}
-							class="min-h-0 w-28 rounded-lg bg-white px-2.5 py-1.5 text-center font-mono text-sm font-semibold tracking-[0.18em] text-foreground placeholder:text-muted-foreground/40"
-						/>
+					{#if archived}
 						<Button
 							variant="outline"
 							size="sm"
 							class="min-h-9! shrink-0 bg-white!"
-							onclick={regenerateAccessCode}
+							onclick={onrestore}
 						>
-							<RotateCw
-								size={15}
-								aria-hidden="true"
-								class="mr-1.5"
-							/>{m.settings_access_code_generate()}
+							<ArchiveRestore size={16} aria-hidden="true" class="mr-1.5" />{m.action_restore()}
 						</Button>
-						<CopyButton
-							value={accessCodeDraft}
-							disabled={!ACCESS_CODE_RE.test(accessCodeDraft)}
-							fallbackInput={codeInput}
-							class="min-w-24"
-							statusClass="basis-full text-right text-xs text-danger"
-						/>
+					{:else}
+						<Button
+							variant="outline"
+							size="sm"
+							class="min-h-9! shrink-0 bg-white!"
+							onclick={onarchive}
+						>
+							<Archive size={16} aria-hidden="true" class="mr-1.5" />{m.action_archive()}
+						</Button>
+					{/if}
+				</div>
+				<div class={row}>
+					<div class="grid gap-0.5">
+						<span class="font-medium text-foreground">{m.action_delete()}</span>
+						<span class="text-xs text-muted-foreground">{m.settings_delete_hint()}</span>
 					</div>
-				{/if}
-			</div>
-		{/if}
-		<div class={row}>
-			<Label for="watermark" class="text-foreground">{m.settings_watermark()}</Label>
-			<Switch id="watermark" bind:checked={watermark} onchange={setWatermark} />
+					<Button
+						variant="outline"
+						size="sm"
+						class="min-h-9! shrink-0 border-danger/35! bg-white! text-danger!"
+						onclick={ondelete}
+					>
+						<Trash2 size={16} aria-hidden="true" class="mr-1.5" />{m.action_delete()}
+					</Button>
+				</div>
+			</Card>
 		</div>
-	</Card>
-
-	<Card as="section" class={card}>
-		<h3 class={heading}>{m.settings_actions()}</h3>
-		<div class={row}>
-			<div class="grid gap-0.5">
-				<span class="font-medium text-foreground"
-					>{archived ? m.action_restore() : m.action_archive()}</span
-				>
-				<span class="text-xs text-muted-foreground"
-					>{archived ? m.settings_restore_hint() : m.settings_archive_hint()}</span
-				>
-			</div>
-			{#if archived}
-				<Button variant="outline" size="sm" class="min-h-9! shrink-0 bg-white!" onclick={onrestore}>
-					<ArchiveRestore size={16} aria-hidden="true" class="mr-1.5" />{m.action_restore()}
-				</Button>
-			{:else}
-				<Button variant="outline" size="sm" class="min-h-9! shrink-0 bg-white!" onclick={onarchive}>
-					<Archive size={16} aria-hidden="true" class="mr-1.5" />{m.action_archive()}
-				</Button>
+		<div data-slot="settings-preview" class="hidden min-w-0 lg:block">
+			{#if active}
+				<ClientPreview
+					gallery={previewGallery}
+					{settings}
+					{heroRevision}
+					variant="inline"
+					onexpand={() => (expanded = true)}
+				/>
 			{/if}
 		</div>
-		<div class={row}>
-			<div class="grid gap-0.5">
-				<span class="font-medium text-foreground">{m.action_delete()}</span>
-				<span class="text-xs text-muted-foreground">{m.settings_delete_hint()}</span>
-			</div>
-			<Button
-				variant="outline"
-				size="sm"
-				class="min-h-9! shrink-0 border-danger/35! bg-white! text-danger!"
-				onclick={ondelete}
-			>
-				<Trash2 size={16} aria-hidden="true" class="mr-1.5" />{m.action_delete()}
-			</Button>
-		</div>
-	</Card>
+	</div>
 </div>
+
+{#if expanded && active}
+	<ClientPreview
+		gallery={previewGallery}
+		{settings}
+		{heroRevision}
+		onclose={() => (expanded = false)}
+	/>
+{/if}

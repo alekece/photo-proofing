@@ -563,7 +563,10 @@
 			hidden={section !== 'settings'}
 		>
 			<GallerySettingsPanel
-				{gallery}
+				gallery={{ ...gallery, hero_id: coverId, focal_point: liveFocalPoint }}
+				{settings}
+				{heroRevision}
+				active={section === 'settings'}
 				{shareToken}
 				{origin}
 				bind:expectedAccessCode

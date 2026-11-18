@@ -9,15 +9,16 @@ pills (**Galleries**, **Contacts**, and **Activity**).
    **Galleries** (`/dashboard`), **Contacts** (`/contacts`), and **Activity** (`/activity`). Active
    section uses ink fill (`#2b2420`); on `390 px` phones the section pills wrap cleanly onto a
    second row below the brand and account controls so nothing clips or scrolls horizontally.
-2. **Page header & search:**
+2. **Page header & directory toolbar:**
    - Georgia heading **Contacts**, total count (`1 contact` / `N contacts`), and primary
      **+ New contact** pill button on the right.
-   - Rounded search box filtering immediately by name, email, or phone. Follows *Disable, don't
-     hide*: stays visible and disabled when the directory is empty.
+   - Full-width toolbar with a flexible rounded search box filtering immediately by name,
+     email, or phone, and a **Name A–Z** / **Name Z–A** sort control. Sorting preserves the
+     current search. Both controls stay visible and disabled when the directory is empty.
 3. **Empty workspace:** Warm Paper striped empty state (`"No contacts yet."`, short explanation,
    and **+ New contact**).
 4. **Two-column directory (`md:`):**
-   - **Left column (list):** selectable Warm Paper contact cards ordered alphabetically, each with
+   - **Left column (list):** selectable Warm Paper contact cards ordered alphabetically by default, each with
      a 1–2 letter monogram disc, **Name**, **Email**, optional **Phone**, and linked-gallery pills.
      When search matches nothing, offers **Clear search**.
    - **Right column (inspector / creator):** Warm Paper card showing monogram + heading, **Name**

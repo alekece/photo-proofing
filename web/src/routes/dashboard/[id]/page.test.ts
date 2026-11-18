@@ -323,6 +323,7 @@ describe('gallery page', () => {
 			'fetch',
 			vi.fn(async (url: string, init?: RequestInit) => {
 				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				if ((init?.method ?? 'GET') === 'GET') return Response.json([]);
 				const status = await new Promise<number>((resolve) => pending.push(resolve));
 				return status === 200
 					? new Response(JSON.stringify({ ...base, ...JSON.parse(init?.body as string) }))
@@ -410,6 +411,7 @@ describe('gallery page', () => {
 	it('allows a past expiry, marks the gallery expired and clears it with null', async () => {
 		const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
 			if (url.includes('/auth/')) return new Response(null, { status: 204 });
+			if ((init?.method ?? 'GET') === 'GET') return Response.json([]);
 			const patch = JSON.parse(init?.body as string);
 
 			return new Response(
@@ -431,7 +433,7 @@ describe('gallery page', () => {
 		await user.click(screen.getByRole('button', { name: 'Clear' }));
 		expect(await screen.findByText('Draft')).toBeTruthy();
 		const bodies = fetcher.mock.calls
-			.filter(([url]) => url.includes('/galleries/'))
+			.filter(([url, init]) => url.includes('/galleries/') && init?.method === 'PATCH')
 			.map(([, init]) => JSON.parse(init?.body as string));
 		expect(bodies[1]).toEqual({ expires_at: null });
 	});
@@ -697,8 +699,7 @@ describe('gallery page', () => {
 						JSON.stringify({ ...base, share_token: 'C'.repeat(22), states: ['shared'] })
 					);
 				}
-				if (url.endsWith('/photos') || url.endsWith('/photos?finals=true'))
-					return new Response(JSON.stringify(photos));
+				if (url.includes('/photos')) return new Response(JSON.stringify(photos));
 
 				return new Response(null, { status: 204 });
 			});
@@ -897,7 +898,7 @@ describe('gallery page', () => {
 			vi.stubGlobal(
 				'fetch',
 				vi.fn(async (url: string) =>
-					url.endsWith('/photos') ? new Response('[]') : new Response('{}', { status: 500 })
+					url.includes('/photos') ? new Response('[]') : new Response('{}', { status: 500 })
 				)
 			);
 			const user = userEvent.setup();

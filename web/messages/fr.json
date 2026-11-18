@@ -706,6 +706,8 @@
 	"contacts_created": "Contact enregistré",
 	"contacts_deleted": "Contact supprimé",
 	"contacts_search": "Rechercher par nom, e-mail ou téléphone",
+	"contacts_sort_name_asc": "Nom A–Z",
+	"contacts_sort_name_desc": "Nom Z–A",
 	"contacts_clear_search": "Effacer la recherche",
 	"contacts_no_match": "Aucun contact correspondant à « {query} »",
 	"contacts_empty": "Aucun contact pour le moment.",
