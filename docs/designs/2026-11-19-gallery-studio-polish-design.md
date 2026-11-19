@@ -21,6 +21,7 @@ width.
 - Put shoot date at the cover bottom-left.
 - Put the title below the cover.
 - Center the Journey Wizard and remove Preview and Publish actions from the main action block.
+- Preview remains available in Design; no separate Gallery Preview button is needed.
 - Move Activity outside Collection.
 - Keep font specimen cards in Design.
 - Combine cover selection and focal-point positioning in one preview.
@@ -68,14 +69,12 @@ width.
 
 1. ~~**Rail width:** 240, 256 or another?~~ **Resolved:** same as workspace sidebar.
 2. ~~**Journey on phones:** 4-bar or labeled card?~~ **Resolved:** keep 4 compact progress bars.
-3. **Preview:** remove the preview header action, or keep it accessible elsewhere such as the cover?
+3. ~~**Preview:** remove or keep header action?~~ **Resolved:** remove; preview remains in Design.
 4. **Publish/Deliver:** in the current lifecycle, should Publish/Deliver appear only in a view action
    area or remain as a centered primary journey step?
 5. **Activity placement:** should it sit as its own Studio navigation item or in a separate rail footer?
 6. **Shoot date:** if no shoot date exists, should the block show no text or `Created <date>`?
 7. **Combined focal pointer:** should pointer movement save instantly or on pointer release?
-8. **Preview and Publish:** should Preview remain an icon elsewhere and should Publish/Deliver remain
-   in the Journey/toolbar, or were they both explicitly removed from the main gallery action block?
 
 ## Verification
 
