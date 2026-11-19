@@ -28,6 +28,7 @@ jobs:
       web: ${{ github.event_name == 'push' && 'true' || steps.filter.outputs.web }}
       containers: ${{ github.event_name == 'pull_request' && steps.filter.outputs.containers }}
       staging: ${{ steps.filter.outputs.staging }}
+      rust-image: ${{ steps.rust-image.outputs.image }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -40,6 +41,7 @@ jobs:
               - "Cargo.lock"
               - "rustfmt.toml"
               - "deny.toml"
+              - ".github/rust-ci-image"
               - ".github/workflows/ci.yml"
               - ".github/workflows/cd.yml"
             web:
@@ -59,6 +61,14 @@ jobs:
               - "deploy/**"
               - "config.example.toml"
               - ".github/workflows/ci.yml"
+
+      - name: Read Rust CI image pin
+        id: rust-image
+        if: github.event_name == 'push' || steps.filter.outputs.rust == 'true'
+        run: |
+          image=$(cat .github/rust-ci-image)
+          [[ "$image" =~ ^ghcr\.io/alekece/pp-rust-ci@sha256:[0-9a-f]{64}$ ]]
+          echo "image=$image" >> "$GITHUB_OUTPUT"
 
   deployment-checks:
     name: Deployment checks
@@ -99,12 +109,19 @@ jobs:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.changes.outputs.rust-image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev pkg-config
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -124,6 +141,14 @@ jobs:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.changes.outputs.rust-image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     services:
       postgres:
         image: postgres:17
@@ -131,8 +156,6 @@ jobs:
           POSTGRES_USER: pp
           POSTGRES_PASSWORD: pp-ci-only
           POSTGRES_DB: pp_test
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U pp -d pp_test"
           --health-interval 5s
@@ -140,11 +163,10 @@ jobs:
           --health-retries 10
     env:
       # Throwaway CI database; not a real credential
-      DATABASE_URL: postgres://pp:pp-ci-only@localhost:5432/pp_test
+      DATABASE_URL: postgres://pp:pp-ci-only@postgres:5432/pp_test
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev pkg-config
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
