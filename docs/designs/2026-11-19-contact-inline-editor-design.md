@@ -57,7 +57,7 @@ to the selected contact; no right-side master-detail card is required.
 2. ~~**New contact placement:** at the top or header?~~ **Resolved:** at the top of the list.
 3. ~~**Details expansion:** open details on Edit?~~ **Resolved:** Edit automatically expands details.
 4. ~~**One open row:** close previous or allow several?~~ **Resolved:** only one row open at a time.
-5. **Delete removal:** should a deleted row shrink/fade after confirmation, or disappear immediately?
+5. ~~**Delete removal:** shrink/fade or immediate?~~ **Resolved:** shrink and fade.
 6. **Mobile:** should right-side actions remain labeled, become icons, or enter an overflow menu?
 7. **Countdown versus dialog:** should delete use the requested countdown confirmation, or remain a
    standard destructive dialog for consistency with existing UI rules? If countdown wins, what duration?
