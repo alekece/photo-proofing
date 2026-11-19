@@ -55,8 +55,7 @@ retouched indicator, not overlays or filenames on every photo.
 ## Open questions
 
 1. ~~**Grid columns:** 3, 4 or adaptive?~~ **Resolved:** adaptive 3 or 4 by container width.
-2. **Layout settings:** should gallery grid/masonry settings remain available in Design, or should the
-   Photos/Final review surface always use one compact regular grid?
+2. ~~**Layout settings:** keep masonry/grid setting?~~ **Resolved:** keep existing layout settings.
 3. **Selection circle:** should the circle be 20 px, 24 px or 28 px to match existing dashboard
    selection controls?
 4. **Final indicator:** is the small retouched icon enough, or should the Final tab label itself remain
