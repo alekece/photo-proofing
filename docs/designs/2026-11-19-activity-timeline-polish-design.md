@@ -40,6 +40,8 @@ favorite selections without a hard thumbnail limit or a manual Load more control
 - Favorite/unfavorite events show thumbnails for the photo IDs in the line.
 - The first 10 photos are visible; more than 10 adds +N.
 - Expansion modifies only that entry and can collapse again.
+- At 10+ favorites, use the same chevron/collapse pattern as the Contacts list. No +N text label is
+  shown; the chevron opens the remaining photos and closes them again.
 - Scroll paging starts before the end and avoids duplicate requests while `loadingMore` is active.
 - Paging starts when the user is within `400 px` of the end.
 - A manual Load more button is removed.
@@ -48,8 +50,8 @@ favorite selections without a hard thumbnail limit or a manual Load more control
 ## Open questions
 
 1. ~~**Load threshold:** paging distance?~~ **Resolved:** `400 px` before the end.
-2. **Expand label:** should +N be "+2 photos", "Show 2 more", or an icon-only chevron with an
-   accessible label?
+2. ~~**Expand label:** text or icon?~~ **Resolved:** chevron/collapse pattern shared with Contacts;
+   no +N text.
 3. **Expanded layout:** should remaining thumbnails continue the same grid or open a compact
    horizontal strip?
 4. **Thumbnail limit:** is 10 the final threshold for all screen sizes, or 6 on small phones?
