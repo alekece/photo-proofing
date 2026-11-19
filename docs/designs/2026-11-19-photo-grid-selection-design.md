@@ -41,6 +41,7 @@ retouched indicator, not overlays or filenames on every photo.
 ## Decisions
 
 - The Photos tab removes its top-bar Select control.
+- The selection circle is `26 px`, matching the existing dashboard card selection control.
 - The selection circle is visible on hover/focus and touch, and is positioned at the top-left.
 - The circle itself toggles selection mode and the bar appears after the first click.
 - Normal ready tiles keep hero, comments and open-viewer behavior outside selection mode.
@@ -56,8 +57,7 @@ retouched indicator, not overlays or filenames on every photo.
 
 1. ~~**Grid columns:** 3, 4 or adaptive?~~ **Resolved:** adaptive 3 or 4 by container width.
 2. ~~**Layout settings:** keep masonry/grid setting?~~ **Resolved:** keep existing layout settings.
-3. **Selection circle:** should the circle be 20 px, 24 px or 28 px to match existing dashboard
-   selection controls?
+3. ~~**Selection circle:** size?~~ **Resolved:** `26 px`.
 4. **Final indicator:** is the small retouched icon enough, or should the Final tab label itself remain
    visually distinct with no icon on each tile?
 5. **Empty grid:** should empty/processing tiles fill a grid row or retain a dedicated drop zone?
