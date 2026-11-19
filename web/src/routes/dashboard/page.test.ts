@@ -337,9 +337,9 @@ describe('dashboard', () => {
 			expect(screen.getByRole('link', { name: /Portraits/ }).getAttribute('href')).toBe(
 				'/dashboard/g2'
 			);
-			// Clears the dashboard's sm:w-60 rail, not the gallery studio's md:w-[16.5rem] one.
+			// Clears the clamped workspace rail, not the gallery studio rail.
 			const bar = document.querySelector<HTMLElement>('[data-slot="select-actions"]')!;
-			expect(bar.className).toMatch(/sm:left-\[calc\(50%\+7\.5rem\)\]/);
+			expect(bar.className).toMatch(/sm:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\)\]/);
 			expect(bar.className).not.toMatch(/md:left-/);
 
 			await user.click(screen.getByRole('button', { name: 'Select all' }));

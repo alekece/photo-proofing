@@ -1,13 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { Activity, Bell, Image, Images, LogOut, Settings, User, Users } from '@lucide/svelte';
-	import { onMount } from 'svelte';
 	import LanguageMenu from '#lib/components/LanguageMenu.svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import NotificationBell from '#lib/components/NotificationBell.svelte';
 	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
 	import Popover from '#lib/components/ui/Popover/Popover.svelte';
-	import { SettingsApi } from '#lib/settings/settings.js';
 	import { cn } from '#lib/utils.js';
 	import type { Snippet } from 'svelte';
 
@@ -24,7 +22,7 @@
 	} = $props();
 
 	const notifications = getNotifications();
-	let identityName = $state('');
+	const identityName = $derived(studioName?.trim() || m.account_photographer());
 	const round = 'grid size-[2.375rem] place-items-center rounded-full';
 	const hover = 'hover:bg-border/60';
 	const pill =
@@ -51,31 +49,6 @@
 				: 'font-medium text-muted-foreground hover:bg-border/60 hover:text-foreground'
 		);
 	}
-
-	$effect(() => {
-		if (studioName?.trim()) identityName = studioName.trim();
-	});
-
-	onMount(() => {
-		if (studioName?.trim()) {
-			identityName = studioName.trim();
-
-			return;
-		}
-
-		let active = true;
-
-		void new SettingsApi()
-			.load()
-			.then((settings) => {
-				if (active) identityName = settings.studioName.trim();
-			})
-			.catch(() => {});
-
-		return () => {
-			active = false;
-		};
-	});
 </script>
 
 <header

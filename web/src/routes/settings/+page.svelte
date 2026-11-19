@@ -195,7 +195,7 @@
 {/snippet}
 
 <svelte:head><title>{m.header_settings()} — PhotoProofing</title></svelte:head>
-<AppHeader onsignout={logout} />
+<AppHeader onsignout={logout} studioName={draft.studioName} />
 <div>
 	<PageShell
 		class="max-w-[75rem] gap-0 px-3.5 pt-5 pb-[3.75rem] sm:px-[clamp(1.25rem,5vw,3.5rem)] sm:pt-9"

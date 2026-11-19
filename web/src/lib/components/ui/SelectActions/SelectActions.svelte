@@ -45,9 +45,11 @@
 	} as const;
 
 	function leaveDuration() {
-		return typeof window !== 'undefined' &&
-			typeof window.matchMedia === 'function' &&
-			window.matchMedia('(prefers-reduced-motion: reduce)').matches
+		return typeof HTMLElement === 'undefined' ||
+			typeof HTMLElement.prototype.animate !== 'function' ||
+			(typeof window !== 'undefined' &&
+				typeof window.matchMedia === 'function' &&
+				window.matchMedia('(prefers-reduced-motion: reduce)').matches)
 			? 0
 			: 180;
 	}

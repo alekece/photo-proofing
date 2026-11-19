@@ -331,8 +331,10 @@ describe('FavoritesPanel', () => {
 		);
 		expect(screen.getByRole('button', { name: 'Download all' })).toBeTruthy();
 		expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
-		// Clears the gallery studio's md:w-[16.5rem] rail, not the dashboard's sm:w-60 one.
-		expect(bar.className).toMatch(/md:left-\[calc\(50%\+8\.25rem\)\]/);
+		// Clears the workspace rail and the gallery studio rail.
+		expect(bar.className).toMatch(
+			/md:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\+8\.25rem\)\]/
+		);
 		expect(bar.className).not.toMatch(/sm:left-/);
 
 		await user.keyboard('{Escape}');
