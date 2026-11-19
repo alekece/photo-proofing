@@ -46,13 +46,13 @@ to the selected contact; no right-side master-detail card is required.
 - **Save:** idle, saving, confirmed and reset states share one reusable action component.
 - **Delete:** a second, dedicated countdown confirmation replaces Delete. A second click cancels;
   otherwise the row is deleted after the countdown. The countdown and progress animation remain
-  keyboard-accessible and respect reduced motion.
+  keyboard-accessible and respect reduced motion. The countdown lasts `3 seconds`.
 - **Failure:** validation stays inline; API/server errors use existing toast or inline error patterns
   and leave the editor open.
 
 ## Open questions
 
-1. **Countdown duration:** should deletion confirm after 3, 5 or 8 seconds?
+1. ~~**Countdown duration:** 3, 5 or 8 seconds?~~ **Resolved:** `3 seconds`.
 2. **New contact placement:** should it expand at the top of the list or at the header as a row
    immediately above the list?
 3. **Details expansion:** should opening Edit automatically expand details, or keep separate chevron
