@@ -46,6 +46,7 @@ text color and opacity, and avoid expensive proof recomputation after a gallery 
 - Desktop uses section navigation plus active controls; mobile uses a horizontal section strip.
 - Watermark controls are grouped: enablement, mark, pattern, position, size, text color and opacity.
 - Text watermarks use a custom color picker and optional hex text.
+- On desktop, the live watermark preview stays in a right column.
 - The text-watermark control shows both a native color picker and a hex field.
 - Logo/name previews use a cream selected surface; selection itself remains visible through border
   and check indicators rather than selected black fill.
@@ -63,8 +64,8 @@ text color and opacity, and avoid expensive proof recomputation after a gallery 
 3. ~~**Draft/prepublish transition:** scope?~~ **Resolved:** recompute both.
 4. ~~**Text color format:** hex, picker or both?~~ **Resolved:** picker plus hex field.
 5. ~~**Logo on cream:** shadow or flat?~~ **Resolved:** flat with original transparency.
-6. **Preview layout:** should the live preview remain on the right desktop column and above/below on
-   mobile, or stay below every settings section?
+6. ~~**Preview layout:** desktop position?~~ **Resolved:** right column; mobile stacks below active
+   controls.
 7. **Save feedback:** should Saving/Saved return to Save automatically as in existing controls, or
    remain in a sticky action row until the next edit?
 
