@@ -47,7 +47,7 @@ retouched indicator, not overlays or filenames on every photo.
 - Normal ready tiles keep hero, comments and open-viewer behavior outside selection mode.
 - In selection mode, clicking a tile toggles it instead of opening the viewer.
 - The bar owns close, selected count, Select all and Escape behavior.
-- Photos and Final supply Delete; Favorites supplies Download.
+- Photos and Final supply Delete in selection mode; Favorites supplies Download.
 - Download all remains the primary action in Favorites and Final even though selection mode can also
    create ZIP subsets.
 - Final photos may show only a small retouched/download-status icon; no "Proof", "Final", approval or
@@ -61,8 +61,7 @@ retouched indicator, not overlays or filenames on every photo.
 4. **Final indicator:** is the small retouched icon enough, or should the Final tab label itself remain
    visually distinct with no icon on each tile?
 5. **Empty grid:** should empty/processing tiles fill a grid row or retain a dedicated drop zone?
-6. **Final deletion:** should Final keep Delete in selection mode, or should Final offer only
-   Download and leave delete available only in Photos, matching the existing UI rule?
+6. ~~**Final deletion:** delete in selection mode?~~ **Resolved:** keep Delete in Final.
 
 ## Verification
 
