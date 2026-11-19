@@ -55,6 +55,9 @@ width.
 - The editable title appears below the cover, with existing autosave behavior.
 - The Journey is centered in the active stage header. Its stage actions are limited to approved
   existing Share/Deliver/Restore behavior and no duplicate Preview/Publish header action.
+- Publishing/delivery is initiated through the Share flow after the photographer uploads finals.
+  The email and Share content change when the gallery becomes a delivered retouched-photo gallery;
+  Journey steps remain shortcuts through this workflow rather than duplicate action buttons.
 - Activity is a Studio-level or account-adjacent view, not a Collection tab.
 - Design retains Typography specimen cards and cover/grid controls.
 - Cover selection opens ready proofs. The selected cover preview is also the focal-point control.
@@ -70,8 +73,8 @@ width.
 1. ~~**Rail width:** 240, 256 or another?~~ **Resolved:** same as workspace sidebar.
 2. ~~**Journey on phones:** 4-bar or labeled card?~~ **Resolved:** keep 4 compact progress bars.
 3. ~~**Preview:** remove or keep header action?~~ **Resolved:** remove; preview remains in Design.
-4. **Publish/Deliver:** in the current lifecycle, should Publish/Deliver appear only in a view action
-   area or remain as a centered primary journey step?
+4. ~~**Publish/Deliver:** action placement?~~ **Resolved:** share finals through the Share/email flow;
+   no separate Publish/Deliver header action.
 5. **Activity placement:** should it sit as its own Studio navigation item or in a separate rail footer?
 6. **Shoot date:** if no shoot date exists, should the block show no text or `Created <date>`?
 7. **Combined focal pointer:** should pointer movement save instantly or on pointer release?
