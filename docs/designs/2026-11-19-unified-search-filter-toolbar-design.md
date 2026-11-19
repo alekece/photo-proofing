@@ -56,8 +56,7 @@ and sort controls in one Warm Paper bar. Page-specific data and filtering logic 
    count badge.
 3. ~~**Toolbar stickiness:** sticky or normal flow?~~ **Resolved:** sticky only for long lists.
 4. ~~**Clear filters:** reset placement?~~ **Resolved:** in the toolbar and empty-result state.
-5. **Sort summary:** for Activity and Contacts, should sorting be omitted or should those pages
-   expose an explicit direction/order control?
+5. ~~**Sort summary:** sort in Activity and Contacts?~~ **Resolved:** add explicit sort controls.
 
 ## Verification
 
