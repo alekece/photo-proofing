@@ -42,6 +42,7 @@ favorite selections without a hard thumbnail limit or a manual Load more control
 - Expansion modifies only that entry and can collapse again.
 - At 10+ favorites, use the same chevron/collapse pattern as the Contacts list. No +N text label is
   shown; the chevron opens the remaining photos and closes them again.
+- On phones, show 6 thumbnails before the chevron instead of 10.
 - Scroll paging starts before the end and avoids duplicate requests while `loadingMore` is active.
 - Paging starts when the user is within `400 px` of the end.
 - A manual Load more button is removed.
@@ -54,7 +55,7 @@ favorite selections without a hard thumbnail limit or a manual Load more control
    no +N text.
 3. **Expanded layout:** should remaining thumbnails continue the same grid or open a compact
    horizontal strip?
-4. **Thumbnail limit:** is 10 the final threshold for all screen sizes, or 6 on small phones?
+4. ~~**Thumbnail limit:** 10 or 6 on phones?~~ **Resolved:** 10 on larger screens, 6 on phones.
 5. **Paging failure:** should an end-of-list error provide Retry on the sentinel or keep the existing
    top-level error pattern?
 
