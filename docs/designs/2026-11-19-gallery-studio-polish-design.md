@@ -48,6 +48,7 @@ width.
 ## Decisions
 
 - The rail is persistent across Collection and Studio views.
+- The rail width matches the workspace sidebar: `16vw`, clamped from `240 px` to `280 px`.
 - The cover thumbnail, favorite star, status chip and shoot date share the rail identity block.
 - The editable title appears below the cover, with existing autosave behavior.
 - The Journey is centered in the active stage header. Its stage actions are limited to approved
@@ -64,7 +65,7 @@ width.
 
 ## Open questions
 
-1. **Rail width:** is 240 px, 256 px or another width best for cover and title hierarchy?
+1. ~~**Rail width:** 240, 256 or another?~~ **Resolved:** same as workspace sidebar.
 2. **Journey on phones:** should it remain a 4-bar progress row or become a horizontal journey card?
 3. **Preview:** remove the preview header action, or keep it accessible elsewhere such as the cover?
 4. **Publish/Deliver:** in the current lifecycle, should Publish/Deliver appear only in a view action
