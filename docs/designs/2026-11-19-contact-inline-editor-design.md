@@ -50,6 +50,9 @@ to the selected contact; no right-side master-detail card is required.
   keyboard-accessible and respect reduced motion. The countdown lasts `3 seconds`.
 - **Failure:** validation stays inline; API/server errors use existing toast or inline error patterns
   and leave the editor open.
+- **Motion:** details/edit blocks expand and collapse with height/fade animation; row actions crossfade
+  between states; deleting rows shrink and fade; Save/Delete lifecycle states use the shared motion
+  rules in `ui/DESIGN.md`.
 
 ## Open questions
 
