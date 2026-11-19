@@ -55,8 +55,7 @@ and sort controls in one Warm Paper bar. Page-specific data and filtering logic 
 2. ~~**Active filter count:** show count badge?~~ **Resolved:** yes, active filter buttons show a
    count badge.
 3. ~~**Toolbar stickiness:** sticky or normal flow?~~ **Resolved:** sticky only for long lists.
-4. **Clear filters:** should reset appear inside every filter menu, in the toolbar, or only in empty
-   results? The audit prefers consistent placement.
+4. ~~**Clear filters:** reset placement?~~ **Resolved:** in the toolbar and empty-result state.
 5. **Sort summary:** for Activity and Contacts, should sorting be omitted or should those pages
    expose an explicit direction/order control?
 
