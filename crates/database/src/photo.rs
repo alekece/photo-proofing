@@ -137,15 +137,13 @@ pub struct Photo {
     pub created_at: Timestamp,
 }
 
-impl Photo {
-    /// A safe attachment name: the last path segment of the uploaded name, without control
-    /// characters, or `photo.jpg` when nothing usable is left.
-    pub fn download_name(&self) -> String {
-        Self::safe_name(&self.original_name)
-    }
+trait PhotoNameExt {
+    fn safe_attachment_name(&self) -> String;
+}
 
-    fn safe_name(original_name: &str) -> String {
-        let name: String = original_name
+impl PhotoNameExt for str {
+    fn safe_attachment_name(&self) -> String {
+        let name: String = self
             .rsplit(['/', '\\'])
             .next()
             .unwrap_or_default()
@@ -158,6 +156,14 @@ impl Photo {
         } else {
             name
         }
+    }
+}
+
+impl Photo {
+    /// A safe attachment name: the last path segment of the uploaded name, without control
+    /// characters, or `photo.jpg` when nothing usable is left.
+    pub fn download_name(&self) -> String {
+        self.original_name.safe_attachment_name()
     }
 }
 
@@ -462,7 +468,7 @@ impl PhotoRepository<'_> {
         .await?;
 
         for photo in &mut photos {
-            photo.original_name = Photo::safe_name(&photo.original_name);
+            photo.original_name = photo.original_name.safe_attachment_name();
         }
 
         Ok(photos)
@@ -745,6 +751,15 @@ mod tests {
             .unwrap();
 
         id
+    }
+
+    #[test]
+    fn photo_names_share_safe_attachment_encoding() {
+        assert_eq!(
+            "C:\\shoot\\cover\u{0007}.jpg".safe_attachment_name(),
+            "cover.jpg"
+        );
+        assert_eq!("../\u{0000}".safe_attachment_name(), "photo.jpg");
     }
 
     fn new_photo(
@@ -1035,11 +1050,13 @@ mod tests {
     ) -> PhotoId {
         let id = PhotoId::from(Uuid::new_v4());
         let mut photo = new_photo(location.workspace_id, location.gallery_id, id, "final.jpg");
+
         photo.kind = PhotoKind::Final;
         photo.dimensions = PhotoDimensions {
             width: NonZeroU32::new(width).unwrap(),
             height: NonZeroU32::new(height).unwrap(),
         };
+
         let tests = database.repository::<TestRepository>();
 
         database
