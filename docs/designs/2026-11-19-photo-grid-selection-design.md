@@ -61,7 +61,8 @@ retouched indicator, not overlays or filenames on every photo.
 3. ~~**Selection circle:** size?~~ **Resolved:** `26 px`.
 4. ~~**Final indicator:** per-photo text/icon?~~ **Resolved:** small retouched icon only in the main
    Photos page; no per-photo indicator in the Gallery Final tab.
-5. **Empty grid:** should empty/processing tiles fill a grid row or retain a dedicated drop zone?
+5. ~~**Empty grid:** where do uploading tiles go?~~ **Resolved:** uploading and failed tiles stay in
+   the photo grid; a dedicated drop zone appears only when the list is empty.
 6. ~~**Final deletion:** delete in selection mode?~~ **Resolved:** keep Delete in Final.
 
 ## Verification
