@@ -16,6 +16,7 @@ text color and opacity, and avoid expensive proof recomputation after a gallery 
 - Rework Settings as grouped sections with a live preview retained.
 - Use compact 1 or 2-column layouts and responsive section navigation.
 - Add watermark opacity.
+- Default watermark opacity is `50%`.
 - Replace fixed text color choices with a custom color picker.
 - Use a cream preview surface that works for both black and light logos.
 - Preserve original logo colors and transparency.
@@ -54,7 +55,7 @@ text color and opacity, and avoid expensive proof recomputation after a gallery 
 
 ## Open questions
 
-1. **Opacity range:** should opacity use 0–100% with a default of 100, 70 or 50?
+1. ~~**Opacity range/default:** 50, 70 or 100?~~ **Resolved:** 0–100%, default `50%`.
 2. **Published scope:** does no-recompute apply only after final delivery, or to every shared
    Prepublish gallery too?
 3. **Draft/prepublish transition:** should proofs in Prepublish regenerate when settings change, or
