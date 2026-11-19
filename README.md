@@ -249,6 +249,8 @@ cargo build --workspace --release --locked
 
 Apply formatting with `cargo +nightly fmt --all`. Stable rustfmt ignores the nightly-only import-grouping setting.
 
+The [Rust CI image workflow](.github/workflows/rust-ci-image.yml) builds the Ubuntu 24.04 image with libvips development files and publishes it to GHCR. To bootstrap the image, run the workflow on `main` and use the digest from its run summary to set `.github/rust-ci-image` when wiring the Rust jobs. After that pin is in place, the workflow checks weekly for Ubuntu base or package updates. Run it manually for an urgent refresh. Merge the digest update PR after CI and review. To roll back, restore the last known-good digest in the pin file through a PR.
+
 ```sh
 pnpm --dir web format:check   # pnpm --dir web format to fix
 pnpm --dir web lint
