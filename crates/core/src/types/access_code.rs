@@ -130,8 +130,40 @@ impl From<GalleryAccessCode> for String {
 /// share link only through a keyed HMAC fingerprint rather than the link's own token.
 #[derive(Clone, Copy)]
 struct UnlockRecord {
-    fingerprint: [u8; FINGERPRINT_BYTES],
-    tag: [u8; TAG_BYTES],
+    fingerprint: LinkFingerprint,
+    tag: UnlockTag,
+}
+
+/// Keyed HMAC fingerprint identifying one gallery share link without exposing the token.
+#[derive(Clone, Copy)]
+struct LinkFingerprint([u8; FINGERPRINT_BYTES]);
+
+impl LinkFingerprint {
+    const fn from_bytes(bytes: [u8; FINGERPRINT_BYTES]) -> Self {
+        Self(bytes)
+    }
+
+    const fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    fn matches(&self, other: &Self) -> bool {
+        bool::from(self.0.ct_eq(&other.0))
+    }
+}
+
+/// Authentication tag proving that an unlock fingerprint authorizes the submitted access code.
+#[derive(Clone, Copy)]
+struct UnlockTag([u8; TAG_BYTES]);
+
+impl UnlockTag {
+    const fn from_bytes(bytes: [u8; TAG_BYTES]) -> Self {
+        Self(bytes)
+    }
+
+    const fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
 }
 
 impl UnlockRecord {
@@ -142,16 +174,19 @@ impl UnlockRecord {
         fingerprint.copy_from_slice(&record[..FINGERPRINT_BYTES]);
         tag.copy_from_slice(&record[FINGERPRINT_BYTES..]);
 
-        Self { fingerprint, tag }
+        Self {
+            fingerprint: LinkFingerprint::from_bytes(fingerprint),
+            tag: UnlockTag::from_bytes(tag),
+        }
     }
 
     fn append_to(&self, buffer: &mut Vec<u8>) {
-        buffer.extend_from_slice(&self.fingerprint);
-        buffer.extend_from_slice(&self.tag);
+        buffer.extend_from_slice(self.fingerprint.as_bytes());
+        buffer.extend_from_slice(self.tag.as_bytes());
     }
 
-    fn matches_fingerprint(&self, fingerprint: &[u8; FINGERPRINT_BYTES]) -> bool {
-        bool::from(self.fingerprint.ct_eq(fingerprint))
+    fn matches_fingerprint(&self, fingerprint: &LinkFingerprint) -> bool {
+        self.fingerprint.matches(fingerprint)
     }
 }
 
@@ -259,7 +294,7 @@ impl CookieSigner {
     /// Keyed HMAC naming `(gallery_id, link_id)` without exposing either in the cookie: domain
     /// separation (the `b"link"` tag prefix) keeps this derivation independent from
     /// [`Self::sign_tag`], which reuses the same signing key.
-    fn link_fingerprint(&self, gallery_id: Uuid, link_id: &ShareLinkId) -> [u8; FINGERPRINT_BYTES] {
+    fn link_fingerprint(&self, gallery_id: Uuid, link_id: &ShareLinkId) -> LinkFingerprint {
         // RFC 2104 HMAC-SHA256 accepts keys of every byte length; 32-byte keys cannot fail.
         #[allow(clippy::expect_used)]
         let mut mac =
@@ -269,37 +304,35 @@ impl CookieSigner {
         mac.update(gallery_id.as_bytes());
         mac.update(link_id.as_str().as_bytes());
 
-        mac.finalize().into_bytes().into()
+        LinkFingerprint::from_bytes(mac.finalize().into_bytes().into())
     }
 
-    fn mac(&self, fingerprint: &[u8; FINGERPRINT_BYTES], code: &GalleryAccessCode) -> HmacSha256 {
+    fn mac(&self, fingerprint: &LinkFingerprint, code: &GalleryAccessCode) -> HmacSha256 {
         // RFC 2104 HMAC-SHA256 accepts keys of every byte length; 32-byte keys cannot fail.
         #[allow(clippy::expect_used)]
         let mut mac =
             HmacSha256::new_from_slice(&self.key).expect("32-byte HMAC-SHA256 key is always valid");
 
         mac.update(b"tag");
-        mac.update(fingerprint);
+        mac.update(fingerprint.as_bytes());
         mac.update(code.as_bytes());
 
         mac
     }
 
-    fn sign_tag(
-        &self,
-        fingerprint: &[u8; FINGERPRINT_BYTES],
-        code: &GalleryAccessCode,
-    ) -> [u8; TAG_BYTES] {
-        self.mac(fingerprint, code).finalize().into_bytes().into()
+    fn sign_tag(&self, fingerprint: &LinkFingerprint, code: &GalleryAccessCode) -> UnlockTag {
+        UnlockTag::from_bytes(self.mac(fingerprint, code).finalize().into_bytes().into())
     }
 
     fn verify_tag(
         &self,
-        fingerprint: &[u8; FINGERPRINT_BYTES],
+        fingerprint: &LinkFingerprint,
         code: &GalleryAccessCode,
-        tag: &[u8; TAG_BYTES],
+        tag: &UnlockTag,
     ) -> bool {
-        self.mac(fingerprint, code).verify_slice(tag).is_ok()
+        self.mac(fingerprint, code)
+            .verify_slice(tag.as_bytes())
+            .is_ok()
     }
 
     fn decode_records(encoded: &str) -> Option<Vec<UnlockRecord>> {
@@ -343,6 +376,23 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn unlock_record_uses_distinct_fixed_width_hmac_types() {
+        let fingerprint = LinkFingerprint::from_bytes([0x11; FINGERPRINT_BYTES]);
+        let tag = UnlockTag::from_bytes([0x22; TAG_BYTES]);
+        let record = UnlockRecord { fingerprint, tag };
+        let mut encoded = Vec::new();
+
+        record.append_to(&mut encoded);
+
+        assert_eq!(record.fingerprint.as_bytes(), &[0x11; FINGERPRINT_BYTES]);
+        assert_eq!(record.tag.as_bytes(), &[0x22; TAG_BYTES]);
+        assert_eq!(
+            encoded,
+            [[0x11; FINGERPRINT_BYTES], [0x22; TAG_BYTES]].concat()
+        );
+    }
 
     #[test]
     fn accepts_only_six_ascii_digits_and_verifies_in_constant_time() {
