@@ -35,4 +35,15 @@ describe('shared footer', () => {
 		render(SiteFooter, { version, legalNotices: [{ label: 'Imprint', href: '/imprint' }] });
 		expect(screen.getByRole('link', { name: 'Imprint' }).getAttribute('href')).toBe('/imprint');
 	});
+
+	it('accepts workspace rail clearance', () => {
+		render(SiteFooter, {
+			version,
+			class: 'sm:ml-[clamp(15rem,16vw,17.5rem)]'
+		});
+
+		expect(screen.getByRole('contentinfo').className).toContain(
+			'sm:ml-[clamp(15rem,16vw,17.5rem)]'
+		);
+	});
 });

@@ -196,7 +196,7 @@
 
 <svelte:head><title>{m.header_settings()} — PhotoProofing</title></svelte:head>
 <AppHeader onsignout={logout} />
-<div class="sm:pl-60">
+<div>
 	<PageShell
 		class="max-w-[75rem] gap-0 px-3.5 pt-5 pb-[3.75rem] sm:px-[clamp(1.25rem,5vw,3.5rem)] sm:pt-9"
 	>

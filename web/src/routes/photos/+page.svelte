@@ -213,7 +213,7 @@
 
 <svelte:head><title>{m.photos_head()} — PhotoProofing</title></svelte:head>
 <AppHeader onsignout={logout} />
-<main class="flex flex-1 flex-col px-3.5 pt-4 pb-24 sm:px-8 sm:pt-6 sm:pl-60">
+<main class="flex flex-1 flex-col px-3.5 pt-4 pb-24 sm:px-8 sm:pt-6">
 	{#if signOutError}<p role="alert" class="mb-3 text-sm text-danger">{signOutError}</p>{/if}
 
 	<h1 class="mb-4 text-[1.875rem] leading-[1.08] sm:mb-6 sm:text-[2.5rem]">{m.photos_head()}</h1>

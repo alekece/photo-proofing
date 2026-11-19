@@ -369,7 +369,7 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 <svelte:head><title>{m.dashboard_head()} — PhotoProofing</title></svelte:head>
 <AppHeader onsignout={logout} />
-<main class="flex flex-1 flex-col sm:pl-60">
+<main class="flex flex-1 flex-col">
 	<div
 		class="grid items-end gap-3 px-3.5 pt-[1.125rem] pb-[1.125rem] sm:grid-cols-[1fr_auto] sm:gap-6 sm:px-8 sm:pt-6 sm:pb-[1.625rem]"
 	>
