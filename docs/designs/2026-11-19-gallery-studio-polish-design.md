@@ -65,6 +65,8 @@ width.
 - Choose/Change cover and Remove cover are adjacent; Remove cover is red and border destructive.
 - Share uses a wider Warm Paper sheet. To, Subject and Message are visibly editable; limitations are
   inline, such as empty proofs or unfinished proofs.
+- Share uses a left editor column and a right live email preview. Recipients, Subject and Message are
+  edited only in the visible left-side inputs, never directly inside the email preview.
 - Gallery Contacts is full-width within the stage and exposes one clear Manage or Link control.
 - Download all remains available on Favorites and Final.
 
