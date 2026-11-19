@@ -36,7 +36,7 @@ describe('root layout', () => {
 			'/settings'
 		]) {
 			state.page.route.id = routeId;
-			const { container, unmount } = render(Layout, { props: { children } as never });
+			const { unmount } = render(Layout, { props: { children } as never });
 			const content = screen.getByText('content').parentElement;
 			const footer = screen.getByRole('contentinfo');
 
