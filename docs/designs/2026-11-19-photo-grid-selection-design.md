@@ -50,16 +50,17 @@ retouched indicator, not overlays or filenames on every photo.
 - Photos and Final supply Delete in selection mode; Favorites supplies Download.
 - Download all remains the primary action in Favorites and Final even though selection mode can also
    create ZIP subsets.
-- Final photos may show only a small retouched/download-status icon; no "Proof", "Final", approval or
-   filename text is required over the photo.
+- In the main Photos page, mixed proof/final sets may use a small retouched icon on Final items.
+   The dedicated Final tab in Gallery view shows no per-photo indicator; no "Proof", "Final",
+   approval or filename text is required over a photo.
 
 ## Open questions
 
 1. ~~**Grid columns:** 3, 4 or adaptive?~~ **Resolved:** adaptive 3 or 4 by container width.
 2. ~~**Layout settings:** keep masonry/grid setting?~~ **Resolved:** keep existing layout settings.
 3. ~~**Selection circle:** size?~~ **Resolved:** `26 px`.
-4. **Final indicator:** is the small retouched icon enough, or should the Final tab label itself remain
-   visually distinct with no icon on each tile?
+4. ~~**Final indicator:** per-photo text/icon?~~ **Resolved:** small retouched icon only in the main
+   Photos page; no per-photo indicator in the Gallery Final tab.
 5. **Empty grid:** should empty/processing tiles fill a grid row or retain a dedicated drop zone?
 6. ~~**Final deletion:** delete in selection mode?~~ **Resolved:** keep Delete in Final.
 
