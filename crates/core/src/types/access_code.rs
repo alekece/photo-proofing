@@ -19,6 +19,7 @@
 use std::{fmt, str::FromStr};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use derive_more::From;
 use hmac::{Hmac, KeyInit as _, Mac};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -42,13 +43,11 @@ pub const MAX_UNLOCKED_GALLERIES: usize = 16;
 pub const SHARE_LINK_ID_BYTES: usize = 16;
 
 const KEY_BYTES: usize = 32;
-const FINGERPRINT_BYTES: usize = 32;
-const TAG_BYTES: usize = 32;
+const HMAC_BYTES: usize = 32;
 /// Record format version. Bumping it immediately invalidates every previously issued cookie,
 /// including the legacy gallery-scoped (pre-link-binding) 48-byte-record format.
 const RECORD_VERSION: u8 = 1;
-const UNLOCK_RECORD_BYTES: usize = FINGERPRINT_BYTES + TAG_BYTES;
-const MAX_COOKIE_RAW_BYTES: usize = 1 + MAX_UNLOCKED_GALLERIES * UNLOCK_RECORD_BYTES;
+const MAX_COOKIE_RAW_BYTES: usize = 1 + MAX_UNLOCKED_GALLERIES * UnlockRecord::BYTE_LEN;
 const MAX_COOKIE_ENCODED_LEN: usize = (MAX_COOKIE_RAW_BYTES * 8).div_ceil(6);
 
 type HmacSha256 = Hmac<Sha256>;
@@ -135,14 +134,10 @@ struct UnlockRecord {
 }
 
 /// Keyed HMAC fingerprint identifying one gallery share link without exposing the token.
-#[derive(Clone, Copy)]
-struct LinkFingerprint([u8; FINGERPRINT_BYTES]);
+#[derive(Clone, Copy, From)]
+struct LinkFingerprint([u8; HMAC_BYTES]);
 
 impl LinkFingerprint {
-    const fn from_bytes(bytes: [u8; FINGERPRINT_BYTES]) -> Self {
-        Self(bytes)
-    }
-
     const fn as_bytes(&self) -> &[u8] {
         &self.0
     }
@@ -153,30 +148,28 @@ impl LinkFingerprint {
 }
 
 /// Authentication tag proving that an unlock fingerprint authorizes the submitted access code.
-#[derive(Clone, Copy)]
-struct UnlockTag([u8; TAG_BYTES]);
+#[derive(Clone, Copy, From)]
+struct UnlockTag([u8; HMAC_BYTES]);
 
 impl UnlockTag {
-    const fn from_bytes(bytes: [u8; TAG_BYTES]) -> Self {
-        Self(bytes)
-    }
-
     const fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 }
 
 impl UnlockRecord {
-    fn from_bytes(record: &[u8; UNLOCK_RECORD_BYTES]) -> Self {
-        let mut fingerprint = [0u8; FINGERPRINT_BYTES];
-        let mut tag = [0u8; TAG_BYTES];
+    const BYTE_LEN: usize = 2 * HMAC_BYTES;
 
-        fingerprint.copy_from_slice(&record[..FINGERPRINT_BYTES]);
-        tag.copy_from_slice(&record[FINGERPRINT_BYTES..]);
+    fn from_bytes(record: &[u8; UnlockRecord::BYTE_LEN]) -> Self {
+        let mut fingerprint = [0u8; HMAC_BYTES];
+        let mut tag = [0u8; HMAC_BYTES];
+
+        fingerprint.copy_from_slice(&record[..HMAC_BYTES]);
+        tag.copy_from_slice(&record[HMAC_BYTES..]);
 
         Self {
-            fingerprint: LinkFingerprint::from_bytes(fingerprint),
-            tag: UnlockTag::from_bytes(tag),
+            fingerprint: LinkFingerprint::from(fingerprint),
+            tag: UnlockTag::from(tag),
         }
     }
 
@@ -280,7 +273,7 @@ impl CookieSigner {
             records.drain(..overflow);
         }
 
-        let mut payload = Vec::with_capacity(1 + records.len() * UNLOCK_RECORD_BYTES);
+        let mut payload = Vec::with_capacity(1 + records.len() * UnlockRecord::BYTE_LEN);
 
         payload.push(RECORD_VERSION);
 
@@ -304,7 +297,9 @@ impl CookieSigner {
         mac.update(gallery_id.as_bytes());
         mac.update(link_id.as_str().as_bytes());
 
-        LinkFingerprint::from_bytes(mac.finalize().into_bytes().into())
+        let bytes: [u8; HMAC_BYTES] = mac.finalize().into_bytes().into();
+
+        bytes.into()
     }
 
     fn mac(&self, fingerprint: &LinkFingerprint, code: &GalleryAccessCode) -> HmacSha256 {
@@ -321,7 +316,9 @@ impl CookieSigner {
     }
 
     fn sign_tag(&self, fingerprint: &LinkFingerprint, code: &GalleryAccessCode) -> UnlockTag {
-        UnlockTag::from_bytes(self.mac(fingerprint, code).finalize().into_bytes().into())
+        let bytes: [u8; HMAC_BYTES] = self.mac(fingerprint, code).finalize().into_bytes().into();
+
+        bytes.into()
     }
 
     fn verify_tag(
@@ -355,7 +352,7 @@ impl CookieSigner {
             return None;
         }
 
-        let (records, remainder) = body.as_chunks::<UNLOCK_RECORD_BYTES>();
+        let (records, remainder) = body.as_chunks::<{ UnlockRecord::BYTE_LEN }>();
 
         if !remainder.is_empty() {
             return None;
@@ -379,19 +376,16 @@ mod tests {
 
     #[test]
     fn unlock_record_uses_distinct_fixed_width_hmac_types() {
-        let fingerprint = LinkFingerprint::from_bytes([0x11; FINGERPRINT_BYTES]);
-        let tag = UnlockTag::from_bytes([0x22; TAG_BYTES]);
+        let fingerprint = LinkFingerprint::from([0x11; HMAC_BYTES]);
+        let tag = UnlockTag::from([0x22; HMAC_BYTES]);
         let record = UnlockRecord { fingerprint, tag };
         let mut encoded = Vec::new();
 
         record.append_to(&mut encoded);
 
-        assert_eq!(record.fingerprint.as_bytes(), &[0x11; FINGERPRINT_BYTES]);
-        assert_eq!(record.tag.as_bytes(), &[0x22; TAG_BYTES]);
-        assert_eq!(
-            encoded,
-            [[0x11; FINGERPRINT_BYTES], [0x22; TAG_BYTES]].concat()
-        );
+        assert_eq!(record.fingerprint.as_bytes(), &[0x11; HMAC_BYTES]);
+        assert_eq!(record.tag.as_bytes(), &[0x22; HMAC_BYTES]);
+        assert_eq!(encoded, [[0x11; 32], [0x22; 32]].concat());
     }
 
     #[test]
@@ -495,7 +489,7 @@ mod tests {
         let reused = signer.unlock(Some(&cookie), gallery_id, &general_link, &code);
         let raw = URL_SAFE_NO_PAD.decode(&reused).unwrap();
 
-        assert_eq!((raw.len() - 1) / UNLOCK_RECORD_BYTES, 2);
+        assert_eq!((raw.len() - 1) / UnlockRecord::BYTE_LEN, 2);
         assert!(signer.is_unlocked(Some(&reused), gallery_id, &general_link, &code));
         assert!(signer.is_unlocked(Some(&reused), gallery_id, &personal_link, &other_code));
     }
@@ -569,21 +563,21 @@ mod tests {
         // One byte short of a single new-format record body (after the version byte).
         let wrong_len = URL_SAFE_NO_PAD.encode({
             let mut bytes = vec![RECORD_VERSION];
-            bytes.extend(std::iter::repeat_n(0x11u8, UNLOCK_RECORD_BYTES - 1));
+            bytes.extend(std::iter::repeat_n(0x11u8, UnlockRecord::BYTE_LEN - 1));
             bytes
         });
         let oversized = URL_SAFE_NO_PAD.encode({
             let mut bytes = vec![RECORD_VERSION];
             bytes.extend(std::iter::repeat_n(
                 0x11u8,
-                (MAX_UNLOCKED_GALLERIES + 1) * UNLOCK_RECORD_BYTES,
+                (MAX_UNLOCKED_GALLERIES + 1) * UnlockRecord::BYTE_LEN,
             ));
             bytes
         });
 
         // Legacy (pre-link-binding) 48-byte-per-record payloads, with and without a version byte
         // that happens to collide with the current one, can never parse as valid new records:
-        // `48 * n` is never congruent to `1 (mod UNLOCK_RECORD_BYTES)` for the new 64-byte width.
+        // `48 * n` is never congruent to `1 (mod UnlockRecord::BYTE_LEN)` for the new 64-byte width.
         let legacy_single = URL_SAFE_NO_PAD.encode(vec![0x11u8; 48]);
         let legacy_versioned = URL_SAFE_NO_PAD.encode({
             let mut bytes = vec![RECORD_VERSION];
