@@ -42,7 +42,7 @@ to the selected contact; no right-side master-detail card is required.
 - **Edit:** replaces that row's actions with Cancel and Save and inserts the fields in the details
   block. The row's identity stays visible.
 - **New:** inserts or reveals an editable new-contact block below the page header or at the top of the
-  list, with the same fields and Save/Cancel lifecycle.
+  list, with the same fields and Save/Cancel lifecycle. **Resolved:** place it at the top of the list.
 - **Save:** idle, saving, confirmed and reset states share one reusable action component.
 - **Delete:** a second, dedicated countdown confirmation replaces Delete. A second click cancels;
   otherwise the row is deleted after the countdown. The countdown and progress animation remain
@@ -53,8 +53,7 @@ to the selected contact; no right-side master-detail card is required.
 ## Open questions
 
 1. ~~**Countdown duration:** 3, 5 or 8 seconds?~~ **Resolved:** `3 seconds`.
-2. **New contact placement:** should it expand at the top of the list or at the header as a row
-   immediately above the list?
+2. ~~**New contact placement:** at the top or header?~~ **Resolved:** at the top of the list.
 3. **Details expansion:** should opening Edit automatically expand details, or keep separate chevron
    and Edit states?
 4. **One open row:** should opening another row close the previous details/editor, or can several
