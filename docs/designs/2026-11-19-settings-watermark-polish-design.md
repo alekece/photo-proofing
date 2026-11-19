@@ -49,6 +49,7 @@ text color and opacity, and avoid expensive proof recomputation after a gallery 
 - The text-watermark control shows both a native color picker and a hex field.
 - Logo/name previews use a cream selected surface; selection itself remains visible through border
   and check indicators rather than selected black fill.
+- Logo preview stays flat and preserves original transparency.
 - Logo watermarks keep original logo colors and transparency.
 - Effective watermark changes do not regenerate published or delivered proofs.
 - Draft and otherwise unpublished proofs may recompute according to the existing worker behavior.
@@ -61,7 +62,7 @@ text color and opacity, and avoid expensive proof recomputation after a gallery 
 2. ~~**Published scope:** Prepublish recompute?~~ **Resolved:** recompute Draft and Prepublish.
 3. ~~**Draft/prepublish transition:** scope?~~ **Resolved:** recompute both.
 4. ~~**Text color format:** hex, picker or both?~~ **Resolved:** picker plus hex field.
-5. **Logo on cream:** should logo uploads receive a neutral drop shadow or remain flat?
+5. ~~**Logo on cream:** shadow or flat?~~ **Resolved:** flat with original transparency.
 6. **Preview layout:** should the live preview remain on the right desktop column and above/below on
    mobile, or stay below every settings section?
 7. **Save feedback:** should Saving/Saved return to Save automatically as in existing controls, or
