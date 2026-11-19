@@ -44,11 +44,11 @@ and sort controls in one Warm Paper bar. Page-specific data and filtering logic 
 - The toolbar exposes an optional clear/reset action but does not decide filter contents.
 - Active filter summaries remain stable in width and do not move adjacent controls.
 - On narrow screens, search can occupy a full row and controls share the remaining row.
+- At widths below `640 px`, search occupies the full row above filter and sort controls.
 
 ## Open questions
 
-1. **Search row:** should search always occupy the full mobile row, or should it remain inline until
-   the available width drops below 520 px?
+1. ~~**Search row:** when does search move to a full row?~~ **Resolved:** below `640 px`.
 2. **Active filter count:** should a mobile filter button show an item count badge for every active
    filter or only a generic Filter label?
 3. **Toolbar stickiness:** should the toolbar stay sticky below the AppHeader on Dashboard and
