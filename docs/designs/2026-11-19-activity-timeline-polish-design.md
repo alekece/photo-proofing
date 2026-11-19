@@ -47,14 +47,14 @@ favorite selections without a hard thumbnail limit or a manual Load more control
 - Paging starts when the user is within `400 px` of the end.
 - A manual Load more button is removed.
 - Live refresh continues to merge by activity line ID and keep older loaded pages.
+- **Expanded layout:** remaining thumbnails continue in the same grid.
 
 ## Open questions
 
 1. ~~**Load threshold:** paging distance?~~ **Resolved:** `400 px` before the end.
 2. ~~**Expand label:** text or icon?~~ **Resolved:** chevron/collapse pattern shared with Contacts;
    no +N text.
-3. **Expanded layout:** should remaining thumbnails continue the same grid or open a compact
-   horizontal strip?
+3. ~~**Expanded layout:** grid or horizontal strip?~~ **Resolved:** continue in the same grid.
 4. ~~**Thumbnail limit:** 10 or 6 on phones?~~ **Resolved:** 10 on larger screens, 6 on phones.
 5. **Paging failure:** should an end-of-list error provide Retry on the sentinel or keep the existing
    top-level error pattern?
