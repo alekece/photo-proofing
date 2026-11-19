@@ -164,7 +164,7 @@ mod tests {
         ));
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = false)]
     async fn server_errors_keep_code_and_message(pool: PgPool) {
         let error = sqlx::query("SELECT 1/0").execute(&pool).await.unwrap_err();
 
@@ -176,7 +176,7 @@ mod tests {
         assert!(message.contains("division by zero"));
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = false)]
     async fn unmapped_unique_violation_maps_to_unknown(pool: PgPool) {
         sqlx::query(
             "CREATE TABLE unique_probe (

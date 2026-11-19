@@ -435,9 +435,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
-    async fn subset_export_rejects_foreign_nonfavorite_final_and_oversized_selections(
-        pool: PgPool,
-    ) {
+    async fn subset_export_rejects_ineligible_photos_and_enforces_selection_size(pool: PgPool) {
         let directory = tempfile::tempdir().unwrap();
         let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
         let cookie = sign_up(&app).await;
@@ -458,12 +456,7 @@ mod tests {
             .await
             .unwrap();
 
-        for ids in [
-            vec![foreign],
-            vec![nonfavorite],
-            vec![final_photo],
-            vec![foreign; 1001],
-        ] {
+        for ids in [vec![foreign], vec![nonfavorite], vec![final_photo]] {
             assert_eq!(
                 call(
                     &app,
@@ -475,11 +468,46 @@ mod tests {
             );
         }
 
+        let ids: Vec<PhotoId> = sqlx::query_scalar(
+            "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width, height,
+                                 status, favorited_at)
+             SELECT gen_random_uuid(), workspace_id, id, 'proof-' || n || '.jpg', 5, 2, 2, 'ready', now()
+             FROM galleries CROSS JOIN generate_series(1, 1001) AS n WHERE id = $1
+             RETURNING id",
+        )
+        .bind(Uuid::parse_str(&gallery_id).unwrap())
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(ids.len(), 1001);
+
+        assert_eq!(
+            call(
+                &app,
+                post(&gallery_id, &cookie).set_json(serde_json::json!({"photo_ids": ids})),
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+
         let snapshots: i64 = sqlx::query_scalar("SELECT count(*) FROM exports")
             .fetch_one(&pool)
             .await
             .unwrap();
+
         assert_eq!(snapshots, 0);
+
+        assert_eq!(
+            call(
+                &app,
+                post(&gallery_id, &cookie).set_json(serde_json::json!({"photo_ids": &ids[..1000]})),
+            )
+            .await
+            .0,
+            StatusCode::ACCEPTED
+        );
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

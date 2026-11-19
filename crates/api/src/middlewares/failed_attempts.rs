@@ -48,7 +48,7 @@ impl FailedAttempts {
 
 #[cfg(test)]
 mod tests {
-    use std::{net::IpAddr, num::NonZeroU32, num::NonZeroUsize};
+    use std::{net::Ipv4Addr, num::NonZeroU32, num::NonZeroUsize};
 
     use actix_web::{
         App, HttpResponse,
@@ -65,8 +65,6 @@ mod tests {
         config::{AuthConfig, LimiterConfig, SessionConfig},
         tests,
     };
-
-    const PEER: IpAddr = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
 
     // The pool is lazy and these tests never query, so no database is needed.
     async fn state() -> (Data<ApiState>, tempfile::TempDir) {
@@ -111,9 +109,8 @@ mod tests {
         HttpResponse::new(StatusCode::from_u16(*status).unwrap())
     }
 
-    /// Calls a route that answers with each of `statuses` in turn, and reports the statuses seen
-    /// and whether the peer may still attempt afterwards.
-    async fn call_with(statuses: &[u16]) -> (Vec<StatusCode>, bool) {
+    #[actix_web::test]
+    async fn client_errors_except_too_many_requests_count() {
         let (state, _directory) = state().await;
         let app = test::init_service(
             App::new().app_data(state.clone()).service(
@@ -123,36 +120,54 @@ mod tests {
             ),
         )
         .await;
+
+        for (peer, (status, counts)) in (1..).zip([
+            (400, true),
+            (401, true),
+            (413, true),
+            (415, true),
+            (422, true),
+            (200, false),
+            (429, false),
+            (503, false),
+        ]) {
+            let peer = Ipv4Addr::new(192, 0, 2, peer);
+            let requests = if counts { 2 } else { 5 };
+            let status = StatusCode::from_u16(status).unwrap();
+
+            for _ in 0..requests {
+                let request = test::TestRequest::get()
+                    .uri(&format!("/{}", status.as_u16()))
+                    .peer_addr((peer, 1000).into())
+                    .to_request();
+
+                assert_eq!(test::call_service(&app, request).await.status(), status);
+            }
+
+            assert_eq!(state.allow_attempt(peer.into()), !counts, "{status}");
+        }
+    }
+
+    #[actix_web::test]
+    async fn a_peer_over_the_limit_is_refused_before_the_route() {
+        let (state, _directory) = state().await;
+        let app = test::init_service(
+            App::new().app_data(state).service(
+                web::resource("/{status}")
+                    .wrap(from_fn(FailedAttempts::limit))
+                    .to(respond),
+            ),
+        )
+        .await;
         let mut seen = Vec::new();
 
-        for status in statuses {
+        for status in [401, 401, 200] {
             let request = test::TestRequest::get()
                 .uri(&format!("/{status}"))
                 .to_request();
 
             seen.push(test::call_service(&app, request).await.status());
         }
-
-        (seen, state.allow_attempt(PEER))
-    }
-
-    #[actix_web::test]
-    async fn client_errors_except_too_many_requests_count() {
-        for status in [400, 401, 413, 415, 422] {
-            assert!(
-                !call_with(&[status, status]).await.1,
-                "{status} should count"
-            );
-        }
-
-        for status in [200, 429, 503] {
-            assert!(call_with(&[status; 5]).await.1, "{status} should not count");
-        }
-    }
-
-    #[actix_web::test]
-    async fn a_peer_over_the_limit_is_refused_before_the_route() {
-        let (seen, _) = call_with(&[401, 401, 200]).await;
 
         assert_eq!(
             seen,
