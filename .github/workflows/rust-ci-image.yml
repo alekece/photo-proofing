@@ -1,0 +1,121 @@
+name: Refresh Rust CI image
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-ci-image
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/pp-rust-ci
+      UPDATE_BRANCH: automation/rust-ci-image
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build and compare image
+        id: build
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == schedule && ! -f .github/rust-ci-image ]]; then
+            echo "Run this workflow manually to bootstrap the first image."
+            exit 0
+          fi
+
+          base=docker.io/library/ubuntu:24.04
+          base_digest=$(docker buildx imagetools inspect "$base" --format '{{.Manifest.Digest}}')
+          [[ "$base_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          candidate="$IMAGE:run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker build --no-cache --build-arg "UBUNTU_BASE=$base@$base_digest" \
+            -t "$candidate" - < docker/rust-ci.Dockerfile
+          docker run --rm "$candidate" pkg-config --modversion vips
+
+          current=
+          if [[ -f .github/rust-ci-image ]]; then
+            current=$(cat .github/rust-ci-image)
+            [[ "$current" == "$IMAGE@"* && "${current#"$IMAGE@"}" =~ ^sha256:[0-9a-f]{64}$ ]]
+            docker pull "$current"
+            current_base=$(docker image inspect "$current" --format '{{index .Config.Labels "org.opencontainers.image.base.name"}}')
+            docker run --rm "$current" dpkg-query -W > "$RUNNER_TEMP/current-packages"
+            docker run --rm "$candidate" dpkg-query -W > "$RUNNER_TEMP/candidate-packages"
+            if [[ "$current_base" == "$base@$base_digest" ]] &&
+              cmp -s "$RUNNER_TEMP/current-packages" "$RUNNER_TEMP/candidate-packages"; then
+              echo "The base digest and installed package versions match."
+              exit 0
+            fi
+          fi
+
+          {
+            echo "candidate=$candidate"
+            echo "current=$current"
+          } >> "$GITHUB_OUTPUT"
+      - name: Publish candidate
+        if: steps.build.outputs.candidate != ''
+        id: publish
+        env:
+          CANDIDATE: ${{ steps.build.outputs.candidate }}
+        run: |
+          set -euo pipefail
+
+          docker push "$CANDIDATE" | tee "$RUNNER_TEMP/rust-ci-push"
+          digest=$(awk '$2 == "digest:" && $4 == "size:" {print $3}' "$RUNNER_TEMP/rust-ci-push")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "image=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
+          echo "Published \`$IMAGE@$digest\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Create refresh PR token
+        id: app
+        if: steps.build.outputs.current != '' && steps.publish.outputs.image != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Update the image digest PR
+        if: steps.app.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          NEXT: ${{ steps.publish.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          pin=.github/rust-ci-image
+          git fetch --no-tags --depth=1 origin main
+          git diff --exit-code HEAD FETCH_HEAD -- "$pin" docker/rust-ci.Dockerfile
+
+          printf '%s\n' "$NEXT" > "$pin"
+          git diff --check
+
+          git config user.name 'Rust CI image refresh'
+          git config user.email 'rust-ci-image-refresh@users.noreply.github.com'
+          gh auth setup-git
+          git add "$pin"
+          git commit -m "ci: refresh the Rust job image"
+          remote_revision=$(git ls-remote origin "refs/heads/$UPDATE_BRANCH" | cut -f1)
+          git push --force-with-lease="refs/heads/$UPDATE_BRANCH:$remote_revision" origin "HEAD:refs/heads/$UPDATE_BRANCH"
+          pr_count=$(gh pr list --head "$UPDATE_BRANCH" --base main --json number --jq length)
+          if [[ "$pr_count" == 0 ]]; then
+            gh pr create --head "$UPDATE_BRANCH" --base main \
+              --title 'ci: refresh the Rust job image' \
+              --body 'Refresh the pinned Rust CI image. Merge after the required checks pass and the update is approved.'
+          fi
