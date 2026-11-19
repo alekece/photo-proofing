@@ -58,7 +58,7 @@ width.
 - Publishing/delivery is initiated through the Share flow after the photographer uploads finals.
   The email and Share content change when the gallery becomes a delivered retouched-photo gallery;
   Journey steps remain shortcuts through this workflow rather than duplicate action buttons.
-- Activity is a Studio-level or account-adjacent view, not a Collection tab.
+- Activity is a Studio-level navigation item, not a Collection tab.
 - Design retains Typography specimen cards and cover/grid controls.
 - Cover selection opens ready proofs. The selected cover preview is also the focal-point control.
 - Focal point is pointer/drag only; no reset or numeric percentage text.
@@ -77,7 +77,7 @@ width.
 3. ~~**Preview:** remove or keep header action?~~ **Resolved:** remove; preview remains in Design.
 4. ~~**Publish/Deliver:** action placement?~~ **Resolved:** share finals through the Share/email flow;
    no separate Publish/Deliver header action.
-5. **Activity placement:** should it sit as its own Studio navigation item or in a separate rail footer?
+5. ~~**Activity placement:** own item or footer?~~ **Resolved:** own Studio navigation item.
 6. **Shoot date:** if no shoot date exists, should the block show no text or `Created <date>`?
 7. **Combined focal pointer:** should pointer movement save instantly or on pointer release?
 
