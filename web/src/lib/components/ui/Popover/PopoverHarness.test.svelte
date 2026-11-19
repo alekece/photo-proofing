@@ -1,11 +1,14 @@
 <script lang="ts">
 	import Popover from './Popover.svelte';
 
-	let { disabled = false }: { disabled?: boolean } = $props();
+	let {
+		disabled = false,
+		placement = 'below'
+	}: { disabled?: boolean; placement?: 'below' | 'above' | 'right' } = $props();
 </script>
 
 <p>Outside</p>
-<Popover {disabled}>
+<Popover {disabled} {placement}>
 	{#snippet trigger()}Open{/snippet}
 	<p>Inside</p>
 	<button type="button">Item</button>

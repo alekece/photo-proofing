@@ -119,6 +119,7 @@
 		<Popover
 			label={m.header_account_menu()}
 			align="end"
+			placement="above"
 			class="flex min-h-10 w-full items-center gap-2 rounded-control px-2 text-left text-foreground hover:bg-border/60"
 			panelClass="w-48 text-foreground"
 		>

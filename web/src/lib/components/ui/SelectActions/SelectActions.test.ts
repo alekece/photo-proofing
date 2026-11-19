@@ -74,11 +74,13 @@ describe('SelectActions', () => {
 
 		expect(bar.className).toMatch(/\bfixed\b/);
 		expect(bar.className).toMatch(/\bbottom-/);
+		expect(bar.className).toMatch(/sm:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\)\]/);
+		expect(bar.className).toMatch(
+			/sm:max-w-\[calc\(100vw-clamp\(15rem,16vw,17\.5rem\)-1\.25rem\)\]/
+		);
 		expect(bar.className).toMatch(
 			/md:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\+8\.25rem\)\]/
 		);
 		expect(bar.className).toMatch(/md:max-w-\[calc\(100vw-clamp\(15rem,16vw,17\.5rem\)-18rem\)\]/);
-		// Must not also carry the dashboard rail's sm-breakpoint offset.
-		expect(bar.className).not.toMatch(/sm:left-/);
 	});
 });

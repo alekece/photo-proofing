@@ -9,6 +9,7 @@
 		disabled = false,
 		label,
 		align = 'start',
+		placement = 'below',
 		class: className,
 		rootClass,
 		panelClass,
@@ -23,6 +24,7 @@
 		/** Accessible name for a button that shows only an icon. */
 		label?: string;
 		align?: 'start' | 'end';
+		placement?: 'below' | 'above' | 'right';
 		class?: string;
 		rootClass?: string;
 		panelClass?: string;
@@ -50,6 +52,14 @@
 			button?.focus();
 		}
 	}
+
+	const placementClass = $derived(
+		placement === 'above'
+			? 'bottom-full mb-2'
+			: placement === 'right'
+				? 'top-0 left-full ml-2'
+				: 'top-full mt-2'
+	);
 </script>
 
 <svelte:window onpointerdown={dismiss} onkeydown={escape} />
@@ -76,9 +86,11 @@
 	</button>
 	{#if open}
 		<div
+			data-slot="popover-panel"
 			class={cn(
-				'absolute top-full z-30 mt-2 min-w-48 animate-dialog-in rounded-card border border-border bg-panel p-1 shadow-viewfinder',
-				align === 'end' ? 'right-0' : 'left-0',
+				'absolute z-30 min-w-48 animate-dialog-in rounded-card border border-border bg-panel p-1 shadow-viewfinder',
+				placementClass,
+				placement === 'right' ? '' : align === 'end' ? 'right-0' : 'left-0',
 				panelClass
 			)}
 		>

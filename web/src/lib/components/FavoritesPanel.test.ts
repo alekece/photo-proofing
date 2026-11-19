@@ -335,7 +335,6 @@ describe('FavoritesPanel', () => {
 		expect(bar.className).toMatch(
 			/md:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\+8\.25rem\)\]/
 		);
-		expect(bar.className).not.toMatch(/sm:left-/);
 
 		await user.keyboard('{Escape}');
 

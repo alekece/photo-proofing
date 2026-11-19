@@ -347,6 +347,9 @@ describe('dashboard', () => {
 			expect(screen.getByRole('button', { name: 'Unselect all' })).toBeTruthy();
 
 			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
+			expect(screen.getByText('0 selected')).toBeTruthy();
+
+			await user.keyboard('{Escape}');
 			expect(screen.queryByText(/selected/)).toBeNull();
 		});
 
@@ -402,7 +405,7 @@ describe('dashboard', () => {
 			// Deselect the card's circle again, without ever applying or cancelling the draft.
 			await user.click(screen.getByRole('button', { name: 'Select Portraits' }));
 
-			expect(screen.queryByText(/selected/)).toBeNull();
+			expect(screen.getByText('0 selected')).toBeTruthy();
 			expect(screen.queryByText('Unapplied changes')).toBeNull();
 
 			// Reselecting shows the real, unfavorited server state: the draft was discarded, not

@@ -45,6 +45,19 @@ describe('NotificationBell', () => {
 		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toEqual([]);
 	});
 
+	it('uses a viewport-safe panel placement', async () => {
+		const { center } = setup([row()]);
+		await center.refresh();
+		render(NotificationBell, { center });
+
+		await userEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+		const panel = screen.getByText('Wedding').closest('[data-slot="popover-panel"]');
+
+		expect(panel?.className).toContain('fixed');
+		expect(panel?.className).toContain('right-3');
+		expect(panel?.className).toContain('left-3');
+	});
+
 	it('says the client opened the gallery, with the number of opens', async () => {
 		const { center } = setup([
 			row({ kind: 'open', count: 1 }),

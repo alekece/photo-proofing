@@ -41,7 +41,7 @@
 		dashboard:
 			'sm:left-[calc(50%+clamp(7.5rem,8vw,8.75rem))] sm:max-w-[calc(100vw-clamp(15rem,16vw,17.5rem)-1.25rem)]',
 		gallery:
-			'md:left-[calc(50%+clamp(7.5rem,8vw,8.75rem)+8.25rem)] md:max-w-[calc(100vw-clamp(15rem,16vw,17.5rem)-18rem)]'
+			'sm:left-[calc(50%+clamp(7.5rem,8vw,8.75rem))] sm:max-w-[calc(100vw-clamp(15rem,16vw,17.5rem)-1.25rem)] md:left-[calc(50%+clamp(7.5rem,8vw,8.75rem)+8.25rem)] md:max-w-[calc(100vw-clamp(15rem,16vw,17.5rem)-18rem)]'
 	} as const;
 
 	function leaveDuration() {

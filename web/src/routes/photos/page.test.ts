@@ -177,6 +177,9 @@ describe('/photos page', () => {
 		await user.click(screen.getByRole('button', { name: 'Select all' }));
 		expect(screen.getByText('2 selected')).toBeTruthy();
 		await user.click(screen.getByRole('button', { name: 'Unselect all' }));
+		expect(screen.getByText('0 selected')).toBeTruthy();
+
+		await user.keyboard('{Escape}');
 		expect(screen.queryByText(/selected/)).toBeNull();
 	});
 
