@@ -35,7 +35,7 @@
 </script>
 
 <script lang="ts">
-	import { Download, Heart, LoaderCircle, RotateCw, Star, X } from '@lucide/svelte';
+	import { Check, Download, Heart, LoaderCircle, RotateCw, Star, X } from '@lucide/svelte';
 	import { formatDateTime } from '#lib/gallery/format.js';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
 	import ClickRipple from './ClickRipple.svelte';
@@ -58,7 +58,9 @@
 		onselect,
 		hero = false,
 		onhero,
-		commentCount = 0
+		commentCount = 0,
+		persistentSelect = false,
+		source
 	}: {
 		name: string;
 		state: TileState;
@@ -86,6 +88,14 @@
 		/** Toggles the hero star; only a ready photo outside select mode offers it. */
 		onhero?: () => void;
 		commentCount?: number;
+		/**
+		 * Shows an always-present selection circle alongside `onopen`, instead of the two being
+		 * mutually exclusive: the tile opens on click, and the circle (not the tile) toggles
+		 * `selected`. Requires both `onopen` and `onselect`.
+		 */
+		persistentSelect?: boolean;
+		/** The owning gallery and kind, shown as a badge; used by the workspace-wide photo list. */
+		source?: { title: string; kind: 'proof' | 'final' };
 	} = $props();
 
 	const failed = $derived(
@@ -94,6 +104,7 @@
 	const reveal =
 		'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100';
 	const busy = $derived(!failed && status !== 'ready');
+	const checkboxSelect = $derived(onselect && !persistentSelect);
 
 	const captions = {
 		favorited: {
@@ -136,16 +147,16 @@
 {/snippet}
 
 <svelte:element
-	this={onselect ? 'label' : 'div'}
+	this={checkboxSelect ? 'label' : 'div'}
 	class={[
 		'group relative block overflow-hidden rounded-md bg-placeholder-tile',
 		ratio === undefined && 'aspect-square',
-		onselect && 'cursor-pointer'
+		checkboxSelect && 'cursor-pointer'
 	]}
 	style:aspect-ratio={ratio}
 >
 	<CommentBadge count={commentCount} />
-	{#if (status === 'ready' || (cleanReady && thumbnailUrl)) && onselect}
+	{#if (status === 'ready' || (cleanReady && thumbnailUrl)) && checkboxSelect}
 		<img
 			src={thumbnailUrl}
 			alt={name}
@@ -194,14 +205,14 @@
 			<span class="font-semibold">{LABELS[status]()}</span>
 			{#if failed && error && error !== LABELS[status]()}<span class="line-clamp-1">{error}</span
 				>{/if}
-			{#if !onselect && onretry && (status === 'upload-failed' || status === 'process-failed')}
+			{#if !checkboxSelect && onretry && (status === 'upload-failed' || status === 'process-failed')}
 				{@render retry('mt-0.5')}
 			{/if}
 		</div>
 		{#if busy}{@render progress()}{/if}
 	{/if}
 
-	{#if cleanReady && thumbnailUrl && status !== 'ready' && !onselect}
+	{#if cleanReady && thumbnailUrl && status !== 'ready' && !checkboxSelect}
 		<div
 			class={[
 				'pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-1 bg-gradient-to-t from-black/60 to-transparent px-2 pt-8 text-center text-white',
@@ -215,7 +226,7 @@
 		{#if busy}{@render progress()}{/if}
 	{/if}
 
-	{#if onselect}
+	{#if checkboxSelect}
 		<span class="absolute top-3 left-3 z-10 grid size-6 text-panel">
 			<Checkbox
 				class="size-6 cursor-pointer appearance-none rounded-full border-2 border-panel bg-foreground/25 bg-center bg-no-repeat shadow-[0_1px_4px_rgb(0_0_0/0.3)] transition-colors checked:bg-panel checked:bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23201a16%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%2F%3E%3C%2Fsvg%3E')] checked:bg-[length:70%]"
@@ -223,7 +234,7 @@
 				checked={selected}
 				onchange={() => {
 					rippling = !selected;
-					onselect();
+					onselect?.();
 				}}
 			/>
 			{#if rippling && selected}<ClickRipple onend={() => (rippling = false)} />{/if}
@@ -233,7 +244,8 @@
 			<button
 				type="button"
 				class={[
-					'absolute top-2 left-2 grid size-[1.875rem] cursor-pointer place-items-center rounded-full bg-panel/95',
+					'absolute top-2 grid size-[1.875rem] cursor-pointer place-items-center rounded-full bg-panel/95',
+					persistentSelect && onselect ? 'left-10' : 'left-2',
 					hero ? 'text-hero opacity-100' : `text-foreground ${reveal}`
 				]}
 				aria-label={hero ? m.cover_remove() : m.cover_set()}
@@ -274,6 +286,34 @@
 				{/if}
 			</button>
 		{/if}
+		{#if persistentSelect && onselect}
+			<button
+				type="button"
+				aria-label={m.tile_select({ name })}
+				aria-pressed={selected}
+				onclick={() => {
+					rippling = !selected;
+					onselect();
+				}}
+				class="absolute top-2 left-2 z-10 grid size-[1.625rem] cursor-pointer place-items-center rounded-full border transition-colors {selected
+					? 'border-panel bg-foreground text-panel'
+					: 'border-white/75 bg-black/35 text-transparent backdrop-blur-[4px] hover:border-white hover:bg-black/50'}"
+			>
+				<Check size={14} strokeWidth={2.75} aria-hidden="true" />
+				{#if rippling && selected}<ClickRipple onend={() => (rippling = false)} />{/if}
+			</button>
+		{/if}
+	{/if}
+
+	{#if source}
+		<p
+			class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/60 to-transparent px-2 pt-6 pb-1.5 text-xs font-semibold text-white"
+		>
+			<span class="truncate">{source.title}</span>
+			<span class="shrink-0 rounded-full bg-black/40 px-1.5 py-0.5 text-[0.625rem] uppercase"
+				>{source.kind === 'final' ? m.photos_kind_final() : m.photos_kind_proof()}</span
+			>
+		</p>
 	{/if}
 
 	{#if caption && status === 'ready'}

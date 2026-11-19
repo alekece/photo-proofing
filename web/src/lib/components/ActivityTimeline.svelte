@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { LoaderCircle } from '@lucide/svelte';
+	import { Activity, LoaderCircle } from '@lucide/svelte';
 	import type { ActivityFeed } from '#lib/activityLog/activityFeed.svelte.js';
 	import type { ActivityEvent } from '#lib/activityLog/api.js';
 	import { dayHeading } from '#lib/activityLog/format.js';
@@ -75,7 +75,8 @@
 		</p>
 	{/if}
 {:else if feed.events.length === 0}
-	<EmptyState>
+	<EmptyState variant="plain">
+		<Activity size={28} aria-hidden="true" class="text-muted-foreground" />
 		<h3>{filtered ? m.activity_empty_filtered() : m.activity_empty_title()}</h3>
 		{#if !filtered}
 			<p class="max-w-[32ch]">{m.activity_empty_body()}</p>

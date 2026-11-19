@@ -122,6 +122,53 @@ describe('PhotoTile states', () => {
 		expect(screen.queryByRole('button', { name: 'Retry a.jpg' })).toBeNull();
 	});
 
+	it('opens and offers a persistent select circle at the same time', async () => {
+		const onopen = vi.fn();
+		const onselect = vi.fn();
+		const user = userEvent.setup();
+
+		render(PhotoTile, {
+			...base,
+			onopen,
+			onselect,
+			persistentSelect: true,
+			source: { title: 'Wedding', kind: 'final' }
+		});
+
+		await user.click(screen.getByRole('button', { name: 'Open a.jpg' }));
+		expect(onopen).toHaveBeenCalledOnce();
+		expect(onselect).not.toHaveBeenCalled();
+
+		await user.click(screen.getByRole('button', { name: /select a\.jpg/i }));
+		expect(onselect).toHaveBeenCalledOnce();
+		expect(onopen).toHaveBeenCalledOnce();
+
+		expect(screen.getByText('Wedding')).toBeTruthy();
+		expect(screen.getByText('Final')).toBeTruthy();
+	});
+
+	it('marks the persistent select circle pressed once selected', async () => {
+		const view = render(PhotoTile, {
+			...base,
+			onopen: () => {},
+			onselect: () => {},
+			persistentSelect: true
+		});
+		const circle = screen.getByRole('button', { name: /select a\.jpg/i });
+
+		expect(circle.getAttribute('aria-pressed')).toBe('false');
+
+		await view.rerender({
+			...base,
+			onopen: () => {},
+			onselect: () => {},
+			persistentSelect: true,
+			selected: true
+		});
+
+		expect(circle.getAttribute('aria-pressed')).toBe('true');
+	});
+
 	it.each([
 		['waiting-upload', 'Waiting'],
 		['uploading', 'Uploading'],

@@ -4,9 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import SelectActions from './SelectActions.svelte';
 
-function setup(count = 1, total = 3) {
+function setup(count = 1, total = 3, rail: 'dashboard' | 'gallery' = 'dashboard') {
 	const handlers = { onselectall: vi.fn(), onunselectall: vi.fn(), onexit: vi.fn() };
-	const view = render(SelectActions, { count, total, ...handlers });
+	const view = render(SelectActions, { count, total, rail, ...handlers });
 
 	return { ...view, ...handlers };
 }
@@ -42,5 +42,33 @@ describe('SelectActions', () => {
 		setup(0, 0);
 
 		expect(button('Select all').disabled).toBe(true);
+	});
+
+	it('is a fixed bottom bar shifted clear of the dashboard workspace rail (sm:w-60)', () => {
+		const { container } = setup(1, 3, 'dashboard');
+		const bar = container.querySelector('[data-slot="select-actions"]') as HTMLElement;
+
+		expect(bar.className).toMatch(/\bfixed\b/);
+		expect(bar.className).toMatch(/\bbottom-/);
+		expect(bar.className).not.toMatch(/\bsticky\b/);
+		// Centres within the content area to the right of the dashboard's sm:w-60 fixed rail.
+		expect(bar.className).toMatch(/sm:left-\[calc\(50%\+7\.5rem\)\]/);
+		expect(bar.className).toMatch(/sm:max-w-\[calc\(100vw-16\.5rem\)\]/);
+		// Must not also carry the gallery rail's md-breakpoint offset.
+		expect(bar.className).not.toMatch(/md:left-/);
+	});
+
+	it('is a fixed bottom bar shifted clear of the gallery workspace rail (md:w-[16.5rem])', () => {
+		const { container } = setup(1, 3, 'gallery');
+		const bar = container.querySelector('[data-slot="select-actions"]') as HTMLElement;
+
+		expect(bar.className).toMatch(/\bfixed\b/);
+		expect(bar.className).toMatch(/\bbottom-/);
+		// Centres within the content area to the right of the gallery studio's md:w-[16.5rem] rail,
+		// which only takes effect from the md breakpoint, not sm.
+		expect(bar.className).toMatch(/md:left-\[calc\(50%\+8\.25rem\)\]/);
+		expect(bar.className).toMatch(/md:max-w-\[calc\(100vw-18rem\)\]/);
+		// Must not also carry the dashboard rail's sm-breakpoint offset.
+		expect(bar.className).not.toMatch(/sm:left-/);
 	});
 });

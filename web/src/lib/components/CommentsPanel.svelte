@@ -111,7 +111,7 @@
 {:else if comments.error}
 	<p role="alert" class="text-sm text-danger">{comments.error}</p>
 {:else if loaded && commented.length === 0}
-	<EmptyState>
+	<EmptyState variant="plain">
 		<span class="grid size-14 place-items-center rounded-full bg-background"
 			><MessageSquare size={26} aria-hidden="true" /></span
 		>

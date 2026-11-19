@@ -36,6 +36,12 @@
 	const DEBOUNCE = 600;
 
 	let { data }: { data: PageData } = $props();
+	const requestedPhoto = $derived.by(() => {
+		const id = page.url.searchParams.get('photo');
+		const kind = page.url.searchParams.get('kind') === 'final' ? 'final' : 'proof';
+
+		return id ? { id, kind: kind as 'proof' | 'final' } : undefined;
+	});
 	const queue = getUploadQueue();
 	const notifications = getNotifications();
 
@@ -299,7 +305,7 @@
 </script>
 
 <svelte:head><title>{saved.title ?? m.gallery_untitled()} — PhotoProofing</title></svelte:head>
-<AppHeader onsignout={logout} />
+<AppHeader onsignout={logout} legacy />
 {#if signOutError}
 	<p
 		role="alert"
@@ -310,6 +316,7 @@
 {/if}
 
 <GalleryStudio
+	{requestedPhoto}
 	gallery={saved}
 	{shareToken}
 	origin={page.url.origin}

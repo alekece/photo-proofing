@@ -77,7 +77,8 @@
 		onrestore,
 		ondelete,
 		onbeforesend,
-		oninvitationsent
+		oninvitationsent,
+		requestedPhoto
 	}: {
 		gallery: Gallery;
 		shareToken: string | null;
@@ -99,9 +100,15 @@
 		ondelete: () => void;
 		onbeforesend?: () => Promise<boolean>;
 		oninvitationsent?: (result: QueuedInvitations) => void;
+		requestedPhoto?: { id: string; kind: 'proof' | 'final' };
 	} = $props();
 
 	let section = $state<StudioSection>('photos');
+	const requestedId = $derived(requestedPhoto?.id);
+	const requestedKind = $derived(requestedPhoto?.kind);
+	$effect(() => {
+		if (requestedId) section = requestedKind === 'final' ? 'final' : 'photos';
+	});
 	let previousSection = $state<StudioSection>('photos');
 	let photoCount = $state<number | null>(null);
 	let favoriteCount = $state<number | null>(null);
@@ -370,7 +377,7 @@
 				>
 					<Star size={15} fill={favorite ? 'currentColor' : 'none'} aria-hidden="true" />
 				</button>
-				<StatusChip {status} dot class="shrink-0" />
+				<StatusChip {status} dot workspace class="shrink-0" />
 			</div>
 			<p class="truncate text-xs text-muted-foreground">
 				<span>{dayLabel}</span>
@@ -442,6 +449,7 @@
 		>
 			<PhotosPanel
 				galleryId={id}
+				openPhotoId={requestedPhoto?.kind === 'proof' ? requestedPhoto.id : undefined}
 				bind:heroId={() => coverId, (next) => (heroId = next)}
 				bind:heroRevision
 				layout={gallery.layout}
@@ -469,6 +477,7 @@
 		<div role="tabpanel" id="panel-final" aria-labelledby="tab-final" hidden={section !== 'final'}>
 			<PhotosPanel
 				set="finals"
+				openPhotoId={requestedPhoto?.kind === 'final' ? requestedPhoto.id : undefined}
 				galleryId={id}
 				layout={gallery.layout}
 				oncount={(n) => (finalCount = n)}

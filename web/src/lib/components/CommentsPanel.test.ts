@@ -69,6 +69,7 @@ describe('CommentsPanel', () => {
 		stub([]);
 		render(Harness, { props: { events } });
 
-		expect(await screen.findByText('No comments yet')).toBeTruthy();
+		const heading = await screen.findByText('No comments yet');
+		expect(heading.closest('[data-slot="empty-state"]')?.className).not.toContain('border-dashed');
 	});
 });

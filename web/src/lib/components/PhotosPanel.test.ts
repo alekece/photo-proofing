@@ -167,7 +167,8 @@ function setup(
 	upload?: (file: File) => Promise<UploadOutcome>,
 	heroId: string | null = null,
 	watermarked = false,
-	set: 'photos' | 'finals' = 'photos'
+	set: 'photos' | 'finals' = 'photos',
+	openPhotoId?: string
 ) {
 	const pending: ((outcome: UploadOutcome) => void)[] = [];
 	const queue = new UploadQueue({
@@ -178,7 +179,7 @@ function setup(
 	});
 	const live = fakeEvents();
 	const view = render(PhotosPanelHarness, {
-		props: { galleryId: 'g1', queue, events: live.events, heroId, watermarked, set }
+		props: { galleryId: 'g1', queue, events: live.events, heroId, watermarked, set, openPhotoId }
 	});
 
 	return { ...live, queue, pending, view };
@@ -197,6 +198,34 @@ afterEach(() => {
 });
 
 describe('PhotosPanel', () => {
+	it.each(['photos', 'finals'] as const)(
+		'opens a requested %s photo after loading, only once',
+		async (set) => {
+			stubApi([photo('p1'), photo('p2')]);
+			const live = setup(undefined, null, false, set, 'p2');
+			const dialog = await screen.findByRole('dialog');
+			expect(within(dialog).getByRole('img', { name: 'p2.jpg' })).toBeTruthy();
+			await userEvent.setup().click(within(dialog).getByRole('button', { name: 'Close viewer' }));
+			live.resync();
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		}
+	);
+
+	it.each(['photos', 'finals'] as const)(
+		'selects %s by circle while the tile still opens',
+		async (set) => {
+			stubApi([photo('p1')]);
+			setup(undefined, null, false, set);
+			const user = userEvent.setup();
+			await user.click(await screen.findByRole('button', { name: 'Select p1.jpg' }));
+			expect(screen.getByText('1 selected', { selector: ':not(.sr-only)' })).toBeTruthy();
+			expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
+			expect(screen.getByRole('button', { name: 'Upload' })).toBeTruthy();
+			await user.click(screen.getByRole('button', { name: 'Open p1.jpg' }));
+			expect(screen.getByRole('dialog')).toBeTruthy();
+		}
+	);
+
 	it('shows photographer comments on proofs and refreshes the open thread on activity', async () => {
 		const user = userEvent.setup();
 		const live = fakeEvents();
@@ -647,7 +676,7 @@ describe('PhotosPanel', () => {
 		const user = userEvent.setup();
 
 		setup();
-		await user.click(await screen.findByRole('button', { name: 'Select' }));
+		await user.click(await screen.findByRole('button', { name: 'Select p1.jpg' }));
 		await user.click(screen.getByRole('button', { name: 'Select all' }));
 		await user.click(screen.getByRole('button', { name: 'Delete' }));
 
@@ -867,7 +896,7 @@ describe('PhotosPanel', () => {
 
 			expect(within(tile('p2.jpg')).queryByRole('button', { name: /hero/ })).toBeNull();
 
-			await user.click(screen.getByRole('button', { name: 'Select' }));
+			await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
 
 			expect(screen.queryAllByRole('button', { name: /hero/ })).toEqual([]);
 		});
@@ -898,12 +927,12 @@ describe('PhotosPanel', () => {
 	});
 
 	describe('select mode', () => {
-		const checkbox = (name: string) =>
-			screen.queryByRole<HTMLInputElement>('checkbox', { name: `Select ${name}` });
+		const circle = (name: string) =>
+			screen.queryByRole<HTMLButtonElement>('button', { name: `Select ${name}` });
 		const counter = () =>
 			screen.getByText(/\d+ selected/, { selector: ':not(.sr-only)' }).textContent;
 		const announced = () => screen.getByRole('status').textContent;
-		const selectButton = () => screen.getByRole('button', { name: 'Select' });
+		const uploadButton = () => screen.getByRole('button', { name: 'Upload' });
 
 		async function confirmDeletion(user: ReturnType<typeof userEvent.setup>) {
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
@@ -911,7 +940,8 @@ describe('PhotosPanel', () => {
 		}
 
 		async function enter(user: ReturnType<typeof userEvent.setup>) {
-			await user.click(await screen.findByRole('button', { name: 'Select' }));
+			await user.click(await screen.findByRole('button', { name: 'Select p1.jpg' }));
+			await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
 		}
 
 		it('enters and leaves select mode', async () => {
@@ -923,14 +953,14 @@ describe('PhotosPanel', () => {
 			queue.add('g1', [jpeg('a.jpg')]);
 			await enter(user);
 
-			expect(checkbox('p1.jpg')).not.toBeNull();
-			expect(checkbox('p2.jpg')).not.toBeNull();
-			expect(checkbox('a.jpg')).toBeNull();
+			expect(circle('p1.jpg')).not.toBeNull();
+			expect(circle('p2.jpg')).not.toBeNull();
+			expect(circle('a.jpg')).toBeNull();
 			expect(screen.queryByRole('button', { name: 'Remove p1.jpg' })).toBeNull();
 			expect(screen.queryByRole('button', { name: 'Retry p2.jpg' })).toBeNull();
 			expect(screen.getByRole('button', { name: 'Remove a.jpg' })).toBeTruthy();
 
-			await user.click(within(checkbox('p1.jpg')!.closest('label')!).getByRole('img'));
+			await user.click(circle('p1.jpg')!);
 
 			expect(screen.queryByRole('dialog')).toBeNull();
 			expect(counter()).toBe('1 selected');
@@ -947,27 +977,28 @@ describe('PhotosPanel', () => {
 
 			await user.click(screen.getByRole('button', { name: 'Exit selection' }));
 
-			expect(checkbox('p1.jpg')).toBeNull();
-			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
+			expect(circle('p1.jpg')?.getAttribute('aria-pressed')).toBe('false');
+			await waitFor(() => expect(document.activeElement).toBe(uploadButton()));
 
 			await enter(user);
 
 			expect(counter()).toBe('0 selected');
 
-			await user.click(checkbox('p2.jpg')!);
+			await user.click(circle('p2.jpg')!);
 			await user.keyboard('{Escape}');
 
-			expect(checkbox('p2.jpg')).toBeNull();
+			expect(circle('p2.jpg')?.getAttribute('aria-pressed')).toBe('false');
 			expect(screen.getByRole('button', { name: 'Remove p1.jpg' })).toBeTruthy();
-			await waitFor(() => expect(document.activeElement).toBe(selectButton()));
+			await waitFor(() => expect(document.activeElement).toBe(uploadButton()));
 		});
 
-		it('shows the bar with Delete only while selecting, and restores the toolbar on exit', async () => {
+		it('shows the bar with Delete while keeping the toolbar stationary', async () => {
 			stubApi([photo('p1'), photo('p2')]);
 			setup();
 			const user = userEvent.setup();
 
-			const select = await screen.findByRole('button', { name: 'Select' });
+			const select = await screen.findByRole('button', { name: 'Select p1.jpg' });
+			const upload = uploadButton();
 
 			expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
 			expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
@@ -976,14 +1007,14 @@ describe('PhotosPanel', () => {
 
 			expect(document.querySelector('[data-slot="select-actions"]')).not.toBeNull();
 			expect(screen.getByRole('button', { name: 'Select all' })).toBeTruthy();
-			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
+			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', false);
 			expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
-			expect(screen.queryByRole('button', { name: 'Upload' })).toBeNull();
+			expect(uploadButton()).toBe(upload);
 
 			await user.keyboard('{Escape}');
 
 			expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
-			expect(screen.getByRole('button', { name: 'Select' })).toBeTruthy();
+			expect(circle('p1.jpg')).toBeTruthy();
 			expect(screen.getByRole('button', { name: 'Upload' })).toBeTruthy();
 		});
 
@@ -1008,7 +1039,7 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(checkbox('p1.jpg')!);
+			await user.click(circle('p1.jpg')!);
 			await user.click(screen.getByRole('button', { name: 'Select all' }));
 
 			expect(counter()).toBe('2 selected');
@@ -1020,7 +1051,7 @@ describe('PhotosPanel', () => {
 
 			await user.click(screen.getByRole('button', { name: 'Exit selection' }));
 
-			expect(checkbox('p1.jpg')).toBeNull();
+			expect(circle('p1.jpg')?.getAttribute('aria-pressed')).toBe('false');
 			expect(screen.getByRole('button', { name: 'Upload' })).toBeTruthy();
 		});
 
@@ -1041,16 +1072,16 @@ describe('PhotosPanel', () => {
 			pending[0]({ kind: 'created', photo: photo('p3', 'waiting') });
 
 			expect(
-				(await screen.findByRole<HTMLInputElement>('checkbox', { name: 'Select p3.jpg' })).checked
-			).toBe(false);
+				(await screen.findByRole('button', { name: 'Select p3.jpg' })).getAttribute('aria-pressed')
+			).toBe('false');
 			expect(counter()).toBe('2 selected');
 
-			await user.click(checkbox('p1.jpg')!);
+			await user.click(circle('p1.jpg')!);
 			await user.keyboard('{Control>}a{/Control}');
 
 			expect(counter()).toBe('3 selected');
 
-			await user.click(checkbox('p1.jpg')!);
+			await user.click(circle('p1.jpg')!);
 			await user.keyboard('{Meta>}a{/Meta}');
 
 			expect(counter()).toBe('3 selected');
@@ -1067,8 +1098,8 @@ describe('PhotosPanel', () => {
 				true
 			);
 
-			await user.click(checkbox('p1.jpg')!);
-			await user.click(checkbox('p3.jpg')!);
+			await user.click(circle('p1.jpg')!);
+			await user.click(circle('p3.jpg')!);
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 
 			const dialog = screen.getByRole('dialog', { name: 'Delete 2 photos?' });
@@ -1079,13 +1110,11 @@ describe('PhotosPanel', () => {
 
 			expect(screen.queryByText('p1.jpg')).toBeNull();
 			expect(screen.queryByText('p3.jpg')).toBeNull();
-			await waitFor(() => expect(checkbox('p2.jpg')).toBeNull());
+			await waitFor(() => expect(screen.queryByText(/selected/)).toBeNull());
 			expect(api.bulk()).toEqual([['p1', 'p3']]);
 			expect(screen.getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
-			// The Delete that opened the dialog left with the bar, so focus lands on Select.
-			await waitFor(() =>
-				expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Select' }))
-			);
+			// The Delete that opened the dialog left with the bar, so focus lands on Upload.
+			await waitFor(() => expect(document.activeElement).toBe(uploadButton()));
 			expect(announced()).toContain('2 photos deleted');
 		});
 
@@ -1113,7 +1142,7 @@ describe('PhotosPanel', () => {
 			const { emit } = setup();
 
 			await enter(user);
-			await user.click(checkbox('p1.jpg')!);
+			await user.click(circle('p1.jpg')!);
 			await confirmDeletion(user);
 			await waitFor(() => expect(announced()).toContain('1 photo deleted'));
 
@@ -1264,7 +1293,7 @@ describe('PhotosPanel', () => {
 			await waitFor(() => expect(counter()).toBe('3 selected'));
 			expect(api.lists()).toBe(2);
 			expect(screen.queryByText('p1.jpg')).toBeNull();
-			expect(checkbox('p5.jpg')!.checked).toBe(true);
+			expect(circle('p5.jpg')?.getAttribute('aria-pressed')).toBe('true');
 		});
 
 		it('goes to sign-in when a bulk deletion finds the session ended', async () => {
@@ -1273,7 +1302,7 @@ describe('PhotosPanel', () => {
 
 			setup();
 			await enter(user);
-			await user.click(checkbox('p1.jpg')!);
+			await user.click(circle('p1.jpg')!);
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 
@@ -1307,7 +1336,7 @@ describe('PhotosPanel', () => {
 
 			setup();
 			await enter(user);
-			await user.click(checkbox('p1.jpg')!);
+			await user.click(circle('p1.jpg')!);
 			await user.click(field);
 			await user.keyboard('{Control>}a{/Control}');
 			await user.keyboard('{Escape}');
@@ -1323,7 +1352,7 @@ describe('PhotosPanel', () => {
 
 			setup();
 			await enter(user);
-			await user.click(checkbox('p1.jpg')!);
+			await user.click(circle('p1.jpg')!);
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 			// jsdom lacks showModal, which moves focus into the dialog.
 			within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }).focus();
@@ -1339,7 +1368,7 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(checkbox('p1.jpg')!);
+			await user.click(circle('p1.jpg')!);
 
 			expect((await axe(view.container)).violations).toEqual([]);
 		});

@@ -54,7 +54,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(serve_derivative_photo);
 }
 
-/// Streams an unchanged proof original to its owning photographer, never through client access.
+/// Streams an unchanged proof or final original to its owning photographer, never through client
+/// access. `?finals=true` resolves the finished photo of the same id instead of the proof.
 #[route("/{id}/photos/{photo_id}/download", method = "GET", method = "HEAD")]
 async fn download_original(
     state: Data<ApiState>,
@@ -64,10 +65,6 @@ async fn download_original(
 ) -> Result<HttpResponse, ErrorResponse> {
     let (gallery_id, photo_id) = path.into_inner();
 
-    if set.finals {
-        return Err(ErrorResponse::not_found());
-    }
-
     let photo = state
         .database()
         .repository::<PhotoRepository>()
@@ -75,7 +72,7 @@ async fn download_original(
             identity.workspace_id,
             gallery_id,
             photo_id,
-            PhotoKind::Proof,
+            PhotoKind::from(*set),
         )
         .await?
         .ok_or_else(ErrorResponse::not_found)?;

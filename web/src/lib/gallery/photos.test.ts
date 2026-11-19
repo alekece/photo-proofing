@@ -3,8 +3,10 @@ import { ApiError } from '#lib/http.js';
 import {
 	deletePhoto,
 	deletePhotos,
+	downloadOriginal,
 	getUploadLimits,
 	listPhotos,
+	listWorkspacePhotos,
 	previewUrl,
 	retryPhoto,
 	summarizePhotoReadiness,
@@ -161,6 +163,72 @@ describe('photo requests', () => {
 	it('points at the private derivative routes', () => {
 		expect(thumbnailUrl('g 1', 'p1')).toBe('/api/v1/galleries/g%201/photos/p1/thumbnail');
 		expect(previewUrl('g1', 'p1')).toBe('/api/v1/galleries/g1/photos/p1/preview');
+	});
+});
+
+describe('listWorkspacePhotos', () => {
+	const workspacePhoto = {
+		id: 'p1',
+		original_name: 'DSC_1234.jpg',
+		gallery_id: 'g1',
+		gallery_title: 'Wedding',
+		kind: 'proof' as const,
+		revision: 0,
+		width: 2,
+		height: 1,
+		created_at: '2026-11-04T10:00:00Z'
+	};
+
+	it('lists every ready photo across the workspace', async () => {
+		const fetcher = respond(200, [workspacePhoto]);
+
+		expect(await listWorkspacePhotos(fetcher)).toEqual([workspacePhoto]);
+		expect(fetcher).toHaveBeenCalledWith(
+			'/api/v1/photos',
+			expect.objectContaining({ credentials: 'same-origin' })
+		);
+	});
+
+	it('rejects an unexpected body', async () => {
+		await expect(listWorkspacePhotos(respond(200, [{ id: 'p' }]))).rejects.toBeInstanceOf(ApiError);
+	});
+});
+
+describe('downloadOriginal', () => {
+	it('checks with HEAD then triggers a same-URL download', async () => {
+		const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+		const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+		await downloadOriginal('g1', 'p1', fetcher);
+
+		expect(fetcher).toHaveBeenCalledWith('/api/v1/galleries/g1/photos/p1/download', {
+			method: 'HEAD',
+			credentials: 'same-origin'
+		});
+		expect(click).toHaveBeenCalledOnce();
+		click.mockRestore();
+	});
+
+	it('addresses a final original with the finals query', async () => {
+		const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+		const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+		await downloadOriginal('g1', 'p1', fetcher, 'finals');
+
+		expect(fetcher).toHaveBeenCalledWith(
+			'/api/v1/galleries/g1/photos/p1/download?finals=true',
+			expect.objectContaining({ method: 'HEAD' })
+		);
+		click.mockRestore();
+	});
+
+	it('throws when the check fails, without downloading', async () => {
+		const fetcher = respond(404, { error: 'not found' });
+		const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+		await expect(downloadOriginal('g1', 'p1', fetcher)).rejects.toBeInstanceOf(ApiError);
+		expect(click).not.toHaveBeenCalled();
+		click.mockRestore();
 	});
 });
 

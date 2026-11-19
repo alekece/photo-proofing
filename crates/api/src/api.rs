@@ -487,6 +487,7 @@ pub fn configure_routes(cfg: &mut ServiceConfig) {
             .configure(routes::contacts::configure)
             .configure(routes::settings::configure)
             .configure(routes::notifications::configure)
+            .configure(routes::photos::configure)
             .configure(routes::activity::configure)
             .configure(routes::galleries::configure),
     );

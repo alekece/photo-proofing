@@ -8,7 +8,8 @@
 	 * The contextual bar of select mode: exit and the count on the left; a select-all toggle button
 	 * and the actions that fit a selection on the right. The button selects everything, or clears
 	 * the selection once everything is selected. On small screens the bar shrinks to a compact
-	 * icon toolbar. It sticks to the top of the page while a long gallery scrolls.
+	 * icon toolbar. It floats above the bottom of the viewport on every page that uses it, shifted
+	 * clear of whichever fixed left workspace rail the consumer renders behind it.
 	 */
 	let {
 		count,
@@ -16,6 +17,7 @@
 		onselectall,
 		onunselectall,
 		onexit,
+		rail,
 		actions
 	}: {
 		count: number;
@@ -24,10 +26,23 @@
 		onselectall: () => void;
 		onunselectall: () => void;
 		onexit: () => void;
+		/**
+		 * Which fixed left workspace rail this consumer renders behind the bar, so it can shift
+		 * clear of it at the right breakpoint and width: the dashboard's `sm:w-60` rail, or the
+		 * gallery studio's `md:w-[16.5rem]` identity rail.
+		 */
+		rail: 'dashboard' | 'gallery';
 		actions?: Snippet;
 	} = $props();
 
 	const all = $derived(total > 0 && count >= total);
+
+	// Half of each rail's width (to centre the bar in the remaining space) plus its matching
+	// max-width budget (rail width + 1.5rem gap), at the breakpoint each rail actually appears.
+	const RAIL_CLEARANCE_CLASS = {
+		dashboard: 'sm:left-[calc(50%+7.5rem)] sm:max-w-[calc(100vw-16.5rem)]',
+		gallery: 'md:left-[calc(50%+8.25rem)] md:max-w-[calc(100vw-18rem)]'
+	} as const;
 
 	function toggle() {
 		if (all) onunselectall();
@@ -37,7 +52,9 @@
 
 <div
 	data-slot="select-actions"
-	class="sticky top-0 z-20 flex items-center gap-2 px-2 py-1.5 max-sm:ml-auto max-sm:w-fit max-sm:gap-1 max-sm:rounded-full max-sm:border max-sm:border-border max-sm:bg-white max-sm:p-1 max-sm:shadow-sm"
+	class="fixed bottom-4 left-1/2 z-20 flex w-fit max-w-[calc(100vw-1.25rem)] -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-white px-2 py-1.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.35)] max-sm:gap-1 max-sm:p-1 sm:bottom-6 {RAIL_CLEARANCE_CLASS[
+		rail
+	]}"
 >
 	<Button
 		variant="ghost"

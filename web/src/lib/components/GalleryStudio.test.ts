@@ -47,7 +47,11 @@ const base: Gallery = {
 
 const heading = createRawSnippet(() => ({ render: () => '<h1>Camille &amp; Lucas</h1>' }));
 
-function setup(over: Partial<Gallery> = {}, shareToken: string | null = over.share_token ?? null) {
+function setup(
+	over: Partial<Gallery> = {},
+	shareToken: string | null = over.share_token ?? null,
+	requestedPhoto?: { id: string; kind: 'proof' | 'final' }
+) {
 	const handlers = {
 		onsave: vi.fn().mockResolvedValue(true),
 		schedule: vi.fn(),
@@ -64,6 +68,7 @@ function setup(over: Partial<Gallery> = {}, shareToken: string | null = over.sha
 		gallery,
 		shareToken,
 		origin: 'https://pp.test',
+		requestedPhoto,
 		heading,
 		...handlers
 	});
@@ -72,6 +77,16 @@ function setup(over: Partial<Gallery> = {}, shareToken: string | null = over.sha
 }
 
 describe('GalleryStudio', () => {
+	it.each(['proof', 'final'] as const)(
+		'selects the source %s panel for a requested photo',
+		(kind) => {
+			setup({}, null, { id: 'p2', kind });
+			expect(screen.getByRole('tabpanel').id).toBe(
+				kind === 'final' ? 'panel-final' : 'panel-photos'
+			);
+		}
+	);
+
 	it('opens the gallery activity once shared, and not before', async () => {
 		setup({ share_token: null, states: ['draft'] });
 

@@ -3,7 +3,7 @@
 	import { CommentsClient } from '#lib/gallery/comments.js';
 	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
 	import CommentThread from './CommentThread.svelte';
-	import { CircleCheck, Download, Heart, LoaderCircle } from '@lucide/svelte';
+	import { Download, Heart, LoaderCircle } from '@lucide/svelte';
 	import PhotoTile, { GRID_CLASSES, ITEM_CLASSES } from '#lib/components/PhotoTile.svelte';
 	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
 	import ViewerButton from '#lib/components/ViewerButton.svelte';
@@ -225,49 +225,44 @@
 
 <svelte:window {onkeydown} />
 
-{#snippet downloadButton()}
+{#snippet downloadButton(all = false)}
 	<Button
 		size="sm"
 		class="min-h-9! gap-1.5"
-		disabled={zipPreparing || zipRequesting || (mode.active && mode.count === 0)}
+		disabled={zipPreparing || zipRequesting || (!all && mode.active && mode.count === 0)}
 		aria-busy={zipPreparing || zipRequesting}
 		onclick={() =>
 			void requestZip(
-				mode.count > 0 ? favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id) : undefined
+				!all && mode.count > 0
+					? favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id)
+					: undefined
 			)}
 	>
 		<Download size={16} aria-hidden="true" />
-		<span class={[mode.active && 'max-sm:sr-only']}>
+		<span class={[!all && mode.active && 'max-sm:sr-only']}>
 			{zipPreparing || zipRequesting
 				? m.favorites_downloading()
-				: mode.count > 0
+				: !all && mode.count > 0
 					? m.favorites_download_count({ count: mode.count })
 					: m.favorites_download_all()}
 		</span>
 	</Button>
 {/snippet}
 
-{#if !mode.active}
-	<div class="flex flex-wrap items-center justify-end gap-2">
-		<Button
-			variant="outline"
-			size="sm"
-			class="min-h-9! gap-1.5"
-			disabled={favorites.length === 0}
-			onclick={() => mode.enter()}
-			><CircleCheck size={16} aria-hidden="true" />{m.action_select()}</Button
-		>
-		{#if favorites.length > 0}{@render downloadButton()}{/if}
-	</div>
-{:else}
+<div class="flex flex-wrap items-center justify-end gap-2">
+	{#if favorites.length > 0}{@render downloadButton(true)}{/if}
+</div>
+{#if mode.active}
 	<SelectActions
 		count={mode.count}
 		total={favorites.length}
+		rail="gallery"
 		onselectall={() => mode.selectAll(favorites.map(({ id }) => id))}
 		onunselectall={() => mode.unselectAll()}
 		onexit={() => mode.leave()}
-		actions={downloadButton}
-	/>
+	>
+		{#snippet actions()}{@render downloadButton()}{/snippet}
+	</SelectActions>
 {/if}
 
 {#if zipError || exportFailure}
@@ -280,7 +275,7 @@
 {#if failed}
 	<p role="alert" class="text-sm text-danger">{m.favorites_load_failed()}</p>
 {:else if loaded && favorites.length === 0}
-	<EmptyState>
+	<EmptyState variant="plain">
 		<span class="grid size-14 place-items-center rounded-full bg-background"
 			><Heart size={26} aria-hidden="true" /></span
 		>
@@ -298,7 +293,11 @@
 					thumbnailUrl={thumbnailUrl(galleryId, photo.id, 'photos', photo.revision)}
 					caption={photo.favorited_at ? { kind: 'favorited', at: photo.favorited_at } : undefined}
 					selected={mode.has(photo.id)}
-					onselect={mode.active ? () => mode.toggle(photo.id) : undefined}
+					persistentSelect
+					onselect={() => {
+						mode.enter();
+						mode.toggle(photo.id);
+					}}
 					onopen={() => {
 						viewIndex = index;
 						viewing = true;

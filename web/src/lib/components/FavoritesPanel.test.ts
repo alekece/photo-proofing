@@ -140,10 +140,10 @@ describe('FavoritesPanel', () => {
 		).not.toBeNull();
 	});
 
-	it('retains the striped empty state shared with the other tabs', async () => {
+	it('uses a plain empty state for the read-only collection', async () => {
 		setup([]);
 		const heading = await screen.findByText('No favorites yet');
-		expect(heading.parentElement?.className).not.toContain('border-solid');
+		expect(heading.parentElement?.className).not.toContain('repeating-linear-gradient');
 	});
 
 	it('reports rejected individual downloads instead of leaving an unhandled promise', async () => {
@@ -186,7 +186,7 @@ describe('FavoritesPanel', () => {
 
 		await screen.findByText('No favorites yet');
 
-		expect(screen.getByRole('button', { name: 'Select' })).toHaveProperty('disabled', true);
+		expect(screen.queryByRole('button', { name: /^Select/ })).toBeNull();
 	});
 
 	it('downloads an individual original without needing a supplied callback', async () => {
@@ -202,9 +202,8 @@ describe('FavoritesPanel', () => {
 		const { finish } = setup([photo('p1', true), photo('p2', true), photo('p3', true)]);
 		const user = userEvent.setup();
 		await screen.findByAltText('p1.jpg');
-		await user.click(screen.getByRole('button', { name: 'Select' }));
-		await user.click(screen.getByRole('checkbox', { name: 'Select p1.jpg' }));
-		await user.click(screen.getByRole('checkbox', { name: 'Select p3.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Select p3.jpg' }));
 		await user.click(screen.getByRole('button', { name: 'Download 2' }));
 		const request = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'POST');
 		expect(JSON.parse(String(request?.[1]?.body))).toEqual({ photo_ids: ['p1', 'p3'] });
@@ -216,13 +215,11 @@ describe('FavoritesPanel', () => {
 		const { finish } = setup([photo('p1', true), photo('p2', true)]);
 		const user = userEvent.setup();
 		await screen.findByAltText('p1.jpg');
-		await user.click(screen.getByRole('button', { name: 'Select' }));
-		await user.click(screen.getByRole('checkbox', { name: 'Select p1.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
 		await user.click(screen.getByRole('button', { name: 'Download 1' }));
-		expect(await screen.findByRole('button', { name: /Downloading/ })).toHaveProperty(
-			'disabled',
-			true
-		);
+		for (const button of await screen.findAllByRole('button', { name: /Downloading/ })) {
+			expect(button).toHaveProperty('disabled', true);
+		}
 		expect(startDownload).not.toHaveBeenCalled();
 		const request = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'POST');
 		expect(JSON.parse(String(request?.[1]?.body))).toEqual({ photo_ids: ['p1'] });
@@ -263,7 +260,7 @@ describe('FavoritesPanel', () => {
 
 		expect(ondownload).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'p2' })]);
 
-		await user.click(screen.getByRole('button', { name: 'Select' }));
+		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
 		await user.click(screen.getByRole('button', { name: 'Select all' }));
 
 		expect(screen.getByText('2 selected')).toBeTruthy();
@@ -316,36 +313,43 @@ describe('FavoritesPanel', () => {
 		expect(startDownload).not.toHaveBeenCalled();
 	});
 
-	it('shows the bar with Download only while selecting, and restores the toolbar on exit', async () => {
+	it('shows the bar from a circle while keeping the tile viewer and toolbar available', async () => {
 		setup([photo('p1', true), photo('p2', true)]);
 		const user = userEvent.setup();
 		await screen.findByAltText('p1.jpg');
 
 		expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
 
-		await user.click(screen.getByRole('button', { name: 'Select' }));
+		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
 
 		const bar = document.querySelector<HTMLElement>('[data-slot="select-actions"]')!;
 
 		expect(within(bar).getByRole('button', { name: 'Select all' })).toBeTruthy();
-		expect(within(bar).getByRole('button', { name: 'Download all' })).toHaveProperty(
+		expect(within(bar).getByRole('button', { name: 'Download 1' })).toHaveProperty(
 			'disabled',
-			true
+			false
 		);
+		expect(screen.getByRole('button', { name: 'Download all' })).toBeTruthy();
 		expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
+		// Clears the gallery studio's md:w-[16.5rem] rail, not the dashboard's sm:w-60 one.
+		expect(bar.className).toMatch(/md:left-\[calc\(50%\+8\.25rem\)\]/);
+		expect(bar.className).not.toMatch(/sm:left-/);
 
 		await user.keyboard('{Escape}');
 
 		expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
-		expect(screen.getByRole('button', { name: 'Select' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Select p1.jpg' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty('disabled', false);
+		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Open p1.jpg' }));
+		expect(screen.getByRole('dialog')).toBeTruthy();
 	});
 
 	it('unselects everything from Unselect all, then exits from the bar', async () => {
 		setup([photo('p1', true), photo('p2', true)]);
 		const user = userEvent.setup();
 		await screen.findByAltText('p1.jpg');
-		await user.click(screen.getByRole('button', { name: 'Select' }));
+		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
 		await user.click(screen.getByRole('button', { name: 'Select all' }));
 
 		expect(screen.getByRole('button', { name: 'Download 2' })).toBeTruthy();
@@ -357,7 +361,7 @@ describe('FavoritesPanel', () => {
 		await user.click(screen.getByRole('button', { name: 'Exit selection' }));
 
 		expect(screen.queryByText('0 selected')).toBeNull();
-		expect(screen.getByRole('button', { name: 'Select' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Select p1.jpg' })).toBeTruthy();
 	});
 
 	it('shows why a ZIP failed and allows another try', async () => {

@@ -5,12 +5,14 @@ import {
 	photoSchema,
 	sharedPhotoSchema,
 	uploadLimitsSchema,
+	workspacePhotoSchema,
 	type Photo
 } from './schemas';
 import * as v from 'valibot';
-import { requestEmpty, requestJson } from '#lib/http.js';
+import { ApiError, requestEmpty, requestJson } from '#lib/http.js';
+import { startDownload } from './export.js';
 
-export type { Photo, PhotoStatus, UploadLimits } from './schemas';
+export type { Photo, PhotoStatus, UploadLimits, WorkspacePhoto } from './schemas';
 
 /** How one upload ended, already translated for the queue. */
 export type UploadOutcome =
@@ -50,6 +52,11 @@ export function listPhotos(
 	set: PhotoSet = 'photos'
 ) {
 	return requestJson(photosPath(galleryId, { set }), {}, v.array(photoSchema), fetcher);
+}
+
+/** Every ready proof or final photo across the workspace's galleries, newest first. */
+export function listWorkspacePhotos(fetcher: typeof fetch = fetch) {
+	return requestJson('/api/v1/photos', {}, v.array(workspacePhotoSchema), fetcher);
 }
 
 /** Clean files remain usable while marked copies are being regenerated. */
@@ -228,4 +235,23 @@ export function previewUrl(
 	return revision === undefined
 		? path
 		: `${path}${set === 'finals' ? '&' : '?'}revision=${revision}`;
+}
+
+/**
+ * Downloads one unchanged original through the authenticated photographer route: a `HEAD`
+ * check first (so a signed-out or gone photo fails before the browser opens a save dialog),
+ * then the same URL as a real download. Throws `ApiError` when the check fails.
+ */
+export async function downloadOriginal(
+	galleryId: string,
+	photoId: string,
+	fetcher: typeof fetch = fetch,
+	set: PhotoSet = 'photos'
+) {
+	const url = photosPath(galleryId, { photoId, action: 'download', set });
+	const response = await fetcher(url, { method: 'HEAD', credentials: 'same-origin' });
+
+	if (!response.ok) throw new ApiError(response.status, m.favorites_download_failed());
+
+	startDownload(url);
 }

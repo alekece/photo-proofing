@@ -5,20 +5,23 @@ import { describe, expect, it } from 'vitest';
 import EmptyWorkspace from './EmptyWorkspace.svelte';
 
 describe('EmptyWorkspace', () => {
-	it('says no galleries are in focus in the shared empty state, with a decorative scene', async () => {
+	it('says no galleries are in focus in a plain icon/title/sentence empty state', async () => {
 		const { container } = render(EmptyWorkspace);
 
 		expect(screen.getByRole('heading', { name: 'No galleries in focus.' })).toBeTruthy();
+		expect(screen.getByText('Create a gallery and it will show up here.')).toBeTruthy();
 		expect(container.querySelector('[data-slot="empty-state"]')).not.toBeNull();
-		expect(container.querySelector('picture img')?.getAttribute('alt')).toBe('');
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('exposes only the first pun to assistive tech and leaves the toolbar to create galleries', () => {
-		render(EmptyWorkspace);
+	it('has no motion or illustration, is not a striped drop zone, and leaves the toolbar to create galleries', () => {
+		const { container } = render(EmptyWorkspace);
 
-		expect(screen.getByText('Say cheese… or at least “New gallery”.')).toBeTruthy();
-		expect(screen.getByText('Zero shots. Zero stress.').getAttribute('aria-hidden')).toBe('true');
+		expect(container.querySelector('picture')).toBeNull();
+		expect(container.querySelector('img')).toBeNull();
+		expect(container.querySelector('[data-slot="empty-state"]')?.className).not.toContain(
+			'border-dashed'
+		);
 		expect(screen.queryByRole('button')).toBeNull();
 	});
 });

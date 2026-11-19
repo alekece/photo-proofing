@@ -13,6 +13,7 @@
 		news = [],
 		selected = false,
 		selecting = false,
+		pending = false,
 		onselect
 	}: {
 		gallery: GalleryOverview;
@@ -24,6 +25,8 @@
 		selected?: boolean;
 		/** Whether dashboard selection mode is active so every card shows its selection circle. */
 		selecting?: boolean;
+		/** Whether this card previews a staged bulk edit not yet applied to the server. */
+		pending?: boolean;
 		/** Toggles this card's selection without navigating to the gallery. */
 		onselect?: () => void;
 	} = $props();
@@ -59,11 +62,18 @@
 			{status}
 			dot
 			cover
+			workspace
 			class="absolute top-2 right-2 px-2 py-[3px] text-[0.65625rem] sm:top-3 sm:right-3 sm:px-2.5 sm:py-1 sm:text-xs"
 		/>
 		<div class="absolute inset-x-0 bottom-0 px-3 py-2.5 sm:px-[1.125rem] sm:py-4">
-			{#if news.length > 0}
+			{#if pending || news.length > 0}
 				<div class="mb-2 flex flex-wrap gap-1.5">
+					{#if pending}
+						<span
+							class="inline-block rounded-full bg-warning px-[9px] py-[3px] text-[0.6875rem] font-bold tracking-[0.02em] text-inverse"
+							>{m.card_pending_changes()}</span
+						>
+					{/if}
 					{#each news as badge (badge)}
 						<span
 							class="inline-block rounded-full bg-danger px-[9px] py-[3px] text-[0.6875rem] font-bold tracking-[0.02em] text-inverse"

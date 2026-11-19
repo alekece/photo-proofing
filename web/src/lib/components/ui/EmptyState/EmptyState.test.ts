@@ -27,4 +27,15 @@ describe('EmptyState', () => {
 		expect(className).not.toContain('rounded-card');
 		expect(className).toContain('text-muted-foreground');
 	});
+
+	it('has no stripes or dashes in the plain variant, reserved for read-only empty states', () => {
+		render(EmptyState, { variant: 'plain', children });
+
+		const box = screen.getByText('Nothing here').parentElement as HTMLElement;
+
+		expect(box.className).not.toContain('border-dashed');
+		expect(box.className).not.toContain('repeating-linear-gradient');
+		expect(box.className).toContain('justify-items-center');
+		expect(box.className).toContain('text-center');
+	});
 });
