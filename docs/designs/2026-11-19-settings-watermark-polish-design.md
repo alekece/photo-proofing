@@ -46,6 +46,7 @@ text color and opacity, and avoid expensive proof recomputation after a gallery 
 - Desktop uses section navigation plus active controls; mobile uses a horizontal section strip.
 - Watermark controls are grouped: enablement, mark, pattern, position, size, text color and opacity.
 - Text watermarks use a custom color picker and optional hex text.
+- The text-watermark control shows both a native color picker and a hex field.
 - Logo/name previews use a cream selected surface; selection itself remains visible through border
   and check indicators rather than selected black fill.
 - Logo watermarks keep original logo colors and transparency.
@@ -59,7 +60,7 @@ text color and opacity, and avoid expensive proof recomputation after a gallery 
 1. ~~**Opacity range/default:** 50, 70 or 100?~~ **Resolved:** 0–100%, default `50%`.
 2. ~~**Published scope:** Prepublish recompute?~~ **Resolved:** recompute Draft and Prepublish.
 3. ~~**Draft/prepublish transition:** scope?~~ **Resolved:** recompute both.
-4. **Text color format:** should the UI expose hex only, a native color picker, or both?
+4. ~~**Text color format:** hex, picker or both?~~ **Resolved:** picker plus hex field.
 5. **Logo on cream:** should logo uploads receive a neutral drop shadow or remain flat?
 6. **Preview layout:** should the live preview remain on the right desktop column and above/below on
    mobile, or stay below every settings section?
