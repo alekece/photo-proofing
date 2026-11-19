@@ -41,13 +41,13 @@ favorite selections without a hard thumbnail limit or a manual Load more control
 - The first 10 photos are visible; more than 10 adds +N.
 - Expansion modifies only that entry and can collapse again.
 - Scroll paging starts before the end and avoids duplicate requests while `loadingMore` is active.
+- Paging starts when the user is within `400 px` of the end.
 - A manual Load more button is removed.
 - Live refresh continues to merge by activity line ID and keep older loaded pages.
 
 ## Open questions
 
-1. **Load threshold:** how close to the bottom should the next page load, for example 800 px,
-   400 px or a viewport-height sentinel?
+1. ~~**Load threshold:** paging distance?~~ **Resolved:** `400 px` before the end.
 2. **Expand label:** should +N be "+2 photos", "Show 2 more", or an icon-only chevron with an
    accessible label?
 3. **Expanded layout:** should remaining thumbnails continue the same grid or open a compact
