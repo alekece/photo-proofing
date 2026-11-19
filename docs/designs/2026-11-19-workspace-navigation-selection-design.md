@@ -73,8 +73,8 @@ interaction structure only; it does not replace the Warm Paper visual identity.
 1. ~~**Sidebar width:** use 240 px, 256 px or another existing-width value?~~ **Resolved:** `16vw`,
    clamped from 240 px to 280 px.
 2. ~~**Phone navigation:** account controls?~~ **Resolved:** remain in the compact side navigation.
-3. **Footer:** should the sidebar extend to the viewport edge with the footer outside it, or should
-   the rail stop above the footer?
+3. ~~**Footer:** sidebar/footer relationship?~~ **Resolved:** the sidebar ends above the footer;
+   the footer remains outside the sidebar.
 4. **Selection bar placement:** should it float at the viewport bottom or be sticky inside the page
    content container?
 5. **Gallery staged changes:** should pinning/favoriting update immediately while status and Quick
