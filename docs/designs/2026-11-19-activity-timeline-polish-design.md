@@ -56,8 +56,7 @@ favorite selections without a hard thumbnail limit or a manual Load more control
    no +N text.
 3. ~~**Expanded layout:** grid or horizontal strip?~~ **Resolved:** continue in the same grid.
 4. ~~**Thumbnail limit:** 10 or 6 on phones?~~ **Resolved:** 10 on larger screens, 6 on phones.
-5. **Paging failure:** should an end-of-list error provide Retry on the sentinel or keep the existing
-   top-level error pattern?
+5. ~~**Paging failure:** sentinel Retry or top-level alert?~~ **Resolved:** provide Retry at the sentinel.
 
 ## Verification
 
