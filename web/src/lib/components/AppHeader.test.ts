@@ -32,7 +32,7 @@ describe('AppHeader', () => {
 		const links = nav.querySelectorAll('a');
 		const names = [...links].map((link) => link.textContent?.trim());
 
-		expect(names).toEqual(['Galleries', 'All Photos', 'Contacts', 'Activity']);
+		expect(names).toEqual(['Galleries', 'All Photos', 'Contacts', 'Activity', 'Settings']);
 
 		const galleries = screen.getByRole('link', { name: 'Galleries' });
 		const allPhotos = screen.getByRole('link', { name: 'All Photos' });
@@ -87,6 +87,39 @@ describe('AppHeader', () => {
 		expect(screen.getByRole('button', { name: 'Account menu' })).toBeTruthy();
 	});
 
+	it('keeps Settings below Activity in the persistent rail', () => {
+		render(AppHeader);
+
+		const nav = screen.getByRole('navigation', { name: 'Main sections' });
+		const links = [...nav.querySelectorAll('a')].map((link) => link.textContent?.trim());
+
+		expect(links).toEqual(['Galleries', 'All Photos', 'Contacts', 'Activity', 'Settings']);
+	});
+
+	it('uses the clamped desktop rail and compact phone navigation', () => {
+		render(AppHeader);
+
+		const header = screen.getByRole('banner');
+		const nav = screen.getByRole('navigation', { name: 'Main sections' });
+
+		expect(header.className).toContain('sm:w-[clamp(15rem,16vw,17.5rem)]');
+		expect(nav.className).toContain('flex-wrap');
+		expect(nav.className).toContain('sm:flex-col');
+	});
+
+	it('shows a loaded studio name and signs out from the bottom identity', async () => {
+		const onsignout = vi.fn();
+		render(AppHeader, { onsignout, studioName: 'Atelier Lumiere' });
+
+		expect(screen.getByText('Atelier Lumiere')).toBeTruthy();
+
+		const user = userEvent.setup();
+		await user.click(screen.getByRole('button', { name: 'Account menu' }));
+		await user.click(screen.getByRole('button', { name: 'Sign out' }));
+
+		expect(onsignout).toHaveBeenCalledOnce();
+	});
+
 	it('calls onsignout when Sign out is pressed from the account menu', async () => {
 		const onsignout = vi.fn();
 		render(AppHeader, { onsignout });
@@ -115,13 +148,18 @@ describe('AppHeader', () => {
 		expect(nav.className).toContain('sm:flex-col');
 	});
 
-	it('keeps the legacy compact bar for gallery pages pending the gallery-specific rail', () => {
-		render(AppHeader, { legacy: true });
+	it('shows the gallery route in the same persistent rail', () => {
+		state.page.url = new URL('http://localhost/dashboard/gallery-id');
+		render(AppHeader);
 
+		const header = screen.getByRole('banner');
 		const nav = screen.getByRole('navigation', { name: 'Main sections' });
 
-		expect(nav.className).not.toContain('sm:flex-col');
-		expect(screen.queryByRole('link', { name: 'All Photos' })).toBeNull();
+		expect(header.className).toContain('sm:fixed');
+		expect(nav.className).toContain('sm:flex-col');
+		expect(screen.getByRole('link', { name: 'Galleries' }).getAttribute('aria-current')).toBe(
+			'page'
+		);
 	});
 
 	it('has no axe violations', async () => {

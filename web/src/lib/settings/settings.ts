@@ -160,6 +160,18 @@ function logoChange(next: string | null, saved: string | null) {
 export class SettingsApi {
 	constructor(private fetcher: typeof fetch = (...args) => fetch(...args)) {}
 
+	/** Loads the workspace settings shown beside account controls. */
+	async load(): Promise<WorkspaceSettings> {
+		const raw = await requestJson(
+			'/api/v1/settings',
+			{ method: 'GET' },
+			settingsResponseSchema,
+			this.fetcher
+		);
+
+		return toWorkspaceSettings(raw, LOGO_URL);
+	}
+
 	/** Saves every setting; `saved` is what the server holds now, so a removal can be told. */
 	async save(settings: WorkspaceSettings, saved: WorkspaceSettings): Promise<WorkspaceSettings> {
 		const raw = await requestJson(

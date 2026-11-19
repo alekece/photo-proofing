@@ -84,6 +84,17 @@ it('sends and detects appearance edits even with an inactive text mark', async (
 	expect(sent(fetcher)).toMatchObject({ watermark_opacity: 0, watermark_text_color: '#A12B3C' });
 });
 
+it('loads complete workspace settings', async () => {
+	const fetcher = vi
+		.fn()
+		.mockResolvedValue(new Response(JSON.stringify({ ...body, studio_name: 'Atelier Lumiere' })));
+	const settings = await new SettingsApi(fetcher).load();
+
+	expect(settings.studioName).toBe('Atelier Lumiere');
+	expect(fetcher.mock.calls[0][0]).toBe('/api/v1/settings');
+	expect(fetcher.mock.calls[0][1]).toEqual(expect.objectContaining({ method: 'GET' }));
+});
+
 function sent(fetcher: ReturnType<typeof vi.fn>) {
 	return JSON.parse(fetcher.mock.calls[0][1].body);
 }
