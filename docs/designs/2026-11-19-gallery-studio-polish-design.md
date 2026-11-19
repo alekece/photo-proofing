@@ -62,6 +62,7 @@ width.
 - Design retains Typography specimen cards and cover/grid controls.
 - Cover selection opens ready proofs. The selected cover preview is also the focal-point control.
 - Focal point is pointer/drag only; no reset or numeric percentage text.
+- Focal-point changes save on pointer release, not continuously during dragging.
 - Choose/Change cover and Remove cover are adjacent; Remove cover is red and border destructive.
 - Share uses a wider Warm Paper sheet. To, Subject and Message are visibly editable; limitations are
   inline, such as empty proofs or unfinished proofs.
@@ -79,7 +80,7 @@ width.
    no separate Publish/Deliver header action.
 5. ~~**Activity placement:** own item or footer?~~ **Resolved:** own Studio navigation item.
 6. ~~**Shoot date:** no shoot date fallback?~~ **Resolved:** show no date.
-7. **Combined focal pointer:** should pointer movement save instantly or on pointer release?
+7. ~~**Combined focal pointer:** save timing?~~ **Resolved:** save on pointer release.
 
 ## Verification
 
