@@ -18,7 +18,7 @@ width.
 
 - Keep the gallery rail visible and widen it enough for cover, title and status hierarchy.
 - Put the favorite star at cover top-left and status chip at cover top-right.
-- Put shoot date at the cover bottom-left.
+- Put shoot date at the cover bottom-left; when unset, show no date instead of Created.
 - Put the title below the cover.
 - Center the Journey Wizard and remove Preview and Publish actions from the main action block.
 - Preview remains available in Design; no separate Gallery Preview button is needed.
@@ -78,7 +78,7 @@ width.
 4. ~~**Publish/Deliver:** action placement?~~ **Resolved:** share finals through the Share/email flow;
    no separate Publish/Deliver header action.
 5. ~~**Activity placement:** own item or footer?~~ **Resolved:** own Studio navigation item.
-6. **Shoot date:** if no shoot date exists, should the block show no text or `Created <date>`?
+6. ~~**Shoot date:** no shoot date fallback?~~ **Resolved:** show no date.
 7. **Combined focal pointer:** should pointer movement save instantly or on pointer release?
 
 ## Verification
