@@ -49,6 +49,8 @@ interaction structure only; it does not replace the Warm Paper visual identity.
 
 - **Desktop sidebar:** a persistent left rail with brand, Galleries, Contacts, Activity, Settings,
   account controls and footer-safe spacing.
+- **Sidebar width:** use `16vw`, clamped between `240 px` and `280 px`
+  (`w-[clamp(15rem,16vw,17.5rem)]`).
 - **Mobile sidebar:** maintain one compact navigation DOM; do not duplicate desktop/mobile account
   controls. The exact compact breakpoint and drawer behavior remain open to review.
 - **Account section:** Language and Notifications are account-adjacent controls. A divider separates
@@ -68,7 +70,8 @@ interaction structure only; it does not replace the Warm Paper visual identity.
 
 ## Open questions
 
-1. **Sidebar width:** should the desktop rail use 240 px, 256 px or another existing-width value?
+1. ~~**Sidebar width:** use 240 px, 256 px or another existing-width value?~~ **Resolved:** `16vw`,
+   clamped from 240 px to 280 px.
 2. **Phone navigation:** at 390 px, should account controls remain in a compact sidebar, collapse
    into the top bar, or open from the photographer avatar?
 3. **Footer:** should the sidebar extend to the viewport edge with the footer outside it, or should
