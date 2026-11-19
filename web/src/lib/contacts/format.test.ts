@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vitest';
 import type { Contact } from './api.js';
 import { contactInitials, sortContacts } from './format.js';

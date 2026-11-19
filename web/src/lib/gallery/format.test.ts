@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
 import {
