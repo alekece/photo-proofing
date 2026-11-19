@@ -180,4 +180,8 @@ pub struct SharedAccess {
     /// the gallery's general link. Kept out of [`SharedGallery`] so client responses never
     /// serialize it.
     pub contact_id: Option<ContactId>,
+    /// The exact general or personal link token [`GalleryRepository::find_shared`] resolved this
+    /// access through, so unlock authorization can be scoped to that one link. `SharedAccess` has
+    /// no `Serialize` impl, so this never reaches a client response.
+    pub link_token: ShareToken,
 }
