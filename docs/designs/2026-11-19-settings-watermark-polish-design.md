@@ -56,6 +56,7 @@ text color and opacity, and avoid expensive proof recomputation after a gallery 
 - Draft and otherwise unpublished proofs may recompute according to the existing worker behavior.
 - Draft and Prepublish proofs recompute; published/delivered proofs do not.
 - Finals, original images and exports continue to use original files.
+- Save and Cancel follow the existing temporary Saved/Reverted lifecycle, then return to idle.
 
 ## Open questions
 
@@ -66,8 +67,8 @@ text color and opacity, and avoid expensive proof recomputation after a gallery 
 5. ~~**Logo on cream:** shadow or flat?~~ **Resolved:** flat with original transparency.
 6. ~~**Preview layout:** desktop position?~~ **Resolved:** right column; mobile stacks below active
    controls.
-7. **Save feedback:** should Saving/Saved return to Save automatically as in existing controls, or
-   remain in a sticky action row until the next edit?
+7. ~~**Save feedback:** return to idle or stay sticky?~~ **Resolved:** temporary Saved/Reverted,
+   then return idle.
 
 ## Verification
 
