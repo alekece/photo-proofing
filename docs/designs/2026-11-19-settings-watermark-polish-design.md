@@ -51,15 +51,14 @@ text color and opacity, and avoid expensive proof recomputation after a gallery 
 - Logo watermarks keep original logo colors and transparency.
 - Effective watermark changes do not regenerate published or delivered proofs.
 - Draft and otherwise unpublished proofs may recompute according to the existing worker behavior.
+- Draft and Prepublish proofs recompute; published/delivered proofs do not.
 - Finals, original images and exports continue to use original files.
 
 ## Open questions
 
 1. ~~**Opacity range/default:** 50, 70 or 100?~~ **Resolved:** 0–100%, default `50%`.
-2. **Published scope:** does no-recompute apply only after final delivery, or to every shared
-   Prepublish gallery too?
-3. **Draft/prepublish transition:** should proofs in Prepublish regenerate when settings change, or
-   should only Draft proofs change?
+2. ~~**Published scope:** Prepublish recompute?~~ **Resolved:** recompute Draft and Prepublish.
+3. ~~**Draft/prepublish transition:** scope?~~ **Resolved:** recompute both.
 4. **Text color format:** should the UI expose hex only, a native color picker, or both?
 5. **Logo on cream:** should logo uploads receive a neutral drop shadow or remain flat?
 6. **Preview layout:** should the live preview remain on the right desktop column and above/below on
