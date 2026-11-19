@@ -37,6 +37,7 @@ to the selected contact; no right-side master-detail card is required.
 
 - **List:** ordered by name, each row showing monogram, Name, Email, optional Phone and linked-gallery
   summaries. Right-side actions remain visible or appear on hover/focus/touch consistently.
+- On mobile, right-side row actions use icon buttons with accessible names.
 - **Chevron:** toggles an animated details block directly below the row.
 - **Details block:** shows Notes and linked galleries. It can be opened independently of Edit.
 - Only one contact details/editor block is open at a time.
@@ -61,9 +62,9 @@ to the selected contact; no right-side master-detail card is required.
 3. ~~**Details expansion:** open details on Edit?~~ **Resolved:** Edit automatically expands details.
 4. ~~**One open row:** close previous or allow several?~~ **Resolved:** only one row open at a time.
 5. ~~**Delete removal:** shrink/fade or immediate?~~ **Resolved:** shrink and fade.
-6. **Mobile:** should right-side actions remain labeled, become icons, or enter an overflow menu?
-7. **Countdown versus dialog:** should delete use the requested countdown confirmation, or remain a
-   standard destructive dialog for consistency with existing UI rules? If countdown wins, what duration?
+6. ~~**Mobile:** row actions?~~ **Resolved:** icon buttons.
+7. ~~**Countdown versus dialog:** dialog or countdown?~~ **Resolved:** countdown confirmation
+   for this inline contact flow, using the shared action component.
 
 ## Verification
 
