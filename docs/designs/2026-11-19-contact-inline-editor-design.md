@@ -39,6 +39,7 @@ to the selected contact; no right-side master-detail card is required.
   summaries. Right-side actions remain visible or appear on hover/focus/touch consistently.
 - **Chevron:** toggles an animated details block directly below the row.
 - **Details block:** shows Notes and linked galleries. It can be opened independently of Edit.
+- Only one contact details/editor block is open at a time.
 - **Edit:** replaces that row's actions with Cancel and Save and inserts the fields in the details
   block; clicking Edit automatically expands details. The row's identity stays visible.
 - **New:** inserts or reveals an editable new-contact block below the page header or at the top of the
@@ -55,8 +56,7 @@ to the selected contact; no right-side master-detail card is required.
 1. ~~**Countdown duration:** 3, 5 or 8 seconds?~~ **Resolved:** `3 seconds`.
 2. ~~**New contact placement:** at the top or header?~~ **Resolved:** at the top of the list.
 3. ~~**Details expansion:** open details on Edit?~~ **Resolved:** Edit automatically expands details.
-4. **One open row:** should opening another row close the previous details/editor, or can several
-   details blocks remain open?
+4. ~~**One open row:** close previous or allow several?~~ **Resolved:** only one row open at a time.
 5. **Delete removal:** should a deleted row shrink/fade after confirmation, or disappear immediately?
 6. **Mobile:** should right-side actions remain labeled, become icons, or enter an overflow menu?
 7. **Countdown versus dialog:** should delete use the requested countdown confirmation, or remain a
