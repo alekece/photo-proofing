@@ -915,7 +915,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn a_request_snapshots_the_favorites_and_queues_one_job(pool: PgPool) {
+    async fn a_request_queues_one_job_and_snapshots_favorites_immutably(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
         let first = fixture.photo("a.jpg", 10, true).await;
         let second = fixture.photo("b.jpg", 20, true).await;
@@ -940,13 +940,6 @@ mod tests {
                 .unwrap(),
             1
         );
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
-    async fn later_selection_changes_do_not_alter_the_snapshot(pool: PgPool) {
-        let fixture = Fixture::new(&pool).await;
-        let kept = fixture.photo("a.jpg", 10, true).await;
-        let export = fixture.created().await;
 
         sqlx::query("UPDATE photos SET favorited_at = NULL")
             .execute(&pool)
@@ -956,9 +949,13 @@ mod tests {
 
         let plan = fixture.exports().plan(export.id).await.unwrap().unwrap();
 
-        assert_eq!(plan.photos.len(), 1);
-        assert_eq!(plan.photos[0].id, kept);
-        assert_eq!(plan.photos[0].original_name, "a.jpg");
+        assert_eq!(
+            plan.photos
+                .iter()
+                .map(|photo| (photo.id, photo.original_name.as_str()))
+                .collect::<Vec<_>>(),
+            [(first, "a.jpg"), (second, "b.jpg")]
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]

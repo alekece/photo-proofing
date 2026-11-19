@@ -74,6 +74,16 @@ pub(crate) async fn app_state(pool: PgPool) -> (ApiState, TempDir) {
     (state_with_upload(pool, storage, upload_config), directory)
 }
 
+pub(crate) async fn app_state_with_failure_limit(
+    pool: PgPool,
+    max_failures: NonZeroU32,
+) -> (ApiState, TempDir) {
+    let (storage, upload_config, directory) = upload_resources().await;
+    let state = state_with_upload_options(pool, storage, upload_config, false, max_failures);
+
+    (state, directory)
+}
+
 pub(crate) fn state_with_upload(
     pool: PgPool,
     storage: PhotoStorage,
@@ -88,6 +98,22 @@ pub(crate) fn state_with_upload_secure_cookie(
     upload_config: UploadConfig,
     secure_cookie: bool,
 ) -> ApiState {
+    state_with_upload_options(
+        pool,
+        storage,
+        upload_config,
+        secure_cookie,
+        NonZeroU32::new(10).unwrap(),
+    )
+}
+
+fn state_with_upload_options(
+    pool: PgPool,
+    storage: PhotoStorage,
+    upload_config: UploadConfig,
+    secure_cookie: bool,
+    max_failures: NonZeroU32,
+) -> ApiState {
     let session = SessionConfig {
         idle_timeout: "1h".parse().unwrap(),
         secure_cookie: Some(secure_cookie),
@@ -98,7 +124,7 @@ pub(crate) fn state_with_upload_secure_cookie(
         hash_concurrency: NonZeroUsize::new(2).unwrap(),
     };
     let limiter = LimiterConfig {
-        max_failures: NonZeroU32::new(10).unwrap(),
+        max_failures,
         window: "1m".parse().unwrap(),
         max_peers: NonZeroUsize::new(1024).unwrap(),
     };

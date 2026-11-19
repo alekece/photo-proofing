@@ -134,7 +134,7 @@ impl PhotoRetry<'_> {
 #[cfg(test)]
 mod tests {
     use std::{
-        num::{NonZeroU32, NonZeroU64},
+        num::{NonZeroU16, NonZeroU32, NonZeroU64},
         time::Duration,
     };
 
@@ -271,34 +271,12 @@ mod tests {
         let first = failed_photo(&database, &pool, &gallery).await;
         let second = failed_photo(&database, &pool, &gallery).await;
 
-        assert_eq!(retry(&database, &gallery, None).await, Some(2));
-
-        for id in [first, second] {
-            assert_eq!(status(&database, &gallery, id).await, PhotoStatus::Waiting);
-            assert_eq!(job_states(&pool, id).await, [JobState::Queued]);
-        }
-
-        let job = database
-            .repository::<JobRepository>()
-            .claim(&[JobKind::ProcessPhoto], Duration::from_secs(60))
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(job.attempts, 1);
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
-    async fn retried_photos_get_the_configured_job_attempts(pool: PgPool) {
-        let database = Database::new(pool.clone());
-        let gallery = gallery(&database, &pool).await;
-        let id = failed_photo(&database, &pool, &gallery).await;
         let options = JobOptions {
-            max_attempts: std::num::NonZeroU16::new(9).unwrap(),
+            max_attempts: NonZeroU16::new(9).unwrap(),
             ..JobOptions::default()
         };
 
-        database
+        let retried = database
             .repository_with::<PhotoRetry>(options)
             .retry_failed(
                 gallery.workspace_id,
@@ -309,16 +287,32 @@ mod tests {
             .await
             .unwrap();
 
-        let attempts: i32 = sqlx::query_scalar(
-            "SELECT max_attempts FROM jobs
-             WHERE state = 'queued' AND payload->'payload'->>'photo_id' = $1",
-        )
-        .bind(id.to_string())
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        assert_eq!(retried, Some(2));
 
-        assert_eq!(attempts, 9);
+        for id in [first, second] {
+            assert_eq!(status(&database, &gallery, id).await, PhotoStatus::Waiting);
+            assert_eq!(job_states(&pool, id).await, [JobState::Queued]);
+
+            let attempts: i32 = sqlx::query_scalar(
+                "SELECT max_attempts FROM jobs
+                 WHERE state = 'queued' AND payload->'payload'->>'photo_id' = $1",
+            )
+            .bind(id.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+            assert_eq!(attempts, 9);
+        }
+
+        let job = database
+            .repository::<JobRepository>()
+            .claim(&[JobKind::ProcessPhoto], Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(job.attempts, 1);
     }
 
     #[sqlx::test(migrations = "./migrations")]

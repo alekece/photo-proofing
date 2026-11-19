@@ -615,22 +615,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn opens_accumulate_on_one_unread_notification(pool: PgPool) {
-        let fixture = Fixture::new(pool).await;
-
-        fixture.open().await;
-        fixture.open().await;
-
-        let list = fixture.list().await;
-
-        assert_eq!(list.unread, 1);
-        assert_eq!(list.notifications.len(), 1);
-        assert_eq!(list.notifications[0].kind, NotificationKind::Open);
-        assert_eq!(list.notifications[0].count, 2);
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
-    async fn aging_the_open_date_records_nothing(pool: PgPool) {
+    async fn opens_accumulate_until_the_notification_is_read(pool: PgPool) {
         let fixture = Fixture::new(pool).await;
 
         fixture.open().await;
@@ -640,15 +625,16 @@ mod tests {
             .unwrap();
 
         assert_eq!(fixture.list().await.notifications[0].count, 1);
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
-    async fn an_open_after_a_read_opens_a_new_notification(pool: PgPool) {
-        let fixture = Fixture::new(pool).await;
 
         fixture.open().await;
+        let list = fixture.list().await;
 
-        let id = fixture.list().await.notifications[0].id;
+        assert_eq!(list.unread, 1);
+        assert_eq!(list.notifications.len(), 1);
+        assert_eq!(list.notifications[0].kind, NotificationKind::Open);
+        assert_eq!(list.notifications[0].count, 2);
+
+        let id = list.notifications[0].id;
 
         fixture
             .notifications()

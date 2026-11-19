@@ -281,7 +281,7 @@ async fn renew(state: Data<ApiState>, session: SessionToken) -> Result<HttpRespo
 
 #[cfg(test)]
 mod tests {
-    use std::iter;
+    use std::{iter, num::NonZeroU32};
 
     use actix_web::{App, test};
     use pp_database::{Database, tests::TestRepository};
@@ -607,7 +607,8 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn wrong_logins_are_limited_per_peer(pool: PgPool) {
-        let (state, _directory) = app_state(pool).await;
+        let (state, _directory) =
+            tests::app_state_with_failure_limit(pool, NonZeroU32::new(2).unwrap()).await;
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(state))
@@ -616,17 +617,18 @@ mod tests {
         .await;
         let wrong = serde_json::json!({"email":"a@example.test","password":"wrong horse battery"});
 
-        for attempt in 0..11 {
+        for (peer, expected) in [
+            ("127.0.0.1:1000", StatusCode::UNAUTHORIZED),
+            ("127.0.0.1:1000", StatusCode::UNAUTHORIZED),
+            ("127.0.0.1:1000", StatusCode::TOO_MANY_REQUESTS),
+            ("127.0.0.2:1000", StatusCode::UNAUTHORIZED),
+        ] {
             let req = test::TestRequest::post()
                 .uri("/api/v1/auth/login")
+                .peer_addr(peer.parse().unwrap())
                 .insert_header(("Origin", ORIGIN))
                 .set_json(&wrong)
                 .to_request();
-            let expected = if attempt < 10 {
-                StatusCode::UNAUTHORIZED
-            } else {
-                StatusCode::TOO_MANY_REQUESTS
-            };
 
             assert_eq!(test::call_service(&app, req).await.status(), expected);
         }
@@ -634,7 +636,8 @@ mod tests {
 
     #[sqlx::test(migrations = "../database/migrations")]
     async fn successful_logins_do_not_use_the_attempt_limit(pool: PgPool) {
-        let (state, _directory) = app_state(pool).await;
+        let (state, _directory) =
+            tests::app_state_with_failure_limit(pool, NonZeroU32::new(2).unwrap()).await;
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(state))
@@ -644,7 +647,7 @@ mod tests {
         let credentials =
             serde_json::json!({"email":"a@example.test","password":"correct horse battery"});
 
-        for action in iter::once("setup").chain(iter::repeat_n("login", 11)) {
+        for action in iter::once("setup").chain(iter::repeat_n("login", 3)) {
             let req = test::TestRequest::post()
                 .uri(&format!("/api/v1/auth/{action}"))
                 .insert_header(("Origin", ORIGIN))

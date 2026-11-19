@@ -202,7 +202,7 @@ mod tests {
         );
     }
 
-    #[sqlx::test(migrations = "./migrations")]
+    #[sqlx::test(migrations = false)]
     async fn an_undecodable_payload_is_reported_as_missed(pool: PgPool) {
         let database = Database::new(pool.clone());
         let mut listener = database.listen().await.unwrap();
