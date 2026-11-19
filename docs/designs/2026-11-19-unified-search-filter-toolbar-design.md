@@ -1,0 +1,67 @@
+# Unified search and filter toolbar
+
+Issue: [#403](https://github.com/alekece/photo-proofing/issues/403).
+Existing patterns:
+[dashboard](../ui/screens/dashboard.md),
+[contacts](../ui/screens/contacts.md),
+[activity](../ui/screens/activity.md),
+[gallery](../ui/screens/gallery.md).
+
+## Intent
+
+Every signed-in list uses the same toolbar language and behavior: optional search, compact filters
+and sort controls in one Warm Paper bar. Page-specific data and filtering logic stay on the page.
+
+## Goals
+
+- Provide one reusable toolbar primitive for Dashboard, Contacts, Activity and gallery collections.
+- Optional search appears in the left or leading area.
+- Filter and sort controls appear as compact right-side popovers or popover menus.
+- Filters remain configurable through Svelte snippets/children and callbacks.
+- Sorting uses the same configurable filter/menu component rather than a special visual pattern.
+- Keep disabled, keyboard, focus, mobile and localized behavior consistent.
+
+## Non-goals
+
+- A global data store or shared filter state.
+- Moving API requests or filtering algorithms into the primitive.
+- Changing filter semantics on existing pages.
+
+## Approaches
+
+1. **CSS-only wrapper.** Rejected: it would duplicate control behavior and not provide slots.
+2. **A specialized toolbar with props for galleries/contacts/activity.** Rejected: it would grow
+   domain-specific branches and make future pages depend on old data shapes.
+3. **A generic toolbar shell with search, filter and action snippets.** Chosen. The shell owns layout
+   and responsive sizing; pages supply controls and callbacks.
+
+## Decisions
+
+- Search is optional and disabled rather than hidden when no item can be searched.
+- The toolbar panel uses existing Warm Paper tokens, border, radius and spacing.
+- Filter controls use existing Popover/Select primitives and retain their active summary.
+- Sort is represented as a menu of mutually exclusive options, using one generic option model.
+- The toolbar exposes an optional clear/reset action but does not decide filter contents.
+- Active filter summaries remain stable in width and do not move adjacent controls.
+- On narrow screens, search can occupy a full row and controls share the remaining row.
+
+## Open questions
+
+1. **Search row:** should search always occupy the full mobile row, or should it remain inline until
+   the available width drops below 520 px?
+2. **Active filter count:** should a mobile filter button show an item count badge for every active
+   filter or only a generic Filter label?
+3. **Toolbar stickiness:** should the toolbar stay sticky below the AppHeader on Dashboard and
+   Activity, and inside the Gallery stage, or remain in normal flow?
+4. **Clear filters:** should reset appear inside every filter menu, in the toolbar, or only in empty
+   results? The audit prefers consistent placement.
+5. **Sort summary:** for Activity and Contacts, should sorting be omitted or should those pages
+   expose an explicit direction/order control?
+
+## Verification
+
+- Every toolbar instance has a search slot, filter slot and optional sort/action slot.
+- Page data can change without a toolbar remount or loss of focus.
+- Filters remain usable by keyboard and at 390 px.
+- Search and active filters have localized accessible names.
+- Empty, loading and disabled states follow existing page behavior.
