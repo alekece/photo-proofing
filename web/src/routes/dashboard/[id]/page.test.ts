@@ -166,6 +166,27 @@ describe('gallery page', () => {
 		expect(screen.queryByLabelText('Client link')).toBeNull();
 	});
 
+	it('keeps the full-screen Preview action available from any gallery section, as a single-scroll modal', async () => {
+		stubApi();
+		const user = userEvent.setup();
+		open({ share_token: 'T'.repeat(22), states: ['shared'], hero_id: 'p1' });
+
+		await user.click(screen.getByRole('tab', { name: 'Contacts' }));
+		await user.click(screen.getByRole('button', { name: 'Preview' }));
+
+		const dialog = screen.getByRole('dialog', { name: 'Client preview' });
+
+		expect(dialog).toBeTruthy();
+		// A single scroller lives inside the modal; the dialog element itself does not scroll.
+		expect(dialog.className).not.toMatch(/overflow-auto/);
+		expect(
+			document.querySelector('[data-frame="desktop"]')?.closest('div')?.parentElement
+		).toBeTruthy();
+
+		await user.click(screen.getByRole('button', { name: 'Close preview' }));
+		expect(screen.queryByRole('dialog', { name: 'Client preview' })).toBeNull();
+	});
+
 	it('renders the share control inside Settings with a link built from the page origin', async () => {
 		const user = userEvent.setup();
 		open({ share_token: 'B'.repeat(22) });
@@ -302,6 +323,7 @@ describe('gallery page', () => {
 			'fetch',
 			vi.fn(async (url: string, init?: RequestInit) => {
 				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				if ((init?.method ?? 'GET') === 'GET') return Response.json([]);
 				const status = await new Promise<number>((resolve) => pending.push(resolve));
 				return status === 200
 					? new Response(JSON.stringify({ ...base, ...JSON.parse(init?.body as string) }))
@@ -389,6 +411,7 @@ describe('gallery page', () => {
 	it('allows a past expiry, marks the gallery expired and clears it with null', async () => {
 		const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
 			if (url.includes('/auth/')) return new Response(null, { status: 204 });
+			if ((init?.method ?? 'GET') === 'GET') return Response.json([]);
 			const patch = JSON.parse(init?.body as string);
 
 			return new Response(
@@ -410,7 +433,7 @@ describe('gallery page', () => {
 		await user.click(screen.getByRole('button', { name: 'Clear' }));
 		expect(await screen.findByText('Draft')).toBeTruthy();
 		const bodies = fetcher.mock.calls
-			.filter(([url]) => url.includes('/galleries/'))
+			.filter(([url, init]) => url.includes('/galleries/') && init?.method === 'PATCH')
 			.map(([, init]) => JSON.parse(init?.body as string));
 		expect(bodies[1]).toEqual({ expires_at: null });
 	});
@@ -676,8 +699,7 @@ describe('gallery page', () => {
 						JSON.stringify({ ...base, share_token: 'C'.repeat(22), states: ['shared'] })
 					);
 				}
-				if (url.endsWith('/photos') || url.endsWith('/photos?finals=true'))
-					return new Response(JSON.stringify(photos));
+				if (url.includes('/photos')) return new Response(JSON.stringify(photos));
 
 				return new Response(null, { status: 204 });
 			});
@@ -876,7 +898,7 @@ describe('gallery page', () => {
 			vi.stubGlobal(
 				'fetch',
 				vi.fn(async (url: string) =>
-					url.endsWith('/photos') ? new Response('[]') : new Response('{}', { status: 500 })
+					url.includes('/photos') ? new Response('[]') : new Response('{}', { status: 500 })
 				)
 			);
 			const user = userEvent.setup();

@@ -12,6 +12,7 @@
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
+	import Select from '#lib/components/ui/Select/Select.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import { createContact, deleteContact, updateContact, type Contact } from '#lib/contacts/api.js';
 	import { contactInitials, sortContacts } from '#lib/contacts/format.js';
@@ -31,6 +32,7 @@
 	let creating = $state(false);
 	let mobileDetailOpen = $state(false);
 	let query = $state('');
+	let sortOrder = $state<'name_asc' | 'name_desc'>('name_asc');
 	let signingOut = $state(false);
 	let signOutError = $state('');
 
@@ -75,10 +77,12 @@
 
 	const matching = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
+		const sorted = sortContacts(contacts);
+		if (sortOrder === 'name_desc') sorted.reverse();
 
-		if (!needle) return contacts;
+		if (!needle) return sorted;
 
-		return contacts.filter(
+		return sorted.filter(
 			(item) =>
 				item.name.toLowerCase().includes(needle) ||
 				item.email.toLowerCase().includes(needle) ||
@@ -230,11 +234,18 @@
 			const updated = await updateContact(targetId, parsed);
 
 			contacts = sortContacts(contacts.map((item) => (item.id === targetId ? updated : item)));
+
+			// The user may have switched to another contact while this save was in flight;
+			// only reflect the save's own status on the panel that's still showing it.
+			if (selectedId !== targetId) return;
+
 			saveStatus = 'saved';
 			savedTimer = setTimeout(() => {
 				saveStatus = 'idle';
 			}, SAVED_MS);
 		} catch (error) {
+			if (selectedId !== targetId) return;
+
 			saveStatus = 'idle';
 
 			if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {
@@ -306,20 +317,31 @@
 		</Button>
 	</div>
 
-	<div class="relative mb-4 max-w-md sm:mb-6">
-		<Search
-			size={16}
-			aria-hidden="true"
-			class="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted-foreground"
-		/>
-		<Input
-			type="search"
-			bind:value={query}
+	<div data-slot="contacts-toolbar" class="mb-4 flex w-full flex-wrap gap-3 sm:mb-6">
+		<div class="relative min-w-0 flex-1 basis-64">
+			<Search
+				size={16}
+				aria-hidden="true"
+				class="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted-foreground"
+			/>
+			<Input
+				type="search"
+				bind:value={query}
+				disabled={loadFailed || contacts.length === 0}
+				aria-label={m.contacts_search()}
+				placeholder={m.contacts_search()}
+				class="rounded-full pl-9"
+			/>
+		</div>
+		<Select
+			bind:value={sortOrder}
+			aria-label={m.sort_by()}
 			disabled={loadFailed || contacts.length === 0}
-			aria-label={m.contacts_search()}
-			placeholder={m.contacts_search()}
-			class="rounded-full pl-9"
-		/>
+			class="max-sm:w-full"
+		>
+			<option value="name_asc">{m.contacts_sort_name_asc()}</option>
+			<option value="name_desc">{m.contacts_sort_name_desc()}</option>
+		</Select>
 	</div>
 
 	{#if loadFailed}

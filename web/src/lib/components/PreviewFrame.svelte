@@ -11,6 +11,7 @@
 		toggleClass,
 		stageClass = 'min-h-0 flex-1',
 		phoneClass = 'h-[min(680px,calc(100dvh-110px))]',
+		scrollable = true,
 		header,
 		children
 	}: {
@@ -19,6 +20,8 @@
 		toggleClass?: string;
 		stageClass?: string;
 		phoneClass?: string;
+		/** Set to false for an inline stage that must not own its own scrollbar. */
+		scrollable?: boolean;
 		header: Snippet<[Snippet]>;
 		children: Snippet;
 	} = $props();
@@ -59,7 +62,7 @@
 		stageClass,
 		mode === 'phone'
 			? 'grid place-items-center overflow-hidden bg-[radial-gradient(circle_at_50%_40%,#3a302a,#1d1815_70%)] p-4 sm:p-6'
-			: 'overflow-auto bg-background'
+			: cn('bg-background', scrollable && 'overflow-auto')
 	)}
 >
 	<div
@@ -67,14 +70,14 @@
 		class={cn(
 			mode === 'phone' &&
 				'w-[340px] max-w-full rounded-[40px] bg-black p-2.5 shadow-[0_30px_80px_rgb(0_0_0/0.5)]',
-			mode === 'phone' && phoneClass
+			mode === 'phone' && scrollable && phoneClass
 		)}
 	>
 		<div
 			class={cn(
 				'relative bg-background text-foreground',
-				mode === 'phone' &&
-					'h-full translate-z-0 [scrollbar-width:none] overflow-auto rounded-[30px]'
+				mode === 'phone' && 'translate-z-0 rounded-[30px]',
+				mode === 'phone' && scrollable && 'h-full [scrollbar-width:none] overflow-auto'
 			)}
 		>
 			{@render children()}

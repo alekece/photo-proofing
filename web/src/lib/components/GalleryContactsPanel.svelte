@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { LoaderCircle, Plus, Search, UserMinus, UserPlus, Users, X } from '@lucide/svelte';
+	import { Check, LoaderCircle, Plus, Search, UserMinus, UserPlus, Users, X } from '@lucide/svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
@@ -28,17 +29,25 @@
 
 	const dialogId = $props.id();
 
+	/** How long the row shows an animated "Linked" confirmation before settling to Unlink. */
+	const LINKED_FEEDBACK_MS = 600;
+
 	let linked = $state<Contact[]>([]);
 	let loading = $state(true);
 	let loadError = $state('');
-	let unlinkingId = $state<string | null>(null);
 
 	let dialogOpen = $state(false);
 	let directoryLoading = $state(false);
 	let directoryContacts = $state<Contact[]>([]);
 	let dialogMode = $state<'existing' | 'create'>('existing');
 	let pickerQuery = $state('');
-	let linkingId = $state<string | null>(null);
+
+	// Per-contact transient action state, keyed by contact id, so every row's Link/Linked/Unlink
+	// button transitions independently without the dialog (or the always-visible list) closing.
+	let pending = $state<Record<string, 'linking' | 'linked' | 'unlinking'>>({});
+	// Per-contact request tokens: guard against an in-flight response landing after a newer
+	// action (e.g. a quick unlink-then-relink) has already changed that same row's state.
+	const requestTokens = new SvelteMap<string, number>();
 
 	let newName = $state('');
 	let newEmail = $state('');
@@ -46,6 +55,45 @@
 	let newNotes = $state('');
 	let inlineError = $state('');
 	let creatingAndLinking = $state(false);
+
+	function nextToken(contactId: string) {
+		const token = (requestTokens.get(contactId) ?? 0) + 1;
+
+		requestTokens.set(contactId, token);
+
+		return token;
+	}
+
+	function isCurrentToken(contactId: string, token: number) {
+		return requestTokens.get(contactId) === token;
+	}
+
+	function clearPending(contactId: string) {
+		if (!(contactId in pending)) return;
+
+		const rest = { ...pending };
+
+		delete rest[contactId];
+		pending = rest;
+	}
+
+	function isBusy(contactId: string) {
+		return pending[contactId] === 'linking' || pending[contactId] === 'unlinking';
+	}
+
+	/** Applies a successful link response and starts the brief "Linked" confirmation. */
+	function applyLinked(contactId: string, added: Contact, token: number) {
+		const next = sortContacts([...linked.filter((item) => item.id !== added.id), added]);
+
+		linked = next;
+		oncount?.(next.length);
+		pending = { ...pending, [contactId]: 'linked' };
+		setTimeout(() => {
+			if (!isCurrentToken(contactId, token)) return;
+
+			clearPending(contactId);
+		}, LINKED_FEEDBACK_MS);
+	}
 
 	$effect(() => {
 		const currentGalleryId = galleryId;
@@ -77,13 +125,14 @@
 	});
 
 	const linkedIds = $derived(new Set(linked.map((item) => item.id)));
-	const unlinkedContacts = $derived(directoryContacts.filter((item) => !linkedIds.has(item.id)));
-	const filteredUnlinked = $derived.by(() => {
+	// The dialog is a merged directory: every contact shows its own Link/Linked/Unlink state,
+	// so linking or unlinking never removes a row from the list the user is looking at.
+	const filteredDirectory = $derived.by(() => {
 		const needle = pickerQuery.trim().toLowerCase();
 
-		if (!needle) return unlinkedContacts;
+		if (!needle) return directoryContacts;
 
-		return unlinkedContacts.filter(
+		return directoryContacts.filter(
 			(item) =>
 				item.name.toLowerCase().includes(needle) ||
 				item.email.toLowerCase().includes(needle) ||
@@ -105,8 +154,7 @@
 			const all = await listContacts();
 
 			directoryContacts = all;
-			const hasAvailable = all.some((item) => !linkedIds.has(item.id));
-			dialogMode = hasAvailable ? 'existing' : 'create';
+			dialogMode = all.length > 0 ? 'existing' : 'create';
 		} catch {
 			dialogMode = 'create';
 		} finally {
@@ -114,27 +162,54 @@
 		}
 	}
 
-	async function linkExisting(contactId: string, close: () => void) {
-		if (linkingId) return;
+	async function linkRow(contactId: string) {
+		if (isBusy(contactId)) return;
 
-		linkingId = contactId;
+		const token = nextToken(contactId);
+
+		pending = { ...pending, [contactId]: 'linking' };
 		inlineError = '';
 
 		try {
 			const added = await linkGalleryContact(galleryId, contactId);
-			const next = sortContacts([...linked.filter((item) => item.id !== added.id), added]);
 
-			linked = next;
-			oncount?.(next.length);
-			close();
+			if (!isCurrentToken(contactId, token)) return;
+
+			applyLinked(contactId, added, token);
 		} catch (error) {
+			if (!isCurrentToken(contactId, token)) return;
+
+			clearPending(contactId);
 			inlineError = error instanceof ApiError ? error.message : m.gallery_contacts_link_failed();
-		} finally {
-			linkingId = null;
 		}
 	}
 
-	async function createInlineAndLink(close: () => void) {
+	async function unlinkRow(contactId: string) {
+		if (isBusy(contactId)) return;
+
+		const token = nextToken(contactId);
+
+		pending = { ...pending, [contactId]: 'unlinking' };
+
+		try {
+			await unlinkGalleryContact(galleryId, contactId);
+
+			if (!isCurrentToken(contactId, token)) return;
+
+			const next = linked.filter((item) => item.id !== contactId);
+
+			linked = next;
+			oncount?.(next.length);
+			clearPending(contactId);
+		} catch {
+			if (!isCurrentToken(contactId, token)) return;
+
+			clearPending(contactId);
+			toasts.error(m.gallery_contacts_unlink_failed(), () => void unlinkRow(contactId));
+		}
+	}
+
+	async function createInlineAndLink() {
 		if (creatingAndLinking) return;
 
 		const name = newName.trim();
@@ -159,38 +234,16 @@
 
 		try {
 			const created = await createContact({ name, email, phone, notes });
+
 			directoryContacts = sortContacts([...directoryContacts, created]);
 			pickerQuery = '';
 			dialogMode = 'existing';
 
-			const added = await linkGalleryContact(galleryId, created.id);
-			const next = sortContacts([...linked.filter((item) => item.id !== added.id), added]);
-
-			linked = next;
-			oncount?.(next.length);
-			close();
+			await linkRow(created.id);
 		} catch (error) {
 			inlineError = error instanceof ApiError ? error.message : m.gallery_contacts_link_failed();
 		} finally {
 			creatingAndLinking = false;
-		}
-	}
-
-	async function unlink(contactId: string) {
-		if (unlinkingId) return;
-
-		unlinkingId = contactId;
-
-		try {
-			await unlinkGalleryContact(galleryId, contactId);
-			const next = linked.filter((item) => item.id !== contactId);
-
-			linked = next;
-			oncount?.(next.length);
-		} catch {
-			toasts.error(m.gallery_contacts_unlink_failed(), () => void unlink(contactId));
-		} finally {
-			unlinkingId = null;
 		}
 	}
 </script>
@@ -250,10 +303,10 @@
 					<Button
 						variant="outline"
 						size="sm"
-						disabled={unlinkingId === item.id}
-						onclick={() => void unlink(item.id)}
+						disabled={isBusy(item.id)}
+						onclick={() => void unlinkRow(item.id)}
 					>
-						{#if unlinkingId === item.id}
+						{#if pending[item.id] === 'unlinking'}
 							<LoaderCircle
 								size={14}
 								class="animate-spin motion-reduce:animate-none"
@@ -273,7 +326,7 @@
 {#if dialogOpen}
 	<Dialog
 		labelledby="{dialogId}-title"
-		dismissible={!linkingId && !creatingAndLinking}
+		dismissible={!creatingAndLinking}
 		onclose={() => (dialogOpen = false)}
 		class="m-auto w-[min(29rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-5 text-foreground shadow-xl sm:p-6"
 	>
@@ -285,7 +338,7 @@
 						variant="ghost"
 						size="sm"
 						aria-label={m.action_close()}
-						disabled={Boolean(linkingId) || creatingAndLinking}
+						disabled={creatingAndLinking}
 						onclick={close}
 						class="min-h-8! px-2!"
 					>
@@ -303,7 +356,7 @@
 					</div>
 				{:else if dialogMode === 'existing'}
 					<div class="grid gap-3">
-						{#if unlinkedContacts.length > 0}
+						{#if directoryContacts.length > 0}
 							<div class="relative">
 								<Search
 									size={15}
@@ -319,13 +372,15 @@
 								/>
 							</div>
 
-							{#if filteredUnlinked.length === 0}
+							{#if filteredDirectory.length === 0}
 								<p class="py-4 text-center text-sm text-muted-foreground">
 									{m.contacts_no_match({ query: pickerQuery.trim() })}
 								</p>
 							{:else}
 								<ul class="grid max-h-64 gap-1.5 overflow-y-auto pr-0.5">
-									{#each filteredUnlinked as item (item.id)}
+									{#each filteredDirectory as item (item.id)}
+										{@const rowState = pending[item.id]}
+										{@const isLinked = linkedIds.has(item.id)}
 										<li
 											class="flex items-center justify-between gap-2.5 rounded-control border border-border bg-background p-2.5"
 										>
@@ -345,17 +400,33 @@
 											</div>
 											<Button
 												size="sm"
-												disabled={linkingId !== null}
-												onclick={() => void linkExisting(item.id, close)}
+												variant={isLinked || rowState === 'linked' ? 'outline' : 'default'}
+												disabled={isBusy(item.id)}
+												onclick={() => void (isLinked ? unlinkRow(item.id) : linkRow(item.id))}
 											>
-												{#if linkingId === item.id}
+												{#if rowState === 'linking'}
 													<LoaderCircle
 														size={14}
 														class="animate-spin motion-reduce:animate-none"
 														aria-hidden="true"
 													/>
+													{m.gallery_contacts_link_action()}
+												{:else if rowState === 'linked'}
+													<Check size={14} aria-hidden="true" />
+													{m.gallery_contacts_linked_state()}
+												{:else if rowState === 'unlinking'}
+													<LoaderCircle
+														size={14}
+														class="animate-spin motion-reduce:animate-none"
+														aria-hidden="true"
+													/>
+													{m.gallery_contacts_unlink()}
+												{:else if isLinked}
+													<UserMinus size={14} aria-hidden="true" />
+													{m.gallery_contacts_unlink()}
+												{:else}
+													{m.gallery_contacts_link_action()}
 												{/if}
-												{m.gallery_contacts_link_action()}
 											</Button>
 										</li>
 									{/each}
@@ -391,7 +462,7 @@
 						class="grid gap-3.5"
 						onsubmit={(event) => {
 							event.preventDefault();
-							void createInlineAndLink(close);
+							void createInlineAndLink();
 						}}
 					>
 						<div class="grid gap-1.5">
@@ -431,7 +502,7 @@
 						{/if}
 
 						<div class="flex flex-wrap items-center justify-between gap-2 pt-1">
-							{#if unlinkedContacts.length > 0}
+							{#if directoryContacts.length > 0}
 								<Button
 									variant="ghost"
 									size="sm"

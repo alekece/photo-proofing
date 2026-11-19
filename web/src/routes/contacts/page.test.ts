@@ -106,6 +106,36 @@ describe('/contacts page', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
+	it('sorts the full-width directory toolbar without clearing its search filter', async () => {
+		const user = userEvent.setup();
+		const { container } = open([
+			contact(),
+			contact({ id: 'c2', name: 'Zoé Laurent', email: 'zoe@example.test' }),
+			contact({ id: 'c3', name: 'Alex Martin', email: 'alex@other.test' })
+		]);
+		const search = screen.getByRole('searchbox', { name: 'Search by name, email or phone' });
+		const sort = screen.getByRole('combobox', { name: 'Sort by' });
+		const toolbar = container.querySelector('[data-slot="contacts-toolbar"]') as HTMLElement;
+		expect(toolbar.contains(search)).toBe(true);
+		expect(toolbar.contains(sort)).toBe(true);
+		expect(toolbar.className).toContain('w-full');
+		expect(toolbar.className).not.toContain('max-w-');
+		const names = () =>
+			within(screen.getByRole('list', { name: 'Workspace contacts' }))
+				.getAllByRole('button')
+				.map((button) => button.textContent);
+
+		expect(names()[0]).toContain('Alex Martin');
+		await user.type(search, 'example.test');
+		await user.selectOptions(sort, 'name_desc');
+		expect(names()).toHaveLength(2);
+		expect(names()[0]).toContain('Zoé Laurent');
+		expect(names()[1]).toContain('Camille & Hugo');
+		expect((search as HTMLInputElement).value).toBe('example.test');
+		await user.selectOptions(sort, 'name_asc');
+		expect(names()[0]).toContain('Camille & Hugo');
+	});
+
 	it('creates a new contact and handles duplicate-email 409 conflicts', async () => {
 		const user = userEvent.setup();
 		const created = contact({
@@ -147,6 +177,53 @@ describe('/contacts page', () => {
 				'Léo Martin'
 			)
 		).toBeTruthy();
+	});
+
+	it('ignores a stale save completion after the user has switched to another contact', async () => {
+		const user = userEvent.setup();
+		const camille = contact();
+		const zoe = contact({
+			id: 'c2',
+			name: 'Zoé Laurent',
+			email: 'zoe@studio.test',
+			phone: '0601020304',
+			notes: null,
+			galleries: []
+		});
+		let resolvePatch: (value: Response) => void = () => {};
+		const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = typeof input === 'string' ? input : input.toString();
+			if (url.includes('/auth/')) return new Response(null, { status: 204 });
+			if (init?.method === 'PATCH') {
+				return new Promise<Response>((resolve) => {
+					resolvePatch = resolve;
+				});
+			}
+			return new Response(null, { status: 204 });
+		});
+		vi.stubGlobal('fetch', fetcher);
+
+		open([camille, zoe]);
+
+		const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
+		await user.clear(nameInput);
+		await user.type(nameInput, 'Camille Laurent');
+		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+		// Switch to the other contact while the save for Camille is still in flight.
+		await user.click(screen.getByText('Zoé Laurent'));
+		expect(screen.getByRole('heading', { level: 2, name: 'Zoé Laurent' })).toBeTruthy();
+
+		resolvePatch(
+			new Response(JSON.stringify(contact({ name: 'Camille Laurent', phone: null })), {
+				status: 200
+			})
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		// Zoé's panel must not show a stale "Saved" confirmation meant for Camille's edit.
+		expect(screen.queryByRole('button', { name: 'Saved' })).toBeNull();
+		expect(screen.getByRole('heading', { level: 2, name: 'Zoé Laurent' })).toBeTruthy();
 	});
 
 	it('edits and deletes a selected contact after confirmation', async () => {
