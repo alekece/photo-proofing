@@ -75,8 +75,8 @@ interaction structure only; it does not replace the Warm Paper visual identity.
 2. ~~**Phone navigation:** account controls?~~ **Resolved:** remain in the compact side navigation.
 3. ~~**Footer:** sidebar/footer relationship?~~ **Resolved:** the sidebar ends above the footer;
    the footer remains outside the sidebar.
-4. **Selection bar placement:** should it float at the viewport bottom or be sticky inside the page
-   content container?
+4. ~~**Selection bar placement:** where should it appear?~~ **Resolved:** float over the viewport
+   bottom.
 5. **Gallery staged changes:** should pinning/favoriting update immediately while status and Quick
    edit remain staged, or should every gallery bulk change wait for Apply?
 6. **Selection bar style:** should the floating bar use the dashboard accent-tinted style or the
