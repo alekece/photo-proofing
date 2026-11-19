@@ -61,6 +61,9 @@ interaction structure only; it does not replace the Warm Paper visual identity.
   enters selection mode.
 - **Selection bar:** close control and count stay left, Select all remains next to the count, and
   actions render in a right-side slot. Disabled actions stay visible.
+- **Selection bar visual:** start with the Neutral shared style: Warm Paper panel surface, border,
+  ink text and ink action controls. Accent-tinted and Gallery ink remain CSS/theme variants rather
+  than separate components.
 - **Context actions:** Photos and Final supply Delete; Favorites supplies Download; Galleries can
   supply staged Favorite, Quick edit and Delete actions.
 - **Save lifecycle:** the shared action control has idle, processing, confirmed and reset states.
@@ -79,8 +82,8 @@ interaction structure only; it does not replace the Warm Paper visual identity.
    bottom.
 5. ~~**Gallery staged changes:** pinning/favoriting versus status/Quick edit?~~ **Resolved:** all
    gallery bulk changes remain staged until Apply.
-6. **Selection bar style:** should the floating bar use the dashboard accent-tinted style or the
-   existing gallery sticky bar style, and should it remain one component across both contexts?
+6. ~~**Selection bar style:** should it be accent-tinted or ink?~~ **Resolved:** Neutral shared
+   for now; dark/ink and accent variants remain styling options.
 
 ## Verification
 
