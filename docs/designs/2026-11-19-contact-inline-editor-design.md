@@ -40,7 +40,7 @@ to the selected contact; no right-side master-detail card is required.
 - **Chevron:** toggles an animated details block directly below the row.
 - **Details block:** shows Notes and linked galleries. It can be opened independently of Edit.
 - **Edit:** replaces that row's actions with Cancel and Save and inserts the fields in the details
-  block. The row's identity stays visible.
+  block; clicking Edit automatically expands details. The row's identity stays visible.
 - **New:** inserts or reveals an editable new-contact block below the page header or at the top of the
   list, with the same fields and Save/Cancel lifecycle. **Resolved:** place it at the top of the list.
 - **Save:** idle, saving, confirmed and reset states share one reusable action component.
@@ -54,8 +54,7 @@ to the selected contact; no right-side master-detail card is required.
 
 1. ~~**Countdown duration:** 3, 5 or 8 seconds?~~ **Resolved:** `3 seconds`.
 2. ~~**New contact placement:** at the top or header?~~ **Resolved:** at the top of the list.
-3. **Details expansion:** should opening Edit automatically expand details, or keep separate chevron
-   and Edit states?
+3. ~~**Details expansion:** open details on Edit?~~ **Resolved:** Edit automatically expands details.
 4. **One open row:** should opening another row close the previous details/editor, or can several
    details blocks remain open?
 5. **Delete removal:** should a deleted row shrink/fade after confirmation, or disappear immediately?
