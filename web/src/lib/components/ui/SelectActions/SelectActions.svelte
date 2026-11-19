@@ -3,6 +3,7 @@
 	import type { Snippet } from 'svelte';
 	import { CheckCheck, ListX, X } from '@lucide/svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
+	import { fly } from 'svelte/transition';
 
 	/**
 	 * The contextual bar of select mode: exit and the count on the left; a select-all toggle button
@@ -28,8 +29,7 @@
 		onexit: () => void;
 		/**
 		 * Which fixed left workspace rail this consumer renders behind the bar, so it can shift
-		 * clear of it at the right breakpoint and width: the dashboard's `sm:w-60` rail, or the
-		 * gallery studio's `md:w-[16.5rem]` identity rail.
+		 * clear of the clamped workspace rail or both workspace and gallery rails.
 		 */
 		rail: 'dashboard' | 'gallery';
 		actions?: Snippet;
@@ -37,12 +37,20 @@
 
 	const all = $derived(total > 0 && count >= total);
 
-	// Half of each rail's width (to centre the bar in the remaining space) plus its matching
-	// max-width budget (rail width + 1.5rem gap), at the breakpoint each rail actually appears.
 	const RAIL_CLEARANCE_CLASS = {
-		dashboard: 'sm:left-[calc(50%+7.5rem)] sm:max-w-[calc(100vw-16.5rem)]',
-		gallery: 'md:left-[calc(50%+8.25rem)] md:max-w-[calc(100vw-18rem)]'
+		dashboard:
+			'sm:left-[calc(50%+clamp(7.5rem,8vw,8.75rem))] sm:max-w-[calc(100vw-clamp(15rem,16vw,17.5rem)-1.25rem)]',
+		gallery:
+			'md:left-[calc(50%+clamp(7.5rem,8vw,8.75rem)+8.25rem)] md:max-w-[calc(100vw-clamp(15rem,16vw,17.5rem)-18rem)]'
 	} as const;
+
+	function leaveDuration() {
+		return typeof window !== 'undefined' &&
+			typeof window.matchMedia === 'function' &&
+			window.matchMedia('(prefers-reduced-motion: reduce)').matches
+			? 0
+			: 180;
+	}
 
 	function toggle() {
 		if (all) onunselectall();
@@ -52,7 +60,8 @@
 
 <div
 	data-slot="select-actions"
-	class="fixed bottom-4 left-1/2 z-20 flex w-fit max-w-[calc(100vw-1.25rem)] -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-white px-2 py-1.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.35)] max-sm:gap-1 max-sm:p-1 sm:bottom-6 {RAIL_CLEARANCE_CLASS[
+	out:fly={{ y: 8, duration: leaveDuration() }}
+	class="fixed bottom-4 left-1/2 z-20 flex w-fit max-w-[calc(100vw-1.25rem)] -translate-x-1/2 animate-selection-in items-center gap-2 rounded-full border border-border bg-panel px-2 py-1.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.35)] max-sm:gap-1 max-sm:p-1 sm:bottom-6 {RAIL_CLEARANCE_CLASS[
 		rail
 	]}"
 >
