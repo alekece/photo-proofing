@@ -17,6 +17,7 @@ retouched indicator, not overlays or filenames on every photo.
 - Rename All Photos to Photos.
 - Remove proof/approval-style overlays and photo filename labels from normal tiles.
 - Use a consistent compact desktop grid with no blank vertical gaps.
+- Use adaptive 3 or 4 columns based on the available container width.
 - Start selection from a top-left circle at the tile corner.
 - Show the reusable selection bar after the first selection.
 - Keep Download all on Favorites and Final.
@@ -53,7 +54,7 @@ retouched indicator, not overlays or filenames on every photo.
 
 ## Open questions
 
-1. **Grid columns:** is the default 3 columns or 4 columns on 1280 px and wider?
+1. ~~**Grid columns:** 3, 4 or adaptive?~~ **Resolved:** adaptive 3 or 4 by container width.
 2. **Layout settings:** should gallery grid/masonry settings remain available in Design, or should the
    Photos/Final review surface always use one compact regular grid?
 3. **Selection circle:** should the circle be 20 px, 24 px or 28 px to match existing dashboard
