@@ -3,13 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const server = vi.hoisted(() => ({
 	getAuthStatus: vi.fn(),
-	listWorkspaceContacts: vi.fn()
+	listWorkspaceContacts: vi.fn(),
+	getSettings: vi.fn()
 }));
 
 vi.mock('#lib/server/auth.js', () => ({ getAuthStatus: server.getAuthStatus }));
 vi.mock('#lib/server/contacts.js', () => ({
 	listWorkspaceContacts: server.listWorkspaceContacts
 }));
+vi.mock('#lib/server/settings.js', () => ({ getSettings: server.getSettings }));
 
 import { load } from './+page.server';
 
@@ -34,6 +36,7 @@ describe('contacts server load', () => {
 			idle_timeout_ms: 120000
 		});
 		server.listWorkspaceContacts.mockResolvedValue([]);
+		server.getSettings.mockResolvedValue({ studioName: 'Atelier Lumiere' });
 	});
 
 	it('redirects unauthenticated requests to /login', async () => {
@@ -50,7 +53,8 @@ describe('contacts server load', () => {
 		expect(result).toEqual({
 			identity: { account_id: 'a', workspace_id: 'w' },
 			idleTimeoutMs: 120000,
-			contacts: []
+			contacts: [],
+			settings: { studioName: 'Atelier Lumiere' }
 		});
 	});
 

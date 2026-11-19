@@ -65,4 +65,17 @@ describe('Popover', () => {
 
 		expect(rightPanel?.className).toContain('left-full');
 	});
+
+	it('supports responsive phone-fixed and desktop-above placement', async () => {
+		const user = userEvent.setup();
+		render(PopoverHarness, { placement: 'responsive' });
+
+		await user.click(screen.getByRole('button', { name: 'Open' }));
+		const panel = screen.getByText('Inside').parentElement;
+
+		expect(panel?.className).toContain('fixed');
+		expect(panel?.className).toContain('right-3');
+		expect(panel?.className).toContain('left-3');
+		expect(panel?.className).toContain('sm:bottom-full');
+	});
 });

@@ -239,7 +239,7 @@
 
 <svelte:head><title>{m.photos_head()} — PhotoProofing</title></svelte:head>
 <svelte:window onkeydown={handleWindowKeydown} />
-<AppHeader onsignout={logout} />
+<AppHeader onsignout={logout} studioName={data.settings?.studioName} />
 <main class="flex flex-1 flex-col px-3.5 pt-4 pb-24 sm:px-8 sm:pt-6">
 	{#if signOutError}<p role="alert" class="mb-3 text-sm text-danger">{signOutError}</p>{/if}
 

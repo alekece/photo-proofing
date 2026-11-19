@@ -295,7 +295,7 @@
 
 <svelte:head><title>{m.contacts_title()} — PhotoProofing</title></svelte:head>
 
-<AppHeader onsignout={logout} />
+<AppHeader onsignout={logout} studioName={data.settings?.studioName} />
 
 <main class="flex flex-1 flex-col px-3.5 pt-4 pb-12 sm:px-8 sm:pt-6">
 	{#if signOutError}

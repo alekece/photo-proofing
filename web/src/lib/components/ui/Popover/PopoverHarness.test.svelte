@@ -4,7 +4,10 @@
 	let {
 		disabled = false,
 		placement = 'below'
-	}: { disabled?: boolean; placement?: 'below' | 'above' | 'right' } = $props();
+	}: {
+		disabled?: boolean;
+		placement?: 'below' | 'above' | 'right' | 'responsive';
+	} = $props();
 </script>
 
 <p>Outside</p>

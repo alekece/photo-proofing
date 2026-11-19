@@ -120,6 +120,19 @@ describe('AppHeader', () => {
 		expect(onsignout).toHaveBeenCalledOnce();
 	});
 
+	it('places the account menu safely on phones and above the identity on desktop', async () => {
+		render(AppHeader);
+		const user = userEvent.setup();
+
+		await user.click(screen.getByRole('button', { name: 'Account menu' }));
+		const panel = screen.getByText('Sign out').closest('[data-slot="popover-panel"]');
+
+		expect(panel?.className).toContain('fixed');
+		expect(panel?.className).toContain('right-3');
+		expect(panel?.className).toContain('left-3');
+		expect(panel?.className).toContain('sm:bottom-full');
+	});
+
 	it('calls onsignout when Sign out is pressed from the account menu', async () => {
 		const onsignout = vi.fn();
 		render(AppHeader, { onsignout });

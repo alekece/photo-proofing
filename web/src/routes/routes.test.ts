@@ -12,6 +12,7 @@ vi.mock('$app/state', () => ({
 import ClientGallery from '#lib/components/ClientGallery.svelte';
 import AccessUnavailable from '#lib/components/AccessUnavailable.svelte';
 import type { Proof, SharedGallery } from '#lib/gallery/types.js';
+import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
 import Contacts from './contacts/+page.svelte';
 import Dashboard from './dashboard/+page.svelte';
 import Gallery from './g/[token]/+page.svelte';
@@ -55,6 +56,7 @@ describe('route shells', () => {
 					identity: { account_id: 'account', workspace_id: 'workspace' },
 					idleTimeoutMs: 2592000000,
 					galleries: [],
+					settings: DEFAULT_SETTINGS,
 					sort: 'updated'
 				}
 			}
@@ -68,7 +70,8 @@ describe('route shells', () => {
 				data: {
 					identity: { account_id: 'account', workspace_id: 'workspace' },
 					idleTimeoutMs: 2592000000,
-					contacts: []
+					contacts: [],
+					settings: DEFAULT_SETTINGS
 				}
 			}
 		});

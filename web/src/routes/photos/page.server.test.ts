@@ -3,13 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const server = vi.hoisted(() => ({
 	getAuthStatus: vi.fn(),
-	listWorkspacePhotos: vi.fn()
+	listWorkspacePhotos: vi.fn(),
+	getSettings: vi.fn()
 }));
 
 vi.mock('#lib/server/auth.js', () => ({ getAuthStatus: server.getAuthStatus }));
 vi.mock('#lib/server/photos.js', () => ({
 	listWorkspacePhotos: server.listWorkspacePhotos
 }));
+vi.mock('#lib/server/settings.js', () => ({ getSettings: server.getSettings }));
 
 import { load } from './+page.server';
 
@@ -46,6 +48,7 @@ describe('photos server load', () => {
 			idle_timeout_ms: 120000
 		});
 		server.listWorkspacePhotos.mockResolvedValue([photo]);
+		server.getSettings.mockResolvedValue({ studioName: 'Atelier Lumiere' });
 	});
 
 	it('redirects unauthenticated requests to /login', async () => {
@@ -62,7 +65,8 @@ describe('photos server load', () => {
 		expect(result).toEqual({
 			identity: { account_id: 'a', workspace_id: 'w' },
 			idleTimeoutMs: 120000,
-			photos: [photo]
+			photos: [photo],
+			settings: { studioName: 'Atelier Lumiere' }
 		});
 	});
 

@@ -24,7 +24,7 @@
 		/** Accessible name for a button that shows only an icon. */
 		label?: string;
 		align?: 'start' | 'end';
-		placement?: 'below' | 'above' | 'right';
+		placement?: 'below' | 'above' | 'right' | 'responsive';
 		class?: string;
 		rootClass?: string;
 		panelClass?: string;
@@ -58,7 +58,9 @@
 			? 'bottom-full mb-2'
 			: placement === 'right'
 				? 'top-0 left-full ml-2'
-				: 'top-full mt-2'
+				: placement === 'responsive'
+					? 'fixed top-14 right-3 left-3 bottom-auto sm:absolute sm:right-0 sm:bottom-full sm:left-auto sm:mb-2'
+					: 'top-full mt-2'
 	);
 </script>
 
@@ -90,7 +92,11 @@
 			class={cn(
 				'absolute z-30 min-w-48 animate-dialog-in rounded-card border border-border bg-panel p-1 shadow-viewfinder',
 				placementClass,
-				placement === 'right' ? '' : align === 'end' ? 'right-0' : 'left-0',
+				placement === 'right' || placement === 'responsive'
+					? ''
+					: align === 'end'
+						? 'right-0'
+						: 'left-0',
 				panelClass
 			)}
 		>
