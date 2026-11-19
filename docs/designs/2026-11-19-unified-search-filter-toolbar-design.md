@@ -42,6 +42,7 @@ and sort controls in one Warm Paper bar. Page-specific data and filtering logic 
 - Filter controls use existing Popover/Select primitives and retain their active summary.
 - Sort is represented as a menu of mutually exclusive options, using one generic option model.
 - The toolbar exposes an optional clear/reset action but does not decide filter contents.
+- On mobile, active filter controls show a badge with the number of active filters.
 - Active filter summaries remain stable in width and do not move adjacent controls.
 - On narrow screens, search can occupy a full row and controls share the remaining row.
 - At widths below `640 px`, search occupies the full row above filter and sort controls.
@@ -49,8 +50,8 @@ and sort controls in one Warm Paper bar. Page-specific data and filtering logic 
 ## Open questions
 
 1. ~~**Search row:** when does search move to a full row?~~ **Resolved:** below `640 px`.
-2. **Active filter count:** should a mobile filter button show an item count badge for every active
-   filter or only a generic Filter label?
+2. ~~**Active filter count:** show count badge?~~ **Resolved:** yes, active filter buttons show a
+   count badge.
 3. **Toolbar stickiness:** should the toolbar stay sticky below the AppHeader on Dashboard and
    Activity, and inside the Gallery stage, or remain in normal flow?
 4. **Clear filters:** should reset appear inside every filter menu, in the toolbar, or only in empty
