@@ -77,8 +77,8 @@ interaction structure only; it does not replace the Warm Paper visual identity.
    the footer remains outside the sidebar.
 4. ~~**Selection bar placement:** where should it appear?~~ **Resolved:** float over the viewport
    bottom.
-5. **Gallery staged changes:** should pinning/favoriting update immediately while status and Quick
-   edit remain staged, or should every gallery bulk change wait for Apply?
+5. ~~**Gallery staged changes:** pinning/favoriting versus status/Quick edit?~~ **Resolved:** all
+   gallery bulk changes remain staged until Apply.
 6. **Selection bar style:** should the floating bar use the dashboard accent-tinted style or the
    existing gallery sticky bar style, and should it remain one component across both contexts?
 
