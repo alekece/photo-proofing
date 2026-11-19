@@ -47,7 +47,7 @@ const HMAC_BYTES: usize = 32;
 /// Record format version. Bumping it immediately invalidates every previously issued cookie,
 /// including the legacy gallery-scoped (pre-link-binding) 48-byte-record format.
 const RECORD_VERSION: u8 = 1;
-const MAX_COOKIE_RAW_BYTES: usize = 1 + MAX_UNLOCKED_GALLERIES * UnlockRecord::BYTE_LEN;
+const MAX_COOKIE_RAW_BYTES: usize = 1 + MAX_UNLOCKED_GALLERIES * UnlockRecord::BYTES;
 const MAX_COOKIE_ENCODED_LEN: usize = (MAX_COOKIE_RAW_BYTES * 8).div_ceil(6);
 
 type HmacSha256 = Hmac<Sha256>;
@@ -158,9 +158,20 @@ impl UnlockTag {
 }
 
 impl UnlockRecord {
-    const BYTE_LEN: usize = 2 * HMAC_BYTES;
+    const BYTES: usize = 2 * HMAC_BYTES;
 
-    fn from_bytes(record: &[u8; UnlockRecord::BYTE_LEN]) -> Self {
+    fn append_to(&self, buffer: &mut Vec<u8>) {
+        buffer.extend_from_slice(self.fingerprint.as_bytes());
+        buffer.extend_from_slice(self.tag.as_bytes());
+    }
+
+    fn matches_fingerprint(&self, fingerprint: &LinkFingerprint) -> bool {
+        self.fingerprint.matches(fingerprint)
+    }
+}
+
+impl From<&[u8; UnlockRecord::BYTES]> for UnlockRecord {
+    fn from(record: &[u8; UnlockRecord::BYTES]) -> Self {
         let mut fingerprint = [0u8; HMAC_BYTES];
         let mut tag = [0u8; HMAC_BYTES];
 
@@ -171,15 +182,6 @@ impl UnlockRecord {
             fingerprint: LinkFingerprint::from(fingerprint),
             tag: UnlockTag::from(tag),
         }
-    }
-
-    fn append_to(&self, buffer: &mut Vec<u8>) {
-        buffer.extend_from_slice(self.fingerprint.as_bytes());
-        buffer.extend_from_slice(self.tag.as_bytes());
-    }
-
-    fn matches_fingerprint(&self, fingerprint: &LinkFingerprint) -> bool {
-        self.fingerprint.matches(fingerprint)
     }
 }
 
@@ -273,7 +275,7 @@ impl CookieSigner {
             records.drain(..overflow);
         }
 
-        let mut payload = Vec::with_capacity(1 + records.len() * UnlockRecord::BYTE_LEN);
+        let mut payload = Vec::with_capacity(1 + records.len() * UnlockRecord::BYTES);
 
         payload.push(RECORD_VERSION);
 
@@ -352,13 +354,13 @@ impl CookieSigner {
             return None;
         }
 
-        let (records, remainder) = body.as_chunks::<{ UnlockRecord::BYTE_LEN }>();
+        let (records, remainder) = body.as_chunks::<{ UnlockRecord::BYTES }>();
 
         if !remainder.is_empty() {
             return None;
         }
 
-        Some(records.iter().map(UnlockRecord::from_bytes).collect())
+        Some(records.iter().map(UnlockRecord::from).collect())
     }
 }
 
@@ -489,7 +491,7 @@ mod tests {
         let reused = signer.unlock(Some(&cookie), gallery_id, &general_link, &code);
         let raw = URL_SAFE_NO_PAD.decode(&reused).unwrap();
 
-        assert_eq!((raw.len() - 1) / UnlockRecord::BYTE_LEN, 2);
+        assert_eq!((raw.len() - 1) / UnlockRecord::BYTES, 2);
         assert!(signer.is_unlocked(Some(&reused), gallery_id, &general_link, &code));
         assert!(signer.is_unlocked(Some(&reused), gallery_id, &personal_link, &other_code));
     }
@@ -563,21 +565,21 @@ mod tests {
         // One byte short of a single new-format record body (after the version byte).
         let wrong_len = URL_SAFE_NO_PAD.encode({
             let mut bytes = vec![RECORD_VERSION];
-            bytes.extend(std::iter::repeat_n(0x11u8, UnlockRecord::BYTE_LEN - 1));
+            bytes.extend(std::iter::repeat_n(0x11u8, UnlockRecord::BYTES - 1));
             bytes
         });
         let oversized = URL_SAFE_NO_PAD.encode({
             let mut bytes = vec![RECORD_VERSION];
             bytes.extend(std::iter::repeat_n(
                 0x11u8,
-                (MAX_UNLOCKED_GALLERIES + 1) * UnlockRecord::BYTE_LEN,
+                (MAX_UNLOCKED_GALLERIES + 1) * UnlockRecord::BYTES,
             ));
             bytes
         });
 
         // Legacy (pre-link-binding) 48-byte-per-record payloads, with and without a version byte
         // that happens to collide with the current one, can never parse as valid new records:
-        // `48 * n` is never congruent to `1 (mod UnlockRecord::BYTE_LEN)` for the new 64-byte width.
+        // `48 * n` is never congruent to `1 (mod UnlockRecord::BYTES)` for the new 64-byte width.
         let legacy_single = URL_SAFE_NO_PAD.encode(vec![0x11u8; 48]);
         let legacy_versioned = URL_SAFE_NO_PAD.encode({
             let mut bytes = vec![RECORD_VERSION];
