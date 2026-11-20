@@ -77,6 +77,54 @@ afterEach(() => {
 });
 
 describe('GallerySharePanel', () => {
+	it.each([false, true])(
+		'sends the original invitation when contacts refresh (warning: %s)',
+		async (warn) => {
+			let finishReadiness!: (photos: Photo[]) => void;
+			const loadPhotos = vi
+				.fn()
+				.mockResolvedValue([readyPhoto])
+				.mockResolvedValueOnce([readyPhoto])
+				.mockImplementationOnce(
+					() => new Promise<Photo[]>((resolve) => (finishReadiness = resolve))
+				);
+			const loadLinkedContacts = vi
+				.fn()
+				.mockResolvedValueOnce([camille])
+				.mockResolvedValue([lucas]);
+			const sendInvitations = vi.fn().mockResolvedValue({ gallery: baseGallery, queued_count: 1 });
+			const user = userEvent.setup();
+			const props = {
+				gallery: baseGallery,
+				settings: smtpSettings,
+				loadPhotos,
+				loadLinkedContacts,
+				sendInvitations
+			};
+			const view = render(GallerySharePanel, props);
+			await screen.findByRole('button', { name: 'Remove camille@example.com' });
+			const subject = (screen.getByLabelText('Subject') as HTMLInputElement).value;
+			const message = (screen.getByLabelText('Personal message') as HTMLTextAreaElement).value;
+			const request = view.component.requestSend();
+			await vi.waitFor(() => expect(finishReadiness).toBeDefined());
+			await view.rerender({
+				...props,
+				contactsRevision: 1,
+				gallery: { ...baseGallery, title: 'Updated gallery' }
+			});
+			await screen.findByRole('button', { name: 'Remove lucas@example.com' });
+			finishReadiness(warn ? [] : [readyPhoto]);
+			await request;
+			if (warn) await user.click(screen.getByRole('button', { name: 'Send anyway' }));
+			expect(sendInvitations).toHaveBeenCalledExactlyOnceWith('g1', {
+				to: [{ email: camille.email, name: camille.name }],
+				bcc: [],
+				subject,
+				message
+			});
+		}
+	);
+
 	it('edits in the envelope and renders a noninteractive live preview', async () => {
 		const loadLinkedContacts = vi.fn().mockResolvedValue([camille]);
 		const loadWorkspaceContacts = vi.fn().mockResolvedValue([camille, lucas]);
@@ -153,7 +201,7 @@ describe('GallerySharePanel', () => {
 
 		await user.click(editor.getByRole('button', { name: 'Send invitations (3)' }));
 
-		expect(onbeforesend).toHaveBeenCalledOnce();
+		expect(onbeforesend).toHaveBeenCalledTimes(2);
 		expect(sendInvitations).toHaveBeenCalledWith('g1', {
 			to: [
 				{ email: 'camille@example.com', name: 'Camille Laurent' },
@@ -281,25 +329,30 @@ describe('GallerySharePanel', () => {
 		expect(sendInvitations).not.toHaveBeenCalled();
 	});
 
-	it('rechecks access-code preparation and eligibility on Send anyway', async () => {
-		const sendInvitations = vi.fn();
-		const onbeforesend = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
-		const user = userEvent.setup();
-		const view = render(GallerySharePanel, {
-			gallery: baseGallery,
-			settings: smtpSettings,
-			loadLinkedContacts: vi.fn().mockResolvedValue([camille]),
-			loadPhotos: vi.fn().mockResolvedValue([]),
-			sendInvitations,
-			onbeforesend
-		});
-		await screen.findByRole('button', { name: 'Remove camille@example.com' });
-		await view.component.requestSend();
-		await user.click(screen.getByRole('button', { name: 'Send anyway' }));
-		expect(onbeforesend).toHaveBeenCalledTimes(2);
-		expect(sendInvitations).not.toHaveBeenCalled();
-		expect(await screen.findByRole('alert')).toBeTruthy();
-	});
+	it.each([false, true])(
+		'rechecks access-code preparation before dispatch (warning: %s)',
+		async (warn) => {
+			const sendInvitations = vi.fn();
+			const onbeforesend = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+			const user = userEvent.setup();
+			const view = render(GallerySharePanel, {
+				gallery: baseGallery,
+				settings: smtpSettings,
+				loadLinkedContacts: vi.fn().mockResolvedValue([camille]),
+				loadPhotos: vi.fn().mockResolvedValue(warn ? [] : [readyPhoto]),
+				sendInvitations,
+				onbeforesend
+			});
+			await screen.findByRole('button', { name: 'Remove camille@example.com' });
+			await view.component.requestSend();
+			if (warn) {
+				await user.click(screen.getByRole('button', { name: 'Send anyway' }));
+				expect(await screen.findByRole('alert')).toBeTruthy();
+			}
+			expect(onbeforesend).toHaveBeenCalledTimes(2);
+			expect(sendInvitations).not.toHaveBeenCalled();
+		}
+	);
 
 	it('shows informational notices and disables sending when SMTP is unconfigured or the gallery is expired', async () => {
 		const onopensettings = vi.fn();

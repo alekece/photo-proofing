@@ -34,6 +34,8 @@ import { goto } from '$app/navigation';
 import { getNotifications, NotificationCenter } from '#lib/gallery/notifications.svelte.js';
 import type { Gallery } from '#lib/gallery/api.js';
 import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
+import { tick } from 'svelte';
 import GalleryPage from './+page.svelte';
 
 const base: Gallery = {
@@ -107,6 +109,56 @@ afterEach(() => {
 });
 
 describe('gallery page', () => {
+	it('keeps same-gallery drafts but replaces the dialog and mutation target on gallery navigation', async () => {
+		const user = userEvent.setup();
+		const requests: string[] = [];
+		let resolvePatch!: (response: Response) => void;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				if (init?.method === 'PATCH')
+					return new Promise<Response>((resolve) => (resolvePatch = resolve));
+				if (init?.method === 'POST' && url.endsWith('/share')) {
+					requests.push(url);
+					return Response.json({
+						...base,
+						id: 'g2',
+						title: 'Second gallery',
+						share_token: 'T'.repeat(22),
+						states: ['shared']
+					});
+				}
+				return Response.json([]);
+			})
+		);
+		const view = open();
+		const replace = (gallery: Gallery) =>
+			view.rerender({ data: { gallery, idleTimeoutMs: 2592000000 } as never });
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		await user.click(screen.getByRole('switch', { name: 'Require access code' }));
+		const input = screen.getByLabelText('6-digit access code') as HTMLInputElement;
+		const edited = input.value;
+		await replace({ ...base, title: 'Server refresh' });
+		expect(input.value).toBe(edited);
+		await user.click(screen.getByRole('button', { name: 'Share link' }));
+		await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+
+		await replace({ ...base, id: 'g2', title: 'Second gallery' });
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect((screen.getByLabelText('Gallery title') as HTMLInputElement).value).toBe(
+			'Second gallery'
+		);
+		resolvePatch(Response.json({ ...base, access_code: edited }));
+		await tick();
+		expect(requests).toEqual([]);
+
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		await user.click(screen.getByRole('button', { name: 'Share link' }));
+		await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+		await waitFor(() => expect(requests).toEqual(['/api/v1/galleries/g2/share']));
+	});
+
 	it.each(['proof', 'final'] as const)('opens the source %s collection from the URL', (kind) => {
 		state.page.url = new URL(`https://pp.test/dashboard/g1?photo=p2&kind=${kind}`);
 		open();
@@ -688,6 +740,78 @@ describe('gallery page', () => {
 
 			return () => fetcher.mock.calls.filter(([url]) => url.endsWith('/share'));
 		};
+
+		it('does not send if the access-code save fails while an invitation is being prepared', async () => {
+			const user = userEvent.setup();
+			let resolvePatch!: (response: Response) => void;
+			let resolveReadiness: ((response: Response) => void) | undefined;
+			let sendStarted = false;
+			const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				if (init?.method === 'PATCH')
+					return new Promise<Response>((resolve) => (resolvePatch = resolve));
+				if (url.endsWith('/invitations')) return new Response(null, { status: 503 });
+				if (url.endsWith('/photos')) {
+					if (sendStarted) return new Promise<Response>((resolve) => (resolveReadiness = resolve));
+					return Response.json([photo('p1')]);
+				}
+				return Response.json([]);
+			});
+			vi.stubGlobal('fetch', fetcher);
+			render(GalleryPage, {
+				props: {
+					data: {
+						gallery: base,
+						settings: { ...DEFAULT_SETTINGS, emailEnabled: true },
+						idleTimeoutMs: 2592000000
+					} as never
+				}
+			});
+			await user.click(screen.getByRole('tab', { name: 'Settings' }));
+			await user.click(screen.getByRole('switch', { name: 'Require access code' }));
+			await waitFor(() => expect(resolvePatch).toBeDefined());
+			await user.click(screen.getByRole('tab', { name: 'Share' }));
+			await user.type(screen.getByLabelText('To'), 'camille@example.test{Enter}');
+			const send = screen.getByRole('button', { name: 'Send invitation (1)' });
+			sendStarted = true;
+			await user.click(send);
+			expect((send as HTMLButtonElement).disabled).toBe(true);
+			resolvePatch(Response.json({ code: 'unavailable' }, { status: 503 }));
+			await waitFor(() => expect(toasts.items).not.toEqual([]));
+			resolveReadiness?.(Response.json([photo('p1')]));
+			await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+			expect(fetcher.mock.calls.some(([url]) => url.endsWith('/invitations'))).toBe(false);
+		});
+
+		it('does not apply an obsolete Publish completion or redirect a different gallery', async () => {
+			let finishDelivery!: (response: Response) => void;
+			const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+				if (init?.method === 'POST' && url.endsWith('/deliver'))
+					return new Promise<Response>((resolve) => (finishDelivery = resolve));
+				return Response.json([]);
+			});
+			vi.stubGlobal('fetch', fetcher);
+			const user = userEvent.setup();
+			const view = open({ share_token: 'T'.repeat(22), states: ['shared'] });
+			await user.click(screen.getByRole('tab', { name: 'Share' }));
+			await user.click(screen.getByRole('button', { name: 'Publish' }));
+			await user.click(await screen.findByRole('button', { name: 'Publish anyway' }));
+			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/deliver'))).toEqual([
+				['/api/v1/galleries/g1/deliver', expect.anything()]
+			]);
+			await view.rerender({
+				data: {
+					gallery: { ...base, id: 'g2', title: 'Second gallery' },
+					idleTimeoutMs: 2592000000
+				} as never
+			});
+			expect(screen.queryByRole('dialog')).toBeNull();
+			finishDelivery(Response.json({ code: 'unauthorized' }, { status: 401 }));
+			await tick();
+			await user.click(screen.getByRole('tab', { name: 'Share' }));
+			expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
+			expect(goto).not.toHaveBeenCalled();
+		});
 
 		it('shows the title and the draft status', () => {
 			open();

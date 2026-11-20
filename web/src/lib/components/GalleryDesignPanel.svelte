@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import { onDestroy } from 'svelte';
 	import { Check, Eye, ImagePlus, Maximize2, X } from '@lucide/svelte';
 	import ClientGallery from '#lib/components/ClientGallery.svelte';
 	import ClientPreview from '#lib/components/ClientPreview.svelte';
@@ -96,6 +97,10 @@
 	let localFocal = $state<FocalPoint>(focalPoint ?? savedFocal);
 	let pendingFocal = false;
 	let latestFocal = 0;
+	let focalWrite: Promise<void> | undefined;
+	let galleryRevision = 0;
+	let disposed = false;
+	onDestroy(() => (disposed = true));
 	const focalHelpId = $props.id();
 	let drag: { pointerId: number; coverId: string; initial: FocalPoint } | null = null;
 	// svelte-ignore state_referenced_locally
@@ -116,7 +121,8 @@
 			overrides = {};
 			fieldSeq = {};
 			pendingFocal = false;
-			latestFocal++;
+			galleryRevision++;
+			focalWrite = undefined;
 			drag = null;
 			committedFocal = savedFocal;
 			localFocal = savedFocal;
@@ -321,16 +327,29 @@
 
 	async function persistFocalPoint(next: FocalPoint) {
 		const galleryId = gallery.id;
+		const revision = galleryRevision;
+		const isCurrent = () => !disposed && gallery.id === galleryId && galleryRevision === revision;
 		const sequence = ++latestFocal;
 		pendingFocal = true;
 		setFocalState(next);
-		const saved = await onsave({ focal_point: next }).catch(() => false);
 
-		if (gallery.id !== galleryId || sequence !== latestFocal) return;
+		const write = async () => {
+			if (!isCurrent()) return;
+			const saved = await onsave({ focal_point: next }).catch(() => false);
+			if (!isCurrent()) return;
 
-		pendingFocal = false;
-		if (saved) committedFocal = next;
-		else if (!drag) setFocalState(committedFocal);
+			// An older successful write is still the rollback point for newer edits.
+			if (saved) committedFocal = next;
+			if (sequence !== latestFocal) return;
+
+			pendingFocal = false;
+			if (!saved && !drag) setFocalState(committedFocal);
+		};
+
+		const queued = focalWrite ? focalWrite.then(write) : write();
+		focalWrite = queued;
+		await queued;
+		if (focalWrite === queued) focalWrite = undefined;
 	}
 
 	function clampPercent(value: number): number {

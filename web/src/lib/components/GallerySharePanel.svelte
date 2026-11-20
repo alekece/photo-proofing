@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { m } from '#lib/paraglide/messages.js';
+	import { onDestroy } from 'svelte';
 	import { AlertCircle, Mail, Search, Users, X } from '@lucide/svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
 	import StudioSignature from '#lib/components/StudioSignature.svelte';
@@ -18,7 +19,8 @@
 		type FocalPoint,
 		type Gallery,
 		type InvitationRecipientInput,
-		type QueuedInvitations
+		type QueuedInvitations,
+		type SendInvitationsInput
 	} from '#lib/gallery/api.js';
 	import { listGalleryContacts } from '#lib/gallery/contacts.js';
 	import { formatLongDate } from '#lib/gallery/format.js';
@@ -116,6 +118,9 @@
 	let messageDirty = $state(false);
 	// svelte-ignore state_referenced_locally
 	let previousGalleryId = gallery.id;
+	let galleryRevision = 0;
+	let disposed = false;
+	onDestroy(() => (disposed = true));
 	// svelte-ignore state_referenced_locally
 	let previousDelivered = delivered;
 
@@ -124,7 +129,14 @@
 	let pickerQuery = $state('');
 	let directoryContacts = $state<Contact[]>([]);
 	type Warning = 'empty' | 'unfinished';
-	let readinessPrompt = $state<{ galleryId: string; warning: Warning } | null>(null);
+	type Invitation = {
+		galleryId: string;
+		revision: number;
+		wasShared: boolean;
+		wasDelivered: boolean;
+		payload: SendInvitationsInput;
+	};
+	let readinessPrompt = $state.raw<{ invitation: Invitation; warning: Warning } | null>(null);
 	let sending = $state(false);
 	let readinessPhotos = $state<Awaited<ReturnType<typeof listPhotos>> | null>(null);
 	let readinessRevision = $state(0);
@@ -139,12 +151,7 @@
 	}
 
 	$effect(() => {
-		const galleryId = gallery.id;
-		if (!active || !canInvite || shared) {
-			readinessPrompt = null;
-			return;
-		}
-		if (readinessPrompt?.galleryId !== galleryId) readinessPrompt = null;
+		if (readinessPrompt && !eligible(readinessPrompt.invitation)) readinessPrompt = null;
 	});
 
 	$effect(() => {
@@ -187,6 +194,7 @@
 	$effect(() => {
 		if (gallery.id !== previousGalleryId) {
 			previousGalleryId = gallery.id;
+			galleryRevision++;
 			previousDelivered = delivered;
 			recipientsDirty = false;
 			toRecipients = [];
@@ -399,35 +407,33 @@
 		}
 	}
 
-	async function executeSend(galleryId: string, fromConfirm: boolean): Promise<void> {
-		const trimmedSubject = subject.trim();
-		const trimmedMessage = message.trim();
+	function isCurrent(invitation: Invitation) {
+		return (
+			!disposed && invitation.galleryId === gallery.id && invitation.revision === galleryRevision
+		);
+	}
 
-		if (!trimmedSubject) {
-			if (fromConfirm) throw new Error(m.share_subject_required());
-			toasts.error(m.share_subject_required());
-			return;
-		}
-		if (!trimmedMessage) {
-			if (fromConfirm) throw new Error(m.share_message_required());
-			toasts.error(m.share_message_required());
-			return;
-		}
+	function eligible(invitation: Invitation) {
+		return (
+			isCurrent(invitation) &&
+			canInvite &&
+			shared === invitation.wasShared &&
+			delivered === invitation.wasDelivered
+		);
+	}
 
+	async function executeSend(invitation: Invitation, fromConfirm: boolean): Promise<void> {
 		try {
-			const result = await sendInvitations(galleryId, {
-				to: toRecipients,
-				bcc: bccRecipients,
-				subject: trimmedSubject,
-				message: trimmedMessage
-			});
+			const result = await sendInvitations(invitation.galleryId, invitation.payload);
 
-			if (gallery.id !== galleryId) return;
+			if (!isCurrent(invitation)) return;
 			recipientsDirty = false;
 			bccRecipients = [];
 			bccDraft = '';
 			onsent?.(result);
 		} catch (err) {
+			if (!isCurrent(invitation)) return;
+
 			if (err instanceof ApiError && err.status === 401) {
 				readinessPrompt = null;
 				await goto('/login?expired=1', { refreshAll: true });
@@ -445,50 +451,68 @@
 	}
 
 	export async function requestSend(): Promise<void> {
-		if (sending || readinessPrompt || !canInvite) return;
+		if (disposed || sending || readinessPrompt || !canInvite) return;
 		if (!commitToDraft() || !commitBccDraft()) return;
 		if (toRecipients.length + bccRecipients.length === 0) return;
 
-		const galleryId = gallery.id;
-		const wasShared = shared;
-		const wasDelivered = delivered;
-		const eligible = () =>
-			canInvite && gallery.id === galleryId && shared === wasShared && delivered === wasDelivered;
+		const invitation: Invitation = {
+			galleryId: gallery.id,
+			revision: galleryRevision,
+			wasShared: shared,
+			wasDelivered: delivered,
+			payload: {
+				to: toRecipients.map((recipient) => ({ ...recipient })),
+				bcc: [...bccRecipients],
+				subject: subject.trim(),
+				message: message.trim()
+			}
+		};
+		if (!invitation.payload.subject) {
+			toasts.error(m.share_subject_required());
+			return;
+		}
+		if (!invitation.payload.message) {
+			toasts.error(m.share_message_required());
+			return;
+		}
 
 		sending = true;
 		try {
+			// Capture pending settings saves before the photo read can outlast their results.
+			if ((onbeforesend && !(await onbeforesend())) || !eligible(invitation)) return;
+
 			let warning: Warning | null = null;
-			if (!wasShared) {
+			if (!invitation.wasShared) {
 				try {
-					const photos = await loadPhotos(galleryId, fetch, 'photos');
+					const photos = await loadPhotos(invitation.galleryId, fetch, 'photos');
 					warning = readinessWarning(summarizePhotoReadiness(photos, uploading));
 				} catch {
 					// A failed precheck does not prevent an explicit send.
 				}
 			}
 
-			if (!eligible() || (onbeforesend && !(await onbeforesend())) || !eligible()) return;
+			if (!eligible(invitation)) return;
 
 			if (warning) {
-				readinessPrompt = { galleryId, warning };
+				readinessPrompt = { invitation, warning };
 			} else {
-				await executeSend(galleryId, false);
+				if (!invitation.wasShared && onbeforesend && !(await onbeforesend())) return;
+				if (eligible(invitation)) await executeSend(invitation, false);
 			}
 		} finally {
 			sending = false;
 		}
 	}
 
-	async function confirmSend(galleryId: string): Promise<void> {
-		const eligible = () => canInvite && gallery.id === galleryId && !shared;
-		if (sending || !eligible()) throw new Error(m.share_send_failed());
+	async function confirmSend(invitation: Invitation): Promise<void> {
+		if (sending || !eligible(invitation)) throw new Error(m.share_send_failed());
 
 		sending = true;
 		try {
-			if ((onbeforesend && !(await onbeforesend())) || !eligible()) {
+			if ((onbeforesend && !(await onbeforesend())) || !eligible(invitation)) {
 				throw new Error(m.share_send_failed());
 			}
-			await executeSend(galleryId, true);
+			await executeSend(invitation, true);
 		} finally {
 			sending = false;
 		}
@@ -906,11 +930,11 @@
 {/if}
 
 {#if readinessPrompt !== null}
-	{@const { galleryId, warning } = readinessPrompt}
+	{@const { invitation, warning } = readinessPrompt}
 	<ConfirmDialog
 		title={warning === 'empty' ? m.share_warn_empty_title() : m.share_warn_unfinished_title()}
 		confirmLabel={m.share_send_anyway()}
-		onconfirm={() => confirmSend(galleryId)}
+		onconfirm={() => confirmSend(invitation)}
 		onclose={() => (readinessPrompt = null)}
 	>
 		{#snippet description()}

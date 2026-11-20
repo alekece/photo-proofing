@@ -64,7 +64,10 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
   `lg`, without a fixed-height or internally scrolling inline frame, including Phone mode.
   Below `lg` the inline stage is hidden; Design’s **Open full preview** still opens the full dialog.
 - Collection and Studio panels stay mounted once opened so counts load on open and in-place edits,
-  uploads, invitation drafts, or open viewers survive section switches and autosaves.
+  uploads, invitation drafts, or open viewers survive section switches and autosaves in the same
+  gallery. Switching galleries starts a new editor and dismisses any open confirmations.
+- Focal-point edits update the preview immediately; saves complete in order. If the latest save
+  fails, the preview returns to the last saved point.
 - In-place inputs save on change without success rings or repeated `"Saved"` toasts. An invalid
   value shows a red toast and reverts. A past `"Open until"` marks the gallery Expired; a future or
   cleared one lifts it.
@@ -175,6 +178,8 @@ check pops and the dialog becomes "Your gallery is shared" with **Copy link**. E
 live in **Studio → Share** when `[smtp]` is configured; SMS remains future scope. Confirming
 **Publish** switches the existing client link from proofs to finals and updates the invitation
 preview. It never sends email; use **Send invitation** separately if needed.
+**Send invitation** keeps the selected recipients and copy through the photo-readiness check and
+any **Send anyway** confirmation. If the pending access-code save fails, the invitation is not sent.
 
 ![Dialog motion](gallery/confirm-motion.gif)
 ![Dialog frames](gallery/confirm-motion.frames.png)
