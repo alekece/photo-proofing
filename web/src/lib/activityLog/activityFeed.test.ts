@@ -289,6 +289,25 @@ describe('ActivityFeed', () => {
 		expect(feed.events.at(-1)?.contact).toBeNull();
 	});
 
+	it('still reads forward from the oldest boundary when a loaded line moves past it', async () => {
+		const last = line('last', '2026-11-10T10:00:00Z');
+		const moved = { ...last, last_at: '2026-11-12T10:00:00Z', count: 2 };
+		const unseen = line('unseen', '2026-11-11T10:00:00Z');
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([last], null, 'after-last'))
+			.mockResolvedValueOnce(page([moved]))
+			.mockResolvedValueOnce(page([unseen, moved], null, 'after-moved'));
+		const feed = new ActivityFeed({ fetcher });
+
+		feed.sort = 'oldest';
+		await feed.load();
+		await feed.refresh();
+
+		expect(feed.events).toEqual([unseen, moved]);
+		expect(feed.next).toBeNull();
+	});
+
 	it('does not restore an outdated contact name when the newest read overlaps paging', async () => {
 		const first = line('first', '2026-11-09T10:00:00Z');
 		const last = line('last', '2026-11-10T10:00:00Z', { contact: { id: 'c1', name: 'Alice' } });
@@ -479,45 +498,84 @@ describe('ActivityFeed', () => {
 		expect(ids(feed)).toEqual(['d']);
 	});
 
-	it.each(['live first', 'page first'])(
-		'keeps the newest timeline tail and freshest line: %s',
+	it.each([
+		{ sort: 'newest', tail: null },
+		{ sort: 'oldest', tail: 'after-first' },
+		{ sort: 'oldest', tail: null }
+	] as const)(
+		'accepts an authoritative $sort refresh with tail $tail when the timestamp goes backward',
+		async ({ sort, tail }) => {
+			const first = line('a', '2026-11-10T10:00:00Z', {
+				first_at: '2026-11-10T07:00:00Z',
+				photo_ids: ['p1']
+			});
+			const second = line('b', '2026-11-10T09:00:00Z');
+			const changed = {
+				...first,
+				last_at: '2026-11-10T08:00:00Z',
+				count: 2,
+				photo_ids: ['p1', 'p2']
+			};
+			const fetcher = vi
+				.fn()
+				.mockImplementation(async (url: string) =>
+					params(url).sort === 'oldest' ? page([changed, second]) : page([second, changed])
+				)
+				.mockResolvedValueOnce(
+					page(sort === 'oldest' ? [second, first] : [first, second], null, tail)
+				);
+			const feed = new ActivityFeed({ fetcher });
+
+			feed.sort = sort;
+			await feed.load();
+			await feed.refresh();
+
+			expect(feed.events).toEqual(sort === 'oldest' ? [changed, second] : [second, changed]);
+		}
+	);
+
+	it.each(['refresh first', 'page first'])(
+		'sequences newest-first reads and keeps the requested cursor: %s',
 		async (order) => {
 			const first = line('a', '2026-11-10T10:00:00Z');
 			const second = line('b', first.last_at);
 			const newest = line('n', '2026-11-10T13:00:00Z');
-			const pagingResponse = Promise.withResolvers<Response>();
-			const liveResponse = Promise.withResolvers<Response>();
+			const pending = Promise.withResolvers<Response>();
+			const changed = { ...first, count: 3, last_at: '2026-11-10T09:00:00Z' };
+			const refreshFirst = order === 'refresh first';
 			const fetcher = vi
 				.fn()
 				.mockResolvedValueOnce(page([first], 'c1'))
-				.mockReturnValueOnce(pagingResponse.promise)
-				.mockReturnValueOnce(liveResponse.promise);
+				.mockReturnValueOnce(pending.promise)
+				.mockImplementationOnce(async (url: string) =>
+					url.includes('cursor=c1')
+						? page([second, changed], 'c2')
+						: page([newest, second, changed])
+				);
 			const feed = new ActivityFeed({ fetcher });
 			const { handlers, events } = liveEvents();
 			const refreshing = vi.spyOn(feed, 'refresh');
 			const stop = feed.start(events);
 
 			await feed.load();
+
+			const notify = () => handlers.notification[0]!({ gallery_id: 'g1' });
+			if (refreshFirst) notify();
 			const paging = feed.loadMore();
-			handlers.notification[0]!({ gallery_id: 'g1' });
-			const live = refreshing.mock.results[0]!.value;
-			const pageAnswer = page([{ ...first, count: 2 }, second], 'c2');
-			const liveAnswer = page([newest, second, { ...first, count: 3 }], 'refresh-cursor');
+			if (!refreshFirst) notify();
 
-			if (order === 'live first') {
-				liveResponse.resolve(liveAnswer);
-				await live;
-				expect(feed.next).toBe('c1');
-				pagingResponse.resolve(pageAnswer);
-			} else {
-				pagingResponse.resolve(pageAnswer);
-				await paging;
-				liveResponse.resolve(liveAnswer);
-			}
+			expect(feed.next).toBe('c1');
+			expect(fetcher.mock.calls.map(([url]) => params(url))).toEqual([
+				{},
+				refreshFirst ? {} : { cursor: 'c1' }
+			]);
+			pending.resolve(
+				refreshFirst ? page([newest, first]) : page([{ ...first, count: 2 }, second], 'c2')
+			);
 
-			await Promise.all([paging, live]);
+			await Promise.all([paging, refreshing.mock.results[0]!.value]);
 			expect(ids(feed)).toEqual(['n', 'b', 'a']);
-			expect(feed.events.find(({ id }) => id === 'a')?.count).toBe(3);
+			expect(feed.events.at(-1)).toEqual(changed);
 			expect(feed.next).toBe('c2');
 			stop();
 		}

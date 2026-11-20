@@ -40,7 +40,7 @@ export class ActivityFeed {
 	#displayedGeneration = 0;
 	#pendingLoad: Promise<void> | undefined;
 	#pendingPage: Promise<void> | undefined;
-	#pendingOldestRefresh: Promise<void> | undefined;
+	#pendingRefresh: Promise<void> | undefined;
 	#advancedTail = false;
 
 	constructor({ galleryId, fetcher = fetch }: { galleryId?: string; fetcher?: typeof fetch } = {}) {
@@ -90,7 +90,7 @@ export class ActivityFeed {
 		this.loading = true;
 		this.next = null;
 		this.#pendingPage = undefined;
-		this.#pendingOldestRefresh = undefined;
+		this.#pendingRefresh = undefined;
 		this.#advancedTail = false;
 		this.paging = 'idle';
 
@@ -117,19 +117,19 @@ export class ActivityFeed {
 	loadMore(): Promise<void> {
 		const cursor = this.next;
 		const generation = this.#generation;
-		const refreshing = this.#pendingOldestRefresh;
+		const refreshing = this.#pendingRefresh;
 
 		if (this.#pendingPage) return this.#pendingPage;
 
 		if (cursor === null || !this.canPage) return Promise.resolve();
 
+		this.paging = 'loading';
 		if (refreshing) {
 			return refreshing.then(() => {
 				if (generation === this.#generation) return this.loadMore();
 			});
 		}
 
-		this.paging = 'loading';
 		const pending = this.#appendPage(cursor, generation).finally(() => {
 			if (this.#pendingPage === pending) {
 				this.#pendingPage = undefined;
@@ -152,8 +152,7 @@ export class ActivityFeed {
 				return;
 			}
 
-			// A newest-first page can overlap live data; on a tie, keep the visible snapshot.
-			this.#merge(page.events, this.sort === 'oldest');
+			this.#merge(page.events);
 			this.next = page.next;
 			this.#rememberOldestBoundary(page);
 			this.#advancedTail = true;
@@ -174,14 +173,10 @@ export class ActivityFeed {
 	 * last page. A replacement load invalidates both kinds of refresh.
 	 */
 	refresh(): Promise<void> {
-		const request = this.#refresh();
-
-		if (this.sort !== 'oldest') return request;
-
-		const pending = request.finally(() => {
-			if (this.#pendingOldestRefresh === pending) this.#pendingOldestRefresh = undefined;
+		const pending = this.#refresh().finally(() => {
+			if (this.#pendingRefresh === pending) this.#pendingRefresh = undefined;
 		});
-		this.#pendingOldestRefresh = pending;
+		this.#pendingRefresh = pending;
 
 		return pending;
 	}
@@ -199,9 +194,8 @@ export class ActivityFeed {
 		if (generation !== this.#displayedGeneration) return this.load();
 
 		try {
-			// Oldest-first paging and refresh must read in sequence: a contact edit can leave
-			// last_at unchanged, so overlapping snapshots cannot be ordered by that timestamp.
-			if (oldestFirst && this.#pendingPage) {
+			// Page and live snapshots must read in sequence: last_at is not a version.
+			if (this.#pendingPage) {
 				await this.#pendingPage;
 				if (!current()) return;
 			}
@@ -213,17 +207,19 @@ export class ActivityFeed {
 			let incoming = page.events;
 
 			if (oldestFirst) {
+				const loadedIds = new SvelteSet(this.events.map(({ id }) => id));
 				if (this.next !== null) {
-					const loadedIds = new SvelteSet(this.events.map(({ id }) => id));
 					incoming = page.events.filter(({ id }) => loadedIds.has(id));
 				} else {
 					const boundary = this.#oldestBoundary;
-					incoming = boundary
-						? page.events.filter((event) => byRecency(event, boundary.event) >= 0)
-						: [];
+					const behindBoundary = (event: ActivityEvent) =>
+						boundary !== undefined && byRecency(event, boundary.event) >= 0;
+					incoming = page.events.filter(
+						(event) => loadedIds.has(event.id) || behindBoundary(event)
+					);
 
 					// Reconcile recent rows behind the cursor, but read forward without skipping gaps.
-					if (incoming.length < page.events.length) {
+					if (page.events.some((event) => !behindBoundary(event))) {
 						const continuation = await this.#fetch(boundary?.cursor, 'oldest');
 						if (!current()) return;
 
@@ -249,15 +245,10 @@ export class ActivityFeed {
 		}
 	}
 
-	#merge(incoming: ActivityEvent[], incomingWinsTies = true) {
+	#merge(incoming: ActivityEvent[]) {
 		const merged = new SvelteMap(this.events.map((event) => [event.id, event]));
 
-		for (const event of incoming) {
-			const current = merged.get(event.id);
-			const recency = current ? byRecency(event, current) : -1;
-
-			if (recency < 0 || (recency === 0 && incomingWinsTies)) merged.set(event.id, event);
-		}
+		for (const event of incoming) merged.set(event.id, event);
 
 		const direction = this.sort === 'oldest' ? -1 : 1;
 		this.events = [...merged.values()].sort((a, b) => direction * byRecency(a, b));

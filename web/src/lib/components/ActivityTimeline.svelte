@@ -230,6 +230,22 @@
 								>
 							{/if}
 							{#if isSelection && photos.length > 0}
+								{#if photos.length > photoLimit}
+									<Button
+										variant="ghost"
+										class="w-11 justify-self-start p-0"
+										aria-label={isExpanded ? m.activity_hide_photos() : m.activity_show_photos()}
+										aria-expanded={isExpanded}
+										aria-controls={photoGridId}
+										onclick={() => togglePhotos(event.id)}
+									>
+										<ChevronDown
+											size={18}
+											aria-hidden="true"
+											class={isExpanded ? 'rotate-180' : ''}
+										/>
+									</Button>
+								{/if}
 								<div
 									id={photoGridId}
 									class="grid w-full max-w-64 grid-cols-3 gap-1.5 sm:max-w-80 sm:grid-cols-5"
@@ -253,22 +269,6 @@
 										</div>
 									{/if}
 								</div>
-								{#if photos.length > photoLimit}
-									<Button
-										variant="ghost"
-										class="w-11 justify-self-start p-0"
-										aria-label={isExpanded ? m.activity_hide_photos() : m.activity_show_photos()}
-										aria-expanded={isExpanded}
-										aria-controls={photoGridId}
-										onclick={() => togglePhotos(event.id)}
-									>
-										<ChevronDown
-											size={18}
-											aria-hidden="true"
-											class={isExpanded ? 'rotate-180' : ''}
-										/>
-									</Button>
-								{/if}
 							{:else if photos.length > 0}
 								<div class="flex gap-1.5">
 									{#each photos as photoId, index (`${photoId}:${index}`)}

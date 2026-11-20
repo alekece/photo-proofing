@@ -20,9 +20,10 @@ and [timeline polish](../../2026-11-19-activity-timeline-polish-design.md).
    relative timestamps stay secondary. Same-kind repeats by one actor inside the window are one
    line with a count.
 4. **Photos:** favorites and removed favorites show distinct thumbnails in recorded order. Two rows
-   show up to 10 thumbnails on larger screens or 6 on phones. A chevron appears only when there
-   are more; it expands or collapses that line's grid in place. Other actions retain their
-   four-photo sample. Older favorite lines cannot recover photos that were not recorded.
+   show up to 10 thumbnails on larger screens or 6 on phones. A chevron appears above the grid
+   only when there are more, so it stays in place and retains focus as the grid expands. Other
+   actions retain their four-photo sample. Older favorite lines cannot recover photos that were
+   not recorded.
 5. **Paging:** the next page loads automatically within 400 px of the list end. A failed page
    leaves the visible lines in place and offers **Retry** at the end of the list.
 6. **States:** loading text, empty (`"No activity yet"` with a short explanation, or `"Nothing

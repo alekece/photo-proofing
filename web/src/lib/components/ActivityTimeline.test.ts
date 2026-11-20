@@ -188,6 +188,35 @@ describe('ActivityTimeline', () => {
 		expect(document.activeElement).toBe(toggle);
 	});
 
+	it('keeps the focused phone disclosure ahead of a long expanded grid', async () => {
+		vi.stubGlobal('matchMedia', () => ({
+			matches: true,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn()
+		}));
+		const photos = Array.from({ length: 60 }, (_, i) => `p${i}`);
+		render(ActivityTimeline, {
+			feed: feedWith([line('a', { photo_ids: photos })]),
+			showGallery: false
+		});
+		const user = userEvent.setup();
+		await user.tab();
+		const toggle = screen.getByRole('button', { name: 'Show more photos' });
+		expect(document.activeElement).toBe(toggle);
+
+		await user.keyboard('{Enter}');
+		const images = screen.getAllByRole('img', { name: 'Photo' });
+		expect(images).toHaveLength(60);
+		expect(document.activeElement).toBe(toggle);
+		expect(toggle.compareDocumentPosition(images[6]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+
+		await user.keyboard(' ');
+		expect(screen.getAllByRole('img')).toHaveLength(6);
+		expect(document.activeElement).toBe(toggle);
+	});
+
 	it('groups lines under Today, Yesterday and a dated heading', () => {
 		render(ActivityTimeline, {
 			feed: feedWith([
