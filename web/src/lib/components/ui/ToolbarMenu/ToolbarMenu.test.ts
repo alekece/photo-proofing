@@ -19,6 +19,19 @@ it('chooses a sort from the keyboard, marks it checked and returns focus', async
 	expect(screen.getByRole('menuitemradio', { name: 'Oldest', checked: true })).toBeTruthy();
 });
 
+it('dismisses the sort options when tabbing backwards to the trigger', async () => {
+	const user = userEvent.setup();
+	render(Harness, { onchange: vi.fn() });
+	const trigger = screen.getByRole('button', { name: /sort by.*newest/i });
+
+	trigger.focus();
+	await user.keyboard('{Enter}');
+	await user.tab({ shift: true });
+
+	expect(document.activeElement).toBe(trigger);
+	expect(screen.queryByRole('menu')).toBeNull();
+});
+
 it('preserves the trigger layout when a count appears, dismisses on Escape and respects disabled', async () => {
 	const user = userEvent.setup();
 	const onchange = vi.fn();

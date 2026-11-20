@@ -19,8 +19,8 @@ function line(id: string, lastAt: string, over: Partial<ActivityEvent> = {}): Ac
 	};
 }
 
-const page = (events: ActivityEvent[], next: string | null = null) =>
-	Response.json({ events, next });
+const page = (events: ActivityEvent[], next: string | null = null, tail = next) =>
+	Response.json({ events, next, tail });
 
 const asFetch = (fetcher: unknown) => fetcher as typeof fetch;
 const ids = (feed: ActivityFeed) => feed.events.map(({ id }) => id);
@@ -122,7 +122,7 @@ describe('ActivityFeed', () => {
 			.fn()
 			.mockResolvedValueOnce(page([oldest], 'oldest-cursor'))
 			.mockResolvedValueOnce(page([newest, updated], 'unrelated-cursor'))
-			.mockResolvedValueOnce(page([newest]))
+			.mockResolvedValueOnce(page([newest], null, 'end-of-loaded-list'))
 			.mockResolvedValueOnce(page([line('later', '2026-11-11T10:00:00Z')]));
 		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
 
@@ -136,6 +136,75 @@ describe('ActivityFeed', () => {
 		await feed.refresh();
 		expect(ids(feed)).toEqual(['oldest', 'newest', 'later']);
 		expect(feed.next).toBeNull();
+	});
+
+	it('resumes an exhausted oldest-first list without skipping past newly available pages', async () => {
+		const previous = line('previous', '2026-11-09T10:00:00Z');
+		const firstNew = line('first-new', '2026-11-10T10:00:00Z');
+		const lastNew = line('last-new', '2026-11-10T12:00:00Z');
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([previous], null, 'end-of-loaded-list'))
+			.mockImplementationOnce(async (url: string) =>
+				url.includes('sort=oldest&cursor=end-of-loaded-list')
+					? page([firstNew], 'more-new', 'more-new')
+					: page([lastNew], 'wrong-direction')
+			)
+			.mockResolvedValueOnce(page([lastNew], null, 'new-end'));
+		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
+
+		feed.sort = 'oldest';
+		await feed.load();
+		await feed.refresh();
+
+		expect(ids(feed)).toEqual(['previous', 'first-new']);
+		expect(feed.next).toBe('more-new');
+		await feed.loadMore();
+		expect(ids(feed)).toEqual(['previous', 'first-new', 'last-new']);
+		expect(feed.next).toBeNull();
+	});
+
+	it('recovers the requested sort on resync after a failed first page', async () => {
+		const recent = line('recent', '2026-11-10T10:00:00Z');
+		const earlier = line('earlier', '2026-11-09T10:00:00Z');
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([recent], 'newest-cursor'))
+			.mockResolvedValueOnce(new Response(null, { status: 503 }))
+			.mockResolvedValueOnce(page([earlier], 'oldest-cursor'));
+		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
+
+		await feed.load();
+		feed.sort = 'oldest';
+		await feed.load();
+
+		expect(ids(feed)).toEqual(['recent']);
+		expect(feed.next).toBeNull();
+		await feed.loadMore();
+		expect(fetcher).toHaveBeenCalledTimes(2);
+		await feed.refresh();
+		expect(fetcher).toHaveBeenLastCalledWith('/api/v1/timeline?sort=oldest', expect.anything());
+		expect(ids(feed)).toEqual(['earlier']);
+		expect(feed.failed).toBe(false);
+	});
+
+	it('preserves chronological order across a fractional-second page boundary', async () => {
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([line('whole', '2026-11-10T10:00:00Z')], 'c1'))
+			.mockResolvedValueOnce(
+				page([
+					line('z-earlier', '2026-11-10T10:00:00.123456Z'),
+					line('a-later', '2026-11-10T10:00:00.123457Z')
+				])
+			);
+		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
+
+		feed.sort = 'oldest';
+		await feed.load();
+		await feed.loadMore();
+
+		expect(ids(feed)).toEqual(['whole', 'z-earlier', 'a-later']);
 	});
 
 	it('refreshes by merging: loaded pages stay and the list is never emptied', async () => {

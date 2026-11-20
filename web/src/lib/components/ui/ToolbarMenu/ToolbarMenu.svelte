@@ -41,8 +41,17 @@
 		)?.focus();
 	});
 
-	function move(event: KeyboardEvent & { currentTarget: HTMLButtonElement }) {
+	function navigate(
+		event: KeyboardEvent & { currentTarget: HTMLButtonElement },
+		close: () => void
+	) {
 		const { key, currentTarget } = event;
+
+		if (key === 'Tab' && event.shiftKey) {
+			event.preventDefault();
+			close();
+			return;
+		}
 
 		if (!menu || !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(key)) return;
 
@@ -91,7 +100,7 @@
 						aria-checked={option.value === value}
 						tabindex="-1"
 						class="flex min-h-10 cursor-pointer items-center gap-2.5 rounded-control px-3 text-left text-[0.8125rem] hover:bg-border/60"
-						onkeydown={move}
+						onkeydown={(event) => navigate(event, close)}
 						onclick={() => {
 							close();
 							if (option.value !== value) onchange?.(option.value);

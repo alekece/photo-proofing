@@ -12,7 +12,11 @@ export type { ActivityEvent, ActivityFilters } from './api';
 
 /** Newest first, as the API lists them. */
 function byRecency(a: ActivityEvent, b: ActivityEvent): number {
-	return b.last_at.localeCompare(a.last_at) || b.id.localeCompare(a.id);
+	// Without the UTC suffix, a whole second sorts before its fractional offsets.
+	const left = a.last_at.replace(/Z$/, '');
+	const right = b.last_at.replace(/Z$/, '');
+
+	return left === right ? b.id.localeCompare(a.id) : left > right ? -1 : 1;
 }
 
 /**
@@ -30,7 +34,7 @@ export class ActivityFeed {
 	sort = $state<ActivitySort>('newest');
 	#galleryId: string | undefined;
 	#fetcher: typeof fetch;
-	#latest = 0;
+	#tail: string | undefined;
 	#refreshes = 0;
 	#generation = 0;
 	#displayedGeneration = 0;
@@ -54,6 +58,10 @@ export class ActivityFeed {
 		void this.load();
 	}
 
+	get needsReload(): boolean {
+		return this.failed && !this.loading && this.#generation !== this.#displayedGeneration;
+	}
+
 	/** Replaces the list with the first page of the current filters; the old list stays until then. */
 	load(): Promise<void> {
 		const pending = this.#load().finally(() => {
@@ -66,25 +74,26 @@ export class ActivityFeed {
 	}
 
 	async #load(): Promise<void> {
-		const ticket = ++this.#latest;
+		const generation = ++this.#generation;
 
-		this.#generation += 1;
 		this.loading = true;
+		this.next = null;
 
 		try {
 			const page = await this.#fetch();
 
-			if (ticket !== this.#latest) return;
+			if (generation !== this.#generation) return;
 
 			this.events = page.events;
 			this.next = page.next;
-			this.#displayedGeneration = this.#generation;
+			this.#tail = page.tail ?? undefined;
+			this.#displayedGeneration = generation;
 			this.failed = false;
 			this.loaded = true;
 		} catch {
-			if (ticket === this.#latest) this.failed = true;
+			if (generation === this.#generation) this.failed = true;
 		} finally {
-			if (ticket === this.#latest) this.loading = false;
+			if (generation === this.#generation) this.loading = false;
 		}
 	}
 
@@ -104,6 +113,7 @@ export class ActivityFeed {
 
 			this.#merge(page.events);
 			this.next = page.next;
+			this.#tail = page.tail ?? cursor;
 			this.failed = false;
 		} catch {
 			if (generation === this.#generation) this.failed = true;
@@ -121,21 +131,30 @@ export class ActivityFeed {
 
 		if (this.#pendingLoad) await this.#pendingLoad;
 
+		if (ticket !== this.#refreshes || this.loading) return;
+
 		const generation = this.#generation;
 		const oldestFirst = this.sort === 'oldest';
+		const advanceTail = oldestFirst && this.next === null;
 
-		if (generation !== this.#displayedGeneration) return;
+		if (generation !== this.#displayedGeneration) return this.load();
 
 		try {
-			const page = await this.#fetch(undefined, 'newest');
+			const page = await this.#fetch(
+				advanceTail ? this.#tail : undefined,
+				advanceTail ? 'oldest' : 'newest'
+			);
 
 			if (ticket !== this.#refreshes || generation !== this.#generation) return;
 
-			if (oldestFirst) {
+			if (advanceTail) {
+				this.#merge(page.events);
+				this.next = page.next;
+				this.#tail = page.tail ?? this.#tail;
+			} else if (oldestFirst) {
 				// A live update is at the far end of this order. Don't jump over unvisited pages.
-				const loadedIds =
-					this.next === null ? null : new SvelteSet(this.events.map(({ id }) => id));
-				this.#merge(loadedIds ? page.events.filter(({ id }) => loadedIds.has(id)) : page.events);
+				const loadedIds = new SvelteSet(this.events.map(({ id }) => id));
+				this.#merge(page.events.filter(({ id }) => loadedIds.has(id)));
 			} else {
 				const oldest = this.events.at(-1);
 				const fresh = page.events.at(-1);

@@ -358,6 +358,9 @@ pub struct ActivityPage {
     pub events: Vec<ActivityEvent>,
     /// Where the next page starts; `None` on the last one.
     pub next: Option<ActivityCursor>,
+    /// Boundary of a completed oldest-first list, for fetching newer activity on refresh.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tail: Option<ActivityCursor>,
 }
 
 /// Logs what the worker itself does, which has no repository write to piggyback on, and prunes
@@ -454,15 +457,14 @@ impl ActivityRepository<'_> {
 
         events.truncate(PAGE_SIZE);
 
-        let next = events
-            .last()
-            .filter(|_| has_more)
-            .map(|event| ActivityCursor {
-                last_at: event.last_at,
-                id: event.id,
-            });
+        let boundary = events.last().map(|event| ActivityCursor {
+            last_at: event.last_at,
+            id: event.id,
+        });
+        let next = boundary.filter(|_| has_more);
+        let tail = boundary.filter(|_| !has_more && query.sort == ActivityOrder::Oldest);
 
-        Ok(ActivityPage { events, next })
+        Ok(ActivityPage { events, next, tail })
     }
 
     /// Deletes lines whose last activity is older than `retention`.
@@ -998,6 +1000,21 @@ mod tests {
         assert_eq!(expected.len(), PAGE_SIZE + 1);
         assert_eq!(got, expected);
         assert_eq!(second.next, None);
+
+        fixture
+            .insert_line(gallery_id, None, ActivityKind::Comment, "-1 minute", &[])
+            .await;
+
+        let resumed = fixture
+            .list(ActivityQuery {
+                cursor: second.tail,
+                ..query
+            })
+            .await;
+
+        assert_eq!(resumed.events.len(), 1);
+        assert_eq!(resumed.events[0].kind, ActivityKind::Comment);
+        assert_eq!(resumed.next, None);
     }
 
     #[sqlx::test(migrations = "./migrations")]

@@ -31,7 +31,8 @@ export const activityEventSchema = v.object({
 
 export const activityPageSchema = v.object({
 	events: v.array(activityEventSchema),
-	next: v.nullable(v.string())
+	next: v.nullable(v.string()),
+	tail: v.nullish(v.string())
 });
 
 export type ActivityEvent = v.InferOutput<typeof activityEventSchema>;

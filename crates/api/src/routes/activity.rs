@@ -8,7 +8,8 @@
 //!
 //! Both take the optional filters `contact` (a contact id or `anonymous`), `kind`, `range`
 //! (`today`, `7d` or `30d`), `sort` (`newest` or `oldest`) and `cursor`, which is the `next`
-//! of the previous page. Keep the same sort across pages. The workspace
+//! of the previous page. An exhausted oldest-first page offers its `tail` as a cursor for
+//! checking for newer rows. Keep the same sort across pages. The workspace
 //! feed also takes `gallery`. The log is the photographer's: it needs a session and names
 //! contacts, which no client route does. A change arrives on the event stream as a
 //! `notification` event.

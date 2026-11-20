@@ -63,12 +63,14 @@
 </script>
 
 {#if feed.failed}
-	<p
-		role="alert"
-		class="mb-3 rounded-control border border-danger/40 px-3 py-2 text-sm text-danger"
+	<div
+		class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-control border border-danger/40 px-3 py-2 text-sm text-danger"
 	>
-		{m.activity_error()}
-	</p>
+		<p role="alert">{m.activity_error()}</p>
+		{#if feed.needsReload}
+			<Button variant="outline" onclick={() => void feed.load()}>{m.action_retry()}</Button>
+		{/if}
+	</div>
 {/if}
 
 {#if !feed.loaded}
