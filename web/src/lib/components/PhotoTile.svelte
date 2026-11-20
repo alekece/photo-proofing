@@ -203,7 +203,7 @@
 				{@attach seen}
 			/>
 		</button>
-	{:else}
+	{:else if status !== 'ready'}
 		<div
 			class={[
 				'absolute inset-0 flex flex-col items-center p-2 text-center',

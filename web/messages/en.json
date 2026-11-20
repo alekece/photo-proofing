@@ -544,6 +544,7 @@
 	"favorites_download_count": "Download {count}",
 	"favorites_download_all": "Download all",
 	"favorites_try_again": "Use Download to try again.",
+	"finals_zip_ready_only": "Only ready finals can be downloaded. Deselect any that aren’t ready.",
 	"favorites_load_failed": "Couldn’t load the favorites. Please reload.",
 	"favorites_empty": "No favorites yet",
 	"favorites_empty_body": "The client’s selection will appear here.",

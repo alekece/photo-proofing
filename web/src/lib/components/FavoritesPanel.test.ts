@@ -282,17 +282,22 @@ describe('FavoritesPanel', () => {
 		expect(screen.queryByText('2 selected')).toBeNull();
 	});
 
-	it('prepares the selection ZIP, then downloads it once ready', async () => {
+	it('requests all favorites without a body in select mode, then downloads once ready', async () => {
 		const user = userEvent.setup();
 		const { finish } = setup([photo('p1', true)]);
 
 		await screen.findByAltText('p1.jpg');
 		const download = screen.getByRole('button', { name: 'Download all' });
 		expect(download.closest('[data-slot="workspace-toolbar"]')).toBeTruthy();
+		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
 		await user.click(download);
 
-		expect(await screen.findByRole('button', { name: /Downloading/ })).toBeTruthy();
-		expect(screen.getByRole('button', { name: /Downloading/ })).toHaveProperty('disabled', true);
+		const request = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'POST');
+		expect(request).toBeDefined();
+		expect(request?.[1]?.body).toBeUndefined();
+		for (const button of await screen.findAllByRole('button', { name: /Downloading/ })) {
+			expect(button).toHaveProperty('disabled', true);
+		}
 		expect(startDownload).not.toHaveBeenCalled();
 
 		finish(zip('ready'));
@@ -337,7 +342,7 @@ describe('FavoritesPanel', () => {
 			false
 		);
 		expect(screen.getByRole('button', { name: 'Download all' })).toBe(downloadAll);
-		expect(screen.queryByRole('button', { name: 'Select', exact: true })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
 		// Clears the workspace rail and the gallery studio rail.
 		expect(bar.className).toMatch(
 			/md:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\+8\.25rem\)\]/

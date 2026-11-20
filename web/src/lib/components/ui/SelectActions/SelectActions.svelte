@@ -86,7 +86,9 @@
 		aria-label={m.selection_exit()}
 		onclick={onexit}><X size={18} aria-hidden="true" /></Button
 	>
-	<strong class="text-sm font-semibold">{m.notification_selected({ count })}</strong>
+	<strong class={['text-sm font-semibold', rail === 'gallery' && 'whitespace-nowrap']}
+		>{m.notification_selected({ count })}</strong
+	>
 	<div class="ml-auto flex items-center justify-end gap-2 max-sm:ml-0 max-sm:gap-1">
 		<Button
 			variant="outline"

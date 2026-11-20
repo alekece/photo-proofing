@@ -19,7 +19,7 @@ it('keeps the collection circle and active tile body separately operable by keyb
 
 	await view.rerender({ ...props, collectionSelect: 'active', selected: true });
 	expect(circle.getAttribute('aria-pressed')).toBe('true');
-	screen.getByRole('button', { name: 'a.jpg', exact: true }).focus();
+	screen.getByRole('button', { name: 'a.jpg' }).focus();
 	await user.keyboard('{Enter}');
 	expect(onselect).toHaveBeenCalledTimes(2);
 	expect(onopen).not.toHaveBeenCalled();

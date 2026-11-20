@@ -3,7 +3,7 @@
 	import { CommentsClient } from '#lib/gallery/comments.js';
 	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
 	import CommentThread from './CommentThread.svelte';
-	import { ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
+	import { Download, ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -23,6 +23,7 @@
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
 	import { getLiveEvents, type PhotoEvent } from '#lib/events.js';
 	import { updateGallery } from '#lib/gallery/api.js';
+	import { OwnerExport } from '#lib/gallery/export.svelte.js';
 	import { ApiError } from '#lib/http.js';
 	import { formatDateTime } from '#lib/gallery/format.js';
 	import { selectionHotkeysAllowed } from '#lib/gallery/select-mode.svelte.js';
@@ -66,6 +67,12 @@
 
 	const finals = $derived(set === 'finals');
 	const loadedGalleryId = $derived(galleryId);
+	const zip = new OwnerExport(
+		() => loadedGalleryId,
+		'finals',
+		() => finals
+	);
+	const readinessId = $props.id();
 
 	const queue = getUploadQueue();
 	const events = getLiveEvents();
@@ -134,6 +141,8 @@
 	const queued = $derived(queue.forGallery(galleryId, set));
 	// Photos deleted meanwhile drop out, so the confirmed count is what is sent.
 	const selection = $derived(photos.filter(({ id }) => selected.has(id)));
+	const anyReady = $derived(photos.some(({ status }) => status === 'ready'));
+	const selectionIncludesUnready = $derived(selection.some(({ status }) => status !== 'ready'));
 	// Every photo, so one still processing or failed shows its state in the viewer.
 	const proofs = $derived<Proof[]>(
 		photos.map((photo) => ({
@@ -535,6 +544,18 @@
 					{m.photos_updating_watermarks()}
 				</p>
 			{/if}
+			{#if finals && anyReady}
+				<Button
+					size="sm"
+					class="min-h-9! gap-1.5"
+					disabled={zip.busy}
+					aria-busy={zip.busy}
+					onclick={() => void zip.request()}
+				>
+					<Download size={16} aria-hidden="true" />
+					{zip.busy ? m.favorites_downloading() : m.favorites_download_all()}
+				</Button>
+			{/if}
 			<Button
 				bind:ref={uploadButton}
 				size="sm"
@@ -565,6 +586,32 @@
 			canEscape={canUseSelectionKeys}
 		>
 			{#snippet actions()}
+				{#if finals}
+					{#if selectionIncludesUnready}
+						<p
+							id={readinessId}
+							role="status"
+							class="absolute inset-x-0 bottom-full mb-1 rounded-lg bg-panel px-2 py-1 text-center text-sm text-muted-foreground"
+						>
+							{m.finals_zip_ready_only()}
+						</p>
+					{/if}
+					<Button
+						size="sm"
+						class="min-h-9! gap-1.5"
+						disabled={zip.busy || selection.length === 0 || selectionIncludesUnready}
+						aria-busy={zip.busy}
+						aria-describedby={selectionIncludesUnready ? readinessId : undefined}
+						onclick={() => void zip.request(selection.map(({ id }) => id))}
+					>
+						<Download size={16} aria-hidden="true" />
+						<span class="max-sm:sr-only">
+							{zip.busy
+								? m.favorites_downloading()
+								: m.favorites_download_count({ count: selection.length })}
+						</span>
+					</Button>
+				{/if}
 				<Button
 					variant="destructive"
 					size="sm"
@@ -577,6 +624,10 @@
 				>
 			{/snippet}
 		</SelectActions>
+	{/if}
+
+	{#if finals && zip.error}
+		<p role="alert" class="text-right text-sm text-danger">{zip.error} {m.favorites_try_again()}</p>
 	{/if}
 
 	{#if alert}

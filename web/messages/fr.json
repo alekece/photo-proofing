@@ -556,6 +556,7 @@
 	"favorites_download_count": "Télécharger {count}",
 	"favorites_download_all": "Tout télécharger",
 	"favorites_try_again": "Utilisez Télécharger pour réessayer.",
+	"finals_zip_ready_only": "Seules les photos retouchées prêtes peuvent être téléchargées. Désélectionnez celles qui ne sont pas prêtes.",
 	"favorites_load_failed": "Impossible de charger les favoris. Rechargez la page.",
 	"favorites_empty": "Pas encore de favoris",
 	"favorites_empty_body": "La sélection du client apparaîtra ici.",

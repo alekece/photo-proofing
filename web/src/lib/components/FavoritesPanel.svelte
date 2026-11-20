@@ -8,20 +8,14 @@
 	import PhotoTile, { COLLECTION_GRID_CLASSES } from '#lib/components/PhotoTile.svelte';
 	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
 	import ViewerButton from '#lib/components/ViewerButton.svelte';
-	import {
-		latestExport,
-		requestExport,
-		exportUrl,
-		startDownload,
-		type Export
-	} from '#lib/gallery/export.js';
+	import { startDownload } from '#lib/gallery/export.js';
+	import { OwnerExport } from '#lib/gallery/export.svelte.js';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 	import { getLiveEvents } from '#lib/events.js';
 	import { ApiError } from '#lib/http.js';
-	import { apiErrorMessage } from '#lib/i18n/errors.js';
 	import { listPhotos, previewUrl, thumbnailUrl, type Photo } from '#lib/gallery/photos.js';
 	import { selectionHotkeysAllowed, SelectMode } from '#lib/gallery/select-mode.svelte.js';
 	import type { Proof } from '#lib/gallery/types.js';
@@ -51,6 +45,7 @@
 
 	const events = getLiveEvents();
 	const loadedGalleryId = $derived(galleryId);
+	const zip = new OwnerExport(() => loadedGalleryId, 'photos');
 	const comments = $derived(
 		new PhotoComments(new CommentsClient(`/api/v1/galleries/${encodeURIComponent(galleryId)}`))
 	);
@@ -65,13 +60,8 @@
 	let panel = $state<HTMLElement | null>(null);
 	let downloadAll = $state<HTMLElement | null>(null);
 	let downloading = $state<string | null>(null);
-	let currentExport = $state<Export | null>(null);
-	let zipRequesting = $state(false);
-	let zipError = $state<string | null>(null);
-	let zipLoads = 0;
+	let individualError = $state<string | null>(null);
 	let generation = 0;
-	// The ZIP this page asked for downloads by itself once ready; one found later is only offered.
-	let awaited: string | null = null;
 	const mode = new SelectMode();
 
 	async function load(id: string) {
@@ -91,60 +81,6 @@
 		}
 	}
 
-	async function loadZip(id: string) {
-		const current = ++zipLoads;
-
-		try {
-			const latest = await latestExport(id);
-
-			if (current !== zipLoads) return;
-
-			currentExport = latest;
-
-			if (latest?.status.kind === 'ready' && latest.id === awaited) {
-				awaited = null;
-				startDownload(exportUrl(id, latest.id));
-			} else if (latest?.status.kind !== 'preparing') {
-				awaited = null;
-			}
-		} catch {
-			if (current === zipLoads) zipError = m.favorites_zip_check_failed();
-		}
-	}
-
-	async function requestZip(photoIds?: string[]) {
-		if (zipRequesting || zipPreparing) return;
-
-		zipRequesting = true;
-		zipError = null;
-		const current = generation;
-		const id = galleryId;
-
-		try {
-			const created = await requestExport(id, fetch, photoIds);
-			if (current !== generation) return;
-
-			currentExport = created;
-			awaited = created.id;
-			// The build may already have finished: take the state from the server, not the response.
-			await loadZip(id);
-		} catch (error) {
-			if (current === generation) {
-				zipError =
-					error instanceof ApiError && error.status !== 502
-						? error.message
-						: m.favorites_zip_failed();
-			}
-		} finally {
-			if (current === generation) zipRequesting = false;
-		}
-	}
-
-	const exportFailure = $derived(
-		currentExport?.status.kind === 'failed' ? apiErrorMessage(409, currentExport.status.code) : null
-	);
-	const zipPreparing = $derived(currentExport?.status.kind === 'preparing');
-
 	$effect(() => {
 		const id = loadedGalleryId;
 
@@ -153,13 +89,9 @@
 		untrack(() => mode.leave());
 		loaded = false;
 		downloading = null;
+		individualError = null;
 		viewing = false;
-		currentExport = null;
-		zipRequesting = false;
-		zipError = null;
-		awaited = null;
 		void load(id);
-		void loadZip(id);
 
 		const unsubscribe = [
 			events.onFavorites((event) => event.gallery_id === id && void load(id)),
@@ -169,17 +101,12 @@
 					(event.status === 'deleted' || event.status === 'ready') &&
 					void load(id)
 			),
-			events.onExport((event) => event.gallery_id === id && void loadZip(id)),
-			events.onResync(() => {
-				void load(id);
-				void loadZip(id);
-			})
+			events.onResync(() => void load(id))
 		];
 
 		return () => {
 			generation++;
 			loads++;
-			zipLoads++;
 
 			for (const off of unsubscribe) off();
 		};
@@ -212,11 +139,12 @@
 
 		const current = generation;
 		downloading = photos[0].id;
+		individualError = null;
 
 		try {
 			await ondownload(photos);
 		} catch {
-			if (current === generation) zipError = m.favorites_download_failed();
+			if (current === generation) individualError = m.favorites_download_failed();
 		} finally {
 			if (current === generation) downloading = null;
 		}
@@ -239,18 +167,20 @@
 		}
 		size="sm"
 		class="min-h-9! gap-1.5"
-		disabled={zipPreparing || zipRequesting || (!all && mode.active && mode.count === 0)}
-		aria-busy={zipPreparing || zipRequesting}
-		onclick={() =>
-			void requestZip(
+		disabled={zip.busy || (!all && mode.count === 0)}
+		aria-busy={zip.busy}
+		onclick={() => {
+			individualError = null;
+			void zip.request(
 				!all && mode.count > 0
 					? favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id)
 					: undefined
-			)}
+			);
+		}}
 	>
 		<Download size={16} aria-hidden="true" />
 		<span class={[!all && mode.active && 'max-sm:sr-only']}>
-			{zipPreparing || zipRequesting
+			{zip.busy
 				? m.favorites_downloading()
 				: !all
 					? m.favorites_download_count({ count: mode.count })
@@ -284,9 +214,9 @@
 		</SelectActions>
 	{/if}
 
-	{#if zipError || exportFailure}
+	{#if individualError || zip.error}
 		<p role="alert" class="text-right text-sm text-danger">
-			{zipError ?? exportFailure}
+			{individualError ?? zip.error}
 			{m.favorites_try_again()}
 		</p>
 	{/if}
