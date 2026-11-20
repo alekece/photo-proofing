@@ -5,7 +5,12 @@
 	export type ActionButtonProps = {
 		labels: { idle: string; pending: string; succeeded?: string };
 		onaction: () => Promise<boolean>;
-		confirmation?: { duration: number; cancelLabel: string; description: string };
+		confirmation?: {
+			duration: number;
+			cancelLabel: string;
+			cancelAccessibleLabel?: string;
+			description: string;
+		};
 		confirmationDuration?: number;
 		onsettled?: () => void;
 		disabled?: boolean;
@@ -47,7 +52,7 @@
 	const labelClass = $derived(compactOnMobile && icon ? 'sr-only sm:not-sr-only' : undefined);
 	const label = $derived(
 		state === 'armed'
-			? confirmation?.cancelLabel
+			? (confirmation?.cancelAccessibleLabel ?? confirmation?.cancelLabel)
 			: state === 'pending'
 				? labels.pending
 				: state === 'confirmed'

@@ -735,6 +735,8 @@
 	"contacts_email_invalid": "Enter a valid email address.",
 	"contacts_save_failed": "Couldn’t save this contact. Please try again.",
 	"contacts_delete_title": "Delete {name}?",
+	"contacts_cancel_delete": "Cancel deletion of {name}",
+	"contacts_deleting": "Deleting…",
 	"contacts_delete_body": "This removes them from your directory and revokes their personal gallery links.",
 	"contacts_delete_failed": "Couldn’t delete this contact. Please try again.",
 	"contacts_list_label": "Workspace contacts",

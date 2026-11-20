@@ -747,6 +747,8 @@
 	"contacts_email_invalid": "Saisissez une adresse e-mail valide.",
 	"contacts_save_failed": "Impossible d’enregistrer ce contact. Réessayez.",
 	"contacts_delete_title": "Supprimer {name} ?",
+	"contacts_cancel_delete": "Annuler la suppression de {name}",
+	"contacts_deleting": "Suppression…",
 	"contacts_delete_body": "Ce contact sera retiré du répertoire et ses liens personnels cesseront de fonctionner.",
 	"contacts_delete_failed": "Impossible de supprimer ce contact. Réessayez.",
 	"contacts_list_label": "Contacts de l’espace",

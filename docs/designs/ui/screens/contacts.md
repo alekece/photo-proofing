@@ -1,33 +1,26 @@
 # Contacts
 
-Workspace-wide client directory. Route `/contacts`, reached from the top `AppHeader` section
-pills (**Galleries**, **Contacts**, and **Activity**).
+Workspace-wide client directory. Route `/contacts`, reached from **Contacts** in `AppHeader`.
 
 ## Layout
 
-1. **Top navigation (`AppHeader`):** beside the `PhotoProofing` brand sit three pills:
-   **Galleries** (`/dashboard`), **Contacts** (`/contacts`), and **Activity** (`/activity`). Active
-   section uses ink fill (`#2b2420`); on `390 px` phones the section pills wrap cleanly onto a
-   second row below the brand and account controls so nothing clips or scrolls horizontally.
-2. **Page header & directory toolbar:**
-   - Georgia heading **Contacts**, total count (`1 contact` / `N contacts`), and primary
-     **+ New contact** pill button on the right.
-   - Full-width toolbar with a flexible rounded search box filtering immediately by name,
-     email, or phone, and a **Name A–Z** / **Name Z–A** sort control. Sorting preserves the
-     current search. Both controls stay visible and disabled when the directory is empty.
-3. **Empty workspace:** Warm Paper striped empty state (`"No contacts yet."`, short explanation,
-   and **+ New contact**).
-4. **Two-column directory (`md:`):**
-   - **Left column (list):** selectable Warm Paper contact cards ordered alphabetically by default, each with
-     a 1–2 letter monogram disc, **Name**, **Email**, optional **Phone**, and linked-gallery pills.
-     When search matches nothing, offers **Clear search**.
-   - **Right column (inspector / creator):** Warm Paper card showing monogram + heading, **Name**
-     (required), **Email** (required, normalized and unique per workspace), **Phone** (optional),
-     **Notes** (optional), and—when inspecting an existing contact—**Linked galleries** as
-     clickable pills to `/dashboard/{id}` (or `"Not linked to any gallery yet."`).
-   - **Actions:** **Cancel** and **Save changes** (`SaveButton` with `"✓ Saved"` confirmation, both
-     disabled until dirty) or **Create contact** when adding, plus destructive **Delete** opening a
-     `ConfirmDialog` warning that personal gallery links for that contact will stop working.
-5. **Phone (`< md`, `390 px`):** collapses to one column at a time: selecting a contact or
-   pressing **+ New contact** opens the inspector/creator card with a **← Back to contacts**
-   control at the top.
+1. **Header and toolbar:** the **Contacts** heading shows the total and the only **+ New contact**
+   button. The shared directory toolbar filters by name, email or phone and sorts by name
+   without clearing the search. An empty directory keeps the toolbar visible but disabled.
+2. **Full-width rows:** each contact shows a monogram, name, email, optional phone and gallery
+   summaries. **Edit**, **Delete** and the details chevron sit at the right and use named icon
+   buttons on phones. The chevron reveals Notes and gallery links directly below that row.
+3. **Inline forms:** **Edit** opens the same row, preserves its identity and swaps its actions
+   for **Cancel** and **Save changes**. **+ New contact** inserts the form above the list.
+   Only one form or details block is open. Name and email are required; phone and notes are optional.
+   Validation errors leave the draft intact. Successful saves briefly show confirmation.
+4. **Deletion:** the row action shows a three-second countdown and warns that personal gallery
+   links will stop working. Activating it again or pressing Escape while focused cancels it.
+   Filtering out the row, editing it or leaving the page also cancels it. A failed request leaves
+   the row and its links in place with an inline error and a fresh countdown available.
+
+Details and forms expand or collapse in 200 ms; a successfully deleted row shrinks and fades in
+280 ms. Filtering does not use the deletion animation. Reduced motion skips those transitions
+without changing the confirmation time. New and Edit focus the name field, and Cancel restores
+focus to the opening action. If a deleted row held focus, focus moves to the next visible
+chevron, the previous one if last, or **+ New contact** if none remain.
