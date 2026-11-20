@@ -40,6 +40,8 @@ export class ActivityFeed {
 	#displayedGeneration = 0;
 	#pendingLoad: Promise<void> | undefined;
 	#pendingPage: Promise<void> | undefined;
+	#pendingOldestRefresh: Promise<void> | undefined;
+	#pageFailed = false;
 
 	constructor({ galleryId, fetcher = fetch }: { galleryId?: string; fetcher?: typeof fetch } = {}) {
 		this.#galleryId = galleryId;
@@ -80,6 +82,8 @@ export class ActivityFeed {
 		this.loading = true;
 		this.next = null;
 		this.#pendingPage = undefined;
+		this.#pendingOldestRefresh = undefined;
+		this.#pageFailed = false;
 		this.loadingMore = false;
 
 		try {
@@ -105,10 +109,17 @@ export class ActivityFeed {
 	loadMore(): Promise<void> {
 		const cursor = this.next;
 		const generation = this.#generation;
+		const refreshing = this.#pendingOldestRefresh;
 
 		if (this.#pendingPage) return this.#pendingPage;
 
 		if (cursor === null || generation !== this.#displayedGeneration) return Promise.resolve();
+
+		if (refreshing) {
+			return refreshing.then(() => {
+				if (generation === this.#generation) return this.loadMore();
+			});
+		}
 
 		this.loadingMore = true;
 		const pending = this.#appendPage(cursor, generation).finally(() => {
@@ -131,9 +142,13 @@ export class ActivityFeed {
 			this.#merge(page.events);
 			this.next = page.next;
 			this.#rememberOldestBoundary(page);
+			this.#pageFailed = false;
 			this.failed = false;
 		} catch {
-			if (generation === this.#generation) this.failed = true;
+			if (generation === this.#generation) {
+				this.#pageFailed = true;
+				this.failed = true;
+			}
 		}
 	}
 
@@ -148,7 +163,20 @@ export class ActivityFeed {
 	 * Reconciles recent rows and, when an oldest-first list is exhausted, resumes forward from its
 	 * last page. A replacement load invalidates both kinds of refresh.
 	 */
-	async refresh(): Promise<void> {
+	refresh(): Promise<void> {
+		const request = this.#refresh();
+
+		if (this.sort !== 'oldest') return request;
+
+		const pending = request.finally(() => {
+			if (this.#pendingOldestRefresh === pending) this.#pendingOldestRefresh = undefined;
+		});
+		this.#pendingOldestRefresh = pending;
+
+		return pending;
+	}
+
+	async #refresh(): Promise<void> {
 		const ticket = ++this.#refreshes;
 
 		if (this.#pendingLoad) await this.#pendingLoad;
@@ -162,6 +190,13 @@ export class ActivityFeed {
 		if (generation !== this.#displayedGeneration) return this.load();
 
 		try {
+			// Oldest-first paging and refresh must read in sequence: a contact edit can leave
+			// last_at unchanged, so overlapping snapshots cannot be ordered by that timestamp.
+			if (oldestFirst && this.#pendingPage) {
+				await this.#pendingPage;
+				if (!current()) return;
+			}
+
 			const page = await this.#fetch(undefined, 'newest');
 
 			if (!current()) return;
@@ -169,10 +204,6 @@ export class ActivityFeed {
 			let incoming = page.events;
 
 			if (oldestFirst) {
-				// A pending page can exhaust the list after the newest request started.
-				await this.#pendingPage;
-				if (!current()) return;
-
 				if (this.next !== null) {
 					const loadedIds = new SvelteSet(this.events.map(({ id }) => id));
 					incoming = page.events.filter(({ id }) => loadedIds.has(id));
@@ -202,7 +233,7 @@ export class ActivityFeed {
 			}
 
 			this.#merge(incoming);
-			this.failed = false;
+			this.failed = this.#pageFailed;
 			this.loaded = true;
 		} catch {
 			if (current()) this.failed = true;

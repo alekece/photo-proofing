@@ -166,45 +166,32 @@ describe('ActivityFeed', () => {
 		expect(feed.next).toBeNull();
 	});
 
-	it.each(['page first', 'refresh first'])(
-		'catches up while the last page and a notification finish together (%s)',
-		async (order) => {
-			const first = line('first', '2026-11-09T10:00:00Z');
-			const last = line('last', '2026-11-10T10:00:00Z');
-			const later = line('later', '2026-11-11T10:00:00Z');
-			let answerPage!: (response: Response) => void;
-			let answerRefresh!: (response: Response) => void;
-			const fetcher = vi
-				.fn()
-				.mockResolvedValueOnce(page([first], 'after-first'))
-				.mockImplementationOnce(() => new Promise<Response>((resolve) => (answerPage = resolve)))
-				.mockImplementationOnce(() => new Promise<Response>((resolve) => (answerRefresh = resolve)))
-				.mockImplementationOnce(async (url: string) =>
-					url.includes('sort=oldest&cursor=after-last')
-						? page([later], null, 'after-later')
-						: page([])
-				);
-			const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
+	it('catches up when a notification arrives before the last page finishes', async () => {
+		const first = line('first', '2026-11-09T10:00:00Z');
+		const last = line('last', '2026-11-10T10:00:00Z');
+		const later = line('later', '2026-11-11T10:00:00Z');
+		let answerPage!: (response: Response) => void;
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([first], 'after-first'))
+			.mockImplementationOnce(() => new Promise<Response>((resolve) => (answerPage = resolve)))
+			.mockResolvedValueOnce(page([later, last, first]))
+			.mockImplementationOnce(async (url: string) =>
+				url.includes('sort=oldest&cursor=after-last')
+					? page([later], null, 'after-later')
+					: page([])
+			);
+		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
 
-			feed.sort = 'oldest';
-			await feed.load();
-			const paging = feed.loadMore();
-			const refreshing = feed.refresh();
+		feed.sort = 'oldest';
+		await feed.load();
+		const paging = feed.loadMore();
+		const refreshing = feed.refresh();
+		answerPage(page([last], null, 'after-last'));
 
-			if (order === 'page first') {
-				answerPage(page([last], null, 'after-last'));
-				await paging;
-				answerRefresh(page([later, last, first]));
-			} else {
-				answerRefresh(page([later, last, first]));
-				await Promise.resolve();
-				answerPage(page([last], null, 'after-last'));
-			}
-
-			await Promise.all([paging, refreshing]);
-			expect(ids(feed)).toEqual(['first', 'last', 'later']);
-		}
-	);
+		await Promise.all([paging, refreshing]);
+		expect(ids(feed)).toEqual(['first', 'last', 'later']);
+	});
 
 	it('reconciles an updated contact and late-arriving rows behind the oldest-first boundary', async () => {
 		const last = line('last', '2026-11-10T10:00:00Z', { contact: { id: 'c1', name: 'Alice' } });
@@ -223,6 +210,56 @@ describe('ActivityFeed', () => {
 
 		expect(ids(feed)).toEqual(['late', 'last']);
 		expect(feed.events.at(-1)?.contact).toBeNull();
+	});
+
+	it('does not restore an outdated contact name when the newest read overlaps paging', async () => {
+		const first = line('first', '2026-11-09T10:00:00Z');
+		const last = line('last', '2026-11-10T10:00:00Z', { contact: { id: 'c1', name: 'Alice' } });
+		const renamed = { ...last, contact: { id: 'c1', name: 'Alex' } };
+		let answer!: (response: Response) => void;
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([first], 'after-first'))
+			.mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)))
+			.mockResolvedValue(page([renamed], null, 'after-last'));
+		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
+
+		feed.sort = 'oldest';
+		await feed.load();
+		const refreshing = feed.refresh();
+		const paging = feed.loadMore();
+		answer(page([last, first]));
+		await Promise.all([paging, refreshing]);
+
+		expect(ids(feed)).toEqual(['first', 'last']);
+		expect(feed.events.at(-1)?.contact?.name).toBe('Alex');
+	});
+
+	it('keeps a failed page visible through a successful oldest-first refresh until retry', async () => {
+		const first = line('first', '2026-11-09T10:00:00Z');
+		const last = line('last', '2026-11-10T10:00:00Z');
+		let answer!: (response: Response) => void;
+		const fetcher = vi.fn(async (url: string) => {
+			if (!url.includes('sort=')) return page([first]);
+			if (!url.includes('cursor=')) return page([first], 'after-first');
+
+			return page([last]);
+		});
+		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
+
+		feed.sort = 'oldest';
+		await feed.load();
+		fetcher.mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)));
+		const paging = feed.loadMore();
+		const refreshing = feed.refresh();
+		answer(new Response(null, { status: 503 }));
+		await Promise.all([paging, refreshing]);
+
+		expect(feed.failed).toBe(true);
+		expect(feed.next).toBe('after-first');
+		await feed.loadMore();
+		expect(feed.failed).toBe(false);
+		expect(ids(feed)).toEqual(['first', 'last']);
 	});
 
 	it('recovers the requested sort on resync after a failed first page', async () => {
