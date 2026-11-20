@@ -72,10 +72,11 @@
 	});
 
 	function togglePhotos(id: string) {
-		const next = new Set(expandedIds);
-
-		if (!next.delete(id)) next.add(id);
-		expandedIds = next;
+		expandedIds = new Set(
+			expandedIds.has(id)
+				? [...expandedIds].filter((expanded) => expanded !== id)
+				: [...expandedIds, id]
+		);
 	}
 
 	$effect(() => {
@@ -270,7 +271,7 @@
 								{/if}
 							{:else if photos.length > 0}
 								<div class="flex gap-1.5">
-									{#each photos as photoId}
+									{#each photos as photoId, index (`${photoId}:${index}`)}
 										{@render thumbnail(event, photoId, 'size-14')}
 									{/each}
 								</div>

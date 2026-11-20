@@ -34,7 +34,7 @@ const line = (id: string, over = {}) => ({
 	...over
 });
 
-function open(fetcher: ReturnType<typeof vi.fn>) {
+function open(fetcher: typeof fetch) {
 	let notify!: (event: { gallery_id: string }) => void;
 	const events = {
 		onNotification: (handler: typeof notify) => {

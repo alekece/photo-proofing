@@ -1,4 +1,4 @@
-import { SvelteSet } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { LiveEvents } from '#lib/events.js';
 import {
 	listActivity,
@@ -250,7 +250,7 @@ export class ActivityFeed {
 	}
 
 	#merge(incoming: ActivityEvent[], incomingWinsTies = true) {
-		const merged = new Map(this.events.map((event) => [event.id, event]));
+		const merged = new SvelteMap(this.events.map((event) => [event.id, event]));
 
 		for (const event of incoming) {
 			const current = merged.get(event.id);
