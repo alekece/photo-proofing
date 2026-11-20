@@ -141,18 +141,20 @@ describe('gallery page', () => {
 		);
 	});
 
-	it('previews an unshared gallery, flushing pending edits first, and returns focus to Preview when closed', async () => {
+	it('previews in Design only, flushes pending edits and returns focus on close', async () => {
 		const patches = stubApi();
 		const user = userEvent.setup();
 		open({ share_token: null, hero_id: 'p1' });
 
+		await user.click(screen.getByRole('tab', { name: 'Contacts' }));
+		expect(screen.queryByRole('button', { name: /preview/i })).toBeNull();
 		await user.click(screen.getByRole('tab', { name: 'Design' }));
 		const pad = screen.getByRole('button', { name: 'Cover focal point (50%, 35%)' });
 		pad.focus();
 		await user.keyboard('{ArrowRight}');
 		expect(patches()).toHaveLength(0);
 
-		const button = screen.getByRole('button', { name: 'Preview' });
+		const button = screen.getByRole('button', { name: 'Open full preview' });
 		await user.click(button);
 		expect(patches()).toHaveLength(1);
 		expect(JSON.parse(patches()[0][1]?.body as string)).toEqual({
@@ -164,27 +166,6 @@ describe('gallery page', () => {
 		expect(screen.queryByRole('dialog', { name: 'Client preview' })).toBeNull();
 		expect(document.activeElement).toBe(button);
 		expect(screen.queryByLabelText('Client link')).toBeNull();
-	});
-
-	it('keeps the full-screen Preview action available from any gallery section, as a single-scroll modal', async () => {
-		stubApi();
-		const user = userEvent.setup();
-		open({ share_token: 'T'.repeat(22), states: ['shared'], hero_id: 'p1' });
-
-		await user.click(screen.getByRole('tab', { name: 'Contacts' }));
-		await user.click(screen.getByRole('button', { name: 'Preview' }));
-
-		const dialog = screen.getByRole('dialog', { name: 'Client preview' });
-
-		expect(dialog).toBeTruthy();
-		// A single scroller lives inside the modal; the dialog element itself does not scroll.
-		expect(dialog.className).not.toMatch(/overflow-auto/);
-		expect(
-			document.querySelector('[data-frame="desktop"]')?.closest('div')?.parentElement
-		).toBeTruthy();
-
-		await user.click(screen.getByRole('button', { name: 'Close preview' }));
-		expect(screen.queryByRole('dialog', { name: 'Client preview' })).toBeNull();
 	});
 
 	it('renders the share control inside Settings with a link built from the page origin', async () => {
@@ -711,7 +692,7 @@ describe('gallery page', () => {
 		it('shows the title and the draft status', () => {
 			open();
 			expect(screen.getByText('Draft')).toBeTruthy();
-			expect(screen.getByText('Created')).toBeTruthy();
+			expect(screen.queryByText('Created')).toBeNull();
 			expect(screen.getByLabelText('Gallery title')).toBeTruthy();
 		});
 
@@ -1118,8 +1099,8 @@ describe('gallery page', () => {
 				'Favorites',
 				'Comments',
 				'Final',
-				'Activity',
 				'Design',
+				'Activity',
 				'Share',
 				'Contacts',
 				'Settings'

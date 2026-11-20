@@ -69,6 +69,7 @@
 	--danger: #b5381f;
 	--info: #6b7f8e;
 	--gallery-heading-font: Georgia, serif;
+	--gallery-rail-width: clamp(15rem, 16vw, 17.5rem);
 }
 @layer base {
 	body {

@@ -32,8 +32,10 @@ function setup(
 	counts: { photos?: number | null; favorites?: number | null } = {}
 ) {
 	const handlers = {
-		onpreview: vi.fn(),
+		onupload: vi.fn(),
 		onshare: vi.fn(),
+		oncollect: vi.fn(),
+		ondelivery: vi.fn(),
 		onpublish: vi.fn(),
 		onrestore: vi.fn()
 	};
@@ -48,17 +50,28 @@ function setup(
 }
 
 describe('GalleryActionBar', () => {
-	it('offers Share on a draft and lists Upload as done with Share as current step', async () => {
-		const { container, onpreview, onshare, user } = setup({}, { photos: 48 });
+	it('uses Journey steps as shortcuts, not lifecycle actions', async () => {
+		const { container, onupload, onshare, oncollect, ondelivery, onpublish, rerender, user } =
+			setup({}, { photos: 48 });
 
 		expect(screen.getByText('48 photos', { selector: '[data-slot="step-fact"]' })).toBeTruthy();
 		expect(screen.getByText('Share', { selector: '[aria-current="step"] strong' })).toBeTruthy();
 
-		await user.click(screen.getByRole('button', { name: 'Preview' }));
+		expect(screen.queryByRole('button', { name: 'Preview' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Go to Collect favorites' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Go to Publish' })).toBeNull();
+		await user.click(screen.getByRole('button', { name: 'Go to Upload' }));
+		await user.click(screen.getByRole('button', { name: 'Go to Share' }));
 		await user.click(screen.getByRole('button', { name: 'Share' }));
 
-		expect(onpreview).toHaveBeenCalledOnce();
-		expect(onshare).toHaveBeenCalledOnce();
+		expect(onupload).toHaveBeenCalledOnce();
+		expect(onshare).toHaveBeenCalledTimes(2);
+		await rerender({ gallery: { ...base, share_token: 'T'.repeat(22), states: ['shared'] } });
+		await user.click(screen.getByRole('button', { name: 'Go to Collect favorites' }));
+		await user.click(screen.getByRole('button', { name: 'Go to Publish' }));
+		expect(oncollect).toHaveBeenCalledOnce();
+		expect(ondelivery).toHaveBeenCalledOnce();
+		expect(onpublish).not.toHaveBeenCalled();
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
@@ -85,7 +98,7 @@ describe('GalleryActionBar', () => {
 		);
 
 		expect(container.querySelector('[aria-current="step"]')).toBeNull();
-		expect(screen.getByRole('button', { name: 'Preview' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Preview' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
 		expect((await axe(container)).violations).toEqual([]);
@@ -117,7 +130,8 @@ describe('GalleryActionBar', () => {
 			recipientCount: 2,
 			canSend: true,
 			sending: false,
-			onpreview: vi.fn(),
+			onupload: vi.fn(),
+			ondelivery: vi.fn(),
 			onshare: vi.fn(),
 			onpublish: vi.fn(),
 			onrestore: vi.fn(),
@@ -143,7 +157,8 @@ describe('GalleryActionBar', () => {
 			recipientCount: 0,
 			canSend: false,
 			sending: false,
-			onpreview: vi.fn(),
+			onupload: vi.fn(),
+			ondelivery: vi.fn(),
 			onshare: vi.fn(),
 			onpublish: vi.fn(),
 			onrestore: vi.fn(),

@@ -8,7 +8,6 @@
 	import { authRequest } from '#lib/auth.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
 	import ArchiveGalleryDialog from '#lib/components/ArchiveGalleryDialog.svelte';
-	import ClientPreview from '#lib/components/ClientPreview.svelte';
 	import DeleteGalleryDialog from '#lib/components/DeleteGalleryDialog.svelte';
 	import GalleryStudio from '#lib/components/GalleryStudio.svelte';
 	import RestoreExpiredDialog from '#lib/components/RestoreExpiredDialog.svelte';
@@ -63,7 +62,6 @@
 	let expiredSince = $state<string | null>(null);
 	let heroRevision = $state<number | undefined>();
 	let expectedAccessCode = $state<string | null | 'invalid' | undefined>();
-	let previewing = $state(false);
 	let signOutError = $state('');
 	let inflight = $state(0);
 	// Attempted values of fields whose last save failed; cleared per field on that field's success.
@@ -328,10 +326,7 @@
 	onsave={save}
 	schedule={debounce}
 	{cancel}
-	onpreview={() => {
-		flush();
-		previewing = true;
-	}}
+	onbeforepreview={flush}
 	onshare={() => {
 		flush();
 		if (expectedAccessCode === 'invalid') {
@@ -407,14 +402,6 @@
 		</div>
 	{/snippet}
 </GalleryStudio>
-{#if previewing}
-	<ClientPreview
-		gallery={saved}
-		settings={data.settings ?? DEFAULT_SETTINGS}
-		{heroRevision}
-		onclose={() => (previewing = false)}
-	/>
-{/if}
 {#if confirming === 'archive'}
 	<ArchiveGalleryDialog onconfirm={archive} onclose={() => (confirming = null)} />
 {:else if confirming === 'delete'}

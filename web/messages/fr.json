@@ -322,6 +322,7 @@
 	"action_done": "Terminé",
 	"action_close": "Fermer",
 	"step_done": "terminée",
+	"step_shortcut": "Aller à : {step}",
 	"step_progress": "Avancement de la galerie",
 	"step_add_proofs": "Ajoutez vos épreuves",
 	"step_copy_link": "Copiez le lien",

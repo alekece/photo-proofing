@@ -319,6 +319,7 @@
 	"action_done": "Done",
 	"action_close": "Close",
 	"step_done": "done",
+	"step_shortcut": "Go to {step}",
 	"step_progress": "Gallery progress",
 	"step_add_proofs": "Add your proofs",
 	"step_copy_link": "Copy the link",

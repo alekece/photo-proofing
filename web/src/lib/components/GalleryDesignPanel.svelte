@@ -47,8 +47,7 @@
 	 * Studio `Design` view: compact controls (cover image, Change/Remove, focal point, then the
 	 * cover style/typography/grid sections) alongside a live client preview. At `lg` and up this is
 	 * a one-third/two-thirds split with the inline preview growing with the page (no fixed height
-	 * or own scrollbar); below `lg` the inline stage is omitted and "Open full preview" (plus the
-	 * gallery content header's Preview action) opens the same full-screen `ClientPreview` modal.
+	 * or own scrollbar); below `lg` only "Open full preview" in Design remains available.
 	 */
 	let {
 		gallery,
@@ -58,6 +57,7 @@
 		focalPoint = $bindable(),
 		active = true,
 		onsave,
+		onbeforepreview,
 		schedule,
 		cancel
 	}: {
@@ -68,6 +68,7 @@
 		focalPoint?: FocalPoint;
 		active?: boolean;
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
+		onbeforepreview?: () => void;
 		schedule?: (field: string, run: () => void) => void;
 		cancel?: (field: string) => void;
 	} = $props();
@@ -453,7 +454,20 @@
 {/snippet}
 
 <div class="grid gap-4">
-	<h2 class="text-2xl leading-tight">{m.tab_design()}</h2>
+	<div class="flex flex-wrap items-center justify-between gap-2">
+		<h2 class="text-2xl leading-tight">{m.tab_design()}</h2>
+		<Button
+			variant="outline"
+			size="sm"
+			onclick={() => {
+				onbeforepreview?.();
+				expanded = true;
+			}}
+		>
+			<Maximize2 size={14} aria-hidden="true" class="mr-1.5" />
+			{m.preview_open_full()}
+		</Button>
+	</div>
 
 	<div
 		data-slot="design-split"
@@ -688,14 +702,6 @@
 							<span>{m.preview_label()}</span>
 						</span>
 						{@render toggle()}
-						<button
-							type="button"
-							onclick={() => (expanded = true)}
-							class="flex cursor-pointer items-center gap-1.5 rounded-full border border-[#4a3f37] px-3.5 py-[7px] text-[0.8125rem] font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-						>
-							<Maximize2 size={14} aria-hidden="true" />
-							{m.preview_open_full()}
-						</button>
 					</div>
 				{/snippet}
 

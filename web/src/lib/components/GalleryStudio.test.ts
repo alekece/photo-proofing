@@ -59,7 +59,7 @@ function setup(
 		onsave: vi.fn().mockResolvedValue(true),
 		schedule: vi.fn(),
 		cancel: vi.fn(),
-		onpreview: vi.fn(),
+		onbeforepreview: vi.fn(),
 		onshare: vi.fn(),
 		onpublish: vi.fn(),
 		onarchive: vi.fn(),
@@ -123,7 +123,7 @@ describe('GalleryStudio', () => {
 			onsave: view.onsave,
 			schedule: view.schedule,
 			cancel: view.cancel,
-			onpreview: view.onpreview,
+			onbeforepreview: view.onbeforepreview,
 			onshare: view.onshare,
 			onpublish: view.onpublish,
 			onarchive: view.onarchive,
@@ -152,7 +152,7 @@ describe('GalleryStudio', () => {
 			onsave: view.onsave,
 			schedule: view.schedule,
 			cancel: view.cancel,
-			onpreview: view.onpreview,
+			onbeforepreview: view.onbeforepreview,
 			onshare: view.onshare,
 			onpublish: view.onpublish,
 			onarchive: view.onarchive,
@@ -206,6 +206,8 @@ describe('GalleryStudio', () => {
 		const shared = setup({ share_token: 'T'.repeat(22), states: ['shared'] });
 		expect(shared.container.textContent).toContain('Last opened');
 		expect(shared.container.textContent).toContain('Not yet');
+		expect(shared.container.textContent).not.toContain('Created');
+		expect(shared.container.textContent).not.toContain('12 Jun 2026');
 		expect(screen.getByText('Prepublish')).toBeTruthy();
 	});
 
@@ -253,7 +255,7 @@ describe('GalleryStudio', () => {
 			onsave: view.onsave,
 			schedule: view.schedule,
 			cancel: view.cancel,
-			onpreview: view.onpreview,
+			onbeforepreview: view.onbeforepreview,
 			onshare: view.onshare,
 			onpublish: view.onpublish,
 			onarchive: view.onarchive,
@@ -315,7 +317,7 @@ describe('GalleryStudio', () => {
 			onsave: view.onsave,
 			schedule: view.schedule,
 			cancel: view.cancel,
-			onpreview: view.onpreview,
+			onbeforepreview: view.onbeforepreview,
 			onshare: view.onshare,
 			onpublish: view.onpublish,
 			onarchive: view.onarchive,
@@ -373,21 +375,22 @@ describe('GalleryStudio', () => {
 		).toBe(true);
 	});
 
-	it('keeps Preview and Share actions in the same content header on every section', async () => {
+	it('groups Gallery identity on the stable cover and Activity under Studio', async () => {
 		const view = setup({ share_token: 'T'.repeat(22), states: ['shared'], hero_id: 'p1' });
-		const header = document.querySelector('[data-slot="gallery-content-header"]') as HTMLElement;
-
-		expect(header).not.toBeNull();
-
-		const sections = ['Photos', 'Favorites', 'Comments', 'Final', 'Activity', 'Design', 'Contacts'];
-
-		for (const name of sections) {
-			const tab = screen.getByRole('tab', { name: new RegExp(`^${name}`) });
-
-			await view.user.click(tab);
-
-			expect(document.querySelector('[data-slot="gallery-content-header"]')).toBe(header);
-			expect(within(header).getByRole('button', { name: 'Preview' })).toBeTruthy();
-		}
+		const cover = screen.getByRole('button', { name: 'Edit cover and design' });
+		const pin = screen.getByRole('button', { name: 'Pin gallery to top' });
+		expect(pin.parentElement).toBe(cover.parentElement);
+		expect(cover.parentElement?.textContent).toContain('Prepublish');
+		await view.user.click(pin);
+		expect(view.onsave).toHaveBeenCalledExactlyOnceWith({ favorite: true });
+		expect(screen.getByRole('tabpanel', { name: /^Photos/ })).toBeTruthy();
+		const design = screen.getByRole('tab', { name: 'Design' });
+		const activity = screen.getByRole('tab', { name: 'Activity' });
+		expect(activity.parentElement).toBe(design.parentElement);
+		await fireEvent.keyDown(screen.getByRole('tab', { name: /^Final/ }), { key: 'ArrowRight' });
+		expect(document.activeElement).toBe(design);
+		await fireEvent.keyDown(design, { key: 'ArrowRight' });
+		expect(document.activeElement).toBe(activity);
+		expect(screen.getByRole('button', { name: 'Edit cover and design' })).toBe(cover);
 	});
 });
