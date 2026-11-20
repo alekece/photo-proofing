@@ -1,4 +1,4 @@
-//! Photographer ZIP exports of a gallery's selection.
+//! ZIP snapshots of favorites, owner finals, and delivered client finals.
 //!
 //! An export is requested once per click: [`ExportRepository::request`] stores the
 //! favorites as they are at that moment, in one transaction, together with the job that builds
@@ -6,8 +6,8 @@
 //! never rewrite it; the build notices a photo that is gone and the export then fails instead
 //! of producing a smaller archive.
 //!
-//! At most one export per gallery is being prepared, and a new request replaces the previous
-//! finished one. An export older than the retention is treated as gone. A status change is
+//! At most one export per gallery and kind is being prepared, and a new request replaces the
+//! previous finished one of that kind. Owner exports older than the retention are gone. A status change is
 //! announced on [`ExportEvent`]'s channel.
 
 use std::{num::NonZeroU64, time::Duration};
@@ -26,7 +26,7 @@ use crate::{
     error::DatabaseError,
     gallery::GalleryId,
     jobs::{Job, JobCompletion, JobOptions, JobRepository, ZipExport},
-    photo::{PhotoId, PhotoLocation},
+    photo::{PhotoId, PhotoKind, PhotoLocation},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
@@ -45,6 +45,8 @@ impl Generate for ExportId {
 pub enum ExportKind {
     /// The photographer's ZIP of the client's favorites, short-lived.
     Selection,
+    /// The photographer's ZIP of ready finals, short-lived and independent of client delivery.
+    FinalSelection,
     /// The client's ZIP of the delivered finals, kept while the gallery is reachable.
     Delivery,
 }
@@ -53,7 +55,17 @@ impl ExportKind {
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Selection => "selection",
+            Self::FinalSelection => "final_selection",
             Self::Delivery => "delivery",
+        }
+    }
+}
+
+impl From<PhotoKind> for ExportKind {
+    fn from(kind: PhotoKind) -> Self {
+        match kind {
+            PhotoKind::Proof => Self::Selection,
+            PhotoKind::Final => Self::FinalSelection,
         }
     }
 }
@@ -245,6 +257,29 @@ impl ExportRepository<'_> {
         retention: Duration,
         selected: Option<&[PhotoId]>,
     ) -> Result<ExportRequest, DatabaseError> {
+        self.request_owner(
+            workspace_id,
+            gallery_id,
+            max_size,
+            retention,
+            PhotoKind::Proof,
+            selected,
+        )
+        .await
+    }
+
+    /// Snapshots favorites or ready originals of the owner's finals. A subset must match
+    /// every requested ID exactly; a new request can only replace an export of the same kind.
+    pub async fn request_owner(
+        &self,
+        workspace_id: WorkspaceId,
+        gallery_id: GalleryId,
+        max_size: NonZeroU64,
+        retention: Duration,
+        kind: PhotoKind,
+        selected: Option<&[PhotoId]>,
+    ) -> Result<ExportRequest, DatabaseError> {
+        let export_kind = ExportKind::from(kind);
         let mut transaction = self.pool.begin().await?;
         let gallery: Option<GalleryId> = sqlx::query_scalar(
             "SELECT id FROM galleries WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE",
@@ -259,10 +294,11 @@ impl ExportRepository<'_> {
         }
 
         let preparing: Option<Export> = sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {} FROM exports WHERE gallery_id = $1 AND kind = 'selection' AND status ->> 'kind' = 'preparing'",
+            "SELECT {} FROM exports WHERE gallery_id = $1 AND kind = $2 AND status ->> 'kind' = 'preparing'",
             Self::COLUMNS
         )))
         .bind(gallery_id)
+        .bind(export_kind.as_str())
         .fetch_optional(&mut *transaction)
         .await?;
 
@@ -270,27 +306,29 @@ impl ExportRepository<'_> {
             return Ok(ExportRequest::InProgress(export));
         }
 
-        let favorites: Vec<(PhotoId, String, i64)> = sqlx::query_as(
+        let photos: Vec<(PhotoId, String, i64)> = sqlx::query_as(
             "SELECT id, original_name, size FROM photos
-             WHERE workspace_id = $1 AND gallery_id = $2 AND favorited_at IS NOT NULL AND kind = 'proof'
-               AND ($3::uuid[] IS NULL OR id = ANY($3))
+             WHERE workspace_id = $1 AND gallery_id = $2 AND kind = $3
+               AND CASE kind WHEN 'proof' THEN favorited_at IS NOT NULL WHEN 'final' THEN status = 'ready' END
+               AND ($4::uuid[] IS NULL OR id = ANY($4))
              ORDER BY created_at, id",
         )
         .bind(workspace_id)
         .bind(gallery_id)
-        .bind(selected.map(|ids| ids.to_vec()))
+        .bind(kind)
+        .bind(selected)
         .fetch_all(&mut *transaction)
         .await?;
 
-        if selected.is_some_and(|ids| ids.is_empty() || ids.len() != favorites.len()) {
+        if selected.is_some_and(|ids| ids.is_empty() || ids.len() != photos.len()) {
             return Ok(ExportRequest::InvalidSelection);
         }
 
-        if favorites.is_empty() {
+        if photos.is_empty() {
             return Ok(ExportRequest::EmptySelection);
         }
 
-        let total: i64 = favorites.iter().map(|(_, _, size)| size).sum();
+        let total: i64 = photos.iter().map(|(_, _, size)| size).sum();
 
         if u64::try_from(total).map_or(true, |total| total > max_size.get()) {
             return Ok(ExportRequest::TooLarge);
@@ -298,13 +336,14 @@ impl ExportRepository<'_> {
 
         let ready: Option<Export> = sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM exports
-             WHERE gallery_id = $1 AND kind = 'selection' AND status ->> 'kind' = 'ready'
+             WHERE gallery_id = $1 AND kind = $3 AND status ->> 'kind' = 'ready'
                AND finished_at > now() - $2 * interval '1 second'
              ORDER BY created_at DESC LIMIT 1",
             Self::COLUMNS
         )))
         .bind(gallery_id)
         .bind(retention.as_secs_f64())
+        .bind(export_kind.as_str())
         .fetch_optional(&mut *transaction)
         .await?;
 
@@ -316,20 +355,19 @@ impl ExportRepository<'_> {
             .fetch_all(&mut *transaction)
             .await?;
 
-            if snapshot.iter().eq(favorites.iter().map(|(id, ..)| id)) {
+            if snapshot.iter().eq(photos.iter().map(|(id, ..)| id)) {
                 return Ok(ExportRequest::Reused(export));
             }
         }
 
         let replaced_ids =
-            Self::delete_exports_in(&mut transaction, gallery_id, Some(ExportKind::Selection))
-                .await?;
+            Self::delete_exports_in(&mut transaction, gallery_id, Some(export_kind)).await?;
         let export = self
             .insert_in(
                 &mut transaction,
                 (workspace_id, gallery_id),
-                ExportKind::Selection,
-                &favorites,
+                export_kind,
+                &photos,
             )
             .await?;
 
@@ -513,9 +551,21 @@ impl ExportRepository<'_> {
         gallery_id: GalleryId,
         retention: Duration,
     ) -> Result<Option<Export>, DatabaseError> {
+        self.latest_owner(workspace_id, gallery_id, retention, PhotoKind::Proof)
+            .await
+    }
+
+    /// The workspace's newest owner export for this photo kind within its retention.
+    pub async fn latest_owner(
+        &self,
+        workspace_id: WorkspaceId,
+        gallery_id: GalleryId,
+        retention: Duration,
+        kind: PhotoKind,
+    ) -> Result<Option<Export>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM exports
-             WHERE workspace_id = $1 AND gallery_id = $2 AND kind = 'selection'
+             WHERE workspace_id = $1 AND gallery_id = $2 AND kind = $4
                AND COALESCE(finished_at, created_at) > now() - $3 * interval '1 second'
              ORDER BY created_at DESC LIMIT 1",
             Self::COLUMNS
@@ -523,6 +573,7 @@ impl ExportRepository<'_> {
         .bind(workspace_id)
         .bind(gallery_id)
         .bind(retention.as_secs_f64())
+        .bind(ExportKind::from(kind).as_str())
         .fetch_optional(self.pool)
         .await?)
     }
@@ -536,9 +587,22 @@ impl ExportRepository<'_> {
         id: ExportId,
         retention: Duration,
     ) -> Result<Option<Export>, DatabaseError> {
+        self.ready_owner(workspace_id, gallery_id, id, retention, PhotoKind::Proof)
+            .await
+    }
+
+    /// A ready, unexpired export of this photo kind in the owner's workspace and gallery.
+    pub async fn ready_owner(
+        &self,
+        workspace_id: WorkspaceId,
+        gallery_id: GalleryId,
+        id: ExportId,
+        retention: Duration,
+        kind: PhotoKind,
+    ) -> Result<Option<Export>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM exports
-             WHERE id = $1 AND workspace_id = $2 AND gallery_id = $3 AND kind = 'selection'
+             WHERE id = $1 AND workspace_id = $2 AND gallery_id = $3 AND kind = $5
                AND status ->> 'kind' = 'ready'
                AND finished_at > now() - $4 * interval '1 second'",
             Self::COLUMNS
@@ -547,6 +611,7 @@ impl ExportRepository<'_> {
         .bind(workspace_id)
         .bind(gallery_id)
         .bind(retention.as_secs_f64())
+        .bind(ExportKind::from(kind).as_str())
         .fetch_optional(self.pool)
         .await?)
     }
@@ -717,13 +782,13 @@ impl ExportRepository<'_> {
         Ok(())
     }
 
-    /// Deletes the exports that have outlived `retention`, with their jobs, and returns them so
+    /// Deletes owner exports that have outlived `retention`, with their jobs, and returns them so
     /// their files can follow.
     pub async fn expire(&self, retention: Duration) -> Result<Vec<ExpiredExport>, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
         let expired: Vec<ExpiredExport> = sqlx::query_as(
             "SELECT id, workspace_id, gallery_id FROM exports
-             WHERE kind = 'selection'
+             WHERE kind IN ('selection', 'final_selection')
                AND COALESCE(finished_at, created_at) <= now() - $1 * interval '1 second'
              ORDER BY id FOR UPDATE",
         )
@@ -1536,6 +1601,50 @@ mod tests {
                 .await
                 .unwrap()
         }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn owner_final_exports_prepare_and_expire_independently_of_delivery(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        fixture.photo("proof.jpg", 10, true).await;
+        fixture.final_photo("final.jpg").await;
+        let favorites = fixture.created().await;
+        assert_eq!(fixture.delivery().await.zip, DeliveryZip::Unavailable);
+        fixture.deliver().await;
+        assert_eq!(fixture.delivery().await.zip, DeliveryZip::Building);
+
+        let exports = fixture.exports();
+        let request = || {
+            exports.request_owner(
+                fixture.workspace_id,
+                fixture.gallery_id,
+                MAX,
+                DAY,
+                PhotoKind::Final,
+                None,
+            )
+        };
+        let ExportRequest::Created { export, replaced } = request().await.unwrap() else {
+            panic!("expected an independent owner final export");
+        };
+        assert!(replaced.is_empty());
+        assert_eq!(
+            request().await.unwrap(),
+            ExportRequest::InProgress(export.clone())
+        );
+        let delivery: ExportId =
+            sqlx::query_scalar("SELECT id FROM exports WHERE kind = 'delivery'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert_ne!(export.id, favorites.id);
+        assert_ne!(export.id, delivery);
+        let expired = fixture.exports().expire(Duration::ZERO).await.unwrap();
+        assert_eq!(expired.len(), 2);
+        assert!(expired.iter().any(|expired| expired.id == export.id));
+        assert!(expired.iter().any(|expired| expired.id == favorites.id));
+        assert!(fixture.exports().exists(delivery).await.unwrap());
     }
 
     #[sqlx::test(migrations = "./migrations")]

@@ -5,6 +5,31 @@ import PhotoTile from './PhotoTile.svelte';
 
 const base = { name: 'a.jpg', state: 'ready', thumbnailUrl: '/t', onremove: () => {} } as const;
 
+it('keeps the collection circle and active tile body separately operable by keyboard', async () => {
+	const user = userEvent.setup();
+	const onselect = vi.fn();
+	const onopen = vi.fn();
+	const props = { ...base, onselect, onopen };
+	const view = render(PhotoTile, { ...props, collectionSelect: 'idle' });
+	const circle = screen.getByRole('button', { name: 'Select a.jpg' });
+	circle.focus();
+	await user.keyboard(' ');
+	expect(onselect).toHaveBeenCalledOnce();
+	expect(onopen).not.toHaveBeenCalled();
+
+	await view.rerender({ ...props, collectionSelect: 'active', selected: true });
+	expect(circle.getAttribute('aria-pressed')).toBe('true');
+	screen.getByRole('button', { name: 'a.jpg' }).focus();
+	await user.keyboard('{Enter}');
+	expect(onselect).toHaveBeenCalledTimes(2);
+	expect(onopen).not.toHaveBeenCalled();
+
+	await view.rerender({ ...props, collectionSelect: undefined, persistentSelect: true });
+	await user.click(screen.getByRole('button', { name: 'Open a.jpg' }));
+	expect(onopen).toHaveBeenCalledOnce();
+	expect(onselect).toHaveBeenCalledTimes(2);
+});
+
 describe('PhotoTile hero star', () => {
 	it('is a toggle named after what a click does', async () => {
 		const onhero = vi.fn();

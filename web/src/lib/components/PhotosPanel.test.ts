@@ -1,9 +1,13 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
+vi.mock('#lib/gallery/export.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('#lib/gallery/export.js')>()),
+	startDownload: vi.fn()
+}));
 // Small chunks keep the bulk-delete tests readable.
 vi.mock('#lib/gallery/photos.js', async (importOriginal) => ({
 	...(await importOriginal<typeof import('#lib/gallery/photos.js')>()),
@@ -11,7 +15,8 @@ vi.mock('#lib/gallery/photos.js', async (importOriginal) => ({
 }));
 import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import { goto } from '$app/navigation';
-import type { LiveEvents, PhotoEvent } from '#lib/events.js';
+import type { ExportEvent, LiveEvents, PhotoEvent } from '#lib/events.js';
+import { startDownload } from '#lib/gallery/export.js';
 import type { Photo, PhotoStatus, UploadOutcome } from '#lib/gallery/photos.js';
 import { UploadQueue } from '#lib/gallery/uploads.svelte.js';
 import PhotosPanelHarness from './PhotosPanelHarness.test.svelte';
@@ -40,12 +45,13 @@ function jpeg(name: string) {
 
 function fakeEvents() {
 	const photoHandlers = new Set<(event: PhotoEvent) => void>();
+	const exportHandlers = new Set<(event: ExportEvent) => void>();
 	const resyncHandlers = new Set<() => void>();
 	const notificationHandlers = new Set<(event: { gallery_id: string }) => void>();
 	const events: LiveEvents = {
 		onPhoto: (handler) => (photoHandlers.add(handler), () => photoHandlers.delete(handler)),
 		onFavorites: () => () => {},
-		onExport: () => () => {},
+		onExport: (handler) => (exportHandlers.add(handler), () => exportHandlers.delete(handler)),
 		onNotification: (handler) => (
 			notificationHandlers.add(handler),
 			() => notificationHandlers.delete(handler)
@@ -57,6 +63,9 @@ function fakeEvents() {
 
 	return {
 		events,
+		exported: (gallery_id = 'g1') => {
+			for (const handler of exportHandlers) handler({ gallery_id });
+		},
 		notify: (gallery_id = 'g1') => {
 			for (const handler of notificationHandlers) handler({ gallery_id });
 		},
@@ -81,6 +90,7 @@ function stubApi(
 		bulk?: (ids: string[]) => Response | Promise<Response>;
 		list?: () => Response | void | Promise<Response | void>;
 		hero?: (heroId: string | null) => Response | Promise<Response>;
+		export?: (url: string, init?: RequestInit) => Response | Promise<Response>;
 	} = {}
 ) {
 	const listOf = (url: string) => (Array.isArray(server) ? server : server[url.split('/')[4]]);
@@ -94,6 +104,8 @@ function stubApi(
 		}
 	};
 	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+		if (url.endsWith('/export?finals=true'))
+			return answers.export?.(url, init) ?? new Response(null, { status: 204 });
 		if (url.endsWith('/comments')) return Response.json([]);
 		if (init?.method === 'PATCH') {
 			const { hero_id } = JSON.parse(String(init.body));
@@ -189,12 +201,178 @@ const tile = (name: string) =>
 	screen.getAllByRole('listitem').find((item) => item.textContent?.includes(name)) ??
 	screen.getByRole('button', { name: `Open ${name}` }).closest('li')!;
 
-beforeEach(() => vi.mocked(goto).mockClear());
+beforeEach(() => {
+	vi.mocked(goto).mockClear();
+	vi.mocked(startDownload).mockClear();
+});
 
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.useRealTimers();
 	toasts.items = [];
+});
+
+function zip(kind: 'ready' | 'preparing', id: string) {
+	return { id, status: { kind }, photo_count: 1, created_at: '2026-11-07T10:00:00Z' };
+}
+
+describe('Final ZIP', () => {
+	it('retries a failed status check without posting or losing the pending archive', async () => {
+		let finish!: (response: Response) => void;
+		let latest: Response | Promise<Response> = new Response(null, { status: 204 });
+		const route = vi.fn((init?: RequestInit) => {
+			if (init?.method !== 'POST') return latest;
+			latest = new Response(null, { status: 503 });
+			return Response.json(zip('preparing', 'final-pending'), { status: 202 });
+		});
+		stubApi([photo('f1')], { export: (_url, init) => route(init) });
+		const { exported } = setup(undefined, null, false, 'finals');
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole('button', { name: 'Download all' }));
+		const retry = await screen.findByRole('button', { name: 'Retry ZIP status' });
+		expect(screen.getByRole('alert').textContent).toContain('Couldn’t check the ZIP');
+		expect(screen.getByRole('button', { name: /Downloading/ })).toHaveProperty('disabled', true);
+
+		latest = new Promise((resolve) => (finish = resolve));
+		await user.click(retry);
+		expect(retry).toHaveProperty('disabled', true);
+		expect(screen.getByRole('alert').textContent).toContain('Couldn’t check the ZIP');
+		expect(startDownload).not.toHaveBeenCalled();
+
+		await act(() => finish(Response.json(zip('ready', 'final-pending'))));
+		await waitFor(() =>
+			expect(startDownload).toHaveBeenCalledExactlyOnceWith(
+				'/api/v1/galleries/g1/export/final-pending/download?finals=true'
+			)
+		);
+		latest = Response.json(zip('ready', 'final-pending'));
+		await act(() => exported());
+		expect(route.mock.calls.filter(([init]) => init?.method === 'POST')).toHaveLength(1);
+		expect(startDownload).toHaveBeenCalledOnce();
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
+
+	it.each([
+		['no ZIP', () => new Response(null, { status: 204 })],
+		['a newer ZIP', () => Response.json(zip('ready', 'newer'))]
+	])('allows a new explicit request when status Retry finds %s', async (_label, statusResponse) => {
+		let latest = () => new Response(null, { status: 204 });
+		const post = vi
+			.fn()
+			.mockImplementationOnce(() => {
+				latest = () => new Response(null, { status: 503 });
+				return Response.json(zip('preparing', 'final-pending'), { status: 202 });
+			})
+			.mockImplementationOnce(() => Response.json(zip('ready', 'explicit-new')));
+		stubApi([photo('f1')], {
+			export: (_url, init) => (init?.method === 'POST' ? post() : latest())
+		});
+		const { exported } = setup(undefined, null, false, 'finals');
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole('button', { name: 'Download all' }));
+		const retry = await screen.findByRole('button', { name: 'Retry ZIP status' });
+
+		latest = statusResponse;
+		await user.click(retry);
+		await act(() => exported());
+		expect(screen.getByRole('alert').textContent).toContain('ZIP is no longer available');
+		expect(screen.getByRole('alert').textContent).toContain('Use Download to try again');
+		expect(screen.queryByRole('button', { name: 'Retry ZIP status' })).toBeNull();
+		expect(post).toHaveBeenCalledOnce();
+		expect(startDownload).not.toHaveBeenCalled();
+
+		await user.click(screen.getByRole('button', { name: 'Download all' }));
+		expect(post).toHaveBeenCalledTimes(2);
+		expect(startDownload).toHaveBeenCalledExactlyOnceWith(
+			'/api/v1/galleries/g1/export/explicit-new/download?finals=true'
+		);
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
+
+	it('requests exactly one of two finals, and downloads the awaited ZIP once', async () => {
+		let latest = zip('ready', 'existing');
+		const post = vi.fn<(init: RequestInit) => Response>(() => {
+			latest = zip('preparing', 'requested');
+			return Response.json(latest, { status: 202 });
+		});
+		stubApi([photo('f1'), photo('f2')], {
+			export: (_url, init) => (init?.method === 'POST' ? post(init) : Response.json(latest))
+		});
+		const { exported } = setup(undefined, null, false, 'finals');
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole('button', { name: 'Select f1.jpg' }));
+		expect(startDownload).not.toHaveBeenCalled();
+		await user.click(screen.getByRole('button', { name: 'Download 1' }));
+		expect(JSON.parse(String(post.mock.calls[0][0].body))).toEqual({ photo_ids: ['f1'] });
+		const busy = screen.getAllByRole('button', { name: /Downloading/ });
+		expect(busy).toHaveLength(2);
+		for (const button of busy) expect(button).toHaveProperty('disabled', true);
+		expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', false);
+
+		latest = zip('ready', 'requested');
+		await act(() => exported('another-gallery'));
+		expect(startDownload).not.toHaveBeenCalled();
+		await act(() => exported());
+		await waitFor(() => expect(startDownload).toHaveBeenCalledTimes(1));
+		await act(() => exported());
+		expect(startDownload).toHaveBeenCalledExactlyOnceWith(
+			'/api/v1/galleries/g1/export/requested/download?finals=true'
+		);
+	});
+
+	it('does not drop unready selections silently, and Download all sends no body', async () => {
+		const post = vi.fn<(init: RequestInit) => Response>(() => Response.json(zip('ready', 'all')));
+		stubApi([photo('f1'), photo('f2', 'processing')], {
+			export: (_url, init) =>
+				init?.method === 'POST' ? post(init) : new Response(null, { status: 204 })
+		});
+		setup(undefined, null, false, 'finals');
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole('button', { name: 'Select f1.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Select f2.jpg' }));
+		expect(screen.getByRole('button', { name: 'Download 2' })).toHaveProperty('disabled', true);
+		expect(screen.getByText(/Only ready finals/)).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', false);
+		await user.click(screen.getByRole('button', { name: 'Download all' }));
+		expect(post.mock.calls[0][0].body).toBeUndefined();
+		expect(startDownload).toHaveBeenCalledExactlyOnceWith(
+			'/api/v1/galleries/g1/export/all/download?finals=true'
+		);
+	});
+
+	it('omits Download all if there are no ready finals', async () => {
+		stubApi([photo('f1', 'processing')]);
+		setup(undefined, null, false, 'finals');
+		await screen.findByRole('button', { name: 'Select f1.jpg' });
+		expect(screen.queryByRole('button', { name: 'Download all' })).toBeNull();
+	});
+
+	it('shows a refusal, permits retry, and ignores the old gallery’s late response', async () => {
+		let respond!: (result: Response) => void;
+		const post = vi
+			.fn()
+			.mockImplementationOnce(() => Response.json({ code: 'selection_too_large' }, { status: 413 }))
+			.mockImplementationOnce(() => new Promise<Response>((resolve) => (respond = resolve)));
+		stubApi(
+			{ g1: [photo('f1')], g2: [photo('f2')] },
+			{
+				export: (_url, init) =>
+					init?.method === 'POST' ? post() : new Response(null, { status: 204 })
+			}
+		);
+		const { view } = setup(undefined, null, false, 'finals');
+		await screen.findByRole('button', { name: 'Select f1.jpg' });
+		const user = userEvent.setup();
+		await user.click(screen.getByRole('button', { name: 'Download all' }));
+		expect((await screen.findByRole('alert')).textContent).toContain('too large');
+		await user.click(screen.getByRole('button', { name: 'Download all' }));
+		await view.rerender({ galleryId: 'g2' });
+		await screen.findByRole('button', { name: 'Select f2.jpg' });
+		await act(() => respond(Response.json(zip('ready', 'old'))));
+		expect(screen.queryByRole('alert')).toBeNull();
+		expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty('disabled', false);
+		expect(startDownload).not.toHaveBeenCalled();
+	});
 });
 
 describe('PhotosPanel', () => {
@@ -212,21 +390,46 @@ describe('PhotosPanel', () => {
 	);
 
 	it.each(['photos', 'finals'] as const)(
-		'selects %s by circle while the tile still opens',
+		'opens the %s viewer only outside selection and keeps the normal toolbar in place',
 		async (set) => {
-			stubApi([photo('p1')]);
+			stubApi([photo('p1'), photo('p2')]);
 			setup(undefined, null, false, set);
 			const user = userEvent.setup();
+			const upload = screen.getByRole('button', { name: 'Upload' });
 			await user.click(await screen.findByRole('button', { name: 'Select p1.jpg' }));
 			expect(screen.getByText('1 selected', { selector: ':not(.sr-only)' })).toBeTruthy();
 			expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
-			expect(
-				screen.getByRole('button', { name: 'Upload' }).closest('[data-slot="workspace-toolbar"]')
-			).toBeTruthy();
+			await user.click(screen.getByAltText('p2.jpg'));
+			expect(screen.queryByRole('dialog')).toBeNull();
+			expect(screen.getByText('2 selected', { selector: ':not(.sr-only)' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Upload' })).toBe(upload);
+			expect(upload.closest('[data-slot="workspace-toolbar"]')).toBeTruthy();
+			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
+			expect(screen.getByText('0 selected', { selector: ':not(.sr-only)' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
+			await user.click(screen.getByRole('button', { name: 'Exit selection' }));
 			await user.click(screen.getByRole('button', { name: 'Open p1.jpg' }));
 			expect(screen.getByRole('dialog')).toBeTruthy();
 		}
 	);
+
+	it('keeps the staged selection and focus on Escape or Select all in an inactive panel', async () => {
+		stubApi([photo('p1'), photo('p2')]);
+		const { view } = setup();
+		const user = userEvent.setup();
+		const circle = await screen.findByRole('button', { name: 'Select p1.jpg' });
+		await user.click(circle);
+		await view.rerender({ active: false });
+		const otherTab = view.container.appendChild(document.createElement('button'));
+		otherTab.focus();
+		await user.keyboard('{Control>}a{/Control}{Meta>}a{/Meta}{Escape}');
+		expect(document.activeElement).toBe(otherTab);
+		await view.rerender({ active: true });
+		expect(screen.getByRole('button', { name: 'Select p1.jpg' }).getAttribute('aria-pressed')).toBe(
+			'true'
+		);
+		expect(screen.getByText('1 selected', { selector: ':not(.sr-only)' })).toBeTruthy();
+	});
 
 	it('shows photographer comments on proofs and refreshes the open thread on activity', async () => {
 		const user = userEvent.setup();
@@ -1397,14 +1600,26 @@ describe('PhotosPanel', () => {
 			expect(api.lists()).toBe(2);
 		});
 
-		it('dates only the finals the client downloaded', async () => {
-			stubApi([{ ...photo('f1'), downloaded_at: '2026-11-09T12:00:00Z' }, photo('f2')]);
-			setup(undefined, null, false, 'finals');
-
-			await screen.findByRole('button', { name: 'Open f1.jpg' });
-
-			expect(within(tile('f1.jpg')).getByText(/^Downloaded Nov 9, 2026/)).toBeTruthy();
-			expect(within(tile('f2.jpg')).queryByText(/^Downloaded/)).toBeNull();
+		it('shows pending files in the grid and no Final tile markers', async () => {
+			stubApi([
+				{ ...photo('f1'), downloaded_at: '2026-11-09T12:00:00Z' },
+				photo('f2', { failed: 'Processing failed' })
+			]);
+			const { queue, pending } = setup(undefined, null, false, 'finals');
+			const user = userEvent.setup();
+			const open = await screen.findByRole('button', { name: 'Open f1.jpg' });
+			queue.add('g1', [jpeg('queued.jpg')], 'finals');
+			await waitFor(() => expect(pending).toHaveLength(1));
+			const finals = within(screen.getByRole('list'));
+			expect(finals.getAllByRole('listitem')).toHaveLength(3);
+			expect(screen.queryByText('Drop the finished photos here')).toBeNull();
+			expect(finals.getByRole('button', { name: 'Remove queued.jpg' })).toBeTruthy();
+			expect(finals.getByRole('button', { name: 'Retry f2.jpg' })).toBeTruthy();
+			expect(finals.queryByRole('button', { name: 'Select queued.jpg' })).toBeNull();
+			expect(finals.queryByText('f1.jpg')).toBeNull();
+			expect(finals.queryByText(/Downloaded/)).toBeNull();
+			await user.click(open);
+			expect(within(screen.getByRole('dialog')).getByText(/^Downloaded Nov 9, 2026/)).toBeTruthy();
 		});
 
 		it('ignores events about proofs and shows only finals changes', async () => {

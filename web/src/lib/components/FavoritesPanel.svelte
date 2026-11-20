@@ -3,33 +3,28 @@
 	import { CommentsClient } from '#lib/gallery/comments.js';
 	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
 	import CommentThread from './CommentThread.svelte';
+	import OwnerZipError from './OwnerZipError.svelte';
 	import { Download, Heart, LoaderCircle } from '@lucide/svelte';
-	import PhotoTile, { GRID_CLASSES, ITEM_CLASSES } from '#lib/components/PhotoTile.svelte';
+	import { tick, untrack } from 'svelte';
+	import PhotoTile, { COLLECTION_GRID_CLASSES } from '#lib/components/PhotoTile.svelte';
 	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
 	import ViewerButton from '#lib/components/ViewerButton.svelte';
-	import type { GalleryLayout } from '#lib/gallery/api.js';
-	import {
-		latestExport,
-		requestExport,
-		exportUrl,
-		startDownload,
-		type Export
-	} from '#lib/gallery/export.js';
+	import { startDownload } from '#lib/gallery/export.js';
+	import { OwnerExport } from '#lib/gallery/export.svelte.js';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 	import { getLiveEvents } from '#lib/events.js';
 	import { ApiError } from '#lib/http.js';
-	import { apiErrorMessage } from '#lib/i18n/errors.js';
 	import { listPhotos, previewUrl, thumbnailUrl, type Photo } from '#lib/gallery/photos.js';
-	import { SelectMode } from '#lib/gallery/select-mode.svelte.js';
+	import { selectionHotkeysAllowed, SelectMode } from '#lib/gallery/select-mode.svelte.js';
 	import type { Proof } from '#lib/gallery/types.js';
 
 	let {
 		galleryId,
-		layout = 'masonry',
 		oncount,
+		active = true,
 		ondownload = async (photos: Photo[]) => {
 			const current = generation;
 			const url = `/api/v1/galleries/${encodeURIComponent(galleryId)}/photos/${encodeURIComponent(photos[0].id)}/download`;
@@ -40,10 +35,9 @@
 		}
 	}: {
 		galleryId: string;
-		/** How the tiles are laid out: the gallery's setting. */
-		layout?: GalleryLayout;
 		/** How many favorites the client has picked, for the tab. */
 		oncount?: (count: number | null) => void;
+		active?: boolean;
 		/**
 		 * Downloads an individual original from a tile or viewer. Selected subsets use ZIP export.
 		 */
@@ -51,6 +45,8 @@
 	} = $props();
 
 	const events = getLiveEvents();
+	const loadedGalleryId = $derived(galleryId);
+	const zip = new OwnerExport(() => loadedGalleryId, 'photos');
 	const comments = $derived(
 		new PhotoComments(new CommentsClient(`/api/v1/galleries/${encodeURIComponent(galleryId)}`))
 	);
@@ -62,14 +58,11 @@
 	let loads = 0;
 	let viewIndex = $state(0);
 	let viewing = $state(false);
+	let panel = $state<HTMLElement | null>(null);
+	let downloadAll = $state<HTMLElement | null>(null);
 	let downloading = $state<string | null>(null);
-	let currentExport = $state<Export | null>(null);
-	let zipRequesting = $state(false);
-	let zipError = $state<string | null>(null);
-	let zipLoads = 0;
+	let individualError = $state<string | null>(null);
 	let generation = 0;
-	// The ZIP this page asked for downloads by itself once ready; one found later is only offered.
-	let awaited: string | null = null;
 	const mode = new SelectMode();
 
 	async function load(id: string) {
@@ -89,74 +82,17 @@
 		}
 	}
 
-	async function loadZip(id: string) {
-		const current = ++zipLoads;
-
-		try {
-			const latest = await latestExport(id);
-
-			if (current !== zipLoads) return;
-
-			currentExport = latest;
-
-			if (latest?.status.kind === 'ready' && latest.id === awaited) {
-				awaited = null;
-				startDownload(exportUrl(id, latest.id));
-			} else if (latest?.status.kind !== 'preparing') {
-				awaited = null;
-			}
-		} catch {
-			if (current === zipLoads) zipError = m.favorites_zip_check_failed();
-		}
-	}
-
-	async function requestZip(photoIds?: string[]) {
-		if (zipRequesting || zipPreparing) return;
-
-		zipRequesting = true;
-		zipError = null;
-		const current = generation;
-		const id = galleryId;
-
-		try {
-			const created = await requestExport(id, fetch, photoIds);
-			if (current !== generation) return;
-
-			currentExport = created;
-			awaited = created.id;
-			// The build may already have finished: take the state from the server, not the response.
-			await loadZip(id);
-		} catch (error) {
-			if (current === generation) {
-				zipError =
-					error instanceof ApiError && error.status !== 502
-						? error.message
-						: m.favorites_zip_failed();
-			}
-		} finally {
-			if (current === generation) zipRequesting = false;
-		}
-	}
-
-	const exportFailure = $derived(
-		currentExport?.status.kind === 'failed' ? apiErrorMessage(409, currentExport.status.code) : null
-	);
-	const zipPreparing = $derived(currentExport?.status.kind === 'preparing');
-
 	$effect(() => {
-		const id = galleryId;
+		const id = loadedGalleryId;
 
 		generation++;
 		favorites = [];
+		untrack(() => mode.leave());
 		loaded = false;
 		downloading = null;
+		individualError = null;
 		viewing = false;
-		currentExport = null;
-		zipRequesting = false;
-		zipError = null;
-		awaited = null;
 		void load(id);
-		void loadZip(id);
 
 		const unsubscribe = [
 			events.onFavorites((event) => event.gallery_id === id && void load(id)),
@@ -166,17 +102,12 @@
 					(event.status === 'deleted' || event.status === 'ready') &&
 					void load(id)
 			),
-			events.onExport((event) => event.gallery_id === id && void loadZip(id)),
-			events.onResync(() => {
-				void load(id);
-				void loadZip(id);
-			})
+			events.onResync(() => void load(id))
 		];
 
 		return () => {
 			generation++;
 			loads++;
-			zipLoads++;
 
 			for (const off of unsubscribe) off();
 		};
@@ -209,109 +140,122 @@
 
 		const current = generation;
 		downloading = photos[0].id;
+		individualError = null;
 
 		try {
 			await ondownload(photos);
 		} catch {
-			if (current === generation) zipError = m.favorites_download_failed();
+			if (current === generation) individualError = m.favorites_download_failed();
 		} finally {
 			if (current === generation) downloading = null;
 		}
 	}
 
-	function onkeydown(event: KeyboardEvent) {
-		if (mode.active && !viewing && event.key === 'Escape' && !event.defaultPrevented) mode.leave();
+	async function finishSelecting() {
+		mode.leave();
+		await tick();
+		if (active) (downloadAll?.matches(':disabled') ? panel : (downloadAll ?? panel))?.focus();
 	}
 </script>
 
-<svelte:window {onkeydown} />
-
 {#snippet downloadButton(all = false)}
 	<Button
+		bind:ref={
+			() => (all ? downloadAll : null),
+			(element) => {
+				if (all) downloadAll = element;
+			}
+		}
 		size="sm"
-		class="min-h-9! gap-1.5"
-		disabled={zipPreparing || zipRequesting || (!all && mode.active && mode.count === 0)}
-		aria-busy={zipPreparing || zipRequesting}
+		class="min-h-9! gap-1.5 group-data-[rail=gallery]/select-actions:max-xl:px-2.5"
+		disabled={zip.busy || (!all && mode.count === 0)}
+		aria-busy={zip.busy}
 		onclick={() =>
-			void requestZip(
+			void zip.request(
 				!all && mode.count > 0
 					? favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id)
 					: undefined
 			)}
 	>
 		<Download size={16} aria-hidden="true" />
-		<span class={[!all && mode.active && 'max-sm:sr-only']}>
-			{zipPreparing || zipRequesting
+		<span class="group-data-[rail=gallery]/select-actions:max-xl:sr-only">
+			{zip.busy
 				? m.favorites_downloading()
-				: !all && mode.count > 0
+				: !all
 					? m.favorites_download_count({ count: mode.count })
 					: m.favorites_download_all()}
 		</span>
 	</Button>
 {/snippet}
 
-{#if favorites.length > 0}
-	<WorkspaceToolbar>
-		{#snippet actions()}{@render downloadButton(true)}{/snippet}
-	</WorkspaceToolbar>
-{/if}
-{#if mode.active}
-	<SelectActions
-		count={mode.count}
-		total={favorites.length}
-		rail="gallery"
-		onselectall={() => mode.selectAll(favorites.map(({ id }) => id))}
-		onunselectall={() => mode.unselectAll()}
-		onexit={() => mode.leave()}
-	>
-		{#snippet actions()}{@render downloadButton()}{/snippet}
-	</SelectActions>
-{/if}
-
-{#if zipError || exportFailure}
-	<p role="alert" class="text-right text-sm text-danger">
-		{zipError ?? exportFailure}
-		{m.favorites_try_again()}
-	</p>
-{/if}
-
-{#if failed}
-	<p role="alert" class="text-sm text-danger">{m.favorites_load_failed()}</p>
-{:else if loaded && favorites.length === 0}
-	<EmptyState variant="plain">
-		<span class="grid size-14 place-items-center rounded-full bg-background"
-			><Heart size={26} aria-hidden="true" /></span
+<section
+	class="@container grid min-w-0 gap-4"
+	aria-label={m.tab_favorites()}
+	tabindex="-1"
+	bind:this={panel}
+>
+	{#if favorites.length > 0}
+		<WorkspaceToolbar>
+			{#snippet actions()}{@render downloadButton(true)}{/snippet}
+		</WorkspaceToolbar>
+	{/if}
+	{#if mode.active}
+		<SelectActions
+			count={mode.count}
+			total={favorites.length}
+			rail="gallery"
+			onselectall={() => mode.selectAll(favorites.map(({ id }) => id))}
+			onunselectall={() => mode.unselectAll()}
+			onexit={() => void finishSelecting()}
+			canEscape={() => active && mode.active && !viewing && selectionHotkeysAllowed()}
 		>
-		<h3>{m.favorites_empty()}</h3>
-		<p class="text-sm">{m.favorites_empty_body()}</p>
-	</EmptyState>
-{:else}
-	<ul aria-label={m.tab_favorites()} class={GRID_CLASSES[layout]}>
-		{#each favorites as photo, index (photo.id)}
-			<li class={ITEM_CLASSES[layout]}>
-				<PhotoTile
-					name={photo.original_name}
-					state="ready"
-					ratio={layout === 'masonry' ? photo.width / photo.height : 3 / 2}
-					thumbnailUrl={thumbnailUrl(galleryId, photo.id, 'photos', photo.revision)}
-					caption={photo.favorited_at ? { kind: 'favorited', at: photo.favorited_at } : undefined}
-					selected={mode.has(photo.id)}
-					persistentSelect
-					onselect={() => {
-						mode.enter();
-						mode.toggle(photo.id);
-					}}
-					onopen={() => {
-						viewIndex = index;
-						viewing = true;
-					}}
-					ondownload={() => void download([photo])}
-					downloadBusy={downloading === photo.id}
-				/>
-			</li>
-		{/each}
-	</ul>
-{/if}
+			{#snippet actions()}{@render downloadButton()}{/snippet}
+		</SelectActions>
+	{/if}
+
+	<OwnerZipError {zip} />
+	{#if individualError}
+		<p role="alert" class="text-right text-sm text-danger">{individualError}</p>
+	{/if}
+
+	{#if failed}
+		<p role="alert" class="text-sm text-danger">{m.favorites_load_failed()}</p>
+	{:else if loaded && favorites.length === 0}
+		<EmptyState variant="plain">
+			<span class="grid size-14 place-items-center rounded-full bg-background"
+				><Heart size={26} aria-hidden="true" /></span
+			>
+			<h3>{m.favorites_empty()}</h3>
+			<p class="text-sm">{m.favorites_empty_body()}</p>
+		</EmptyState>
+	{:else}
+		<ul aria-label={m.tab_favorites()} class={COLLECTION_GRID_CLASSES}>
+			{#each favorites as photo, index (photo.id)}
+				<li class="min-w-0">
+					<PhotoTile
+						name={photo.original_name}
+						state="ready"
+						ratio={3 / 2}
+						thumbnailUrl={thumbnailUrl(galleryId, photo.id, 'photos', photo.revision)}
+						caption={photo.favorited_at ? { kind: 'favorited', at: photo.favorited_at } : undefined}
+						selected={mode.has(photo.id)}
+						collectionSelect={mode.active ? 'active' : 'idle'}
+						onselect={() => {
+							mode.enter();
+							mode.toggle(photo.id);
+						}}
+						onopen={() => {
+							viewIndex = index;
+							viewing = true;
+						}}
+						ondownload={() => void download([photo])}
+						downloadBusy={downloading === photo.id}
+					/>
+				</li>
+			{/each}
+		</ul>
+	{/if}
+</section>
 
 {#if comments.error}<p role="alert" class="text-sm text-danger">{comments.error}</p>{/if}
 {#snippet photoThread(proof: Proof)}

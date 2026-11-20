@@ -19,6 +19,8 @@
 		masonry: 'mb-2 break-inside-avoid sm:mb-2.5',
 		grid: ''
 	} as const;
+	export const COLLECTION_GRID_CLASSES =
+		'grid grid-cols-2 gap-2 sm:gap-2.5 @min-[36rem]:grid-cols-3 @min-[58rem]:grid-cols-4';
 
 	/** Type style of every status label on a tile. */
 	const STATUS_TEXT = 'text-xs font-semibold';
@@ -60,6 +62,7 @@
 		onhero,
 		commentCount = 0,
 		persistentSelect = false,
+		collectionSelect,
 		source
 	}: {
 		name: string;
@@ -94,6 +97,8 @@
 		 * `selected`. Requires both `onopen` and `onselect`.
 		 */
 		persistentSelect?: boolean;
+		/** A hover/focus/touch circle; in active mode the tile body also toggles selection. */
+		collectionSelect?: 'idle' | 'active';
 		/** The owning gallery and kind, shown as a badge; used by the workspace-wide photo list. */
 		source?: { title: string; kind: 'proof' | 'final' };
 	} = $props();
@@ -104,7 +109,9 @@
 	const reveal =
 		'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100';
 	const busy = $derived(!failed && status !== 'ready');
-	const checkboxSelect = $derived(onselect && !persistentSelect);
+	const checkboxSelect = $derived(onselect && !persistentSelect && !collectionSelect);
+	const selectingCollection = $derived(collectionSelect === 'active' && !!onselect);
+	const showPhoto = $derived(status === 'ready' || (cleanReady && thumbnailUrl));
 
 	const captions = {
 		favorited: {
@@ -129,6 +136,11 @@
 	function seen(image: HTMLImageElement) {
 		if (image.complete) loaded = true;
 	}
+
+	function select() {
+		rippling = !selected;
+		onselect?.();
+	}
 </script>
 
 {#snippet progress()}
@@ -151,12 +163,13 @@
 	class={[
 		'group relative block overflow-hidden rounded-md bg-placeholder-tile',
 		ratio === undefined && 'aspect-square',
-		checkboxSelect && 'cursor-pointer'
+		checkboxSelect && 'cursor-pointer',
+		collectionSelect && selected && 'ring-2 ring-foreground ring-inset'
 	]}
 	style:aspect-ratio={ratio}
 >
 	<CommentBadge count={commentCount} />
-	{#if (status === 'ready' || (cleanReady && thumbnailUrl)) && checkboxSelect}
+	{#if showPhoto && checkboxSelect}
 		<img
 			src={thumbnailUrl}
 			alt={name}
@@ -168,24 +181,29 @@
 			onerror={() => (loaded = true)}
 			{@attach seen}
 		/>
-	{:else if status === 'ready' || (cleanReady && thumbnailUrl)}
+	{:else if showPhoto}
 		<button
 			type="button"
-			class="block size-full cursor-zoom-in"
-			aria-label={m.tile_open({ name })}
-			onclick={onopen}
+			class={['block size-full', selectingCollection ? 'cursor-pointer' : 'cursor-zoom-in']}
+			aria-label={selectingCollection ? name : m.tile_open({ name })}
+			onclick={selectingCollection ? select : onopen}
 		>
 			<img
 				src={thumbnailUrl}
 				alt={name}
 				loading="lazy"
-				class="size-full object-cover {fade}"
+				class={[
+					'size-full object-cover',
+					fade,
+					collectionSelect && 'transition-transform',
+					collectionSelect && selected && 'scale-[0.96] rounded'
+				]}
 				onload={() => (loaded = true)}
 				onerror={() => (loaded = true)}
 				{@attach seen}
 			/>
 		</button>
-	{:else}
+	{:else if status !== 'ready'}
 		<div
 			class={[
 				'absolute inset-0 flex flex-col items-center p-2 text-center',
@@ -205,11 +223,19 @@
 			<span class="font-semibold">{LABELS[status]()}</span>
 			{#if failed && error && error !== LABELS[status]()}<span class="line-clamp-1">{error}</span
 				>{/if}
-			{#if !checkboxSelect && onretry && (status === 'upload-failed' || status === 'process-failed')}
+			{#if !checkboxSelect && !selectingCollection && onretry && (status === 'upload-failed' || status === 'process-failed')}
 				{@render retry('mt-0.5')}
 			{/if}
 		</div>
 		{#if busy}{@render progress()}{/if}
+		{#if selectingCollection}
+			<button
+				type="button"
+				class="absolute inset-0 w-full cursor-pointer focus-visible:outline-offset-[-3px]"
+				aria-label={name}
+				onclick={select}
+			></button>
+		{/if}
 	{/if}
 
 	{#if cleanReady && thumbnailUrl && status !== 'ready' && !checkboxSelect}
@@ -221,7 +247,7 @@
 			]}
 		>
 			<span>{LABELS[status]()}</span>
-			{#if failed && onretry}{@render retry('pointer-events-auto')}{/if}
+			{#if failed && onretry && !selectingCollection}{@render retry('pointer-events-auto')}{/if}
 		</div>
 		{#if busy}{@render progress()}{/if}
 	{/if}
@@ -239,13 +265,13 @@
 			/>
 			{#if rippling && selected}<ClickRipple onend={() => (rippling = false)} />{/if}
 		</span>
-	{:else}
-		{#if (status === 'ready' || (cleanReady && thumbnailUrl)) && onhero}
+	{:else if !selectingCollection}
+		{#if showPhoto && onhero}
 			<button
 				type="button"
 				class={[
 					'absolute top-2 grid size-[1.875rem] cursor-pointer place-items-center rounded-full bg-panel/95',
-					persistentSelect && onselect ? 'left-10' : 'left-2',
+					collectionSelect ? 'right-2' : persistentSelect && onselect ? 'left-10' : 'left-2',
 					hero ? 'text-hero opacity-100' : `text-foreground ${reveal}`
 				]}
 				aria-label={hero ? m.cover_remove() : m.cover_set()}
@@ -259,7 +285,8 @@
 			<button
 				type="button"
 				class={[
-					'absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground',
+					'absolute top-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground',
+					collectionSelect && showPhoto && onhero ? 'right-11' : 'right-1.5',
 					failed ? 'opacity-100' : reveal
 				]}
 				aria-label={m.tile_remove({ name })}
@@ -286,23 +313,24 @@
 				{/if}
 			</button>
 		{/if}
-		{#if persistentSelect && onselect}
-			<button
-				type="button"
-				aria-label={m.tile_select({ name })}
-				aria-pressed={selected}
-				onclick={() => {
-					rippling = !selected;
-					onselect();
-				}}
-				class="absolute top-2 left-2 z-10 grid size-[1.625rem] cursor-pointer place-items-center rounded-full border transition-colors {selected
+	{/if}
+	{#if (persistentSelect || collectionSelect) && onselect}
+		<button
+			type="button"
+			aria-label={m.tile_select({ name })}
+			aria-pressed={selected}
+			onclick={select}
+			class={[
+				'absolute top-2 left-2 z-10 grid size-[1.625rem] cursor-pointer place-items-center rounded-full border transition-colors',
+				selected
 					? 'border-panel bg-foreground text-panel'
-					: 'border-white/75 bg-black/35 text-transparent backdrop-blur-[4px] hover:border-white hover:bg-black/50'}"
-			>
-				<Check size={14} strokeWidth={2.75} aria-hidden="true" />
-				{#if rippling && selected}<ClickRipple onend={() => (rippling = false)} />{/if}
-			</button>
-		{/if}
+					: 'border-white/75 bg-black/35 text-transparent backdrop-blur-[4px] hover:border-white hover:bg-black/50',
+				collectionSelect === 'idle' && !selected && reveal
+			]}
+		>
+			<Check size={14} strokeWidth={2.75} aria-hidden="true" />
+			{#if rippling && selected}<ClickRipple onend={() => (rippling = false)} />{/if}
+		</button>
 	{/if}
 
 	{#if source}
