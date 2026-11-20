@@ -7,7 +7,8 @@
 //!   another workspace is a 404.
 //!
 //! Both take the optional filters `contact` (a contact id or `anonymous`), `kind`, `range`
-//! (`today`, `7d` or `30d`) and `cursor`, which is the `next` of the previous page. The workspace
+//! (`today`, `7d` or `30d`), `sort` (`newest` or `oldest`) and `cursor`, which is the `next`
+//! of the previous page. Keep the same sort across pages. The workspace
 //! feed also takes `gallery`. The log is the photographer's: it needs a session and names
 //! contacts, which no client route does. A change arrives on the event stream as a
 //! `notification` event.
@@ -18,8 +19,8 @@ use actix_web::{
 };
 use pp_database::{
     activity::{
-        ActivityCursor, ActivityKind, ActivityQuery, ActivityRange, ActivityRepository,
-        ContactFilter,
+        ActivityCursor, ActivityKind, ActivityOrder, ActivityQuery, ActivityRange,
+        ActivityRepository, ContactFilter,
     },
     gallery::{GalleryId, GalleryRepository},
 };
@@ -43,6 +44,8 @@ struct ActivityFilters {
     kind: Option<ActivityKind>,
     range: Option<ActivityRange>,
     cursor: Option<ActivityCursor>,
+    #[serde(default)]
+    sort: ActivityOrder,
 }
 
 impl ActivityFilters {
@@ -53,6 +56,7 @@ impl ActivityFilters {
             kind: self.kind,
             range: self.range,
             cursor: self.cursor,
+            sort: self.sort,
             include_archived,
         }
     }
@@ -248,6 +252,18 @@ mod tests {
         }
 
         insert_line(&pool, gallery, "comment", 31).await;
+
+        for path in [
+            "/api/v1/timeline".to_owned(),
+            format!("/api/v1/galleries/{}/timeline", gallery.1.0),
+        ] {
+            let (status, oldest) = call(&app, get(&format!("{path}?sort=oldest"), &cookie)).await;
+            let (invalid, _) = call(&app, get(&format!("{path}?sort=invalid"), &cookie)).await;
+
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(oldest["events"][0]["kind"], "comment");
+            assert_eq!(invalid, StatusCode::BAD_REQUEST);
+        }
 
         let (_, first) = call(&app, get("/api/v1/timeline", &cookie)).await;
 

@@ -1,5 +1,12 @@
+import { SvelteSet } from 'svelte/reactivity';
 import type { LiveEvents } from '#lib/events.js';
-import { listActivity, type ActivityEvent, type ActivityFilters, type ActivityPage } from './api';
+import {
+	listActivity,
+	type ActivityEvent,
+	type ActivityFilters,
+	type ActivityPage,
+	type ActivitySort
+} from './api';
 
 export type { ActivityEvent, ActivityFilters } from './api';
 
@@ -20,11 +27,13 @@ export class ActivityFeed {
 	loaded = $state(false);
 	failed = $state(false);
 	filters = $state<ActivityFilters>({});
+	sort = $state<ActivitySort>('newest');
 	#galleryId: string | undefined;
 	#fetcher: typeof fetch;
 	#latest = 0;
 	#refreshes = 0;
 	#generation = 0;
+	#displayedGeneration = 0;
 	#pendingLoad: Promise<void> | undefined;
 
 	constructor({ galleryId, fetcher = fetch }: { galleryId?: string; fetcher?: typeof fetch } = {}) {
@@ -32,8 +41,17 @@ export class ActivityFeed {
 		this.#fetcher = fetcher;
 	}
 
-	#fetch(cursor?: string): Promise<ActivityPage> {
-		return listActivity({ ...this.filters, cursor }, this.#galleryId, this.#fetcher);
+	#fetch(cursor?: string, sort = this.sort): Promise<ActivityPage> {
+		return listActivity(
+			{ ...this.filters, sort: sort === 'oldest' ? sort : undefined, cursor },
+			this.#galleryId,
+			this.#fetcher
+		);
+	}
+
+	clearFilters(): void {
+		this.filters = {};
+		void this.load();
 	}
 
 	/** Replaces the list with the first page of the current filters; the old list stays until then. */
@@ -60,6 +78,7 @@ export class ActivityFeed {
 
 			this.events = page.events;
 			this.next = page.next;
+			this.#displayedGeneration = this.#generation;
 			this.failed = false;
 			this.loaded = true;
 		} catch {
@@ -74,7 +93,7 @@ export class ActivityFeed {
 		const cursor = this.next;
 		const generation = this.#generation;
 
-		if (cursor === null || this.loadingMore) return;
+		if (cursor === null || this.loadingMore || generation !== this.#displayedGeneration) return;
 
 		this.loadingMore = true;
 
@@ -103,19 +122,30 @@ export class ActivityFeed {
 		if (this.#pendingLoad) await this.#pendingLoad;
 
 		const generation = this.#generation;
+		const oldestFirst = this.sort === 'oldest';
+
+		if (generation !== this.#displayedGeneration) return;
 
 		try {
-			const page = await this.#fetch();
+			const page = await this.#fetch(undefined, 'newest');
 
 			if (ticket !== this.#refreshes || generation !== this.#generation) return;
 
-			const oldest = this.events.at(-1);
-			const fresh = page.events.at(-1);
-			const deeper = oldest !== undefined && (fresh === undefined || byRecency(fresh, oldest) < 0);
+			if (oldestFirst) {
+				// A live update is at the far end of this order. Don't jump over unvisited pages.
+				const loadedIds =
+					this.next === null ? null : new SvelteSet(this.events.map(({ id }) => id));
+				this.#merge(loadedIds ? page.events.filter(({ id }) => loadedIds.has(id)) : page.events);
+			} else {
+				const oldest = this.events.at(-1);
+				const fresh = page.events.at(-1);
+				const deeper =
+					oldest !== undefined && (fresh === undefined || byRecency(fresh, oldest) < 0);
 
-			this.#merge(page.events);
+				this.#merge(page.events);
 
-			if (!deeper) this.next = page.next;
+				if (!deeper) this.next = page.next;
+			}
 
 			this.failed = false;
 			this.loaded = true;
@@ -129,7 +159,8 @@ export class ActivityFeed {
 
 		for (const event of [...this.events, ...incoming]) merged[event.id] = event;
 
-		this.events = Object.values(merged).sort(byRecency);
+		const direction = this.sort === 'oldest' ? -1 : 1;
+		this.events = Object.values(merged).sort((a, b) => direction * byRecency(a, b));
 	}
 
 	/** Refreshes on each activity notification (of its gallery, when scoped) and after a resync. */

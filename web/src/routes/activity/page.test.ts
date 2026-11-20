@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LiveEvents } from '#lib/events.js';
 import { useLocale } from '#lib/i18n/testing.js';
@@ -67,6 +68,7 @@ describe('activity page', () => {
 		expect(screen.getByRole('link', { name: 'Activity' }).getAttribute('aria-current')).toBe(
 			'page'
 		);
+		await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
 		expect(screen.getByRole('option', { name: 'Wedding' })).toBeTruthy();
 	});
 

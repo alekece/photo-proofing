@@ -50,11 +50,13 @@ describe('GalleryActivityPanel', () => {
 		render(Harness, { props: { events, galleryId: 'g1' } });
 
 		expect(await screen.findByText('Alice left a comment')).toBeTruthy();
+		const user = userEvent.setup();
+		await user.click(screen.getByRole('button', { name: 'Filters' }));
 		expect(await screen.findByRole('option', { name: 'Alice' })).toBeTruthy();
 		expect(screen.queryByRole('combobox', { name: 'Gallery' })).toBeNull();
 		expect(screen.queryByRole('link', { name: 'Wedding' })).toBeNull();
 
-		await userEvent.setup().click(screen.getByRole('button', { name: 'Comments' }));
+		await user.selectOptions(screen.getByRole('combobox', { name: 'Type' }), 'comment');
 
 		expect(fetcher).toHaveBeenLastCalledWith(
 			'/api/v1/galleries/g1/timeline?kind=comment',

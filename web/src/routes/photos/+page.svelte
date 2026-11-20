@@ -289,13 +289,21 @@
 					activeCount={filterLabels.length}
 				>
 					<div class="grid gap-2 p-2">
-						<Select aria-label={m.photos_filter_gallery()} bind:value={galleryFilter}>
+						<Select
+							class="w-full min-w-0"
+							aria-label={m.photos_filter_gallery()}
+							bind:value={galleryFilter}
+						>
 							<option value="all">{m.photos_filter_gallery_all()}</option>
 							{#each galleryOptions as [id, label] (id)}
 								<option value={id}>{label}</option>
 							{/each}
 						</Select>
-						<Select aria-label={m.photos_filter_type()} bind:value={typeFilter}>
+						<Select
+							class="w-full min-w-0"
+							aria-label={m.photos_filter_type()}
+							bind:value={typeFilter}
+						>
 							<option value="all">{m.photos_filter_type_all()}</option>
 							<option value="proof">{m.photos_kind_proof()}</option>
 							<option value="final">{m.photos_kind_final()}</option>

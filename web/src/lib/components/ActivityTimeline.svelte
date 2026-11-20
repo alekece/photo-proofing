@@ -12,13 +12,17 @@
 	let {
 		feed,
 		filtered = false,
-		showGallery = true
+		showGallery = true,
+		resultsHeight = $bindable(0),
+		onclear
 	}: {
 		feed: ActivityFeed;
 		/** Whether filters are narrowing the list, which changes what an empty list means. */
 		filtered?: boolean;
 		/** Gallery name and link on each line; a gallery's own feed leaves them out. */
 		showGallery?: boolean;
+		resultsHeight?: number;
+		onclear?: () => void;
 	} = $props();
 
 	function wording(event: ActivityEvent): string {
@@ -78,12 +82,14 @@
 	<EmptyState variant="plain">
 		<Activity size={28} aria-hidden="true" class="text-muted-foreground" />
 		<h3>{filtered ? m.activity_empty_filtered() : m.activity_empty_title()}</h3>
-		{#if !filtered}
+		{#if filtered && onclear}
+			<Button variant="outline" onclick={onclear}>{m.filter_reset()}</Button>
+		{:else if !filtered}
 			<p class="max-w-[32ch]">{m.activity_empty_body()}</p>
 		{/if}
 	</EmptyState>
 {:else}
-	<div class="grid gap-6">
+	<div bind:clientHeight={resultsHeight} class="grid gap-6">
 		{#each days as day (day.heading)}
 			<section class="grid gap-2.5">
 				<h3 class="text-sm font-semibold tracking-wide text-muted-foreground">{day.heading}</h3>
@@ -122,7 +128,7 @@
 			<Button
 				variant="outline"
 				class="justify-self-center"
-				disabled={feed.loadingMore}
+				disabled={feed.loading || feed.loadingMore}
 				onclick={() => void feed.loadMore()}
 			>
 				{m.activity_load_more()}

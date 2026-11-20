@@ -89,6 +89,55 @@ describe('ActivityFeed', () => {
 		expect(feed.next).toBeNull();
 	});
 
+	it('keeps sort with its cursor and discards a late page from the previous order', async () => {
+		let answer!: (response: Response) => void;
+		const oldest = line('oldest', '2026-11-09T10:00:00Z');
+		const newest = line('newest', '2026-11-10T10:00:00Z');
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([newest], 'newest-cursor'))
+			.mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)))
+			.mockResolvedValueOnce(page([oldest], 'oldest-cursor'))
+			.mockResolvedValueOnce(page([newest]));
+		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
+
+		await feed.load();
+		const pending = feed.loadMore();
+		feed.sort = 'oldest';
+		await feed.load();
+		answer(page([line('discard', '2026-11-01T10:00:00Z')]));
+		await pending;
+		await feed.loadMore();
+
+		expect(fetcher.mock.calls[2]?.[0]).toBe('/api/v1/timeline?sort=oldest');
+		expect(fetcher.mock.calls[3]?.[0]).toBe('/api/v1/timeline?sort=oldest&cursor=oldest-cursor');
+		expect(ids(feed)).toEqual(['oldest', 'newest']);
+	});
+
+	it('does not append a disconnected newest page to an incomplete oldest-first list', async () => {
+		const oldest = line('oldest', '2026-11-09T10:00:00Z');
+		const newest = line('newest', '2026-11-10T10:00:00Z');
+		const updated = { ...oldest, count: 2 };
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([oldest], 'oldest-cursor'))
+			.mockResolvedValueOnce(page([newest, updated], 'unrelated-cursor'))
+			.mockResolvedValueOnce(page([newest]))
+			.mockResolvedValueOnce(page([line('later', '2026-11-11T10:00:00Z')]));
+		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
+
+		feed.sort = 'oldest';
+		await feed.load();
+		await feed.refresh();
+
+		expect(feed.events).toEqual([updated]);
+		expect(feed.next).toBe('oldest-cursor');
+		await feed.loadMore();
+		await feed.refresh();
+		expect(ids(feed)).toEqual(['oldest', 'newest', 'later']);
+		expect(feed.next).toBeNull();
+	});
+
 	it('refreshes by merging: loaded pages stay and the list is never emptied', async () => {
 		let answer!: (response: Response) => void;
 		const fetcher = vi
