@@ -581,6 +581,77 @@ describe('ActivityFeed', () => {
 		}
 	);
 
+	it.each(['newest', 'oldest'] as const)(
+		'pages in %s order after the current refresh even while an obsolete one is unresolved',
+		async (sort) => {
+			const first = line('a', '2026-11-10T10:00:00Z', { photo_ids: ['p1'] });
+			const updated = { ...first, count: 2, photo_ids: ['p1', 'p2'] };
+			const next = line('b', sort === 'oldest' ? '2026-11-11T10:00:00Z' : '2026-11-09T10:00:00Z');
+			const obsolete = Promise.withResolvers<Response>();
+			const current = Promise.withResolvers<Response>();
+			const fetcher = vi
+				.fn()
+				.mockResolvedValueOnce(page([first], 'after-first'))
+				.mockReturnValueOnce(obsolete.promise)
+				.mockReturnValueOnce(current.promise)
+				.mockResolvedValueOnce(page([next]));
+			const feed = new ActivityFeed({ fetcher });
+
+			feed.sort = sort;
+			await feed.load();
+			const superseded = feed.refresh();
+			const paging = feed.loadMore();
+			const refreshing = feed.refresh();
+
+			expect(fetcher).toHaveBeenCalledTimes(3);
+			expect(feed.loadingMore).toBe(true);
+
+			current.resolve(page([updated]));
+			await refreshing;
+			expect(feed.events).toContainEqual(updated);
+			expect(fetcher.mock.calls.slice(3).map(([url]) => params(url))).toEqual([
+				sort === 'oldest' ? { sort, cursor: 'after-first' } : { cursor: 'after-first' }
+			]);
+			await paging;
+
+			obsolete.resolve(page([first]));
+			await superseded;
+			expect(feed.events).toEqual([updated, next]);
+			expect(feed.paging).toBe('idle');
+			expect(feed.next).toBeNull();
+		}
+	);
+
+	it('cancels a queued page when the timeline query is replaced', async () => {
+		const obsolete = Promise.withResolvers<Response>();
+		const first = line('a', '2026-11-10T10:00:00Z');
+		const filtered = line('b', '2026-11-09T10:00:00Z', { kind: 'comment' });
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([first], 'after-first'))
+			.mockReturnValueOnce(obsolete.promise)
+			.mockResolvedValueOnce(page([filtered], 'after-filtered'));
+		const feed = new ActivityFeed({ fetcher });
+
+		await feed.load();
+		const refreshing = feed.refresh();
+		const paging = feed.loadMore();
+		feed.filters = { kind: 'comment' };
+		feed.sort = 'oldest';
+		await feed.load();
+
+		expect(feed.paging).toBe('idle');
+		obsolete.resolve(page([first]));
+		await Promise.all([paging, refreshing]);
+		expect(fetcher.mock.calls.map(([url]) => params(url))).toEqual([
+			{},
+			{},
+			{ kind: 'comment', sort: 'oldest' }
+		]);
+		expect(feed.events).toEqual([filtered]);
+		expect(feed.next).toBe('after-filtered');
+	});
+
 	it('does not clear a live refresh error when a page succeeds', async () => {
 		const fetcher = vi
 			.fn()

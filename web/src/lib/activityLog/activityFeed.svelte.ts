@@ -41,6 +41,7 @@ export class ActivityFeed {
 	#pendingLoad: Promise<void> | undefined;
 	#pendingPage: Promise<void> | undefined;
 	#pendingRefresh: Promise<void> | undefined;
+	#queuedPage: { promise: Promise<void>; resolve: (page?: Promise<void>) => void } | undefined;
 	#advancedTail = false;
 
 	constructor({ galleryId, fetcher = fetch }: { galleryId?: string; fetcher?: typeof fetch } = {}) {
@@ -91,6 +92,8 @@ export class ActivityFeed {
 		this.next = null;
 		this.#pendingPage = undefined;
 		this.#pendingRefresh = undefined;
+		this.#queuedPage?.resolve();
+		this.#queuedPage = undefined;
 		this.#advancedTail = false;
 		this.paging = 'idle';
 
@@ -117,17 +120,18 @@ export class ActivityFeed {
 	loadMore(): Promise<void> {
 		const cursor = this.next;
 		const generation = this.#generation;
-		const refreshing = this.#pendingRefresh;
 
 		if (this.#pendingPage) return this.#pendingPage;
+		if (this.#queuedPage) return this.#queuedPage.promise;
 
 		if (cursor === null || !this.canPage) return Promise.resolve();
 
 		this.paging = 'loading';
-		if (refreshing) {
-			return refreshing.then(() => {
-				if (generation === this.#generation) return this.loadMore();
-			});
+		if (this.#pendingRefresh) {
+			let resolve!: (page?: Promise<void>) => void;
+			const promise = new Promise<void>((done) => (resolve = done));
+			this.#queuedPage = { promise, resolve };
+			return promise;
 		}
 
 		const pending = this.#appendPage(cursor, generation).finally(() => {
@@ -174,7 +178,13 @@ export class ActivityFeed {
 	 */
 	refresh(): Promise<void> {
 		const pending = this.#refresh().finally(() => {
-			if (this.#pendingRefresh === pending) this.#pendingRefresh = undefined;
+			if (this.#pendingRefresh !== pending) return;
+
+			// A queued cursor waits for the current refresh, not a superseded request.
+			const queued = this.#queuedPage;
+			this.#pendingRefresh = undefined;
+			this.#queuedPage = undefined;
+			if (queued) queued.resolve(this.loadMore());
 		});
 		this.#pendingRefresh = pending;
 
