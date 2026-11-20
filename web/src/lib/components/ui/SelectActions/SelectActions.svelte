@@ -74,10 +74,14 @@
 
 <div
 	data-slot="select-actions"
+	data-rail={rail}
 	out:fly={{ y: 8, duration: leaveDuration() }}
-	class="fixed bottom-4 left-1/2 z-20 flex w-fit max-w-[calc(100vw-1.25rem)] -translate-x-1/2 animate-selection-in items-center gap-2 rounded-full border border-border bg-panel px-2 py-1.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.35)] max-sm:gap-1 max-sm:p-1 sm:bottom-6 {RAIL_CLEARANCE_CLASS[
-		rail
-	]}"
+	class={[
+		'group/select-actions fixed bottom-4 left-1/2 z-20 flex w-fit max-w-[calc(100vw-1.25rem)] -translate-x-1/2 animate-selection-in items-center gap-2 rounded-full border border-border bg-panel px-2 py-1.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.35)] max-sm:gap-1 max-sm:p-1 sm:bottom-6',
+		RAIL_CLEARANCE_CLASS[rail],
+		rail === 'gallery' &&
+			'max-xl:w-max max-xl:flex-wrap max-xl:justify-center max-xl:gap-1 max-xl:px-1'
+	]}
 >
 	<Button
 		variant="ghost"
@@ -89,20 +93,35 @@
 	<strong class={['text-sm font-semibold', rail === 'gallery' && 'whitespace-nowrap']}
 		>{m.notification_selected({ count })}</strong
 	>
-	<div class="ml-auto flex items-center justify-end gap-2 max-sm:ml-0 max-sm:gap-1">
+	<div
+		class={[
+			'ml-auto flex items-center justify-end gap-2 max-sm:ml-0 max-sm:gap-1',
+			rail === 'gallery' && 'max-xl:ml-0 max-xl:gap-1'
+		]}
+	>
 		<Button
 			variant="outline"
 			size="sm"
-			class="min-h-9! gap-1.5 px-3! max-sm:border-transparent! max-sm:px-2.5!"
+			class="min-h-9! gap-1.5 px-3! group-data-[rail=gallery]/select-actions:max-xl:px-2.5! max-sm:border-transparent! max-sm:px-2.5!"
 			disabled={total === 0}
 			onclick={toggle}
 		>
 			{#if all}
-				<ListX size={16} aria-hidden="true" class="sm:hidden" />
+				<ListX
+					size={16}
+					aria-hidden="true"
+					class="group-data-[rail=gallery]/select-actions:max-xl:inline sm:hidden"
+				/>
 			{:else}
-				<CheckCheck size={16} aria-hidden="true" class="sm:hidden" />
+				<CheckCheck
+					size={16}
+					aria-hidden="true"
+					class="group-data-[rail=gallery]/select-actions:max-xl:inline sm:hidden"
+				/>
 			{/if}
-			<span class="max-sm:sr-only">{all ? m.action_unselect_all() : m.action_select_all()}</span>
+			<span class="group-data-[rail=gallery]/select-actions:max-xl:sr-only max-sm:sr-only"
+				>{all ? m.action_unselect_all() : m.action_select_all()}</span
+			>
 		</Button>
 		{@render actions?.()}
 	</div>

@@ -167,7 +167,7 @@
 			}
 		}
 		size="sm"
-		class="min-h-9! gap-1.5"
+		class="min-h-9! gap-1.5 group-data-[rail=gallery]/select-actions:max-xl:px-2.5"
 		disabled={zip.busy || (!all && mode.count === 0)}
 		aria-busy={zip.busy}
 		onclick={() => {
@@ -180,7 +180,7 @@
 		}}
 	>
 		<Download size={16} aria-hidden="true" />
-		<span class={[!all && mode.active && 'max-sm:sr-only']}>
+		<span class="group-data-[rail=gallery]/select-actions:max-xl:sr-only">
 			{zip.busy
 				? m.favorites_downloading()
 				: !all

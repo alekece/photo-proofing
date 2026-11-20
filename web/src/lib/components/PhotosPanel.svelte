@@ -599,14 +599,14 @@
 					{/if}
 					<Button
 						size="sm"
-						class="min-h-9! gap-1.5"
+						class="min-h-9! gap-1.5 group-data-[rail=gallery]/select-actions:max-xl:px-2.5"
 						disabled={zip.busy || selection.length === 0 || selectionIncludesUnready}
 						aria-busy={zip.busy}
 						aria-describedby={selectionIncludesUnready ? readinessId : undefined}
 						onclick={() => void zip.request(selection.map(({ id }) => id))}
 					>
 						<Download size={16} aria-hidden="true" />
-						<span class="max-sm:sr-only">
+						<span class="group-data-[rail=gallery]/select-actions:max-xl:sr-only">
 							{zip.busy
 								? m.favorites_downloading()
 								: m.favorites_download_count({ count: selection.length })}
@@ -616,10 +616,11 @@
 				<Button
 					variant="destructive"
 					size="sm"
-					class="min-h-9! gap-1.5"
+					class="min-h-9! gap-1.5 group-data-[rail=gallery]/select-actions:max-xl:px-2.5"
 					disabled={selection.length === 0}
 					onclick={() => (confirmingSelection = true)}
-					><Trash2 size={16} aria-hidden="true" /><span class="max-sm:sr-only"
+					><Trash2 size={16} aria-hidden="true" /><span
+						class="group-data-[rail=gallery]/select-actions:max-xl:sr-only"
 						>{m.action_delete()}</span
 					></Button
 				>

@@ -138,8 +138,9 @@ selection instead of opening the viewer. The normal toolbar and tile positions s
 
 A floating bar shows **Exit selection**, the count and **Select all** (or **Unselect all**).
 Photos offers **Delete**, Favorites **Download**, and Final both. These actions are disabled at
-zero, but select mode stays open until exited with **✕** or Escape. Small screens use icon-only
-actions with accessible names. Select all picks only photos currently shown in that tab and
+zero, but select mode stays open until exited with **✕** or Escape. Below 80 rem, gallery
+actions use icons with accessible names and can wrap to fit clear of the rails.
+Select all picks only photos currently shown in that tab and
 does not include local queue items.
 
 Confirming a photo deletion shows a disabled **Deleting…** button with a spinner and retains
