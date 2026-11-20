@@ -556,9 +556,9 @@
 				<span id={focalHelpId} class="sr-only">
 					{hasCover ? m.design_focal_point_keyboard() : m.design_focal_point_empty()}
 				</span>
-				<div data-slot="design-cover-actions" class="flex flex-wrap items-center gap-2">
+				<div data-slot="design-cover-actions" class="flex flex-wrap items-center gap-1">
 					<Button variant="outline" size="sm" onclick={() => (pickingCover = true)}>
-						<ImagePlus size={15} aria-hidden="true" class="mr-1.5" />
+						<ImagePlus size={15} aria-hidden="true" class="mr-1" />
 						{hasCover ? m.design_change_cover() : m.design_select_cover()}
 					</Button>
 					{#if hasCover}

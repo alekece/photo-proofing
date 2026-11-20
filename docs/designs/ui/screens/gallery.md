@@ -53,7 +53,7 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
 
 | View / Card | Content |
 |---|---|
-| **Design** | **Cover** combines a live image and focal-point crosshair. Drag to reposition, releasing to save, or use arrow keys (Shift for larger increments). The **Select cover** / **Change cover** picker shows ready proofs, and the adjacent red **Remove cover** button clears the cover. **Cover style**, **Typography** font specimens, and **Photo Grid & Spacing** remain beside the live client preview. **Preview** opens the full client preview at every width |
+| **Design** | **Cover** combines a live image and focal-point crosshair. Drag to reposition, releasing to save, or use arrow keys (Shift for larger increments). The **Select cover** / **Change cover** picker shows ready proofs, and the adjacent red **Remove cover** button clears the cover. **Cover style**, **Typography** font specimens, and **Photo Grid & Spacing** remain beside the live client preview. **Open full preview** opens the full client preview at every width |
 | **Share** | A wide Warm Paper sheet with the **Invitation envelope** on the left and a read-only **Live email preview** on the right, stacked on phones. Only the envelope edits **To** (linked contacts, typed addresses, or the directory), optional private **BCC**, **Subject**, and **Personal message**. Preview shows stage-specific copy, the cover, metadata, access-code callout if enabled, and expiry; it never includes recipients. Proof readiness, missing SMTP and expiry are explained inline. **Publish** is a separate confirmed delivery action inside Share; **Send invitation** is always explicit |
 | **Contacts** | Full-width linked contact list (monogram, **Name**, **Email**, optional **Phone**, **Unlink**) and one **Manage contacts** action. Its dialog searches the workspace, can create and link a contact, and links to **Manage directory** (`/contacts`). **Link** briefly becomes **Linked**, then **Unlink** in the same row; only in-flight requests disable the row action |
 | **Settings → General** | **Shoot date**, **Open until** (date picker with one-click relative presets from 1 week to 1 year), then **Included photos** (number input, disabled once published), in separate rows; all optional |
@@ -62,7 +62,7 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
 
 - Design uses a one-third controls / two-thirds live [preview](preview.md) split at
   `lg`, without a fixed-height or internally scrolling inline frame, including Phone mode.
-  Below `lg` the inline stage is hidden; Design’s **Preview** still opens the full dialog.
+  Below `lg` the inline stage is hidden; Design’s **Open full preview** still opens the full dialog.
 - Collection and Studio panels stay mounted once opened so counts load on open and in-place edits,
   uploads, invitation drafts, or open viewers survive section switches and autosaves.
 - In-place inputs save on change without success rings or repeated `"Saved"` toasts. An invalid

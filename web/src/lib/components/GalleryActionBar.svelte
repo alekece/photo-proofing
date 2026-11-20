@@ -88,7 +88,7 @@
 			<Button
 				data-share-trigger
 				size="sm"
-				class="min-h-9! gap-2 justify-self-end @min-[44rem]:absolute @min-[44rem]:right-0 @min-[44rem]:self-center"
+				class="min-h-9! gap-2 justify-self-end @min-[56rem]:absolute @min-[56rem]:right-0 @min-[56rem]:self-center"
 				onclick={onshare}
 			>
 				<Send size={16} aria-hidden="true" />{m.action_share()}
