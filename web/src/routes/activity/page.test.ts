@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LiveEvents } from '#lib/events.js';
@@ -45,7 +45,11 @@ function open(fetcher: ReturnType<typeof vi.fn>) {
 		onResync: () => () => {}
 	} as unknown as LiveEvents;
 
-	vi.stubGlobal('fetch', fetcher);
+	vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
+		url === '/api/v1/auth/renew'
+			? Promise.resolve(new Response(null, { status: 204 }))
+			: fetcher(url, init)
+	);
 	render(Harness, { props: { events, data: data as never } });
 
 	return { notify: (gallery_id: string) => notify({ gallery_id }) };
@@ -53,6 +57,11 @@ function open(fetcher: ReturnType<typeof vi.fn>) {
 
 beforeEach(() => {
 	state.page.url = new URL('http://localhost/activity');
+	vi.stubGlobal('matchMedia', (query: string) => ({
+		matches: query === '(prefers-reduced-motion: reduce)',
+		addEventListener: vi.fn(),
+		removeEventListener: vi.fn()
+	}));
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -63,7 +72,9 @@ describe('activity page', () => {
 	it('shows the log under the header with Activity active and the filter choices', async () => {
 		open(vi.fn(async () => Response.json({ events: [line('a')], next: null })));
 
-		expect(await screen.findByText('Alice left a comment')).toBeTruthy();
+		expect((await screen.findByRole('listitem')).querySelector('p')?.textContent?.trim()).toBe(
+			'Alice left a comment'
+		);
 		expect(screen.getByRole('heading', { level: 1, name: 'Activity' })).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'Activity' }).getAttribute('aria-current')).toBe(
 			'page'
@@ -72,20 +83,48 @@ describe('activity page', () => {
 		expect(screen.getByRole('option', { name: 'Wedding' })).toBeTruthy();
 	});
 
-	it('adds a new line live without removing the ones on screen', async () => {
+	it('keeps expansion with its line across a live day change and filtered replacement', async () => {
+		const photo_ids = Array.from({ length: 12 }, (_, i) => `p${i}`);
+		const favorite = line('favorite', {
+			kind: 'favorite',
+			count: 12,
+			photo_ids,
+			last_at: new Date(Date.now() - 86400000 * 2).toISOString()
+		});
+		const updated = { ...favorite, count: 13, last_at: new Date().toISOString() };
+		const retained = line('retained', {
+			last_at: new Date(Date.now() - 86400000 * 3).toISOString()
+		});
 		const fetcher = vi
 			.fn()
-			.mockResolvedValueOnce(Response.json({ events: [line('a')], next: null }))
+			.mockResolvedValueOnce(Response.json({ events: [favorite, retained], next: null }))
 			.mockResolvedValueOnce(
-				Response.json({ events: [line('b', { kind: 'open' }), line('a')], next: null })
+				Response.json({
+					events: [updated, line('a-new', { kind: 'open', last_at: updated.last_at })],
+					next: null
+				})
+			)
+			.mockResolvedValueOnce(
+				Response.json({ events: [updated, { ...favorite, id: 'other' }], next: null })
 			);
 		const { notify } = open(fetcher);
 
-		await screen.findByText('Alice left a comment');
+		await userEvent.click(await screen.findByRole('button', { name: 'Show more photos' }));
 		notify('g1');
 
-		expect(await screen.findByText('Alice opened the gallery')).toBeTruthy();
-		expect(screen.getByText('Alice left a comment')).toBeTruthy();
-		await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+		const expanded = () => screen.getByRole('button', { name: 'Show fewer photos' }).closest('li')!;
+		await waitFor(() =>
+			expect(
+				screen.getAllByRole('listitem').map((row) => row.querySelector('p')?.textContent?.trim())
+			).toEqual(['Alice favorited 13 photos', 'Alice opened the gallery', 'Alice left a comment'])
+		);
+		expect(within(expanded()).getAllByRole('img')).toHaveLength(12);
+
+		await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
+		const favorites = screen.getByRole('option', { name: 'Favorites' });
+		await userEvent.selectOptions(favorites.closest('select')!, favorites);
+		const collapsed = await screen.findByRole('button', { name: 'Show more photos' });
+		expect(within(collapsed.closest('li')!).getAllByRole('img')).toHaveLength(10);
+		expect(within(expanded()).getAllByRole('img')).toHaveLength(12);
 	});
 });

@@ -916,6 +916,8 @@
 	"activity_download_zip": "{actor} a téléchargé le ZIP",
 	"activity_email": "E-mail d’invitation envoyé à {actor}",
 	"activity_photo_alt": "Photo",
+	"activity_show_photos": "Afficher plus de photos",
+	"activity_hide_photos": "Afficher moins de photos",
 	"activity_load_more": "Charger plus",
 	"activity_loading": "Chargement de l’activité…",
 	"activity_empty_title": "Aucune activité pour le moment",

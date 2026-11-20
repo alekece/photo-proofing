@@ -904,6 +904,8 @@
 	"activity_download_zip": "{actor} downloaded the ZIP",
 	"activity_email": "Invitation email sent to {actor}",
 	"activity_photo_alt": "Photo",
+	"activity_show_photos": "Show more photos",
+	"activity_hide_photos": "Show fewer photos",
 	"activity_load_more": "Load more",
 	"activity_loading": "Loading activity…",
 	"activity_empty_title": "No activity yet",
