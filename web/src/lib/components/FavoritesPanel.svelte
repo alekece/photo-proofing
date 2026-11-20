@@ -3,6 +3,7 @@
 	import { CommentsClient } from '#lib/gallery/comments.js';
 	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
 	import CommentThread from './CommentThread.svelte';
+	import OwnerZipError from './OwnerZipError.svelte';
 	import { Download, Heart, LoaderCircle } from '@lucide/svelte';
 	import { tick, untrack } from 'svelte';
 	import PhotoTile, { COLLECTION_GRID_CLASSES } from '#lib/components/PhotoTile.svelte';
@@ -214,12 +215,7 @@
 		</SelectActions>
 	{/if}
 
-	{#if individualError || zip.error}
-		<p role="alert" class="text-right text-sm text-danger">
-			{individualError ?? zip.error}
-			{m.favorites_try_again()}
-		</p>
-	{/if}
+	<OwnerZipError {zip} {individualError} />
 
 	{#if failed}
 		<p role="alert" class="text-sm text-danger">{m.favorites_load_failed()}</p>

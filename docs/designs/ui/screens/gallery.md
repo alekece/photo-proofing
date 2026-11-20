@@ -113,7 +113,8 @@ Opening a photo
 shows the viewer with the favorite heart and the same individual-original download action.
 The whole or selected subset uses one ZIP preparation slot: **Downloading…** is disabled from
 the initial request until download initiation, with errors left visible and no separate success
-message. Select-mode subsets always use a ZIP, even for one selected photo;
+message. If a ZIP status check fails, **Retry ZIP status** checks the same request without
+starting a new one. Select-mode subsets always use a ZIP, even for one selected photo;
 tile and viewer downloads stream the individual original with a busy download control.
 
 ### Final
@@ -125,6 +126,7 @@ ready, it explains why the ZIP is unavailable and still allows Delete. Owner ZIP
 authenticated session and are independent of client delivery: they do not deliver the gallery,
 change client selection, or record client downloads. When the client has downloaded a Final,
 the owner can see the timestamp in the viewer, not on the tile.
+As with Favorites, **Retry ZIP status** resumes a failed status check without starting a new ZIP.
 
 Use × to delete a photo, or the "Drop the finished photos here" zone to start an empty Final grid.
 

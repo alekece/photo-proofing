@@ -410,6 +410,36 @@ describe('FavoritesPanel', () => {
 		expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty('disabled', false);
 	});
 
+	it('rechecks only the Favorites ZIP after an unavailable status response', async () => {
+		setup([photo('p1', true)]);
+		const originalFetch = fetch;
+		let status = 'initial';
+		const calls = vi.fn<typeof fetch>(async (url, init) => {
+			if (String(url) !== '/api/v1/galleries/g1/export') return originalFetch(url, init);
+			if (init?.method === 'POST') {
+				status = 'unavailable';
+				return Response.json(zip('preparing', 'favorites-pending'), { status: 202 });
+			}
+			if (status === 'ready') return Response.json(zip('ready', 'favorites-pending'));
+			return new Response(null, { status: status === 'initial' ? 204 : 503 });
+		});
+		vi.stubGlobal('fetch', calls);
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole('button', { name: 'Download all' }));
+		const retry = await screen.findByRole('button', { name: 'Retry ZIP status' });
+		calls.mockClear();
+		status = 'ready';
+		await user.click(retry);
+		await waitFor(() =>
+			expect(startDownload).toHaveBeenCalledExactlyOnceWith(
+				'/api/v1/galleries/g1/export/favorites-pending/download'
+			)
+		);
+		expect(calls.mock.calls).toEqual([
+			['/api/v1/galleries/g1/export', expect.objectContaining({ method: 'GET' })]
+		]);
+	});
+
 	it('shows the translated reason when the request is refused', async () => {
 		const user = userEvent.setup();
 

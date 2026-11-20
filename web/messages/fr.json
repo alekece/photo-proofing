@@ -551,6 +551,7 @@
 	],
 	"favorites_download_failed": "Impossible de télécharger la photo. Réessayez.",
 	"favorites_zip_check_failed": "Impossible de vérifier le ZIP. Réessayez.",
+	"owner_zip_retry_status": "Revérifier l’état du ZIP",
 	"favorites_zip_failed": "Impossible de préparer le ZIP. Réessayez.",
 	"favorites_downloading": "Téléchargement…",
 	"favorites_download_count": "Télécharger {count}",

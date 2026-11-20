@@ -217,6 +217,41 @@ function zip(kind: 'ready' | 'preparing', id: string) {
 }
 
 describe('Final ZIP', () => {
+	it('retries a failed status check without posting or losing the pending archive', async () => {
+		let finish!: (response: Response) => void;
+		let latest: Response | Promise<Response> = new Response(null, { status: 204 });
+		const route = vi.fn((init?: RequestInit) => {
+			if (init?.method !== 'POST') return latest;
+			latest = new Response(null, { status: 503 });
+			return Response.json(zip('preparing', 'final-pending'), { status: 202 });
+		});
+		stubApi([photo('f1')], { export: (_url, init) => route(init) });
+		const { exported } = setup(undefined, null, false, 'finals');
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole('button', { name: 'Download all' }));
+		const retry = await screen.findByRole('button', { name: 'Retry ZIP status' });
+		expect(screen.getByRole('alert').textContent).toContain('Couldn’t check the ZIP');
+		expect(screen.getByRole('button', { name: /Downloading/ })).toHaveProperty('disabled', true);
+
+		latest = new Promise((resolve) => (finish = resolve));
+		await user.click(retry);
+		expect(retry).toHaveProperty('disabled', true);
+		expect(screen.getByRole('alert').textContent).toContain('Couldn’t check the ZIP');
+		expect(startDownload).not.toHaveBeenCalled();
+
+		await act(() => finish(Response.json(zip('ready', 'final-pending'))));
+		await waitFor(() =>
+			expect(startDownload).toHaveBeenCalledExactlyOnceWith(
+				'/api/v1/galleries/g1/export/final-pending/download?finals=true'
+			)
+		);
+		latest = Response.json(zip('ready', 'final-pending'));
+		await act(() => exported());
+		expect(route.mock.calls.filter(([init]) => init?.method === 'POST')).toHaveLength(1);
+		expect(startDownload).toHaveBeenCalledOnce();
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
+
 	it('requests exactly one of two finals, and downloads the awaited ZIP once', async () => {
 		let latest = zip('ready', 'existing');
 		const post = vi.fn<(init: RequestInit) => Response>(() => {

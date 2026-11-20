@@ -3,6 +3,7 @@
 	import { CommentsClient } from '#lib/gallery/comments.js';
 	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
 	import CommentThread from './CommentThread.svelte';
+	import OwnerZipError from './OwnerZipError.svelte';
 	import { Download, ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack } from 'svelte';
@@ -626,8 +627,8 @@
 		</SelectActions>
 	{/if}
 
-	{#if finals && zip.error}
-		<p role="alert" class="text-right text-sm text-danger">{zip.error} {m.favorites_try_again()}</p>
+	{#if finals}
+		<OwnerZipError {zip} />
 	{/if}
 
 	{#if alert}

@@ -12,17 +12,22 @@ export class OwnerExport {
 	#session?: Session;
 	#latest = $state.raw<Export | null>(null);
 	#requesting = $state(false);
+	#refreshing = $state(false);
 	#requestError = $state<string | null>(null);
 	#statusError = $state<string | null>(null);
 	get busy() {
 		return this.#requesting || this.#latest?.status.kind === 'preparing';
 	}
+	get refreshing() {
+		return this.#refreshing;
+	}
+	get statusError() {
+		return this.#statusError;
+	}
 	get error(): string | null {
 		const status = this.#latest?.status;
 		return (
-			this.#requestError ??
-			this.#statusError ??
-			(status?.kind === 'failed' ? apiErrorMessage(409, status.code) : null)
+			this.#requestError ?? (status?.kind === 'failed' ? apiErrorMessage(409, status.code) : null)
 		);
 	}
 
@@ -35,6 +40,7 @@ export class OwnerExport {
 		$effect(() => {
 			this.#latest = null;
 			this.#requesting = false;
+			this.#refreshing = false;
 			this.#requestError = null;
 			this.#statusError = null;
 			if (!this.enabled()) return;
@@ -73,6 +79,7 @@ export class OwnerExport {
 
 	async #refresh(session: Session) {
 		const load = ++session.load;
+		this.#refreshing = true;
 		try {
 			const latest = await latestExport(session.id, fetch, this.set);
 			if (!this.#current(session) || load !== session.load) return;
@@ -81,7 +88,15 @@ export class OwnerExport {
 		} catch {
 			if (this.#current(session) && load === session.load)
 				this.#statusError = m.favorites_zip_check_failed();
+		} finally {
+			if (this.#current(session) && load === session.load) this.#refreshing = false;
 		}
+	}
+
+	retryStatus() {
+		const session = this.#session;
+		if (!session || !this.#current(session) || !this.#statusError || this.#refreshing) return;
+		return this.#refresh(session);
 	}
 
 	async request(photoIds?: string[]): Promise<void> {
@@ -95,6 +110,7 @@ export class OwnerExport {
 			const created = await requestExport(session.id, fetch, photoIds, this.set);
 			if (!this.#current(session)) return;
 			session.load++;
+			this.#refreshing = false;
 			session.awaited = created.id;
 			this.#adopt(session, created);
 			// A completion event can race the POST response, so check the authoritative status.
