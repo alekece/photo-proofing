@@ -1139,7 +1139,17 @@ impl GalleryRepository<'_> {
             return Ok(self.get(workspace_id, id).await?);
         }
 
-        let updated = Self::update_in(self.pool, workspace_id, id, changes).await?;
+        let updated = if changes.hero_id.flatten().is_some() {
+            // The hero check locks a proof. Take the gallery first, like proof deletion.
+            let mut transaction = self.pool.begin().await.map_err(DatabaseError::from)?;
+            Self::lock_for_update_in(&mut transaction, workspace_id, id).await?;
+            let updated = Self::update_in(&mut *transaction, workspace_id, id, changes).await?;
+            transaction.commit().await.map_err(DatabaseError::from)?;
+
+            updated
+        } else {
+            Self::update_in(self.pool, workspace_id, id, changes).await?
+        };
 
         if updated.is_none()
             && changes.access_code.is_some()
@@ -1151,6 +1161,23 @@ impl GalleryRepository<'_> {
         }
 
         Ok(updated)
+    }
+
+    /// Locks this gallery for a hero change before the transaction takes proof locks.
+    pub(crate) async fn lock_for_update_in(
+        transaction: &mut Transaction<'_, Postgres>,
+        workspace_id: WorkspaceId,
+        id: GalleryId,
+    ) -> Result<(), DatabaseError> {
+        sqlx::query(
+            "SELECT id FROM galleries WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE",
+        )
+        .bind(id)
+        .bind(workspace_id)
+        .fetch_optional(&mut **transaction)
+        .await?;
+
+        Ok(())
     }
 
     /// Applies a non-empty changeset through `executor`; see [`update`](Self::update).

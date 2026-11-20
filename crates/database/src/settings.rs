@@ -1366,6 +1366,116 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
+    async fn deleting_a_proof_hero_waits_for_the_gallery_before_locking_the_photo(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+        let gallery = fixture.gallery(true).await;
+        let photo = fixture.photo(gallery, PhotoStatus::Ready).await;
+        let galleries = fixture.database.repository::<GalleryRepository>();
+        galleries
+            .update(
+                fixture.workspace_id,
+                gallery,
+                &GalleryChanges {
+                    hero_id: Some(Some(photo)),
+                    ..GalleryChanges::default()
+                },
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        fixture.share(gallery).await;
+
+        let mut favorite = fixture.pool.begin().await.unwrap();
+
+        // A favorite takes the gallery lock before reaching the proof row.
+        sqlx::query("SELECT id FROM galleries WHERE id = $1 FOR SHARE")
+            .bind(gallery)
+            .fetch_one(&mut *favorite)
+            .await
+            .unwrap();
+
+        let deletions = fixture
+            .database
+            .repository::<crate::workspace_deletion::WorkspaceDeletion>();
+        let ids = [photo];
+        let deleting =
+            deletions.delete_photos(fixture.workspace_id, gallery, PhotoKind::Proof, &ids);
+
+        tokio::pin!(deleting);
+        tokio::select! {
+            _ = &mut deleting => panic!("hero deletion must wait for the gallery lock"),
+            () = wait_for_lock_waiters(&fixture.pool, 1) => {}
+        }
+
+        // Do not wait on the photo; the invariant is that its row is still lockable.
+        let lockable: Option<PhotoId> =
+            sqlx::query_scalar("SELECT id FROM photos WHERE id = $1 FOR UPDATE SKIP LOCKED")
+                .bind(photo)
+                .fetch_optional(&mut *favorite)
+                .await
+                .unwrap();
+        favorite.commit().await.unwrap();
+
+        assert_eq!(deleting.await.unwrap(), ids);
+        assert_eq!(
+            lockable,
+            Some(photo),
+            "deletion must not hold the proof row while waiting for the gallery"
+        );
+        assert_eq!(
+            galleries
+                .get(fixture.workspace_id, gallery)
+                .await
+                .unwrap()
+                .unwrap()
+                .hero_id,
+            None
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn assigning_a_proof_hero_waits_for_the_gallery_before_locking_the_photo(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+        let gallery = fixture.gallery(true).await;
+        let photo = fixture.photo(gallery, PhotoStatus::Ready).await;
+        let galleries = fixture.database.repository::<GalleryRepository>();
+        let mut gallery_holder = fixture.pool.begin().await.unwrap();
+
+        sqlx::query("SELECT id FROM galleries WHERE id = $1 FOR NO KEY UPDATE")
+            .bind(gallery)
+            .fetch_one(&mut *gallery_holder)
+            .await
+            .unwrap();
+
+        let changes = GalleryChanges {
+            hero_id: Some(Some(photo)),
+            ..GalleryChanges::default()
+        };
+        let assigning = galleries.update(fixture.workspace_id, gallery, &changes);
+
+        tokio::pin!(assigning);
+        tokio::select! {
+            _ = &mut assigning => panic!("hero assignment must wait for the gallery lock"),
+            () = wait_for_lock_waiters(&fixture.pool, 1) => {}
+        }
+
+        let lockable: Option<PhotoId> =
+            sqlx::query_scalar("SELECT id FROM photos WHERE id = $1 FOR UPDATE SKIP LOCKED")
+                .bind(photo)
+                .fetch_optional(&mut *gallery_holder)
+                .await
+                .unwrap();
+        gallery_holder.commit().await.unwrap();
+
+        assert_eq!(assigning.await.unwrap().unwrap().hero_id, Some(photo));
+        assert_eq!(
+            lockable,
+            Some(photo),
+            "hero assignment must not hold the proof row while waiting for the gallery"
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
     async fn a_new_proof_quality_regenerates_every_gallery_and_finals_keep_the_default(
         pool: PgPool,
     ) {
