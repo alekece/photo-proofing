@@ -26,6 +26,7 @@
 	--ease-pop: cubic-bezier(0.22, 1, 0.36, 1);
 	--animate-dialog-in: dialog-in 220ms var(--ease-pop);
 	--animate-toast-in: toast-in 250ms var(--ease-pop);
+	--animate-selection-in: selection-in 180ms ease-out;
 	--animate-photo-in: photo-in 250ms ease-out;
 	--animate-tile-in: photo-in 350ms ease-in-out;
 	--animate-shimmer: shimmer 1.6s ease-in-out infinite;
@@ -166,6 +167,12 @@
 	from {
 		opacity: 0;
 		transform: translateY(1rem);
+	}
+}
+@keyframes selection-in {
+	from {
+		opacity: 0;
+		transform: translate(-50%, 8px);
 	}
 }
 @keyframes shimmer {

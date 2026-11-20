@@ -2,18 +2,24 @@
 	import { buildVersion, displayVersion } from '#lib/build.js';
 	import { legalNotices as defaultNotices, type LegalNotice } from '#lib/footer.js';
 	import { m } from '#lib/paraglide/messages.js';
+	import { cn } from '#lib/utils.js';
 
 	let {
 		version = buildVersion,
-		legalNotices = defaultNotices
+		legalNotices = defaultNotices,
+		class: className
 	}: {
 		version?: string;
 		legalNotices?: LegalNotice[];
+		class?: string;
 	} = $props();
 </script>
 
 <footer
-	class="grid justify-items-start gap-2 border-t border-border px-3.5 py-6 text-xs text-muted-foreground sm:px-8"
+	class={cn(
+		'grid justify-items-start gap-2 border-t border-border px-3.5 py-6 text-xs text-muted-foreground sm:px-8',
+		className
+	)}
 >
 	<div class="flex flex-wrap items-center gap-x-4 gap-y-1">
 		<span class="font-serif text-sm text-foreground italic">PhotoProofing</span>

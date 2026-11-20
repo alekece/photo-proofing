@@ -27,8 +27,9 @@
 		? m.notifications_unread({ count: center.unread })
 		: m.header_notifications()}
 	align="end"
+	placement="right"
 	class="relative {className}"
-	panelClass="w-[min(22rem,calc(100vw-1.5rem))] text-foreground"
+	panelClass="fixed top-14 right-3 left-3 w-auto text-foreground sm:absolute sm:top-0 sm:right-auto sm:left-full sm:mt-0 sm:ml-2 sm:w-[min(22rem,calc(100vw-1.5rem))]"
 >
 	{#snippet trigger()}
 		<Bell size={18} aria-hidden="true" />

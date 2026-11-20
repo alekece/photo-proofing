@@ -14,6 +14,15 @@ function setup(count = 1, total = 3, rail: 'dashboard' | 'gallery' = 'dashboard'
 const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
 
 describe('SelectActions', () => {
+	it('uses the Neutral Warm Paper surface with enter motion', () => {
+		const { container } = setup(1);
+		const bar = container.querySelector('[data-slot="select-actions"]') as HTMLElement;
+
+		expect(bar.className).toContain('bg-panel');
+		expect(bar.className).not.toContain('bg-white');
+		expect(bar.className).toContain('animate-selection-in');
+	});
+
 	it('shows the count and exits from the icon button', async () => {
 		const { container, onexit } = setup(3);
 
@@ -44,31 +53,34 @@ describe('SelectActions', () => {
 		expect(button('Select all').disabled).toBe(true);
 	});
 
-	it('is a fixed bottom bar shifted clear of the dashboard workspace rail (sm:w-60)', () => {
+	it('is shifted clear of the clamp-aware workspace rail', () => {
 		const { container } = setup(1, 3, 'dashboard');
 		const bar = container.querySelector('[data-slot="select-actions"]') as HTMLElement;
 
 		expect(bar.className).toMatch(/\bfixed\b/);
 		expect(bar.className).toMatch(/\bbottom-/);
 		expect(bar.className).not.toMatch(/\bsticky\b/);
-		// Centres within the content area to the right of the dashboard's sm:w-60 fixed rail.
-		expect(bar.className).toMatch(/sm:left-\[calc\(50%\+7\.5rem\)\]/);
-		expect(bar.className).toMatch(/sm:max-w-\[calc\(100vw-16\.5rem\)\]/);
+		expect(bar.className).toMatch(/sm:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\)\]/);
+		expect(bar.className).toMatch(
+			/sm:max-w-\[calc\(100vw-clamp\(15rem,16vw,17\.5rem\)-1\.25rem\)\]/
+		);
 		// Must not also carry the gallery rail's md-breakpoint offset.
 		expect(bar.className).not.toMatch(/md:left-/);
 	});
 
-	it('is a fixed bottom bar shifted clear of the gallery workspace rail (md:w-[16.5rem])', () => {
+	it('is shifted clear of the workspace and gallery rails', () => {
 		const { container } = setup(1, 3, 'gallery');
 		const bar = container.querySelector('[data-slot="select-actions"]') as HTMLElement;
 
 		expect(bar.className).toMatch(/\bfixed\b/);
 		expect(bar.className).toMatch(/\bbottom-/);
-		// Centres within the content area to the right of the gallery studio's md:w-[16.5rem] rail,
-		// which only takes effect from the md breakpoint, not sm.
-		expect(bar.className).toMatch(/md:left-\[calc\(50%\+8\.25rem\)\]/);
-		expect(bar.className).toMatch(/md:max-w-\[calc\(100vw-18rem\)\]/);
-		// Must not also carry the dashboard rail's sm-breakpoint offset.
-		expect(bar.className).not.toMatch(/sm:left-/);
+		expect(bar.className).toMatch(/sm:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\)\]/);
+		expect(bar.className).toMatch(
+			/sm:max-w-\[calc\(100vw-clamp\(15rem,16vw,17\.5rem\)-1\.25rem\)\]/
+		);
+		expect(bar.className).toMatch(
+			/md:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\+8\.25rem\)\]/
+		);
+		expect(bar.className).toMatch(/md:max-w-\[calc\(100vw-clamp\(15rem,16vw,17\.5rem\)-18rem\)\]/);
 	});
 });

@@ -305,7 +305,7 @@
 </script>
 
 <svelte:head><title>{saved.title ?? m.gallery_untitled()} — PhotoProofing</title></svelte:head>
-<AppHeader onsignout={logout} legacy />
+<AppHeader onsignout={logout} studioName={data.settings?.studioName} />
 {#if signOutError}
 	<p
 		role="alert"

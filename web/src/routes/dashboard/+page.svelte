@@ -47,6 +47,7 @@
 	let quickEditOpen = $state(false);
 	let deleteConfirmOpen = $state(false);
 	let query = $state('');
+	let selectionMode = $state(false);
 	// Only a same-page navigation (changing the sort) shows the loading cards.
 	let loading = $derived(navigating.to?.route.id === '/dashboard');
 	let selected = $state<GalleryState[]>([...DEFAULT_STATES]);
@@ -172,6 +173,8 @@
 	let hasDraft = $derived([...selectedIds].some((id) => draftById.has(id)));
 
 	function toggleSelect(id: string) {
+		selectionMode = true;
+
 		if (selectedIds.has(id)) {
 			// Deselecting a card discards its draft too: a card that isn't selected has no
 			// Apply/Cancel path, so leaving its staged change behind would orphan it.
@@ -181,6 +184,12 @@
 	}
 
 	function clearSelection() {
+		for (const id of selectedIds) draftById.delete(id);
+		selectedIds.clear();
+		selectionMode = false;
+	}
+
+	function clearSelectedOnly() {
 		for (const id of selectedIds) draftById.delete(id);
 		selectedIds.clear();
 	}
@@ -195,7 +204,7 @@
 		if (
 			event.key === 'Escape' &&
 			!event.defaultPrevented &&
-			selectedIds.size > 0 &&
+			selectionMode &&
 			!hasOpenDialog &&
 			!document.querySelector('[data-slot="popover"] > button[aria-expanded="true"]')
 		) {
@@ -287,6 +296,7 @@
 			}
 
 			if (firstError) toasts.error(firstError);
+			if (selectedIds.size === 0) selectionMode = false;
 		} finally {
 			bulkBusy = false;
 		}
@@ -320,6 +330,7 @@
 		}
 
 		deleteConfirmOpen = false;
+		if (selectedIds.size === 0) selectionMode = false;
 	}
 
 	let hiddenMatches = $derived(matching.length - visible.length);
@@ -368,8 +379,8 @@
 
 <svelte:window onkeydown={handleWindowKeydown} />
 <svelte:head><title>{m.dashboard_head()} — PhotoProofing</title></svelte:head>
-<AppHeader onsignout={logout} />
-<main class="flex flex-1 flex-col sm:pl-60">
+<AppHeader onsignout={logout} studioName={data.settings?.studioName} />
+<main class="flex flex-1 flex-col">
 	<div
 		class="grid items-end gap-3 px-3.5 pt-[1.125rem] pb-[1.125rem] sm:grid-cols-[1fr_auto] sm:gap-6 sm:px-8 sm:pt-6 sm:pb-[1.625rem]"
 	>
@@ -503,7 +514,7 @@
 		</p>
 	{/if}
 </main>
-{#if selectedGalleries.length > 0}
+{#if selectionMode}
 	<SelectActions
 		count={selectedGalleries.length}
 		total={visible.length}
@@ -511,7 +522,7 @@
 		onselectall={() => {
 			for (const gallery of visible) selectedIds.add(gallery.id);
 		}}
-		onunselectall={clearSelection}
+		onunselectall={clearSelectedOnly}
 		onexit={clearSelection}
 	>
 		{#snippet actions()}

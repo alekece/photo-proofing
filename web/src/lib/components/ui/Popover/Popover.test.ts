@@ -49,4 +49,33 @@ describe('Popover', () => {
 		expect(screen.queryByText('Inside')).toBeNull();
 		expect((await axe(container)).violations).toEqual([]);
 	});
+
+	it('supports above and right viewport-safe placements', async () => {
+		const user = userEvent.setup();
+		const above = render(PopoverHarness, { placement: 'above' });
+		await user.click(screen.getByRole('button', { name: 'Open' }));
+		const abovePanel = screen.getByText('Inside').parentElement;
+
+		expect(abovePanel?.className).toContain('bottom-full');
+		above.unmount();
+
+		render(PopoverHarness, { placement: 'right' });
+		await user.click(screen.getByRole('button', { name: 'Open' }));
+		const rightPanel = screen.getByText('Inside').parentElement;
+
+		expect(rightPanel?.className).toContain('left-full');
+	});
+
+	it('supports responsive phone-fixed and desktop-above placement', async () => {
+		const user = userEvent.setup();
+		render(PopoverHarness, { placement: 'responsive' });
+
+		await user.click(screen.getByRole('button', { name: 'Open' }));
+		const panel = screen.getByText('Inside').parentElement;
+
+		expect(panel?.className).toContain('fixed');
+		expect(panel?.className).toContain('right-3');
+		expect(panel?.className).toContain('left-3');
+		expect(panel?.className).toContain('sm:bottom-full');
+	});
 });

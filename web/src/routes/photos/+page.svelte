@@ -34,6 +34,7 @@
 	let typeFilter = $state<'all' | 'proof' | 'final'>('all');
 	let sortOrder = $state<'newest' | 'oldest'>('newest');
 	const selectedIds = new SvelteSet<string>();
+	let selectionMode = $state(false);
 	let deleteConfirmOpen = $state(false);
 	let downloadBusy = $state(false);
 	let signingOut = $state(false);
@@ -90,7 +91,31 @@
 	});
 
 	function toggleSelect(id: string) {
+		selectionMode = true;
+
 		if (!selectedIds.delete(id)) selectedIds.add(id);
+	}
+
+	function clearSelection() {
+		selectedIds.clear();
+		selectionMode = false;
+	}
+
+	function clearSelectedOnly() {
+		selectedIds.clear();
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (
+			event.key === 'Escape' &&
+			!event.defaultPrevented &&
+			selectionMode &&
+			!deleteConfirmOpen &&
+			!document.querySelector('[data-slot="popover"] > button[aria-expanded="true"]')
+		) {
+			event.preventDefault();
+			clearSelection();
+		}
 	}
 
 	function clearFilters() {
@@ -186,6 +211,7 @@
 		}
 
 		deleteConfirmOpen = false;
+		if (selectedIds.size === 0) selectionMode = false;
 	}
 
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
@@ -212,8 +238,9 @@
 </script>
 
 <svelte:head><title>{m.photos_head()} — PhotoProofing</title></svelte:head>
-<AppHeader onsignout={logout} />
-<main class="flex flex-1 flex-col px-3.5 pt-4 pb-24 sm:px-8 sm:pt-6 sm:pl-60">
+<svelte:window onkeydown={handleWindowKeydown} />
+<AppHeader onsignout={logout} studioName={data.settings?.studioName} />
+<main class="flex flex-1 flex-col px-3.5 pt-4 pb-24 sm:px-8 sm:pt-6">
 	{#if signOutError}<p role="alert" class="mb-3 text-sm text-danger">{signOutError}</p>{/if}
 
 	<h1 class="mb-4 text-[1.875rem] leading-[1.08] sm:mb-6 sm:text-[2.5rem]">{m.photos_head()}</h1>
@@ -329,7 +356,7 @@
 	{/if}
 </main>
 
-{#if selectedIds.size > 0}
+{#if selectionMode}
 	<SelectActions
 		count={selection.length}
 		total={visible.length}
@@ -337,8 +364,8 @@
 		onselectall={() => {
 			for (const entry of visible) selectedIds.add(entry.id);
 		}}
-		onunselectall={() => selectedIds.clear()}
-		onexit={() => selectedIds.clear()}
+		onunselectall={clearSelectedOnly}
+		onexit={clearSelection}
 	>
 		{#snippet actions()}
 			<Button
