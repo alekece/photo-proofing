@@ -262,6 +262,27 @@ describe('ActivityFeed', () => {
 		expect(ids(feed)).toEqual(['first', 'last']);
 	});
 
+	it('keeps newest-first paging retryable when a refresh no longer has a next page', async () => {
+		const first = line('first', '2026-11-10T10:00:00Z');
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([first], 'after-first'))
+			.mockResolvedValueOnce(new Response(null, { status: 503 }))
+			.mockResolvedValueOnce(page([first]))
+			.mockResolvedValueOnce(page([]));
+		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
+
+		await feed.load();
+		await feed.loadMore();
+		await feed.refresh();
+
+		expect(feed.failed).toBe(true);
+		expect(feed.next).toBe('after-first');
+		await feed.loadMore();
+		expect(feed.failed).toBe(false);
+		expect(feed.next).toBeNull();
+	});
+
 	it('recovers the requested sort on resync after a failed first page', async () => {
 		const recent = line('recent', '2026-11-10T10:00:00Z');
 		const earlier = line('earlier', '2026-11-09T10:00:00Z');
@@ -391,6 +412,33 @@ describe('ActivityFeed', () => {
 
 		expect(ids(feed)).toEqual(['c']);
 		expect(feed.loading).toBe(false);
+	});
+
+	it('discards a refresh waiting on a superseded filter load', async () => {
+		const previous = line('previous', '2026-11-09T10:00:00Z');
+		const first = line('first', '2026-11-10T10:00:00Z', { kind: 'favorite' });
+		const last = line('last', '2026-11-11T10:00:00Z', { contact: { id: 'c1', name: 'Alex' } });
+		const stale = { ...last, contact: { id: 'c1', name: 'Alice' } };
+		let answer!: (response: Response) => void;
+		const fetcher = vi
+			.fn()
+			.mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)))
+			.mockResolvedValueOnce(page([first], 'after-first'))
+			.mockResolvedValueOnce(page([last], null, 'after-last'))
+			.mockResolvedValue(page([stale, first]));
+		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
+
+		feed.sort = 'oldest';
+		const loading = feed.load();
+		const refreshing = feed.refresh();
+		feed.filters = { kind: 'favorite' };
+		await feed.load();
+		await feed.loadMore();
+		answer(page([previous]));
+		await Promise.all([loading, refreshing]);
+
+		expect(ids(feed)).toEqual(['first', 'last']);
+		expect(feed.events.at(-1)?.contact?.name).toBe('Alex');
 	});
 
 	it('keeps what it shows when a refresh fails', async () => {

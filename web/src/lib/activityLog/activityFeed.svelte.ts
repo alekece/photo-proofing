@@ -178,14 +178,13 @@ export class ActivityFeed {
 
 	async #refresh(): Promise<void> {
 		const ticket = ++this.#refreshes;
-
-		if (this.#pendingLoad) await this.#pendingLoad;
-
-		if (ticket !== this.#refreshes || this.loading) return;
-
 		const generation = this.#generation;
 		const oldestFirst = this.sort === 'oldest';
 		const current = () => ticket === this.#refreshes && generation === this.#generation;
+
+		if (this.#pendingLoad) await this.#pendingLoad;
+
+		if (!current() || this.loading) return;
 
 		if (generation !== this.#displayedGeneration) return this.load();
 
@@ -229,7 +228,7 @@ export class ActivityFeed {
 				const deeper =
 					oldest !== undefined && (fresh === undefined || byRecency(fresh, oldest) < 0);
 
-				if (!deeper) this.next = page.next;
+				if (!deeper && !this.#pageFailed) this.next = page.next;
 			}
 
 			this.#merge(incoming);
