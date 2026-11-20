@@ -18,6 +18,7 @@
 		onselectall,
 		onunselectall,
 		onexit,
+		canEscape,
 		rail,
 		actions
 	}: {
@@ -27,6 +28,8 @@
 		onselectall: () => void;
 		onunselectall: () => void;
 		onexit: () => void;
+		/** Opts in to Escape; the panel can let a dialog or field own the key instead. */
+		canEscape?: () => boolean;
 		/**
 		 * Which fixed left workspace rail this consumer renders behind the bar, so it can shift
 		 * clear of the clamped workspace rail or both workspace and gallery rails.
@@ -58,7 +61,16 @@
 		if (all) onunselectall();
 		else onselectall();
 	}
+
+	function onkeydown(event: KeyboardEvent) {
+		if (event.key !== 'Escape' || event.defaultPrevented || !canEscape?.()) return;
+
+		event.preventDefault();
+		onexit();
+	}
 </script>
+
+<svelte:window {onkeydown} />
 
 <div
 	data-slot="select-actions"

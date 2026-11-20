@@ -34,6 +34,21 @@ describe('SelectActions', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
+	it('Escape exits only when its consumer permits it', async () => {
+		const { onexit, rerender } = setup();
+		const event = () => new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+		await rerender({ canEscape: () => false });
+		window.dispatchEvent(event());
+		expect(onexit).not.toHaveBeenCalled();
+		await rerender({ canEscape: () => true });
+		const handled = event();
+		handled.preventDefault();
+		window.dispatchEvent(handled);
+		expect(onexit).not.toHaveBeenCalled();
+		window.dispatchEvent(event());
+		expect(onexit).toHaveBeenCalledOnce();
+	});
+
 	it('selects everything, or clears once everything is selected', async () => {
 		const { onselectall, onunselectall, rerender } = setup(1);
 

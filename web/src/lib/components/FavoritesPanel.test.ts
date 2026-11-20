@@ -114,6 +114,10 @@ function setup(
 	const rendered = render(Harness, { props: { events, ondownload } });
 
 	return {
+		setActive(active: boolean) {
+			return rendered.rerender({ active });
+		},
+		container: rendered.container,
 		switchGallery(id: string) {
 			return rendered.rerender({ events, ondownload, galleryId: id });
 		},
@@ -315,10 +319,11 @@ describe('FavoritesPanel', () => {
 		expect(startDownload).not.toHaveBeenCalled();
 	});
 
-	it('shows the bar from a circle while keeping the tile viewer and toolbar available', async () => {
+	it('opens the viewer only outside selection and keeps the normal toolbar in place', async () => {
 		setup([photo('p1', true), photo('p2', true)]);
 		const user = userEvent.setup();
 		await screen.findByAltText('p1.jpg');
+		const downloadAll = screen.getByRole('button', { name: 'Download all' });
 
 		expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
 
@@ -331,21 +336,47 @@ describe('FavoritesPanel', () => {
 			'disabled',
 			false
 		);
-		expect(screen.getByRole('button', { name: 'Download all' })).toBeTruthy();
-		expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'Download all' })).toBe(downloadAll);
+		expect(screen.queryByRole('button', { name: 'Select', exact: true })).toBeNull();
 		// Clears the workspace rail and the gallery studio rail.
 		expect(bar.className).toMatch(
 			/md:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\+8\.25rem\)\]/
 		);
 
+		await user.click(screen.getByAltText('p2.jpg'));
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect(within(bar).getByText('2 selected')).toBeTruthy();
+		await user.click(within(bar).getByRole('button', { name: 'Unselect all' }));
+		expect(within(bar).getByText('0 selected')).toBeTruthy();
+		expect(within(bar).getByRole('button', { name: 'Download 0' })).toHaveProperty(
+			'disabled',
+			true
+		);
 		await user.keyboard('{Escape}');
 
 		expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
 		expect(screen.getByRole('button', { name: 'Select p1.jpg' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty('disabled', false);
-		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
+		await waitFor(() => expect(document.activeElement).toBe(downloadAll));
 		await user.click(screen.getByRole('button', { name: 'Open p1.jpg' }));
 		expect(screen.getByRole('dialog')).toBeTruthy();
+	});
+
+	it('keeps the staged count and focus in an inactive Favorites panel', async () => {
+		const view = setup([photo('p1', true), photo('p2', true)]);
+		const user = userEvent.setup();
+		const circle = await screen.findByRole('button', { name: 'Select p1.jpg' });
+		await user.click(circle);
+		await view.setActive(false);
+		const otherTab = view.container.appendChild(document.createElement('button'));
+		otherTab.focus();
+		await user.keyboard('{Control>}a{/Control}{Meta>}a{/Meta}{Escape}');
+		expect(document.activeElement).toBe(otherTab);
+		await view.setActive(true);
+		expect(screen.getByRole('button', { name: 'Select p1.jpg' }).getAttribute('aria-pressed')).toBe(
+			'true'
+		);
+		expect(screen.getByText('1 selected')).toBeTruthy();
 	});
 
 	it('unselects everything from Unselect all, then exits from the bar', async () => {

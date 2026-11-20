@@ -6,15 +6,17 @@
 	let {
 		events,
 		galleryId = 'g1',
-		ondownload
+		ondownload,
+		active
 	}: {
 		events: LiveEvents;
 		galleryId?: string;
 		ondownload?: (photos: Photo[]) => void;
+		active?: boolean;
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
 	setLiveEvents(events);
 </script>
 
-<FavoritesPanel {galleryId} {ondownload} />
+<FavoritesPanel {galleryId} {ondownload} {active} />

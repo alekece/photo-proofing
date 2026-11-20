@@ -8,10 +8,8 @@
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { scale } from 'svelte/transition';
-	import type { GalleryLayout } from '#lib/gallery/api.js';
 	import PhotoTile, {
-		GRID_CLASSES,
-		ITEM_CLASSES,
+		COLLECTION_GRID_CLASSES,
 		type TileState
 	} from '#lib/components/PhotoTile.svelte';
 	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
@@ -26,6 +24,8 @@
 	import { getLiveEvents, type PhotoEvent } from '#lib/events.js';
 	import { updateGallery } from '#lib/gallery/api.js';
 	import { ApiError } from '#lib/http.js';
+	import { formatDateTime } from '#lib/gallery/format.js';
+	import { selectionHotkeysAllowed } from '#lib/gallery/select-mode.svelte.js';
 	import {
 		BULK_DELETE_LIMIT,
 		deletePhoto,
@@ -46,16 +46,14 @@
 		galleryId,
 		heroId = $bindable(null),
 		heroRevision = $bindable(),
-		layout = 'masonry',
 		oncount,
 		set = 'photos',
-		openPhotoId
+		openPhotoId,
+		active = true
 	}: {
 		galleryId: string;
 		heroId?: string | null;
 		heroRevision?: number;
-		/** How the tiles are laid out: the gallery's setting. */
-		layout?: GalleryLayout;
 		/** How many photos the gallery has, for the tab. */
 		oncount?: (count: number | null) => void;
 		/** Whether the gallery has watermarking on. */
@@ -63,9 +61,11 @@
 		set?: PhotoSet;
 		/** Opens this photo once it has loaded, for a source-context link from All Photos. */
 		openPhotoId?: string;
+		active?: boolean;
 	} = $props();
 
 	const finals = $derived(set === 'finals');
+	const loadedGalleryId = $derived(galleryId);
 
 	const queue = getUploadQueue();
 	const events = getLiveEvents();
@@ -256,7 +256,13 @@
 		try {
 			const listed = await listPhotos(id, fetch, set);
 
-			if (view === shown) photos = listed;
+			if (view === shown) {
+				photos = listed;
+				if (selected.size > 0) {
+					const ids = new Set(listed.map(({ id }) => id));
+					for (const id of selected) if (!ids.has(id)) selected.delete(id);
+				}
+			}
 		} catch (cause) {
 			if (view !== shown) return;
 
@@ -295,7 +301,7 @@
 	});
 
 	$effect(() => {
-		const id = galleryId;
+		const id = loadedGalleryId;
 
 		untrack(() => {
 			photos = [];
@@ -410,7 +416,7 @@
 	async function finishSelecting() {
 		leaveSelectMode();
 		await tick();
-		uploadButton?.focus();
+		if (active) uploadButton?.focus();
 	}
 
 	function toggle(id: string) {
@@ -423,35 +429,24 @@
 		for (const { id } of photos) selected.add(id);
 	}
 
-	/** Whether the key belongs to a field being typed in; tile checkboxes keep the shortcuts. */
-	function typing(target: EventTarget | null) {
-		if (!(target instanceof HTMLElement)) return false;
-
-		if (target instanceof HTMLInputElement) return target.type !== 'checkbox';
-
+	function canUseSelectionKeys(target?: EventTarget | null) {
 		return (
-			target instanceof HTMLTextAreaElement ||
-			target instanceof HTMLSelectElement ||
-			target.isContentEditable
+			active &&
+			selecting &&
+			!confirming &&
+			!confirmingSelection &&
+			!viewing &&
+			selectionHotkeysAllowed(target)
 		);
 	}
 
 	function onkeydown(event: KeyboardEvent) {
-		// The confirmation dialog owns the keyboard; its Escape closes only the dialog.
 		if (
-			!selecting ||
-			confirming ||
-			confirmingSelection ||
-			viewing ||
-			event.defaultPrevented ||
-			typing(event.target)
+			!event.defaultPrevented &&
+			(event.ctrlKey || event.metaKey) &&
+			event.key.toLowerCase() === 'a' &&
+			canUseSelectionKeys(event.target)
 		) {
-			return;
-		}
-
-		if (event.key === 'Escape') {
-			void finishSelecting();
-		} else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
 			event.preventDefault();
 			selectAll();
 		}
@@ -524,7 +519,10 @@
 
 <section
 	aria-label={finals ? m.tab_final() : m.common_photos()}
-	class={['grid gap-3 rounded-sm', dragging && 'outline-2 outline-offset-4 outline-foreground/40']}
+	class={[
+		'@container grid gap-3 rounded-sm',
+		dragging && 'outline-2 outline-offset-4 outline-foreground/40'
+	]}
 	{ondragover}
 	ondragleave={() => (dragging = false)}
 	{ondrop}
@@ -564,6 +562,7 @@
 			onselectall={selectAll}
 			onunselectall={() => selected.clear()}
 			onexit={() => void finishSelecting()}
+			canEscape={canUseSelectionKeys}
 		>
 			{#snippet actions()}
 				<Button
@@ -591,12 +590,12 @@
 		<ul
 			bind:this={grid}
 			aria-label={finals ? m.photos_list_finals() : m.common_photos()}
-			class={GRID_CLASSES[layout]}
+			class={COLLECTION_GRID_CLASSES}
 		>
 			{#each photos as photo (photo.id)}
 				{@const state = tileState(photo.status)}
 				<li
-					class={ITEM_CLASSES[layout]}
+					class="min-w-0"
 					out:scale={{
 						start: 0.94,
 						duration:
@@ -612,26 +611,23 @@
 						name={photo.original_name}
 						{state}
 						cleanReady={!finals && hasCleanPhoto(photo)}
-						ratio={layout === 'masonry' ? photo.width / photo.height : 3 / 2}
+						ratio={3 / 2}
 						thumbnailUrl={(finals ? state === 'ready' : hasCleanPhoto(photo))
 							? thumbnailUrl(galleryId, photo.id, set, photo.revision)
 							: undefined}
 						selected={selected.has(photo.id)}
-						caption={finals && photo.downloaded_at
-							? { kind: 'downloaded', at: photo.downloaded_at }
-							: undefined}
-						onremove={selecting ? undefined : () => (confirming = photo)}
-						onretry={selecting ? undefined : () => retry(photo)}
+						onremove={() => (confirming = photo)}
+						onretry={() => retry(photo)}
 						onopen={() => open(photo)}
 						hero={!finals && photo.id === heroId}
-						onhero={finals || selecting ? undefined : () => toggleHero(photo)}
-						persistentSelect
+						onhero={finals ? undefined : () => toggleHero(photo)}
+						collectionSelect={selecting ? 'active' : 'idle'}
 						onselect={() => toggle(photo.id)}
 					/>
 				</li>
 			{/each}
 			{#each queued as item, position (item.key)}
-				<li class={ITEM_CLASSES[layout]}>
+				<li class="min-w-0">
 					<PhotoTile
 						name={item.file.name}
 						ratio={3 / 2}
@@ -739,7 +735,11 @@
 	>
 		{#snippet actions(proof)}
 			{@const photo = current(proof.id)}
-			{#if !finals && photo && hasCleanPhoto(photo)}
+			{#if finals && photo?.downloaded_at}
+				<time datetime={photo.downloaded_at} class="min-w-0 text-xs leading-tight text-panel/80">
+					{m.tile_downloaded_at({ date: formatDateTime(photo.downloaded_at) })}
+				</time>
+			{:else if !finals && photo && hasCleanPhoto(photo)}
 				<ViewerButton
 					pressed={photo.id === heroId}
 					aria-label={photo.id === heroId ? m.cover_remove() : m.cover_set()}

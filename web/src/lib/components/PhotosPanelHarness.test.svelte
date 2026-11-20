@@ -10,7 +10,8 @@
 		events,
 		heroId = $bindable(null),
 		set = 'photos',
-		openPhotoId
+		openPhotoId,
+		active
 	}: {
 		galleryId: string;
 		queue: UploadQueue;
@@ -19,6 +20,7 @@
 		watermarked?: boolean;
 		set?: PhotoSet;
 		openPhotoId?: string;
+		active?: boolean;
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
@@ -27,4 +29,4 @@
 	setLiveEvents(events);
 </script>
 
-<PhotosPanel {galleryId} bind:heroId {set} {openPhotoId} />
+<PhotosPanel {galleryId} bind:heroId {set} {openPhotoId} {active} />

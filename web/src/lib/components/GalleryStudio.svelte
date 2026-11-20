@@ -453,7 +453,7 @@
 				openPhotoId={requestedPhoto?.kind === 'proof' ? requestedPhoto.id : undefined}
 				bind:heroId={() => coverId, (next) => (heroId = next)}
 				bind:heroRevision
-				layout={gallery.layout}
+				active={section === 'photos'}
 				oncount={(n) => (photoCount = n)}
 			/>
 		</div>
@@ -464,7 +464,11 @@
 			hidden={section !== 'favorites'}
 			class={section === 'favorites' ? 'grid gap-4' : undefined}
 		>
-			<FavoritesPanel galleryId={id} layout={gallery.layout} oncount={(n) => (favoriteCount = n)} />
+			<FavoritesPanel
+				galleryId={id}
+				active={section === 'favorites'}
+				oncount={(n) => (favoriteCount = n)}
+			/>
 		</div>
 		<div
 			role="tabpanel"
@@ -480,7 +484,7 @@
 				set="finals"
 				openPhotoId={requestedPhoto?.kind === 'final' ? requestedPhoto.id : undefined}
 				galleryId={id}
-				layout={gallery.layout}
+				active={section === 'final'}
 				oncount={(n) => (finalCount = n)}
 			/>
 		</div>

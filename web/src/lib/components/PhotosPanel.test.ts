@@ -212,21 +212,46 @@ describe('PhotosPanel', () => {
 	);
 
 	it.each(['photos', 'finals'] as const)(
-		'selects %s by circle while the tile still opens',
+		'opens the %s viewer only outside selection and keeps the normal toolbar in place',
 		async (set) => {
-			stubApi([photo('p1')]);
+			stubApi([photo('p1'), photo('p2')]);
 			setup(undefined, null, false, set);
 			const user = userEvent.setup();
+			const upload = screen.getByRole('button', { name: 'Upload' });
 			await user.click(await screen.findByRole('button', { name: 'Select p1.jpg' }));
 			expect(screen.getByText('1 selected', { selector: ':not(.sr-only)' })).toBeTruthy();
-			expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
-			expect(
-				screen.getByRole('button', { name: 'Upload' }).closest('[data-slot="workspace-toolbar"]')
-			).toBeTruthy();
+			expect(screen.queryByRole('button', { name: 'Select', exact: true })).toBeNull();
+			await user.click(screen.getByAltText('p2.jpg'));
+			expect(screen.queryByRole('dialog')).toBeNull();
+			expect(screen.getByText('2 selected', { selector: ':not(.sr-only)' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Upload' })).toBe(upload);
+			expect(upload.closest('[data-slot="workspace-toolbar"]')).toBeTruthy();
+			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
+			expect(screen.getByText('0 selected', { selector: ':not(.sr-only)' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
+			await user.click(screen.getByRole('button', { name: 'Exit selection' }));
 			await user.click(screen.getByRole('button', { name: 'Open p1.jpg' }));
 			expect(screen.getByRole('dialog')).toBeTruthy();
 		}
 	);
+
+	it('keeps the staged selection and focus on Escape or Select all in an inactive panel', async () => {
+		stubApi([photo('p1'), photo('p2')]);
+		const { view } = setup();
+		const user = userEvent.setup();
+		const circle = await screen.findByRole('button', { name: 'Select p1.jpg' });
+		await user.click(circle);
+		await view.rerender({ active: false });
+		const otherTab = view.container.appendChild(document.createElement('button'));
+		otherTab.focus();
+		await user.keyboard('{Control>}a{/Control}{Meta>}a{/Meta}{Escape}');
+		expect(document.activeElement).toBe(otherTab);
+		await view.rerender({ active: true });
+		expect(screen.getByRole('button', { name: 'Select p1.jpg' }).getAttribute('aria-pressed')).toBe(
+			'true'
+		);
+		expect(screen.getByText('1 selected', { selector: ':not(.sr-only)' })).toBeTruthy();
+	});
 
 	it('shows photographer comments on proofs and refreshes the open thread on activity', async () => {
 		const user = userEvent.setup();
@@ -1397,14 +1422,26 @@ describe('PhotosPanel', () => {
 			expect(api.lists()).toBe(2);
 		});
 
-		it('dates only the finals the client downloaded', async () => {
-			stubApi([{ ...photo('f1'), downloaded_at: '2026-11-09T12:00:00Z' }, photo('f2')]);
-			setup(undefined, null, false, 'finals');
-
-			await screen.findByRole('button', { name: 'Open f1.jpg' });
-
-			expect(within(tile('f1.jpg')).getByText(/^Downloaded Nov 9, 2026/)).toBeTruthy();
-			expect(within(tile('f2.jpg')).queryByText(/^Downloaded/)).toBeNull();
+		it('shows pending files in the grid and no Final tile markers', async () => {
+			stubApi([
+				{ ...photo('f1'), downloaded_at: '2026-11-09T12:00:00Z' },
+				photo('f2', { failed: 'Processing failed' })
+			]);
+			const { queue, pending } = setup(undefined, null, false, 'finals');
+			const user = userEvent.setup();
+			const open = await screen.findByRole('button', { name: 'Open f1.jpg' });
+			queue.add('g1', [jpeg('queued.jpg')], 'finals');
+			await waitFor(() => expect(pending).toHaveLength(1));
+			const finals = within(screen.getByRole('list'));
+			expect(finals.getAllByRole('listitem')).toHaveLength(3);
+			expect(screen.queryByText('Drop the finished photos here')).toBeNull();
+			expect(finals.getByRole('button', { name: 'Remove queued.jpg' })).toBeTruthy();
+			expect(finals.getByRole('button', { name: 'Retry f2.jpg' })).toBeTruthy();
+			expect(finals.queryByRole('button', { name: 'Select queued.jpg' })).toBeNull();
+			expect(finals.queryByText('f1.jpg')).toBeNull();
+			expect(finals.queryByText(/Downloaded/)).toBeNull();
+			await user.click(open);
+			expect(within(screen.getByRole('dialog')).getByText(/^Downloaded Nov 9, 2026/)).toBeTruthy();
 		});
 
 		it('ignores events about proofs and shows only finals changes', async () => {

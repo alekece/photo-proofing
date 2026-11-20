@@ -1,5 +1,17 @@
 import { SvelteSet } from 'svelte/reactivity';
 
+export function selectionHotkeysAllowed(target: EventTarget | null = document.activeElement) {
+	return (
+		!document.querySelector(
+			'[data-slot="popover-panel"], dialog[open], [role="dialog"][aria-modal="true"]'
+		) &&
+		!(
+			target instanceof HTMLElement &&
+			(target.isContentEditable || target.matches('input:not([type="checkbox"]), textarea, select'))
+		)
+	);
+}
+
 /** Select mode of one tab: which photos are ticked, and whether select mode is on. */
 export class SelectMode {
 	active = $state(false);
