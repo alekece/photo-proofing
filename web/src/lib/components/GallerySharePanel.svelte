@@ -26,6 +26,7 @@
 	import { formatLongDate } from '#lib/gallery/format.js';
 	import { listPhotos, previewUrl, summarizePhotoReadiness } from '#lib/gallery/photos.js';
 	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
+	import type { ShareAttempt } from '#lib/gallery/types.js';
 	import { ApiError } from '#lib/http.js';
 	import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
 
@@ -48,7 +49,7 @@
 		loadWorkspaceContacts = listContacts,
 		loadPhotos = listPhotos,
 		sendInvitations = sendGalleryInvitations,
-		onbeforesend,
+		onstartsend,
 		onsent,
 		oncancel,
 		onpublish,
@@ -69,7 +70,7 @@
 		loadWorkspaceContacts?: typeof listContacts;
 		loadPhotos?: typeof listPhotos;
 		sendInvitations?: typeof sendGalleryInvitations;
-		onbeforesend?: () => Promise<boolean>;
+		onstartsend?: () => ShareAttempt;
 		onsent?: (result: QueuedInvitations) => void;
 		oncancel?: () => void;
 		onpublish?: () => void;
@@ -119,8 +120,12 @@
 	// svelte-ignore state_referenced_locally
 	let previousGalleryId = gallery.id;
 	let galleryRevision = 0;
+	let activationRevision = 0;
 	let disposed = false;
 	onDestroy(() => (disposed = true));
+	$effect.pre(() => {
+		if (!active) activationRevision++;
+	});
 	// svelte-ignore state_referenced_locally
 	let previousDelivered = delivered;
 
@@ -132,6 +137,8 @@
 	type Invitation = {
 		galleryId: string;
 		revision: number;
+		activation: number;
+		attempt?: ShareAttempt;
 		wasShared: boolean;
 		wasDelivered: boolean;
 		payload: SendInvitationsInput;
@@ -416,6 +423,7 @@
 	function eligible(invitation: Invitation) {
 		return (
 			isCurrent(invitation) &&
+			invitation.activation === activationRevision &&
 			canInvite &&
 			shared === invitation.wasShared &&
 			delivered === invitation.wasDelivered
@@ -458,6 +466,7 @@
 		const invitation: Invitation = {
 			galleryId: gallery.id,
 			revision: galleryRevision,
+			activation: activationRevision,
 			wasShared: shared,
 			wasDelivered: delivered,
 			payload: {
@@ -475,11 +484,13 @@
 			toasts.error(m.share_message_required());
 			return;
 		}
+		const attempt = onstartsend?.();
+		invitation.attempt = attempt;
 
 		sending = true;
 		try {
 			// Capture pending settings saves before the photo read can outlast their results.
-			if ((onbeforesend && !(await onbeforesend())) || !eligible(invitation)) return;
+			if ((attempt && !(await attempt.prepare())) || !eligible(invitation)) return;
 
 			let warning: Warning | null = null;
 			if (!invitation.wasShared) {
@@ -491,13 +502,15 @@
 				}
 			}
 
-			if (!eligible(invitation)) return;
+			if (!eligible(invitation) || (attempt && !attempt.isReady())) return;
 
 			if (warning) {
 				readinessPrompt = { invitation, warning };
 			} else {
-				if (!invitation.wasShared && onbeforesend && !(await onbeforesend())) return;
-				if (eligible(invitation)) await executeSend(invitation, false);
+				if (!invitation.wasShared && attempt && !(await attempt.prepare())) return;
+				if (eligible(invitation) && (!attempt || attempt.isReady())) {
+					await executeSend(invitation, false);
+				}
 			}
 		} finally {
 			sending = false;
@@ -505,11 +518,18 @@
 	}
 
 	async function confirmSend(invitation: Invitation): Promise<void> {
-		if (sending || !eligible(invitation)) throw new Error(m.share_send_failed());
+		const { attempt } = invitation;
+		if (sending || !eligible(invitation) || (attempt && !attempt.isReady())) {
+			throw new Error(m.share_send_failed());
+		}
 
 		sending = true;
 		try {
-			if ((onbeforesend && !(await onbeforesend())) || !eligible(invitation)) {
+			if (
+				(attempt && !(await attempt.prepare())) ||
+				!eligible(invitation) ||
+				(attempt && !attempt.isReady())
+			) {
 				throw new Error(m.share_send_failed());
 			}
 			await executeSend(invitation, true);

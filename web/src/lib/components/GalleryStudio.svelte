@@ -44,6 +44,7 @@
 	import { formatDateTime, formatLongDate, galleryStatus } from '#lib/gallery/format.js';
 	import { previewUrl } from '#lib/gallery/photos.js';
 	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
+	import type { ShareAttempt } from '#lib/gallery/types.js';
 	import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
 
 	type NavItem = {
@@ -68,6 +69,7 @@
 		expectedAccessCode = $bindable(),
 		heading,
 		onsave,
+		onsavefocal,
 		schedule,
 		cancel,
 		onbeforepreview,
@@ -76,7 +78,7 @@
 		onarchive,
 		onrestore,
 		ondelete,
-		onbeforesend,
+		onstartsend,
 		oninvitationsent,
 		requestedPhoto
 	}: {
@@ -90,6 +92,7 @@
 		expectedAccessCode?: string | null | 'invalid';
 		heading: Snippet;
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
+		onsavefocal?: (point: FocalPoint) => Promise<FocalPoint | undefined>;
 		schedule: (field: string, run: () => void) => void;
 		cancel: (field: string) => void;
 		onbeforepreview?: () => void;
@@ -98,7 +101,7 @@
 		onarchive: () => void;
 		onrestore: () => void;
 		ondelete: () => void;
-		onbeforesend?: () => Promise<boolean>;
+		onstartsend?: () => ShareAttempt;
 		oninvitationsent?: (result: QueuedInvitations) => void;
 		requestedPhoto?: { id: string; kind: 'proof' | 'final' };
 	} = $props();
@@ -511,6 +514,7 @@
 				bind:focalPoint={liveFocalPoint}
 				active={section === 'design'}
 				{onsave}
+				{onsavefocal}
 				{onbeforepreview}
 			/>
 		</div>
@@ -528,7 +532,7 @@
 					{uploading}
 					accessCode={previewAccessCode}
 					contactsRevision={shareContactsRevision}
-					{onbeforesend}
+					{onstartsend}
 					oncancel={leaveShare}
 					{onpublish}
 					onopensettings={() => selectSection('settings')}

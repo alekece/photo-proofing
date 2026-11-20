@@ -58,6 +58,8 @@
 		focalPoint = $bindable(),
 		active = true,
 		onsave,
+		onsavefocal = async (point: FocalPoint) =>
+			(await onsave({ focal_point: point })) ? point : undefined,
 		onbeforepreview
 	}: {
 		gallery: Gallery;
@@ -67,6 +69,7 @@
 		focalPoint?: FocalPoint;
 		active?: boolean;
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
+		onsavefocal?: (point: FocalPoint) => Promise<FocalPoint | undefined>;
 		onbeforepreview?: () => void;
 	} = $props();
 
@@ -97,7 +100,6 @@
 	let localFocal = $state<FocalPoint>(focalPoint ?? savedFocal);
 	let pendingFocal = false;
 	let latestFocal = 0;
-	let focalWrite: Promise<void> | undefined;
 	let galleryRevision = 0;
 	let disposed = false;
 	onDestroy(() => (disposed = true));
@@ -122,7 +124,6 @@
 			fieldSeq = {};
 			pendingFocal = false;
 			galleryRevision++;
-			focalWrite = undefined;
 			drag = null;
 			committedFocal = savedFocal;
 			localFocal = savedFocal;
@@ -328,28 +329,19 @@
 	async function persistFocalPoint(next: FocalPoint) {
 		const galleryId = gallery.id;
 		const revision = galleryRevision;
-		const isCurrent = () => !disposed && gallery.id === galleryId && galleryRevision === revision;
 		const sequence = ++latestFocal;
 		pendingFocal = true;
 		setFocalState(next);
+		const confirmed = await onsavefocal(next).catch(() => undefined);
 
-		const write = async () => {
-			if (!isCurrent()) return;
-			const saved = await onsave({ focal_point: next }).catch(() => false);
-			if (!isCurrent()) return;
+		if (disposed || gallery.id !== galleryId || galleryRevision !== revision) return;
 
-			// An older successful write is still the rollback point for newer edits.
-			if (saved) committedFocal = next;
-			if (sequence !== latestFocal) return;
+		// An older successful write is still the rollback point for newer edits.
+		if (confirmed) committedFocal = confirmed;
+		if (sequence !== latestFocal) return;
 
-			pendingFocal = false;
-			if (!saved && !drag) setFocalState(committedFocal);
-		};
-
-		const queued = focalWrite ? focalWrite.then(write) : write();
-		focalWrite = queued;
-		await queued;
-		if (focalWrite === queued) focalWrite = undefined;
+		pendingFocal = false;
+		if (!drag) setFocalState(committedFocal);
 	}
 
 	function clampPercent(value: number): number {

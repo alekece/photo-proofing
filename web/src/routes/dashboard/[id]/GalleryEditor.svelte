@@ -1,3 +1,11 @@
+<script module lang="ts">
+	import type { FocalPoint } from '#lib/gallery/api.js';
+
+	// Accepted releases for one gallery can outlive more than one visit to its editor.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const focalWrites = new Map<string, Promise<FocalPoint | undefined>>();
+</script>
+
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onDestroy, onMount, untrack } from 'svelte';
@@ -28,6 +36,7 @@
 	import { goingToRetry } from '#lib/gallery/focus.js';
 	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
 	import { TITLE_MAX } from '#lib/gallery/format.js';
+	import type { ShareAttempt } from '#lib/gallery/types.js';
 	import { ApiError } from '#lib/http.js';
 	import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
 	import type { PageData } from './$types';
@@ -62,6 +71,8 @@
 	let expiredSince = $state<string | null>(null);
 	let heroRevision = $state<number | undefined>();
 	let expectedAccessCode = $state<string | null | 'invalid' | undefined>();
+	let accessCodeRevision = 0;
+	let directShareAttempt: ShareAttempt | undefined;
 	let signOutError = $state('');
 	let inflight = $state(0);
 	// Attempted values of fields whose last save failed; cleared per field on that field's success.
@@ -95,6 +106,33 @@
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const pendingSaves = new Set<Promise<boolean>>();
 	let saveCount = 0;
+	let lastFocalWrite = focalWrites.get(galleryId);
+
+	async function saveFocalPoint(point: FocalPoint): Promise<FocalPoint | undefined> {
+		if (!isCurrent()) return;
+
+		const focalPoint = { x: point.x, y: point.y };
+		const changes = { focal_point: focalPoint };
+		// A released edit belongs to this editor's gallery even if the editor unmounts while it waits.
+		const write = async (lastConfirmed?: FocalPoint) => {
+			const ok = isCurrent()
+				? await save(changes)
+				: await updateGallery(galleryId, changes).then(
+						() => true,
+						() => false
+					);
+			return ok ? focalPoint : lastConfirmed;
+		};
+		const previous = focalWrites.get(galleryId) ?? lastFocalWrite;
+		const queued = previous ? previous.then(write, () => write()) : write();
+		lastFocalWrite = queued;
+		focalWrites.set(galleryId, queued);
+		try {
+			return await queued;
+		} finally {
+			if (focalWrites.get(galleryId) === queued) focalWrites.delete(galleryId);
+		}
+	}
 
 	function save(changes: GalleryChanges): Promise<boolean> {
 		if (!isCurrent()) return Promise.resolve(false);
@@ -117,7 +155,8 @@
 		void activity();
 		try {
 			const result = await updateGallery(galleryId, changes);
-			if (!isCurrent()) return false;
+			// A stale editor must not update UI, but serialized focal writes still need this result.
+			if (!isCurrent()) return changes.focal_point !== undefined;
 
 			const current = keys.filter(isLatest);
 			for (const key of current) {
@@ -132,6 +171,7 @@
 			return true;
 		} catch (error) {
 			if (!isCurrent()) return false;
+			if ('access_code' in changes) accessCodeRevision++;
 
 			if (error instanceof ApiError && error.status === 401) {
 				await goto('/login?expired=1', { refreshAll: true });
@@ -195,32 +235,57 @@
 			title = saved.title ?? '';
 		} else saveTitle();
 	}
-	/** Flushes debounced edits and verifies the access code is persisted before locking sharing. */
-	async function prepareForShare(): Promise<boolean> {
-		if (!isCurrent()) return false;
-		flush();
+	function accessCodeIntent() {
+		return expectedAccessCode === undefined ? (saved.access_code ?? null) : expectedAccessCode;
+	}
 
-		while (pendingSaves.size > 0) {
-			const outcomes = await Promise.all([...pendingSaves]);
+	function setAccessCodeIntent(next: typeof expectedAccessCode) {
+		const previous = accessCodeIntent();
+		expectedAccessCode = next;
+		if (accessCodeIntent() !== previous) accessCodeRevision++;
+	}
 
-			if (!isCurrent() || outcomes.includes(false)) {
-				return false;
+	function beginShareAttempt(): ShareAttempt {
+		const code = accessCodeIntent();
+		const revision = accessCodeRevision;
+		const valid = () =>
+			isCurrent() &&
+			code !== 'invalid' &&
+			accessCodeRevision === revision &&
+			accessCodeIntent() === code;
+		const isReady = () => valid() && (saved.access_code ?? null) === code;
+
+		return {
+			isReady,
+			async prepare() {
+				if (!valid()) return false;
+				flush();
+
+				while (pendingSaves.size > 0) {
+					const outcomes = await Promise.all([...pendingSaves]);
+					if (!valid() || outcomes.includes(false)) return false;
+				}
+
+				return isReady();
 			}
-		}
+		};
+	}
 
-		if (
-			expectedAccessCode === 'invalid' ||
-			(expectedAccessCode !== undefined && (saved.access_code ?? null) !== expectedAccessCode)
-		) {
-			return false;
+	function openDirectShare() {
+		if (!isCurrent()) return;
+		if (accessCodeIntent() === 'invalid') {
+			toasts.error(m.settings_access_code_invalid());
+			return;
 		}
-
-		return true;
+		directShareAttempt = beginShareAttempt();
+		flush();
+		publishing = 'share';
 	}
 
 	/** Creates the client link; awaits any pending setting saves first so access codes lock safely. */
 	async function share() {
-		if (!(await prepareForShare()) || !isCurrent()) {
+		const attempt = directShareAttempt;
+		if (!attempt || !(await attempt.prepare()) || !attempt.isReady()) {
 			throw new Error(m.gallery_share_failed());
 		}
 
@@ -352,32 +417,23 @@
 	uploading={queue?.inFlight(galleryId) ?? 0}
 	bind:heroId={saved.hero_id}
 	bind:heroRevision
-	bind:expectedAccessCode
+	bind:expectedAccessCode={() => expectedAccessCode, setAccessCodeIntent}
 	onsave={save}
+	onsavefocal={saveFocalPoint}
 	schedule={debounce}
 	{cancel}
 	onbeforepreview={flush}
-	onshare={() => {
-		flush();
-		if (expectedAccessCode === 'invalid') {
-			toasts.error(m.settings_access_code_invalid());
-			return;
-		}
-		publishing = 'share';
-	}}
-	onbeforesend={async () => {
-		const ok = await prepareForShare();
-		if (!isCurrent()) return false;
-
-		if (!ok) {
-			toasts.error(
-				expectedAccessCode === 'invalid'
-					? m.settings_access_code_invalid()
-					: m.gallery_share_failed()
-			);
-		}
-
-		return ok;
+	onshare={openDirectShare}
+	onstartsend={() => {
+		const attempt = beginShareAttempt();
+		return {
+			isReady: attempt.isReady,
+			async prepare() {
+				const ok = await attempt.prepare();
+				if (isCurrent() && !ok) toasts.error(m.gallery_share_failed());
+				return ok;
+			}
+		};
 	}}
 	oninvitationsent={({ gallery: updated }) => {
 		if (!isCurrent() || updated.id !== galleryId) return;
@@ -457,6 +513,9 @@
 		expiresAt={saved.expires_at}
 		uploading={queue?.inFlight(galleryId, publishing === 'deliver' ? 'finals' : 'photos') ?? 0}
 		onconfirm={publishing === 'share' ? share : deliver}
-		onclose={() => (publishing = null)}
+		onclose={() => {
+			directShareAttempt = undefined;
+			publishing = null;
+		}}
 	/>
 {/if}

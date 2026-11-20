@@ -67,7 +67,8 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
   uploads, invitation drafts, or open viewers survive section switches and autosaves in the same
   gallery. Switching galleries starts a new editor and dismisses any open confirmations.
 - Focal-point edits update the preview immediately; saves complete in order. If the latest save
-  fails, the preview returns to the last saved point.
+  fails, the preview returns to the last saved point. Leaving the gallery still sends released
+  saves to their original gallery but discards a drag that has not been released.
 - In-place inputs save on change without success rings or repeated `"Saved"` toasts. An invalid
   value shows a red toast and reverts. A past `"Open until"` marks the gallery Expired; a future or
   cleared one lifts it.
@@ -179,7 +180,8 @@ live in **Studio → Share** when `[smtp]` is configured; SMS remains future sco
 **Publish** switches the existing client link from proofs to finals and updates the invitation
 preview. It never sends email; use **Send invitation** separately if needed.
 **Send invitation** keeps the selected recipients and copy through the photo-readiness check and
-any **Send anyway** confirmation. If the pending access-code save fails, the invitation is not sent.
+any **Send anyway** confirmation. If protection changes or its save fails after starting either
+**Share link** or **Send invitation**, start the action again.
 
 ![Dialog motion](gallery/confirm-motion.gif)
 ![Dialog frames](gallery/confirm-motion.frames.png)

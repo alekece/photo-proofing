@@ -135,7 +135,7 @@ describe('GallerySharePanel', () => {
 			states: ['shared']
 		};
 		const sendInvitations = vi.fn().mockResolvedValue({ gallery: sharedGallery, queued_count: 3 });
-		const onbeforesend = vi.fn().mockResolvedValue(true);
+		const prepare = vi.fn().mockResolvedValue(true);
 		const onsent = vi.fn();
 		const user = userEvent.setup();
 
@@ -150,7 +150,7 @@ describe('GallerySharePanel', () => {
 			loadWorkspaceContacts,
 			loadPhotos,
 			sendInvitations,
-			onbeforesend,
+			onstartsend: () => ({ prepare, isReady: () => true }),
 			onsent
 		});
 
@@ -201,7 +201,7 @@ describe('GallerySharePanel', () => {
 
 		await user.click(editor.getByRole('button', { name: 'Send invitations (3)' }));
 
-		expect(onbeforesend).toHaveBeenCalledTimes(2);
+		expect(prepare).toHaveBeenCalledTimes(2);
 		expect(sendInvitations).toHaveBeenCalledWith('g1', {
 			to: [
 				{ email: 'camille@example.com', name: 'Camille Laurent' },
@@ -306,9 +306,7 @@ describe('GallerySharePanel', () => {
 
 	it('reserves one send across preparation and rechecks the gallery before sending', async () => {
 		let resolvePreparation!: (ok: boolean) => void;
-		const onbeforesend = vi.fn(
-			() => new Promise<boolean>((resolve) => (resolvePreparation = resolve))
-		);
+		const prepare = vi.fn(() => new Promise<boolean>((resolve) => (resolvePreparation = resolve)));
 		const sendInvitations = vi.fn();
 		const props = {
 			gallery: baseGallery,
@@ -316,13 +314,13 @@ describe('GallerySharePanel', () => {
 			loadLinkedContacts: vi.fn().mockResolvedValue([camille]),
 			loadPhotos: vi.fn().mockResolvedValue([readyPhoto]),
 			sendInvitations,
-			onbeforesend
+			onstartsend: () => ({ prepare, isReady: () => true })
 		};
 		const view = render(GallerySharePanel, props);
 		await screen.findByRole('button', { name: 'Remove camille@example.com' });
 		const first = view.component.requestSend();
 		const duplicate = view.component.requestSend();
-		await vi.waitFor(() => expect(onbeforesend).toHaveBeenCalledOnce());
+		await vi.waitFor(() => expect(prepare).toHaveBeenCalledOnce());
 		await view.rerender({ gallery: { ...baseGallery, states: ['archived'] } });
 		resolvePreparation(true);
 		await Promise.all([first, duplicate]);
@@ -333,7 +331,7 @@ describe('GallerySharePanel', () => {
 		'rechecks access-code preparation before dispatch (warning: %s)',
 		async (warn) => {
 			const sendInvitations = vi.fn();
-			const onbeforesend = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+			const prepare = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
 			const user = userEvent.setup();
 			const view = render(GallerySharePanel, {
 				gallery: baseGallery,
@@ -341,7 +339,7 @@ describe('GallerySharePanel', () => {
 				loadLinkedContacts: vi.fn().mockResolvedValue([camille]),
 				loadPhotos: vi.fn().mockResolvedValue(warn ? [] : [readyPhoto]),
 				sendInvitations,
-				onbeforesend
+				onstartsend: () => ({ prepare, isReady: () => true })
 			});
 			await screen.findByRole('button', { name: 'Remove camille@example.com' });
 			await view.component.requestSend();
@@ -349,10 +347,41 @@ describe('GallerySharePanel', () => {
 				await user.click(screen.getByRole('button', { name: 'Send anyway' }));
 				expect(await screen.findByRole('alert')).toBeTruthy();
 			}
-			expect(onbeforesend).toHaveBeenCalledTimes(2);
+			expect(prepare).toHaveBeenCalledTimes(2);
 			expect(sendInvitations).not.toHaveBeenCalled();
 		}
 	);
+
+	it('keeps the original protection attempt through retries of a readiness warning', async () => {
+		let revision = 0;
+		const start = vi.fn(() => {
+			const initial = revision;
+			return { prepare: async () => initial === revision, isReady: () => initial === revision };
+		});
+		const sendInvitations = vi.fn().mockResolvedValue({ gallery: baseGallery, queued_count: 1 });
+		const view = render(GallerySharePanel, {
+			gallery: baseGallery,
+			settings: smtpSettings,
+			loadLinkedContacts: vi.fn().mockResolvedValue([camille]),
+			loadPhotos: vi.fn().mockResolvedValue([]),
+			onstartsend: start,
+			sendInvitations
+		});
+		const user = userEvent.setup();
+		await screen.findByRole('button', { name: 'Remove camille@example.com' });
+		await view.component.requestSend();
+		revision++;
+		for (let retry = 0; retry < 2; retry++) {
+			await user.click(screen.getByRole('button', { name: 'Send anyway' }));
+			expect(await screen.findByRole('alert')).toBeTruthy();
+		}
+		expect(sendInvitations).not.toHaveBeenCalled();
+
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+		await view.component.requestSend();
+		await user.click(screen.getByRole('button', { name: 'Send anyway' }));
+		await vi.waitFor(() => expect(sendInvitations).toHaveBeenCalledOnce());
+	});
 
 	it('shows informational notices and disables sending when SMTP is unconfigured or the gallery is expired', async () => {
 		const onopensettings = vi.fn();

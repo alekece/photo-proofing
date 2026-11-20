@@ -1,6 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { tick } from 'svelte';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -343,7 +342,7 @@ describe('GalleryDesignPanel', () => {
 		onsave.mockResolvedValueOnce(false);
 		await fireEvent.keyDown(pad, { key: 'ArrowUp' });
 		expect(onsave).toHaveBeenLastCalledWith({ focal_point: { x: 100, y: 34 } });
-		expect(cover.style.objectPosition).toBe('100% 35%');
+		await waitFor(() => expect(cover.style.objectPosition).toBe('100% 35%'));
 	});
 
 	it('saves and reverts layout, typography, grid density, and spacing while updating the live preview immediately', async () => {
@@ -599,44 +598,6 @@ describe('GalleryDesignPanel', () => {
 		});
 		await user.click(screen.getByRole('button', { name: 'Select cover' }));
 		expect((await screen.findByRole('alert')).textContent).toMatch(/couldn’t load the preview/i);
-	});
-
-	it('serializes focal writes and rolls a failed newer edit back to the last saved point', async () => {
-		let finishFirst!: (saved: boolean) => void;
-		let finishSecond!: (saved: boolean) => void;
-		const { onsave } = setup({ hero_id: 'p1' });
-		onsave
-			.mockImplementationOnce(() => new Promise<boolean>((resolve) => (finishFirst = resolve)))
-			.mockImplementationOnce(() => new Promise<boolean>((resolve) => (finishSecond = resolve)));
-		const pad = screen.getByRole('button', { name: 'Cover focal point' });
-		const image = screen.getByRole('img', { name: 'Gallery cover' }) as HTMLImageElement;
-
-		await fireEvent.keyDown(pad, { key: 'ArrowRight', shiftKey: true });
-		await fireEvent.keyDown(pad, { key: 'ArrowRight', shiftKey: true });
-		expect(image.style.objectPosition).toBe('70% 35%');
-		expect(onsave).toHaveBeenCalledExactlyOnceWith({ focal_point: { x: 60, y: 35 } });
-
-		finishFirst(true);
-		await vi.waitFor(() =>
-			expect(onsave).toHaveBeenLastCalledWith({ focal_point: { x: 70, y: 35 } })
-		);
-		finishSecond(false);
-		await vi.waitFor(() => expect(image.style.objectPosition).toBe('60% 35%'));
-	});
-
-	it('discards queued focal writes after leaving the gallery', async () => {
-		const { unmount, onsave } = setup({ hero_id: 'p1' });
-		const first = Promise.withResolvers<boolean>();
-		onsave.mockReturnValueOnce(first.promise);
-		const pad = screen.getByRole('button', { name: 'Cover focal point' });
-		await fireEvent.keyDown(pad, { key: 'ArrowRight', shiftKey: true });
-		await fireEvent.keyDown(pad, { key: 'ArrowRight', shiftKey: true });
-
-		unmount();
-		first.resolve(true);
-		await first.promise;
-		await tick();
-		expect(onsave).toHaveBeenCalledExactlyOnceWith({ focal_point: { x: 60, y: 35 } });
 	});
 });
 

@@ -13,6 +13,12 @@ export interface Proof {
 	status?: 'ready' | 'processing' | 'failed';
 }
 
+/** One explicit link-sharing or invitation action, bound to the access-code intent at its start. */
+export interface ShareAttempt {
+	prepare(): Promise<boolean>;
+	isReady(): boolean;
+}
+
 export type {
 	CoverLayout,
 	FocalPoint,
