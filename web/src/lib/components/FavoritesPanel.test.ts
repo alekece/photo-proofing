@@ -283,7 +283,9 @@ describe('FavoritesPanel', () => {
 		const { finish } = setup([photo('p1', true)]);
 
 		await screen.findByAltText('p1.jpg');
-		await user.click(screen.getByRole('button', { name: 'Download all' }));
+		const download = screen.getByRole('button', { name: 'Download all' });
+		expect(download.closest('[data-slot="workspace-toolbar"]')).toBeTruthy();
+		await user.click(download);
 
 		expect(await screen.findByRole('button', { name: /Downloading/ })).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Downloading/ })).toHaveProperty('disabled', true);

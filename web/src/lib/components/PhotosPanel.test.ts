@@ -220,7 +220,9 @@ describe('PhotosPanel', () => {
 			await user.click(await screen.findByRole('button', { name: 'Select p1.jpg' }));
 			expect(screen.getByText('1 selected', { selector: ':not(.sr-only)' })).toBeTruthy();
 			expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
-			expect(screen.getByRole('button', { name: 'Upload' })).toBeTruthy();
+			expect(
+				screen.getByRole('button', { name: 'Upload' }).closest('[data-slot="workspace-toolbar"]')
+			).toBeTruthy();
 			await user.click(screen.getByRole('button', { name: 'Open p1.jpg' }));
 			expect(screen.getByRole('dialog')).toBeTruthy();
 		}

@@ -21,6 +21,7 @@
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
 	import { getLiveEvents, type PhotoEvent } from '#lib/events.js';
 	import { updateGallery } from '#lib/gallery/api.js';
@@ -528,30 +529,32 @@
 	ondragleave={() => (dragging = false)}
 	{ondrop}
 >
-	<div class="flex flex-wrap items-center justify-end gap-2">
-		{#if updatingWatermarks}
-			<p class="mr-auto flex items-center gap-2 text-sm text-muted-foreground">
-				<LoaderCircle size={16} class="animate-spin-slow" aria-hidden="true" />
-				{m.photos_updating_watermarks()}
-			</p>
-		{/if}
-		<Button
-			bind:ref={uploadButton}
-			size="sm"
-			class="min-h-9! gap-1.5"
-			onclick={() => picker?.click()}
-			><Upload size={16} aria-hidden="true" />{m.action_upload()}</Button
-		>
-		<input
-			bind:this={picker}
-			type="file"
-			multiple
-			accept="image/jpeg,.jpg,.jpeg"
-			class="hidden"
-			aria-label={finals ? m.photos_choose_finals() : m.photos_choose()}
-			onchange={onpick}
-		/>
-	</div>
+	<WorkspaceToolbar>
+		{#snippet actions()}
+			{#if updatingWatermarks}
+				<p class="mr-auto flex items-center gap-2 text-sm text-muted-foreground">
+					<LoaderCircle size={16} class="animate-spin-slow" aria-hidden="true" />
+					{m.photos_updating_watermarks()}
+				</p>
+			{/if}
+			<Button
+				bind:ref={uploadButton}
+				size="sm"
+				class="min-h-9! gap-1.5"
+				onclick={() => picker?.click()}
+				><Upload size={16} aria-hidden="true" />{m.action_upload()}</Button
+			>
+		{/snippet}
+	</WorkspaceToolbar>
+	<input
+		bind:this={picker}
+		type="file"
+		multiple
+		accept="image/jpeg,.jpg,.jpeg"
+		class="hidden"
+		aria-label={finals ? m.photos_choose_finals() : m.photos_choose()}
+		onchange={onpick}
+	/>
 
 	{#if selecting}
 		<SelectActions

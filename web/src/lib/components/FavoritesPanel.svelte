@@ -18,6 +18,7 @@
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
+	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 	import { getLiveEvents } from '#lib/events.js';
 	import { ApiError } from '#lib/http.js';
 	import { apiErrorMessage } from '#lib/i18n/errors.js';
@@ -249,9 +250,11 @@
 	</Button>
 {/snippet}
 
-<div class="flex flex-wrap items-center justify-end gap-2">
-	{#if favorites.length > 0}{@render downloadButton(true)}{/if}
-</div>
+{#if favorites.length > 0}
+	<WorkspaceToolbar>
+		{#snippet actions()}{@render downloadButton(true)}{/snippet}
+	</WorkspaceToolbar>
+{/if}
 {#if mode.active}
 	<SelectActions
 		count={mode.count}

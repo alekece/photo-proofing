@@ -57,7 +57,12 @@
 		</label>
 	{/if}
 
-	<div class="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 max-sm:grow">
+	<div
+		class={cn(
+			'ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 max-sm:grow',
+			!search && 'grow'
+		)}
+	>
 		{@render filters?.()}
 		{@render sort?.()}
 		{#if onclear}
