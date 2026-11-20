@@ -830,7 +830,7 @@
 	"share_warn_body": "Votre client recevra l’e-mail immédiatement et ouvrira la galerie avant que toutes les épreuves soient prêtes.",
 	"share_proofs_empty": "Aucune épreuve n’est prête. Les clients verront une galerie vide tant que les épreuves ne seront pas prêtes.",
 	"share_proofs_unfinished": "Certaines épreuves ne sont pas prêtes. Les clients ne verront que les épreuves prêtes.",
-	"share_publish_hint": "Publiez les photos finales au même lien client. Aucune invitation ne sera envoyée.",
+	"share_publish_hint": "Publiez les photos retouchées au même lien client. Aucune invitation ne sera envoyée.",
 	"share_send_anyway": "Envoyer quand même",
 	"activity_title": "Activité",
 	"activity_subtitle": "Ce que vos clients ont fait, dans toutes vos galeries.",
