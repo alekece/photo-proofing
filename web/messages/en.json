@@ -734,7 +734,7 @@
 	"contacts_delete_body": "This removes them from your directory and revokes their personal gallery links.",
 	"contacts_delete_failed": "Couldn’t delete this contact. Please try again.",
 	"contacts_list_label": "Workspace contacts",
-	"gallery_contacts_link": "+ Link contact",
+	"gallery_contacts_manage": "Manage contacts",
 	"gallery_contacts_dialog_title": "Link a contact",
 	"gallery_contacts_link_action": "Link",
 	"gallery_contacts_linked_state": "Linked",

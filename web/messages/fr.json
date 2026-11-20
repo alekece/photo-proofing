@@ -746,7 +746,7 @@
 	"contacts_delete_body": "Ce contact sera retiré du répertoire et ses liens personnels cesseront de fonctionner.",
 	"contacts_delete_failed": "Impossible de supprimer ce contact. Réessayez.",
 	"contacts_list_label": "Contacts de l’espace",
-	"gallery_contacts_link": "+ Associer un contact",
+	"gallery_contacts_manage": "Gérer les contacts",
 	"gallery_contacts_dialog_title": "Associer un contact",
 	"gallery_contacts_link_action": "Associer",
 	"gallery_contacts_linked_state": "Associé",
