@@ -7,7 +7,7 @@ use std::{fmt, str::FromStr, time::Duration};
 
 use pp_core::{config::DEFAULT_ACTIVITY_WINDOW, types::timestamp::Timestamp};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgConnection, PgPool, Row, Type, postgres::PgRow};
+use sqlx::{AssertSqlSafe, FromRow, PgConnection, PgPool, Row, Type, postgres::PgRow};
 use thiserror::Error;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
@@ -283,6 +283,15 @@ impl ActivityRange {
     }
 }
 
+/// The timeline and cursor use the same order, including for lines with equal timestamps.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ActivityOrder {
+    #[default]
+    Newest,
+    Oldest,
+}
+
 /// What [`ActivityRepository::list`] lists; every filter that is `None` lets all lines through.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ActivityQuery {
@@ -291,6 +300,7 @@ pub struct ActivityQuery {
     pub kind: Option<ActivityKind>,
     pub range: Option<ActivityRange>,
     pub cursor: Option<ActivityCursor>,
+    pub sort: ActivityOrder,
     pub include_archived: bool,
 }
 
@@ -342,12 +352,15 @@ impl FromRow<'_, PgRow> for ActivityEvent {
     }
 }
 
-/// One page of lines, newest first.
+/// One page of lines in the order requested.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ActivityPage {
     pub events: Vec<ActivityEvent>,
     /// Where the next page starts; `None` on the last one.
     pub next: Option<ActivityCursor>,
+    /// Boundary of a completed oldest-first list, for fetching newer activity on refresh.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tail: Option<ActivityCursor>,
 }
 
 /// Logs what the worker itself does, which has no repository write to piggyback on, and prunes
@@ -386,8 +399,8 @@ impl ActivityRepository<'_> {
         Ok(())
     }
 
-    /// Lists the workspace's lines that pass `query`, newest first, [`PAGE_SIZE`] at a time.
-    /// Archived galleries are left out unless the query asks for them.
+    /// Lists the workspace's matching lines in the requested order, [`PAGE_SIZE`] at a time.
+    /// Archived galleries are left out unless requested. Keep the sort unchanged when paging.
     pub async fn list(
         &self,
         workspace_id: WorkspaceId,
@@ -399,7 +412,12 @@ impl ActivityRepository<'_> {
         };
         let anonymous = query.contact == Some(ContactFilter::Anonymous);
         let limit = i64::try_from(PAGE_SIZE + 1).unwrap_or(i64::MAX);
-        let mut events: Vec<ActivityEvent> = sqlx::query_as(
+
+        let (after_cursor, direction) = match query.sort {
+            ActivityOrder::Newest => ("<", "DESC"),
+            ActivityOrder::Oldest => (">", "ASC"),
+        };
+        let statement = format!(
             "SELECT e.id, e.gallery_id, g.title AS gallery_title, e.contact_id,
                     c.name AS contact_name, e.kind, e.count,
                     ARRAY(SELECT p.id
@@ -416,36 +434,37 @@ impl ActivityRepository<'_> {
                AND (NOT $4 OR e.contact_id IS NULL)
                AND ($5::text IS NULL OR e.kind = $5)
                AND ($6::float8 IS NULL OR e.last_at >= now() - make_interval(secs => $6))
-               AND ($7::timestamptz IS NULL OR (e.last_at, e.id) < ($7, $8::uuid))
+               AND ($7::timestamptz IS NULL OR (e.last_at, e.id) {after_cursor} ($7, $8::uuid))
                AND ($9 OR g.archived_at IS NULL)
-             ORDER BY e.last_at DESC, e.id DESC
+             ORDER BY e.last_at {direction}, e.id {direction}
              LIMIT $10",
-        )
-        .bind(workspace_id)
-        .bind(query.gallery)
-        .bind(contact)
-        .bind(anonymous)
-        .bind(query.kind)
-        .bind(query.range.map(|range| range.duration().as_secs_f64()))
-        .bind(query.cursor.map(|cursor| cursor.last_at))
-        .bind(query.cursor.map(|cursor| cursor.id))
-        .bind(query.include_archived)
-        .bind(limit)
-        .fetch_all(self.pool)
-        .await?;
+        );
+        // Only fixed operators and keywords from ActivityOrder are interpolated.
+        let mut events: Vec<ActivityEvent> = sqlx::query_as(AssertSqlSafe(statement))
+            .bind(workspace_id)
+            .bind(query.gallery)
+            .bind(contact)
+            .bind(anonymous)
+            .bind(query.kind)
+            .bind(query.range.map(|range| range.duration().as_secs_f64()))
+            .bind(query.cursor.map(|cursor| cursor.last_at))
+            .bind(query.cursor.map(|cursor| cursor.id))
+            .bind(query.include_archived)
+            .bind(limit)
+            .fetch_all(self.pool)
+            .await?;
         let has_more = events.len() > PAGE_SIZE;
 
         events.truncate(PAGE_SIZE);
 
-        let next = events
-            .last()
-            .filter(|_| has_more)
-            .map(|event| ActivityCursor {
-                last_at: event.last_at,
-                id: event.id,
-            });
+        let boundary = events.last().map(|event| ActivityCursor {
+            last_at: event.last_at,
+            id: event.id,
+        });
+        let next = boundary.filter(|_| has_more);
+        let tail = boundary.filter(|_| !has_more && query.sort == ActivityOrder::Oldest);
 
-        Ok(ActivityPage { events, next })
+        Ok(ActivityPage { events, next, tail })
     }
 
     /// Deletes lines whose last activity is older than `retention`.
@@ -932,6 +951,70 @@ mod tests {
         assert_eq!(second.events.len(), 1);
         assert_eq!(second.next, None);
         assert!(second.events[0].last_at < first.events[PAGE_SIZE - 1].last_at);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn oldest_first_pages_through_equal_timestamps_once(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let gallery_id = fixture.location.gallery_id;
+
+        for minutes in 0..=PAGE_SIZE {
+            fixture
+                .insert_line(
+                    gallery_id,
+                    None,
+                    ActivityKind::Open,
+                    &format!("{minutes} minutes"),
+                    &[],
+                )
+                .await;
+        }
+
+        sqlx::query("UPDATE activity_events SET last_at = now() WHERE gallery_id = $1")
+            .bind(gallery_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let query = ActivityQuery {
+            sort: ActivityOrder::Oldest,
+            ..ActivityQuery::default()
+        };
+        let first = fixture.list(query).await;
+        let second = fixture
+            .list(ActivityQuery {
+                cursor: first.next,
+                ..query
+            })
+            .await;
+        let got: Vec<_> = first
+            .events
+            .into_iter()
+            .chain(second.events)
+            .map(|event| event.id.0)
+            .collect();
+        let mut expected = got.clone();
+
+        expected.sort_unstable();
+        expected.dedup();
+        assert_eq!(expected.len(), PAGE_SIZE + 1);
+        assert_eq!(got, expected);
+        assert_eq!(second.next, None);
+
+        fixture
+            .insert_line(gallery_id, None, ActivityKind::Comment, "-1 minute", &[])
+            .await;
+
+        let resumed = fixture
+            .list(ActivityQuery {
+                cursor: second.tail,
+                ..query
+            })
+            .await;
+
+        assert_eq!(resumed.events.len(), 1);
+        assert_eq!(resumed.events[0].kind, ActivityKind::Comment);
+        assert_eq!(resumed.next, None);
     }
 
     #[sqlx::test(migrations = "./migrations")]

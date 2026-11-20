@@ -29,12 +29,17 @@
 		rootClass?: string;
 		panelClass?: string;
 		trigger: Snippet;
-		children: Snippet;
+		children: Snippet<[{ close: () => void }]>;
 		'aria-describedby'?: string;
 	} = $props();
 
 	let root = $state<HTMLElement | null>(null);
 	let button = $state<HTMLButtonElement | null>(null);
+
+	function close() {
+		open = false;
+		button?.focus();
+	}
 
 	function dismiss(event: Event) {
 		if (open && root && !root.contains(event.target as Node)) open = false;
@@ -47,10 +52,7 @@
 	}
 
 	function escape(event: KeyboardEvent) {
-		if (open && event.key === 'Escape') {
-			open = false;
-			button?.focus();
-		}
+		if (open && event.key === 'Escape') close();
 	}
 
 	const placementClass = $derived(
@@ -100,7 +102,7 @@
 				panelClass
 			)}
 		>
-			{@render children()}
+			{@render children({ close })}
 		</div>
 	{/if}
 </div>

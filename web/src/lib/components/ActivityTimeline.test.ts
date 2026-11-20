@@ -136,6 +136,25 @@ describe('ActivityTimeline', () => {
 		expect(screen.getByRole('alert').textContent).toContain('could not be loaded');
 	});
 
+	it('lets the photographer retry a failed replacement without using its stale cursor', async () => {
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(Response.json({ events: [line('a')], next: 'c1' }))
+			.mockResolvedValueOnce(new Response(null, { status: 503 }))
+			.mockResolvedValueOnce(Response.json({ events: [line('b')], next: null }));
+		const feed = new ActivityFeed({ fetcher });
+
+		await feed.load();
+		feed.sort = 'oldest';
+		await feed.load();
+		render(ActivityTimeline, { feed });
+
+		expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
+		await userEvent.setup().click(screen.getByRole('button', { name: 'Retry' }));
+		expect(await screen.findAllByRole('listitem')).toHaveLength(1);
+		expect(feed.events.map(({ id }) => id)).toEqual(['b']);
+	});
+
 	it('has no axe violations', async () => {
 		const { container } = render(ActivityTimeline, { feed: feedWith([line('a')], 'c1') });
 

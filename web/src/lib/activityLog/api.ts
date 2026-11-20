@@ -13,6 +13,7 @@ export const ACTIVITY_RANGES = ['today', '7d', '30d'] as const;
 
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 export type ActivityRange = (typeof ACTIVITY_RANGES)[number];
+export type ActivitySort = 'newest' | 'oldest';
 
 export const activityEventSchema = v.object({
 	id: v.string(),
@@ -30,7 +31,8 @@ export const activityEventSchema = v.object({
 
 export const activityPageSchema = v.object({
 	events: v.array(activityEventSchema),
-	next: v.nullable(v.string())
+	next: v.nullable(v.string()),
+	tail: v.nullish(v.string())
 });
 
 export type ActivityEvent = v.InferOutput<typeof activityEventSchema>;
@@ -46,7 +48,7 @@ export interface ActivityFilters {
 
 /** One page of the activity log: the workspace's, or a single gallery's when `galleryId` is given. */
 export function listActivity(
-	params: ActivityFilters & { cursor?: string },
+	params: ActivityFilters & { sort?: ActivitySort; cursor?: string },
 	galleryId?: string,
 	fetcher: typeof fetch = fetch
 ): Promise<ActivityPage> {

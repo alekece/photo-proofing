@@ -74,14 +74,14 @@ describe('dashboard', () => {
 		);
 		const user = userEvent.setup();
 
-		await user.click(screen.getByRole('button', { name: 'Recently updated' }));
-		expect(screen.getAllByRole('radio').map((o) => o.textContent?.trim())).toEqual([
+		await user.click(screen.getByRole('button', { name: 'Sort by: Recently updated' }));
+		expect(screen.getAllByRole('menuitemradio').map((o) => o.textContent?.trim())).toEqual([
 			'Recently updated',
 			'Newest created',
 			'Oldest created',
 			'Title A–Z'
 		]);
-		await user.click(screen.getByRole('radio', { name: 'Title A–Z' }));
+		await user.click(screen.getByRole('menuitemradio', { name: 'Title A–Z' }));
 		expect(goto).toHaveBeenCalledWith('?sort=title', expect.anything());
 		expect((await axe(container)).violations).toEqual([]);
 	});
@@ -124,7 +124,8 @@ describe('dashboard', () => {
 			(screen.getByRole('searchbox', { name: 'Search galleries' }) as HTMLInputElement).disabled
 		).toBe(true);
 		expect(
-			(screen.getByRole('button', { name: 'Recently updated' }) as HTMLButtonElement).disabled
+			(screen.getByRole('button', { name: 'Sort by: Recently updated' }) as HTMLButtonElement)
+				.disabled
 		).toBe(true);
 		expect((screen.getByRole('button', { name: 'Status' }) as HTMLButtonElement).disabled).toBe(
 			true
@@ -508,10 +509,10 @@ describe('dashboard', () => {
 
 			await user.click(screen.getByRole('button', { name: 'Select Wedding' }));
 			expect(screen.getByText('1 selected')).toBeTruthy();
-			await user.click(screen.getByRole('button', { name: 'Recently updated' }));
-			expect(screen.getAllByRole('radio')).toHaveLength(4);
+			await user.click(screen.getByRole('button', { name: 'Sort by: Recently updated' }));
+			expect(screen.getAllByRole('menuitemradio')).toHaveLength(4);
 			await user.keyboard('{Escape}');
-			expect(screen.queryByRole('radio')).toBeNull();
+			expect(screen.queryByRole('menuitemradio')).toBeNull();
 			expect(screen.getByText('1 selected')).toBeTruthy();
 
 			await user.keyboard('{Escape}');
@@ -533,7 +534,7 @@ describe('dashboard in French', () => {
 			/^(Bonjour|Bon après-midi|Bonsoir)/
 		);
 		expect(screen.getByRole('searchbox', { name: 'Rechercher une galerie' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Modifiées récemment' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: /Modifiées récemment/ })).toBeTruthy();
 		expect(screen.getByText('2 galeries · 0 photo')).toBeTruthy();
 		expect(screen.queryByText(/Who’s in front/)).toBeNull();
 

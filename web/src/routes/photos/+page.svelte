@@ -11,9 +11,12 @@
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
+	import Select from '#lib/components/ui/Select/Select.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
-	import { Download, Images, Search, Trash2 } from '@lucide/svelte';
+	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
+	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
+	import { ArrowUpDown, Download, Images, ListFilter, Trash2 } from '@lucide/svelte';
 	import {
 		BULK_DELETE_LIMIT,
 		deletePhotos,
@@ -30,9 +33,14 @@
 	// svelte-ignore state_referenced_locally
 	let photos = $state<WorkspacePhoto[]>(data.photos ? [...data.photos] : []);
 	let query = $state('');
+	let resultsHeight = $state(0);
 	let galleryFilter = $state('all');
 	let typeFilter = $state<'all' | 'proof' | 'final'>('all');
 	let sortOrder = $state<'newest' | 'oldest'>('newest');
+	const sorts = $derived([
+		{ value: 'newest', label: m.photos_sort_newest() },
+		{ value: 'oldest', label: m.photos_sort_oldest() }
+	] as const);
 	const selectedIds = new SvelteSet<string>();
 	let selectionMode = $state(false);
 	let deleteConfirmOpen = $state(false);
@@ -54,6 +62,18 @@
 
 		return [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1]));
 	});
+	const filterLabels = $derived(
+		[
+			galleryFilter === 'all'
+				? undefined
+				: galleryOptions.find(([id]) => id === galleryFilter)?.[1],
+			typeFilter === 'all'
+				? undefined
+				: typeFilter === 'proof'
+					? m.photos_kind_proof()
+					: m.photos_kind_final()
+		].filter((label) => label !== undefined)
+	);
 
 	const matching = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
@@ -247,64 +267,62 @@
 
 	{#if !loadFailed}
 		{@const none = photos.length === 0}
-		<div
-			class="sticky top-2 z-[6] mb-4 flex flex-wrap items-center gap-2 rounded-[0.875rem] border border-border bg-panel p-2 sm:mb-[1.375rem] sm:gap-3.5 sm:py-2.5 sm:pr-3 sm:pl-4 {none
-				? 'opacity-55'
-				: ''}"
+		<WorkspaceToolbar
+			class="mb-4 sm:mb-[1.375rem]"
+			search={{
+				label: m.photos_search(),
+				value: query,
+				disabled: none,
+				oninput: (value) => (query = value)
+			}}
+			resultsHeight={visible.length ? resultsHeight : 0}
+			onclear={query.trim() || galleryFilter !== 'all' || typeFilter !== 'all'
+				? clearFilters
+				: undefined}
 		>
-			<label
-				class="flex min-w-40 flex-1 items-center gap-2 rounded-md has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-focus/40 max-sm:basis-full"
-			>
-				<Search size={16} aria-hidden="true" class="shrink-0" />
-				<input
-					type="search"
-					aria-label={m.photos_search()}
-					placeholder={m.photos_search()}
-					bind:value={query}
+			{#snippet filters()}
+				<ToolbarMenu
+					label={m.toolbar_filters()}
+					summary={filterLabels.join(', ') || m.toolbar_filters()}
+					icon={ListFilter}
 					disabled={none}
-					class="w-full border-0 bg-transparent text-[0.9375rem] outline-none placeholder:text-muted-foreground focus-visible:shadow-none focus-visible:outline-none [&::-webkit-search-cancel-button]:hidden"
+					activeCount={filterLabels.length}
+				>
+					<div class="grid gap-2 p-2">
+						<Select
+							class="w-full min-w-0"
+							aria-label={m.photos_filter_gallery()}
+							bind:value={galleryFilter}
+						>
+							<option value="all">{m.photos_filter_gallery_all()}</option>
+							{#each galleryOptions as [id, label] (id)}
+								<option value={id}>{label}</option>
+							{/each}
+						</Select>
+						<Select
+							class="w-full min-w-0"
+							aria-label={m.photos_filter_type()}
+							bind:value={typeFilter}
+						>
+							<option value="all">{m.photos_filter_type_all()}</option>
+							<option value="proof">{m.photos_kind_proof()}</option>
+							<option value="final">{m.photos_kind_final()}</option>
+						</Select>
+					</div>
+				</ToolbarMenu>
+			{/snippet}
+			{#snippet sort()}
+				<ToolbarMenu
+					label={m.photos_sort()}
+					summary={sorts[sortOrder === 'newest' ? 0 : 1].label}
+					icon={ArrowUpDown}
+					value={sortOrder}
+					options={sorts}
+					disabled={none}
+					onchange={(value) => (sortOrder = value)}
 				/>
-			</label>
-			<label class="flex items-center gap-1.5 text-sm">
-				<span class="sr-only">{m.photos_filter_gallery()}</span>
-				<select
-					aria-label={m.photos_filter_gallery()}
-					bind:value={galleryFilter}
-					disabled={none}
-					class="rounded-md border border-border bg-panel px-2 py-1.5 text-sm"
-				>
-					<option value="all">{m.photos_filter_gallery_all()}</option>
-					{#each galleryOptions as [id, label] (id)}
-						<option value={id}>{label}</option>
-					{/each}
-				</select>
-			</label>
-			<label class="flex items-center gap-1.5 text-sm">
-				<span class="sr-only">{m.photos_filter_type()}</span>
-				<select
-					aria-label={m.photos_filter_type()}
-					bind:value={typeFilter}
-					disabled={none}
-					class="rounded-md border border-border bg-panel px-2 py-1.5 text-sm"
-				>
-					<option value="all">{m.photos_filter_type_all()}</option>
-					<option value="proof">{m.photos_kind_proof()}</option>
-					<option value="final">{m.photos_kind_final()}</option>
-				</select>
-			</label>
-			<label class="flex items-center gap-1.5 text-sm">
-				<span class="sr-only">{m.photos_sort()}</span>
-				<select
-					aria-label={m.photos_sort()}
-					bind:value={sortOrder}
-					disabled={none}
-					class="rounded-md border border-border bg-panel px-2 py-1.5 text-sm"
-				>
-					<option value="newest">{m.photos_sort_newest()}</option>
-					<option value="oldest">{m.photos_sort_oldest()}</option>
-				</select>
-			</label>
-		</div>
+			{/snippet}
+		</WorkspaceToolbar>
 	{/if}
 
 	{#if loadFailed}
@@ -321,7 +339,7 @@
 			<Button variant="outline" onclick={clearFilters}>{m.photos_clear_filters()}</Button>
 		</EmptyState>
 	{:else}
-		<ul aria-label={m.photos_head()} class={GRID_CLASSES.grid}>
+		<ul bind:clientHeight={resultsHeight} aria-label={m.photos_head()} class={GRID_CLASSES.grid}>
 			{#each visible as entry (entry.id)}
 				{@const name = `${galleryLabel(entry)} — ${entry.original_name} — ${
 					entry.kind === 'final' ? m.photos_kind_final() : m.photos_kind_proof()

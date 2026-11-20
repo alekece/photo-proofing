@@ -1,11 +1,22 @@
+import { SvelteSet } from 'svelte/reactivity';
 import type { LiveEvents } from '#lib/events.js';
-import { listActivity, type ActivityEvent, type ActivityFilters, type ActivityPage } from './api';
+import {
+	listActivity,
+	type ActivityEvent,
+	type ActivityFilters,
+	type ActivityPage,
+	type ActivitySort
+} from './api';
 
 export type { ActivityEvent, ActivityFilters } from './api';
 
 /** Newest first, as the API lists them. */
 function byRecency(a: ActivityEvent, b: ActivityEvent): number {
-	return b.last_at.localeCompare(a.last_at) || b.id.localeCompare(a.id);
+	// Without the UTC suffix, a whole second sorts before its fractional offsets.
+	const left = a.last_at.replace(/Z$/, '');
+	const right = b.last_at.replace(/Z$/, '');
+
+	return left === right ? b.id.localeCompare(a.id) : left > right ? -1 : 1;
 }
 
 /**
@@ -20,20 +31,38 @@ export class ActivityFeed {
 	loaded = $state(false);
 	failed = $state(false);
 	filters = $state<ActivityFilters>({});
+	sort = $state<ActivitySort>('newest');
 	#galleryId: string | undefined;
 	#fetcher: typeof fetch;
-	#latest = 0;
+	#oldestBoundary: { cursor: string; event: ActivityEvent } | undefined;
 	#refreshes = 0;
 	#generation = 0;
+	#displayedGeneration = 0;
 	#pendingLoad: Promise<void> | undefined;
+	#pendingPage: Promise<void> | undefined;
+	#pendingOldestRefresh: Promise<void> | undefined;
+	#pageFailed = false;
 
 	constructor({ galleryId, fetcher = fetch }: { galleryId?: string; fetcher?: typeof fetch } = {}) {
 		this.#galleryId = galleryId;
 		this.#fetcher = fetcher;
 	}
 
-	#fetch(cursor?: string): Promise<ActivityPage> {
-		return listActivity({ ...this.filters, cursor }, this.#galleryId, this.#fetcher);
+	#fetch(cursor?: string, sort = this.sort): Promise<ActivityPage> {
+		return listActivity(
+			{ ...this.filters, sort: sort === 'oldest' ? sort : undefined, cursor },
+			this.#galleryId,
+			this.#fetcher
+		);
+	}
+
+	clearFilters(): void {
+		this.filters = {};
+		void this.load();
+	}
+
+	get needsReload(): boolean {
+		return this.failed && !this.loading && this.#generation !== this.#displayedGeneration;
 	}
 
 	/** Replaces the list with the first page of the current filters; the old list stays until then. */
@@ -48,36 +77,63 @@ export class ActivityFeed {
 	}
 
 	async #load(): Promise<void> {
-		const ticket = ++this.#latest;
+		const generation = ++this.#generation;
 
-		this.#generation += 1;
 		this.loading = true;
+		this.next = null;
+		this.#pendingPage = undefined;
+		this.#pendingOldestRefresh = undefined;
+		this.#pageFailed = false;
+		this.loadingMore = false;
 
 		try {
 			const page = await this.#fetch();
 
-			if (ticket !== this.#latest) return;
+			if (generation !== this.#generation) return;
 
 			this.events = page.events;
 			this.next = page.next;
+			this.#oldestBoundary = undefined;
+			this.#rememberOldestBoundary(page);
+			this.#displayedGeneration = generation;
 			this.failed = false;
 			this.loaded = true;
 		} catch {
-			if (ticket === this.#latest) this.failed = true;
+			if (generation === this.#generation) this.failed = true;
 		} finally {
-			if (ticket === this.#latest) this.loading = false;
+			if (generation === this.#generation) this.loading = false;
 		}
 	}
 
 	/** Appends the page after the last one shown. */
-	async loadMore(): Promise<void> {
+	loadMore(): Promise<void> {
 		const cursor = this.next;
 		const generation = this.#generation;
+		const refreshing = this.#pendingOldestRefresh;
 
-		if (cursor === null || this.loadingMore) return;
+		if (this.#pendingPage) return this.#pendingPage;
+
+		if (cursor === null || generation !== this.#displayedGeneration) return Promise.resolve();
+
+		if (refreshing) {
+			return refreshing.then(() => {
+				if (generation === this.#generation) return this.loadMore();
+			});
+		}
 
 		this.loadingMore = true;
+		const pending = this.#appendPage(cursor, generation).finally(() => {
+			if (this.#pendingPage === pending) {
+				this.#pendingPage = undefined;
+				this.loadingMore = false;
+			}
+		});
+		this.#pendingPage = pending;
 
+		return pending;
+	}
+
+	async #appendPage(cursor: string, generation: number): Promise<void> {
 		try {
 			const page = await this.#fetch(cursor);
 
@@ -85,42 +141,101 @@ export class ActivityFeed {
 
 			this.#merge(page.events);
 			this.next = page.next;
+			this.#rememberOldestBoundary(page);
+			this.#pageFailed = false;
 			this.failed = false;
 		} catch {
-			if (generation === this.#generation) this.failed = true;
-		} finally {
-			this.loadingMore = false;
+			if (generation === this.#generation) {
+				this.#pageFailed = true;
+				this.failed = true;
+			}
 		}
 	}
 
+	#rememberOldestBoundary(page: ActivityPage): void {
+		const cursor = page.next ?? page.tail;
+		const event = page.events.at(-1);
+
+		if (this.sort === 'oldest' && cursor && event) this.#oldestBoundary = { cursor, event };
+	}
+
 	/**
-	 * Folds the latest first page into the list, keeping every older page already loaded. It waits
-	 * for a pending load and yields to one that starts meanwhile, since a load replaces the list.
+	 * Reconciles recent rows and, when an oldest-first list is exhausted, resumes forward from its
+	 * last page. A replacement load invalidates both kinds of refresh.
 	 */
-	async refresh(): Promise<void> {
+	refresh(): Promise<void> {
+		const request = this.#refresh();
+
+		if (this.sort !== 'oldest') return request;
+
+		const pending = request.finally(() => {
+			if (this.#pendingOldestRefresh === pending) this.#pendingOldestRefresh = undefined;
+		});
+		this.#pendingOldestRefresh = pending;
+
+		return pending;
+	}
+
+	async #refresh(): Promise<void> {
 		const ticket = ++this.#refreshes;
+		const generation = this.#generation;
+		const oldestFirst = this.sort === 'oldest';
+		const current = () => ticket === this.#refreshes && generation === this.#generation;
 
 		if (this.#pendingLoad) await this.#pendingLoad;
 
-		const generation = this.#generation;
+		if (!current() || this.loading) return;
+
+		if (generation !== this.#displayedGeneration) return this.load();
 
 		try {
-			const page = await this.#fetch();
+			// Oldest-first paging and refresh must read in sequence: a contact edit can leave
+			// last_at unchanged, so overlapping snapshots cannot be ordered by that timestamp.
+			if (oldestFirst && this.#pendingPage) {
+				await this.#pendingPage;
+				if (!current()) return;
+			}
 
-			if (ticket !== this.#refreshes || generation !== this.#generation) return;
+			const page = await this.#fetch(undefined, 'newest');
 
-			const oldest = this.events.at(-1);
-			const fresh = page.events.at(-1);
-			const deeper = oldest !== undefined && (fresh === undefined || byRecency(fresh, oldest) < 0);
+			if (!current()) return;
 
-			this.#merge(page.events);
+			let incoming = page.events;
 
-			if (!deeper) this.next = page.next;
+			if (oldestFirst) {
+				if (this.next !== null) {
+					const loadedIds = new SvelteSet(this.events.map(({ id }) => id));
+					incoming = page.events.filter(({ id }) => loadedIds.has(id));
+				} else {
+					const boundary = this.#oldestBoundary;
+					incoming = boundary
+						? page.events.filter((event) => byRecency(event, boundary.event) >= 0)
+						: [];
 
-			this.failed = false;
+					// Reconcile recent rows behind the cursor, but read forward without skipping gaps.
+					if (incoming.length < page.events.length) {
+						const continuation = await this.#fetch(boundary?.cursor, 'oldest');
+						if (!current()) return;
+
+						incoming = [...incoming, ...continuation.events];
+						this.next = continuation.next;
+						this.#rememberOldestBoundary(continuation);
+					}
+				}
+			} else {
+				const oldest = this.events.at(-1);
+				const fresh = page.events.at(-1);
+				const deeper =
+					oldest !== undefined && (fresh === undefined || byRecency(fresh, oldest) < 0);
+
+				if (!deeper && !this.#pageFailed) this.next = page.next;
+			}
+
+			this.#merge(incoming);
+			this.failed = this.#pageFailed;
 			this.loaded = true;
 		} catch {
-			if (ticket === this.#refreshes && generation === this.#generation) this.failed = true;
+			if (current()) this.failed = true;
 		}
 	}
 
@@ -129,7 +244,8 @@ export class ActivityFeed {
 
 		for (const event of [...this.events, ...incoming]) merged[event.id] = event;
 
-		this.events = Object.values(merged).sort(byRecency);
+		const direction = this.sort === 'oldest' ? -1 : 1;
+		this.events = Object.values(merged).sort((a, b) => direction * byRecency(a, b));
 	}
 
 	/** Refreshes on each activity notification (of its gallery, when scoped) and after a resync. */

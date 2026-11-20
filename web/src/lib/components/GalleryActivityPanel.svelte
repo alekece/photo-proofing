@@ -14,6 +14,7 @@
 	const feed = new ActivityFeed({ galleryId });
 
 	let contacts = $state<{ id: string; name: string }[]>([]);
+	let resultsHeight = $state(0);
 
 	const filtered = $derived(Object.keys(feed.filters).length > 0);
 
@@ -30,5 +31,11 @@
 	});
 </script>
 
-<ActivityFilters {feed} {contacts} />
-<ActivityTimeline {feed} {filtered} showGallery={false} />
+<ActivityFilters {feed} {contacts} {resultsHeight} />
+<ActivityTimeline
+	{feed}
+	{filtered}
+	showGallery={false}
+	bind:resultsHeight
+	onclear={() => feed.clearFilters()}
+/>

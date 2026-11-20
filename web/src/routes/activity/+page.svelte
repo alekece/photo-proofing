@@ -18,6 +18,7 @@
 
 	let signingOut = $state(false);
 	let signOutError = $state('');
+	let resultsHeight = $state(0);
 
 	const activity = $derived(createSessionActivity(data.idleTimeoutMs));
 	const filtered = $derived(Object.keys(feed.filters).length > 0);
@@ -68,6 +69,6 @@
 		<p class="mt-1 text-sm text-muted-foreground">{m.activity_subtitle()}</p>
 	</div>
 
-	<ActivityFilters {feed} galleries={data.galleries} contacts={data.contacts} />
-	<ActivityTimeline {feed} {filtered} />
+	<ActivityFilters {feed} galleries={data.galleries} contacts={data.contacts} {resultsHeight} />
+	<ActivityTimeline {feed} {filtered} bind:resultsHeight onclear={() => feed.clearFilters()} />
 </main>

@@ -91,6 +91,7 @@ describe('/photos page', () => {
 
 		const search = screen.getByRole('searchbox', { name: 'Search by gallery or photo' });
 		await user.type(search, 'portraits');
+		expect(document.activeElement).toBe(search);
 		expect(within(list()).queryByText('Wedding')).toBeNull();
 		expect(within(list()).getByText('Portraits')).toBeTruthy();
 
@@ -105,6 +106,10 @@ describe('/photos page', () => {
 		await user.click(screen.getByRole('button', { name: 'Clear search and filters' }));
 		expect(within(list()).getByText('Wedding')).toBeTruthy();
 		expect(within(list()).getByText('Portraits')).toBeTruthy();
+		await user.type(search, 'missing');
+		await user.click(screen.getByRole('button', { name: 'Reset' }));
+		expect(screen.getByRole('searchbox', { name: 'Search by gallery or photo' })).toBe(search);
+		expect(search).toHaveProperty('value', '');
 	});
 
 	it('filters by gallery and by type', async () => {
@@ -115,6 +120,7 @@ describe('/photos page', () => {
 		]);
 		const list = () => screen.getByRole('list', { name: 'All Photos' });
 
+		await user.click(screen.getByRole('button', { name: 'Filters' }));
 		await user.selectOptions(screen.getByRole('combobox', { name: 'Gallery' }), 'g2');
 		expect(within(list()).queryByText('Wedding')).toBeNull();
 		expect(within(list()).getByText('Portraits')).toBeTruthy();
@@ -137,7 +143,8 @@ describe('/photos page', () => {
 
 		expect(titlesInOrder()[0]).toMatch(/Newer/);
 
-		await user.selectOptions(screen.getByRole('combobox', { name: 'Sort' }), 'oldest');
+		await user.click(screen.getByRole('button', { name: 'Sort: Newest first' }));
+		await user.click(screen.getByRole('menuitemradio', { name: 'Oldest first' }));
 		expect(titlesInOrder()[0]).toMatch(/Older/);
 	});
 

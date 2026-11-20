@@ -28,6 +28,7 @@ describe('ActivityFilters', () => {
 		const { feed, load } = setup();
 		const user = userEvent.setup();
 
+		await user.click(screen.getByRole('button', { name: 'Filters' }));
 		await user.selectOptions(screen.getByRole('combobox', { name: 'Gallery' }), 'g1');
 		await user.selectOptions(screen.getByRole('combobox', { name: 'Visitor' }), 'anonymous');
 		await user.selectOptions(screen.getByRole('combobox', { name: 'Date' }), '7d');
@@ -38,26 +39,26 @@ describe('ActivityFilters', () => {
 		expect(screen.getByRole('option', { name: 'Anonymous client' })).toBeTruthy();
 	});
 
-	it('picks one kind at a time and clears it with All', async () => {
+	it('picks a kind and resets filters independently of sort', async () => {
 		const { feed } = setup();
 		const user = userEvent.setup();
-		const all = screen.getByRole('button', { name: 'All' });
 
-		expect(all.getAttribute('aria-pressed')).toBe('true');
-
-		await user.click(screen.getByRole('button', { name: 'Views' }));
-
+		await user.click(screen.getByRole('button', { name: 'Filters' }));
+		await user.selectOptions(screen.getByRole('combobox', { name: 'Type' }), 'open');
 		expect(feed.filters.kind).toBe('open');
-		expect(screen.getByRole('button', { name: 'Views' }).getAttribute('aria-pressed')).toBe('true');
+		expect(screen.getByRole('button', { name: 'Filters: Views' }).textContent).toContain('1');
 
-		await user.click(all);
-
+		await user.click(screen.getByRole('button', { name: 'Sort by: Newest first' }));
+		await user.click(screen.getByRole('menuitemradio', { name: 'Oldest first' }));
+		await user.click(screen.getByRole('button', { name: 'Reset' }));
 		expect(feed.filters.kind).toBeUndefined();
+		expect(feed.sort).toBe('oldest');
 	});
 
-	it('leaves the gallery choice out of a gallery-scoped feed', () => {
+	it('leaves the gallery choice out of a gallery-scoped feed', async () => {
 		setup({});
 
+		await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
 		expect(screen.queryByRole('combobox', { name: 'Gallery' })).toBeNull();
 		expect(screen.getByRole('combobox', { name: 'Visitor' })).toBeTruthy();
 	});
