@@ -86,13 +86,6 @@ function setup(
 	settings: WorkspaceSettings = { ...DEFAULT_SETTINGS, studioName: 'Studio Lune' }
 ) {
 	const onsave = vi.fn().mockResolvedValue(saves);
-	let scheduledRun: (() => void) | null = null;
-	const schedule = vi.fn((_field: string, run: () => void) => {
-		scheduledRun = run;
-	});
-	const cancel = vi.fn(() => {
-		scheduledRun = null;
-	});
 	const gallery = { ...baseGallery, ...over };
 	const view = render(GalleryDesignPanel, {
 		gallery,
@@ -100,17 +93,12 @@ function setup(
 		heroId: gallery.hero_id,
 		focalPoint: gallery.focal_point,
 		active: true,
-		onsave,
-		schedule,
-		cancel
+		onsave
 	});
 
 	return {
 		...view,
 		onsave,
-		schedule,
-		cancel,
-		flushFocal: () => scheduledRun?.(),
 		user: userEvent.setup()
 	};
 }
@@ -171,28 +159,28 @@ describe('GalleryDesignPanel', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('orders cover image, Change/Remove, then focal point ahead of the compact sections', async () => {
+	it('uses one cover preview as the focal control and styles Remove cover destructively', async () => {
 		const { container } = setup({ hero_id: 'p1' });
 
 		await waitFor(() => expect(screen.getAllByText('Studio Lune').length).toBeGreaterThan(0));
 
-		const image = container.querySelector('[data-slot="design-cover-image"]');
+		const pad = screen.getByRole('button', { name: 'Cover focal point' });
 		const actions = container.querySelector('[data-slot="design-cover-actions"]');
-		const focal = container.querySelector('[data-slot="design-cover-focal"]');
+		const change = screen.getByRole('button', { name: 'Change cover' });
+		const remove = screen.getByRole('button', { name: 'Remove cover' });
 
-		expect(image).toBeTruthy();
-		expect(actions).toBeTruthy();
-		expect(focal).toBeTruthy();
-		expect(
-			image!.compareDocumentPosition(actions!) & Node.DOCUMENT_POSITION_FOLLOWING
-		).toBeTruthy();
-		expect(
-			actions!.compareDocumentPosition(focal!) & Node.DOCUMENT_POSITION_FOLLOWING
-		).toBeTruthy();
+		expect(pad.className).toContain('aspect-[3/2]');
+		expect(pad.closest('section')?.querySelectorAll('img')).toHaveLength(1);
+		expect(actions?.contains(change)).toBe(true);
+		expect(actions?.contains(remove)).toBe(true);
+		expect(remove.className).toContain('border-danger');
+		expect(remove.className).toContain('text-danger');
+		expect(within(pad.closest('section')!).queryByText(/\d+%/)).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Reset' })).toBeNull();
 
 		const coverStyleHeading = screen.getByRole('heading', { name: 'Cover style' });
 		expect(
-			focal!.compareDocumentPosition(coverStyleHeading) & Node.DOCUMENT_POSITION_FOLLOWING
+			pad.compareDocumentPosition(coverStyleHeading) & Node.DOCUMENT_POSITION_FOLLOWING
 		).toBeTruthy();
 
 		const typographyHeading = screen.getByRole('heading', { name: 'Typography' });
@@ -240,7 +228,7 @@ describe('GalleryDesignPanel', () => {
 			waitingPhoto('p_wait'),
 			readyPhoto('p2', 'Dance.jpg')
 		]);
-		const { container, onsave, user } = setup();
+		const { container, onsave, user } = setup({ focal_point: { x: 70, y: 25 } });
 
 		await user.click(screen.getByRole('button', { name: 'Select cover' }));
 		const dialog = screen.getByRole('dialog', { name: 'Choose a cover photo' });
@@ -260,12 +248,25 @@ describe('GalleryDesignPanel', () => {
 		expect(screen.getByRole('img', { name: 'Gallery cover' }).getAttribute('src')).toBe(
 			'/api/v1/galleries/g1/photos/p1/preview'
 		);
+		expect((pad.querySelector('img') as HTMLImageElement).style.objectPosition).toBe('70% 25%');
+		await user.click(screen.getByRole('button', { name: 'Change cover' }));
+		await user.click(screen.getByRole('button', { name: 'Use Dance.jpg as cover' }));
+		expect((pad.querySelector('img') as HTMLImageElement).style.objectPosition).toBe('70% 25%');
 		expect((await axe(container)).violations).toEqual([]);
 
 		await user.click(screen.getByRole('button', { name: 'Remove cover' }));
 		expect(onsave).toHaveBeenCalledWith({ hero_id: null });
 		expect(screen.getByRole('button', { name: 'Select cover' })).toBeTruthy();
 		expect(pad.disabled).toBe(true);
+		await user.click(screen.getByRole('button', { name: 'Select cover' }));
+		await user.click(screen.getByRole('button', { name: 'Use Ceremony.jpg as cover' }));
+		expect((pad.querySelector('img') as HTMLImageElement).style.objectPosition).toBe('70% 25%');
+		expect(onsave.mock.calls.map(([patch]) => patch)).toEqual([
+			{ hero_id: 'p1' },
+			{ hero_id: 'p2' },
+			{ hero_id: null },
+			{ hero_id: 'p1' }
+		]);
 	});
 
 	it('switches cover templates live in the embedded preview and reverts on failure', async () => {
@@ -292,44 +293,56 @@ describe('GalleryDesignPanel', () => {
 		expect(container.querySelector('[data-cover-layout="full_bleed"]')).toBeTruthy();
 	});
 
-	it('updates focal point immediately on pointer drag, arrow keys, and Reset while debouncing PATCH saves', async () => {
-		const { onsave, schedule, cancel, flushFocal, user } = setup({ hero_id: 'p1' });
-		const pad = screen.getByRole('button', { name: 'Cover focal point (50%, 35%)' });
+	it('moves the pointer live but saves once on release and never on cancel', async () => {
+		const { onsave } = setup({ hero_id: 'p1' });
+		const pad = screen.getByRole('button', { name: /^Cover focal point/ });
 
 		vi.spyOn(pad, 'getBoundingClientRect').mockReturnValue({
 			x: 0,
 			y: 0,
 			left: 0,
 			top: 0,
-			right: 200,
+			right: 100,
 			bottom: 100,
-			width: 200,
+			width: 100,
 			height: 100,
 			toJSON: () => ({})
 		});
 
+		const coverImg = screen.getByRole('img', { name: 'Gallery cover' }) as HTMLImageElement;
 		await fireEvent.pointerDown(pad, { clientX: 50, clientY: 80, pointerId: 1 });
 		await fireEvent.pointerMove(pad, { clientX: 60, clientY: 70, pointerId: 1 });
-		await fireEvent.pointerUp(pad, { clientX: 60, clientY: 70, pointerId: 1 });
-
-		const coverImg = screen.getByRole('img', { name: 'Gallery cover' }) as HTMLImageElement;
-		expect(coverImg.style.objectPosition).toBe('30% 70%');
+		await fireEvent.pointerMove(pad, { clientX: 80, clientY: 90, pointerId: 2 });
+		expect(coverImg.style.objectPosition).toBe('60% 70%');
 		expect(onsave).not.toHaveBeenCalled();
-		expect(schedule).toHaveBeenCalledWith('focal_point', expect.any(Function));
+		await fireEvent.pointerUp(pad, { clientX: 70, clientY: 25, pointerId: 1 });
+		expect(onsave).toHaveBeenCalledExactlyOnceWith({ focal_point: { x: 70, y: 25 } });
+		await fireEvent.lostPointerCapture(pad, { pointerId: 1 });
+		expect(coverImg.style.objectPosition).toBe('70% 25%');
 
+		await fireEvent.pointerDown(pad, { clientX: 15, clientY: 70, pointerId: 1 });
+		await fireEvent.pointerCancel(pad, { pointerId: 1 });
+		expect(coverImg.style.objectPosition).toBe('70% 25%');
+		await fireEvent.pointerDown(pad, { clientX: 35, clientY: 10, pointerId: 1 });
+		await fireEvent.lostPointerCapture(pad, { pointerId: 1 });
+		expect(coverImg.style.objectPosition).toBe('70% 25%');
+		await fireEvent.pointerDown(pad, { clientX: 70, clientY: 25, pointerId: 1 });
+		await fireEvent.pointerUp(pad, { clientX: 70, clientY: 25, pointerId: 1 });
+		expect(onsave).toHaveBeenCalledOnce();
+	});
+
+	it('nudges and clamps focal position from the keyboard, restoring the last successful point on failure', async () => {
+		const { onsave } = setup({ hero_id: 'p1', focal_point: { x: 95, y: 35 } });
+		const pad = screen.getByRole('button', { name: /^Cover focal point/ });
+		const cover = screen.getByRole('img', { name: 'Gallery cover' });
+		await fireEvent.keyDown(pad, { key: 'ArrowRight', shiftKey: true });
+		expect(onsave).toHaveBeenLastCalledWith({ focal_point: { x: 100, y: 35 } });
 		await fireEvent.keyDown(pad, { key: 'ArrowRight' });
-		expect(coverImg.style.objectPosition).toBe('31% 70%');
-
-		await fireEvent.keyDown(pad, { key: 'ArrowUp', shiftKey: true });
-		expect(coverImg.style.objectPosition).toBe('31% 60%');
-
-		flushFocal();
-		await waitFor(() => expect(onsave).toHaveBeenCalledWith({ focal_point: { x: 31, y: 60 } }));
-
-		await user.click(screen.getByRole('button', { name: 'Reset' }));
-		expect(cancel).toHaveBeenCalledWith('focal_point');
-		expect(onsave).toHaveBeenCalledWith({ focal_point: { x: 50, y: 35 } });
-		expect(coverImg.style.objectPosition).toBe('50% 35%');
+		expect(onsave).toHaveBeenCalledOnce();
+		onsave.mockResolvedValueOnce(false);
+		await fireEvent.keyDown(pad, { key: 'ArrowUp' });
+		expect(onsave).toHaveBeenLastCalledWith({ focal_point: { x: 100, y: 34 } });
+		await waitFor(() => expect(cover.style.objectPosition).toBe('100% 35%'));
 	});
 
 	it('saves and reverts layout, typography, grid density, and spacing while updating the live preview immediately', async () => {
@@ -515,35 +528,27 @@ describe('GalleryDesignPanel', () => {
 		const stalePromise = new Promise<boolean>((resolve) => {
 			resolveStale = resolve;
 		});
+
 		const onsave = vi
 			.fn()
 			.mockImplementationOnce(() => stalePromise)
 			.mockResolvedValue(true);
-		let scheduledRun = null as (() => void) | null;
-		const runScheduled = () => scheduledRun?.();
-		const schedule = vi.fn((_field: string, run: () => void) => {
-			scheduledRun = run;
-		});
-		const cancel = vi.fn();
 		const user = userEvent.setup();
 		const view = render(GalleryDesignPanel, {
 			gallery: { ...baseGallery, hero_id: 'p1' },
 			heroId: 'p1',
 			focalPoint: { x: 50, y: 35 },
 			active: true,
-			onsave,
-			schedule,
-			cancel
+			onsave
 		});
 
-		const pad = screen.getByRole('button', { name: 'Cover focal point (50%, 35%)' });
+		const pad = screen.getByRole('button', { name: 'Cover focal point' });
 		await fireEvent.keyDown(pad, { key: 'ArrowRight', shiftKey: true });
 		const coverImg = () => screen.getByRole('img', { name: 'Gallery cover' }) as HTMLImageElement;
 		expect(coverImg().style.objectPosition).toBe('60% 35%');
 
 		// Fire first focal save (60, 35), then nudge again to (70, 35) while it is in flight,
 		// and also rerender with a concurrent cover_layout save that still carries old focal_point (50, 35).
-		runScheduled();
 		await fireEvent.keyDown(pad, { key: 'ArrowRight', shiftKey: true });
 		expect(coverImg().style.objectPosition).toBe('70% 35%');
 
@@ -557,9 +562,7 @@ describe('GalleryDesignPanel', () => {
 			heroId: 'p1',
 			focalPoint: { x: 70, y: 35 },
 			active: true,
-			onsave,
-			schedule,
-			cancel
+			onsave
 		});
 		expect(coverImg().style.objectPosition).toBe('70% 35%');
 
@@ -579,9 +582,7 @@ describe('GalleryDesignPanel', () => {
 			heroId: 'p1',
 			focalPoint: { x: 70, y: 35 },
 			active: true,
-			onsave,
-			schedule,
-			cancel
+			onsave
 		});
 		const ctaRow = screen.getByRole('button', { name: 'View the gallery' }).parentElement;
 		expect(ctaRow?.classList.contains('flex-wrap')).toBe(true);
@@ -593,9 +594,7 @@ describe('GalleryDesignPanel', () => {
 			heroId: null,
 			focalPoint: { x: 50, y: 35 },
 			active: true,
-			onsave,
-			schedule,
-			cancel
+			onsave
 		});
 		await user.click(screen.getByRole('button', { name: 'Select cover' }));
 		expect((await screen.findByRole('alert')).textContent).toMatch(/couldn’t load the preview/i);

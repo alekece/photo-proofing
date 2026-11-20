@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { Check, Eye, ImagePlus, Maximize2, RotateCcw, X } from '@lucide/svelte';
+	import { onDestroy } from 'svelte';
+	import { Check, Eye, ImagePlus, Maximize2, X } from '@lucide/svelte';
 	import ClientGallery from '#lib/components/ClientGallery.svelte';
 	import ClientPreview from '#lib/components/ClientPreview.svelte';
 	import PreviewFrame from '#lib/components/PreviewFrame.svelte';
@@ -44,11 +45,10 @@
 	];
 
 	/**
-	 * Studio `Design` view: compact controls (cover image, Change/Remove, focal point, then the
+	 * Studio `Design` view: compact controls (cover with focal point, then the
 	 * cover style/typography/grid sections) alongside a live client preview. At `lg` and up this is
 	 * a one-third/two-thirds split with the inline preview growing with the page (no fixed height
-	 * or own scrollbar); below `lg` the inline stage is omitted and "Open full preview" (plus the
-	 * gallery content header's Preview action) opens the same full-screen `ClientPreview` modal.
+	 * or own scrollbar); below `lg` only "Open full preview" in Design remains available.
 	 */
 	let {
 		gallery,
@@ -56,20 +56,23 @@
 		heroId = $bindable(),
 		heroRevision,
 		focalPoint = $bindable(),
+		focalReady = true,
 		active = true,
 		onsave,
-		schedule,
-		cancel
+		onsavefocal = async (point: FocalPoint) =>
+			(await onsave({ focal_point: point })) ? point : undefined,
+		onbeforepreview
 	}: {
 		gallery: Gallery;
 		settings?: WorkspaceSettings;
 		heroId?: string | null;
 		heroRevision?: number;
 		focalPoint?: FocalPoint;
+		focalReady?: boolean;
 		active?: boolean;
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
-		schedule?: (field: string, run: () => void) => void;
-		cancel?: (field: string) => void;
+		onsavefocal?: (point: FocalPoint) => Promise<FocalPoint | undefined>;
+		onbeforepreview?: () => void;
 	} = $props();
 
 	const events = getLiveEvents();
@@ -97,13 +100,21 @@
 	const savedFocal = $derived<FocalPoint>(gallery.focal_point ?? { ...DEFAULT_FOCAL_POINT });
 	// svelte-ignore state_referenced_locally
 	let localFocal = $state<FocalPoint>(focalPoint ?? savedFocal);
-	let focalDirty = false;
+	let pendingFocal = false;
+	let latestFocal = 0;
+	let galleryRevision = 0;
+	let disposed = false;
+	onDestroy(() => (disposed = true));
+	const focalHelpId = $props.id();
+	let drag: { pointerId: number; coverId: string; initial: FocalPoint } | null = null;
 	// svelte-ignore state_referenced_locally
 	let lastGalleryId = gallery.id;
 	// svelte-ignore state_referenced_locally
 	let lastSavedDesign = savedDesign;
 	// svelte-ignore state_referenced_locally
 	let lastSavedFocal = savedFocal;
+	// svelte-ignore state_referenced_locally
+	let committedFocal = savedFocal;
 
 	$effect.pre(() => {
 		if (gallery.id !== lastGalleryId) {
@@ -113,7 +124,10 @@
 			committed = {};
 			overrides = {};
 			fieldSeq = {};
-			focalDirty = false;
+			pendingFocal = false;
+			galleryRevision++;
+			drag = null;
+			committedFocal = savedFocal;
 			localFocal = savedFocal;
 			focalPoint = savedFocal;
 			proofPhotos = [];
@@ -139,7 +153,10 @@
 		if (savedFocal.x !== lastSavedFocal.x || savedFocal.y !== lastSavedFocal.y) {
 			lastSavedFocal = savedFocal;
 
-			if (!focalDirty) {
+			if (!pendingFocal) {
+				committedFocal = savedFocal;
+			}
+			if (!pendingFocal && !drag) {
 				localFocal = savedFocal;
 				focalPoint = savedFocal;
 			}
@@ -148,7 +165,6 @@
 
 	let pickingCover = $state(false);
 	let expanded = $state(false);
-	let draggingFocal = $state(false);
 	let previewMode = $state<PreviewViewport>('desktop');
 	// svelte-ignore state_referenced_locally
 	let opened = $state(active);
@@ -167,9 +183,6 @@
 	const hasCover = $derived(localHeroId !== null);
 	const coverImageUrl = $derived(
 		localHeroId ? previewUrl(gallery.id, localHeroId, 'photos', heroRevision) : undefined
-	);
-	const isDefaultFocal = $derived(
-		localFocal.x === DEFAULT_FOCAL_POINT.x && localFocal.y === DEFAULT_FOCAL_POINT.y
 	);
 	// Carries unsaved local edits (layout, cover, focal point...) into both the embedded live
 	// preview and the "Open full preview" overlay, so neither waits on a PATCH to reflect them.
@@ -316,37 +329,21 @@
 	}
 
 	async function persistFocalPoint(next: FocalPoint) {
-		const saved = await onsave({ focal_point: next });
-
-		if (localFocal.x !== next.x || localFocal.y !== next.y) return;
-
-		focalDirty = false;
-
-		if (saved) {
-			lastSavedFocal = next;
-		} else {
-			setFocalState(gallery.focal_point ?? { ...DEFAULT_FOCAL_POINT });
-		}
-	}
-
-	function queueFocalSave(next: FocalPoint) {
-		focalDirty = true;
+		const galleryId = gallery.id;
+		const revision = galleryRevision;
+		const sequence = ++latestFocal;
+		pendingFocal = true;
 		setFocalState(next);
+		const confirmed = await onsavefocal(next).catch(() => undefined);
 
-		if (schedule) {
-			schedule('focal_point', () => void persistFocalPoint(next));
-		} else {
-			void persistFocalPoint(next);
-		}
-	}
+		if (disposed || gallery.id !== galleryId || galleryRevision !== revision) return;
 
-	function resetFocalPoint() {
-		cancel?.('focal_point');
-		const reset = { ...DEFAULT_FOCAL_POINT };
+		// An older successful write is still the rollback point for newer edits.
+		if (confirmed) committedFocal = confirmed;
+		if (sequence !== latestFocal) return;
 
-		focalDirty = true;
-		setFocalState(reset);
-		void persistFocalPoint(reset);
+		pendingFocal = false;
+		if (!drag) setFocalState(committedFocal);
 	}
 
 	function clampPercent(value: number): number {
@@ -363,32 +360,59 @@
 
 		if (x === localFocal.x && y === localFocal.y) return;
 
-		queueFocalSave({ x, y });
+		setFocalState({ x, y });
 	}
 
 	function onFocalPointerDown(event: PointerEvent & { currentTarget: HTMLButtonElement }) {
-		if (!hasCover) return;
+		if (!focalReady || !localHeroId || drag || event.button !== 0) return;
 
-		draggingFocal = true;
+		drag = { pointerId: event.pointerId, coverId: localHeroId, initial: localFocal };
 		event.currentTarget.setPointerCapture?.(event.pointerId);
 		updateFocalFromPointer(event);
 	}
 
 	function onFocalPointerMove(event: PointerEvent & { currentTarget: HTMLButtonElement }) {
-		if (!draggingFocal || !hasCover) return;
+		if (!drag || drag.pointerId !== event.pointerId || drag.coverId !== localHeroId) return;
 
 		updateFocalFromPointer(event);
 	}
 
 	function onFocalPointerUp(event: PointerEvent & { currentTarget: HTMLButtonElement }) {
-		if (!draggingFocal) return;
+		if (!drag || drag.pointerId !== event.pointerId) return;
 
-		draggingFocal = false;
-		event.currentTarget.releasePointerCapture?.(event.pointerId);
+		if (drag.coverId !== localHeroId) {
+			cancelFocalDrag();
+			return;
+		}
+
+		updateFocalFromPointer(event);
+		if (drag.initial.x === localFocal.x && drag.initial.y === localFocal.y) {
+			cancelFocalDrag();
+			return;
+		}
+		drag = null;
+		void persistFocalPoint(localFocal);
 	}
 
+	function cancelFocalDrag() {
+		if (!drag) return;
+
+		const { initial } = drag;
+		drag = null;
+		setFocalState(pendingFocal ? initial : committedFocal);
+	}
+
+	function onFocalPointerCancel(event: PointerEvent & { currentTarget: HTMLButtonElement }) {
+		if (drag?.pointerId === event.pointerId) cancelFocalDrag();
+	}
+
+	$effect.pre(() => {
+		const cover = localHeroId;
+		if (!active || (drag && cover !== drag.coverId)) cancelFocalDrag();
+	});
+
 	function onFocalKeydown(event: KeyboardEvent) {
-		if (!hasCover) return;
+		if (!focalReady || !hasCover || drag) return;
 
 		const step = event.shiftKey ? 10 : 1;
 		const deltas: Record<string, [number, number]> = {
@@ -407,7 +431,7 @@
 
 		if (x === localFocal.x && y === localFocal.y) return;
 
-		queueFocalSave({ x, y });
+		void persistFocalPoint({ x, y });
 	}
 </script>
 
@@ -453,7 +477,20 @@
 {/snippet}
 
 <div class="grid gap-4">
-	<h2 class="text-2xl leading-tight">{m.tab_design()}</h2>
+	<div class="flex flex-wrap items-center justify-between gap-2">
+		<h2 class="text-2xl leading-tight">{m.tab_design()}</h2>
+		<Button
+			variant="outline"
+			size="sm"
+			onclick={() => {
+				onbeforepreview?.();
+				expanded = true;
+			}}
+		>
+			<Maximize2 size={14} aria-hidden="true" class="mr-1.5" />
+			{m.preview_open_full()}
+		</Button>
+	</div>
 
 	<div
 		data-slot="design-split"
@@ -465,10 +502,19 @@
 					{m.design_cover()}
 				</h3>
 
-				<div
+				<button
 					data-slot="design-cover-image"
-					aria-hidden="true"
-					class="relative aspect-[3/2] w-full overflow-hidden rounded-[0.625rem] border border-border bg-dark"
+					type="button"
+					disabled={!hasCover || !focalReady}
+					aria-label={m.design_focal_point_pad()}
+					aria-describedby={focalHelpId}
+					onpointerdown={onFocalPointerDown}
+					onpointermove={onFocalPointerMove}
+					onpointerup={onFocalPointerUp}
+					onpointercancel={onFocalPointerCancel}
+					onlostpointercapture={onFocalPointerCancel}
+					onkeydown={onFocalKeydown}
+					class="relative isolate aspect-[3/2] w-full cursor-crosshair touch-none overflow-hidden rounded-[0.625rem] border border-border bg-dark text-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-70"
 				>
 					{#if coverImageUrl}
 						<img
@@ -477,107 +523,67 @@
 							style:object-position="{localFocal.x}% {localFocal.y}%"
 							class="pointer-events-none size-full object-cover select-none"
 						/>
+						<span aria-hidden="true" class="pointer-events-none absolute inset-0 bg-dark/15"></span>
 					{:else}
 						<span
 							aria-hidden="true"
 							class="absolute inset-0 bg-[radial-gradient(80%_120%_at_20%_100%,#3a2a20,transparent_70%),linear-gradient(160deg,#2b211b,#16120f_70%)]"
 						></span>
+						<span
+							class="relative z-10 flex size-full items-center justify-center px-4 text-center text-xs font-medium text-panel/85"
+						>
+							{m.design_focal_point_empty()}
+						</span>
 					{/if}
-				</div>
 
-				<div data-slot="design-cover-actions" class="flex flex-wrap items-center gap-2">
+					<span
+						aria-hidden="true"
+						class="pointer-events-none absolute inset-y-0 left-1/3 w-px bg-panel/30"
+					></span>
+					<span
+						aria-hidden="true"
+						class="pointer-events-none absolute inset-y-0 left-2/3 w-px bg-panel/30"
+					></span>
+					<span
+						aria-hidden="true"
+						class="pointer-events-none absolute inset-x-0 top-1/3 h-px bg-panel/30"
+					></span>
+					<span
+						aria-hidden="true"
+						class="pointer-events-none absolute inset-x-0 top-2/3 h-px bg-panel/30"
+					></span>
+
+					{#if hasCover}
+						<span
+							aria-hidden="true"
+							style:left="{localFocal.x}%"
+							style:top="{localFocal.y}%"
+							class="pointer-events-none absolute size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-panel bg-foreground/55 shadow-[0_2px_8px_rgb(0_0_0/0.55)]"
+						>
+							<span
+								class="absolute top-1/2 left-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-panel"
+							></span>
+						</span>
+					{/if}
+				</button>
+				<span id={focalHelpId} class="sr-only">
+					{hasCover ? m.design_focal_point_keyboard() : m.design_focal_point_empty()}
+				</span>
+				<div data-slot="design-cover-actions" class="flex flex-wrap items-center gap-1">
 					<Button variant="outline" size="sm" onclick={() => (pickingCover = true)}>
-						<ImagePlus size={15} aria-hidden="true" class="mr-1.5" />
+						<ImagePlus size={15} aria-hidden="true" class="mr-1" />
 						{hasCover ? m.design_change_cover() : m.design_select_cover()}
 					</Button>
 					{#if hasCover}
-						<Button variant="ghost" size="sm" onclick={() => void chooseCover(null)}>
+						<Button
+							variant="outline"
+							size="sm"
+							class="border-danger text-danger hover:bg-danger/5"
+							onclick={() => void chooseCover(null)}
+						>
 							{m.cover_remove()}
 						</Button>
 					{/if}
-				</div>
-
-				<div data-slot="design-cover-focal" class="grid gap-2">
-					<div class="flex items-center justify-between gap-2 text-sm">
-						<span class="text-foreground">{m.design_focal_point()}</span>
-						<div class="flex items-center gap-2">
-							<span class="text-xs text-muted-foreground tabular-nums">
-								{localFocal.x}%, {localFocal.y}%
-							</span>
-							<button
-								type="button"
-								disabled={!hasCover || isDefaultFocal}
-								onclick={resetFocalPoint}
-								class="inline-flex cursor-pointer items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus enabled:hover:bg-border/45 disabled:cursor-not-allowed disabled:opacity-45"
-							>
-								<RotateCcw size={12} aria-hidden="true" />
-								{m.design_focal_point_reset()}
-							</button>
-						</div>
-					</div>
-
-					<button
-						type="button"
-						disabled={!hasCover}
-						aria-label={m.design_focal_point_pad({ x: localFocal.x, y: localFocal.y })}
-						onpointerdown={onFocalPointerDown}
-						onpointermove={onFocalPointerMove}
-						onpointerup={onFocalPointerUp}
-						onpointercancel={onFocalPointerUp}
-						onkeydown={onFocalKeydown}
-						class="relative isolate aspect-[3/2] w-full cursor-crosshair touch-none overflow-hidden rounded-[0.625rem] border border-border bg-dark text-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-70"
-					>
-						{#if coverImageUrl}
-							<img
-								src={coverImageUrl}
-								alt=""
-								style:object-position="{localFocal.x}% {localFocal.y}%"
-								class="pointer-events-none size-full object-cover select-none"
-							/>
-							<span aria-hidden="true" class="pointer-events-none absolute inset-0 bg-dark/15"
-							></span>
-						{:else}
-							<span
-								aria-hidden="true"
-								class="absolute inset-0 bg-[radial-gradient(80%_120%_at_20%_100%,#3a2a20,transparent_70%),linear-gradient(160deg,#2b211b,#16120f_70%)]"
-							></span>
-							<span
-								class="relative z-10 flex size-full items-center justify-center px-4 text-center text-xs font-medium text-panel/85"
-							>
-								{m.design_focal_point_empty()}
-							</span>
-						{/if}
-
-						<span
-							aria-hidden="true"
-							class="pointer-events-none absolute inset-y-0 left-1/3 w-px bg-panel/30"
-						></span>
-						<span
-							aria-hidden="true"
-							class="pointer-events-none absolute inset-y-0 left-2/3 w-px bg-panel/30"
-						></span>
-						<span
-							aria-hidden="true"
-							class="pointer-events-none absolute inset-x-0 top-1/3 h-px bg-panel/30"
-						></span>
-						<span
-							aria-hidden="true"
-							class="pointer-events-none absolute inset-x-0 top-2/3 h-px bg-panel/30"
-						></span>
-
-						{#if hasCover}
-							<span
-								aria-hidden="true"
-								style:left="{localFocal.x}%"
-								style:top="{localFocal.y}%"
-								class="pointer-events-none absolute size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-panel bg-foreground/55 shadow-[0_2px_8px_rgb(0_0_0/0.55)]"
-							>
-								<span
-									class="absolute top-1/2 left-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-panel"
-								></span>
-							</span>
-						{/if}
-					</button>
 				</div>
 			</Card>
 
@@ -688,14 +694,6 @@
 							<span>{m.preview_label()}</span>
 						</span>
 						{@render toggle()}
-						<button
-							type="button"
-							onclick={() => (expanded = true)}
-							class="flex cursor-pointer items-center gap-1.5 rounded-full border border-[#4a3f37] px-3.5 py-[7px] text-[0.8125rem] font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-						>
-							<Maximize2 size={14} aria-hidden="true" />
-							{m.preview_open_full()}
-						</button>
 					</div>
 				{/snippet}
 

@@ -44,6 +44,33 @@ afterEach(() => {
 });
 
 describe('GalleryContactsPanel', () => {
+	it.each([
+		{ contacts: [], visibleText: 'No contacts linked yet.' },
+		{ contacts: [camille], visibleText: 'Camille & Hugo' }
+	])('offers one contacts entry with $visibleText', async ({ contacts, visibleText }) => {
+		const user = userEvent.setup();
+		vi.stubGlobal(
+			'fetch',
+			vi
+				.fn()
+				.mockResolvedValueOnce(Response.json(contacts))
+				.mockResolvedValueOnce(Response.json([camille]))
+		);
+		render(GalleryContactsPanel, { galleryId: 'g1' });
+
+		await screen.findByText(visibleText);
+		const manage = screen.getByRole('button', { name: 'Manage contacts' });
+		expect(screen.queryByRole('button', { name: '+ Link contact' })).toBeNull();
+		expect(screen.queryByRole('link', { name: 'Manage directory' })).toBeNull();
+		await user.click(manage);
+		const dialog = await screen.findByRole('dialog');
+		expect(
+			within(dialog).getByRole('link', { name: 'Manage directory' }).getAttribute('href')
+		).toBe('/contacts');
+		await user.click(within(dialog).getByRole('button', { name: 'Close' }));
+		await waitFor(() => expect(document.activeElement).toBe(manage));
+	});
+
 	it('links an existing contact, briefly shows Linked, then settles to Unlink without closing the dialog', async () => {
 		vi.useFakeTimers();
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -65,7 +92,7 @@ describe('GalleryContactsPanel', () => {
 		expect(await screen.findByText('Camille & Hugo')).toBeTruthy();
 		expect(oncount).toHaveBeenLastCalledWith(1);
 
-		await user.click(screen.getByRole('button', { name: '+ Link contact' }));
+		await user.click(screen.getByRole('button', { name: 'Manage contacts' }));
 		const dialog = await screen.findByRole('dialog');
 
 		// The merged directory shows both the already-linked and the unlinked contact.
@@ -126,7 +153,7 @@ describe('GalleryContactsPanel', () => {
 		render(GalleryContactsPanel, { galleryId: 'g1' });
 
 		await screen.findByText('Camille & Hugo');
-		await user.click(screen.getByRole('button', { name: '+ Link contact' }));
+		await user.click(screen.getByRole('button', { name: 'Manage contacts' }));
 		const dialog = await screen.findByRole('dialog');
 		const row = within(dialog).getByText('Zoé Laurent').closest('li') as HTMLElement;
 
@@ -183,7 +210,7 @@ describe('GalleryContactsPanel', () => {
 		render(GalleryContactsPanel, { galleryId: 'g1', oncount });
 
 		expect(await screen.findByText('No contacts linked yet.')).toBeTruthy();
-		await user.click(screen.getAllByRole('button', { name: '+ Link contact' })[0]);
+		await user.click(screen.getByRole('button', { name: 'Manage contacts' }));
 
 		const dialog = await screen.findByRole('dialog');
 		await user.type(within(dialog).getByLabelText('Name'), 'Léo Martin');
@@ -228,7 +255,7 @@ describe('GalleryContactsPanel', () => {
 		render(GalleryContactsPanel, { galleryId: 'g1' });
 
 		expect(await screen.findByText('No contacts linked yet.')).toBeTruthy();
-		await user.click(screen.getAllByRole('button', { name: '+ Link contact' })[0]);
+		await user.click(screen.getByRole('button', { name: 'Manage contacts' }));
 
 		const dialog = await screen.findByRole('dialog');
 		await user.type(within(dialog).getByLabelText('Name'), 'Léo Martin');
@@ -267,7 +294,7 @@ describe('GalleryContactsPanel', () => {
 
 		// Open the dialog while the first unlink is still in flight and try to unlink the same row
 		// again: the shared per-contact guard must not fire a second request for it.
-		await user.click(screen.getByRole('button', { name: '+ Link contact' }));
+		await user.click(screen.getByRole('button', { name: 'Manage contacts' }));
 		const dialog = await screen.findByRole('dialog');
 		const row = within(dialog).getByText('Camille & Hugo').closest('li') as HTMLElement;
 		await user.click(within(row).getByRole('button', { name: 'Unlink' }));
@@ -296,7 +323,7 @@ describe('GalleryContactsPanel in French', () => {
 		const { container } = render(GalleryContactsPanel, { galleryId: 'g1' });
 
 		expect(await screen.findByText('Camille & Hugo')).toBeTruthy();
-		expect(screen.getByRole('button', { name: '+ Associer un contact' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Gérer les contacts' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Dissocier' })).toBeTruthy();
 		expect((await axe(container)).violations).toEqual([]);
 	});

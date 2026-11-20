@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { Check, LoaderCircle, Plus, Search, UserMinus, UserPlus, Users, X } from '@lucide/svelte';
+	import { Check, LoaderCircle, Plus, Search, UserMinus, Users, X } from '@lucide/svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
@@ -248,21 +248,12 @@
 	}
 </script>
 
-<div class="grid max-w-3xl gap-4">
+<div class="grid gap-4">
 	<div class="flex flex-wrap items-center justify-between gap-3">
 		<h2 class="text-xl">{m.contacts_title()}</h2>
-		<div class="flex flex-wrap items-center gap-2">
-			<a
-				href="/contacts"
-				class="inline-flex min-h-9 items-center rounded-full border border-border bg-panel px-3.5 text-xs font-medium text-foreground transition-colors hover:bg-border/60"
-			>
-				{m.gallery_contacts_open_directory()}
-			</a>
-			<Button size="sm" onclick={() => void openPicker()}>
-				<UserPlus size={15} aria-hidden="true" />
-				{m.gallery_contacts_link()}
-			</Button>
-		</div>
+		<Button size="sm" onclick={() => void openPicker()}>
+			{m.gallery_contacts_manage()}
+		</Button>
 	</div>
 
 	{#if loadError}
@@ -276,10 +267,6 @@
 			<Users size={26} aria-hidden="true" class="text-muted-foreground" />
 			<h3>{m.gallery_contacts_empty()}</h3>
 			<p class="max-w-sm text-sm">{m.gallery_contacts_empty_body()}</p>
-			<Button size="sm" onclick={() => void openPicker()}>
-				<UserPlus size={15} aria-hidden="true" />
-				{m.gallery_contacts_link()}
-			</Button>
 		</EmptyState>
 	{:else if linked.length > 0}
 		<ul class="divide-y divide-[#ece3d6] rounded-[0.875rem] border border-border bg-panel">
@@ -293,8 +280,8 @@
 							{contactInitials(item.name)}
 						</span>
 						<div class="grid min-w-0 gap-0.5">
-							<span class="truncate text-sm font-semibold text-foreground">{item.name}</span>
-							<span class="truncate text-xs text-muted-foreground">
+							<span class="break-anywhere text-sm font-semibold text-foreground">{item.name}</span>
+							<span class="break-anywhere text-xs text-muted-foreground">
 								{item.email}{#if item.phone}
 									· {item.phone}{/if}
 							</span>
@@ -345,6 +332,12 @@
 						<X size={18} aria-hidden="true" />
 					</Button>
 				</div>
+				<a
+					href="/contacts"
+					class="w-fit rounded-sm text-sm font-medium underline underline-offset-2 hover:text-muted-foreground"
+				>
+					{m.gallery_contacts_open_directory()}
+				</a>
 
 				{#if directoryLoading}
 					<div class="flex items-center justify-center py-8">

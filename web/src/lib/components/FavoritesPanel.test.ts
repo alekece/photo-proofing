@@ -343,10 +343,7 @@ describe('FavoritesPanel', () => {
 		);
 		expect(screen.getByRole('button', { name: 'Download all' })).toBe(downloadAll);
 		expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
-		// Clears the workspace rail and the gallery studio rail.
-		expect(bar.className).toMatch(
-			/md:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\+8\.25rem\)\]/
-		);
+		expect(bar.dataset.rail).toBe('gallery');
 
 		await user.click(screen.getByAltText('p2.jpg'));
 		expect(screen.queryByRole('dialog')).toBeNull();

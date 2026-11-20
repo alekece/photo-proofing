@@ -3,6 +3,9 @@
 Where the photographer runs one shoot from upload to delivery. Route `/dashboard/{id}`
 (prototype: `#/g/<id>/photos|favorites|final`).
 
+The collection and dialog images below are historical prototype references, not the current
+Studio layout.
+
 | | Desktop | Phone |
 |---|---|---|
 | Photos | ![](gallery/photos.desktop.png) | ![](gallery/photos.phone.png) |
@@ -14,8 +17,8 @@ Where the photographer runs one shoot from upload to delivery. Route `/dashboard
 | Favorites, select | ![](gallery/favorites-select.desktop.png) | ![](gallery/favorites-select.phone.png) |
 | Final | ![](gallery/final.desktop.png) | ![](gallery/final.phone.png) |
 | Final, select | ![](gallery/final-select.desktop.png) | ![](gallery/final-select.phone.png) |
-| Share | ![](gallery/share-confirm.desktop.png) | ![](gallery/share-confirm.phone.png) |
-| Deliver | ![](gallery/deliver-confirm.desktop.png) | ![](gallery/deliver-confirm.phone.png) |
+| Direct Share confirmation | ![](gallery/share-confirm.desktop.png) | ![](gallery/share-confirm.phone.png) |
+| Publish confirmation | ![](gallery/deliver-confirm.desktop.png) | ![](gallery/deliver-confirm.phone.png) |
 | Delete | ![](gallery/delete-confirm.desktop.png) | ![](gallery/delete-confirm.phone.png) |
 | Side nav editing | ![](gallery/side-nav-edit.desktop.png) | |
 | Photos in French | ![](gallery/photos-fr.desktop.png) | ![](gallery/photos-fr.phone.png) |
@@ -26,41 +29,47 @@ The gallery page uses the standard top `AppHeader` above a two-column Warm Paper
 desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
 
 - **Left studio rail (`identity` + `nav`):**
-  - `← Back to galleries` link and a `3:2` framed cover thumbnail button (`44 × 34 px` on phones)
-    showing the hero preview or a compact `CoverBackdrop` stand-in; clicking it opens **Design**.
-  - Inline-editable Georgia gallery title paired on its right with a favorite-pin **Star** toggle
-    and the read-only status chip (**Draft**, **Prepublish**, **Publish**, **Expired**, **Archived**),
-    plus `Shot` (or `Created`) and, once shared, `Last opened` (`Not yet` until first opened).
+  - The desktop rail stays visible across stages and matches the workspace sidebar: `16vw`,
+    clamped to `240–280 px`.
+  - `← Back to galleries` link and a framed cover thumbnail button showing the hero or a
+    `CoverBackdrop` stand-in; clicking it opens **Design**. The gallery pin is at the top-left,
+    status at the top-right and shoot date, if set, at the bottom-left.
+  - The inline-editable gallery title is below the cover. `Last opened` stays separate below
+    the title (`Not yet` after sharing if there has been no client visit).
   - **Collection** navigation with counts: **Photos**, **Favorites** (accented when over allowance,
-    padlock once published), **Comments**, **Final**, and **Activity** (`Favorites`, `Comments`, `Final`, and `Activity` stay
-    visible and disabled before the first share, with tooltip `"Available once the gallery is shared"`).
-  - **Studio** navigation: **Design**, **Share** (disabled with tooltip when archived), **Contacts** (with linked-contact count), and **Settings**.
+    padlock once published), **Comments**, and **Final**. Favorites, Comments, Final and Studio
+    Activity remain visible but disabled before the first share.
+  - **Studio** navigation: **Design**, **Share** (disabled when archived), **Contacts** (with
+    linked-contact count), **Activity**, and **Settings**.
   - On phones (`< md`), `nav` becomes a horizontally scrollable pill strip below the Journey bar.
 - **Top Journey Wizard & action bar (`journey`):**
-  - Actionable 4-step wizard on Warm Paper: **Upload → Share → Collect favorites → Publish** (hidden
-    when archived; collapses to four progress bars + the active step label and fact on phones).
-  - Right-aligned actions: **Preview** (outline) and the stage CTA (**Share** on a draft, opening
-    `Studio → Share`; **Publish** during Prepublish; nothing once published; **Restore** when
-    archived). While `Studio → Share` is active, the top-right actions swap to **Cancel** (returning
-    to the previously active studio section) and **✉ Send invitation (N)**.
+  - Centered **Upload → Share → Collect favorites → Publish** shortcuts open Photos, Share or
+    Favorites when available; the Publish shortcut opens Share. They do not publish or send email.
+    On phones the Journey shows four compact bars and the active step label and fact.
+  - There is no separate header Preview or Publish action. When archived, **Restore** replaces
+    the Journey.
 
 ## Studio views (`Design`, `Share`, `Contacts`, and `Settings`)
 
 | View / Card | Content |
 |---|---|
-| **Design** | Compact **Cover** controls (**Select cover** / **Change cover** modal over ready proofs + **Remove cover**, then an interactive rule-of-thirds **Focal point** crosshair pad with `Reset`, disabled without a cover photo, and four visual cover-template mini-cards — **Full bleed**, **Split editorial**, **Framed paper**, **Minimal banner**), **Typography** (four self-hosted heading-font specimen cards — **Editorial**, **Fine Art**, **Timeless**, **Modern** — rendered in their own typefaces), **Photo Grid & Spacing** (**Layout** icon buttons for staggered columns vs even rows, **Grid density** segmented **Compact** / **Large**, and **Spacing** segmented **Compact** / **Generous**) beside a live **Client preview** |
-| **Share** | Two centered `660 px` Warm Paper sheets: **Envelope** (**To** pre-populated from linked gallery contacts with inline `email` / `Name <email>` chips + **+ Contacts** workspace directory picker, collapsible **+ BCC** private recipients that are never added to contacts, and editable stage-aware **Subject**) above a **Live Warm Paper Email Preview** (`StudioSignature`, `3:2` hero preview with focal point or `CoverBackdrop` stand-in, Georgia gallery title + shoot-date/photo-count metadata, inline editable personal message `<textarea>`, conditional 6-digit **Access code** monospace callout, stage-aware CTA pill, and optional `Available until {date}` footer). Shows an inline configuration notice when `[smtp]` is unconfigured or when the gallery is expired |
-| **Contacts** | Linked contacts list (monogram, **Name**, **Email**, optional **Phone**, **Unlink**), **Manage directory** (`/contacts`), and persistent **+ Link contact** dialog (search all workspace contacts or create and link inline). **Link** briefly becomes **Linked**, then **Unlink** in the same row; clicking **Linked** immediately unlinks too. Only in-flight requests disable the row action |
+| **Design** | **Cover** combines a live image and focal-point crosshair. Drag to reposition, releasing to save, or use arrow keys (Shift for larger increments). The **Select cover** / **Change cover** picker shows ready proofs, and the adjacent red **Remove cover** button clears the cover. **Cover style**, **Typography** font specimens, and **Photo Grid & Spacing** remain beside the live client preview. **Open full preview** opens the full client preview at every width |
+| **Share** | A wide Warm Paper sheet with the **Invitation envelope** on the left and a read-only **Live email preview** on the right, stacked on phones. Only the envelope edits **To** (linked contacts, typed addresses, or the directory), optional private **BCC**, **Subject**, and **Personal message**. Preview shows stage-specific copy, the cover, metadata, access-code callout if enabled, and expiry; it never includes recipients. Proof readiness, missing SMTP and expiry are explained inline. **Publish** is a separate confirmed delivery action inside Share; **Send invitation** is always explicit |
+| **Contacts** | Full-width linked contact list (monogram, **Name**, **Email**, optional **Phone**, **Unlink**) and one **Manage contacts** action. Its dialog searches the workspace, can create and link a contact, and links to **Manage directory** (`/contacts`). **Link** briefly becomes **Linked**, then **Unlink** in the same row; only in-flight requests disable the row action |
 | **Settings → General** | **Shoot date**, **Open until** (date picker with one-click relative presets from 1 week to 1 year), then **Included photos** (number input, disabled once published), in separate rows; all optional |
 | **Settings → Privacy & Protection** | **Client link** (Draft: `"Not shared yet"` + inline **Share link** button opening the direct-link confirmation dialog; once shared: link and **Copy**), **Require access code** (Draft: switch + 6-digit numeric input + **Generate** + **Copy**; once shared: locked read-only 6-digit monospace code + **Copy** when set, or disabled switch noting none can be added after sharing), and **Enable watermarks** switch |
 | **Settings → Actions** | **Archive** (or **Restore**) and destructive **Delete**, each with a short consequence hint and confirmation dialog |
 
-- Design and Settings use a one-third controls / two-thirds live [preview](preview.md) split at
+- Design uses a one-third controls / two-thirds live [preview](preview.md) split at
   `lg`, without a fixed-height or internally scrolling inline frame, including Phone mode.
-  Below `lg` the inline stage is hidden. **Open full preview** expands it on wide screens;
-  the gallery content header's **Preview** action remains available at every width.
+  Below `lg` the inline stage is hidden; Design’s **Open full preview** still opens the full dialog.
 - Collection and Studio panels stay mounted once opened so counts load on open and in-place edits,
-  uploads, invitation drafts, or open viewers survive section switches and autosaves.
+  uploads, invitation drafts, or open viewers survive section switches and autosaves in the same
+  gallery. Switching galleries starts a new editor and dismisses any open confirmations.
+- Focal-point edits update the preview immediately; saves complete in order. If the latest save
+  fails, the preview returns to the last saved point. Leaving the gallery still sends released
+  saves to their original gallery but discards a drag that has not been released. If saves were
+  still pending when you left, the focal control waits for the confirmed point when you return.
 - In-place inputs save on change without success rings or repeated `"Saved"` toasts. An invalid
   value shows a red toast and reverts. A past `"Open until"` marks the gallery Expired; a future or
   cleared one lifts it.
@@ -153,22 +162,27 @@ reduced motion is requested. Desktop journey steps are centered within the banne
 
 ## Dialogs
 
-Share, Deliver and Delete always confirm. Share and Deliver never refuse: when nothing is ready
+Direct Share, Publish and Delete confirm. Direct Share and Publish never refuse: when nothing is ready
 they warn and the button says "anyway". The "until 12 Sep" in the Share text only appears when
 an Open until date is set.
 
-Deliver counts and warns about finals only; proofs do not contribute to that dialog.
+Publish counts and warns about finals only; proofs do not contribute to that dialog.
 
 | Dialog | Normal | Something missing |
 |---|---|---|
 | Share | "Share 48 photos?" "This creates a private link. Anyone with it can see the proofs and pick favorites until 12 Sep." **Cancel** / **Share** | "Share with no photos?" warning "Clients see an empty gallery until you upload." **Share anyway** |
-| Deliver | "Deliver 20 photos?" "Camille & Hugo see them at the same link and can download them. Favorites are locked from now on." **Cancel** / **Deliver** | "Deliver with no photos?" **Deliver anyway** |
+| Publish | "Publish 20 photos?" "Camille & Hugo see them at the same link and can download them. Favorites are locked from now on." **Cancel** / **Publish** | "Publish with no photos?" **Publish anyway** |
 | Delete photos | Stack of the photos, count; mentions client favorites only if one is a favorite | — |
 
 Photos still uploading or failed are mentioned as a warning line ("2 are still uploading and 1
 failed."). After **Settings → Privacy & Protection → Share link**, the photo stack flies out, a green
 check pops and the dialog becomes "Your gallery is shared" with **Copy link**. Email invitations
-live in **Studio → Share** when `[smtp]` is configured; SMS remains future scope.
+live in **Studio → Share** when `[smtp]` is configured; SMS remains future scope. Confirming
+**Publish** switches the existing client link from proofs to finals and updates the invitation
+preview. It never sends email; use **Send invitation** separately if needed.
+**Send invitation** keeps the selected recipients and copy through the photo-readiness check and
+any **Send anyway** confirmation. If protection changes or its save fails after starting either
+**Share link** or **Send invitation**, start the action again.
 
 ![Dialog motion](gallery/confirm-motion.gif)
 ![Dialog frames](gallery/confirm-motion.frames.png)

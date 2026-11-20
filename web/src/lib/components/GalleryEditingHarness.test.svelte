@@ -18,7 +18,6 @@
 	onsave={async () => true}
 	schedule={() => {}}
 	cancel={() => {}}
-	onpreview={() => {}}
 	onshare={() => {}}
 	onpublish={() => {}}
 	onarchive={() => {}}

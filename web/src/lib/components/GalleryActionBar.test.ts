@@ -32,9 +32,10 @@ function setup(
 	counts: { photos?: number | null; favorites?: number | null } = {}
 ) {
 	const handlers = {
-		onpreview: vi.fn(),
+		onupload: vi.fn(),
 		onshare: vi.fn(),
-		onpublish: vi.fn(),
+		oncollect: vi.fn(),
+		ondelivery: vi.fn(),
 		onrestore: vi.fn()
 	};
 	const view = render(GalleryActionBar, {
@@ -48,22 +49,35 @@ function setup(
 }
 
 describe('GalleryActionBar', () => {
-	it('offers Share on a draft and lists Upload as done with Share as current step', async () => {
-		const { container, onpreview, onshare, user } = setup({}, { photos: 48 });
+	it('uses Journey steps as shortcuts, not lifecycle actions', async () => {
+		const { container, onupload, onshare, oncollect, ondelivery, rerender, user } = setup(
+			{},
+			{ photos: 48 }
+		);
 
 		expect(screen.getByText('48 photos', { selector: '[data-slot="step-fact"]' })).toBeTruthy();
 		expect(screen.getByText('Share', { selector: '[aria-current="step"] strong' })).toBeTruthy();
 
-		await user.click(screen.getByRole('button', { name: 'Preview' }));
+		expect(screen.queryByRole('button', { name: 'Preview' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Go to Collect favorites' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Go to Publish' })).toBeNull();
+		await user.click(screen.getByRole('button', { name: 'Go to Upload' }));
+		await user.click(screen.getByRole('button', { name: 'Go to Share' }));
 		await user.click(screen.getByRole('button', { name: 'Share' }));
 
-		expect(onpreview).toHaveBeenCalledOnce();
-		expect(onshare).toHaveBeenCalledOnce();
+		expect(onupload).toHaveBeenCalledOnce();
+		expect(onshare).toHaveBeenCalledTimes(2);
+		await rerender({ gallery: { ...base, share_token: 'T'.repeat(22), states: ['shared'] } });
+		await user.click(screen.getByRole('button', { name: 'Go to Collect favorites' }));
+		await user.click(screen.getByRole('button', { name: 'Go to Publish' }));
+		expect(oncollect).toHaveBeenCalledOnce();
+		expect(ondelivery).toHaveBeenCalledOnce();
+		expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('offers Publish during Prepublish and accents an over-allowance selection', async () => {
-		const { container, onpublish, user } = setup(
+	it('omits Publish and invitation actions from the stage header', async () => {
+		const { container, rerender } = setup(
 			{ share_token: 'T'.repeat(22), states: ['shared'], included_photos: 10 },
 			{ photos: 48, favorites: 13 }
 		);
@@ -71,10 +85,12 @@ describe('GalleryActionBar', () => {
 
 		expect(fact.className).toContain('text-danger');
 
-		await user.click(screen.getByRole('button', { name: 'Publish' }));
-
-		expect(onpublish).toHaveBeenCalledOnce();
+		expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
+		await rerender({ sharing: true });
+		expect(screen.getByRole('navigation', { name: 'Gallery progress' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+		expect(screen.queryByRole('button', { name: /Send invitation/ })).toBeNull();
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
@@ -85,7 +101,7 @@ describe('GalleryActionBar', () => {
 		);
 
 		expect(container.querySelector('[aria-current="step"]')).toBeNull();
-		expect(screen.getByRole('button', { name: 'Preview' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Preview' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
 		expect((await axe(container)).violations).toEqual([]);
@@ -103,55 +119,5 @@ describe('GalleryActionBar', () => {
 
 		expect(onrestore).toHaveBeenCalledOnce();
 		expect((await axe(container)).violations).toEqual([]);
-	});
-
-	it('swaps actions to Cancel and Send invitations while keeping the journey wizard in Share view', async () => {
-		const oncancelshare = vi.fn();
-		const onsendinvitations = vi.fn();
-		const user = userEvent.setup();
-		const view = render(GalleryActionBar, {
-			gallery: { ...base },
-			photoCount: 12,
-			favoriteCount: 0,
-			sharing: true,
-			recipientCount: 2,
-			canSend: true,
-			sending: false,
-			onpreview: vi.fn(),
-			onshare: vi.fn(),
-			onpublish: vi.fn(),
-			onrestore: vi.fn(),
-			oncancelshare,
-			onsendinvitations
-		});
-
-		expect(screen.getByRole('navigation', { name: 'Gallery progress' })).toBeTruthy();
-		expect(screen.queryByRole('button', { name: 'Preview' })).toBeNull();
-
-		await user.click(screen.getByRole('button', { name: 'Cancel' }));
-		await user.click(screen.getByRole('button', { name: 'Send invitations (2)' }));
-
-		expect(oncancelshare).toHaveBeenCalledOnce();
-		expect(onsendinvitations).toHaveBeenCalledOnce();
-		expect((await axe(view.container)).violations).toEqual([]);
-
-		await view.rerender({
-			gallery: { ...base },
-			photoCount: 12,
-			favoriteCount: 0,
-			sharing: true,
-			recipientCount: 0,
-			canSend: false,
-			sending: false,
-			onpreview: vi.fn(),
-			onshare: vi.fn(),
-			onpublish: vi.fn(),
-			onrestore: vi.fn(),
-			oncancelshare,
-			onsendinvitations
-		});
-		expect(
-			(screen.getByRole('button', { name: 'Send invitation' }) as HTMLButtonElement).disabled
-		).toBe(true);
 	});
 });

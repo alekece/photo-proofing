@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -34,6 +34,8 @@ import { goto } from '$app/navigation';
 import { getNotifications, NotificationCenter } from '#lib/gallery/notifications.svelte.js';
 import type { Gallery } from '#lib/gallery/api.js';
 import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
+import { tick } from 'svelte';
 import GalleryPage from './+page.svelte';
 
 const base: Gallery = {
@@ -107,6 +109,56 @@ afterEach(() => {
 });
 
 describe('gallery page', () => {
+	it('keeps same-gallery drafts but replaces the dialog and mutation target on gallery navigation', async () => {
+		const user = userEvent.setup();
+		const requests: string[] = [];
+		let resolvePatch!: (response: Response) => void;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				if (init?.method === 'PATCH')
+					return new Promise<Response>((resolve) => (resolvePatch = resolve));
+				if (init?.method === 'POST' && url.endsWith('/share')) {
+					requests.push(url);
+					return Response.json({
+						...base,
+						id: 'g2',
+						title: 'Second gallery',
+						share_token: 'T'.repeat(22),
+						states: ['shared']
+					});
+				}
+				return Response.json([]);
+			})
+		);
+		const view = open();
+		const replace = (gallery: Gallery) =>
+			view.rerender({ data: { gallery, idleTimeoutMs: 2592000000 } as never });
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		await user.click(screen.getByRole('switch', { name: 'Require access code' }));
+		const input = screen.getByLabelText('6-digit access code') as HTMLInputElement;
+		const edited = input.value;
+		await replace({ ...base, title: 'Server refresh' });
+		expect(input.value).toBe(edited);
+		await user.click(screen.getByRole('button', { name: 'Share link' }));
+		await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+
+		await replace({ ...base, id: 'g2', title: 'Second gallery' });
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect((screen.getByLabelText('Gallery title') as HTMLInputElement).value).toBe(
+			'Second gallery'
+		);
+		resolvePatch(Response.json({ ...base, access_code: edited }));
+		await tick();
+		expect(requests).toEqual([]);
+
+		await user.click(screen.getByRole('tab', { name: 'Settings' }));
+		await user.click(screen.getByRole('button', { name: 'Share link' }));
+		await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+		await waitFor(() => expect(requests).toEqual(['/api/v1/galleries/g2/share']));
+	});
+
 	it.each(['proof', 'final'] as const)('opens the source %s collection from the URL', (kind) => {
 		state.page.url = new URL(`https://pp.test/dashboard/g1?photo=p2&kind=${kind}`);
 		open();
@@ -141,22 +193,24 @@ describe('gallery page', () => {
 		);
 	});
 
-	it('previews an unshared gallery, flushing pending edits first, and returns focus to Preview when closed', async () => {
+	it('previews in Design only, flushes pending edits and returns focus on close', async () => {
 		const patches = stubApi();
 		const user = userEvent.setup();
 		open({ share_token: null, hero_id: 'p1' });
 
+		await user.click(screen.getByRole('tab', { name: 'Contacts' }));
+		expect(screen.queryByRole('button', { name: /preview/i })).toBeNull();
 		await user.click(screen.getByRole('tab', { name: 'Design' }));
-		const pad = screen.getByRole('button', { name: 'Cover focal point (50%, 35%)' });
-		pad.focus();
-		await user.keyboard('{ArrowRight}');
+		await fireEvent.input(screen.getByLabelText('Gallery title'), {
+			target: { value: 'Studio edits' }
+		});
 		expect(patches()).toHaveLength(0);
 
-		const button = screen.getByRole('button', { name: 'Preview' });
+		const button = screen.getByRole('button', { name: 'Open full preview' });
 		await user.click(button);
 		expect(patches()).toHaveLength(1);
 		expect(JSON.parse(patches()[0][1]?.body as string)).toEqual({
-			focal_point: { x: 51, y: 35 }
+			title: 'Studio edits'
 		});
 		expect(screen.getByRole('dialog', { name: 'Client preview' })).toBeTruthy();
 
@@ -164,27 +218,6 @@ describe('gallery page', () => {
 		expect(screen.queryByRole('dialog', { name: 'Client preview' })).toBeNull();
 		expect(document.activeElement).toBe(button);
 		expect(screen.queryByLabelText('Client link')).toBeNull();
-	});
-
-	it('keeps the full-screen Preview action available from any gallery section, as a single-scroll modal', async () => {
-		stubApi();
-		const user = userEvent.setup();
-		open({ share_token: 'T'.repeat(22), states: ['shared'], hero_id: 'p1' });
-
-		await user.click(screen.getByRole('tab', { name: 'Contacts' }));
-		await user.click(screen.getByRole('button', { name: 'Preview' }));
-
-		const dialog = screen.getByRole('dialog', { name: 'Client preview' });
-
-		expect(dialog).toBeTruthy();
-		// A single scroller lives inside the modal; the dialog element itself does not scroll.
-		expect(dialog.className).not.toMatch(/overflow-auto/);
-		expect(
-			document.querySelector('[data-frame="desktop"]')?.closest('div')?.parentElement
-		).toBeTruthy();
-
-		await user.click(screen.getByRole('button', { name: 'Close preview' }));
-		expect(screen.queryByRole('dialog', { name: 'Client preview' })).toBeNull();
 	});
 
 	it('renders the share control inside Settings with a link built from the page origin', async () => {
@@ -564,49 +597,65 @@ describe('gallery page', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('awaits in-flight access-code saves before sharing and aborts Share if saving the access code fails', async () => {
-		let resolvePatch!: (response: Response) => void;
-		const shareCalls: string[] = [];
+	it.each(['before', 'after'])(
+		'requires a new Share action when the access-code save fails %s confirmation',
+		async (when) => {
+			let resolvePatch!: (response: Response) => void;
+			const shareCalls: string[] = [];
 
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async (url: string, init?: RequestInit) => {
-				if (url.includes('/auth/')) return new Response(null, { status: 204 });
-				if (!init?.method || init.method === 'GET') return Response.json([]);
-				if (url.endsWith('/share')) {
-					shareCalls.push(url);
-					return Response.json({
-						...base,
-						share_token: 'A'.repeat(22),
-						access_code: '042819',
-						states: ['shared']
-					});
-				}
-				return new Promise<Response>((r) => (resolvePatch = r));
-			})
-		);
+			vi.stubGlobal(
+				'fetch',
+				vi.fn(async (url: string, init?: RequestInit) => {
+					if (url.includes('/auth/')) return new Response(null, { status: 204 });
+					if (!init?.method || init.method === 'GET') return Response.json([]);
+					if (url.endsWith('/share')) {
+						shareCalls.push(url);
+						return Response.json({
+							...base,
+							share_token: 'A'.repeat(22),
+							access_code: '042819',
+							states: ['shared']
+						});
+					}
+					return new Promise<Response>((r) => (resolvePatch = r));
+				})
+			);
 
-		const user = userEvent.setup();
-		const first = open();
+			const user = userEvent.setup();
+			open();
 
-		await user.click(screen.getByRole('tab', { name: 'Settings' }));
-		await user.click(screen.getByRole('switch', { name: 'Require access code' }));
-		await waitFor(() => expect(resolvePatch).toBeDefined());
+			await user.click(screen.getByRole('tab', { name: 'Settings' }));
+			await user.click(screen.getByRole('switch', { name: 'Require access code' }));
+			await waitFor(() => expect(resolvePatch).toBeDefined());
 
-		await user.click(screen.getByRole('button', { name: 'Share link' }));
-		await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+			await user.click(screen.getByRole('button', { name: 'Share link' }));
+			const confirm = await screen.findByRole('button', { name: 'Share anyway' });
+			if (when === 'after') await user.click(confirm);
 
-		// Share must NOT fire while the access-code PATCH is still in flight, and must abort if PATCH fails.
-		expect(shareCalls).toHaveLength(0);
-		resolvePatch(Response.json({ code: 'unavailable' }, { status: 503 }));
+			expect(shareCalls).toHaveLength(0);
+			resolvePatch(Response.json({ code: 'unavailable' }, { status: 503 }));
 
-		await screen.findByText('Couldn’t share the gallery. Please try again.');
-		expect(shareCalls).toHaveLength(0);
-		first.unmount();
+			await waitFor(() =>
+				expect(
+					screen.getByRole('switch', { name: 'Require access code' }).getAttribute('aria-checked')
+				).toBe('false')
+			);
+			if (when === 'before') await user.click(confirm);
+			await screen.findByText('Couldn’t share the gallery. Please try again.');
+			expect(shareCalls).toHaveLength(0);
+			await user.click(screen.getByRole('button', { name: 'Share anyway' }));
+			expect(shareCalls).toHaveLength(0);
+			await user.click(screen.getByRole('button', { name: 'Cancel' }));
+			await user.click(screen.getByRole('button', { name: 'Share link' }));
+			await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+			await waitFor(() => expect(shareCalls).toHaveLength(1));
+		}
+	);
 
-		// Now verify that when an in-flight PATCH succeeds, Share proceeds in order (PATCH completes -> POST /share).
+	it('waits for the access code selected when Share was opened to save before sharing', async () => {
 		const events: string[] = [];
 		let finishOkPatch!: () => void;
+		const user = userEvent.setup();
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async (url: string, init?: RequestInit) => {
@@ -708,10 +757,300 @@ describe('gallery page', () => {
 			return () => fetcher.mock.calls.filter(([url]) => url.endsWith('/share'));
 		};
 
+		it('does not send if the access-code save fails while an invitation is being prepared', async () => {
+			const user = userEvent.setup();
+			let resolvePatch!: (response: Response) => void;
+			let resolveReadiness: ((response: Response) => void) | undefined;
+			let sendStarted = false;
+			const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes('/auth/')) return new Response(null, { status: 204 });
+				if (init?.method === 'PATCH')
+					return new Promise<Response>((resolve) => (resolvePatch = resolve));
+				if (url.endsWith('/invitations')) return new Response(null, { status: 503 });
+				if (url.endsWith('/photos')) {
+					if (sendStarted) return new Promise<Response>((resolve) => (resolveReadiness = resolve));
+					return Response.json([photo('p1')]);
+				}
+				return Response.json([]);
+			});
+			vi.stubGlobal('fetch', fetcher);
+			render(GalleryPage, {
+				props: {
+					data: {
+						gallery: base,
+						settings: { ...DEFAULT_SETTINGS, emailEnabled: true },
+						idleTimeoutMs: 2592000000
+					} as never
+				}
+			});
+			await user.click(screen.getByRole('tab', { name: 'Settings' }));
+			await user.click(screen.getByRole('switch', { name: 'Require access code' }));
+			await waitFor(() => expect(resolvePatch).toBeDefined());
+			await user.click(screen.getByRole('tab', { name: 'Share' }));
+			await user.type(screen.getByLabelText('To'), 'camille@example.test{Enter}');
+			const send = screen.getByRole('button', { name: 'Send invitation (1)' });
+			sendStarted = true;
+			await user.click(send);
+			expect((send as HTMLButtonElement).disabled).toBe(true);
+			resolvePatch(Response.json({ code: 'unavailable' }, { status: 503 }));
+			await waitFor(() => expect(toasts.items).not.toEqual([]));
+			resolveReadiness?.(Response.json([photo('p1')]));
+			await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+			expect(fetcher.mock.calls.some(([url]) => url.endsWith('/invitations'))).toBe(false);
+		});
+
+		it.each([false, true])(
+			'does not revive an invitation after leaving Share during readiness (warning: %s)',
+			async (warn) => {
+				const user = userEvent.setup();
+				const readiness = Promise.withResolvers<Response>();
+				let deferNextRead = false;
+				const invitations: string[] = [];
+				const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+					if (url.endsWith('/invitations')) {
+						invitations.push(url);
+						return new Response(null, { status: 503 });
+					}
+					if (init?.method === 'PATCH')
+						return Response.json({ code: 'unavailable' }, { status: 503 });
+					if (url.endsWith('/photos')) {
+						if (deferNextRead) {
+							deferNextRead = false;
+							return readiness.promise;
+						}
+						return Response.json([photo('p1')]);
+					}
+					return Response.json([]);
+				});
+				vi.stubGlobal('fetch', fetcher);
+				render(GalleryPage, {
+					props: {
+						data: {
+							gallery: base,
+							settings: { ...DEFAULT_SETTINGS, emailEnabled: true },
+							idleTimeoutMs: 2592000000
+						} as never
+					}
+				});
+
+				await user.click(screen.getByRole('tab', { name: 'Share' }));
+				await user.type(screen.getByLabelText('To'), 'camille@example.test{Enter}');
+				const send = screen.getByRole('button', {
+					name: 'Send invitation (1)'
+				}) as HTMLButtonElement;
+				deferNextRead = true;
+				await user.click(send);
+				await waitFor(() => expect(deferNextRead).toBe(false));
+
+				await user.click(screen.getByRole('tab', { name: 'Settings' }));
+				if (warn) {
+					const protection = screen.getByRole('switch', { name: 'Require access code' });
+					await user.click(protection);
+					await waitFor(() => expect(protection.getAttribute('aria-checked')).toBe('false'));
+					expect(toasts.items).not.toEqual([]);
+				}
+				await user.click(screen.getByRole('tab', { name: 'Share' }));
+				readiness.resolve(Response.json(warn ? [] : [photo('p1')]));
+				await waitFor(() => expect(send.disabled).toBe(false));
+				expect(screen.queryByRole('dialog')).toBeNull();
+				expect(invitations).toHaveLength(0);
+			}
+		);
+
+		it.each(['stay', 'leave', 'return'])(
+			'keeps released focal writes in order (%s)',
+			async (navigation) => {
+				const gallery = { ...base, id: `focal-${navigation}`, hero_id: 'p1' };
+				const path = `/api/v1/galleries/${gallery.id}`;
+				const first = Promise.withResolvers<Response>();
+				const writes: { url: string; focal_point: Gallery['focal_point'] }[] = [];
+				vi.stubGlobal(
+					'fetch',
+					vi.fn(async (url: string, init?: RequestInit) => {
+						if (init?.method !== 'PATCH') {
+							return Response.json(
+								url === path ? { ...gallery, focal_point: { x: 70, y: 35 } } : []
+							);
+						}
+						const { focal_point } = JSON.parse(init.body as string);
+						writes.push({ url, focal_point });
+						if (writes.length === 1) return first.promise;
+						if (navigation === 'return' && writes.length === 2) {
+							return Response.json({ ...gallery, focal_point });
+						}
+						return Response.json(
+							{ code: 'unavailable' },
+							{ status: navigation === 'leave' ? 401 : 503 }
+						);
+					})
+				);
+				const user = userEvent.setup();
+				const view = open(gallery);
+				await user.click(screen.getByRole('tab', { name: 'Design' }));
+				const focalPad = () => {
+					const pad = screen.getByRole('button', { name: 'Cover focal point' });
+					vi.spyOn(pad, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
+					return pad;
+				};
+				const release = async (pad: HTMLElement, x: number) => {
+					await fireEvent.pointerDown(pad, { clientX: x, clientY: 35, pointerId: 1 });
+					await fireEvent.pointerUp(pad, { clientX: x, clientY: 35, pointerId: 1 });
+				};
+				const pad = focalPad();
+				await release(pad, 60);
+				await release(pad, 70);
+				const cover = () => screen.getByRole('img', { name: 'Gallery cover' });
+				expect(cover().style.objectPosition).toBe('70% 35%');
+				expect(writes).toEqual([{ url: path, focal_point: { x: 60, y: 35 } }]);
+
+				if (navigation !== 'stay') {
+					await fireEvent.pointerDown(pad, { clientX: 80, clientY: 45, pointerId: 1 });
+					await view.rerender({
+						data: {
+							gallery: { ...base, id: 'g2', title: 'Second gallery', hero_id: 'p2' },
+							idleTimeoutMs: 2592000000
+						} as never
+					});
+					await user.click(screen.getByRole('tab', { name: 'Design' }));
+				}
+				let returningPad: HTMLButtonElement | undefined;
+				let blockedWhileDraining = false;
+				if (navigation === 'return') {
+					await view.rerender({
+						data: {
+							gallery,
+							idleTimeoutMs: 2592000000
+						} as never
+					});
+					await user.click(screen.getByRole('tab', { name: 'Design' }));
+					returningPad = screen.getByRole('button', { name: 'Cover focal point' });
+					blockedWhileDraining = returningPad.disabled;
+					await fireEvent.keyDown(returningPad, { key: 'ArrowRight' });
+					expect(writes).toHaveLength(1);
+				}
+				first.resolve(Response.json({ ...gallery, focal_point: { x: 60, y: 35 } }));
+				if (returningPad) {
+					await waitFor(() => {
+						expect(returningPad.disabled).toBe(false);
+						expect(cover().style.objectPosition).toBe('70% 35%');
+					});
+					await fireEvent.keyDown(returningPad, { key: 'ArrowRight' });
+				}
+				await waitFor(() =>
+					expect(writes).toEqual([
+						{ url: path, focal_point: { x: 60, y: 35 } },
+						{ url: path, focal_point: { x: 70, y: 35 } },
+						...(navigation === 'return' ? [{ url: path, focal_point: { x: 71, y: 35 } }] : [])
+					])
+				);
+				const expectedX = navigation === 'stay' ? 60 : navigation === 'leave' ? 50 : 70;
+				await waitFor(() => expect(cover().style.objectPosition).toBe(`${expectedX}% 35%`));
+				if (returningPad) expect(blockedWhileDraining).toBe(true);
+				expect(goto).not.toHaveBeenCalled();
+				if (navigation === 'leave') expect(toasts.items).toEqual([]);
+			}
+		);
+
+		it('uses the confirmed focal point for rollback when the old write completes before mount', async () => {
+			const first = Promise.withResolvers<Response>();
+			const acknowledged = Promise.withResolvers<void>();
+			const writes: Gallery['focal_point'][] = [];
+			vi.stubGlobal(
+				'fetch',
+				vi.fn(async (url: string, init?: RequestInit) => {
+					if (url !== '/api/v1/galleries/g1') return Response.json([]);
+					if (init?.method === 'PATCH') {
+						writes.push(JSON.parse(init.body as string).focal_point);
+						return writes.length === 1
+							? first.promise
+							: Response.json({ code: 'unavailable' }, { status: 503 });
+					}
+					return Response.json({
+						...base,
+						title: 'Separate server title',
+						hero_id: 'p1',
+						focal_point: { x: 73, y: 35 }
+					});
+				})
+			);
+			const user = userEvent.setup();
+			const view = open({ hero_id: 'p1' });
+			await user.click(screen.getByRole('tab', { name: 'Design' }));
+			await fireEvent.keyDown(screen.getByRole('button', { name: 'Cover focal point' }), {
+				key: 'ArrowRight',
+				shiftKey: true
+			});
+			expect(writes).toEqual([{ x: 60, y: 35 }]);
+			await view.rerender({
+				data: {
+					gallery: { ...base, id: 'g2', title: 'Second gallery', hero_id: 'p2' },
+					idleTimeoutMs: 2592000000
+				} as never
+			});
+
+			// The returning route has already read its gallery snapshot; the old PATCH settles before mount.
+			const returningData = { gallery: { ...base, hero_id: 'p1' }, idleTimeoutMs: 2592000000 };
+			const ack = Response.json({});
+			vi.spyOn(ack, 'json').mockImplementation(async () => {
+				acknowledged.resolve();
+				return { ...base, focal_point: { x: 60, y: 35 } };
+			});
+			first.resolve(ack);
+			await acknowledged.promise;
+			await user.click(screen.getByRole('tab', { name: 'Design' }));
+			await view.rerender({ data: returningData as never });
+			await user.click(screen.getByRole('tab', { name: 'Design' }));
+			const pad = screen.getByRole('button', { name: 'Cover focal point' }) as HTMLButtonElement;
+			await waitFor(() => expect(pad.disabled).toBe(false));
+			await fireEvent.keyDown(pad, { key: 'ArrowRight' });
+			await waitFor(() =>
+				expect(writes).toEqual([
+					{ x: 60, y: 35 },
+					{ x: 74, y: 35 }
+				])
+			);
+			await waitFor(() =>
+				expect(screen.getByRole('img', { name: 'Gallery cover' }).style.objectPosition).toBe(
+					'73% 35%'
+				)
+			);
+			expect((screen.getByLabelText('Gallery title') as HTMLInputElement).value).toBe(base.title);
+		});
+
+		it('does not apply an obsolete Publish completion or redirect a different gallery', async () => {
+			let finishDelivery!: (response: Response) => void;
+			const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+				if (init?.method === 'POST' && url.endsWith('/deliver'))
+					return new Promise<Response>((resolve) => (finishDelivery = resolve));
+				return Response.json([]);
+			});
+			vi.stubGlobal('fetch', fetcher);
+			const user = userEvent.setup();
+			const view = open({ share_token: 'T'.repeat(22), states: ['shared'] });
+			await user.click(screen.getByRole('tab', { name: 'Share' }));
+			await user.click(screen.getByRole('button', { name: 'Publish' }));
+			await user.click(await screen.findByRole('button', { name: 'Publish anyway' }));
+			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/deliver'))).toEqual([
+				['/api/v1/galleries/g1/deliver', expect.anything()]
+			]);
+			await view.rerender({
+				data: {
+					gallery: { ...base, id: 'g2', title: 'Second gallery' },
+					idleTimeoutMs: 2592000000
+				} as never
+			});
+			expect(screen.queryByRole('dialog')).toBeNull();
+			finishDelivery(Response.json({ code: 'unauthorized' }, { status: 401 }));
+			await tick();
+			await user.click(screen.getByRole('tab', { name: 'Share' }));
+			expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
+			expect(goto).not.toHaveBeenCalled();
+		});
+
 		it('shows the title and the draft status', () => {
 			open();
 			expect(screen.getByText('Draft')).toBeTruthy();
-			expect(screen.getByText('Created')).toBeTruthy();
+			expect(screen.queryByText('Created')).toBeNull();
 			expect(screen.getByLabelText('Gallery title')).toBeTruthy();
 		});
 
@@ -753,14 +1092,16 @@ describe('gallery page', () => {
 			await user.click(screen.getByRole('button', { name: 'Share' }));
 			expect(screen.getByRole('tab', { name: 'Share' }).getAttribute('aria-selected')).toBe('true');
 
-			await user.type(screen.getByLabelText('To'), 'camille@example.com{Enter}');
-			await user.click(screen.getByRole('button', { name: 'Send invitation (1)' }));
+			const share = within(screen.getByRole('tabpanel', { name: 'Share' }));
+			await user.type(share.getByLabelText('To'), 'camille@example.com{Enter}');
+			await user.click(share.getByRole('button', { name: 'Send invitation (1)' }));
 
 			await waitFor(() => expect(screen.getByText('Prepublish')).toBeTruthy());
 			expect(toasts.items.map((item) => item.message)).toContain('Invitation queued');
 			expect(screen.getByRole('tab', { name: /^Photos/ }).getAttribute('aria-selected')).toBe(
 				'true'
 			);
+			expect(document.activeElement).toBe(screen.getByRole('tab', { name: /^Photos/ }));
 		});
 
 		it('shares via Settings → Share link only after confirming in the dialog', async () => {
@@ -825,12 +1166,18 @@ describe('gallery page', () => {
 		});
 
 		it('starts from the link row and an enabled Publish when already shared', async () => {
+			stubShareFlow();
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22), states: ['shared'] });
 			expect(screen.getByText('Prepublish')).toBeTruthy();
-			expect((screen.getByRole('button', { name: 'Publish' }) as HTMLButtonElement).disabled).toBe(
+			expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
+			await user.click(screen.getByRole('tab', { name: 'Share' }));
+			const share = within(screen.getByRole('tabpanel', { name: 'Share' }));
+			expect((share.getByRole('button', { name: 'Publish' }) as HTMLButtonElement).disabled).toBe(
 				false
 			);
+			await user.click(share.getByRole('button', { name: 'Cancel' }));
+			expect(document.activeElement).toBe(screen.getByRole('tab', { name: /^Photos/ }));
 			await user.click(screen.getByRole('tab', { name: 'Settings' }));
 			expect(screen.getByLabelText('Client link')).toBeTruthy();
 		});
@@ -839,38 +1186,49 @@ describe('gallery page', () => {
 			stubShareFlow();
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22), title: 'Camille & Hugo' });
+			await user.click(screen.getByRole('tab', { name: 'Share' }));
 			await user.click(screen.getByRole('button', { name: 'Publish' }));
 			expect(await screen.findByText(/Camille & Hugo see them at the same link/)).toBeTruthy();
 		});
 
-		it('publishes after confirming and shows the gallery as published', async () => {
+		it('publishes from Share without awaiting SMTP or sending mail', async () => {
 			const fetcher = vi.fn(async (url: string) =>
 				url.endsWith('/deliver')
 					? new Response(
 							JSON.stringify({
 								...base,
 								share_token: 'B'.repeat(22),
-								states: ['delivered']
+								states: ['delivered', 'expired']
 							})
 						)
-					: new Response(JSON.stringify([photo('p1')]))
+					: Response.json(url.endsWith('/photos?finals=true') ? [] : [photo('p1', 'processing')])
 			);
 			vi.stubGlobal('fetch', fetcher);
 			const user = userEvent.setup();
-			open({ share_token: 'B'.repeat(22) });
+			open({ share_token: 'B'.repeat(22), states: ['shared', 'expired'] });
+			await user.click(screen.getByRole('tab', { name: 'Share' }));
+			expect(screen.getByText('Email sending isn’t configured')).toBeTruthy();
+			expect(screen.getByText('This gallery has expired')).toBeTruthy();
 			await user.click(screen.getByRole('button', { name: 'Publish' }));
-			await user.click(
-				within(await screen.findByRole('dialog', { name: 'Publish 1 photo?' })).getByRole(
-					'button',
-					{ name: 'Publish' }
-				)
-			);
-			expect(
-				await screen.findByText('Publish', { selector: '[data-slot="status-chip"]' })
-			).toBeTruthy();
+			const publish = await screen.findByRole('dialog', { name: 'Publish with no photos?' });
+			expect(within(publish).queryByText(/still uploading/)).toBeNull();
+			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/deliver'))).toHaveLength(0);
+			await user.click(within(publish).getByRole('button', { name: 'Publish anyway' }));
+			await screen.findByRole('button', { name: 'Done' });
+			expect(screen.getByText('Expired', { selector: '[data-slot="status-chip"]' })).toBeTruthy();
 			expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
+			expect(screen.getByText('View final photos')).toBeTruthy();
+			expect(
+				screen.getByRole('tab', { name: /^Favorites/ }).querySelector('[aria-label="Locked"]')
+			).toBeTruthy();
 			expect(toasts.items).toEqual([]);
-			expect(fetcher.mock.calls.some(([url]) => url.endsWith('/g1/deliver'))).toBe(true);
+			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/g1/deliver'))).toHaveLength(1);
+			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/invitations'))).toHaveLength(0);
+			await user.click(screen.getByRole('button', { name: 'Done' }));
+			await user.click(screen.getByRole('tab', { name: 'Settings' }));
+			expect((screen.getByLabelText('Client link') as HTMLInputElement).value).toBe(
+				`https://pp.test/g/${'B'.repeat(22)}`
+			);
 		});
 
 		it('reports a failed publish and keeps the dialog open to try again', async () => {
@@ -884,6 +1242,7 @@ describe('gallery page', () => {
 			);
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22) });
+			await user.click(screen.getByRole('tab', { name: 'Share' }));
 			await user.click(screen.getByRole('button', { name: 'Publish' }));
 			await user.click(
 				within(await screen.findByRole('dialog', { name: 'Publish 1 photo?' })).getByRole(
@@ -1118,8 +1477,8 @@ describe('gallery page', () => {
 				'Favorites',
 				'Comments',
 				'Final',
-				'Activity',
 				'Design',
+				'Activity',
 				'Share',
 				'Contacts',
 				'Settings'

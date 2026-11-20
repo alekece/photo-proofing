@@ -27,7 +27,7 @@
 		Star,
 		Users
 	} from '@lucide/svelte';
-	import type { Component, Snippet } from 'svelte';
+	import { tick, type Component, type Snippet } from 'svelte';
 	import CommentsPanel from '#lib/components/CommentsPanel.svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
 	import GalleryActivityPanel from '#lib/components/GalleryActivityPanel.svelte';
@@ -44,6 +44,7 @@
 	import { formatDateTime, formatLongDate, galleryStatus } from '#lib/gallery/format.js';
 	import { previewUrl } from '#lib/gallery/photos.js';
 	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
+	import type { ShareAttempt } from '#lib/gallery/types.js';
 	import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
 
 	type NavItem = {
@@ -65,18 +66,20 @@
 		uploading = 0,
 		heroId = $bindable(),
 		heroRevision = $bindable(),
+		focalReady = true,
 		expectedAccessCode = $bindable(),
 		heading,
 		onsave,
+		onsavefocal,
 		schedule,
 		cancel,
-		onpreview,
+		onbeforepreview,
 		onshare,
 		onpublish,
 		onarchive,
 		onrestore,
 		ondelete,
-		onbeforesend,
+		onstartsend,
 		oninvitationsent,
 		requestedPhoto
 	}: {
@@ -87,18 +90,20 @@
 		uploading?: number;
 		heroId?: string | null;
 		heroRevision?: number;
+		focalReady?: boolean;
 		expectedAccessCode?: string | null | 'invalid';
 		heading: Snippet;
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
+		onsavefocal?: (point: FocalPoint) => Promise<FocalPoint | undefined>;
 		schedule: (field: string, run: () => void) => void;
 		cancel: (field: string) => void;
-		onpreview: () => void;
+		onbeforepreview?: () => void;
 		onshare: () => void;
 		onpublish: () => void;
 		onarchive: () => void;
 		onrestore: () => void;
 		ondelete: () => void;
-		onbeforesend?: () => Promise<boolean>;
+		onstartsend?: () => ShareAttempt;
 		oninvitationsent?: (result: QueuedInvitations) => void;
 		requestedPhoto?: { id: string; kind: 'proof' | 'final' };
 	} = $props();
@@ -115,11 +120,7 @@
 	let commentCount = $state<number | null>(null);
 	let finalCount = $state<number | null>(null);
 	let contactCount = $state<number | null>(null);
-	let sharePanel = $state<ReturnType<typeof GallerySharePanel> | null>(null);
 	let shareOpened = $state(false);
-	let shareRecipientCount = $state(0);
-	let shareCanSend = $state(false);
-	let shareSending = $state(false);
 	let contactsPanelRevision = $state(0);
 	let shareContactsRevision = $state(0);
 
@@ -166,6 +167,8 @@
 	});
 
 	function selectSection(target: StudioSection) {
+		if (allItems.find((item) => item.id === target)?.disabled) return;
+
 		if (target === 'share') {
 			if (expectedAccessCode === 'invalid') {
 				toasts.error(m.settings_access_code_invalid());
@@ -188,12 +191,12 @@
 				: 'photos';
 
 		section = target;
+		void tick().then(() => {
+			if (section === target) document.getElementById(`tab-${target}`)?.focus();
+		});
 	}
 
-	const day = $derived(
-		gallery.shoot_date ? formatLongDate(gallery.shoot_date) : formatLongDate(gallery.created_at)
-	);
-	const dayLabel = $derived(gallery.shoot_date ? m.details_shot() : m.details_created());
+	const day = $derived(gallery.shoot_date ? formatLongDate(gallery.shoot_date) : null);
 	const openedValue = $derived(
 		gallery.last_opened_at === null
 			? m.details_not_opened()
@@ -230,18 +233,18 @@
 			count: finalCount,
 			disabled: !shared,
 			title: shared ? undefined : m.tab_after_sharing()
-		},
+		}
+	]);
+
+	const studioItems = $derived<NavItem[]>([
+		{ id: 'design', label: m.tab_design(), icon: Palette },
 		{
 			id: 'activity',
 			label: m.nav_activity(),
 			icon: ActivityIcon,
 			disabled: !shared,
 			title: shared ? undefined : m.tab_after_sharing()
-		}
-	]);
-
-	const studioItems = $derived<NavItem[]>([
-		{ id: 'design', label: m.tab_design(), icon: Palette },
+		},
 		{
 			id: 'share',
 			label: m.tab_share(),
@@ -330,11 +333,11 @@
 
 <div
 	data-slot="gallery-studio"
-	class="grid min-h-[calc(100dvh-3.75rem)] grid-cols-1 content-start [grid-template-areas:'identity''journey''nav''stage'] md:grid-cols-[16.5rem_1fr] md:grid-rows-[auto_auto_1fr] md:content-stretch md:[grid-template-areas:'identity_journey''identity_stage''nav_stage']"
+	class="grid min-h-[calc(100dvh-3.75rem)] grid-cols-[minmax(0,1fr)] content-start [grid-template-areas:'identity''journey''nav''stage'] md:grid-cols-[var(--gallery-rail-width)_minmax(0,1fr)] md:grid-rows-[auto_auto_1fr] md:content-stretch md:[grid-template-areas:'identity_journey''identity_stage''nav_stage']"
 >
 	<div
 		data-slot="gallery-identity"
-		class="flex items-center gap-2.5 bg-panel px-3.5 pt-2.5 pb-2 [grid-area:identity] md:flex-col md:items-stretch md:gap-3 md:border-r md:border-border md:px-4 md:pt-4 md:pb-3"
+		class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1.5 bg-panel px-3.5 pt-2.5 pb-2 [grid-area:identity] md:grid-cols-1 md:items-stretch md:gap-3 md:border-r md:border-border md:px-4 md:pt-4 md:pb-3"
 	>
 		<a
 			href="/dashboard"
@@ -345,50 +348,57 @@
 			<span class="max-md:sr-only">{m.header_back_to_galleries()}</span>
 		</a>
 
-		<button
-			type="button"
-			aria-label={m.studio_open_design()}
-			onclick={() => (section = 'design')}
-			class="relative isolate h-[2.125rem] w-11 shrink-0 cursor-pointer overflow-hidden rounded-[0.4375rem] bg-dark shadow-[0_8px_20px_-14px_rgb(43_36_32/0.55)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus md:aspect-[3/2] md:h-auto md:w-full md:rounded-card"
-		>
-			{#if coverId}
-				<img
-					src={previewUrl(gallery.id, coverId, 'photos', heroRevision)}
-					alt=""
-					style:object-position="{liveFocalPoint.x}% {liveFocalPoint.y}%"
-					class="size-full object-cover {archived ? 'brightness-[0.85] grayscale-[0.7]' : ''}"
-				/>
-			{:else}
-				<CoverBackdrop title={gallery.title} compact />
-			{/if}
-		</button>
+		<div class="relative isolate h-20 min-w-0 md:aspect-[3/2] md:h-auto">
+			<button
+				type="button"
+				aria-label={m.studio_open_design()}
+				onclick={() => (section = 'design')}
+				class="absolute inset-0 size-full cursor-pointer overflow-hidden rounded-card bg-dark shadow-[0_8px_20px_-14px_rgb(43_36_32/0.55)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+			>
+				{#if coverId}
+					<img
+						src={previewUrl(gallery.id, coverId, 'photos', heroRevision)}
+						alt=""
+						style:object-position="{liveFocalPoint.x}% {liveFocalPoint.y}%"
+						class="size-full object-cover {archived ? 'brightness-[0.85] grayscale-[0.7]' : ''}"
+					/>
+				{:else}
+					<CoverBackdrop title={gallery.title} compact />
+				{/if}
+			</button>
 
-		<div class="grid min-w-0 flex-1 gap-0.5 md:gap-1">
-			<div class="flex flex-wrap items-center gap-2">
-				{@render heading()}
-				<button
-					type="button"
-					aria-label={favorite ? m.studio_favorite_remove() : m.studio_favorite_add()}
-					title={favorite ? m.studio_favorite_remove() : m.studio_favorite_add()}
-					aria-pressed={favorite}
-					onclick={() => void toggleFavorite()}
-					class="inline-grid size-7 shrink-0 cursor-pointer place-items-center rounded-full border border-transparent transition-colors hover:bg-border/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus {favorite
-						? 'text-[#c9921a]'
-						: 'text-muted-foreground hover:text-foreground'}"
+			<button
+				type="button"
+				aria-label={favorite ? m.studio_favorite_remove() : m.studio_favorite_add()}
+				title={favorite ? m.studio_favorite_remove() : m.studio_favorite_add()}
+				aria-pressed={favorite}
+				onclick={() => void toggleFavorite()}
+				class="absolute top-2 left-2 grid size-8 cursor-pointer place-items-center rounded-full bg-panel transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus {favorite
+					? 'text-hero'
+					: 'text-muted-foreground hover:text-foreground'}"
+			>
+				<Star size={15} fill={favorite ? 'currentColor' : 'none'} aria-hidden="true" />
+			</button>
+			<StatusChip {status} dot workspace class="pointer-events-none absolute top-2 right-2" />
+			{#if day}
+				<p
+					class="pointer-events-none absolute bottom-2 left-2 rounded-full bg-dark/80 px-2 py-0.5 text-xs text-inverse"
 				>
-					<Star size={15} fill={favorite ? 'currentColor' : 'none'} aria-hidden="true" />
-				</button>
-				<StatusChip {status} dot workspace class="shrink-0" />
+					<span>{m.details_shot()}</span>
+					<span>{day}</span>
+				</p>
+			{/if}
+		</div>
+		<div class="grid min-w-0 gap-0.5 max-md:col-start-2 md:gap-1">
+			<div class="flex min-w-0 flex-wrap items-center gap-2">
+				{@render heading()}
 			</div>
-			<p class="truncate text-xs text-muted-foreground">
-				<span>{dayLabel}</span>
-				<span>{day}</span>
-				{#if shared}
-					<span aria-hidden="true"> · </span>
+			{#if shared}
+				<p class="truncate text-xs text-muted-foreground">
 					<span>{m.details_last_opened()}</span>
 					<span>{openedValue}</span>
-				{/if}
-			</p>
+				</p>
+			{/if}
 		</div>
 	</div>
 
@@ -398,14 +408,10 @@
 			{photoCount}
 			{favoriteCount}
 			sharing={section === 'share'}
-			recipientCount={shareRecipientCount}
-			canSend={shareCanSend}
-			sending={shareSending}
-			{onpreview}
+			onupload={() => selectSection('photos')}
 			onshare={() => selectSection('share')}
-			oncancelshare={leaveShare}
-			onsendinvitations={() => void sharePanel?.requestSend()}
-			{onpublish}
+			oncollect={() => selectSection('favorites')}
+			ondelivery={() => selectSection('share')}
 			{onrestore}
 		/>
 	</div>
@@ -508,17 +514,18 @@
 				bind:heroId={() => coverId, (next) => (heroId = next)}
 				{heroRevision}
 				bind:focalPoint={liveFocalPoint}
+				{focalReady}
 				active={section === 'design'}
 				{onsave}
-				{schedule}
-				{cancel}
+				{onsavefocal}
+				{onbeforepreview}
 			/>
 		</div>
 		<div role="tabpanel" id="panel-share" aria-labelledby="tab-share" hidden={section !== 'share'}>
 			{#if shareOpened}
 				<GallerySharePanel
-					bind:this={sharePanel}
 					gallery={{ ...gallery, share_token: shareToken }}
+					active={section === 'share'}
 					{settings}
 					{coverId}
 					{heroRevision}
@@ -528,10 +535,9 @@
 					{uploading}
 					accessCode={previewAccessCode}
 					contactsRevision={shareContactsRevision}
-					bind:recipientCount={shareRecipientCount}
-					bind:canSend={shareCanSend}
-					bind:sending={shareSending}
-					{onbeforesend}
+					{onstartsend}
+					oncancel={leaveShare}
+					{onpublish}
 					onopensettings={() => selectSection('settings')}
 					onsent={(result) => {
 						oninvitationsent?.(result);

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { m } from '#lib/paraglide/messages.js';
+	import { onDestroy } from 'svelte';
 	import { AlertCircle, Mail, Search, Users, X } from '@lucide/svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
 	import StudioSignature from '#lib/components/StudioSignature.svelte';
@@ -10,6 +11,7 @@
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+	import { getLiveEvents } from '#lib/events.js';
 	import { listContacts, type Contact } from '#lib/contacts/api.js';
 	import { contactInitials, sortContacts } from '#lib/contacts/format.js';
 	import {
@@ -17,12 +19,14 @@
 		type FocalPoint,
 		type Gallery,
 		type InvitationRecipientInput,
-		type QueuedInvitations
+		type QueuedInvitations,
+		type SendInvitationsInput
 	} from '#lib/gallery/api.js';
 	import { listGalleryContacts } from '#lib/gallery/contacts.js';
 	import { formatLongDate } from '#lib/gallery/format.js';
 	import { listPhotos, previewUrl, summarizePhotoReadiness } from '#lib/gallery/photos.js';
 	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
+	import type { ShareAttempt } from '#lib/gallery/types.js';
 	import { ApiError } from '#lib/http.js';
 	import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
 
@@ -40,15 +44,15 @@
 		uploading = 0,
 		accessCode = gallery.access_code ?? null,
 		contactsRevision = 0,
-		recipientCount = $bindable(0),
-		canSend = $bindable(false),
-		sending = $bindable(false),
+		active = true,
 		loadLinkedContacts = listGalleryContacts,
 		loadWorkspaceContacts = listContacts,
 		loadPhotos = listPhotos,
 		sendInvitations = sendGalleryInvitations,
-		onbeforesend,
+		onstartsend,
 		onsent,
+		oncancel,
+		onpublish,
 		onopensettings
 	}: {
 		gallery: Gallery;
@@ -61,15 +65,15 @@
 		uploading?: number;
 		accessCode?: string | null;
 		contactsRevision?: number;
-		recipientCount?: number;
-		canSend?: boolean;
-		sending?: boolean;
+		active?: boolean;
 		loadLinkedContacts?: typeof listGalleryContacts;
 		loadWorkspaceContacts?: typeof listContacts;
 		loadPhotos?: typeof listPhotos;
 		sendInvitations?: typeof sendGalleryInvitations;
-		onbeforesend?: () => Promise<boolean>;
+		onstartsend?: () => ShareAttempt;
 		onsent?: (result: QueuedInvitations) => void;
+		oncancel?: () => void;
+		onpublish?: () => void;
 		onopensettings?: () => void;
 	} = $props();
 
@@ -85,6 +89,9 @@
 	const archived = $derived(gallery.states.includes('archived'));
 	const emailEnabled = $derived(Boolean(settings.emailEnabled));
 	const displayTitle = $derived(gallery.title?.trim() || m.gallery_untitled());
+	const shared = $derived(gallery.share_token !== null);
+	const canInvite = $derived(active && emailEnabled && !archived && !expired);
+	const events = getLiveEvents();
 
 	const defaultSubject = $derived(
 		delivered
@@ -105,28 +112,99 @@
 	let recipientsDirty = $state(false);
 
 	// svelte-ignore state_referenced_locally
-	let subject = $state(defaultSubject);
+	let subject = $state<string>(defaultSubject);
 	let subjectDirty = $state(false);
 	// svelte-ignore state_referenced_locally
-	let message = $state(defaultMessage);
+	let message = $state<string>(defaultMessage);
 	let messageDirty = $state(false);
 	// svelte-ignore state_referenced_locally
 	let previousGalleryId = gallery.id;
+	let galleryRevision = 0;
+	let activationRevision = 0;
+	let disposed = false;
+	onDestroy(() => (disposed = true));
+	$effect.pre(() => {
+		if (!active) activationRevision++;
+	});
 	// svelte-ignore state_referenced_locally
 	let previousDelivered = delivered;
 
-	let messageEl = $state<HTMLTextAreaElement | null>(null);
 	let pickerOpen = $state(false);
 	let pickerLoading = $state(false);
 	let pickerQuery = $state('');
 	let directoryContacts = $state<Contact[]>([]);
-	let readinessPrompt = $state<'empty' | 'unfinished' | null>(null);
+	type Warning = 'empty' | 'unfinished';
+	type Invitation = {
+		galleryId: string;
+		revision: number;
+		activation: number;
+		attempt?: ShareAttempt;
+		wasShared: boolean;
+		wasDelivered: boolean;
+		payload: SendInvitationsInput;
+	};
+	let readinessPrompt = $state.raw<{ invitation: Invitation; warning: Warning } | null>(null);
+	let sending = $state(false);
+	let readinessPhotos = $state<Awaited<ReturnType<typeof listPhotos>> | null>(null);
+	let readinessRevision = $state(0);
+	const proofWarning = $derived(
+		active && !shared && readinessPhotos
+			? readinessWarning(summarizePhotoReadiness(readinessPhotos, uploading))
+			: null
+	);
+
+	function readinessWarning(readiness: ReturnType<typeof summarizePhotoReadiness>): Warning | null {
+		return readiness.empty ? 'empty' : readiness.warned ? 'unfinished' : null;
+	}
+
+	$effect(() => {
+		if (readinessPrompt && !eligible(readinessPrompt.invitation)) readinessPrompt = null;
+	});
+
+	$effect(() => {
+		const galleryId = gallery.id;
+		void readinessRevision;
+		if (!active || shared) {
+			readinessPhotos = null;
+			return;
+		}
+
+		let cancelled = false;
+		readinessPhotos = null;
+		void loadPhotos(galleryId, fetch, 'photos')
+			.then((photos) => {
+				if (!cancelled) readinessPhotos = photos;
+			})
+			.catch(() => {
+				// The fresh send precheck still runs; a failed advisory read says nothing about readiness.
+			});
+		return () => {
+			cancelled = true;
+		};
+	});
+
+	$effect(() => {
+		if (!active || shared || !events) return;
+
+		const galleryId = gallery.id;
+		const refresh = () => readinessRevision++;
+		const stopPhoto = events.onPhoto((event) => {
+			if (event.gallery_id === galleryId && event.kind !== 'final') refresh();
+		});
+		const stopResync = events.onResync(refresh);
+		return () => {
+			stopPhoto();
+			stopResync();
+		};
+	});
 
 	$effect(() => {
 		if (gallery.id !== previousGalleryId) {
 			previousGalleryId = gallery.id;
+			galleryRevision++;
 			previousDelivered = delivered;
 			recipientsDirty = false;
+			toRecipients = [];
 			subjectDirty = false;
 			messageDirty = false;
 			toDraft = '';
@@ -192,25 +270,12 @@
 		]).size;
 	});
 
-	$effect(() => {
-		recipientCount = effectiveRecipientCount;
-		canSend =
-			emailEnabled &&
-			!archived &&
-			!expired &&
+	const canSend = $derived(
+		canInvite &&
 			effectiveRecipientCount > 0 &&
 			subject.trim().length > 0 &&
-			message.trim().length > 0;
-	});
-
-	$effect(() => {
-		void message;
-
-		if (!messageEl) return;
-
-		messageEl.style.height = 'auto';
-		messageEl.style.height = `${Math.max(messageEl.scrollHeight, 96)}px`;
-	});
+			message.trim().length > 0
+	);
 
 	const shootDateText = $derived(gallery.shoot_date ? formatLongDate(gallery.shoot_date) : null);
 	const visibleCount = $derived(delivered ? finalCount : photoCount);
@@ -349,35 +414,34 @@
 		}
 	}
 
-	async function executeSend(fromConfirm = false): Promise<void> {
-		const trimmedSubject = subject.trim();
-		const trimmedMessage = message.trim();
+	function isCurrent(invitation: Invitation) {
+		return (
+			!disposed && invitation.galleryId === gallery.id && invitation.revision === galleryRevision
+		);
+	}
 
-		if (!trimmedSubject) {
-			if (fromConfirm) throw new Error(m.share_subject_required());
-			toasts.error(m.share_subject_required());
-			return;
-		}
-		if (!trimmedMessage) {
-			if (fromConfirm) throw new Error(m.share_message_required());
-			toasts.error(m.share_message_required());
-			return;
-		}
+	function eligible(invitation: Invitation) {
+		return (
+			isCurrent(invitation) &&
+			invitation.activation === activationRevision &&
+			canInvite &&
+			shared === invitation.wasShared &&
+			delivered === invitation.wasDelivered
+		);
+	}
 
-		sending = true;
+	async function executeSend(invitation: Invitation, fromConfirm: boolean): Promise<void> {
 		try {
-			const result = await sendInvitations(gallery.id, {
-				to: toRecipients,
-				bcc: bccRecipients,
-				subject: trimmedSubject,
-				message: trimmedMessage
-			});
+			const result = await sendInvitations(invitation.galleryId, invitation.payload);
 
+			if (!isCurrent(invitation)) return;
 			recipientsDirty = false;
 			bccRecipients = [];
 			bccDraft = '';
 			onsent?.(result);
 		} catch (err) {
+			if (!isCurrent(invitation)) return;
+
 			if (err instanceof ApiError && err.status === 401) {
 				readinessPrompt = null;
 				await goto('/login?expired=1', { refreshAll: true });
@@ -391,79 +455,124 @@
 			}
 
 			toasts.error(detail);
+		}
+	}
+
+	export async function requestSend(): Promise<void> {
+		if (disposed || sending || readinessPrompt || !canInvite) return;
+		if (!commitToDraft() || !commitBccDraft()) return;
+		if (toRecipients.length + bccRecipients.length === 0) return;
+
+		const invitation: Invitation = {
+			galleryId: gallery.id,
+			revision: galleryRevision,
+			activation: activationRevision,
+			wasShared: shared,
+			wasDelivered: delivered,
+			payload: {
+				to: toRecipients.map((recipient) => ({ ...recipient })),
+				bcc: [...bccRecipients],
+				subject: subject.trim(),
+				message: message.trim()
+			}
+		};
+		if (!invitation.payload.subject) {
+			toasts.error(m.share_subject_required());
+			return;
+		}
+		if (!invitation.payload.message) {
+			toasts.error(m.share_message_required());
+			return;
+		}
+		const attempt = onstartsend?.();
+		invitation.attempt = attempt;
+
+		sending = true;
+		try {
+			// Capture pending settings saves before the photo read can outlast their results.
+			if ((attempt && !(await attempt.prepare())) || !eligible(invitation)) return;
+
+			let warning: Warning | null = null;
+			if (!invitation.wasShared) {
+				try {
+					const photos = await loadPhotos(invitation.galleryId, fetch, 'photos');
+					warning = readinessWarning(summarizePhotoReadiness(photos, uploading));
+				} catch {
+					// A failed precheck does not prevent an explicit send.
+				}
+			}
+
+			if (!eligible(invitation) || (attempt && !attempt.isReady())) return;
+
+			if (warning) {
+				readinessPrompt = { invitation, warning };
+			} else {
+				if (!invitation.wasShared && attempt && !(await attempt.prepare())) return;
+				if (eligible(invitation) && (!attempt || attempt.isReady())) {
+					await executeSend(invitation, false);
+				}
+			}
 		} finally {
 			sending = false;
 		}
 	}
 
-	export async function requestSend(): Promise<void> {
-		if (sending) return;
-		if (!commitToDraft() || !commitBccDraft()) return;
-		if (!emailEnabled || archived || expired) return;
-		if (toRecipients.length + bccRecipients.length === 0) return;
-
-		if (onbeforesend && !(await onbeforesend())) {
-			return;
+	async function confirmSend(invitation: Invitation): Promise<void> {
+		const { attempt } = invitation;
+		if (sending || !eligible(invitation) || (attempt && !attempt.isReady())) {
+			throw new Error(m.share_send_failed());
 		}
 
-		if (gallery.share_token === null) {
-			try {
-				const readiness = summarizePhotoReadiness(
-					await loadPhotos(gallery.id, fetch, 'photos'),
-					uploading
-				);
-
-				if (readiness.empty) {
-					readinessPrompt = 'empty';
-					return;
-				}
-				if (readiness.warned) {
-					readinessPrompt = 'unfinished';
-					return;
-				}
-			} catch {
-				// Proceed with sending if the client-side photo precheck fails.
+		sending = true;
+		try {
+			if (
+				(attempt && !(await attempt.prepare())) ||
+				!eligible(invitation) ||
+				(attempt && !attempt.isReady())
+			) {
+				throw new Error(m.share_send_failed());
 			}
+			await executeSend(invitation, true);
+		} finally {
+			sending = false;
 		}
-
-		await executeSend(false);
 	}
 </script>
 
-<div class="mx-auto grid w-full max-w-[41.25rem] gap-4">
-	{#if !emailEnabled}
+<div class="@container mx-auto grid w-full max-w-[72rem] gap-4">
+	{#if shared && !delivered && !archived && onpublish}
 		<div
-			role="status"
-			class="flex flex-wrap items-center justify-between gap-3 rounded-[0.875rem] border border-border bg-panel p-4 text-sm"
+			class="flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-panel p-4 text-sm"
 		>
-			<div class="flex items-start gap-2.5">
-				<Mail size={18} aria-hidden="true" class="mt-0.5 shrink-0 text-muted-foreground" />
-				<div class="grid gap-0.5">
-					<p class="font-semibold text-foreground">{m.share_smtp_unavailable_title()}</p>
-					<p class="text-muted-foreground">{m.share_smtp_unavailable_body()}</p>
-				</div>
-			</div>
-			{#if onopensettings}
-				<Button
-					variant="outline"
-					size="sm"
-					class="min-h-9! shrink-0 bg-white!"
-					onclick={onopensettings}
-				>
-					{m.share_open_settings()}
-				</Button>
-			{/if}
+			<p class="text-muted-foreground">{m.share_publish_hint()}</p>
+			<Button size="sm" disabled={sending} onclick={onpublish}>{m.action_deliver()}</Button>
 		</div>
-	{:else if expired}
+	{/if}
+
+	{#if !emailEnabled || expired}
 		<div
 			role="status"
 			class="flex flex-wrap items-center justify-between gap-3 rounded-[0.875rem] border border-border bg-panel p-4 text-sm"
 		>
 			<div class="flex items-start gap-2.5">
-				<AlertCircle size={18} aria-hidden="true" class="mt-0.5 shrink-0 text-danger" />
-				<div class="grid gap-0.5">
-					<p class="font-semibold text-foreground">{m.share_expired_title()}</p>
-					<p class="text-muted-foreground">{m.share_expired_body()}</p>
+				{#if expired}
+					<AlertCircle size={18} aria-hidden="true" class="mt-0.5 shrink-0 text-danger" />
+				{:else}
+					<Mail size={18} aria-hidden="true" class="mt-0.5 shrink-0 text-muted-foreground" />
+				{/if}
+				<div class="grid gap-2">
+					{#if !emailEnabled}
+						<div>
+							<p class="font-semibold text-foreground">{m.share_smtp_unavailable_title()}</p>
+							<p class="text-muted-foreground">{m.share_smtp_unavailable_body()}</p>
+						</div>
+					{/if}
+					{#if expired}
+						<div>
+							<p class="font-semibold text-foreground">{m.share_expired_title()}</p>
+							<p class="text-muted-foreground">{m.share_expired_body()}</p>
+						</div>
+					{/if}
 				</div>
 			</div>
 			{#if onopensettings}
@@ -478,20 +587,32 @@
 			{/if}
 		</div>
 	{/if}
+	{#if proofWarning}
+		<p
+			role="status"
+			class="flex items-start gap-2 rounded-card border border-border bg-panel p-4 text-sm font-medium text-warning"
+		>
+			<AlertCircle size={18} aria-hidden="true" class="shrink-0" />
+			{proofWarning === 'empty' ? m.share_proofs_empty() : m.share_proofs_unfinished()}
+		</p>
+	{/if}
 
-	<div class="overflow-hidden rounded-[0.875rem] border border-border shadow-xs">
-		<!-- Sheet 1: Envelope -->
-		<section aria-label={m.share_envelope_label()} class="bg-panel px-4 py-3.5 sm:px-6 sm:py-4">
-			<!-- To row -->
-			<div class="grid gap-1.5 border-b border-[#ece3d6] pb-3">
-				<div class="flex flex-wrap items-center gap-2">
-					<Label
-						for={toInputId}
-						class="w-14 shrink-0 text-xs font-semibold tracking-[0.06em] text-muted-foreground uppercase"
-					>
+	<div
+		class="grid overflow-hidden rounded-dialog border border-border shadow-xs @min-[44rem]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+	>
+		<section
+			aria-label={m.share_envelope_label()}
+			class="grid min-w-0 content-start gap-4 bg-panel p-4 sm:p-5"
+		>
+			<h2 class="text-xl">{m.share_envelope_label()}</h2>
+			<div class="grid gap-1.5">
+				<div class="grid gap-2">
+					<Label for={toInputId} class="text-sm font-semibold">
 						{m.share_to_label()}
 					</Label>
-					<div class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+					<div
+						class="flex min-w-0 flex-wrap items-center gap-1.5 rounded-control border border-border-strong bg-input p-1.5 focus-within:border-foreground"
+					>
 						{#each toRecipients as recipient (recipient.email)}
 							<span
 								class="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-white px-2.5 py-1 text-xs font-medium text-foreground"
@@ -531,10 +652,10 @@
 							onblur={() => {
 								commitToDraft();
 							}}
-							class="min-w-40 flex-1 bg-transparent py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground/55 disabled:cursor-not-allowed disabled:opacity-50"
+							class="min-w-24 flex-1 bg-transparent px-1.5 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
 						/>
 					</div>
-					<div class="ml-auto flex shrink-0 items-center gap-1.5">
+					<div class="flex flex-wrap items-center gap-1.5">
 						<Button
 							variant="outline"
 							size="sm"
@@ -558,21 +679,19 @@
 					</div>
 				</div>
 				{#if toError}
-					<p role="alert" class="pl-16 text-xs text-danger">{toError}</p>
+					<p role="alert" class="text-xs text-danger">{toError}</p>
 				{/if}
 			</div>
 
-			<!-- Optional BCC row -->
 			{#if bccOpen || bccRecipients.length > 0}
-				<div class="grid gap-1.5 border-b border-[#ece3d6] py-3">
-					<div class="flex flex-wrap items-center gap-2">
-						<Label
-							for={bccInputId}
-							class="w-14 shrink-0 text-xs font-semibold tracking-[0.06em] text-muted-foreground uppercase"
-						>
+				<div class="grid gap-1.5">
+					<div class="grid gap-2">
+						<Label for={bccInputId} class="text-sm font-semibold">
 							{m.share_bcc_label()}
 						</Label>
-						<div class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+						<div
+							class="flex min-w-0 flex-wrap items-center gap-1.5 rounded-control border border-border-strong bg-input p-1.5 focus-within:border-foreground"
+						>
 							{#each bccRecipients as email (email)}
 								<span
 									class="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-white px-2.5 py-1 text-xs font-medium text-foreground"
@@ -610,44 +729,75 @@
 								onblur={() => {
 									commitBccDraft();
 								}}
-								class="min-w-40 flex-1 bg-transparent py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground/55 disabled:cursor-not-allowed disabled:opacity-50"
+								class="min-w-24 flex-1 bg-transparent px-1.5 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
 							/>
 						</div>
 					</div>
 					{#if bccError}
-						<p role="alert" class="pl-16 text-xs text-danger">{bccError}</p>
+						<p role="alert" class="text-xs text-danger">{bccError}</p>
 					{/if}
 				</div>
 			{/if}
 
-			<!-- Subject row -->
-			<div class="flex items-center gap-2 pt-3">
-				<Label
-					for={subjectInputId}
-					class="w-14 shrink-0 text-xs font-semibold tracking-[0.06em] text-muted-foreground uppercase"
-				>
+			<div class="grid gap-2">
+				<Label for={subjectInputId} class="text-sm font-semibold">
 					{m.share_subject_label()}
 				</Label>
-				<input
+				<Input
 					id={subjectInputId}
 					type="text"
 					maxlength={200}
 					disabled={!emailEnabled || sending}
-					bind:value={subject}
-					oninput={() => {
+					value={subject}
+					oninput={(event) => {
 						subjectDirty = true;
+						subject = event.currentTarget.value;
 					}}
-					class="min-w-0 flex-1 bg-transparent py-1 text-sm font-medium text-foreground outline-none placeholder:text-muted-foreground/55 disabled:cursor-not-allowed disabled:opacity-50"
+					class="border-border-strong bg-input text-sm"
 				/>
+			</div>
+			<div class="grid gap-2">
+				<Label for={messageInputId} class="text-sm font-semibold">{m.share_message_label()}</Label>
+				<textarea
+					id={messageInputId}
+					rows={5}
+					maxlength={5000}
+					disabled={!emailEnabled || sending}
+					placeholder={m.share_message_placeholder()}
+					value={message}
+					oninput={(event) => {
+						messageDirty = true;
+						message = event.currentTarget.value;
+					}}
+					class="w-full min-w-0 resize-y rounded-control border border-border-strong bg-input px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:border-foreground focus:outline-1 focus:outline-focus disabled:cursor-not-allowed disabled:opacity-50"
+				></textarea>
+			</div>
+			<div class="flex flex-wrap justify-end gap-2 pt-1">
+				{#if oncancel}
+					<Button variant="outline" size="sm" disabled={sending} onclick={oncancel}>
+						{m.common_cancel()}
+					</Button>
+				{/if}
+				<Button size="sm" disabled={!canSend || sending} onclick={() => void requestSend()}>
+					<Mail size={16} aria-hidden="true" class="mr-1.5" />
+					{sending
+						? m.share_sending()
+						: effectiveRecipientCount > 0
+							? m.share_send_invitation_count({ count: effectiveRecipientCount })
+							: m.share_send_invitation()}
+				</Button>
 			</div>
 		</section>
 
-		<!-- Sheet 2: Live Warm Paper Email Preview (flush below Envelope) -->
 		<section
 			aria-label={m.share_preview_label()}
-			class="border-t border-border bg-white text-foreground"
+			class="min-w-0 border-t border-border bg-input text-foreground @min-[44rem]:border-t-0 @min-[44rem]:border-l"
 		>
-			<div class="px-6 pt-7 pb-5 text-center sm:px-10">
+			<div class="grid gap-2 border-b border-border bg-panel/60 px-4 py-3 sm:px-5">
+				<h2 class="text-xl">{m.share_preview_label()}</h2>
+				<p class="text-sm font-semibold wrap-anywhere whitespace-pre-wrap">{subject}</p>
+			</div>
+			<div class="px-6 py-4 text-center">
 				<StudioSignature
 					studio={settings.studioName}
 					logo={settings.logo}
@@ -672,35 +822,20 @@
 				</div>
 			{/if}
 
-			<div class="grid gap-5 px-6 py-8 sm:px-10">
+			<div class="grid gap-4 p-5 sm:px-6">
 				<div class="grid gap-1.5 text-center">
 					<p
 						class="text-[0.6875rem] font-semibold tracking-[0.16em] text-muted-foreground uppercase"
 					>
 						{delivered ? m.share_eyebrow_finals() : m.share_eyebrow_proofing()}
 					</p>
-					<h3 class="text-2xl leading-tight sm:text-[1.75rem]">{displayTitle}</h3>
+					<h3 class="text-2xl leading-tight wrap-anywhere">{displayTitle}</h3>
 					{#if metaLine}
 						<p class="text-xs text-muted-foreground">{metaLine}</p>
 					{/if}
 				</div>
 
-				<div>
-					<label for={messageInputId} class="sr-only">{m.share_message_label()}</label>
-					<textarea
-						id={messageInputId}
-						bind:this={messageEl}
-						rows={4}
-						maxlength={5000}
-						disabled={!emailEnabled || sending}
-						placeholder={m.share_message_placeholder()}
-						bind:value={message}
-						oninput={() => {
-							messageDirty = true;
-						}}
-						class="w-full resize-none overflow-hidden rounded-lg border border-transparent bg-transparent px-2.5 py-2 text-[0.9375rem] leading-relaxed text-foreground transition-colors outline-none hover:border-border focus:border-foreground focus:bg-[#faf8f5]/60 disabled:cursor-not-allowed disabled:opacity-70"
-					></textarea>
-				</div>
+				<p class="text-sm leading-relaxed wrap-anywhere whitespace-pre-wrap">{message}</p>
 
 				{#if accessCode}
 					<div
@@ -815,12 +950,11 @@
 {/if}
 
 {#if readinessPrompt !== null}
+	{@const { invitation, warning } = readinessPrompt}
 	<ConfirmDialog
-		title={readinessPrompt === 'empty'
-			? m.share_warn_empty_title()
-			: m.share_warn_unfinished_title()}
+		title={warning === 'empty' ? m.share_warn_empty_title() : m.share_warn_unfinished_title()}
 		confirmLabel={m.share_send_anyway()}
-		onconfirm={() => executeSend(true)}
+		onconfirm={() => confirmSend(invitation)}
 		onclose={() => (readinessPrompt = null)}
 	>
 		{#snippet description()}

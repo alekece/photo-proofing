@@ -59,6 +59,15 @@ export function createGallery(fetcher: typeof fetch = fetch): Promise<Gallery> {
 	return requestJson('/api/v1/galleries', { method: 'POST' }, gallerySchema, fetcher);
 }
 
+export function readGallery(id: string, fetcher: typeof fetch = fetch): Promise<Gallery> {
+	return requestJson(
+		`/api/v1/galleries/${encodeURIComponent(id)}`,
+		{ cache: 'no-store' },
+		gallerySchema,
+		fetcher
+	);
+}
+
 export function updateGallery(
 	id: string,
 	changes: GalleryChanges,

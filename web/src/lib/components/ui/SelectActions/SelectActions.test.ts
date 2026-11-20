@@ -94,8 +94,10 @@ describe('SelectActions', () => {
 			/sm:max-w-\[calc\(100vw-clamp\(15rem,16vw,17\.5rem\)-1\.25rem\)\]/
 		);
 		expect(bar.className).toMatch(
-			/md:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\+8\.25rem\)\]/
+			/md:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\+var\(--gallery-rail-width\)\/2\)\]/
 		);
-		expect(bar.className).toMatch(/md:max-w-\[calc\(100vw-clamp\(15rem,16vw,17\.5rem\)-18rem\)\]/);
+		expect(bar.className).toContain(
+			'md:max-w-[calc(100vw-clamp(15rem,16vw,17.5rem)-var(--gallery-rail-width)-1.5rem)]'
+		);
 	});
 });

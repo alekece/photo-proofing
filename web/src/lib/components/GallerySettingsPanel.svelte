@@ -107,15 +107,9 @@
 			committedAccessCode = savedAccessCode;
 			if (!accessCodeSaving && !accessCodeDirty) {
 				desiredAccessCode = savedAccessCode;
-				accessCodeEnabled = savedAccessCode !== null;
-				accessCodeDraft = savedAccessCode ?? '';
+				setAccessCodeDraft(savedAccessCode !== null, savedAccessCode ?? '');
 			}
 		}
-		expectedAccessCode = accessCodeEnabled
-			? ACCESS_CODE_RE.test(accessCodeDraft)
-				? accessCodeDraft
-				: 'invalid'
-			: null;
 	});
 
 	const archived = $derived(gallery.states.includes('archived'));
@@ -195,11 +189,16 @@
 		return String(sample % 1_000_000).padStart(6, '0');
 	}
 
+	function setAccessCodeDraft(enabled: boolean, draft: string) {
+		accessCodeEnabled = enabled;
+		accessCodeDraft = draft;
+		expectedAccessCode = enabled ? (ACCESS_CODE_RE.test(draft) ? draft : 'invalid') : null;
+	}
+
 	function revertAccessCode() {
 		accessCodeDirty = false;
 		desiredAccessCode = committedAccessCode;
-		accessCodeEnabled = committedAccessCode !== null;
-		accessCodeDraft = committedAccessCode ?? '';
+		setAccessCodeDraft(committedAccessCode !== null, committedAccessCode ?? '');
 	}
 
 	function requestAccessCodeSave(target: string | null) {
@@ -218,8 +217,7 @@
 				if (ok) {
 					committedAccessCode = target;
 					if (desiredAccessCode === target && !accessCodeDirty) {
-						accessCodeEnabled = target !== null;
-						accessCodeDraft = target ?? '';
+						setAccessCodeDraft(target !== null, target ?? '');
 					}
 				} else {
 					if (desiredAccessCode === target) {
@@ -238,7 +236,7 @@
 		accessCodeDirty = false;
 
 		if (!enabled) {
-			accessCodeDraft = '';
+			setAccessCodeDraft(false, '');
 			requestAccessCodeSave(null);
 			return;
 		}
@@ -246,7 +244,7 @@
 		const next = ACCESS_CODE_RE.test(accessCodeDraft)
 			? accessCodeDraft
 			: generateRandomAccessCode();
-		accessCodeDraft = next;
+		setAccessCodeDraft(true, next);
 		requestAccessCodeSave(next);
 	}
 
@@ -255,7 +253,7 @@
 		accessCodeDirty = false;
 
 		const next = generateRandomAccessCode();
-		accessCodeDraft = next;
+		setAccessCodeDraft(true, next);
 		requestAccessCodeSave(next);
 	}
 
@@ -426,7 +424,7 @@
 										const digits = (event.currentTarget as HTMLInputElement).value
 											.replace(/\D/g, '')
 											.slice(0, 6);
-										accessCodeDraft = digits;
+										setAccessCodeDraft(true, digits);
 										(event.currentTarget as HTMLInputElement).value = digits;
 										accessCodeDirty = true;
 										if (ACCESS_CODE_RE.test(digits)) {
