@@ -2,7 +2,7 @@
 //!
 //! - `GET /` lists workspace contacts alphabetically with their linked galleries.
 //! - `POST /` creates a contact; duplicate normalized email in the workspace is a 409.
-//! - `PATCH /{id}` applies a [`ContactChanges`] changeset; duplicate email is a 409.
+//! - `PATCH /{id}` applies a [`ContactChanges`] changeset; duplicate or stale guarded email is a 409.
 //! - `DELETE /{id}` removes the contact and cascades its gallery associations (204).
 //!
 //! Every query is scoped to the session's workspace, so foreign ids answer 404.
@@ -165,6 +165,67 @@ mod tests {
             assert_eq!(status, StatusCode::FORBIDDEN);
             assert_eq!(body["code"], "forbidden_origin");
         }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn changing_a_contact_email_can_require_the_current_address(pool: PgPool) {
+        let (state, _directory) = app_state(pool).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let (status, contact) = call(
+            &app,
+            authed(test::TestRequest::post(), "/api/v1/contacts", &cookie).set_json(json!({
+                "name": "Camille",
+                "email": "camille@example.test"
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+
+        let uri = format!("/api/v1/contacts/{}", contact["id"].as_str().unwrap());
+        let (status, mismatch) = call(
+            &app,
+            authed(test::TestRequest::patch(), &uri, &cookie).set_json(json!({
+                "expected_email": "previous@example.test",
+                "email": "new@example.test",
+                "notes": "Updates are applied together"
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(mismatch["code"], "contact_email_changed");
+
+        let (status, updated) = call(
+            &app,
+            authed(test::TestRequest::patch(), &uri, &cookie).set_json(json!({
+                "expected_email": "CAMILLE@example.test",
+                "email": "new@example.test"
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(updated["email"], "new@example.test");
+        assert_eq!(updated["notes"], Value::Null);
+
+        let missing_uri = format!("/api/v1/contacts/{}", Uuid::new_v4());
+        let (status, _) = call(
+            &app,
+            authed(test::TestRequest::patch(), &missing_uri, &cookie).set_json(json!({
+                "expected_email": "camille@example.test",
+                "email": "new@example.test"
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

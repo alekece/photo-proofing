@@ -693,6 +693,7 @@
 	"client_gate_wrong_code": "Incorrect access code. Please try again.",
 	"client_gate_too_many_attempts": "Too many attempts. Please wait a moment and try again.",
 	"api_error_contact_email_taken": "A contact with this email already exists.",
+	"api_error_contact_email_changed": "This contact’s email has changed. Reload Contacts and try again.",
 	"nav_sections": "Main sections",
 	"nav_galleries": "Galleries",
 	"nav_all_photos": "All Photos",

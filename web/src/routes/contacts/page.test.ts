@@ -5,15 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
 import type { Contact } from '#lib/contacts/api.js';
 
-vi.mock('$app/navigation', () => ({
-	afterNavigate: vi.fn(),
-	goto: vi.fn()
-}));
 const state = vi.hoisted(() => ({
 	page: { url: new URL('http://localhost/contacts') },
-	navigating: { to: null }
+	navigating: { to: null },
+	beforeNavigate: vi.fn()
 }));
-vi.mock('$app/state', () => state);
+vi.mock('$app/navigation', () => ({
+	afterNavigate: vi.fn(),
+	beforeNavigate: state.beforeNavigate,
+	goto: vi.fn()
+}));
+vi.mock('$app/state', () => ({ page: state.page, navigating: state.navigating }));
 
 import Page from './+page.svelte';
 
@@ -46,6 +48,7 @@ function open(contacts: Contact[] | null) {
 
 beforeEach(() => {
 	state.page.url = new URL('http://localhost/contacts');
+	state.beforeNavigate.mockClear();
 	vi.stubGlobal('matchMedia', () => ({ matches: true }));
 });
 
@@ -244,6 +247,7 @@ describe('/contacts page', () => {
 
 		await user.click(screen.getByRole('button', { name: 'Create contact' }));
 		expect(await screen.findByRole('button', { name: 'Contact saved' })).toBeTruthy();
+		expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).matches(':disabled')).toBe(true);
 		expect(
 			await within(screen.getByRole('list', { name: 'Workspace contacts' })).findByText(
 				'Léo Martin'
@@ -329,13 +333,57 @@ describe('/contacts page', () => {
 		expect(savedBtn.getAttribute('aria-disabled')).toBe('true');
 		expect(fetcher).toHaveBeenCalledWith(
 			'/api/v1/contacts/c1',
-			expect.objectContaining({ method: 'PATCH' })
+			expect.objectContaining({
+				method: 'PATCH',
+				body: JSON.stringify({ name: 'Camille Laurent', phone: null })
+			})
 		);
 		await user.click(screen.getByRole('button', { name: 'Cancel' }));
 		expect(screen.queryByLabelText('Name')).toBeNull();
 		expect(document.activeElement).toBe(
 			screen.getByRole('button', { name: 'Edit Camille Laurent' })
 		);
+	});
+
+	it('puts edit actions after fields in keyboard order', async () => {
+		const user = userEvent.setup();
+		open([contact()]);
+		await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
+		await user.type(screen.getByLabelText('Name'), ' Martin');
+		screen.getByLabelText('Notes').focus();
+		await user.tab();
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
+		await user.tab();
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save changes' }));
+	});
+
+	it('pairs an explicit recipient change with the email shown when Edit opened', async () => {
+		const user = userEvent.setup();
+		const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+			String(input).endsWith('/contacts/c1') && init?.method === 'PATCH'
+				? new Response(JSON.stringify({ code: 'contact_email_changed' }), { status: 409 })
+				: new Response(null, { status: 204 })
+		);
+		vi.stubGlobal('fetch', fetcher);
+		open([contact()]);
+		await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
+		const email = screen.getByLabelText('Email');
+		await user.clear(email);
+		await user.type(email, 'new@example.test');
+		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+		expect(fetcher).toHaveBeenCalledWith(
+			'/api/v1/contacts/c1',
+			expect.objectContaining({
+				method: 'PATCH',
+				body: JSON.stringify({ email: 'new@example.test', expected_email: 'camille@example.test' })
+			})
+		);
+		expect(await screen.findByRole('alert')).toHaveProperty(
+			'textContent',
+			'This contact’s email has changed. Reload Contacts and try again.'
+		);
+		expect(email).toHaveProperty('value', 'new@example.test');
 	});
 
 	it.each(['removed row', 'toolbar'])(
@@ -419,6 +467,18 @@ describe('/contacts page', () => {
 		expect(requests).toEqual(['/api/v1/contacts/c1']);
 		await advance(1);
 		expect(requests).toEqual(['/api/v1/contacts/c1', '/api/v1/contacts/c1']);
+	});
+
+	it('disarms an uncommitted countdown as soon as navigation starts', async () => {
+		const { user, requests, deleteButton, advance } = deletionSession();
+		await user.click(deleteButton());
+		expect(screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' })).toBeTruthy();
+		await advance(2999);
+		expect(state.beforeNavigate).toHaveBeenCalledOnce();
+		state.beforeNavigate.mock.calls[0][0]({ to: { route: { id: '/dashboard' } } });
+		await advance(1);
+		expect(deleteButton()).toBeTruthy();
+		expect(requests).toEqual([]);
 	});
 });
 

@@ -4,7 +4,11 @@ import { axe } from 'vitest-axe';
 import { describe, expect, it, vi } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
 
-vi.mock('$app/navigation', () => ({ afterNavigate: vi.fn(), goto: vi.fn() }));
+vi.mock('$app/navigation', () => ({
+	afterNavigate: vi.fn(),
+	beforeNavigate: vi.fn(),
+	goto: vi.fn()
+}));
 vi.mock('$app/state', () => ({
 	page: { url: new URL('http://localhost/dashboard') },
 	navigating: { to: null }

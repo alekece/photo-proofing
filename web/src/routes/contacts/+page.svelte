@@ -4,7 +4,8 @@
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { cubicIn } from 'svelte/easing';
 	import { slide } from 'svelte/transition';
-	import { afterNavigate, goto } from '$app/navigation';
+	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+	import { navigating } from '$app/state';
 	import { ArrowUpDown, ChevronDown, Pencil, Trash2, Users } from '@lucide/svelte';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import { authRequest } from '#lib/auth.js';
@@ -16,7 +17,13 @@
 	import Label from '#lib/components/ui/Label/Label.svelte';
 	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
-	import { createContact, deleteContact, updateContact, type Contact } from '#lib/contacts/api.js';
+	import {
+		createContact,
+		deleteContact,
+		updateContact,
+		type Contact,
+		type ContactChangesInput
+	} from '#lib/contacts/api.js';
 	import { contactInitials, sortContacts } from '#lib/contacts/format.js';
 	import { ApiError } from '#lib/http.js';
 	import type { PageData } from './$types';
@@ -29,11 +36,12 @@
 		notes: string;
 		error: string;
 		invalid: 'name' | 'email' | null;
+		created: boolean;
 	};
 	type Panel =
 		| { mode: 'new'; draft: Draft }
 		| { mode: 'details'; id: string }
-		| { mode: 'edit'; id: string; draft: Draft };
+		| { mode: 'edit'; id: string; draft: Draft; original: Contact };
 
 	let { data }: { data: PageData } = $props();
 
@@ -50,11 +58,13 @@
 	let root: HTMLElement;
 	let newButton = $state<HTMLButtonElement | null>(null);
 	let saveButton = $state<ActionButton>();
+	let deleteEpoch = $state(0);
 	let disposed = false;
 	let signingOut = $state(false);
 	let signOutError = $state('');
 
 	const loadFailed = $derived(data.contacts === null);
+	const departing = $derived(navigating.to !== null && navigating.to.route.id !== '/contacts');
 	const sorts = $derived([
 		{ value: 'name_asc', label: m.contacts_sort_name_asc() },
 		{ value: 'name_desc', label: m.contacts_sort_name_desc() }
@@ -76,6 +86,9 @@
 
 	const activity = $derived(createSessionActivity(data.idleTimeoutMs));
 
+	beforeNavigate(({ to, willUnload }) => {
+		if (willUnload || to?.route.id !== '/contacts') deleteEpoch += 1;
+	});
 	afterNavigate(() => {
 		void activity();
 	});
@@ -117,10 +130,13 @@
 			phone: contact?.phone ?? '',
 			notes: contact?.notes ?? '',
 			error: '',
-			invalid: null
+			invalid: null,
+			created: false
 		};
 
-		panel = contact ? { mode: 'edit', id: contact.id, draft } : { mode: 'new', draft };
+		panel = contact
+			? { mode: 'edit', id: contact.id, draft, original: contact }
+			: { mode: 'new', draft };
 		void tick().then(() => document.getElementById(`${draft.form}-name`)?.focus());
 	}
 
@@ -147,13 +163,24 @@
 		input.focus();
 	}
 
-	function hasChanges(draft: Draft, contact: Contact): boolean {
-		return (
-			draft.name.trim() !== contact.name ||
-			draft.email.trim().toLowerCase() !== contact.email ||
-			draft.phone.trim() !== (contact.phone ?? '') ||
-			draft.notes.trim() !== (contact.notes ?? '')
-		);
+	function values(draft: Draft) {
+		return {
+			name: draft.name.trim(),
+			email: draft.email.trim(),
+			phone: draft.phone.trim() || null,
+			notes: draft.notes.trim() || null
+		};
+	}
+
+	function changes(draft: Draft, original: Contact): ContactChangesInput {
+		const { name, email, phone, notes } = values(draft);
+
+		return {
+			...(name !== original.name && { name }),
+			...(email.toLowerCase() !== original.email && { email, expected_email: original.email }),
+			...(phone !== original.phone && { phone }),
+			...(notes !== original.notes && { notes })
+		};
 	}
 
 	async function submitContact(draft: Draft): Promise<boolean> {
@@ -163,8 +190,7 @@
 		const id = editor.mode === 'edit' ? editor.id : null;
 		if (writes.has(id)) return false;
 
-		const name = draft.name.trim();
-		if (!name) {
+		if (!draft.name.trim()) {
 			draft.invalid = 'name';
 			draft.error = m.contacts_name_required();
 			document.getElementById(`${draft.form}-name`)?.focus();
@@ -172,18 +198,15 @@
 			return false;
 		}
 
-		const input = {
-			name,
-			email: draft.email.trim(),
-			phone: draft.phone.trim() || null,
-			notes: draft.notes.trim() || null
-		};
 		draft.error = '';
 		draft.invalid = null;
 		writes.add(id);
 
 		try {
-			const saved = id === null ? await createContact(input) : await updateContact(id, input);
+			const saved =
+				editor.mode === 'new'
+					? await createContact(values(draft))
+					: await updateContact(editor.id, changes(draft, editor.original));
 			if (disposed) return false;
 
 			contacts =
@@ -193,6 +216,8 @@
 
 			if (panel !== editor) return false;
 
+			if (editor.mode === 'edit') editor.original = saved;
+			else draft.created = true;
 			draft.name = saved.name;
 			draft.email = saved.email;
 			draft.phone = saved.phone ?? '';
@@ -224,6 +249,7 @@
 	async function removeContact(id: string): Promise<boolean> {
 		if (
 			disposed ||
+			departing ||
 			writes.has(id) ||
 			(panel?.mode === 'edit' && panel.id === id) ||
 			!matching.some((item) => item.id === id)
@@ -356,9 +382,11 @@
 	</form>
 {/snippet}
 
-{#snippet actions(draft: Draft, isNew: boolean, disabled: boolean)}
+{#snippet actions(draft: Draft, isNew: boolean, busy: boolean, disabled = busy)}
 	{#key draft}
-		<Button variant="outline" onclick={() => void cancelEditor()}>{m.common_cancel()}</Button>
+		<Button variant="outline" disabled={busy} onclick={() => void cancelEditor()}>
+			{m.common_cancel()}
+		</Button>
 		<ActionButton
 			bind:this={saveButton}
 			form={draft.form}
@@ -432,7 +460,7 @@
 				transition:slide={{ duration: duration(200) }}
 			>
 				<h2 id="{formId}-new-heading" class="text-xl">{m.contacts_new_heading()}</h2>
-				{@render fields(panel.draft, writes.has(null))}
+				{@render fields(panel.draft, writes.has(null) || panel.draft.created)}
 				<div class="flex flex-wrap justify-end gap-2">
 					{@render actions(panel.draft, true, writes.has(null))}
 				</div>
@@ -497,13 +525,7 @@
 							{/if}
 						</div>
 						<div class="ml-auto flex flex-initial flex-wrap justify-end gap-1 sm:gap-2">
-							{#if active?.mode === 'edit'}
-								{@render actions(
-									active.draft,
-									false,
-									writes.has(item.id) || !hasChanges(active.draft, item)
-								)}
-							{:else}
+							{#if active?.mode !== 'edit'}
 								<Button
 									id="{rowId(item.id)}-edit"
 									variant="ghost"
@@ -516,23 +538,25 @@
 									<Pencil size={16} aria-hidden="true" />
 									<span class="max-sm:sr-only">{m.contacts_edit()}</span>
 								</Button>
-								<ActionButton
-									variant="ghost"
-									labels={{ idle: m.action_delete(), pending: m.contacts_deleting() }}
-									idleLabel={m.contacts_delete_title({ name: item.name })}
-									confirmation={{
-										duration: 3000,
-										cancelLabel: m.common_cancel(),
-										cancelAccessibleLabel: m.contacts_cancel_delete({ name: item.name }),
-										description: m.contacts_delete_body()
-									}}
-									compactOnMobile
-									disabled={writes.has(item.id)}
-									class="min-w-11 text-danger sm:px-3.5"
-									onaction={() => removeContact(item.id)}
-								>
-									{#snippet icon()}<Trash2 size={16} aria-hidden="true" />{/snippet}
-								</ActionButton>
+								{#key deleteEpoch}
+									<ActionButton
+										variant="ghost"
+										labels={{ idle: m.action_delete(), pending: m.contacts_deleting() }}
+										idleLabel={m.contacts_delete_title({ name: item.name })}
+										confirmation={{
+											duration: 3000,
+											cancelLabel: m.common_cancel(),
+											cancelAccessibleLabel: m.contacts_cancel_delete({ name: item.name }),
+											description: m.contacts_delete_body()
+										}}
+										compactOnMobile
+										disabled={writes.has(item.id) || departing}
+										class="min-w-11 text-danger sm:px-3.5"
+										onaction={() => removeContact(item.id)}
+									>
+										{#snippet icon()}<Trash2 size={16} aria-hidden="true" />{/snippet}
+									</ActionButton>
+								{/key}
 								<Button
 									id="{rowId(item.id)}-toggle"
 									variant="ghost"
@@ -569,6 +593,15 @@
 							>
 								{#if active.mode === 'edit'}
 									{@render fields(active.draft, writes.has(item.id))}
+									<div class="flex flex-wrap justify-end gap-2">
+										{@render actions(
+											active.draft,
+											false,
+											writes.has(item.id),
+											writes.has(item.id) ||
+												Object.keys(changes(active.draft, active.original)).length === 0
+										)}
+									</div>
 								{:else if item.notes}
 									<div class="grid gap-1.5">
 										<p class="text-xs font-semibold text-muted-foreground uppercase">

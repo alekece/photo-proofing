@@ -705,6 +705,7 @@
 	"client_gate_wrong_code": "Code d’accès incorrect. Veuillez réessayer.",
 	"client_gate_too_many_attempts": "Trop de tentatives. Patientez un instant, puis réessayez.",
 	"api_error_contact_email_taken": "Un contact utilise déjà cette adresse e-mail.",
+	"api_error_contact_email_changed": "L’adresse e-mail de ce contact a changé. Rechargez la page Contacts et réessayez.",
 	"nav_sections": "Sections principales",
 	"nav_galleries": "Galeries",
 	"nav_all_photos": "Toutes les photos",

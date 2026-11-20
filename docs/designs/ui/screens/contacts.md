@@ -13,7 +13,9 @@ Workspace-wide client directory. Route `/contacts`, reached from **Contacts** in
 3. **Inline forms:** **Edit** opens the same row, preserves its identity and swaps its actions
    for **Cancel** and **Save changes**. **+ New contact** inserts the form above the list.
    Only one form or details block is open. Name and email are required; phone and notes are optional.
-   Validation errors leave the draft intact. Successful saves briefly show confirmation.
+   The form actions follow the fields in keyboard order. Validation errors leave the draft intact.
+   Edits save only changed fields. Changing an address checks that the original address still
+   matches; if not, reload the directory before retrying. Successful saves briefly show confirmation.
 4. **Deletion:** the row action shows a three-second countdown and warns that personal gallery
    links will stop working. Activating it again or pressing Escape while focused cancels it.
    Filtering out the row, editing it or leaving the page also cancels it. A failed request leaves

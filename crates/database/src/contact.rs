@@ -31,6 +31,8 @@ pub const MAX_NOTES_CHARS: usize = 2000;
 pub enum ContactError {
     #[error("a contact in this workspace already uses this email")]
     DuplicateEmail,
+    #[error("the contact's email has changed")]
+    EmailChanged,
     #[error("database error")]
     Database(#[from] DatabaseError),
 }
@@ -161,6 +163,13 @@ pub struct ContactChanges {
         skip_serializing_if = "Option::is_none"
     )]
     pub email: Option<Email>,
+    /// Previous address that must still match when changing `email`.
+    #[serde(
+        default,
+        deserialize_with = "Present::deserialize",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub expected_email: Option<Email>,
     #[serde(
         default,
         with = "serde_with::rust::double_option",
@@ -177,7 +186,7 @@ pub struct ContactChanges {
 
 impl ContactChanges {
     pub fn is_empty(&self) -> bool {
-        *self == Self::default()
+        self.name.is_none() && self.email.is_none() && self.phone.is_none() && self.notes.is_none()
     }
 }
 
@@ -288,6 +297,7 @@ impl ContactRepository<'_> {
     }
 
     /// Updates `id` in `workspace_id`. An empty changeset reads without bumping `updated_at`.
+    /// A guarded email change returns [`ContactError::EmailChanged`] if the address no longer matches.
     pub async fn update(
         &self,
         workspace_id: WorkspaceId,
@@ -302,8 +312,8 @@ impl ContactRepository<'_> {
             .notes
             .as_ref()
             .map(|value| value.as_ref().filter(|notes| !notes.as_str().is_empty()));
-
-        sqlx::query_as(AssertSqlSafe(format!(
+        let expected_email = changes.email.as_ref().and(changes.expected_email.as_ref());
+        let updated = sqlx::query_as(AssertSqlSafe(format!(
             "UPDATE contacts AS c SET
                  name = COALESCE($3, c.name),
                  email = COALESCE($4, c.email),
@@ -311,6 +321,7 @@ impl ContactRepository<'_> {
                  notes = CASE WHEN $7 THEN $8 ELSE c.notes END,
                  updated_at = now()
              WHERE c.workspace_id = $1 AND c.id = $2
+               AND ($9::text IS NULL OR c.email = $9)
              RETURNING {}",
             Self::CONTACT_PROJECTION
         )))
@@ -322,9 +333,19 @@ impl ContactRepository<'_> {
         .bind(changes.phone.as_ref().and_then(Option::as_ref))
         .bind(notes.is_some())
         .bind(notes.flatten())
+        .bind(expected_email)
         .fetch_optional(self.pool)
         .await
-        .map_err(ContactError::classify)
+        .map_err(ContactError::classify)?;
+
+        if updated.is_none()
+            && expected_email.is_some()
+            && self.get(workspace_id, id).await?.is_some()
+        {
+            return Err(ContactError::EmailChanged);
+        }
+
+        Ok(updated)
     }
 
     /// Deletes a contact in `workspace_id`, cascading its gallery links.
