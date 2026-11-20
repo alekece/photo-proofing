@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
@@ -33,6 +33,38 @@ function feedWith(events: ActivityEvent[], next: string | null = null) {
 	feed.loaded = true;
 
 	return feed;
+}
+
+const page = (events: ActivityEvent[], next: string | null) => Response.json({ events, next });
+
+function stubObserver() {
+	const observers: Observer[] = [];
+
+	class Observer {
+		target!: Element;
+		disconnect = vi.fn();
+
+		constructor(
+			private callback: IntersectionObserverCallback,
+			readonly options: IntersectionObserverInit
+		) {
+			observers.push(this);
+		}
+
+		observe(target: Element) {
+			this.target = target;
+		}
+
+		intersect(isIntersecting = true) {
+			this.callback(
+				[{ target: this.target, isIntersecting } as IntersectionObserverEntry],
+				this as unknown as IntersectionObserver
+			);
+		}
+	}
+
+	vi.stubGlobal('IntersectionObserver', Observer);
+	return observers;
 }
 
 beforeEach(() => {
@@ -172,19 +204,114 @@ describe('ActivityTimeline', () => {
 		]);
 	});
 
-	it('offers Load more only while there is a next page', async () => {
-		const feed = feedWith([line('a')], 'c1');
-		const more = vi.spyOn(feed, 'loadMore').mockResolvedValue();
+	it('observes 400px early, appends each cursor once, and stops when exhausted', async () => {
+		const observers = stubObserver();
+		const next = Promise.withResolvers<Response>();
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([line('a')], 'c1'))
+			.mockReturnValueOnce(next.promise)
+			.mockResolvedValueOnce(page([line('c')], null));
+		const feed = new ActivityFeed({ fetcher });
+		await feed.load();
+		const { unmount } = render(ActivityTimeline, { feed });
 
-		render(ActivityTimeline, { feed });
-		await userEvent.setup().click(screen.getByRole('button', { name: 'Load more' }));
-
-		expect(more).toHaveBeenCalledOnce();
-
-		feed.next = null;
-		await Promise.resolve();
-
+		expect(observers[0]?.options).toMatchObject({ root: null, rootMargin: '0px 0px 400px 0px' });
 		expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
+		observers[0]!.intersect(false);
+		expect(fetcher).toHaveBeenCalledTimes(1);
+		observers[0]!.intersect();
+		observers[0]!.intersect();
+		expect(fetcher).toHaveBeenCalledTimes(2);
+		expect(fetcher.mock.calls[1]?.[0]).toBe('/api/v1/timeline?cursor=c1');
+		expect(await screen.findByRole('status')).toHaveProperty(
+			'textContent',
+			expect.stringContaining('Loading activity')
+		);
+		expect(observers[0]!.disconnect).toHaveBeenCalledOnce();
+
+		next.resolve(page([line('b')], 'c2'));
+		await waitFor(() => expect(observers).toHaveLength(2));
+		observers[0]!.intersect();
+		expect(fetcher).toHaveBeenCalledTimes(2);
+		observers[1]!.intersect();
+		await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(3));
+		expect(fetcher.mock.calls[2]?.[0]).toBe('/api/v1/timeline?cursor=c2');
+		expect(observers[1]!.disconnect).toHaveBeenCalledOnce();
+		expect(observers).toHaveLength(2);
+		unmount();
+		observers[1]!.intersect();
+		expect(fetcher).toHaveBeenCalledTimes(3);
+	});
+
+	it('keeps a failed sentinel local until keyboard Retry appends the same cursor', async () => {
+		const observers = stubObserver();
+		const retrying = Promise.withResolvers<Response>();
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([line('a')], 'c1'))
+			.mockResolvedValueOnce(new Response(null, { status: 503 }))
+			.mockReturnValueOnce(retrying.promise);
+		const feed = new ActivityFeed({ fetcher });
+		await feed.load();
+		render(ActivityTimeline, { feed });
+
+		expect(observers).toHaveLength(1);
+		observers[0]!.intersect();
+		expect((await screen.findByRole('alert')).textContent).toContain(
+			'Could not load more activity'
+		);
+		expect(screen.getAllByRole('listitem')).toHaveLength(1);
+		observers[0]!.intersect();
+		expect(observers).toHaveLength(1);
+		expect(fetcher).toHaveBeenCalledTimes(2);
+
+		const retry = screen.getByRole('button', { name: 'Retry' });
+		retry.focus();
+		await userEvent.keyboard('{Enter}');
+		expect(fetcher.mock.calls[2]?.[0]).toBe(fetcher.mock.calls[1]?.[0]);
+		expect(document.activeElement?.contains(screen.getByRole('status'))).toBe(true);
+
+		retrying.resolve(page([line('b')], null));
+		await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2));
+		expect(screen.queryByRole('alert')).toBeNull();
+		await waitFor(() =>
+			expect(document.activeElement?.contains(screen.getAllByRole('listitem')[0]!)).toBe(true)
+		);
+		expect(document.activeElement).not.toBe(document.body);
+	});
+
+	it('discards queued intersection callbacks during failed replacement and on unmount', async () => {
+		const observers = stubObserver();
+		const replacement = Promise.withResolvers<Response>();
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([line('a')], 'old'))
+			.mockReturnValueOnce(replacement.promise)
+			.mockResolvedValueOnce(page([line('b')], 'new'));
+		const feed = new ActivityFeed({ fetcher });
+		await feed.load();
+		const { unmount } = render(ActivityTimeline, { feed });
+
+		expect(observers).toHaveLength(1);
+		feed.sort = 'oldest';
+		const loading = feed.load();
+		observers[0]!.intersect();
+		expect(screen.getAllByRole('listitem')).toHaveLength(1);
+		replacement.resolve(new Response(null, { status: 503 }));
+		await loading;
+		observers[0]!.intersect();
+		expect(fetcher).toHaveBeenCalledTimes(2);
+		expect(observers[0]!.disconnect).toHaveBeenCalledOnce();
+
+		await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+		await waitFor(() => expect(observers).toHaveLength(2));
+		observers[0]!.intersect();
+		expect(fetcher).toHaveBeenCalledTimes(3);
+		unmount();
+		observers[1]!.intersect();
+		expect(fetcher).toHaveBeenCalledTimes(3);
+		expect(observers[1]!.disconnect).toHaveBeenCalledOnce();
 	});
 
 	it('explains an empty log and an empty filter result differently', () => {
@@ -247,5 +374,23 @@ describe('ActivityTimeline in French', () => {
 		expect(paragraph?.textContent?.trim()).toBe('Client anonyme a mis 3 photos en favori');
 		expect(paragraph?.querySelector('strong')?.textContent).toBe('Client anonyme');
 		expect(screen.getByRole('heading', { level: 3, name: 'Aujourd’hui' })).toBeTruthy();
+	});
+
+	it('localizes a failed cursor and its retry action', async () => {
+		const observers = stubObserver();
+		const feed = new ActivityFeed({
+			fetcher: vi
+				.fn()
+				.mockResolvedValueOnce(page([line('a')], 'c1'))
+				.mockResolvedValueOnce(new Response(null, { status: 503 }))
+		});
+		await feed.load();
+		render(ActivityTimeline, { feed });
+		expect(observers).toHaveLength(1);
+		observers[0]!.intersect();
+		expect((await screen.findByRole('alert')).textContent).toBe(
+			'Impossible de charger la suite de l’activité.'
+		);
+		expect(screen.getByRole('button', { name: 'Réessayer' })).toBeTruthy();
 	});
 });

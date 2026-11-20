@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { m } from '#lib/paraglide/messages.js';
 	import {
@@ -50,6 +50,8 @@
 	const instanceId = $props.id();
 	let photoLimit = $state(10);
 	let expandedIds = $state(new Set<string>());
+	let timeline = $state<HTMLDivElement>();
+	let sentinel = $state<HTMLDivElement>();
 
 	onMount(() => {
 		if (typeof matchMedia !== 'function') return;
@@ -74,6 +76,52 @@
 
 		if (!next.delete(id)) next.add(id);
 		expandedIds = next;
+	}
+
+	$effect(() => {
+		const target = sentinel;
+		const current = feed;
+		const cursor = current.canPage && current.paging === 'idle' ? current.next : null;
+
+		if (!target || cursor === null || typeof IntersectionObserver !== 'function') return;
+
+		let active = true;
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (
+					active &&
+					target === sentinel &&
+					current === feed &&
+					current.canPage &&
+					current.paging === 'idle' &&
+					current.next === cursor &&
+					entries.some((entry) => entry.target === target && entry.isIntersecting)
+				)
+					void current.loadMore();
+			},
+			{ root: null, rootMargin: '0px 0px 400px 0px' }
+		);
+		observer.observe(target);
+
+		return () => {
+			active = false;
+			observer.disconnect();
+		};
+	});
+
+	async function retryPage() {
+		const target = sentinel;
+		const current = feed;
+
+		if (!target || !current.canPage || current.paging !== 'failed') return;
+
+		if (target.contains(document.activeElement)) target.focus({ preventScroll: true });
+		await current.loadMore();
+		await tick();
+
+		if (target !== sentinel || current !== feed || document.activeElement !== target) return;
+
+		(target.querySelector('button') ?? timeline)?.focus({ preventScroll: true });
 	}
 
 	function wording(event: ActivityEvent, actor: string): string {
@@ -150,7 +198,7 @@
 		/>
 	{/snippet}
 
-	<div bind:clientHeight={resultsHeight} class="grid gap-6">
+	<div bind:this={timeline} bind:clientHeight={resultsHeight} tabindex="-1" class="grid gap-6">
 		{#each days as day (day.heading)}
 			<section class="grid gap-2.5">
 				<h3 class="text-sm font-semibold tracking-wide text-muted-foreground">{day.heading}</h3>
@@ -232,15 +280,23 @@
 				</ol>
 			</section>
 		{/each}
-		{#if feed.next !== null}
-			<Button
-				variant="outline"
-				class="justify-self-center"
-				disabled={feed.loading || feed.loadingMore}
-				onclick={() => void feed.loadMore()}
-			>
-				{m.activity_load_more()}
-			</Button>
-		{/if}
+		<div bind:this={sentinel} tabindex="-1" class="-mt-6 min-h-px">
+			{#if feed.canPage && feed.paging === 'loading'}
+				<p
+					role="status"
+					class="flex items-center justify-center gap-2 pt-4 text-sm text-muted-foreground"
+				>
+					<LoaderCircle size={16} class="motion-safe:animate-spin" aria-hidden="true" />
+					{m.activity_loading()}
+				</p>
+			{:else if feed.canPage && feed.paging === 'failed'}
+				<div
+					class="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-control border border-danger/40 px-3 py-2 text-sm text-danger"
+				>
+					<p role="alert">{m.activity_page_error()}</p>
+					<Button variant="outline" onclick={() => void retryPage()}>{m.action_retry()}</Button>
+				</div>
+			{/if}
+		</div>
 	</div>
 {/if}

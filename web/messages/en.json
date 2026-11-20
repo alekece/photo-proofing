@@ -906,7 +906,7 @@
 	"activity_photo_alt": "Photo",
 	"activity_show_photos": "Show more photos",
 	"activity_hide_photos": "Show fewer photos",
-	"activity_load_more": "Load more",
+	"activity_page_error": "Could not load more activity.",
 	"activity_loading": "Loading activity…",
 	"activity_empty_title": "No activity yet",
 	"activity_empty_body": "When a client opens, picks, comments on or downloads from a gallery, it shows up here.",

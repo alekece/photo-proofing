@@ -918,7 +918,7 @@
 	"activity_photo_alt": "Photo",
 	"activity_show_photos": "Afficher plus de photos",
 	"activity_hide_photos": "Afficher moins de photos",
-	"activity_load_more": "Charger plus",
+	"activity_page_error": "Impossible de charger la suite de l’activité.",
 	"activity_loading": "Chargement de l’activité…",
 	"activity_empty_title": "Aucune activité pour le moment",
 	"activity_empty_body": "Quand un client ouvre une galerie, choisit, commente ou télécharge, cela apparaît ici.",

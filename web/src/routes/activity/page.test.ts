@@ -127,4 +127,56 @@ describe('activity page', () => {
 		expect(within(collapsed.closest('li')!).getAllByRole('img')).toHaveLength(10);
 		expect(within(expanded()).getAllByRole('img')).toHaveLength(12);
 	});
+
+	it('changes sort from the existing menu without reusing the failed outgoing cursor', async () => {
+		const intersections: (() => void)[] = [];
+		vi.stubGlobal(
+			'IntersectionObserver',
+			class {
+				constructor(private callback: IntersectionObserverCallback) {}
+				observe(target: Element) {
+					intersections.push(() =>
+						this.callback(
+							[{ target, isIntersecting: true } as IntersectionObserverEntry],
+							this as unknown as IntersectionObserver
+						)
+					);
+				}
+				disconnect() {}
+			}
+		);
+		const favorite = line('favorite', { kind: 'favorite' });
+		const replacement = Promise.withResolvers<Response>();
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(Response.json({ events: [line('a')], next: null }))
+			.mockResolvedValueOnce(Response.json({ events: [favorite], next: 'outgoing' }))
+			.mockResolvedValueOnce(new Response(null, { status: 503 }))
+			.mockReturnValueOnce(replacement.promise)
+			.mockResolvedValueOnce(Response.json({ events: [], next: null }));
+		open(fetcher);
+
+		await screen.findByRole('listitem');
+		expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/timeline');
+		await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
+		const favorites = screen.getByRole('option', { name: 'Favorites' });
+		await userEvent.selectOptions(favorites.closest('select')!, favorites);
+		await waitFor(() => expect(intersections).toHaveLength(1));
+		intersections[0]!();
+		await screen.findByRole('button', { name: 'Retry' });
+
+		await userEvent.click(screen.getByRole('button', { name: /sort by.*newest first/i }));
+		await userEvent.click(screen.getByRole('menuitemradio', { name: 'Oldest first' }));
+		expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+		intersections[0]!();
+		expect(fetcher).toHaveBeenCalledTimes(4);
+		const params = (call: number) =>
+			Object.fromEntries(new URL(fetcher.mock.calls[call]![0], 'http://localhost').searchParams);
+		expect(params(3)).toEqual({ kind: 'favorite', sort: 'oldest' });
+
+		replacement.resolve(Response.json({ events: [favorite], next: 'incoming' }));
+		await waitFor(() => expect(intersections).toHaveLength(2));
+		intersections[1]!();
+		expect(params(4)).toEqual({ kind: 'favorite', sort: 'oldest', cursor: 'incoming' });
+	});
 });
