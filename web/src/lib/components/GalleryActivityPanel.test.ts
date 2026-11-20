@@ -49,7 +49,9 @@ describe('GalleryActivityPanel', () => {
 		vi.stubGlobal('fetch', fetcher);
 		render(Harness, { props: { events, galleryId: 'g1' } });
 
-		expect(await screen.findByText('Alice left a comment')).toBeTruthy();
+		const paragraph = (await screen.findByRole('listitem')).querySelector('p');
+		expect(paragraph?.textContent?.trim()).toBe('Alice left a comment');
+		expect(paragraph?.querySelector('strong')?.textContent).toBe('Alice');
 		const user = userEvent.setup();
 		await user.click(screen.getByRole('button', { name: 'Filters' }));
 		expect(await screen.findByRole('option', { name: 'Alice' })).toBeTruthy();

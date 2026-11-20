@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
@@ -35,12 +35,47 @@ function feedWith(events: ActivityEvent[], next: string | null = null) {
 	return feed;
 }
 
+const page = (events: ActivityEvent[], next: string | null) => Response.json({ events, next });
+
+function stubObserver() {
+	const observers: Observer[] = [];
+
+	class Observer {
+		target!: Element;
+		disconnect = vi.fn();
+
+		constructor(
+			private callback: IntersectionObserverCallback,
+			readonly options: IntersectionObserverInit
+		) {
+			observers.push(this);
+		}
+
+		observe(target: Element) {
+			this.target = target;
+		}
+
+		intersect(isIntersecting = true) {
+			this.callback(
+				[{ target: this.target, isIntersecting } as IntersectionObserverEntry],
+				this as unknown as IntersectionObserver
+			);
+		}
+	}
+
+	vi.stubGlobal('IntersectionObserver', Observer);
+	return observers;
+}
+
 beforeEach(() => {
 	vi.useFakeTimers({ toFake: ['Date'] });
 	vi.setSystemTime(new Date(2026, 10, 10, 15));
 });
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+	vi.useRealTimers();
+	vi.unstubAllGlobals();
+});
 
 describe('ActivityTimeline', () => {
 	useLocale('en');
@@ -54,17 +89,42 @@ describe('ActivityTimeline', () => {
 				line('d', { kind: 'download', count: 4 }),
 				line('e', { kind: 'download', count: 0 }),
 				line('f', { kind: 'open', count: 1 }),
-				line('g', { kind: 'email', count: 1, detail: 'invitation' })
+				line('g', {
+					kind: 'email',
+					count: 1,
+					detail: 'invitation',
+					contact: { id: 'c1', name: '<b>Alice</b>' }
+				})
 			])
 		});
 
-		expect(screen.getByText('Alice favorited 3 photos')).toBeTruthy();
-		expect(screen.getByText('Anonymous client un-picked a photo')).toBeTruthy();
-		expect(screen.getByText('Alice left 2 comments')).toBeTruthy();
-		expect(screen.getByText('Alice downloaded 4 photos')).toBeTruthy();
-		expect(screen.getByText('Alice downloaded the ZIP')).toBeTruthy();
-		expect(screen.getByText('Alice opened the gallery')).toBeTruthy();
-		expect(screen.getByText('Invitation email sent to Alice')).toBeTruthy();
+		const rows = screen.getAllByRole('listitem');
+		const paragraphs = rows.map((row) => row.querySelector('p'));
+		expect(paragraphs.map((p) => p?.textContent?.trim())).toEqual([
+			'Alice favorited 3 photos',
+			'Anonymous client un-picked a photo',
+			'Alice left 2 comments',
+			'Alice downloaded 4 photos',
+			'Alice downloaded the ZIP',
+			'Alice opened the gallery',
+			'Invitation email sent to <b>Alice</b>'
+		]);
+		expect(paragraphs.map((p) => p?.querySelector('strong')?.textContent)).toEqual([
+			'Alice',
+			'Anonymous client',
+			'Alice',
+			'Alice',
+			'Alice',
+			'Alice',
+			'<b>Alice</b>'
+		]);
+		expect(paragraphs[6]?.querySelector('b')).toBeNull();
+		for (const row of rows) {
+			expect(row.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+			expect(
+				within(row).queryByRole('img', { name: /favorite|open|comment|download|email/i })
+			).toBeNull();
+		}
 		expect(screen.getAllByRole('link', { name: 'Wedding' })[0]?.getAttribute('href')).toBe(
 			'/dashboard/g1'
 		);
@@ -79,6 +139,82 @@ describe('ActivityTimeline', () => {
 			expect.stringContaining('/galleries/g1/photos/p1'),
 			expect.stringContaining('/galleries/g1/photos/p2')
 		]);
+	});
+
+	it.each([10, 6])('collapses at %i photos and only toggles its own line', async (limit) => {
+		vi.stubGlobal('matchMedia', (query: string) => ({
+			matches: query === '(prefers-reduced-motion: reduce)' || limit === 6,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn()
+		}));
+		const photos = Array.from({ length: 12 }, (_, i) => `p${i}`);
+		render(ActivityTimeline, {
+			feed: feedWith([
+				line('a', { photo_ids: [...photos, photos[0]!] }),
+				line('b', { kind: 'unfavorite', photo_ids: photos }),
+				line('c', { photo_ids: photos.slice(0, limit) }),
+				line('d', { kind: 'download', photo_ids: photos.slice(0, 4) })
+			]),
+			showGallery: false
+		});
+		const [first, second, exact, download] = screen
+			.getAllByRole('listitem')
+			.map((row) => within(row));
+		const toggle = first!.getByRole('button', { name: 'Show more photos' });
+		const target = toggle.getAttribute('aria-controls')!;
+		const user = userEvent.setup();
+
+		expect(first!.getAllByRole('img')).toHaveLength(limit);
+		expect(second!.getAllByRole('img')).toHaveLength(limit);
+		expect(exact!.getAllByRole('img')).toHaveLength(limit);
+		expect(exact!.queryByRole('button')).toBeNull();
+		expect(download!.getAllByRole('img')).toHaveLength(4);
+		expect(download!.queryByRole('button')).toBeNull();
+		expect(screen.queryByRole('link')).toBeNull();
+		expect(toggle.textContent?.trim()).toBe('');
+		expect(toggle.getAttribute('aria-expanded')).toBe('false');
+		expect(document.getElementById(target)).not.toBeNull();
+
+		toggle.focus();
+		await user.keyboard('{Enter}');
+		expect(first!.getByRole('button', { name: 'Show fewer photos' })).toBe(toggle);
+		expect(first!.getAllByRole('img')).toHaveLength(12);
+		expect(second!.getAllByRole('img')).toHaveLength(limit);
+		expect(toggle.getAttribute('aria-expanded')).toBe('true');
+		expect(toggle.getAttribute('aria-controls')).toBe(target);
+
+		await user.keyboard(' ');
+		expect(first!.getAllByRole('img')).toHaveLength(limit);
+		expect(document.activeElement).toBe(toggle);
+	});
+
+	it('keeps the focused phone disclosure ahead of a long expanded grid', async () => {
+		vi.stubGlobal('matchMedia', () => ({
+			matches: true,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn()
+		}));
+		const photos = Array.from({ length: 60 }, (_, i) => `p${i}`);
+		render(ActivityTimeline, {
+			feed: feedWith([line('a', { photo_ids: photos })]),
+			showGallery: false
+		});
+		const user = userEvent.setup();
+		await user.tab();
+		const toggle = screen.getByRole('button', { name: 'Show more photos' });
+		expect(document.activeElement).toBe(toggle);
+
+		await user.keyboard('{Enter}');
+		const images = screen.getAllByRole('img', { name: 'Photo' });
+		expect(images).toHaveLength(60);
+		expect(document.activeElement).toBe(toggle);
+		expect(toggle.compareDocumentPosition(images[6]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+
+		await user.keyboard(' ');
+		expect(screen.getAllByRole('img')).toHaveLength(6);
+		expect(document.activeElement).toBe(toggle);
 	});
 
 	it('groups lines under Today, Yesterday and a dated heading', () => {
@@ -97,19 +233,114 @@ describe('ActivityTimeline', () => {
 		]);
 	});
 
-	it('offers Load more only while there is a next page', async () => {
-		const feed = feedWith([line('a')], 'c1');
-		const more = vi.spyOn(feed, 'loadMore').mockResolvedValue();
+	it('observes 400px early, appends each cursor once, and stops when exhausted', async () => {
+		const observers = stubObserver();
+		const next = Promise.withResolvers<Response>();
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([line('a')], 'c1'))
+			.mockReturnValueOnce(next.promise)
+			.mockResolvedValueOnce(page([line('c')], null));
+		const feed = new ActivityFeed({ fetcher });
+		await feed.load();
+		const { unmount } = render(ActivityTimeline, { feed });
 
-		render(ActivityTimeline, { feed });
-		await userEvent.setup().click(screen.getByRole('button', { name: 'Load more' }));
-
-		expect(more).toHaveBeenCalledOnce();
-
-		feed.next = null;
-		await Promise.resolve();
-
+		expect(observers[0]?.options).toMatchObject({ root: null, rootMargin: '0px 0px 400px 0px' });
 		expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
+		observers[0]!.intersect(false);
+		expect(fetcher).toHaveBeenCalledTimes(1);
+		observers[0]!.intersect();
+		observers[0]!.intersect();
+		expect(fetcher).toHaveBeenCalledTimes(2);
+		expect(fetcher.mock.calls[1]?.[0]).toBe('/api/v1/timeline?cursor=c1');
+		expect(await screen.findByRole('status')).toHaveProperty(
+			'textContent',
+			expect.stringContaining('Loading activity')
+		);
+		expect(observers[0]!.disconnect).toHaveBeenCalledOnce();
+
+		next.resolve(page([line('b')], 'c2'));
+		await waitFor(() => expect(observers).toHaveLength(2));
+		observers[0]!.intersect();
+		expect(fetcher).toHaveBeenCalledTimes(2);
+		observers[1]!.intersect();
+		await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(3));
+		expect(fetcher.mock.calls[2]?.[0]).toBe('/api/v1/timeline?cursor=c2');
+		expect(observers[1]!.disconnect).toHaveBeenCalledOnce();
+		expect(observers).toHaveLength(2);
+		unmount();
+		observers[1]!.intersect();
+		expect(fetcher).toHaveBeenCalledTimes(3);
+	});
+
+	it('keeps a failed sentinel local until keyboard Retry appends the same cursor', async () => {
+		const observers = stubObserver();
+		const retrying = Promise.withResolvers<Response>();
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([line('a')], 'c1'))
+			.mockResolvedValueOnce(new Response(null, { status: 503 }))
+			.mockReturnValueOnce(retrying.promise);
+		const feed = new ActivityFeed({ fetcher });
+		await feed.load();
+		render(ActivityTimeline, { feed });
+
+		expect(observers).toHaveLength(1);
+		observers[0]!.intersect();
+		expect((await screen.findByRole('alert')).textContent).toContain(
+			'Could not load more activity'
+		);
+		expect(screen.getAllByRole('listitem')).toHaveLength(1);
+		observers[0]!.intersect();
+		expect(observers).toHaveLength(1);
+		expect(fetcher).toHaveBeenCalledTimes(2);
+
+		const retry = screen.getByRole('button', { name: 'Retry' });
+		retry.focus();
+		await userEvent.keyboard('{Enter}');
+		expect(fetcher.mock.calls[2]?.[0]).toBe(fetcher.mock.calls[1]?.[0]);
+		expect(document.activeElement?.contains(screen.getByRole('status'))).toBe(true);
+
+		retrying.resolve(page([line('b')], null));
+		await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2));
+		expect(screen.queryByRole('alert')).toBeNull();
+		await waitFor(() =>
+			expect(document.activeElement?.contains(screen.getAllByRole('listitem')[0]!)).toBe(true)
+		);
+		expect(document.activeElement).not.toBe(document.body);
+	});
+
+	it('discards queued intersection callbacks during failed replacement and on unmount', async () => {
+		const observers = stubObserver();
+		const replacement = Promise.withResolvers<Response>();
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([line('a')], 'old'))
+			.mockReturnValueOnce(replacement.promise)
+			.mockResolvedValueOnce(page([line('b')], 'new'));
+		const feed = new ActivityFeed({ fetcher });
+		await feed.load();
+		const { unmount } = render(ActivityTimeline, { feed });
+
+		expect(observers).toHaveLength(1);
+		feed.sort = 'oldest';
+		const loading = feed.load();
+		observers[0]!.intersect();
+		expect(screen.getAllByRole('listitem')).toHaveLength(1);
+		replacement.resolve(new Response(null, { status: 503 }));
+		await loading;
+		observers[0]!.intersect();
+		expect(fetcher).toHaveBeenCalledTimes(2);
+		expect(observers[0]!.disconnect).toHaveBeenCalledOnce();
+
+		await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+		await waitFor(() => expect(observers).toHaveLength(2));
+		observers[0]!.intersect();
+		expect(fetcher).toHaveBeenCalledTimes(3);
+		unmount();
+		observers[1]!.intersect();
+		expect(fetcher).toHaveBeenCalledTimes(3);
+		expect(observers[1]!.disconnect).toHaveBeenCalledOnce();
 	});
 
 	it('explains an empty log and an empty filter result differently', () => {
@@ -168,7 +399,27 @@ describe('ActivityTimeline in French', () => {
 	it('words a line and the day headings in French', () => {
 		render(ActivityTimeline, { feed: feedWith([line('a', { contact: null })]) });
 
-		expect(screen.getByText('Client anonyme a mis 3 photos en favori')).toBeTruthy();
+		const paragraph = screen.getByRole('listitem').querySelector('p');
+		expect(paragraph?.textContent?.trim()).toBe('Client anonyme a mis 3 photos en favori');
+		expect(paragraph?.querySelector('strong')?.textContent).toBe('Client anonyme');
 		expect(screen.getByRole('heading', { level: 3, name: 'Aujourd’hui' })).toBeTruthy();
+	});
+
+	it('localizes a failed cursor and its retry action', async () => {
+		const observers = stubObserver();
+		const feed = new ActivityFeed({
+			fetcher: vi
+				.fn()
+				.mockResolvedValueOnce(page([line('a')], 'c1'))
+				.mockResolvedValueOnce(new Response(null, { status: 503 }))
+		});
+		await feed.load();
+		render(ActivityTimeline, { feed });
+		expect(observers).toHaveLength(1);
+		observers[0]!.intersect();
+		expect((await screen.findByRole('alert')).textContent).toBe(
+			'Impossible de charger la suite de l’activité.'
+		);
+		expect(screen.getByRole('button', { name: 'Réessayer' })).toBeTruthy();
 	});
 });
