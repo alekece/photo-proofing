@@ -46,6 +46,7 @@ function open(contacts: Contact[] | null) {
 
 beforeEach(() => {
 	state.page.url = new URL('http://localhost/contacts');
+	vi.stubGlobal('matchMedia', () => ({ matches: true }));
 });
 
 afterEach(() => {
@@ -58,6 +59,7 @@ describe('/contacts page', () => {
 
 		expect(screen.getByRole('heading', { level: 1, name: 'Contacts' })).toBeTruthy();
 		expect(screen.getByText('No contacts yet.')).toBeTruthy();
+		expect(screen.getByRole('button', { name: '+ New contact' })).toBeTruthy();
 		const search = screen.getByRole('searchbox', {
 			name: 'Search by name, email or phone'
 		}) as HTMLInputElement;
@@ -65,7 +67,7 @@ describe('/contacts page', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('filters contacts by name, email or phone and links gallery tags to /dashboard/{id}', async () => {
+	it('opens only one row of details and keeps search and linked galleries available', async () => {
 		const user = userEvent.setup();
 		const camille = contact();
 		const zoe = contact({
@@ -78,7 +80,12 @@ describe('/contacts page', () => {
 		});
 		const { container } = open([camille, zoe]);
 
-		// Selected contact inspector shows clickable linked-gallery links.
+		const disclosure = screen.getByRole('button', { name: 'Show details for Camille & Hugo' });
+		disclosure.focus();
+		await user.keyboard('{Enter}');
+		expect(disclosure.getAttribute('aria-expanded')).toBe('true');
+		expect(screen.getByText('Prefers matte paper')).toBeTruthy();
+		expect(screen.queryByLabelText('Name')).toBeNull();
 		const weddingLink = screen
 			.getAllByRole('link', { name: 'Summer Wedding' })
 			.find((el) => el.getAttribute('href') === '/dashboard/g1');
@@ -87,6 +94,9 @@ describe('/contacts page', () => {
 			.find((el) => el.getAttribute('href') === '/dashboard/g2');
 		expect(weddingLink).toBeTruthy();
 		expect(untitledLink).toBeTruthy();
+		await user.click(screen.getByRole('button', { name: 'Show details for Zoé Laurent' }));
+		expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+		expect(screen.queryByText('Prefers matte paper')).toBeNull();
 
 		const search = screen.getByRole('searchbox', { name: 'Search by name, email or phone' });
 		await user.type(search, '0601');
@@ -127,8 +137,8 @@ describe('/contacts page', () => {
 		expect(toolbar.className).not.toContain('max-w-');
 		const names = () =>
 			within(screen.getByRole('list', { name: 'Workspace contacts' }))
-				.getAllByRole('button')
-				.map((button) => button.textContent);
+				.getAllByRole('listitem')
+				.map((row) => row.textContent);
 
 		expect(names()[0]).toContain('Alex Martin');
 		await user.type(search, 'example.test');
@@ -141,6 +151,28 @@ describe('/contacts page', () => {
 		await user.click(sort);
 		await user.click(screen.getByRole('menuitemradio', { name: 'Name A–Z' }));
 		expect(names()[0]).toContain('Camille & Hugo');
+	});
+
+	it('opens New above a filtered list and restores focus without saving on cancel', async () => {
+		const user = userEvent.setup();
+		const fetcher = vi.fn(async (_url: RequestInfo | URL) => new Response(null, { status: 204 }));
+		vi.stubGlobal('fetch', fetcher);
+		open([contact()]);
+		const search = screen.getByRole('searchbox');
+		await user.type(search, 'no match');
+
+		const newContact = screen.getByRole('button', { name: '+ New contact' });
+		await user.click(newContact);
+		expect(document.activeElement).toBe(screen.getByLabelText('Name'));
+		await user.click(screen.getByRole('button', { name: 'Create contact' }));
+		expect(screen.getByRole('alert').textContent).toBe('Enter a name.');
+		await user.type(screen.getByLabelText('Name'), 'Unsaved');
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+		expect(screen.queryByLabelText('Name')).toBeNull();
+		expect(document.activeElement).toBe(newContact);
+		expect(search).toHaveProperty('value', 'no match');
+		expect(fetcher.mock.calls.every(([url]) => !String(url).includes('/contacts'))).toBe(true);
 	});
 
 	it('creates a new contact and handles duplicate-email 409 conflicts', async () => {
@@ -171,14 +203,16 @@ describe('/contacts page', () => {
 
 		open([]);
 
-		await user.click(screen.getAllByRole('button', { name: '+ New contact' })[0]);
+		await user.click(screen.getByRole('button', { name: '+ New contact' }));
 		await user.type(screen.getByLabelText('Name'), 'Léo Martin');
 		await user.type(screen.getByLabelText('Email'), 'leo@example.test');
 		await user.click(screen.getByRole('button', { name: 'Create contact' }));
 
 		expect(await screen.findByText('A contact with this email already exists.')).toBeTruthy();
+		expect(screen.getByLabelText('Email')).toHaveProperty('value', 'leo@example.test');
 
 		await user.click(screen.getByRole('button', { name: 'Create contact' }));
+		expect(await screen.findByRole('button', { name: 'Contact saved' })).toBeTruthy();
 		expect(
 			await within(screen.getByRole('list', { name: 'Workspace contacts' })).findByText(
 				'Léo Martin'
@@ -212,25 +246,26 @@ describe('/contacts page', () => {
 
 		open([camille, zoe]);
 
+		await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
 		const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
 		await user.clear(nameInput);
 		await user.type(nameInput, 'Camille Laurent');
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
 		// Switch to the other contact while the save for Camille is still in flight.
-		await user.click(screen.getByText('Zoé Laurent'));
-		expect(screen.getByRole('heading', { level: 2, name: 'Zoé Laurent' })).toBeTruthy();
+		await user.click(screen.getByRole('button', { name: 'Edit Zoé Laurent' }));
+		expect(screen.getByLabelText('Name')).toHaveProperty('value', 'Zoé Laurent');
 
 		resolvePatch(
 			new Response(JSON.stringify(contact({ name: 'Camille Laurent', phone: null })), {
 				status: 200
 			})
 		);
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(await screen.findByText('Camille Laurent')).toBeTruthy();
 
 		// Zoé's panel must not show a stale "Saved" confirmation meant for Camille's edit.
 		expect(screen.queryByRole('button', { name: 'Saved' })).toBeNull();
-		expect(screen.getByRole('heading', { level: 2, name: 'Zoé Laurent' })).toBeTruthy();
+		expect(screen.getByLabelText('Name')).toHaveProperty('value', 'Zoé Laurent');
 	});
 
 	it('edits and deletes a selected contact after confirmation', async () => {
@@ -247,6 +282,7 @@ describe('/contacts page', () => {
 
 		open([initial]);
 
+		await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
 		const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
 		const phoneInput = screen.getByLabelText('Phone') as HTMLInputElement;
 		expect(nameInput.value).toBe('Camille & Hugo');
@@ -256,7 +292,7 @@ describe('/contacts page', () => {
 		await user.clear(phoneInput);
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
-		expect(await screen.findByRole('heading', { level: 2, name: 'Camille Laurent' })).toBeTruthy();
+		expect(await screen.findByText('Camille Laurent')).toBeTruthy();
 		const savedBtn = screen.getByRole('button', { name: 'Saved' });
 		expect(savedBtn.hasAttribute('disabled')).toBe(false);
 		expect(savedBtn.getAttribute('aria-disabled')).toBe('true');
@@ -264,8 +300,13 @@ describe('/contacts page', () => {
 			'/api/v1/contacts/c1',
 			expect.objectContaining({ method: 'PATCH' })
 		);
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(screen.queryByLabelText('Name')).toBeNull();
+		expect(document.activeElement).toBe(
+			screen.getByRole('button', { name: 'Edit Camille Laurent' })
+		);
 
-		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		await user.click(screen.getByRole('button', { name: 'Delete Camille Laurent?' }));
 		const dialog = screen.getByRole('dialog');
 		expect(within(dialog).getByText('Delete Camille Laurent?')).toBeTruthy();
 		await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
@@ -282,6 +323,7 @@ describe('/contacts page in French', () => {
 
 		expect(screen.getByRole('heading', { level: 1, name: 'Contacts' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: '+ Nouveau contact' })).toBeTruthy();
+		await userEvent.setup().click(screen.getByRole('button', { name: 'Modifier Camille & Hugo' }));
 		expect(screen.getByLabelText('Nom')).toBeTruthy();
 		expect(screen.getByLabelText('Téléphone')).toBeTruthy();
 		expect((await axe(container)).violations).toEqual([]);

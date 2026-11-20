@@ -114,7 +114,7 @@
 
 <span class="relative inline-grid motion-reduce:[&_*]:transition-none">
 	<Button
-		{disabled}
+		disabled={disabled && !busy}
 		{form}
 		{variant}
 		type={form ? 'submit' : 'button'}
