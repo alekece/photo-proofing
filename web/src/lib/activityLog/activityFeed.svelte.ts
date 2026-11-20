@@ -34,11 +34,12 @@ export class ActivityFeed {
 	sort = $state<ActivitySort>('newest');
 	#galleryId: string | undefined;
 	#fetcher: typeof fetch;
-	#tail: string | undefined;
+	#oldestBoundary: { cursor: string; event: ActivityEvent } | undefined;
 	#refreshes = 0;
 	#generation = 0;
 	#displayedGeneration = 0;
 	#pendingLoad: Promise<void> | undefined;
+	#pendingPage: Promise<void> | undefined;
 
 	constructor({ galleryId, fetcher = fetch }: { galleryId?: string; fetcher?: typeof fetch } = {}) {
 		this.#galleryId = galleryId;
@@ -78,6 +79,8 @@ export class ActivityFeed {
 
 		this.loading = true;
 		this.next = null;
+		this.#pendingPage = undefined;
+		this.loadingMore = false;
 
 		try {
 			const page = await this.#fetch();
@@ -86,7 +89,8 @@ export class ActivityFeed {
 
 			this.events = page.events;
 			this.next = page.next;
-			this.#tail = page.tail ?? undefined;
+			this.#oldestBoundary = undefined;
+			this.#rememberOldestBoundary(page);
 			this.#displayedGeneration = generation;
 			this.failed = false;
 			this.loaded = true;
@@ -98,14 +102,27 @@ export class ActivityFeed {
 	}
 
 	/** Appends the page after the last one shown. */
-	async loadMore(): Promise<void> {
+	loadMore(): Promise<void> {
 		const cursor = this.next;
 		const generation = this.#generation;
 
-		if (cursor === null || this.loadingMore || generation !== this.#displayedGeneration) return;
+		if (this.#pendingPage) return this.#pendingPage;
+
+		if (cursor === null || generation !== this.#displayedGeneration) return Promise.resolve();
 
 		this.loadingMore = true;
+		const pending = this.#appendPage(cursor, generation).finally(() => {
+			if (this.#pendingPage === pending) {
+				this.#pendingPage = undefined;
+				this.loadingMore = false;
+			}
+		});
+		this.#pendingPage = pending;
 
+		return pending;
+	}
+
+	async #appendPage(cursor: string, generation: number): Promise<void> {
 		try {
 			const page = await this.#fetch(cursor);
 
@@ -113,18 +130,23 @@ export class ActivityFeed {
 
 			this.#merge(page.events);
 			this.next = page.next;
-			this.#tail = page.tail ?? cursor;
+			this.#rememberOldestBoundary(page);
 			this.failed = false;
 		} catch {
 			if (generation === this.#generation) this.failed = true;
-		} finally {
-			this.loadingMore = false;
 		}
 	}
 
+	#rememberOldestBoundary(page: ActivityPage): void {
+		const cursor = page.next ?? page.tail;
+		const event = page.events.at(-1);
+
+		if (this.sort === 'oldest' && cursor && event) this.#oldestBoundary = { cursor, event };
+	}
+
 	/**
-	 * Folds the latest first page into the list, keeping every older page already loaded. It waits
-	 * for a pending load and yields to one that starts meanwhile, since a load replaces the list.
+	 * Reconciles recent rows and, when an oldest-first list is exhausted, resumes forward from its
+	 * last page. A replacement load invalidates both kinds of refresh.
 	 */
 	async refresh(): Promise<void> {
 		const ticket = ++this.#refreshes;
@@ -135,41 +157,55 @@ export class ActivityFeed {
 
 		const generation = this.#generation;
 		const oldestFirst = this.sort === 'oldest';
-		const advanceTail = oldestFirst && this.next === null;
+		const current = () => ticket === this.#refreshes && generation === this.#generation;
 
 		if (generation !== this.#displayedGeneration) return this.load();
 
 		try {
-			const page = await this.#fetch(
-				advanceTail ? this.#tail : undefined,
-				advanceTail ? 'oldest' : 'newest'
-			);
+			const page = await this.#fetch(undefined, 'newest');
 
-			if (ticket !== this.#refreshes || generation !== this.#generation) return;
+			if (!current()) return;
 
-			if (advanceTail) {
-				this.#merge(page.events);
-				this.next = page.next;
-				this.#tail = page.tail ?? this.#tail;
-			} else if (oldestFirst) {
-				// A live update is at the far end of this order. Don't jump over unvisited pages.
-				const loadedIds = new SvelteSet(this.events.map(({ id }) => id));
-				this.#merge(page.events.filter(({ id }) => loadedIds.has(id)));
+			let incoming = page.events;
+
+			if (oldestFirst) {
+				// A pending page can exhaust the list after the newest request started.
+				await this.#pendingPage;
+				if (!current()) return;
+
+				if (this.next !== null) {
+					const loadedIds = new SvelteSet(this.events.map(({ id }) => id));
+					incoming = page.events.filter(({ id }) => loadedIds.has(id));
+				} else {
+					const boundary = this.#oldestBoundary;
+					incoming = boundary
+						? page.events.filter((event) => byRecency(event, boundary.event) >= 0)
+						: [];
+
+					// Reconcile recent rows behind the cursor, but read forward without skipping gaps.
+					if (incoming.length < page.events.length) {
+						const continuation = await this.#fetch(boundary?.cursor, 'oldest');
+						if (!current()) return;
+
+						incoming = [...incoming, ...continuation.events];
+						this.next = continuation.next;
+						this.#rememberOldestBoundary(continuation);
+					}
+				}
 			} else {
 				const oldest = this.events.at(-1);
 				const fresh = page.events.at(-1);
 				const deeper =
 					oldest !== undefined && (fresh === undefined || byRecency(fresh, oldest) < 0);
 
-				this.#merge(page.events);
-
 				if (!deeper) this.next = page.next;
 			}
 
+			this.#merge(incoming);
 			this.failed = false;
 			this.loaded = true;
 		} catch {
-			if (ticket === this.#refreshes && generation === this.#generation) this.failed = true;
+			if (current()) this.failed = true;
 		}
 	}
 
