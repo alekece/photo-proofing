@@ -1,7 +1,7 @@
 //! Draws a studio [`Watermark`] over a proof.
 //!
-//! Like the rest of rendering it is blocking and needs libvips with pango for text. The mark is
-//! white with a soft dark shadow, so it reads on light and dark photos alike.
+//! Like the rest of rendering it is blocking and needs libvips with pango for text. The text
+//! has a soft dark shadow; the logo keeps its original colors and transparency.
 
 use std::fmt::Debug;
 
@@ -12,7 +12,9 @@ use libvips::{
         ExtractBandOptions, Interpretation, RotateOptions,
     },
 };
-use pp_database::settings::{GridCell, Watermark, WatermarkPlacement};
+use pp_database::settings::{
+    GridCell, Watermark, WatermarkOpacity, WatermarkPlacement, WatermarkText,
+};
 
 use crate::render::RenderError;
 
@@ -26,8 +28,6 @@ const TEXT_SIZE: u32 = 64 * 1024;
 const LOGO_MAX_HEIGHT: f64 = 0.5;
 /// Tallest the studio name may be, relative to the mark width, so short names stay modest.
 const TEXT_MAX_HEIGHT: f64 = 0.2;
-/// Opacity of the mark itself, as a fraction.
-const MARK_OPACITY: f64 = 0.6;
 /// Opacity of the shadow behind it, as a fraction.
 const SHADOW_OPACITY: f64 = 0.55;
 /// Distance of a single mark from the photo's edge, relative to the shorter side.
@@ -50,6 +50,10 @@ impl<'a> WatermarkPainter<'a> {
 
     /// Returns `image`, an sRGB photo without alpha, with the watermark drawn on it.
     pub fn paint(&self, image: &VipsImage) -> Result<VipsImage, RenderError> {
+        if self.watermark.opacity == WatermarkOpacity::MIN {
+            return ops::copy(image).map_err(Self::fault);
+        }
+
         let (width, height) = (image.get_width(), image.get_height());
         let mark = self.mark(width)?;
         let image =
@@ -80,7 +84,7 @@ impl<'a> WatermarkPainter<'a> {
         RenderError::Library(format!("watermark: {error:?}"))
     }
 
-    /// The mark, shadow included, sized for a photo `width` pixels wide.
+    /// The mark with opacity applied to its composed alpha, including the text shadow.
     fn mark(&self, width: i32) -> Result<VipsImage, RenderError> {
         let share = WIDTH_SHARES[usize::from(self.watermark.size.get())];
         let target = (width * share / 100).max(MIN_MARK_WIDTH);
@@ -92,18 +96,25 @@ impl<'a> WatermarkPainter<'a> {
         }
 
         if let Some(text) = &self.watermark.text {
-            parts.push(Self::text(text, target)?);
+            let text = Self::pad(&Self::text(text, target)?, padding)?;
+            parts.push(Self::with_shadow(&text, f64::from((target / 80).max(1)))?);
         }
 
         let mark = if parts.len() == 1 {
-            parts.remove(0)
+            let part = parts.remove(0);
+
+            if self.watermark.text.is_some() {
+                part
+            } else {
+                Self::pad(&part, padding)?
+            }
         } else {
             // Spacing is the size of each grid cell, which libvips would otherwise take as 1.
             let cell = |size: fn(&VipsImage) -> i32| parts.iter().map(size).max().unwrap_or(1);
             let (cell_width, cell_height) =
                 (cell(VipsImage::get_width), cell(VipsImage::get_height));
 
-            ops::arrayjoin_with_opts(
+            let joined = ops::arrayjoin_with_opts(
                 &mut parts,
                 &ArrayjoinOptions {
                     across: 1,
@@ -115,21 +126,33 @@ impl<'a> WatermarkPainter<'a> {
                     background: vec![0.0, 0.0, 0.0, 0.0],
                 },
             )
-            .map_err(Self::fault)?
+            .map_err(Self::fault)?;
+
+            Self::pad(&joined, padding)?
         };
-        let mark = ops::embed(
+
+        if self.watermark.opacity == WatermarkOpacity::MAX {
+            return Ok(mark);
+        }
+
+        let alpha = ops::extract_band(&mark, 3).map_err(Self::fault)?;
+        let alpha = Self::faded(&alpha, f64::from(self.watermark.opacity.get()) / 100.0)?;
+
+        Self::join(&mark, &alpha)
+    }
+
+    fn pad(mark: &VipsImage, padding: i32) -> Result<VipsImage, RenderError> {
+        ops::embed(
             &Self::as_srgb(&mark)?,
             padding,
             padding,
             mark.get_width() + 2 * padding,
             mark.get_height() + 2 * padding,
         )
-        .map_err(Self::fault)?;
-
-        Self::with_shadow(&mark, f64::from((target / 80).max(1)))
+        .map_err(Self::fault)
     }
 
-    /// The logo as a white-faded RGBA image, no wider than `target`.
+    /// The unmodified logo as an RGBA image, no wider than `target`.
     fn logo(png: &[u8], target: i32) -> Result<VipsImage, RenderError> {
         let logo = VipsImage::new_from_buffer(png, "").map_err(Self::fault)?;
         let logo = if matches!(logo.get_interpretation(), Ok(Interpretation::Srgb)) {
@@ -144,19 +167,15 @@ impl<'a> WatermarkPainter<'a> {
         };
         let (width, height) = (f64::from(logo.get_width()), f64::from(logo.get_height()));
         let scale = (f64::from(target) / width).min(f64::from(target) * LOGO_MAX_HEIGHT / height);
-        let logo = ops::resize(&logo, scale).map_err(Self::fault)?;
-        let colour = ops::extract_band_with_opts(&logo, 0, &ExtractBandOptions { n: 3 })
-            .map_err(Self::fault)?;
-        let alpha = ops::extract_band(&logo, 3).map_err(Self::fault)?;
-
-        Self::join(&colour, &Self::faded(&alpha, MARK_OPACITY)?)
+        ops::resize(&logo, scale).map_err(Self::fault)
     }
 
-    /// The studio name as white RGBA text, no wider than `target`.
-    fn text(text: &str, target: i32) -> Result<VipsImage, RenderError> {
+    /// The studio name as colored RGBA text, no wider than `target`.
+    fn text(text: &WatermarkText, target: i32) -> Result<VipsImage, RenderError> {
         // The typed `text_with_opts` passes the output-only `autofit-dpi` as an input, which
         // crashes libvips, so styling goes through pango markup in the plain call.
         let escaped = text
+            .value
             .replace('&', "&amp;")
             .replace('<', "&lt;")
             .replace('>', "&gt;");
@@ -167,20 +186,16 @@ impl<'a> WatermarkPainter<'a> {
         let (width, height) = (f64::from(mask.get_width()), f64::from(mask.get_height()));
         let scale = (f64::from(target) / width).min(f64::from(target) * TEXT_MAX_HEIGHT / height);
         let mask = ops::resize(&mask, scale).map_err(Self::fault)?;
-        let colour = Self::flat_colour(&mask, 255.0)?;
+        let colour = Self::flat_colour(&mask, text.color.rgb())?;
 
-        Self::join(&colour, &Self::faded(&mask, MARK_OPACITY)?)
+        Self::join(&colour, &mask)
     }
 
-    /// Three bands of `value`, as large as `like`.
-    fn flat_colour(like: &VipsImage, value: f64) -> Result<VipsImage, RenderError> {
-        let mut bands = Vec::new();
+    /// Three RGB bands as large as `like`.
+    fn flat_colour(like: &VipsImage, [r, g, b]: [u8; 3]) -> Result<VipsImage, RenderError> {
+        let band = |value| VipsImage::new_from_image1(like, f64::from(value)).map_err(Self::fault);
 
-        for _ in 0..3 {
-            bands.push(VipsImage::new_from_image1(like, value).map_err(Self::fault)?);
-        }
-
-        ops::bandjoin(&mut bands).map_err(Self::fault)
+        ops::bandjoin(&mut [band(r)?, band(g)?, band(b)?]).map_err(Self::fault)
     }
 
     /// `alpha` scaled by `opacity`, as bytes.
@@ -229,7 +244,7 @@ impl<'a> WatermarkPainter<'a> {
         let alpha = ops::extract_band(mark, 3).map_err(Self::fault)?;
         let blurred = ops::gaussblur(&alpha, sigma).map_err(Self::fault)?;
         let shadow = Self::join(
-            &Self::flat_colour(&blurred, 0.0)?,
+            &Self::flat_colour(&blurred, [0; 3])?,
             &Self::faded(&blurred, SHADOW_OPACITY)?,
         )?;
 
@@ -339,7 +354,7 @@ impl<'a> WatermarkPainter<'a> {
 #[cfg(test)]
 mod tests {
     use libvips::ops::{avg, black, jpegsave_buffer, pngsave_buffer};
-    use pp_database::settings::SizeStep;
+    use pp_database::settings::{DEFAULT_WATERMARK_OPACITY, SizeStep, WatermarkColor};
 
     use super::*;
     use crate::render::tests::init_libvips;
@@ -349,10 +364,14 @@ mod tests {
 
     fn watermark(text: Option<&str>, logo: bool, placement: WatermarkPlacement) -> Watermark {
         Watermark {
-            text: text.map(str::to_owned),
+            text: text.map(|value| WatermarkText {
+                value: value.to_owned(),
+                color: WatermarkColor::default(),
+            }),
             logo: logo.then(white_logo),
             placement,
             size: SizeStep::try_from(2).unwrap(),
+            opacity: DEFAULT_WATERMARK_OPACITY,
         }
     }
 
@@ -408,6 +427,102 @@ mod tests {
         (0..9).map(|cell| brightness(image, cell) > 0.5).collect()
     }
 
+    fn neutral_photo() -> VipsImage {
+        init_libvips();
+        let band = black(WIDTH, HEIGHT).unwrap();
+        let photo = WatermarkPainter::flat_colour(&band, [100; 3]).unwrap();
+        WatermarkPainter::as_srgb(&photo).unwrap()
+    }
+
+    #[test]
+    fn watermark_opacity_and_channel_color_apply_to_both_placements() {
+        let photo = neutral_photo();
+        let pixels = photo.image_write_to_memory();
+
+        for placement in [
+            WatermarkPlacement::Once(GridCell::constant::<4>()),
+            WatermarkPlacement::Repeat,
+        ] {
+            let mut mark = watermark(Some("Studio"), false, placement);
+            mark.text = Some(WatermarkText {
+                value: "Studio".into(),
+                color: "#C04020".parse().unwrap(),
+            });
+            let paint = |opacity| {
+                let mark = Watermark {
+                    opacity,
+                    ..mark.clone()
+                };
+                WatermarkPainter::new(&mark)
+                    .paint(&photo)
+                    .unwrap()
+                    .image_write_to_memory()
+            };
+            let signal = |painted: Vec<u8>| {
+                painted
+                    .chunks_exact(3)
+                    .map(|pixel| u64::from(pixel[0].saturating_sub(pixel[1])))
+                    .sum::<u64>()
+            };
+            assert_eq!(paint(WatermarkOpacity::MIN), pixels);
+            let half = signal(paint(WatermarkOpacity::constant::<50>()));
+            let full = signal(paint(WatermarkOpacity::MAX));
+            assert!(0 < half && half < full, "half={half}, full={full}");
+        }
+    }
+
+    #[test]
+    fn logo_pixels_keep_rgb_and_source_alpha() {
+        let photo = neutral_photo();
+        // At size step 2 this logo already has the requested width and height.
+        let logo = VipsImage::new_from_memory_copy(
+            &(0..144 * 60)
+                .flat_map(|i| [220, 60, 140, [255, 128, 0][i % 144 / 48]])
+                .collect::<Vec<_>>(),
+            144,
+            60,
+            4,
+            BandFormat::Uchar,
+        )
+        .unwrap();
+        let logo = pngsave_buffer(&WatermarkPainter::as_srgb(&logo).unwrap()).unwrap();
+
+        for (opacity, expected) in [
+            (
+                WatermarkOpacity::MAX,
+                [[220, 60, 140], [160, 80, 120], [100; 3]],
+            ),
+            (
+                WatermarkOpacity::constant::<50>(),
+                [[160, 80, 120], [130, 90, 110], [100; 3]],
+            ),
+        ] {
+            let mark = Watermark {
+                logo: Some(logo.clone()),
+                opacity,
+                ..watermark(
+                    None,
+                    false,
+                    WatermarkPlacement::Once(GridCell::constant::<4>()),
+                )
+            };
+            let painted = WatermarkPainter::new(&mark).paint(&photo).unwrap();
+            let pixels = painted.image_write_to_memory();
+
+            for (x, expected) in [402, 450, 498].into_iter().zip(expected) {
+                let start = (300 * WIDTH as usize + x) * 3;
+                let channels = &pixels[start..start + 3];
+                assert!(
+                    channels
+                        .iter()
+                        .zip(expected)
+                        .all(|(a, b)| a.abs_diff(b) <= 1),
+                    "{channels:?} differs from {expected:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn a_single_name_lands_in_its_grid_cell_only() {
         for cell in [0, 4, 8] {
@@ -454,7 +569,7 @@ mod tests {
 
         pixels
             .chunks(width as usize * 3)
-            .map(|row| row.iter().any(|&value| value > 128))
+            .map(|row| row.iter().any(|&value| value > 100))
             .collect()
     }
 

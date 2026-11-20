@@ -7,7 +7,7 @@
 //! A render proves it used the current settings with a [`WatermarkStamp`]; see
 //! [`JobRepository::begin_publication`](JobRepository::begin_publication).
 
-use std::num::NonZeroU16;
+use std::{fmt, num::NonZeroU16, str::FromStr};
 
 use pp_core::types::bounded::BoundedU8;
 pub use pp_core::types::studio::{CoverSignature, Language};
@@ -33,6 +33,9 @@ pub const DEFAULT_GRID_CELL: GridCell = GridCell::constant::<8>();
 
 /// Default watermark and cover-signature size step (`4`).
 pub const DEFAULT_SIZE_STEP: SizeStep = SizeStep::constant::<4>();
+
+/// Default watermark opacity (50%).
+pub const DEFAULT_WATERMARK_OPACITY: WatermarkOpacity = WatermarkOpacity::constant::<50>();
 
 /// Why settings were refused.
 #[derive(Debug, Error)]
@@ -129,6 +132,79 @@ pub type GridCell = BoundedU8<0, 8>;
 /// How large the watermark or the cover signature is: 0 (small) to 9 (large).
 pub type SizeStep = BoundedU8<0, 9>;
 
+/// Watermark opacity in whole percent, including 0 (no paint).
+pub type WatermarkOpacity = BoundedU8<0, 100>;
+
+/// A watermark color must be a `#` followed by six ASCII hex digits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("a watermark color must be in #RRGGBB format")]
+pub struct InvalidWatermarkColor;
+
+/// An RGB color that parses case-insensitively and displays as uppercase `#RRGGBB`.
+///
+/// ```
+/// use pp_database::settings::WatermarkColor;
+///
+/// let color: WatermarkColor = "#a12b3c".parse().unwrap();
+/// assert_eq!(color.rgb(), [161, 43, 60]);
+/// assert_eq!(color.to_string(), "#A12B3C");
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct WatermarkColor([u8; 3]);
+
+impl WatermarkColor {
+    pub const fn rgb(self) -> [u8; 3] {
+        self.0
+    }
+}
+
+impl Default for WatermarkColor {
+    fn default() -> Self {
+        Self([255; 3])
+    }
+}
+
+impl FromStr for WatermarkColor {
+    type Err = InvalidWatermarkColor;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let hex = value.strip_prefix('#').ok_or(InvalidWatermarkColor)?;
+
+        if hex.len() != 6 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(InvalidWatermarkColor);
+        }
+
+        let [_, r, g, b] = u32::from_str_radix(hex, 16)
+            .map_err(|_| InvalidWatermarkColor)?
+            .to_be_bytes();
+
+        Ok(Self([r, g, b]))
+    }
+}
+
+impl fmt::Display for WatermarkColor {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let [r, g, b] = self.0;
+
+        write!(formatter, "#{r:02X}{g:02X}{b:02X}")
+    }
+}
+
+impl TryFrom<String> for WatermarkColor {
+    type Error = InvalidWatermarkColor;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<WatermarkColor> for String {
+    fn from(color: WatermarkColor) -> Self {
+        color.to_string()
+    }
+}
+
 /// Where a watermark goes on a photo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WatermarkPlacement {
@@ -143,11 +219,19 @@ pub enum WatermarkPlacement {
 /// nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Watermark {
-    pub text: Option<String>,
+    pub text: Option<WatermarkText>,
     /// PNG bytes.
     pub logo: Option<Vec<u8>>,
     pub placement: WatermarkPlacement,
     pub size: SizeStep,
+    pub opacity: WatermarkOpacity,
+}
+
+/// The studio text and its color; neither affects a logo-only mark.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatermarkText {
+    pub value: String,
+    pub color: WatermarkColor,
 }
 
 /// The saved workspace settings.
@@ -161,6 +245,9 @@ pub struct WorkspaceSettings {
     pub signature: CoverSignature,
     pub signature_size: SizeStep,
     pub proof_quality: ProofQuality,
+    pub watermark_opacity: WatermarkOpacity,
+    #[sqlx(try_from = "String")]
+    pub watermark_text_color: WatermarkColor,
     /// Normalised PNG bytes.
     pub logo: Option<Vec<u8>>,
 }
@@ -176,6 +263,8 @@ impl Default for WorkspaceSettings {
             signature: CoverSignature::Name,
             signature_size: DEFAULT_SIZE_STEP,
             proof_quality: ProofQuality::default(),
+            watermark_opacity: DEFAULT_WATERMARK_OPACITY,
+            watermark_text_color: WatermarkColor::default(),
             logo: None,
         }
     }
@@ -184,8 +273,15 @@ impl Default for WorkspaceSettings {
 impl WorkspaceSettings {
     /// What these settings draw, or `None` while there is nothing to draw yet.
     pub fn watermark(&self) -> Option<Watermark> {
-        let text = Some(self.studio_name.clone())
-            .filter(|name| self.mark.shows_name() && !name.is_empty());
+        if self.watermark_opacity == WatermarkOpacity::MIN {
+            return None;
+        }
+
+        let text =
+            (self.mark.shows_name() && !self.studio_name.is_empty()).then(|| WatermarkText {
+                value: self.studio_name.clone(),
+                color: self.watermark_text_color,
+            });
         let logo = self.logo.clone().filter(|_| self.mark.shows_logo());
 
         if text.is_none() && logo.is_none() {
@@ -202,6 +298,7 @@ impl WorkspaceSettings {
             logo,
             placement,
             size: self.size,
+            opacity: self.watermark_opacity,
         })
     }
 }
@@ -226,6 +323,8 @@ pub struct SettingsUpdate {
     pub signature: CoverSignature,
     pub signature_size: SizeStep,
     pub proof_quality: ProofQuality,
+    pub watermark_opacity: Option<WatermarkOpacity>,
+    pub watermark_text_color: Option<WatermarkColor>,
     pub logo: LogoChange,
 }
 
@@ -281,7 +380,9 @@ impl SettingsRepository<'_> {
         COALESCE(s.position, 8::smallint) AS position, COALESCE(s.size, 4::smallint) AS size,
         COALESCE(s.signature, 'name') AS signature,
         COALESCE(s.signature_size, 4::smallint) AS signature_size,
-        COALESCE(s.proof_quality, 'medium') AS proof_quality, s.logo AS logo";
+        COALESCE(s.proof_quality, 'medium') AS proof_quality, s.logo AS logo,
+        COALESCE(s.watermark_opacity, 50::smallint) AS watermark_opacity,
+        COALESCE(s.watermark_text_color, '#FFFFFF') AS watermark_text_color";
 
     /// The workspace's settings, or the defaults when none were saved.
     pub async fn settings(
@@ -335,7 +436,7 @@ impl SettingsRepository<'_> {
 
         let current: WorkspaceSettings = sqlx::query_as(
             "SELECT studio_name, mark, pattern, position, size, signature, signature_size,
-                    proof_quality, logo
+                    proof_quality, logo, watermark_opacity, watermark_text_color
              FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
         )
         .bind(workspace_id)
@@ -360,6 +461,12 @@ impl SettingsRepository<'_> {
             signature: update.signature,
             signature_size: update.signature_size,
             proof_quality: update.proof_quality,
+            watermark_opacity: update
+                .watermark_opacity
+                .unwrap_or(current.watermark_opacity),
+            watermark_text_color: update
+                .watermark_text_color
+                .unwrap_or(current.watermark_text_color),
             logo,
         };
         let changed = saved.watermark() != current.watermark()
@@ -369,7 +476,8 @@ impl SettingsRepository<'_> {
             "UPDATE workspace_settings SET
                  studio_name = $2, mark = $3, pattern = $4, position = $5, size = $6,
                  signature = $7, logo = $8, proof_quality = $10, signature_size = $11,
-                 watermark_revision = watermark_revision + $9, updated_at = now()
+                 watermark_revision = watermark_revision + $9, updated_at = now(),
+                 watermark_opacity = $12, watermark_text_color = $13
              WHERE workspace_id = $1",
         )
         .bind(workspace_id)
@@ -383,6 +491,8 @@ impl SettingsRepository<'_> {
         .bind(i64::from(changed))
         .bind(saved.proof_quality)
         .bind(saved.signature_size)
+        .bind(saved.watermark_opacity)
+        .bind(saved.watermark_text_color.to_string())
         .execute(&mut *transaction)
         .await?;
 
@@ -689,7 +799,50 @@ mod tests {
             signature: CoverSignature::Name,
             signature_size: DEFAULT_SIZE_STEP,
             proof_quality: ProofQuality::Medium,
+            watermark_opacity: None,
+            watermark_text_color: None,
             logo: LogoChange::Keep,
+        }
+    }
+
+    #[test]
+    fn watermark_appearance_only_compares_visible_inputs() {
+        let logo_only = WorkspaceSettings {
+            studio_name: "Studio".into(),
+            mark: WatermarkMark::Logo,
+            logo: Some(PNG.to_vec()),
+            ..WorkspaceSettings::default()
+        };
+        let same_logo_new_text_color = WorkspaceSettings {
+            watermark_text_color: "#C04020".parse().unwrap(),
+            ..logo_only.clone()
+        };
+        assert_eq!(logo_only.watermark(), same_logo_new_text_color.watermark());
+
+        let text_only = WorkspaceSettings {
+            mark: WatermarkMark::Name,
+            ..logo_only.clone()
+        };
+        let recolored = WorkspaceSettings {
+            watermark_text_color: "#C04020".parse().unwrap(),
+            ..text_only.clone()
+        };
+        assert_ne!(text_only.watermark(), recolored.watermark());
+
+        for mark in [
+            WatermarkMark::Name,
+            WatermarkMark::Logo,
+            WatermarkMark::Both,
+        ] {
+            for pattern in [WatermarkPattern::Repeat, WatermarkPattern::Once] {
+                let zero = WorkspaceSettings {
+                    watermark_opacity: WatermarkOpacity::MIN,
+                    mark,
+                    pattern,
+                    ..logo_only.clone()
+                };
+                assert!(zero.watermark().is_none());
+            }
         }
     }
 
@@ -804,10 +957,14 @@ mod tests {
         assert_eq!(
             read.watermark(),
             Some(Watermark {
-                text: Some("Studio Lumière".to_owned()),
+                text: Some(WatermarkText {
+                    value: "Studio Lumière".to_owned(),
+                    color: WatermarkColor::default(),
+                }),
                 logo: Some(PNG.to_vec()),
                 placement: WatermarkPlacement::Once(GridCell::try_from(4).unwrap()),
                 size: SizeStep::constant::<4>(),
+                opacity: DEFAULT_WATERMARK_OPACITY,
             })
         );
     }
@@ -1687,7 +1844,7 @@ mod tests {
         let second = fixture.proof(marked).await.unwrap();
 
         assert_eq!(second.stamp, WatermarkStamp::new(Some(1)));
-        assert_eq!(second.watermark.unwrap().text.as_deref(), Some("Studio"));
+        assert_eq!(second.watermark.unwrap().text.unwrap().value, "Studio");
         assert_eq!(
             fixture
                 .proof(plain)
@@ -1696,8 +1853,9 @@ mod tests {
                 .watermark
                 .unwrap()
                 .text
-                .as_deref(),
-            Some("Studio")
+                .unwrap()
+                .value,
+            "Studio"
         );
     }
 

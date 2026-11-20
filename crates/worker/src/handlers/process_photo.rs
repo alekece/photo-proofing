@@ -574,6 +574,8 @@ mod tests {
                     signature: defaults.signature,
                     signature_size: defaults.signature_size,
                     proof_quality: defaults.proof_quality,
+                    watermark_opacity: None,
+                    watermark_text_color: None,
                     logo: LogoChange::Keep,
                 },
             )
