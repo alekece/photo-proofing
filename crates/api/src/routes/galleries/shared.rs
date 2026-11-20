@@ -26,7 +26,7 @@
 //! `/galleries/shared/` paths.
 
 use actix_web::{
-    HttpRequest, HttpResponse, delete, get,
+    FromRequest, HttpRequest, HttpResponse, delete, get,
     http::StatusCode,
     middleware::from_fn,
     post, put,
@@ -43,7 +43,7 @@ use pp_database::{
 use pp_storage::{ArchiveKey, PhotoKey, Variant};
 use serde::{Deserialize, Serialize};
 
-use super::DerivativePhoto;
+use super::{DerivativeAccess, DerivativePhoto};
 use crate::{
     api::ApiState,
     error::ErrorResponse,
@@ -315,22 +315,27 @@ async fn serve_shared_photo(
     state: Data<ApiState>,
     access: ClientAccess,
     path: Path<(String, PhotoId, DerivativePhoto)>,
+    request: HttpRequest,
 ) -> Result<ImageFile, ErrorResponse> {
     let (_, photo_id, derivative) = path.into_inner();
-    let location = access.0.location;
-    let watermarked = access.watermarked();
-
-    let ready = state
-        .database()
-        .repository::<PhotoRepository>()
-        .ready_derivative(location, photo_id, access.photo_set().kind(), watermarked)
-        .await?
-        .ok_or_else(ErrorResponse::not_found)?;
-    let key = PhotoKey::with_location(location, photo_id, derivative.variant(watermarked))
-        .with_marked_file_revision(ready.marked_file_revision);
-    ImageFile::read(state.storage(), &key)
+    DerivativeAccess::from(&access)
+        .read(&state, photo_id, derivative, async || {
+            Ok(DerivativeAccess::from(
+                &ClientAccess::extract(&request).await?,
+            ))
+        })
         .await
         .map(ImageFile::proof)
+}
+
+impl From<&ClientAccess> for DerivativeAccess {
+    fn from(access: &ClientAccess) -> Self {
+        Self {
+            location: access.0.location,
+            kind: access.photo_set().kind(),
+            watermarked: access.watermarked(),
+        }
+    }
 }
 
 /// The delivered finals, as the client keeps them: the stored bytes, saved under their own name.
@@ -474,7 +479,8 @@ async fn serve_shared_cover(
 #[cfg(test)]
 mod tests {
     use actix_web::{
-        App,
+        App, Responder, ResponseError,
+        body::to_bytes,
         cookie::Cookie,
         dev::{Service, ServiceResponse},
         http::StatusCode,
@@ -492,6 +498,7 @@ mod tests {
     use pp_storage::{ArchiveEntry, PhotoStorage};
     use serde_json::{Value, json};
     use sqlx::PgPool;
+    use uuid::Uuid;
 
     use super::*;
     use crate::{
@@ -1193,6 +1200,107 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_pruned_marked_read_reselects_only_with_current_shared_access(pool: PgPool) {
+        let (state, directory) = app_state(pool.clone()).await;
+        let state = Data::new(state);
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery = create_gallery(&app, &cookie).await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery, Progress::Ready).await;
+        let token = share(&app, &cookie, &gallery).await;
+        let id = photo_id(&photo);
+        let photos = state.database().repository::<PhotoRepository>();
+        let location = photos.locate(id).await.unwrap().unwrap();
+        sqlx::query("UPDATE galleries SET watermark_enabled = true WHERE id = $1")
+            .bind(location.gallery_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let request = get(&token)
+            .param("token", token)
+            .app_data(state.clone())
+            .to_http_request();
+        let reauthorize = async || {
+            Ok(DerivativeAccess::from(
+                &ClientAccess::extract(&request).await?,
+            ))
+        };
+        let access = reauthorize().await.unwrap();
+        let flat = PhotoKey::with_location(location, id, Variant::WatermarkedPreview);
+        let mut old = state.storage().stage().await.unwrap();
+        old.write(b"previous marked proof").await.unwrap();
+        old.commit(&flat).await.unwrap();
+        let selected = access.select(&state, flat).await.unwrap();
+
+        let generation = Uuid::new_v4();
+        let mut rotated = state.storage().stage().await.unwrap();
+        rotated.write(b"new marked proof").await.unwrap();
+        rotated
+            .commit(&flat.with_marked_file_generation(Some(generation)))
+            .await
+            .unwrap();
+        let mut clean = state.storage().stage().await.unwrap();
+        clean
+            .write(b"clean proof, never a retry fallback")
+            .await
+            .unwrap();
+        clean
+            .commit(&PhotoKey::with_location(location, id, Variant::Preview))
+            .await
+            .unwrap();
+        sqlx::query("UPDATE photos SET marked_file_generation = $2 WHERE id = $1")
+            .bind(id)
+            .bind(generation)
+            .execute(&pool)
+            .await
+            .unwrap();
+        state.storage().remove(&selected).await.unwrap();
+
+        let image = access
+            .read_selected(&state, selected, reauthorize)
+            .await
+            .unwrap();
+        let response = image.proof().respond_to(&request);
+        assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
+        assert_eq!(
+            to_bytes(response.into_body()).await.unwrap().as_ref(),
+            b"new marked proof"
+        );
+
+        sqlx::query("UPDATE galleries SET watermark_enabled = false WHERE id = $1")
+            .bind(location.gallery_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let error = access
+            .read_selected(&state, selected, reauthorize)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.status_code(), StatusCode::NOT_FOUND);
+
+        sqlx::query("UPDATE galleries SET watermark_enabled = true WHERE id = $1")
+            .bind(location.gallery_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        state
+            .database()
+            .repository::<GalleryRepository>()
+            .archive(location.workspace_id, location.gallery_id)
+            .await
+            .unwrap()
+            .unwrap();
+        // A stale captured scope cannot substitute for authorization on the second read.
+        let error = access
+            .read_selected(&state, selected, reauthorize)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.status_code(), StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
     async fn only_the_committed_marked_pair_is_served_and_delivery_keeps_client_finals(
         pool: PgPool,
     ) {
@@ -1209,6 +1317,7 @@ mod tests {
         let storage = PhotoStorage::open(&PhotoDir::try_from(directory.path().to_owned()).unwrap())
             .await
             .unwrap();
+        let generation = Uuid::new_v4();
         let files = [
             (
                 Variant::WatermarkedThumbnail,
@@ -1221,7 +1330,7 @@ mod tests {
             let mut committed = storage.stage().await.unwrap();
             committed.write(bytes).await.unwrap();
             committed
-                .commit(&key.with_marked_file_revision(Some(1)))
+                .commit(&key.with_marked_file_generation(Some(generation)))
                 .await
                 .unwrap();
         }
@@ -1233,7 +1342,7 @@ mod tests {
         candidate
             .commit(
                 &PhotoKey::with_location(location, id, Variant::WatermarkedThumbnail)
-                    .with_marked_file_revision(Some(2)),
+                    .with_marked_file_generation(Some(Uuid::new_v4())),
             )
             .await
             .unwrap();
@@ -1243,8 +1352,9 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("UPDATE photos SET marked_file_revision = 1 WHERE id = $1")
+        sqlx::query("UPDATE photos SET marked_file_generation = $2 WHERE id = $1")
             .bind(id)
+            .bind(generation)
             .execute(&pool)
             .await
             .unwrap();

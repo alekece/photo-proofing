@@ -255,11 +255,11 @@ pub struct PhotoLocation {
 #[serde(transparent)]
 pub struct Watermarked(pub bool);
 
-/// A ready derivative's storage address; only refreshed marked proof pairs have a file revision.
+/// A ready derivative's storage address; only marked proof pairs have a generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReadyDerivative {
-    /// `None` addresses the original unversioned derivative filenames.
-    pub marked_file_revision: Option<i64>,
+    /// `None` addresses flat derivative filenames, including those of legacy marked files.
+    pub marked_file_generation: Option<Uuid>,
 }
 
 impl Watermarked {
@@ -518,7 +518,7 @@ impl PhotoRepository<'_> {
             .is_some())
     }
 
-    /// Resolves readiness and the committed file revision from the same row snapshot.
+    /// Resolves readiness and the committed file generation from the same row snapshot.
     pub async fn ready_derivative(
         &self,
         location: PhotoLocation,
@@ -526,8 +526,8 @@ impl PhotoRepository<'_> {
         kind: PhotoKind,
         variant: Watermarked,
     ) -> Result<Option<ReadyDerivative>, DatabaseError> {
-        let revision: Option<Option<i64>> = sqlx::query_scalar(AssertSqlSafe(format!(
-            "SELECT CASE WHEN $5 AND p.kind = 'proof' THEN p.marked_file_revision END
+        let generation: Option<Option<Uuid>> = sqlx::query_scalar(AssertSqlSafe(format!(
+            "SELECT CASE WHEN $5 AND p.kind = 'proof' THEN p.marked_file_generation END
              FROM photos AS p
              WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3
                AND kind = $4 AND {}",
@@ -541,8 +541,8 @@ impl PhotoRepository<'_> {
         .fetch_optional(self.pool)
         .await?;
 
-        Ok(revision.map(|marked_file_revision| ReadyDerivative {
-            marked_file_revision,
+        Ok(generation.map(|marked_file_generation| ReadyDerivative {
+            marked_file_generation,
         }))
     }
 

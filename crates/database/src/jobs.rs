@@ -325,14 +325,20 @@ pub struct OpenPublication<'db> {
     transaction: Transaction<'db, Postgres>,
     job: Job,
     photo_id: PhotoId,
-    marked_file_revision: Option<i64>,
+    marked_file_generation: Option<Uuid>,
+    previous_marked_file_generation: Option<Uuid>,
 }
 
 impl OpenPublication<'_> {
-    /// The candidate marked file revision for a proof refresh. Both files must be written
-    /// before finishing. Initial proofs and finals have no separate file revision.
-    pub const fn marked_file_revision(&self) -> Option<i64> {
-        self.marked_file_revision
+    /// The unique generation of this proof publication. Both marked files must be written
+    /// before finishing. Finals have no marked files.
+    pub const fn marked_file_generation(&self) -> Option<Uuid> {
+        self.marked_file_generation
+    }
+
+    /// The previously committed pair; `None` addresses legacy flat paths if present.
+    pub const fn previous_marked_file_generation(&self) -> Option<Uuid> {
+        self.previous_marked_file_generation
     }
 
     /// Marks the photo ready and finishes the job.
@@ -340,10 +346,10 @@ impl OpenPublication<'_> {
         let completion = JobRepository::complete_in(&mut *self.transaction, &self.job).await?;
         let saved = PhotoRepository::mark_ready_in(&mut self.transaction, self.photo_id).await?;
 
-        if let Some(revision) = self.marked_file_revision.filter(|_| saved) {
-            sqlx::query("UPDATE photos SET marked_file_revision = $2 WHERE id = $1")
+        if let Some(generation) = self.marked_file_generation.filter(|_| saved) {
+            sqlx::query("UPDATE photos SET marked_file_generation = $2 WHERE id = $1")
                 .bind(self.photo_id)
-                .bind(revision)
+                .bind(generation)
                 .execute(&mut *self.transaction)
                 .await?;
         }
@@ -655,8 +661,7 @@ impl JobRepository<'_> {
 
         let current = sqlx::query(AssertSqlSafe(format!(
             "SELECT p.status = ANY(ARRAY['waiting', 'processing']::photo_status[]) AS unfinished,
-                    CASE WHEN p.kind = 'proof' AND p.clean_ready THEN p.revision + 1 END
-                        AS candidate_revision,
+                    p.kind = 'proof' AS is_proof, p.marked_file_generation,
                     {} AS stamp
              FROM photos p
              WHERE p.id = $1",
@@ -673,7 +678,8 @@ impl JobRepository<'_> {
                 transaction,
                 job: job.clone(),
                 photo_id,
-                marked_file_revision: row.try_get("candidate_revision")?,
+                marked_file_generation: row.try_get::<bool, _>("is_proof")?.then(Uuid::new_v4),
+                previous_marked_file_generation: row.try_get("marked_file_generation")?,
             }));
         }
 

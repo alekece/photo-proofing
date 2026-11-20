@@ -98,6 +98,13 @@ impl WorkspaceDeletion<'_> {
 
         let mut transaction = self.pool.begin().await?;
 
+        // Deleting a hero can update its gallery through the FK. Exclude delivery before
+        // locking jobs or photos, even if a failed refresh has no job left.
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR SHARE")
+            .bind(workspace_id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+
         let photo_ids: Vec<PhotoId> = sqlx::query_scalar(
             "SELECT id FROM photos
              WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)

@@ -31,7 +31,7 @@ use pp_storage::{PhotoKey, StorageError, Variant};
 use serde::{Deserialize, Serialize};
 use tokio_util::io::ReaderStream;
 
-use super::DerivativePhoto;
+use super::{DerivativeAccess, DerivativePhoto};
 use crate::{
     api::ApiState,
     error::ErrorResponse,
@@ -307,24 +307,30 @@ async fn serve_derivative_photo(
     Authenticated(identity): Authenticated,
     path: WebPath<(GalleryId, PhotoId, DerivativePhoto)>,
     set: Query<PhotoSet>,
+    request: HttpRequest,
 ) -> Result<ImageFile, ErrorResponse> {
     let (gallery_id, photo_id, derivative) = path.into_inner();
     let set = set.into_inner();
-    let watermarked = set.watermark.unwrap_or_default();
-    let location = PhotoLocation {
-        workspace_id: identity.workspace_id,
-        gallery_id,
+    let access = DerivativeAccess {
+        location: PhotoLocation {
+            workspace_id: identity.workspace_id,
+            gallery_id,
+        },
+        kind: set.into(),
+        watermarked: set.watermark.unwrap_or_default(),
     };
-
-    let ready = state
-        .database()
-        .repository::<PhotoRepository>()
-        .ready_derivative(location, photo_id, set.into(), watermarked)
-        .await?
-        .ok_or_else(ErrorResponse::not_found)?;
-    let key = PhotoKey::with_location(location, photo_id, derivative.variant(watermarked))
-        .with_marked_file_revision(ready.marked_file_revision);
-    let image = ImageFile::read(state.storage(), &key).await?;
+    let image = access
+        .read(&state, photo_id, derivative, async || {
+            let Authenticated(identity) = Authenticated::extract(&request).await?;
+            Ok(DerivativeAccess {
+                location: PhotoLocation {
+                    workspace_id: identity.workspace_id,
+                    gallery_id,
+                },
+                ..access
+            })
+        })
+        .await?;
 
     Ok(if set.finals { image } else { image.proof() })
 }

@@ -1,10 +1,10 @@
 ALTER TABLE photos
     ADD COLUMN requested_watermark_revision bigint NOT NULL DEFAULT 0,
     ADD COLUMN watermark_only_pending boolean NOT NULL DEFAULT false,
-    ADD COLUMN marked_file_revision bigint;
+    ADD COLUMN marked_file_generation uuid;
 
 -- Preserve the prior readiness comparison without assuming why any legacy job was queued.
--- A NULL file revision keeps reading the legacy marked filenames.
+-- A NULL generation keeps reading the legacy marked filenames.
 UPDATE photos p
 SET requested_watermark_revision = s.watermark_revision
 FROM workspace_settings s

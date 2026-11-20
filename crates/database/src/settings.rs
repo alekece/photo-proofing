@@ -1314,6 +1314,58 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
+    async fn deleting_a_pending_hero_waits_for_workspace_admission(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+        let gallery = fixture.gallery(true).await;
+        fixture.share(gallery).await;
+        let photo = fixture.photo(gallery, PhotoStatus::Ready).await;
+        sqlx::query("UPDATE galleries SET hero_id = $1 WHERE id = $2")
+            .bind(photo)
+            .bind(gallery)
+            .execute(&fixture.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE photos SET status = 'failed', watermark_only_pending = true,
+                failure_reason = 'refresh failed' WHERE id = $1",
+        )
+        .bind(photo)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+        assert_eq!(fixture.jobs(photo).await, 0);
+
+        let mut delivery = fixture.pool.begin().await.unwrap();
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR NO KEY UPDATE")
+            .bind(fixture.workspace_id)
+            .fetch_one(&mut *delivery)
+            .await
+            .unwrap();
+        let deletions = fixture
+            .database
+            .repository::<crate::workspace_deletion::WorkspaceDeletion>();
+        let ids = [photo];
+        let deleting =
+            deletions.delete_photos(fixture.workspace_id, gallery, PhotoKind::Proof, &ids);
+        tokio::pin!(deleting);
+        tokio::select! {
+            _ = &mut deleting => panic!("hero deletion must wait before taking photo locks"),
+            () = wait_for_lock_waiters(&fixture.pool, 1) => {}
+        }
+        sqlx::query("SELECT id FROM photos WHERE id = $1 FOR UPDATE NOWAIT")
+            .bind(photo)
+            .fetch_one(&mut *delivery)
+            .await
+            .unwrap();
+        delivery.commit().await.unwrap();
+        assert_eq!(deleting.await.unwrap(), ids);
+        assert!(matches!(
+            fixture.deliver(gallery).await,
+            Delivery::Delivered(_)
+        ));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
     async fn a_new_proof_quality_regenerates_every_gallery_and_finals_keep_the_default(
         pool: PgPool,
     ) {
@@ -1559,7 +1611,7 @@ mod tests {
                 .await
                 .unwrap()
                 .expect("ready legacy marked files must remain readable")
-                .marked_file_revision,
+                .marked_file_generation,
             None
         );
         assert_eq!(
