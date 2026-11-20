@@ -88,10 +88,10 @@ impl ActivityKind {
 ///
 /// A no-op when `options.client` is `None`. Otherwise the call extends the line of the same
 /// gallery, contact and kind whose `last_at` is still inside `options.window`, or opens a new
-/// one: `count` grows by [`ActivityKind::delta`], `photo_ids` grows up to four entries, and
-/// `detail`, when given, replaces the line's. A transaction-scoped advisory lock on the gallery,
-/// contact and kind orders concurrent calls on the same line, so none of them are lost and the
-/// window is never split.
+/// one: `count` grows by [`ActivityKind::delta`], and `detail`, when given, replaces the line's.
+/// Favorite and unfavorite lines keep distinct photo IDs in first-seen order; other lines keep
+/// only the first four thumbnail IDs. A transaction-scoped advisory lock on the gallery, contact
+/// and kind orders concurrent calls on the same line, so none are lost and the window is never split.
 pub(crate) trait ActivityRecorder {
     async fn record_activity(
         &mut self,
@@ -136,7 +136,12 @@ impl ActivityRecorder for PgConnection {
         let updated = sqlx::query(
             "UPDATE activity_events
                  SET count = count + $1,
-                     photo_ids = (photo_ids || $2::uuid[])[1:4],
+                     photo_ids = CASE WHEN kind IN ('favorite', 'unfavorite') THEN ARRAY(
+                         SELECT id
+                         FROM unnest(photo_ids || $2::uuid[]) WITH ORDINALITY AS photos(id, position)
+                         GROUP BY id
+                         ORDER BY min(position)
+                     ) ELSE (photo_ids || $2::uuid[])[1:4] END,
                      detail = coalesce($3, detail),
                      last_at = now()
              WHERE workspace_id = $4
@@ -162,7 +167,13 @@ impl ActivityRecorder for PgConnection {
 
         sqlx::query(
             "INSERT INTO activity_events (workspace_id, gallery_id, contact_id, kind, count, photo_ids, detail)
-             VALUES ($1, $2, $3, $4, $5, $6[1:4], $7)",
+             VALUES ($1, $2, $3, $4, $5,
+                     CASE WHEN $4 IN ('favorite', 'unfavorite') THEN ARRAY(
+                         SELECT id
+                         FROM unnest($6::uuid[]) WITH ORDINALITY AS photos(id, position)
+                         GROUP BY id
+                         ORDER BY min(position)
+                     ) ELSE $6[1:4] END, $7)",
         )
         .bind(location.workspace_id)
         .bind(location.gallery_id)
@@ -321,7 +332,8 @@ pub struct ActivityEvent {
     pub contact: Option<ActivityContact>,
     pub kind: ActivityKind,
     pub count: usize,
-    /// The photos the line is about that still exist, at most four.
+    /// Recorded photo IDs that still exist, in first-seen order. Other than favorite and
+    /// unfavorite lines, these are a sample of at most four photos.
     pub photo_ids: Vec<PhotoId>,
     pub detail: Option<String>,
     pub first_at: Timestamp,
@@ -550,6 +562,24 @@ mod tests {
             id
         }
 
+        async fn insert_photo(&self) -> PhotoId {
+            let id = PhotoId::generate();
+
+            sqlx::query(
+                "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width,
+                                     height, status, kind, clean_ready)
+                 VALUES ($1, $2, $3, 'a.jpg', 1, 1, 1, 'ready', 'proof', true)",
+            )
+            .bind(id)
+            .bind(self.location.workspace_id)
+            .bind(self.location.gallery_id)
+            .execute(&self.pool)
+            .await
+            .unwrap();
+
+            id
+        }
+
         async fn record(&self, client: Option<Client>, kind: ActivityKind, photo_ids: &[PhotoId]) {
             let options = ActivityOptions::default().client(client);
             let mut transaction = self.pool.begin().await.unwrap();
@@ -694,21 +724,80 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
-    async fn photo_ids_keep_at_most_four(pool: PgPool) {
+    async fn favorite_lines_keep_all_distinct_photo_ids_in_order(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
+        let mut photos = Vec::new();
 
-        for _ in 0..6 {
-            let photo_id = PhotoId::from(uuid::Uuid::new_v4());
-            fixture
-                .record(CLIENT, ActivityKind::Favorite, &[photo_id])
-                .await;
+        for _ in 0..12 {
+            photos.push(fixture.insert_photo().await);
+        }
+
+        for kind in [ActivityKind::Favorite, ActivityKind::Unfavorite] {
+            for photo in &photos {
+                fixture.record(CLIENT, kind, &[*photo]).await;
+            }
+
+            fixture.record(CLIENT, kind, &[photos[2]]).await;
         }
 
         let lines = fixture.lines().await;
 
+        assert_eq!(lines.len(), 2);
+
+        for kind in [ActivityKind::Favorite, ActivityKind::Unfavorite] {
+            let line = lines.iter().find(|line| line.kind == kind).unwrap();
+
+            assert_eq!(line.count, 13);
+            assert_eq!(line.photo_ids, photos);
+        }
+
+        let deleted = photos.remove(4);
+
+        sqlx::query("DELETE FROM photos WHERE id = $1")
+            .bind(deleted)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let events = fixture.list(ActivityQuery::default()).await.events;
+
+        assert_eq!(events.len(), 2);
+
+        for event in events {
+            assert_eq!(event.count, 13);
+            assert_eq!(event.photo_ids, photos);
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn favorite_insert_deduplicates_before_any_update(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let [first, second] = [PhotoId::generate(), PhotoId::generate()];
+
+        fixture
+            .record(CLIENT, ActivityKind::Favorite, &[first, second, first])
+            .await;
+
+        assert_eq!(fixture.lines().await[0].photo_ids, [first, second]);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn download_lines_keep_only_four_thumbnail_ids(pool: PgPool) {
+        let fixture = Fixture::new(&pool).await;
+        let photos: Vec<_> = (0..13).map(|_| PhotoId::generate()).collect();
+
+        fixture
+            .record(CLIENT, ActivityKind::Download, &photos[..12])
+            .await;
+        fixture
+            .record(CLIENT, ActivityKind::Download, &photos[12..])
+            .await;
+
+        let lines = fixture.lines().await;
+
         assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].count, 6);
-        assert_eq!(lines[0].photo_ids.len(), 4);
+        assert_eq!(lines[0].count, 13);
+        assert_eq!(lines[0].photo_ids, photos[..4]);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -1172,21 +1261,7 @@ mod tests {
     async fn a_line_names_its_contact_and_only_the_photos_that_still_exist(pool: PgPool) {
         let fixture = Fixture::new(&pool).await;
         let alice = fixture.insert_contact("alice@example.test").await;
-        let [kept, deleted] = [PhotoId::generate(), PhotoId::generate()];
-
-        for id in [kept, deleted] {
-            sqlx::query(
-                "INSERT INTO photos (id, workspace_id, gallery_id, original_name, size, width,
-                                     height, status, kind, clean_ready)
-                 VALUES ($1, $2, $3, 'a.jpg', 1, 1, 1, 'ready', 'proof', true)",
-            )
-            .bind(id)
-            .bind(fixture.location.workspace_id)
-            .bind(fixture.location.gallery_id)
-            .execute(&pool)
-            .await
-            .unwrap();
-        }
+        let [kept, deleted] = [fixture.insert_photo().await, fixture.insert_photo().await];
 
         fixture
             .insert_line(
