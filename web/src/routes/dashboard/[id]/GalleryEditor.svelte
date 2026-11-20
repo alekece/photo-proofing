@@ -4,6 +4,9 @@
 	// Accepted releases for one gallery can outlive more than one visit to its editor.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const focalWrites = new Map<string, Promise<FocalPoint | undefined>>();
+	// A route read on re-entry may already be stale when mounting, even if the queue has drained.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const focalRefreshNeeded = new Set<string>();
 </script>
 
 <script lang="ts">
@@ -28,6 +31,7 @@
 		archiveGallery,
 		deliverGallery,
 		deleteGallery,
+		readGallery,
 		restoreGallery,
 		shareGallery,
 		updateGallery,
@@ -70,6 +74,7 @@
 	// The expiry the restored gallery is still past; the prompt stays open while a new one is saved.
 	let expiredSince = $state<string | null>(null);
 	let heroRevision = $state<number | undefined>();
+	let focalReady = $state(!focalRefreshNeeded.has(galleryId));
 	let expectedAccessCode = $state<string | null | 'invalid' | undefined>();
 	let accessCodeRevision = 0;
 	let directShareAttempt: ShareAttempt | undefined;
@@ -88,6 +93,7 @@
 	});
 	beforeNavigate(flush);
 	onMount(() => {
+		if (!focalReady) void reconcileFocalPoint();
 		const stop = listenForActivity(() => activity());
 		window.addEventListener('pagehide', flush);
 		return () => {
@@ -97,6 +103,7 @@
 	});
 	onDestroy(() => {
 		disposed = true;
+		if (focalWrites.has(galleryId)) focalRefreshNeeded.add(galleryId);
 		cancelAll();
 	});
 
@@ -108,8 +115,26 @@
 	let saveCount = 0;
 	let lastFocalWrite = focalWrites.get(galleryId);
 
-	async function saveFocalPoint(point: FocalPoint): Promise<FocalPoint | undefined> {
+	async function reconcileFocalPoint() {
+		await lastFocalWrite?.catch(() => undefined);
 		if (!isCurrent()) return;
+
+		const fresh = await readGallery(galleryId).catch(() => undefined);
+		if (!isCurrent()) return;
+		if (fresh?.id !== galleryId) {
+			toasts.error(m.design_preview_load_failed());
+			return;
+		}
+
+		// Only the confirmed focal base comes from this read; other edits belong to this editor.
+		saved = { ...saved, focal_point: fresh.focal_point };
+		lastFocalWrite = undefined;
+		focalRefreshNeeded.delete(galleryId);
+		focalReady = true;
+	}
+
+	async function saveFocalPoint(point: FocalPoint): Promise<FocalPoint | undefined> {
+		if (!isCurrent() || !focalReady) return;
 
 		const focalPoint = { x: point.x, y: point.y };
 		const changes = { focal_point: focalPoint };
@@ -417,6 +442,7 @@
 	uploading={queue?.inFlight(galleryId) ?? 0}
 	bind:heroId={saved.hero_id}
 	bind:heroRevision
+	{focalReady}
 	bind:expectedAccessCode={() => expectedAccessCode, setAccessCodeIntent}
 	onsave={save}
 	onsavefocal={saveFocalPoint}

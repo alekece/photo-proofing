@@ -860,17 +860,23 @@ describe('gallery page', () => {
 		it.each(['stay', 'leave', 'return'])(
 			'keeps released focal writes in order (%s)',
 			async (navigation) => {
+				const gallery = { ...base, id: `focal-${navigation}`, hero_id: 'p1' };
+				const path = `/api/v1/galleries/${gallery.id}`;
 				const first = Promise.withResolvers<Response>();
 				const writes: { url: string; focal_point: Gallery['focal_point'] }[] = [];
 				vi.stubGlobal(
 					'fetch',
 					vi.fn(async (url: string, init?: RequestInit) => {
-						if (init?.method !== 'PATCH') return Response.json([]);
+						if (init?.method !== 'PATCH') {
+							return Response.json(
+								url === path ? { ...gallery, focal_point: { x: 70, y: 35 } } : []
+							);
+						}
 						const { focal_point } = JSON.parse(init.body as string);
 						writes.push({ url, focal_point });
 						if (writes.length === 1) return first.promise;
 						if (navigation === 'return' && writes.length === 2) {
-							return Response.json({ ...base, focal_point });
+							return Response.json({ ...gallery, focal_point });
 						}
 						return Response.json(
 							{ code: 'unavailable' },
@@ -879,7 +885,7 @@ describe('gallery page', () => {
 					})
 				);
 				const user = userEvent.setup();
-				const view = open({ hero_id: 'p1' });
+				const view = open(gallery);
 				await user.click(screen.getByRole('tab', { name: 'Design' }));
 				const focalPad = () => {
 					const pad = screen.getByRole('button', { name: 'Cover focal point' });
@@ -895,7 +901,7 @@ describe('gallery page', () => {
 				await release(pad, 70);
 				const cover = () => screen.getByRole('img', { name: 'Gallery cover' });
 				expect(cover().style.objectPosition).toBe('70% 35%');
-				expect(writes).toEqual([{ url: '/api/v1/galleries/g1', focal_point: { x: 60, y: 35 } }]);
+				expect(writes).toEqual([{ url: path, focal_point: { x: 60, y: 35 } }]);
 
 				if (navigation !== 'stay') {
 					await fireEvent.pointerDown(pad, { clientX: 80, clientY: 45, pointerId: 1 });
@@ -907,33 +913,110 @@ describe('gallery page', () => {
 					});
 					await user.click(screen.getByRole('tab', { name: 'Design' }));
 				}
+				let returningPad: HTMLButtonElement | undefined;
+				let blockedWhileDraining = false;
 				if (navigation === 'return') {
 					await view.rerender({
 						data: {
-							gallery: { ...base, hero_id: 'p1' },
+							gallery,
 							idleTimeoutMs: 2592000000
 						} as never
 					});
 					await user.click(screen.getByRole('tab', { name: 'Design' }));
-					await release(focalPad(), 80);
+					returningPad = screen.getByRole('button', { name: 'Cover focal point' });
+					blockedWhileDraining = returningPad.disabled;
+					await fireEvent.keyDown(returningPad, { key: 'ArrowRight' });
 					expect(writes).toHaveLength(1);
 				}
-				first.resolve(Response.json({ ...base, focal_point: { x: 60, y: 35 } }));
+				first.resolve(Response.json({ ...gallery, focal_point: { x: 60, y: 35 } }));
+				if (returningPad) {
+					await waitFor(() => {
+						expect(returningPad.disabled).toBe(false);
+						expect(cover().style.objectPosition).toBe('70% 35%');
+					});
+					await fireEvent.keyDown(returningPad, { key: 'ArrowRight' });
+				}
 				await waitFor(() =>
 					expect(writes).toEqual([
-						{ url: '/api/v1/galleries/g1', focal_point: { x: 60, y: 35 } },
-						{ url: '/api/v1/galleries/g1', focal_point: { x: 70, y: 35 } },
-						...(navigation === 'return'
-							? [{ url: '/api/v1/galleries/g1', focal_point: { x: 80, y: 35 } }]
-							: [])
+						{ url: path, focal_point: { x: 60, y: 35 } },
+						{ url: path, focal_point: { x: 70, y: 35 } },
+						...(navigation === 'return' ? [{ url: path, focal_point: { x: 71, y: 35 } }] : [])
 					])
 				);
 				const expectedX = navigation === 'stay' ? 60 : navigation === 'leave' ? 50 : 70;
 				await waitFor(() => expect(cover().style.objectPosition).toBe(`${expectedX}% 35%`));
+				if (returningPad) expect(blockedWhileDraining).toBe(true);
 				expect(goto).not.toHaveBeenCalled();
 				if (navigation === 'leave') expect(toasts.items).toEqual([]);
 			}
 		);
+
+		it('uses the confirmed focal point for rollback when the old write completes before mount', async () => {
+			const first = Promise.withResolvers<Response>();
+			const acknowledged = Promise.withResolvers<void>();
+			const writes: Gallery['focal_point'][] = [];
+			vi.stubGlobal(
+				'fetch',
+				vi.fn(async (url: string, init?: RequestInit) => {
+					if (url !== '/api/v1/galleries/g1') return Response.json([]);
+					if (init?.method === 'PATCH') {
+						writes.push(JSON.parse(init.body as string).focal_point);
+						return writes.length === 1
+							? first.promise
+							: Response.json({ code: 'unavailable' }, { status: 503 });
+					}
+					return Response.json({
+						...base,
+						title: 'Separate server title',
+						hero_id: 'p1',
+						focal_point: { x: 73, y: 35 }
+					});
+				})
+			);
+			const user = userEvent.setup();
+			const view = open({ hero_id: 'p1' });
+			await user.click(screen.getByRole('tab', { name: 'Design' }));
+			await fireEvent.keyDown(screen.getByRole('button', { name: 'Cover focal point' }), {
+				key: 'ArrowRight',
+				shiftKey: true
+			});
+			expect(writes).toEqual([{ x: 60, y: 35 }]);
+			await view.rerender({
+				data: {
+					gallery: { ...base, id: 'g2', title: 'Second gallery', hero_id: 'p2' },
+					idleTimeoutMs: 2592000000
+				} as never
+			});
+
+			// The returning route has already read its gallery snapshot; the old PATCH settles before mount.
+			const returningData = { gallery: { ...base, hero_id: 'p1' }, idleTimeoutMs: 2592000000 };
+			const ack = Response.json({});
+			vi.spyOn(ack, 'json').mockImplementation(async () => {
+				acknowledged.resolve();
+				return { ...base, focal_point: { x: 60, y: 35 } };
+			});
+			first.resolve(ack);
+			await acknowledged.promise;
+			await user.click(screen.getByRole('tab', { name: 'Design' }));
+			await view.rerender({ data: returningData as never });
+			await user.click(screen.getByRole('tab', { name: 'Design' }));
+			const pad = screen.getByRole('button', { name: 'Cover focal point' }) as HTMLButtonElement;
+			await waitFor(() => expect(pad.disabled).toBe(false));
+			await fireEvent.keyDown(pad, { key: 'ArrowRight' });
+			await waitFor(() =>
+				expect(writes).toEqual([
+					{ x: 60, y: 35 },
+					{ x: 74, y: 35 }
+				])
+			);
+			await waitFor(() =>
+				expect(screen.getByRole('img', { name: 'Gallery cover' }).style.objectPosition).toBe(
+					'73% 35%'
+				)
+			);
+			expect((screen.getByLabelText('Gallery title') as HTMLInputElement).value).toBe(base.title);
+		});
+
 		it('does not apply an obsolete Publish completion or redirect a different gallery', async () => {
 			let finishDelivery!: (response: Response) => void;
 			const fetcher = vi.fn(async (url: string, init?: RequestInit) => {

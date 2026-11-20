@@ -56,6 +56,7 @@
 		heroId = $bindable(),
 		heroRevision,
 		focalPoint = $bindable(),
+		focalReady = true,
 		active = true,
 		onsave,
 		onsavefocal = async (point: FocalPoint) =>
@@ -67,6 +68,7 @@
 		heroId?: string | null;
 		heroRevision?: number;
 		focalPoint?: FocalPoint;
+		focalReady?: boolean;
 		active?: boolean;
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
 		onsavefocal?: (point: FocalPoint) => Promise<FocalPoint | undefined>;
@@ -362,7 +364,7 @@
 	}
 
 	function onFocalPointerDown(event: PointerEvent & { currentTarget: HTMLButtonElement }) {
-		if (!localHeroId || drag || event.button !== 0) return;
+		if (!focalReady || !localHeroId || drag || event.button !== 0) return;
 
 		drag = { pointerId: event.pointerId, coverId: localHeroId, initial: localFocal };
 		event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -410,7 +412,7 @@
 	});
 
 	function onFocalKeydown(event: KeyboardEvent) {
-		if (!hasCover || drag) return;
+		if (!focalReady || !hasCover || drag) return;
 
 		const step = event.shiftKey ? 10 : 1;
 		const deltas: Record<string, [number, number]> = {
@@ -503,7 +505,7 @@
 				<button
 					data-slot="design-cover-image"
 					type="button"
-					disabled={!hasCover}
+					disabled={!hasCover || !focalReady}
 					aria-label={m.design_focal_point_pad()}
 					aria-describedby={focalHelpId}
 					onpointerdown={onFocalPointerDown}

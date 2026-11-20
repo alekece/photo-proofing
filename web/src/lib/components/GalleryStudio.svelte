@@ -66,6 +66,7 @@
 		uploading = 0,
 		heroId = $bindable(),
 		heroRevision = $bindable(),
+		focalReady = true,
 		expectedAccessCode = $bindable(),
 		heading,
 		onsave,
@@ -89,6 +90,7 @@
 		uploading?: number;
 		heroId?: string | null;
 		heroRevision?: number;
+		focalReady?: boolean;
 		expectedAccessCode?: string | null | 'invalid';
 		heading: Snippet;
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
@@ -512,6 +514,7 @@
 				bind:heroId={() => coverId, (next) => (heroId = next)}
 				{heroRevision}
 				bind:focalPoint={liveFocalPoint}
+				{focalReady}
 				active={section === 'design'}
 				{onsave}
 				{onsavefocal}

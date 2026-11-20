@@ -68,7 +68,8 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
   gallery. Switching galleries starts a new editor and dismisses any open confirmations.
 - Focal-point edits update the preview immediately; saves complete in order. If the latest save
   fails, the preview returns to the last saved point. Leaving the gallery still sends released
-  saves to their original gallery but discards a drag that has not been released.
+  saves to their original gallery but discards a drag that has not been released. If saves were
+  still pending when you left, the focal control waits for the confirmed point when you return.
 - In-place inputs save on change without success rings or repeated `"Saved"` toasts. An invalid
   value shows a red toast and reverts. A past `"Open until"` marks the gallery Expired; a future or
   cleared one lifts it.
