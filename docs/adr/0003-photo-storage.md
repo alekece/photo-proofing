@@ -8,9 +8,15 @@ Accepted photos are the photographer's only copy of their originals. The API (up
 
 ## Decision
 
-Photos live under `PP_PHOTO_DIR` (`/var/lib/pp/photos` in Compose, a named volume `photo-data` mounted in `api` and `worker`) as `<workspace-id>/<gallery-id>/<photo-id>-<variant>`, where every component is a UUID and the variant is `original`, `thumbnail` or `preview`. There is no extension: the format is validated at upload and a derivative's format may change. A finished photo is stored as the `original` of its own photo id.
+Photos live under `PP_PHOTO_DIR` (`/var/lib/pp/photos` in Compose, a named volume `photo-data` mounted in `api` and `worker`). Originals and unversioned derivatives use `<workspace-id>/<gallery-id>/<photo-id>-<variant>`, with UUID identifiers and fixed variant names. There is no extension: the format is validated at upload and a derivative's format may change. A finished photo is stored as the `original` of its own photo id.
 
-The `pp-storage` crate owns all paths and file operations. A `PhotoKey` of UUID newtypes and a `Variant` enum is the only way to address a file, so no user-supplied string reaches a path. Writes are staged in `<photo-dir>/.tmp`, synced, then published with an atomic `rename` (derivatives, replacing a regenerated file) or `hard_link` (originals, which are written once and never silently replaced). Dropping an uncommitted write removes the temp file. Disk-full is a distinct error. Startup fails if the directory is missing or not writable. Dockerfiles create the directory owned by `pp` so a fresh volume is writable.
+The `pp-storage` crate owns all paths and file operations. A `PhotoKey` uses UUID newtypes, a `Variant` enum, and an optional numeric file revision, so no user-supplied string reaches a path. Writes are staged in `<photo-dir>/.tmp`, synced, then installed with an atomic `rename` (derivatives) or `hard_link` (originals, which are written once and never silently replaced). Dropping an uncommitted write removes the temp file. Disk-full is a distinct error. Startup fails if the directory is missing or not writable. Dockerfiles create the directory owned by `pp` so a fresh volume is writable.
+
+Refreshed marked proof derivatives use `<photo-id>-watermarks/<revision>-<variant>` in the same
+gallery directory. The worker syncs both files before committing the photo's file revision
+in PostgreSQL; the API selects only that pair. A partial write stays unpublished and can be
+reused on retry. Successful publication removes superseded pairs, and photo deletion removes
+the whole marked directory. Rows without a file revision still use the flat marked filenames.
 
 ## Alternatives and consequences
 

@@ -255,6 +255,13 @@ pub struct PhotoLocation {
 #[serde(transparent)]
 pub struct Watermarked(pub bool);
 
+/// A ready derivative's storage address; only refreshed marked proof pairs have a file revision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadyDerivative {
+    /// `None` addresses the original unversioned derivative filenames.
+    pub marked_file_revision: Option<i64>,
+}
+
 impl Watermarked {
     /// SQL condition over a `photos` row aliased `p`. Finals have a single set of files, so
     /// they are ready whenever their status is.
@@ -315,7 +322,7 @@ impl PhotoRepository<'_> {
         let height = i32::try_from(photo.dimensions.height.get())
             .map_err(|error| sqlx::Error::Encode(error.into()))?;
 
-        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR KEY SHARE")
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR SHARE")
             .bind(photo.workspace_id)
             .fetch_optional(&mut **transaction)
             .await?;
@@ -505,18 +512,38 @@ impl PhotoRepository<'_> {
         kind: PhotoKind,
         variant: Watermarked,
     ) -> Result<bool, DatabaseError> {
-        Ok(sqlx::query_scalar(AssertSqlSafe(format!(
-            "SELECT EXISTS(SELECT 1 FROM photos AS p
+        Ok(self
+            .ready_derivative(location, id, kind, variant)
+            .await?
+            .is_some())
+    }
+
+    /// Resolves readiness and the committed file revision from the same row snapshot.
+    pub async fn ready_derivative(
+        &self,
+        location: PhotoLocation,
+        id: PhotoId,
+        kind: PhotoKind,
+        variant: Watermarked,
+    ) -> Result<Option<ReadyDerivative>, DatabaseError> {
+        let revision: Option<Option<i64>> = sqlx::query_scalar(AssertSqlSafe(format!(
+            "SELECT CASE WHEN $5 AND p.kind = 'proof' THEN p.marked_file_revision END
+             FROM photos AS p
              WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3
-               AND kind = $4 AND {})",
+               AND kind = $4 AND {}",
             variant.ready_condition()
         )))
         .bind(location.workspace_id)
         .bind(location.gallery_id)
         .bind(id)
         .bind(kind)
-        .fetch_one(self.pool)
-        .await?)
+        .bind(variant.0)
+        .fetch_optional(self.pool)
+        .await?;
+
+        Ok(revision.map(|marked_file_revision| ReadyDerivative {
+            marked_file_revision,
+        }))
     }
 
     /// Records the first download of a ready final of the gallery at `location`. Later requests

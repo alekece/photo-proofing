@@ -76,12 +76,11 @@ async fn download_original(
         )
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
-    let key = PhotoKey {
-        workspace: identity.workspace_id,
-        gallery: gallery_id,
-        photo: photo_id,
-        variant: Variant::Original,
+    let location = PhotoLocation {
+        workspace_id: identity.workspace_id,
+        gallery_id,
     };
+    let key = PhotoKey::with_location(location, photo_id, Variant::Original);
     let file = state.storage().read(&key).await?;
     let length = file.metadata().await.map_err(StorageError::from)?.len();
     let name = photo.download_name();
@@ -317,20 +316,15 @@ async fn serve_derivative_photo(
         gallery_id,
     };
 
-    if !state
+    let ready = state
         .database()
         .repository::<PhotoRepository>()
-        .is_ready(location, photo_id, set.into(), watermarked)
+        .ready_derivative(location, photo_id, set.into(), watermarked)
         .await?
-    {
-        return Err(ErrorResponse::not_found());
-    }
-
-    let image = ImageFile::read(
-        state.storage(),
-        &PhotoKey::with_location(location, photo_id, derivative.variant(watermarked)),
-    )
-    .await?;
+        .ok_or_else(ErrorResponse::not_found)?;
+    let key = PhotoKey::with_location(location, photo_id, derivative.variant(watermarked))
+        .with_marked_file_revision(ready.marked_file_revision);
+    let image = ImageFile::read(state.storage(), &key).await?;
 
     Ok(if set.finals { image } else { image.proof() })
 }

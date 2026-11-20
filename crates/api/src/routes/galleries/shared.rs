@@ -320,21 +320,17 @@ async fn serve_shared_photo(
     let location = access.0.location;
     let watermarked = access.watermarked();
 
-    if !state
+    let ready = state
         .database()
         .repository::<PhotoRepository>()
-        .is_ready(location, photo_id, access.photo_set().kind(), watermarked)
+        .ready_derivative(location, photo_id, access.photo_set().kind(), watermarked)
         .await?
-    {
-        return Err(ErrorResponse::not_found());
-    }
-
-    ImageFile::read(
-        state.storage(),
-        &PhotoKey::with_location(location, photo_id, derivative.variant(watermarked)),
-    )
-    .await
-    .map(ImageFile::proof)
+        .ok_or_else(ErrorResponse::not_found)?;
+    let key = PhotoKey::with_location(location, photo_id, derivative.variant(watermarked))
+        .with_marked_file_revision(ready.marked_file_revision);
+    ImageFile::read(state.storage(), &key)
+        .await
+        .map(ImageFile::proof)
 }
 
 /// The delivered finals, as the client keeps them: the stored bytes, saved under their own name.
@@ -1194,6 +1190,114 @@ mod tests {
         .await;
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn only_the_committed_marked_pair_is_served_and_delivery_keeps_client_finals(
+        pool: PgPool,
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let app = app(pool.clone(), directory.path(), upload_config(1024, 100)).await;
+        let cookie = sign_up(&app).await;
+        let gallery = create_gallery(&app, &cookie).await;
+        let photo = photo_in(&app, &pool, &cookie, &gallery, Progress::Ready).await;
+        let token = share(&app, &cookie, &gallery).await;
+        let id = photo_id(&photo);
+        let database = Database::new(pool.clone());
+        let photos = database.repository::<PhotoRepository>();
+        let location = photos.locate(id).await.unwrap().unwrap();
+        let storage = PhotoStorage::open(&PhotoDir::try_from(directory.path().to_owned()).unwrap())
+            .await
+            .unwrap();
+        let files = [
+            (
+                Variant::WatermarkedThumbnail,
+                b"committed thumbnail".as_slice(),
+            ),
+            (Variant::WatermarkedPreview, b"committed preview".as_slice()),
+        ];
+        for (variant, bytes) in files {
+            let key = PhotoKey::with_location(location, id, variant);
+            let mut committed = storage.stage().await.unwrap();
+            committed.write(bytes).await.unwrap();
+            committed
+                .commit(&key.with_marked_file_revision(Some(1)))
+                .await
+                .unwrap();
+        }
+        let mut candidate = storage.stage().await.unwrap();
+        candidate
+            .write(b"only the first derivative reached disk")
+            .await
+            .unwrap();
+        candidate
+            .commit(
+                &PhotoKey::with_location(location, id, Variant::WatermarkedThumbnail)
+                    .with_marked_file_revision(Some(2)),
+            )
+            .await
+            .unwrap();
+
+        sqlx::query("UPDATE galleries SET watermark_enabled = true WHERE id = $1")
+            .bind(location.gallery_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE photos SET marked_file_revision = 1 WHERE id = $1")
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        for (name, (_, bytes)) in ["thumbnail", "preview"].into_iter().zip(files) {
+            let client = client_request(&token, &format!("/photos/{photo}/{name}?watermark=false"));
+            let response = test::call_service(&app, client).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(test::read_body(response).await.as_ref(), bytes);
+        }
+
+        sqlx::query(
+            "UPDATE photos SET status = 'processing', watermark_only_pending = true,
+                 requested_watermark_revision = 1 WHERE id = $1",
+        )
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let client_path = format!("/photos/{photo}/thumbnail");
+        assert_eq!(
+            test::call_service(&app, client_request(&token, &client_path))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+
+        assert!(matches!(
+            database
+                .repository::<GalleryRepository>()
+                .deliver(location.workspace_id, location.gallery_id)
+                .await
+                .unwrap(),
+            pp_database::gallery::Delivery::Delivered(_)
+        ));
+        for (name, (_, bytes)) in ["thumbnail", "preview"].into_iter().zip(files) {
+            let client_path = format!("/photos/{photo}/{name}");
+            assert_eq!(
+                test::call_service(&app, client_request(&token, &client_path))
+                    .await
+                    .status(),
+                StatusCode::NOT_FOUND
+            );
+            let photographer = test::TestRequest::get()
+                .uri(&format!(
+                    "/api/v1/galleries/{gallery}{client_path}?watermark=true"
+                ))
+                .cookie(cookie.clone())
+                .to_request();
+            let response = test::call_service(&app, photographer).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(test::read_body(response).await.as_ref(), bytes);
+        }
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

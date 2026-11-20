@@ -170,8 +170,10 @@ rolling old/new workers together is unsupported.
 
 Before upgrading an active installation to scoped watermark regeneration (`0040`), pause
 proof uploads, retries, and settings changes until old proof jobs finish. Stop the old API
-and worker before applying the migrations. Existing jobs do not record why they were requested,
-so the upgrade preserves any still queued. Fresh installations need no drain.
+and worker before applying the migrations; do not mix old and new API or worker processes.
+Existing jobs do not record why they were requested, so the upgrade preserves any still
+queued. Existing marked files remain readable under their legacy names until a refresh commits
+a versioned pair. Fresh installations need no drain.
 
 Deployment tooling remains in this repository, but real hostnames, addresses,
 volume mappings, account details, secret-manager identifiers and certificates

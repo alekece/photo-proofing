@@ -709,8 +709,8 @@ impl GalleryRepository<'_> {
     ) -> Result<Delivery, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
 
-        // Settings saves and upload/retry take the workspace lock before creating work.
-        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR UPDATE")
+        // Exclude settings saves and upload/retry admission, not activity's FK check.
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR NO KEY UPDATE")
             .bind(workspace_id)
             .fetch_optional(&mut *transaction)
             .await?;

@@ -217,14 +217,12 @@ impl ProcessPhotoFinalizer {
         Self { database, storage }
     }
 
-    /// Publishes the staged files if their watermark is still current, marking the photo ready
-    /// and finishing `job` together. Only the renames happen while the job and photo are
-    /// locked. If the photo was deleted meanwhile, whatever was written is removed so late or
-    /// partial work leaves nothing behind; a photo that still exists keeps it, even if another
-    /// run finished it.
+    /// Publishes a current render, marking the photo ready and finishing `job` together.
+    /// A proof refresh writes marked files at a separate revision: an interrupted write leaves
+    /// the committed pair intact and a retry can reuse the same unpublished revision.
     async fn publish(&self, job: &Job, staged: StagedProof) -> Result<JobCompletion, HandlerError> {
         let StagedProof { id, stamp, files } = staged;
-        let (keys, files): (Vec<_>, Vec<_>) = files.into_iter().unzip();
+        let (mut keys, files): (Vec<_>, Vec<_>) = files.into_iter().unzip();
         let jobs = self.database.repository::<JobRepository>();
         let published = async {
             match jobs
@@ -233,11 +231,23 @@ impl ProcessPhotoFinalizer {
                 .map_err(HandlerError::failed)?
             {
                 Publication::Open(open) => {
+                    let revision = open.marked_file_revision();
+                    for key in &mut keys {
+                        *key = key.with_marked_file_revision(revision);
+                    }
                     for (file, key) in files.into_iter().zip(&keys) {
                         file.commit(key).await.map_err(HandlerError::failed)?;
                     }
 
-                    open.finish().await.map_err(HandlerError::failed)
+                    let result = open.finish().await.map_err(HandlerError::failed)?;
+                    if let Some(revision) = revision
+                        && result.1 == PhotoUpdate::Saved
+                        && let Some(key) = keys.first()
+                        && let Err(error) = self.storage.prune_marked(key, revision).await
+                    {
+                        warn!(photo = %id, %error, "superseded marked proof files could not be removed");
+                    }
+                    Ok(result)
                 }
                 Publication::Closed(completion, update) => Ok((completion, update)),
             }
@@ -304,7 +314,7 @@ mod tests {
         auth::WorkspaceId,
         gallery::{Delivery, GalleryId, GalleryRepository},
         jobs::{Backoff, JobKind, JobPayload},
-        photo::{NewPhoto, PhotoDimensions, PhotoKind, PhotoStatus},
+        photo::{NewPhoto, PhotoDimensions, PhotoKind, PhotoStatus, Watermarked},
         photo_intake::PhotoIntake,
         settings::{LogoChange, ProofQuality, SettingsUpdate, WatermarkColor, WorkspaceSettings},
         tests::TestRepository,
@@ -415,6 +425,23 @@ mod tests {
                 Variant::WatermarkedPreview,
             ]
             .map(|variant| self.file(variant).unwrap())
+        }
+
+        async fn readable_marked(&self, variant: Variant) -> Vec<u8> {
+            let ready = self
+                .handler
+                .database
+                .repository::<PhotoRepository>()
+                .ready_derivative(self.location, self.id, PhotoKind::Proof, Watermarked(true))
+                .await
+                .unwrap()
+                .expect("marked derivative is readable");
+            let key = PhotoKey::with_location(self.location, self.id, variant)
+                .with_marked_file_revision(ready.marked_file_revision);
+            let mut file = self.handler.storage.read(&key).await.unwrap();
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes).await.unwrap();
+            bytes
         }
 
         /// Accepts a photo with `original` stored as its upload.
@@ -697,6 +724,56 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
+    async fn a_partially_written_marked_refresh_leaves_the_delivered_pair_unchanged(pool: PgPool) {
+        let fixture = Fixture::new(&pool, jpeg()).await;
+        fixture.save(ProofQuality::Medium, None).await;
+        fixture.run().await.unwrap();
+        let old = fixture.published_files();
+        let revision = fixture.revision().await;
+        let stamp = fixture.stamp().await;
+        fixture.share().await;
+        fixture
+            .save(ProofQuality::Medium, Some("#A12B3C".parse().unwrap()))
+            .await;
+        let (job, PhotoOutput::Rendered(staged)) = fixture.render_claim().await else {
+            panic!("a marked refresh must render");
+        };
+        assert_eq!(staged.files.len(), 2);
+
+        // Unlink only the second staged file: it remains open but its final rename will fail.
+        fs::remove_file(staged.files[1].1.temporary_path()).unwrap();
+
+        assert!(matches!(
+            fixture
+                .finalizer()
+                .finalize(&job, PhotoOutput::Rendered(staged))
+                .await,
+            Err(HandlerError::Failed(_))
+        ));
+        let candidate_thumb = fixture.gallery_dir().join(format!(
+            "{}-watermarks/{}-watermarked-thumbnail",
+            fixture.id,
+            revision + 1
+        ));
+        let first_written = fs::read(candidate_thumb).expect("the first derivative was installed");
+        assert!(
+            first_written != old[3],
+            "the candidate must be visibly different"
+        );
+        fixture.deliver().await;
+        assert!(!fixture.has_jobs().await);
+        assert_eq!(fixture.status().await, Some(PhotoStatus::Ready));
+        assert_eq!(fixture.stamp().await, stamp);
+        assert_eq!(fixture.revision().await, revision);
+        assert!(
+            fixture.published_files() == old,
+            "delivery changed the published bytes"
+        );
+        assert!(fixture.readable_marked(Variant::WatermarkedThumbnail).await == old[3]);
+        assert!(fixture.readable_marked(Variant::WatermarkedPreview).await == old[4]);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
     async fn canceled_staged_work_cannot_touch_a_later_quality_run(pool: PgPool) {
         let fixture = Fixture::new(&pool, jpeg()).await;
         fixture.run().await.unwrap();
@@ -722,7 +799,7 @@ mod tests {
             .unwrap();
         assert!(completion.is_current());
         assert_eq!(fixture.status().await, Some(PhotoStatus::Ready));
-        assert_ne!(fixture.published_files()[1], old[1]);
+        assert_ne!(fixture.file(Variant::Thumbnail).unwrap(), old[1]);
         assert!(!fixture.has_jobs().await);
     }
 
@@ -763,11 +840,15 @@ mod tests {
 
         assert_eq!(fixture.file(Variant::Preview).unwrap(), clean);
         assert_eq!(fixture.file(Variant::Thumbnail).unwrap(), thumbnail);
-        assert_ne!(fixture.file(Variant::WatermarkedPreview).unwrap(), clean);
         assert_ne!(
-            fixture.file(Variant::WatermarkedThumbnail).unwrap(),
+            fixture.readable_marked(Variant::WatermarkedPreview).await,
+            clean
+        );
+        assert_ne!(
+            fixture.readable_marked(Variant::WatermarkedThumbnail).await,
             thumbnail
         );
+        assert!(fixture.file(Variant::WatermarkedPreview).is_none());
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

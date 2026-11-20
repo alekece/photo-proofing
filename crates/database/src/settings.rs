@@ -428,9 +428,8 @@ impl SettingsRepository<'_> {
 
         let mut transaction = self.pool.begin().await?;
 
-        // Photo insertion takes a foreign-key lock on this row. Prevent new uploads from
-        // escaping the regeneration snapshot and starting against uncommitted settings.
-        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR UPDATE")
+        // Upload and retry admission take SHARE to stay inside the regeneration snapshot.
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR NO KEY UPDATE")
             .bind(workspace_id)
             .fetch_optional(&mut *transaction)
             .await?;
@@ -1277,6 +1276,44 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "./migrations")]
+    async fn first_favorite_can_record_activity_while_delivery_waits_for_the_gallery(pool: PgPool) {
+        let fixture = Fixture::new(pool).await;
+        let gallery = fixture.gallery(true).await;
+        fixture.share(gallery).await;
+        let mut favorite = fixture.pool.begin().await.unwrap();
+
+        // A first favorite holds this gallery lock before inserting its activity row.
+        sqlx::query("SELECT id FROM galleries WHERE id = $1 FOR SHARE")
+            .bind(gallery)
+            .fetch_one(&mut *favorite)
+            .await
+            .unwrap();
+        let delivery = fixture.deliver(gallery);
+        tokio::pin!(delivery);
+        tokio::select! {
+            _ = &mut delivery => panic!("delivery did not wait for the favorite's gallery lock"),
+            () = wait_for_lock_waiters(&fixture.pool, 1) => {}
+        }
+
+        sqlx::query("SET LOCAL lock_timeout = '500ms'")
+            .execute(&mut *favorite)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO activity_events (workspace_id, gallery_id, kind, count)
+             VALUES ($1, $2, 'favorite', 1)",
+        )
+        .bind(fixture.workspace_id)
+        .bind(gallery)
+        .execute(&mut *favorite)
+        .await
+        .expect("delivery must not prevent the favorite's workspace FK check");
+        favorite.commit().await.unwrap();
+
+        assert!(matches!(delivery.await, Delivery::Delivered(_)));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
     async fn a_new_proof_quality_regenerates_every_gallery_and_finals_keep_the_default(
         pool: PgPool,
     ) {
@@ -1516,11 +1553,14 @@ mod tests {
         }
         let photos = fixture.database.repository::<PhotoRepository>();
         let location = photos.locate(ready).await.unwrap().unwrap();
-        assert!(
+        assert_eq!(
             photos
-                .is_ready(location, ready, PhotoKind::Proof, Watermarked(true))
+                .ready_derivative(location, ready, PhotoKind::Proof, Watermarked(true))
                 .await
                 .unwrap()
+                .expect("ready legacy marked files must remain readable")
+                .marked_file_revision,
+            None
         );
         assert_eq!(
             fixture.proof(final_id).await.unwrap().stamp.revision(),

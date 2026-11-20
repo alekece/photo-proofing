@@ -325,13 +325,28 @@ pub struct OpenPublication<'db> {
     transaction: Transaction<'db, Postgres>,
     job: Job,
     photo_id: PhotoId,
+    marked_file_revision: Option<i64>,
 }
 
 impl OpenPublication<'_> {
+    /// The candidate marked file revision for a proof refresh. Both files must be written
+    /// before finishing. Initial proofs and finals have no separate file revision.
+    pub const fn marked_file_revision(&self) -> Option<i64> {
+        self.marked_file_revision
+    }
+
     /// Marks the photo ready and finishes the job.
     pub async fn finish(mut self) -> Result<(JobCompletion, PhotoUpdate), DatabaseError> {
         let completion = JobRepository::complete_in(&mut *self.transaction, &self.job).await?;
         let saved = PhotoRepository::mark_ready_in(&mut self.transaction, self.photo_id).await?;
+
+        if let Some(revision) = self.marked_file_revision.filter(|_| saved) {
+            sqlx::query("UPDATE photos SET marked_file_revision = $2 WHERE id = $1")
+                .bind(self.photo_id)
+                .bind(revision)
+                .execute(&mut *self.transaction)
+                .await?;
+        }
 
         self.transaction.commit().await?;
 
@@ -640,6 +655,8 @@ impl JobRepository<'_> {
 
         let current = sqlx::query(AssertSqlSafe(format!(
             "SELECT p.status = ANY(ARRAY['waiting', 'processing']::photo_status[]) AS unfinished,
+                    CASE WHEN p.kind = 'proof' AND p.clean_ready THEN p.revision + 1 END
+                        AS candidate_revision,
                     {} AS stamp
              FROM photos p
              WHERE p.id = $1",
@@ -648,19 +665,15 @@ impl JobRepository<'_> {
         .bind(photo_id)
         .fetch_optional(&mut *transaction)
         .await?;
-        let publishable = match &current {
-            Some(row) => {
-                row.try_get::<bool, _>("unfinished")?
-                    && WatermarkStamp::new(row.try_get("stamp")?) == stamp
-            }
-            None => false,
-        };
-
-        if publishable {
+        if let Some(row) = &current
+            && row.try_get::<bool, _>("unfinished")?
+            && WatermarkStamp::new(row.try_get("stamp")?) == stamp
+        {
             return Ok(Publication::Open(OpenPublication {
                 transaction,
                 job: job.clone(),
                 photo_id,
+                marked_file_revision: row.try_get("candidate_revision")?,
             }));
         }
 

@@ -1,13 +1,13 @@
 //! Private photo files on the local filesystem, shared by the API and the worker.
 //!
-//! Layout (see ADR 0003): `<photo-dir>/<workspace>/<gallery>/<photo>-<variant>`. Every path is
-//! derived from a [`PhotoKey`] made of UUIDs and a [`Variant`], never from a user-supplied
-//! string, so a path cannot escape the directory or cross workspaces by construction.
+//! Files normally use `<photo-dir>/<workspace>/<gallery>/<photo>-<variant>` (ADR 0003).
+//! Refreshed marked proofs use `<photo>-watermarks/<revision>-<variant>` in the same gallery.
+//! A [`PhotoKey`] uses UUIDs, a [`Variant`], and a numeric revision, not user-supplied paths.
 //!
 //! Writes go through [`PhotoStorage::stage`]: bytes land in a temp file under `<photo-dir>/.tmp`
-//! (the same filesystem, so the final `rename` is atomic) and only [`StagedPhoto::commit`] makes
-//! them visible. Failed original publication removes its new target unless cleanup also fails.
-//! Cancellation after publication can leave an orphan; it cannot roll back asynchronously.
+//! (the same filesystem, so the final `rename` is atomic). [`StagedPhoto::commit`] puts files
+//! in place; a refreshed marked pair becomes readable only when its database pointer commits.
+//! Failed original publication removes its new target unless cleanup also fails.
 
 use std::{
     ffi::OsStr,
@@ -92,6 +92,7 @@ pub struct PhotoKey {
     pub gallery: GalleryId,
     pub photo: PhotoId,
     pub variant: Variant,
+    marked_file_revision: Option<i64>,
 }
 
 impl PhotoKey {
@@ -101,17 +102,46 @@ impl PhotoKey {
             gallery: location.gallery_id,
             photo,
             variant,
+            marked_file_revision: None,
         }
     }
 
-    fn dir(&self, root: &Path) -> PathBuf {
+    /// Selects a committed or candidate revision of a marked proof derivative only.
+    #[must_use]
+    pub fn with_marked_file_revision(mut self, revision: Option<i64>) -> Self {
+        if matches!(
+            self.variant,
+            Variant::WatermarkedThumbnail | Variant::WatermarkedPreview
+        ) {
+            self.marked_file_revision = revision;
+        }
+        self
+    }
+
+    fn gallery_dir(&self, root: &Path) -> PathBuf {
         root.join(self.workspace.0.to_string())
             .join(self.gallery.0.to_string())
     }
 
+    fn marked_dir(&self, root: &Path) -> PathBuf {
+        self.gallery_dir(root)
+            .join(format!("{}-watermarks", self.photo))
+    }
+
+    fn dir(&self, root: &Path) -> PathBuf {
+        if self.marked_file_revision.is_some() {
+            self.marked_dir(root)
+        } else {
+            self.gallery_dir(root)
+        }
+    }
+
     fn path(&self, root: &Path) -> PathBuf {
-        self.dir(root)
-            .join(format!("{}-{}", self.photo, self.variant))
+        let name = match self.marked_file_revision {
+            Some(revision) => format!("{revision}-{}", self.variant),
+            None => format!("{}-{}", self.photo, self.variant),
+        };
+        self.dir(root).join(name)
     }
 }
 
@@ -172,13 +202,53 @@ impl PhotoStorage {
         Ok(fs::remove_file(key.path(&self.root)).await?)
     }
 
+    /// Drops superseded marked files after PostgreSQL commits `revision`. Never removes
+    /// candidates belonging to a later publication.
+    pub async fn prune_marked(&self, key: &PhotoKey, revision: i64) -> Result<(), StorageError> {
+        for variant in [Variant::WatermarkedThumbnail, Variant::WatermarkedPreview] {
+            let legacy = PhotoKey {
+                variant,
+                marked_file_revision: None,
+                ..*key
+            };
+            match self.remove(&legacy).await {
+                Ok(()) | Err(StorageError::NotFound) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        let mut files = match fs::read_dir(key.marked_dir(&self.root)).await {
+            Ok(files) => files,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        while let Some(file) = files.next_entry().await? {
+            let name = file.file_name();
+            let Some((number, variant)) = name.to_str().and_then(|name| name.split_once('-'))
+            else {
+                continue;
+            };
+            if matches!(
+                variant.parse(),
+                Ok(Variant::WatermarkedThumbnail | Variant::WatermarkedPreview)
+            ) && number.parse::<i64>().is_ok_and(|number| number < revision)
+            {
+                match fs::remove_file(file.path()).await {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Deletes every file of the given photos, going on past failures. A file already gone
     /// counts as removed; the others that could not be removed are returned with their error.
     pub async fn remove_many(
         &self,
         location: PhotoLocation,
         photos: &[PhotoId],
-    ) -> Vec<(PhotoKey, StorageError)> {
+    ) -> Vec<(PhotoId, StorageError)> {
         let mut failures = Vec::new();
 
         for &photo in photos {
@@ -193,8 +263,14 @@ impl PhotoStorage {
 
                 match self.remove(&key).await {
                     Ok(()) | Err(StorageError::NotFound) => {}
-                    Err(error) => failures.push((key, error)),
+                    Err(error) => failures.push((photo, error)),
                 }
+            }
+            let key = PhotoKey::with_location(location, photo, Variant::WatermarkedThumbnail);
+            match fs::remove_dir_all(key.marked_dir(&self.root)).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == ErrorKind::NotFound => {}
+                Err(error) => failures.push((photo, error.into())),
             }
         }
 
@@ -222,7 +298,8 @@ impl PhotoStorage {
     /// Deletes photo files no stored photo owns, such as leftovers of a crash between a
     /// deletion and its cleanup. Only files older than `grace` are considered, so an upload in
     /// flight is never taken for an orphan; `is_stored` is asked about each remaining photo.
-    /// Names that are not `<photo-uuid>-<variant>` are left alone. Returns how many files went.
+    /// Only known photo files and marked-revision directories are considered. Returns how many
+    /// entries were removed.
     pub async fn sweep_orphans<Fut>(
         &self,
         grace: Duration,
@@ -234,7 +311,7 @@ impl PhotoStorage {
         let mut removed = 0;
 
         for (location, dir) in self.gallery_dirs().await? {
-            removed += Self::sweep_dir(&dir, grace, Self::photo_name, |photo| {
+            removed += Self::sweep_dir(&dir, grace, Self::photo_entry, |photo| {
                 is_stored(location, photo)
             })
             .await?;
@@ -256,13 +333,18 @@ impl PhotoStorage {
         let mut removed = 0;
 
         for (location, dir) in self.gallery_dirs().await? {
-            removed += Self::sweep_dir(&dir, grace, Self::archive_name, |export| {
-                is_wanted(ArchiveKey {
-                    workspace: location.workspace_id,
-                    gallery: location.gallery_id,
-                    export,
-                })
-            })
+            removed += Self::sweep_dir(
+                &dir,
+                grace,
+                |name| Self::archive_name(name).map(|id| (id, false)),
+                |export| {
+                    is_wanted(ArchiveKey {
+                        workspace: location.workspace_id,
+                        gallery: location.gallery_id,
+                        export,
+                    })
+                },
+            )
             .await?;
         }
 
@@ -302,7 +384,7 @@ impl PhotoStorage {
     async fn sweep_dir<K, Fut>(
         dir: &Path,
         grace: Duration,
-        parse: impl Fn(&OsStr) -> Option<K>,
+        parse: impl Fn(&OsStr) -> Option<(K, bool)>,
         is_wanted: impl Fn(K) -> Fut,
     ) -> Result<usize, StorageError>
     where
@@ -312,7 +394,7 @@ impl PhotoStorage {
         let mut files = fs::read_dir(dir).await?;
 
         while let Some(file) = files.next_entry().await? {
-            let Some(name) = parse(&file.file_name()) else {
+            let Some((name, directory)) = parse(&file.file_name()) else {
                 continue;
             };
             let age = file
@@ -326,7 +408,15 @@ impl PhotoStorage {
                 continue;
             }
 
-            match fs::remove_file(file.path()).await {
+            let result = if directory {
+                if !file.file_type().await?.is_dir() {
+                    continue;
+                }
+                fs::remove_dir_all(file.path()).await
+            } else {
+                fs::remove_file(file.path()).await
+            };
+            match result {
                 Ok(()) => removed += 1,
                 Err(error) if error.kind() == ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
@@ -407,12 +497,15 @@ impl PhotoStorage {
         Some(ExportId(id))
     }
 
-    fn photo_name(name: &OsStr) -> Option<PhotoId> {
-        let (photo, variant) = name.to_str()?.rsplit_once('-')?;
-
-        variant.parse::<Variant>().ok()?;
-
-        Self::uuid_name(photo.as_ref()).map(PhotoId::from)
+    fn photo_entry(name: &OsStr) -> Option<(PhotoId, bool)> {
+        let (photo, suffix) = name.to_str()?.split_at_checked(36)?;
+        let id = PhotoId::from(Self::uuid_name(photo.as_ref())?);
+        let variant = suffix.strip_prefix('-')?;
+        if variant == "watermarks" {
+            Some((id, true))
+        } else {
+            variant.parse::<Variant>().ok().map(|_| (id, false))
+        }
     }
 }
 
@@ -499,7 +592,14 @@ impl StagedPhoto {
         let durability = async {
             let directory = File::open(key.dir(&self.root)).await?;
 
-            directory.sync_all().await
+            directory.sync_all().await?;
+            if key.marked_file_revision.is_some() {
+                File::open(key.gallery_dir(&self.root))
+                    .await?
+                    .sync_all()
+                    .await?;
+            }
+            Ok(())
         }
         .await;
 
@@ -550,6 +650,7 @@ mod tests {
             gallery: GalleryId(Uuid::from_u128(2)),
             photo: Uuid::from_u128(3).into(),
             variant,
+            marked_file_revision: None,
         }
     }
 
@@ -847,6 +948,9 @@ mod tests {
         let kept_key = PhotoKey::with_location(location, kept, Variant::Original);
 
         store(&storage, &kept_key, b"x").await;
+        let candidate = PhotoKey::with_location(location, removed, Variant::WatermarkedThumbnail)
+            .with_marked_file_revision(Some(2));
+        store(&storage, &candidate, b"unpublished").await;
 
         assert!(storage.remove_many(location, &[removed]).await.is_empty());
         assert_eq!(read_all(&storage, &kept_key).await, b"x");
@@ -854,6 +958,35 @@ mod tests {
             std_fs::read_dir(kept_key.dir(dir.path())).unwrap().count(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn pruning_marked_files_keeps_the_committed_pair_and_a_later_candidate() {
+        let (_dir, storage) = storage().await;
+        let thumbnail = key(Variant::WatermarkedThumbnail);
+        let preview = key(Variant::WatermarkedPreview);
+        let committed = preview.with_marked_file_revision(Some(4));
+        let newer = thumbnail.with_marked_file_revision(Some(5));
+
+        for key in [
+            thumbnail,
+            preview.with_marked_file_revision(Some(3)),
+            committed,
+            newer,
+        ] {
+            store(&storage, &key, b"x").await;
+        }
+
+        storage.prune_marked(&committed, 4).await.unwrap();
+
+        for old in [thumbnail, preview.with_marked_file_revision(Some(3))] {
+            assert!(matches!(
+                storage.read(&old).await,
+                Err(StorageError::NotFound)
+            ));
+        }
+        assert_eq!(read_all(&storage, &committed).await, b"x");
+        assert_eq!(read_all(&storage, &newer).await, b"x");
     }
 
     #[test]
@@ -936,6 +1069,7 @@ mod tests {
             gallery: GalleryId(Uuid::from_u128(gallery)),
             photo: Uuid::from_u128(photo).into(),
             variant,
+            marked_file_revision: None,
         }
     }
 
@@ -969,7 +1103,7 @@ mod tests {
         let (dir, storage) = storage().await;
         let owned = at(1, 2, 3, Variant::Original);
         let orphan = at(1, 2, 4, Variant::Thumbnail);
-        let emptied = at(1, 7, 5, Variant::Preview);
+        let emptied = at(1, 7, 5, Variant::WatermarkedPreview).with_marked_file_revision(Some(2));
 
         for key in [&owned, &orphan, &emptied] {
             store(&storage, key, b"x").await;
@@ -1014,6 +1148,7 @@ mod tests {
             gallery: GalleryId(Uuid::from_u128(2)),
             photo: Uuid::from_u128(photo).into(),
             variant: Variant::Original,
+            marked_file_revision: None,
         }
     }
 

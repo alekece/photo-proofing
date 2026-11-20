@@ -42,7 +42,7 @@ impl PhotoRetry<'_> {
     ) -> Result<Option<u64>, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
 
-        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR KEY SHARE")
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR SHARE")
             .bind(workspace_id)
             .fetch_optional(&mut *transaction)
             .await?;
