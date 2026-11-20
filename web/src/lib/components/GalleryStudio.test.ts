@@ -138,12 +138,11 @@ describe('GalleryStudio', () => {
 		expect(screen.getByRole('heading', { name: 'Typography' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Photo Grid & Spacing' })).toBeTruthy();
 
-		const pad = screen.getByRole('button', { name: 'Cover focal point (50%, 35%)' });
+		const pad = screen.getByRole('button', { name: 'Cover focal point' });
 		await fireEvent.keyDown(pad, { key: 'ArrowLeft', shiftKey: true });
 		expect((image as HTMLImageElement).style.objectPosition).toBe('40% 35%');
 
-		// An unrelated gallery save replacing `gallery` before the debounced focal save lands
-		// must not snap the live focal point back to (50, 35).
+		// Unrelated gallery updates with the old focal point must not undo the local edit.
 		await view.rerender({
 			gallery: { ...base, hero_id: 'p1', title: 'Renamed again', focal_point: { x: 50, y: 35 } },
 			shareToken: null,

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -149,16 +149,16 @@ describe('gallery page', () => {
 		await user.click(screen.getByRole('tab', { name: 'Contacts' }));
 		expect(screen.queryByRole('button', { name: /preview/i })).toBeNull();
 		await user.click(screen.getByRole('tab', { name: 'Design' }));
-		const pad = screen.getByRole('button', { name: 'Cover focal point (50%, 35%)' });
-		pad.focus();
-		await user.keyboard('{ArrowRight}');
+		await fireEvent.input(screen.getByLabelText('Gallery title'), {
+			target: { value: 'Studio edits' }
+		});
 		expect(patches()).toHaveLength(0);
 
 		const button = screen.getByRole('button', { name: 'Open full preview' });
 		await user.click(button);
 		expect(patches()).toHaveLength(1);
 		expect(JSON.parse(patches()[0][1]?.body as string)).toEqual({
-			focal_point: { x: 51, y: 35 }
+			title: 'Studio edits'
 		});
 		expect(screen.getByRole('dialog', { name: 'Client preview' })).toBeTruthy();
 

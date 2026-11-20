@@ -512,8 +512,6 @@
 				active={section === 'design'}
 				{onsave}
 				{onbeforepreview}
-				{schedule}
-				{cancel}
 			/>
 		</div>
 		<div role="tabpanel" id="panel-share" aria-labelledby="tab-share" hidden={section !== 'share'}>
