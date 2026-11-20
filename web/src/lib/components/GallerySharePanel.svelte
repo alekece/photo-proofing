@@ -109,10 +109,10 @@
 	let recipientsDirty = $state(false);
 
 	// svelte-ignore state_referenced_locally
-	let subject = $state(defaultSubject);
+	let subject = $state<string>(defaultSubject);
 	let subjectDirty = $state(false);
 	// svelte-ignore state_referenced_locally
-	let message = $state(defaultMessage);
+	let message = $state<string>(defaultMessage);
 	let messageDirty = $state(false);
 	// svelte-ignore state_referenced_locally
 	let previousGalleryId = gallery.id;
@@ -704,9 +704,10 @@
 					type="text"
 					maxlength={200}
 					disabled={!emailEnabled || sending}
-					bind:value={subject}
-					oninput={() => {
+					value={subject}
+					oninput={(event) => {
 						subjectDirty = true;
+						subject = event.currentTarget.value;
 					}}
 					class="border-border-strong bg-input text-sm"
 				/>
@@ -719,8 +720,11 @@
 					maxlength={5000}
 					disabled={!emailEnabled || sending}
 					placeholder={m.share_message_placeholder()}
-					bind:value={message}
-					oninput={() => (messageDirty = true)}
+					value={message}
+					oninput={(event) => {
+						messageDirty = true;
+						message = event.currentTarget.value;
+					}}
 					class="w-full min-w-0 resize-y rounded-control border border-border-strong bg-input px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:border-foreground focus:outline-1 focus:outline-focus disabled:cursor-not-allowed disabled:opacity-50"
 				></textarea>
 			</div>
