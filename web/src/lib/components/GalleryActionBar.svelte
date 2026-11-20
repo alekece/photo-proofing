@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { ArchiveRestore, Mail, Send } from '@lucide/svelte';
+	import { ArchiveRestore, Send } from '@lucide/svelte';
 	import JourneySteps, { type Step } from '#lib/components/JourneySteps.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import type { Gallery } from '#lib/gallery/api.js';
@@ -15,33 +15,21 @@
 		photoCount = null,
 		favoriteCount = null,
 		sharing = false,
-		recipientCount = 0,
-		canSend = false,
-		sending = false,
 		onupload,
 		onshare,
 		oncollect,
 		ondelivery,
-		onpublish,
-		onrestore,
-		oncancelshare,
-		onsendinvitations
+		onrestore
 	}: {
 		gallery: Gallery;
 		photoCount?: number | null;
 		favoriteCount?: number | null;
 		sharing?: boolean;
-		recipientCount?: number;
-		canSend?: boolean;
-		sending?: boolean;
 		onupload: () => void;
 		onshare: () => void;
 		oncollect?: () => void;
 		ondelivery: () => void;
-		onpublish: () => void;
 		onrestore: () => void;
-		oncancelshare?: () => void;
-		onsendinvitations?: () => void;
 	} = $props();
 
 	const status = $derived(galleryStatus(gallery.states));
@@ -90,50 +78,21 @@
 	<div class="relative grid justify-items-center gap-1">
 		{#if !archived}
 			<JourneySteps {steps} />
-		{:else}
-			<span class="flex-1"></span>
 		{/if}
 
-		<div class="flex items-center justify-end gap-2 justify-self-end">
-			{#if sharing}
-				<Button
-					variant="outline"
-					size="sm"
-					class="min-h-9! px-3!"
-					disabled={sending}
-					onclick={oncancelshare}
-				>
-					{m.common_cancel()}
-				</Button>
-				<Button
-					data-share-trigger
-					size="sm"
-					class="min-h-9! gap-2"
-					disabled={!canSend || sending}
-					onclick={onsendinvitations}
-				>
-					<Mail size={16} aria-hidden="true" />
-					{sending
-						? m.share_sending()
-						: recipientCount > 0
-							? m.share_send_invitation_count({ count: recipientCount })
-							: m.share_send_invitation()}
-				</Button>
-			{:else}
-				{#if archived}
-					<Button size="sm" class="min-h-9! gap-2" onclick={onrestore}>
-						<ArchiveRestore size={16} aria-hidden="true" />{m.action_restore()}
-					</Button>
-				{:else if !shared}
-					<Button data-share-trigger size="sm" class="min-h-9! gap-2" onclick={onshare}>
-						<Send size={16} aria-hidden="true" />{m.action_share()}
-					</Button>
-				{:else if !delivered}
-					<Button size="sm" class="min-h-9! gap-2" onclick={onpublish}>
-						<Send size={16} aria-hidden="true" />{m.action_deliver()}
-					</Button>
-				{/if}
-			{/if}
-		</div>
+		{#if archived}
+			<Button size="sm" class="min-h-9! gap-2 justify-self-end" onclick={onrestore}>
+				<ArchiveRestore size={16} aria-hidden="true" />{m.action_restore()}
+			</Button>
+		{:else if !shared && !sharing}
+			<Button
+				data-share-trigger
+				size="sm"
+				class="min-h-9! gap-2 justify-self-end @min-[44rem]:absolute @min-[44rem]:right-0 @min-[44rem]:self-center"
+				onclick={onshare}
+			>
+				<Send size={16} aria-hidden="true" />{m.action_share()}
+			</Button>
+		{/if}
 	</div>
 </div>

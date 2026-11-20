@@ -238,6 +238,7 @@
 		throw new Error(message, { cause: error });
 	}
 	async function deliver(): Promise<void> {
+		if (!canDeliver()) throw new Error(m.gallery_deliver_failed());
 		flush();
 
 		try {
@@ -247,6 +248,13 @@
 		} catch (error) {
 			await failAction(error, m.gallery_deliver_failed());
 		}
+	}
+	function canDeliver() {
+		return (
+			shareToken !== null &&
+			!saved.states.includes('archived') &&
+			!saved.states.includes('delivered')
+		);
 	}
 	async function archive(): Promise<void> {
 		flush();
@@ -358,7 +366,9 @@
 			updated_at: updated.updated_at
 		};
 	}}
-	onpublish={() => (publishing = 'deliver')}
+	onpublish={() => {
+		if (canDeliver()) publishing = 'deliver';
+	}}
 	onarchive={() => (confirming = 'archive')}
 	onrestore={restore}
 	ondelete={() => (confirming = 'delete')}
@@ -424,7 +434,7 @@
 		galleryId={saved.id}
 		title={saved.title ?? m.gallery_untitled()}
 		expiresAt={saved.expires_at}
-		uploading={queue?.inFlight(saved.id) ?? 0}
+		uploading={queue?.inFlight(saved.id, publishing === 'deliver' ? 'finals' : 'photos') ?? 0}
 		onconfirm={publishing === 'share' ? share : deliver}
 		onclose={() => (publishing = null)}
 	/>

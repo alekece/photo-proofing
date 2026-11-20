@@ -27,7 +27,7 @@
 		Star,
 		Users
 	} from '@lucide/svelte';
-	import type { Component, Snippet } from 'svelte';
+	import { tick, type Component, type Snippet } from 'svelte';
 	import CommentsPanel from '#lib/components/CommentsPanel.svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
 	import GalleryActivityPanel from '#lib/components/GalleryActivityPanel.svelte';
@@ -115,11 +115,7 @@
 	let commentCount = $state<number | null>(null);
 	let finalCount = $state<number | null>(null);
 	let contactCount = $state<number | null>(null);
-	let sharePanel = $state<ReturnType<typeof GallerySharePanel> | null>(null);
 	let shareOpened = $state(false);
-	let shareRecipientCount = $state(0);
-	let shareCanSend = $state(false);
-	let shareSending = $state(false);
 	let contactsPanelRevision = $state(0);
 	let shareContactsRevision = $state(0);
 
@@ -190,6 +186,9 @@
 				: 'photos';
 
 		section = target;
+		void tick().then(() => {
+			if (section === target) document.getElementById(`tab-${target}`)?.focus();
+		});
 	}
 
 	const day = $derived(gallery.shoot_date ? formatLongDate(gallery.shoot_date) : null);
@@ -404,16 +403,10 @@
 			{photoCount}
 			{favoriteCount}
 			sharing={section === 'share'}
-			recipientCount={shareRecipientCount}
-			canSend={shareCanSend}
-			sending={shareSending}
 			onupload={() => selectSection('photos')}
 			onshare={() => selectSection('share')}
 			oncollect={() => selectSection('favorites')}
 			ondelivery={() => selectSection('share')}
-			oncancelshare={leaveShare}
-			onsendinvitations={() => void sharePanel?.requestSend()}
-			{onpublish}
 			{onrestore}
 		/>
 	</div>
@@ -526,8 +519,8 @@
 		<div role="tabpanel" id="panel-share" aria-labelledby="tab-share" hidden={section !== 'share'}>
 			{#if shareOpened}
 				<GallerySharePanel
-					bind:this={sharePanel}
 					gallery={{ ...gallery, share_token: shareToken }}
+					active={section === 'share'}
 					{settings}
 					{coverId}
 					{heroRevision}
@@ -537,10 +530,9 @@
 					{uploading}
 					accessCode={previewAccessCode}
 					contactsRevision={shareContactsRevision}
-					bind:recipientCount={shareRecipientCount}
-					bind:canSend={shareCanSend}
-					bind:sending={shareSending}
 					{onbeforesend}
+					oncancel={leaveShare}
+					{onpublish}
 					onopensettings={() => selectSection('settings')}
 					onsent={(result) => {
 						oninvitationsent?.(result);
