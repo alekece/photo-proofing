@@ -3,7 +3,7 @@
 	import type { OwnerExport } from '#lib/gallery/export.svelte.js';
 	import Button from './ui/Button/Button.svelte';
 
-	let { zip, individualError }: { zip: OwnerExport; individualError?: string | null } = $props();
+	let { zip }: { zip: OwnerExport } = $props();
 </script>
 
 {#if zip.statusError}
@@ -18,9 +18,9 @@
 			onclick={() => void zip.retryStatus()}>{m.owner_zip_retry_status()}</Button
 		>
 	</div>
-{:else if individualError || zip.error}
+{:else if zip.error}
 	<p role="alert" class="text-right text-sm text-danger">
-		{individualError ?? zip.error}
+		{zip.error}
 		{m.favorites_try_again()}
 	</p>
 {/if}

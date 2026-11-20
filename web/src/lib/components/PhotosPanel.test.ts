@@ -252,6 +252,43 @@ describe('Final ZIP', () => {
 		expect(screen.queryByRole('alert')).toBeNull();
 	});
 
+	it.each([
+		['no ZIP', () => new Response(null, { status: 204 })],
+		['a newer ZIP', () => Response.json(zip('ready', 'newer'))]
+	])('allows a new explicit request when status Retry finds %s', async (_label, statusResponse) => {
+		let latest = () => new Response(null, { status: 204 });
+		const post = vi
+			.fn()
+			.mockImplementationOnce(() => {
+				latest = () => new Response(null, { status: 503 });
+				return Response.json(zip('preparing', 'final-pending'), { status: 202 });
+			})
+			.mockImplementationOnce(() => Response.json(zip('ready', 'explicit-new')));
+		stubApi([photo('f1')], {
+			export: (_url, init) => (init?.method === 'POST' ? post() : latest())
+		});
+		const { exported } = setup(undefined, null, false, 'finals');
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole('button', { name: 'Download all' }));
+		const retry = await screen.findByRole('button', { name: 'Retry ZIP status' });
+
+		latest = statusResponse;
+		await user.click(retry);
+		await act(() => exported());
+		expect(screen.getByRole('alert').textContent).toContain('ZIP is no longer available');
+		expect(screen.getByRole('alert').textContent).toContain('Use Download to try again');
+		expect(screen.queryByRole('button', { name: 'Retry ZIP status' })).toBeNull();
+		expect(post).toHaveBeenCalledOnce();
+		expect(startDownload).not.toHaveBeenCalled();
+
+		await user.click(screen.getByRole('button', { name: 'Download all' }));
+		expect(post).toHaveBeenCalledTimes(2);
+		expect(startDownload).toHaveBeenCalledExactlyOnceWith(
+			'/api/v1/galleries/g1/export/explicit-new/download?finals=true'
+		);
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
+
 	it('requests exactly one of two finals, and downloads the awaited ZIP once', async () => {
 		let latest = zip('ready', 'existing');
 		const post = vi.fn<(init: RequestInit) => Response>(() => {

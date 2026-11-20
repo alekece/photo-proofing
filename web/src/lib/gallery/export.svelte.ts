@@ -67,12 +67,13 @@ export class OwnerExport {
 
 	#adopt(session: Session, latest: Export | null) {
 		this.#latest = latest;
-		if (!session.awaited) return;
-
-		if (latest?.id === session.awaited && latest.status.kind === 'preparing') return;
 		const awaited = session.awaited;
+		if (!awaited || (latest?.id === awaited && latest.status.kind === 'preparing')) return;
+
 		session.awaited = undefined;
-		if (latest?.id === awaited && latest.status.kind === 'ready') {
+		if (latest?.id !== awaited) {
+			this.#requestError = m.owner_zip_no_longer_available();
+		} else if (latest.status.kind === 'ready') {
 			startDownload(exportUrl(session.id, latest.id, this.set));
 		}
 	}

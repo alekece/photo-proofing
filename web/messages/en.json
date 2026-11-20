@@ -540,6 +540,7 @@
 	"favorites_download_failed": "Couldn’t download the photo. Please try again.",
 	"favorites_zip_check_failed": "Couldn’t check the ZIP. Please try again.",
 	"owner_zip_retry_status": "Retry ZIP status",
+	"owner_zip_no_longer_available": "The requested ZIP is no longer available.",
 	"favorites_zip_failed": "Couldn’t prepare the ZIP. Please try again.",
 	"favorites_downloading": "Downloading…",
 	"favorites_download_count": "Download {count}",

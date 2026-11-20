@@ -410,8 +410,12 @@ describe('FavoritesPanel', () => {
 		expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty('disabled', false);
 	});
 
-	it('rechecks only the Favorites ZIP after an unavailable status response', async () => {
-		setup([photo('p1', true)]);
+	it('keeps an individual Favorites download error visible when retrying ZIP status', async () => {
+		let rejectDownload!: (error: Error) => void;
+		setup(
+			[photo('p1', true)],
+			() => new Promise<void>((_resolve, reject) => (rejectDownload = reject))
+		);
 		const originalFetch = fetch;
 		let status = 'initial';
 		const calls = vi.fn<typeof fetch>(async (url, init) => {
@@ -425,8 +429,15 @@ describe('FavoritesPanel', () => {
 		});
 		vi.stubGlobal('fetch', calls);
 		const user = userEvent.setup();
+		await user.click(await screen.findByRole('button', { name: 'Download p1.jpg' }));
 		await user.click(await screen.findByRole('button', { name: 'Download all' }));
 		const retry = await screen.findByRole('button', { name: 'Retry ZIP status' });
+		await act(() => rejectDownload(new Error('Download failed')));
+		expect(screen.getAllByRole('alert').map((alert) => alert.textContent)).toEqual([
+			expect.stringContaining('Couldn’t check the ZIP'),
+			expect.stringContaining('Couldn’t download the photo')
+		]);
+
 		calls.mockClear();
 		status = 'ready';
 		await user.click(retry);
@@ -438,6 +449,8 @@ describe('FavoritesPanel', () => {
 		expect(calls.mock.calls).toEqual([
 			['/api/v1/galleries/g1/export', expect.objectContaining({ method: 'GET' })]
 		]);
+		expect(screen.getByRole('alert').textContent).toContain('Couldn’t download the photo');
+		expect(screen.queryByRole('button', { name: 'Retry ZIP status' })).toBeNull();
 	});
 
 	it('shows the translated reason when the request is refused', async () => {

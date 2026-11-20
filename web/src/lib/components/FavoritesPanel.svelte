@@ -170,14 +170,12 @@
 		class="min-h-9! gap-1.5 group-data-[rail=gallery]/select-actions:max-xl:px-2.5"
 		disabled={zip.busy || (!all && mode.count === 0)}
 		aria-busy={zip.busy}
-		onclick={() => {
-			individualError = null;
+		onclick={() =>
 			void zip.request(
 				!all && mode.count > 0
 					? favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id)
 					: undefined
-			);
-		}}
+			)}
 	>
 		<Download size={16} aria-hidden="true" />
 		<span class="group-data-[rail=gallery]/select-actions:max-xl:sr-only">
@@ -215,7 +213,10 @@
 		</SelectActions>
 	{/if}
 
-	<OwnerZipError {zip} {individualError} />
+	<OwnerZipError {zip} />
+	{#if individualError}
+		<p role="alert" class="text-right text-sm text-danger">{individualError}</p>
+	{/if}
 
 	{#if failed}
 		<p role="alert" class="text-sm text-danger">{m.favorites_load_failed()}</p>
