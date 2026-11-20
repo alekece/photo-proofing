@@ -26,22 +26,26 @@
 //! route, they must carry the configured `Origin`, which the API-wide middleware checks.
 
 use actix_web::{
-    HttpRequest, HttpResponse, delete, get, patch, post,
+    HttpRequest, HttpResponse, ResponseError, delete, get,
+    http::StatusCode,
+    patch, post,
     web::{self, Data, Json, Path, ServiceConfig},
 };
 use actix_web_lab::extract::Query as LabQuery;
 use pp_database::gallery::{
     Delivery, GalleryChanges, GalleryId, GalleryRepository, GallerySort, GalleryState,
 };
-use pp_database::photo::{PhotoLocation, Watermarked};
+use pp_database::photo::{PhotoId, PhotoKind, PhotoLocation, PhotoRepository, Watermarked};
 use pp_database::settings::SettingsRepository;
 use pp_database::workspace_deletion::WorkspaceDeletion;
-use pp_storage::Variant;
+use pp_storage::{PhotoKey, Variant};
 use serde::Deserialize;
 
 use crate::{
-    api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
-    response::ResponseBuilderExt,
+    api::ApiState,
+    error::ErrorResponse,
+    extractors::identity::Authenticated,
+    response::{ImageFile, ResponseBuilderExt},
 };
 
 mod comments;
@@ -69,6 +73,75 @@ impl DerivativePhoto {
             (Self::Thumbnail, true) => Variant::WatermarkedThumbnail,
             (Self::Preview, true) => Variant::WatermarkedPreview,
         }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DerivativeAccess {
+    location: PhotoLocation,
+    kind: PhotoKind,
+    watermarked: Watermarked,
+}
+
+impl DerivativeAccess {
+    async fn read(
+        self,
+        state: &ApiState,
+        photo_id: PhotoId,
+        derivative: DerivativePhoto,
+        reauthorize: impl AsyncFnOnce() -> Result<Self, ErrorResponse>,
+    ) -> Result<ImageFile, ErrorResponse> {
+        let key = PhotoKey::with_location(
+            self.location,
+            photo_id,
+            derivative.variant(self.watermarked),
+        );
+        let key = self.select(state, key).await?;
+
+        self.read_selected(state, key, reauthorize).await
+    }
+
+    async fn select(self, state: &ApiState, key: PhotoKey) -> Result<PhotoKey, ErrorResponse> {
+        let ready = state
+            .database()
+            .repository::<PhotoRepository>()
+            .ready_derivative(self.location, key.photo, self.kind, self.watermarked)
+            .await?
+            .ok_or_else(ErrorResponse::not_found)?;
+
+        Ok(key.with_marked_file_generation(ready.marked_file_generation))
+    }
+
+    async fn read_selected(
+        self,
+        state: &ApiState,
+        key: PhotoKey,
+        reauthorize: impl AsyncFnOnce() -> Result<Self, ErrorResponse>,
+    ) -> Result<ImageFile, ErrorResponse> {
+        let missing = match ImageFile::read(state.storage(), &key).await {
+            Err(error)
+                if self.kind == PhotoKind::Proof
+                    && self.watermarked.0
+                    && error.status_code() == StatusCode::NOT_FOUND =>
+            {
+                error
+            }
+            result => return result,
+        };
+
+        // A completed rotation may have pruned the selected generation since the lookup.
+        // Only retry the same variant under current authorization, never a clean substitute.
+        if reauthorize().await? != self {
+            return Err(missing);
+        }
+
+        let current = self.select(state, key).await?;
+
+        if current == key {
+            return Err(missing);
+        }
+
+        ImageFile::read(state.storage(), &current).await
     }
 }
 

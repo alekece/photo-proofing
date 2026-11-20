@@ -250,10 +250,17 @@ pub struct PhotoLocation {
 ///
 /// Callers choose it; the repository only checks that those files are ready. Clean files are
 /// ready as soon as they are published, even while marked copies are being regenerated; marked
-/// ones only at the workspace's current watermark revision.
+/// ones only at the proof's requested watermark revision.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
 pub struct Watermarked(pub bool);
+
+/// A ready derivative's storage address; only marked proof pairs have a generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadyDerivative {
+    /// `None` addresses flat derivative filenames, including those of legacy marked files.
+    pub marked_file_generation: Option<Uuid>,
+}
 
 impl Watermarked {
     /// SQL condition over a `photos` row aliased `p`. Finals have a single set of files, so
@@ -261,9 +268,7 @@ impl Watermarked {
     const fn ready_condition(self) -> &'static str {
         if self.0 {
             "CASE WHEN p.kind = 'proof' THEN p.clean_ready AND
-                p.watermark_revision = COALESCE(
-                    (SELECT s.watermark_revision FROM workspace_settings s
-                     WHERE s.workspace_id = p.workspace_id), 0)
+                p.watermark_revision = p.requested_watermark_revision
                 ELSE p.status = 'ready' END"
         } else {
             "CASE WHEN p.kind = 'proof' THEN p.clean_ready ELSE p.status = 'ready' END"
@@ -317,16 +322,19 @@ impl PhotoRepository<'_> {
         let height = i32::try_from(photo.dimensions.height.get())
             .map_err(|error| sqlx::Error::Encode(error.into()))?;
 
-        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR KEY SHARE")
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR SHARE")
             .bind(photo.workspace_id)
             .fetch_optional(&mut **transaction)
             .await?;
 
         let inserted: Option<Photo> = sqlx::query_as(
             "INSERT INTO photos
-                 (id, workspace_id, gallery_id, original_name, size, width, height, kind)
-             SELECT $1, $2, g.id, $4, $5, $6, $7, $8
+                 (id, workspace_id, gallery_id, original_name, size, width, height, kind,
+                  requested_watermark_revision)
+             SELECT $1, $2, g.id, $4, $5, $6, $7, $8,
+                    CASE WHEN $8 = 'proof' THEN COALESCE(s.watermark_revision, 0) ELSE 0 END
              FROM galleries AS g
+             LEFT JOIN workspace_settings s ON s.workspace_id = g.workspace_id
              WHERE g.id = $3 AND g.workspace_id = $2
              ON CONFLICT (id) DO NOTHING
              RETURNING id, clean_ready, revision, original_name, size, width, height,
@@ -504,18 +512,38 @@ impl PhotoRepository<'_> {
         kind: PhotoKind,
         variant: Watermarked,
     ) -> Result<bool, DatabaseError> {
-        Ok(sqlx::query_scalar(AssertSqlSafe(format!(
-            "SELECT EXISTS(SELECT 1 FROM photos AS p
+        Ok(self
+            .ready_derivative(location, id, kind, variant)
+            .await?
+            .is_some())
+    }
+
+    /// Resolves readiness and the committed file generation from the same row snapshot.
+    pub async fn ready_derivative(
+        &self,
+        location: PhotoLocation,
+        id: PhotoId,
+        kind: PhotoKind,
+        variant: Watermarked,
+    ) -> Result<Option<ReadyDerivative>, DatabaseError> {
+        let generation: Option<Option<Uuid>> = sqlx::query_scalar(AssertSqlSafe(format!(
+            "SELECT CASE WHEN $5 AND p.kind = 'proof' THEN p.marked_file_generation END
+             FROM photos AS p
              WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3
-               AND kind = $4 AND {})",
+               AND kind = $4 AND {}",
             variant.ready_condition()
         )))
         .bind(location.workspace_id)
         .bind(location.gallery_id)
         .bind(id)
         .bind(kind)
-        .fetch_one(self.pool)
-        .await?)
+        .bind(variant.0)
+        .fetch_optional(self.pool)
+        .await?;
+
+        Ok(generation.map(|marked_file_generation| ReadyDerivative {
+            marked_file_generation,
+        }))
     }
 
     /// Records the first download of a ready final of the gallery at `location`. Later requests
@@ -698,11 +726,11 @@ impl PhotoRepository<'_> {
         let result = sqlx::query(
             "UPDATE photos SET status = $2::photo_status, failure_reason = $3,
                  clean_ready = clean_ready OR $2 = 'ready',
+                 watermark_only_pending = watermark_only_pending AND $2 <> 'ready',
                  watermark_revision = CASE WHEN $2 = 'ready' AND kind = 'proof'
-                     THEN COALESCE((SELECT watermark_revision FROM workspace_settings
-                                    WHERE workspace_id = photos.workspace_id), 0)
+                     THEN requested_watermark_revision
                      ELSE watermark_revision END,
-                 clean_quality = CASE WHEN $2 = 'ready' AND kind = 'proof'
+                 clean_quality = CASE WHEN $2 = 'ready' AND kind = 'proof' AND NOT watermark_only_pending
                      THEN COALESCE((SELECT proof_quality FROM workspace_settings
                                     WHERE workspace_id = photos.workspace_id), 'medium')
                      ELSE clean_quality END,
@@ -1236,8 +1264,8 @@ mod tests {
         );
 
         sqlx::query(
-            "INSERT INTO workspace_settings(workspace_id, studio_name, watermark_revision)
-             VALUES ($1, 'Studio', 1)",
+            "UPDATE photos SET requested_watermark_revision = 1
+                     WHERE workspace_id = $1 AND kind = 'proof'",
         )
         .bind(location.workspace_id)
         .execute(&pool)

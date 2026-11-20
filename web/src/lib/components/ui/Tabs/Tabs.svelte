@@ -22,8 +22,15 @@
 		value = $bindable(),
 		items,
 		label,
+		listClass = '',
 		panel
-	}: { value: string; items: readonly Item[]; label?: string; panel: Snippet<[string]> } = $props();
+	}: {
+		value: string;
+		items: readonly Item[];
+		label?: string;
+		listClass?: string;
+		panel: Snippet<[string]>;
+	} = $props();
 
 	function moveTab(event: KeyboardEvent) {
 		const available = items.filter(({ disabled }) => !disabled);
@@ -43,11 +50,20 @@
 		const id = available[next].id;
 
 		value = id;
-		document.getElementById(`tab-${id}`)?.focus();
+		const tab = document.getElementById(`tab-${id}`);
+		tab?.focus();
+		const strip = tab?.parentElement;
+		if (tab && strip && strip.scrollWidth > strip.clientWidth) {
+			tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+		}
 	}
 </script>
 
-<div role="tablist" aria-label={label} class="mb-4 flex gap-4 border-b border-border sm:gap-6">
+<div
+	role="tablist"
+	aria-label={label}
+	class="mb-4 flex gap-4 border-b border-border sm:gap-6 {listClass}"
+>
 	{#each items as { id, label, count, accent, locked, disabled, title } (id)}
 		<button
 			type="button"

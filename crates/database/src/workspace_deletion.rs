@@ -8,7 +8,7 @@ use crate::{
     auth::WorkspaceId,
     error::DatabaseError,
     export::ExportRepository,
-    gallery::GalleryId,
+    gallery::{GalleryId, GalleryRepository},
     jobs::{CleanupGallery, CleanupPhotos, JobOptions, JobRepository},
     photo::PhotoKind,
 };
@@ -98,6 +98,12 @@ impl WorkspaceDeletion<'_> {
 
         let mut transaction = self.pool.begin().await?;
 
+        // Exclude delivery before locking jobs or photos, even if a failed refresh has no job left.
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR SHARE")
+            .bind(workspace_id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+
         let photo_ids: Vec<PhotoId> = sqlx::query_scalar(
             "SELECT id FROM photos
              WHERE workspace_id = $1 AND gallery_id = $2 AND id = ANY($3)
@@ -111,6 +117,12 @@ impl WorkspaceDeletion<'_> {
         .await?;
 
         JobRepository::delete_photo_jobs_in(&mut transaction, &photo_ids).await?;
+
+        // A proof deletion can clear the hero FK. Match favorites' gallery-before-photo order.
+        if kind == PhotoKind::Proof {
+            GalleryRepository::lock_for_update_in(&mut transaction, workspace_id, gallery_id)
+                .await?;
+        }
 
         let deleted_ids: Vec<PhotoId> = sqlx::query_scalar(
             "DELETE FROM photos WHERE id IN (

@@ -5,7 +5,8 @@
 //!   says whether `GET /logo` has one.
 //! - `PUT /` saves every setting at once and returns them. `logo` is `{"action": "keep"}` (the
 //!   default when absent), `{"action": "remove"}` or `{"action": "replace", "image_base64": …}`
-//!   (a PNG or JPEG, stored as a normalised PNG). A change to what the watermark draws regenerates the proofs of watermarked galleries.
+//!   (a PNG or JPEG, stored as a normalised PNG). A visible watermark change regenerates
+//!   unpublished proofs only; a proof quality change regenerates all proofs.
 //! - `PUT /language` saves the workspace language alone, `{"language": "en" | "fr"}`, and returns
 //!   it. The proofs are untouched.
 //! - `GET /logo` returns the saved logo as a PNG, or a 404.
@@ -21,7 +22,8 @@ use actix_web::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use pp_database::settings::{
     CoverSignature, GridCell, Language, LogoChange, ProofQuality, SettingsRepository,
-    SettingsUpdate, SizeStep, WatermarkMark, WatermarkPattern, WorkspaceSettings,
+    SettingsUpdate, SizeStep, WatermarkColor, WatermarkMark, WatermarkOpacity, WatermarkPattern,
+    WorkspaceSettings,
 };
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +45,8 @@ struct SettingsView {
     signature: CoverSignature,
     signature_size: SizeStep,
     proof_quality: ProofQuality,
+    watermark_opacity: WatermarkOpacity,
+    watermark_text_color: WatermarkColor,
     has_logo: bool,
     email_enabled: bool,
 }
@@ -58,6 +62,8 @@ impl SettingsView {
             signature: settings.signature,
             signature_size: settings.signature_size,
             proof_quality: settings.proof_quality,
+            watermark_opacity: settings.watermark_opacity,
+            watermark_text_color: settings.watermark_text_color,
             has_logo: settings.logo.is_some(),
             email_enabled,
         }
@@ -83,10 +89,22 @@ struct SettingsRequest {
     signature: CoverSignature,
     signature_size: SizeStep,
     proof_quality: ProofQuality,
+    #[serde(default, deserialize_with = "SettingsRequest::deserialize_present")]
+    watermark_opacity: Option<WatermarkOpacity>,
+    #[serde(default, deserialize_with = "SettingsRequest::deserialize_present")]
+    watermark_text_color: Option<WatermarkColor>,
     logo: Option<LogoRequest>,
 }
 
 impl SettingsRequest {
+    fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+    where
+        T: Deserialize<'de>,
+        D: serde::Deserializer<'de>,
+    {
+        T::deserialize(deserializer).map(Some)
+    }
+
     /// Reads the JSON body, which may carry a base64 logo at the byte cap.
     async fn read(payload: Payload) -> Result<Self, ErrorResponse> {
         let limit =
@@ -126,6 +144,8 @@ impl SettingsRequest {
             signature: self.signature,
             signature_size: self.signature_size,
             proof_quality: self.proof_quality,
+            watermark_opacity: self.watermark_opacity,
+            watermark_text_color: self.watermark_text_color,
             logo,
         })
     }
@@ -384,6 +404,63 @@ mod tests {
         .await;
 
         assert_eq!(removed["has_logo"], false);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn watermark_appearance_round_trips_and_refuses_invalid_input(pool: PgPool) {
+        signed_in_app!(pool, app, cookie);
+
+        let (_, initial) = call(&app, request(test::TestRequest::get(), &cookie)).await;
+        assert_eq!(initial["watermark_opacity"], 50);
+        assert_eq!(initial["watermark_text_color"], "#FFFFFF");
+
+        for opacity in [0, 50, 100] {
+            let (status, saved) = call(
+                &app,
+                request(test::TestRequest::put(), &cookie).set_json(body(json!({
+                    "watermark_opacity": opacity, "watermark_text_color": "#a12b3c",
+                }))),
+            )
+            .await;
+            let (_, read) = call(&app, request(test::TestRequest::get(), &cookie)).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(read, saved);
+            assert_eq!(read["watermark_opacity"], opacity);
+            assert_eq!(read["watermark_text_color"], "#A12B3C");
+        }
+
+        let (status, retained) = call(
+            &app,
+            request(test::TestRequest::put(), &cookie).set_json(body(json!({}))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retained["watermark_opacity"], 100);
+        assert_eq!(retained["watermark_text_color"], "#A12B3C");
+
+        for invalid in [
+            json!({"watermark_opacity": -1}),
+            json!({"watermark_opacity": 101}),
+            json!({"watermark_opacity": 50.5}),
+            json!({"watermark_opacity": "50"}),
+            json!({"watermark_opacity": null}),
+            json!({"watermark_text_color": "red"}),
+            json!({"watermark_text_color": "A12B3C"}),
+            json!({"watermark_text_color": "#ABC"}),
+            json!({"watermark_text_color": "#123456ff"}),
+            json!({"watermark_text_color": null}),
+        ] {
+            let (status, error) = call(
+                &app,
+                request(test::TestRequest::put(), &cookie).set_json(body(invalid)),
+            )
+            .await;
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(error["code"], "invalid_request_body");
+        }
+
+        let (_, read) = call(&app, request(test::TestRequest::get(), &cookie)).await;
+        assert_eq!(read, retained);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

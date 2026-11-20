@@ -10,6 +10,8 @@ const body = {
 	signature: 'name',
 	signature_size: 4,
 	proof_quality: 'medium',
+	watermark_opacity: 0,
+	watermark_text_color: '#A12B3C',
 	has_logo: false
 };
 
@@ -17,7 +19,11 @@ describe('getSettings', () => {
 	it('parses the settings and forwards the cookie', async () => {
 		const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(body)));
 
-		expect((await getSettings(fetcher, 'pp_session=x')).studioName).toBe('Studio');
+		expect(await getSettings(fetcher, 'pp_session=x')).toMatchObject({
+			studioName: 'Studio',
+			watermarkOpacity: 0,
+			watermarkTextColor: '#A12B3C'
+		});
 		expect(fetcher).toHaveBeenCalledWith(
 			expect.stringContaining('/api/v1/settings'),
 			expect.objectContaining({ headers: { Cookie: 'pp_session=x' }, cache: 'no-store' })

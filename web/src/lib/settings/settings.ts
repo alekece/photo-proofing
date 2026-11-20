@@ -27,6 +27,8 @@ export type WorkspaceSettings = {
 	position: number;
 	/** Step from 0 (small) to `SIZE_STEPS - 1` (large). */
 	size: number;
+	watermarkOpacity: number;
+	watermarkTextColor: string;
 	signature: Signature;
 	/** Step from 0 (small) to `SIZE_STEPS - 1` (large) of the cover signature. */
 	signatureSize: number;
@@ -43,13 +45,15 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
 	pattern: 'repeat',
 	position: 8,
 	size: DEFAULT_SIZE,
+	watermarkOpacity: 50,
+	watermarkTextColor: '#FFFFFF',
 	signature: 'name',
 	signatureSize: DEFAULT_SIZE,
 	proofQuality: 'medium',
 	emailEnabled: false
 };
 
-/** Whether saving needs the watermarked proofs rebuilt. */
+/** Whether any persisted watermark control has changed, even if it is inactive. */
 export function watermarkChanged(a: WorkspaceSettings, b: WorkspaceSettings) {
 	return (
 		a.studioName !== b.studioName ||
@@ -57,7 +61,9 @@ export function watermarkChanged(a: WorkspaceSettings, b: WorkspaceSettings) {
 		a.mark !== b.mark ||
 		a.pattern !== b.pattern ||
 		a.position !== b.position ||
-		a.size !== b.size
+		a.size !== b.size ||
+		a.watermarkOpacity !== b.watermarkOpacity ||
+		a.watermarkTextColor !== b.watermarkTextColor
 	);
 }
 
@@ -82,12 +88,27 @@ export const LOGO_URL = '/api/v1/settings/logo';
 /** The image types accepted for a logo. */
 export const LOGO_TYPES = ['image/png', 'image/jpeg'];
 
+/** A UI draft may omit the leading hash but must describe a complete RGB color. */
+export function normalizeWatermarkHex(value: string): string | null {
+	const hex = value.trim().replace(/^#/, '');
+
+	return /^[0-9a-f]{6}$/i.test(hex) ? `#${hex.toUpperCase()}` : null;
+}
+
 const settingsResponseSchema = v.object({
 	studio_name: v.string(),
 	mark: v.picklist(MARKS),
 	pattern: v.picklist(PATTERNS),
 	position: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(8)),
 	size: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(SIZE_STEPS - 1)),
+	watermark_opacity: v.optional(
+		v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(100)),
+		DEFAULT_SETTINGS.watermarkOpacity
+	),
+	watermark_text_color: v.optional(
+		v.pipe(v.string(), v.length(7), v.regex(/^#[0-9A-F]{6}$/)),
+		DEFAULT_SETTINGS.watermarkTextColor
+	),
 	signature: v.picklist(SIGNATURES),
 	signature_size: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(SIZE_STEPS - 1)),
 	proof_quality: v.picklist(QUALITIES),
@@ -106,6 +127,8 @@ function toWorkspaceSettings(
 		pattern: settings.pattern,
 		position: settings.position,
 		size: settings.size,
+		watermarkOpacity: settings.watermark_opacity,
+		watermarkTextColor: settings.watermark_text_color,
 		signature: settings.signature,
 		signatureSize: settings.signature_size,
 		proofQuality: settings.proof_quality,
@@ -149,6 +172,8 @@ export class SettingsApi {
 					pattern: settings.pattern,
 					position: settings.position,
 					size: settings.size,
+					watermark_opacity: settings.watermarkOpacity,
+					watermark_text_color: settings.watermarkTextColor,
 					signature: settings.signature,
 					signature_size: settings.signatureSize,
 					proof_quality: settings.proofQuality,

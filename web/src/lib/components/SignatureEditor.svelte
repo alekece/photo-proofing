@@ -1,11 +1,11 @@
 <script lang="ts">
+	import { Check } from '@lucide/svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import { SIGNATURES, type Signature, type WorkspaceSettings } from '#lib/settings/settings.js';
+	import Button from './ui/Button/Button.svelte';
 	import MarkLogo from './MarkLogo.svelte';
-	import SamplePhoto from './SamplePhoto.svelte';
 	import SizeSlider from './SizeSlider.svelte';
-	import StudioSignature from './StudioSignature.svelte';
-	import { TOOLBAR, TOOLBAR_GLYPH, TOOLBAR_ITEM } from './settings-toolbar.js';
+	import { CHOICE, GLYPH } from './settings-toolbar.js';
 
 	let { settings = $bindable() }: { settings: WorkspaceSettings } = $props();
 
@@ -18,23 +18,20 @@
 	const noLogo = $derived(settings.logo === null);
 </script>
 
-<div class={TOOLBAR} role="toolbar" aria-label={m.signature_label()}>
-	<div
-		role="group"
-		aria-label={m.signature_label()}
-		class="flex items-center gap-0.5 px-1 sm:gap-1 sm:px-2"
-	>
+<fieldset class="mb-4 min-w-0">
+	<legend class="mb-2 text-sm font-semibold">{m.signature_label()}</legend>
+	<div class="flex flex-wrap gap-1.5">
 		{#each SIGNATURES as signature (signature)}
-			<button
-				type="button"
+			<Button
+				variant="outline"
 				title={LABELS[signature]()}
 				aria-label={LABELS[signature]()}
 				aria-pressed={settings.signature === signature}
 				disabled={noLogo && (signature === 'logo' || signature === 'both')}
-				class={TOOLBAR_ITEM}
+				class={CHOICE}
 				onclick={() => (settings.signature = signature)}
 			>
-				<span class={TOOLBAR_GLYPH}>
+				<span class={GLYPH} aria-hidden="true">
 					{#if signature === 'logo' || signature === 'both'}
 						<MarkLogo logo={settings.logo} class="size-6" />
 					{/if}
@@ -43,24 +40,13 @@
 							>{m.signature_none()}</span
 						>{/if}
 				</span>
-			</button>
+				{#if settings.signature === signature}<Check
+						class="absolute top-0.5 right-0.5 size-3"
+						aria-hidden="true"
+					/>{/if}
+			</Button>
 		{/each}
 	</div>
-	<SizeSlider bind:value={settings.signatureSize} label={m.signature_size()} />
-</div>
-<SamplePhoto label={m.signature_preview()}>
-	<div
-		class="absolute inset-0 bg-[linear-gradient(rgb(0_0_0/0.25),transparent_30%,transparent_50%,rgb(0_0_0/0.55))]"
-	></div>
-	<StudioSignature
-		studio={settings.studioName.trim() || m.watermark_your_studio()}
-		logo={settings.logo}
-		signature={settings.signature}
-		size={settings.signatureSize}
-		class="absolute inset-x-0 top-[4cqw] z-10 font-serif text-[2.8cqw] text-inverse italic"
-	/>
-	<span
-		class="absolute bottom-[4cqw] left-[4cqw] z-10 font-serif text-[5cqw] leading-none text-inverse"
-		>{m.gallery_title_label()}</span
-	>
-</SamplePhoto>
+</fieldset>
+<p class="mb-1 text-sm font-semibold">{m.signature_size()}</p>
+<SizeSlider bind:value={settings.signatureSize} label={m.signature_size()} />

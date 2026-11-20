@@ -53,8 +53,8 @@ impl CleanupHandler {
         };
         let failures = self.storage.remove_many(location, &payload.photo_ids).await;
 
-        for (key, error) in &failures {
-            warn!(photo = %key.photo, %error, "photo file could not be removed");
+        for (photo, error) in &failures {
+            warn!(%photo, %error, "photo file could not be removed");
         }
 
         if failures.is_empty() {
