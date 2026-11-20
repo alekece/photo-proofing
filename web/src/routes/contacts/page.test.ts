@@ -103,6 +103,11 @@ describe('/contacts page', () => {
 			within(screen.getByRole('list', { name: 'Workspace contacts' })).getByText('Camille & Hugo')
 		).toBeTruthy();
 
+		await user.type(search, 'no match');
+		await user.click(screen.getByRole('button', { name: 'Reset' }));
+		expect(search).toHaveProperty('value', '');
+		expect(screen.getByRole('list', { name: 'Workspace contacts' })).toBeTruthy();
+
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
@@ -114,8 +119,8 @@ describe('/contacts page', () => {
 			contact({ id: 'c3', name: 'Alex Martin', email: 'alex@other.test' })
 		]);
 		const search = screen.getByRole('searchbox', { name: 'Search by name, email or phone' });
-		const sort = screen.getByRole('combobox', { name: 'Sort by' });
-		const toolbar = container.querySelector('[data-slot="contacts-toolbar"]') as HTMLElement;
+		const sort = screen.getByRole('button', { name: /^Sort by:/ });
+		const toolbar = container.querySelector('[data-slot="workspace-toolbar"]') as HTMLElement;
 		expect(toolbar.contains(search)).toBe(true);
 		expect(toolbar.contains(sort)).toBe(true);
 		expect(toolbar.className).toContain('w-full');
@@ -127,12 +132,14 @@ describe('/contacts page', () => {
 
 		expect(names()[0]).toContain('Alex Martin');
 		await user.type(search, 'example.test');
-		await user.selectOptions(sort, 'name_desc');
+		await user.click(sort);
+		await user.click(screen.getByRole('menuitemradio', { name: 'Name Z–A' }));
 		expect(names()).toHaveLength(2);
 		expect(names()[0]).toContain('Zoé Laurent');
 		expect(names()[1]).toContain('Camille & Hugo');
 		expect((search as HTMLInputElement).value).toBe('example.test');
-		await user.selectOptions(sort, 'name_asc');
+		await user.click(sort);
+		await user.click(screen.getByRole('menuitemradio', { name: 'Name A–Z' }));
 		expect(names()[0]).toContain('Camille & Hugo');
 	});
 

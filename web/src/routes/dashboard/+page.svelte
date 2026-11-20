@@ -18,9 +18,10 @@
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
-	import { Pencil, Plus, Search, Star, Trash2 } from '@lucide/svelte';
+	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
+	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
+	import { ArrowUpDown, Pencil, Plus, Star, Trash2 } from '@lucide/svelte';
 	import GalleryStateFilter from '#lib/components/GalleryStateFilter.svelte';
-	import GallerySortMenu from '#lib/components/GallerySortMenu.svelte';
 	import {
 		deleteGallery,
 		updateGallery,
@@ -29,7 +30,7 @@
 	} from '#lib/gallery/api.js';
 	import { ApiError } from '#lib/http.js';
 	import type { GallerySort, GalleryState } from '#lib/gallery/schemas.js';
-	import { ALL_STATES, DEFAULT_STATES } from '#lib/gallery/states.js';
+	import { ALL_STATES, DEFAULT_STATES, sameStates } from '#lib/gallery/states.js';
 	import { galleryStatus } from '#lib/gallery/format.js';
 	import { getNotifications, notificationBadge } from '#lib/gallery/notifications.svelte.js';
 	import type { PageData } from './$types';
@@ -47,11 +48,18 @@
 	let quickEditOpen = $state(false);
 	let deleteConfirmOpen = $state(false);
 	let query = $state('');
+	let resultsHeight = $state(0);
 	let selectionMode = $state(false);
 	// Only a same-page navigation (changing the sort) shows the loading cards.
 	let loading = $derived(navigating.to?.route.id === '/dashboard');
 	let selected = $state<GalleryState[]>([...DEFAULT_STATES]);
 	let localGalleries = $derived<GalleryOverview[] | null>(data.galleries);
+	const sorts = $derived<{ value: GallerySort; label: string }[]>([
+		{ value: 'updated', label: m.sort_updated() },
+		{ value: 'created', label: m.sort_created() },
+		{ value: 'oldest', label: m.sort_oldest() },
+		{ value: 'title', label: m.sort_title() }
+	]);
 
 	function compareGalleries(
 		left: GalleryOverview,
@@ -403,32 +411,37 @@
 
 	{#if data.galleries !== null}
 		{@const none = all.length === 0}
-		<div
-			class="sticky top-2 z-[6] mx-2.5 mb-4 flex flex-wrap items-center gap-2 rounded-[0.875rem] border border-border bg-panel p-2 sm:mx-8 sm:mb-[1.375rem] sm:gap-3.5 sm:py-2.5 sm:pr-3 sm:pl-4 {none
-				? 'opacity-55'
-				: ''}"
+		<WorkspaceToolbar
+			class="mx-2.5 mb-4 sm:mx-8 sm:mb-[1.375rem]"
+			search={{
+				label: m.dashboard_search(),
+				value: query,
+				disabled: none,
+				oninput: (value) => (query = value)
+			}}
+			resultsHeight={loading || visible.length === 0 ? 0 : resultsHeight}
+			onclear={query.trim() || !sameStates(selected, DEFAULT_STATES) ? clearAll : undefined}
 		>
-			<label
-				class="flex min-w-40 flex-1 items-center gap-2 rounded-md has-focus-visible:outline-2 has-focus-visible:outline-offset-4 has-focus-visible:outline-focus/40 max-sm:basis-full"
-			>
-				<Search size={16} aria-hidden="true" class="shrink-0" />
-				<input
-					type="search"
-					aria-label={m.dashboard_search()}
-					placeholder={m.dashboard_search()}
-					bind:value={query}
+			{#snippet filters()}
+				<GalleryStateFilter
+					{selected}
+					{counts}
 					disabled={none}
-					class="w-full border-0 bg-transparent text-[0.9375rem] outline-none placeholder:text-muted-foreground focus-visible:shadow-none focus-visible:outline-none [&::-webkit-search-cancel-button]:hidden"
+					onchange={(next) => (selected = next)}
 				/>
-			</label>
-			<GalleryStateFilter
-				{selected}
-				{counts}
-				disabled={none}
-				onchange={(next) => (selected = next)}
-			/>
-			<GallerySortMenu value={data.sort} disabled={none} onchange={changeSort} />
-		</div>
+			{/snippet}
+			{#snippet sort()}
+				<ToolbarMenu
+					label={m.sort_by()}
+					summary={sorts.find(({ value }) => value === data.sort)?.label ?? m.sort_by()}
+					icon={ArrowUpDown}
+					value={data.sort}
+					options={sorts}
+					disabled={none}
+					onchange={changeSort}
+				/>
+			{/snippet}
+		</WorkspaceToolbar>
 	{/if}
 	{#if loading}
 		<p class="sr-only" role="status">{m.dashboard_loading()}</p>
@@ -446,7 +459,7 @@
 	{:else if all.length === 0}
 		<EmptyWorkspace />
 	{:else}
-		<ul class="{gridClass} mb-12">
+		<ul bind:clientHeight={resultsHeight} class="{gridClass} mb-12">
 			{#each visible as gallery (gallery.id)}
 				{@const news = [
 					...new Set(notifications?.unreadFor(gallery.id).map((note) => notificationBadge(note)))

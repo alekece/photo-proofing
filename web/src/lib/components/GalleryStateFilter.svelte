@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { ChevronDown, ListFilter } from '@lucide/svelte';
+	import { ListFilter } from '@lucide/svelte';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
-	import Popover from '#lib/components/ui/Popover/Popover.svelte';
+	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
 	import { statusDots } from '#lib/components/ui/StatusChip/StatusChip.svelte';
-	import { menuButton } from '#lib/components/ui/Popover/menu.js';
 	import type { GalleryState } from '#lib/gallery/schemas.js';
 	import { ALL_STATES, DEFAULT_STATES, STATE_LABELS, sameStates } from '#lib/gallery/states.js';
 
@@ -21,6 +20,9 @@
 	} = $props();
 
 	let isDefault = $derived(sameStates(selected, DEFAULT_STATES));
+	let activeCount = $derived(
+		ALL_STATES.filter((state) => selected.includes(state) !== DEFAULT_STATES.includes(state)).length
+	);
 	let summary = $derived(
 		isDefault
 			? m.filter_status()
@@ -42,18 +44,7 @@
 	}
 </script>
 
-<Popover
-	{disabled}
-	align="end"
-	rootClass="w-40 shrink-0 max-sm:flex-1"
-	class="{menuButton} {isDefault ? '' : 'font-semibold'}"
-	panelClass="mt-1.5 w-60"
->
-	{#snippet trigger()}
-		<ListFilter size={16} aria-hidden="true" />
-		<span class="min-w-0 flex-1 truncate text-left" title={summary}>{summary}</span>
-		<ChevronDown size={12} aria-hidden="true" />
-	{/snippet}
+<ToolbarMenu {disabled} label={m.filter_status()} {summary} {activeCount} icon={ListFilter}>
 	<ul class="grid">
 		{#each ALL_STATES as state (state)}
 			<li>
@@ -90,4 +81,4 @@
 			{m.filter_reset()}
 		</button>
 	</div>
-</Popover>
+</ToolbarMenu>

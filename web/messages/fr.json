@@ -246,6 +246,7 @@
 	"filter_all": "Tous les statuts",
 	"filter_select_all": "Tout sélectionner",
 	"filter_reset": "Réinitialiser",
+	"toolbar_filters": "Filtres",
 	"sort_updated": "Modifiées récemment",
 	"sort_created": "Créées récemment",
 	"sort_oldest": "Plus anciennes",

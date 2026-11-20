@@ -243,6 +243,7 @@
 	"filter_all": "All statuses",
 	"filter_select_all": "Select all",
 	"filter_reset": "Reset",
+	"toolbar_filters": "Filters",
 	"sort_updated": "Recently updated",
 	"sort_created": "Newest created",
 	"sort_oldest": "Oldest created",

@@ -2,7 +2,7 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
-	import { ArrowLeft, LoaderCircle, Plus, Search, Trash2, Users } from '@lucide/svelte';
+	import { ArrowLeft, ArrowUpDown, LoaderCircle, Plus, Trash2, Users } from '@lucide/svelte';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import { authRequest } from '#lib/auth.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
@@ -12,8 +12,9 @@
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
-	import Select from '#lib/components/ui/Select/Select.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
+	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 	import { createContact, deleteContact, updateContact, type Contact } from '#lib/contacts/api.js';
 	import { contactInitials, sortContacts } from '#lib/contacts/format.js';
 	import { ApiError } from '#lib/http.js';
@@ -32,7 +33,12 @@
 	let creating = $state(false);
 	let mobileDetailOpen = $state(false);
 	let query = $state('');
+	let resultsHeight = $state(0);
 	let sortOrder = $state<'name_asc' | 'name_desc'>('name_asc');
+	const sorts = $derived([
+		{ value: 'name_asc', label: m.contacts_sort_name_asc() },
+		{ value: 'name_desc', label: m.contacts_sort_name_desc() }
+	] as const);
 	let signingOut = $state(false);
 	let signOutError = $state('');
 
@@ -317,32 +323,29 @@
 		</Button>
 	</div>
 
-	<div data-slot="contacts-toolbar" class="mb-4 flex w-full flex-wrap gap-3 sm:mb-6">
-		<div class="relative min-w-0 flex-1 basis-64">
-			<Search
-				size={16}
-				aria-hidden="true"
-				class="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted-foreground"
-			/>
-			<Input
-				type="search"
-				bind:value={query}
+	<WorkspaceToolbar
+		class="mb-4 w-full sm:mb-6"
+		search={{
+			label: m.contacts_search(),
+			value: query,
+			disabled: loadFailed || contacts.length === 0,
+			oninput: (value) => (query = value)
+		}}
+		resultsHeight={matching.length ? resultsHeight : 0}
+		onclear={query.trim() ? () => (query = '') : undefined}
+	>
+		{#snippet sort()}
+			<ToolbarMenu
+				label={m.sort_by()}
+				summary={sorts[sortOrder === 'name_asc' ? 0 : 1].label}
+				icon={ArrowUpDown}
+				value={sortOrder}
+				options={sorts}
 				disabled={loadFailed || contacts.length === 0}
-				aria-label={m.contacts_search()}
-				placeholder={m.contacts_search()}
-				class="rounded-full pl-9"
+				onchange={(value) => (sortOrder = value)}
 			/>
-		</div>
-		<Select
-			bind:value={sortOrder}
-			aria-label={m.sort_by()}
-			disabled={loadFailed || contacts.length === 0}
-			class="max-sm:w-full"
-		>
-			<option value="name_asc">{m.contacts_sort_name_asc()}</option>
-			<option value="name_desc">{m.contacts_sort_name_desc()}</option>
-		</Select>
-	</div>
+		{/snippet}
+	</WorkspaceToolbar>
 
 	{#if loadFailed}
 		<EmptyState variant="plain" class="rounded-card">
@@ -371,7 +374,11 @@
 							</Button>
 						</div>
 					{:else}
-						<ul aria-label={m.contacts_list_label()} class="grid gap-2">
+						<ul
+							bind:clientHeight={resultsHeight}
+							aria-label={m.contacts_list_label()}
+							class="grid gap-2"
+						>
 							{#each matching as item (item.id)}
 								{@const active = !creating && selectedContact?.id === item.id}
 								<li>
