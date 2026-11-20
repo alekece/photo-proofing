@@ -698,7 +698,8 @@ impl GalleryRepository<'_> {
     /// clients only ever see the ready ones.
     ///
     /// The `UPDATE` takes the row lock that [`PhotoRepository::set_favorite`] waits on, so a
-    /// favorite write either lands before delivery or is rejected after it.
+    /// favorite write either lands before delivery or is rejected after it. Delivery cancels
+    /// unpublished watermark-only work unless a worker has already locked its job to publish.
     ///
     /// [`PhotoRepository::set_favorite`]: crate::photo::PhotoRepository::set_favorite
     pub async fn deliver(
@@ -706,6 +707,44 @@ impl GalleryRepository<'_> {
         workspace_id: WorkspaceId,
         id: GalleryId,
     ) -> Result<Delivery, DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
+
+        // Settings saves and upload/retry take the workspace lock before creating work.
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR UPDATE")
+            .bind(workspace_id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+
+        let stage: Option<(bool, bool)> = sqlx::query_as(
+            "SELECT shared_at IS NOT NULL AND archived_at IS NULL, delivered_at IS NULL
+             FROM galleries WHERE id=$1 AND workspace_id=$2",
+        )
+        .bind(id)
+        .bind(workspace_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let first_delivery = match stage {
+            Some((true, first_delivery)) => first_delivery,
+            Some((false, _)) => return Ok(Delivery::NotDeliverable),
+            None => return Ok(Delivery::NotFound),
+        };
+
+        if first_delivery {
+            let photos: Vec<PhotoId> = sqlx::query_scalar(
+                "SELECT id FROM photos WHERE workspace_id=$1 AND gallery_id=$2
+                   AND watermark_only_pending",
+            )
+            .bind(workspace_id)
+            .bind(id)
+            .fetch_all(&mut *transaction)
+            .await?;
+
+            if !photos.is_empty() {
+                // Like deletion, lock jobs before the gallery and photos so publication may finish.
+                JobRepository::delete_photo_jobs_in(&mut transaction, &photos).await?;
+            }
+        }
+
         let delivered = sqlx::query_as(AssertSqlSafe(format!(
             "UPDATE galleries SET delivered_at = COALESCE(delivered_at, now())
              WHERE id=$1 AND workspace_id=$2 AND shared_at IS NOT NULL AND archived_at IS NULL
@@ -714,14 +753,36 @@ impl GalleryRepository<'_> {
         )))
         .bind(id)
         .bind(workspace_id)
-        .fetch_optional(self.pool)
+        .fetch_optional(&mut *transaction)
         .await?;
 
-        Ok(match delivered {
-            Some(gallery) => Delivery::Delivered(Box::new(gallery)),
-            None if self.get(workspace_id, id).await?.is_some() => Delivery::NotDeliverable,
-            None => Delivery::NotFound,
-        })
+        let Some(gallery) = delivered else {
+            // An archive or delete may have won after checking eligibility. Do not lose jobs.
+            let exists = Self::exists_in_workspace(&mut *transaction, workspace_id, id).await?;
+            transaction.rollback().await?;
+
+            return Ok(if exists {
+                Delivery::NotDeliverable
+            } else {
+                Delivery::NotFound
+            });
+        };
+
+        if first_delivery {
+            sqlx::query(
+                "UPDATE photos SET status='ready', failure_reason=NULL,
+                     requested_watermark_revision=watermark_revision, watermark_only_pending=false
+                 WHERE workspace_id=$1 AND gallery_id=$2 AND watermark_only_pending",
+            )
+            .bind(workspace_id)
+            .bind(id)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        transaction.commit().await?;
+
+        Ok(Delivery::Delivered(Box::new(gallery)))
     }
 
     /// Undoes [`archive`](Self::archive) at the same link. Delivery, sharing and expiry are

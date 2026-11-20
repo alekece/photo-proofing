@@ -5,7 +5,8 @@
 //!   says whether `GET /logo` has one.
 //! - `PUT /` saves every setting at once and returns them. `logo` is `{"action": "keep"}` (the
 //!   default when absent), `{"action": "remove"}` or `{"action": "replace", "image_base64": …}`
-//!   (a PNG or JPEG, stored as a normalised PNG). A change to what the watermark draws regenerates the proofs of watermarked galleries.
+//!   (a PNG or JPEG, stored as a normalised PNG). A visible watermark change regenerates
+//!   unpublished proofs only; a proof quality change regenerates all proofs.
 //! - `PUT /language` saves the workspace language alone, `{"language": "en" | "fr"}`, and returns
 //!   it. The proofs are untouched.
 //! - `GET /logo` returns the saved logo as a PNG, or a 404.

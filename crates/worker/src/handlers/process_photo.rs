@@ -101,6 +101,11 @@ impl ProcessPhotoHandler {
         else {
             return Ok(PhotoOutput::Skipped);
         };
+
+        if !proof.is_processing {
+            return Ok(PhotoOutput::Skipped);
+        }
+
         let stamp = proof.stamp;
         let original = self.read_original(location, id).await?;
         let renderer = self.renderer;
@@ -299,11 +304,11 @@ mod tests {
     use pp_database::{
         PgPool,
         auth::WorkspaceId,
-        gallery::{GalleryId, GalleryRepository},
+        gallery::{Delivery, GalleryId, GalleryRepository},
         jobs::{Backoff, JobKind, JobPayload},
         photo::{NewPhoto, PhotoDimensions, PhotoKind, PhotoStatus},
         photo_intake::PhotoIntake,
-        settings::{LogoChange, ProofQuality, SettingsUpdate, WorkspaceSettings},
+        settings::{LogoChange, ProofQuality, SettingsUpdate, WatermarkColor, WorkspaceSettings},
         tests::TestRepository,
     };
     use tempfile::TempDir;
@@ -325,6 +330,95 @@ mod tests {
     }
 
     impl Fixture {
+        async fn share(&self) {
+            self.handler
+                .database
+                .repository::<GalleryRepository>()
+                .share(self.location.workspace_id, self.location.gallery_id)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+
+        async fn deliver(&self) {
+            assert!(matches!(
+                self.handler
+                    .database
+                    .repository::<GalleryRepository>()
+                    .deliver(self.location.workspace_id, self.location.gallery_id)
+                    .await
+                    .unwrap(),
+                Delivery::Delivered(_)
+            ));
+        }
+
+        async fn save(&self, quality: ProofQuality, color: Option<WatermarkColor>) {
+            let defaults = WorkspaceSettings::default();
+            self.handler
+                .database
+                .repository::<SettingsRepository>()
+                .save(
+                    self.location.workspace_id,
+                    SettingsUpdate {
+                        studio_name: "Synthetic Studio".to_owned(),
+                        mark: defaults.mark,
+                        pattern: defaults.pattern,
+                        position: defaults.position,
+                        size: defaults.size,
+                        signature: defaults.signature,
+                        signature_size: defaults.signature_size,
+                        proof_quality: quality,
+                        watermark_opacity: None,
+                        watermark_text_color: color,
+                        logo: LogoChange::Keep,
+                    },
+                )
+                .await
+                .unwrap();
+        }
+
+        async fn render_claim(&self) -> (Job, PhotoOutput) {
+            let job = self
+                .jobs()
+                .claim(&[JobKind::ProcessPhoto], LEASE)
+                .await
+                .unwrap()
+                .unwrap();
+            let output = Arc::clone(&self.handler)
+                .run(ProcessPhoto { photo_id: self.id })
+                .await
+                .unwrap();
+            assert!(matches!(output, PhotoOutput::Rendered(_)));
+            (job, output)
+        }
+
+        async fn revision(&self) -> i64 {
+            self.handler
+                .database
+                .repository::<PhotoRepository>()
+                .get(
+                    self.location.workspace_id,
+                    self.location.gallery_id,
+                    self.id,
+                    PhotoKind::Proof,
+                )
+                .await
+                .unwrap()
+                .unwrap()
+                .revision
+        }
+
+        fn published_files(&self) -> [Vec<u8>; 5] {
+            [
+                Variant::Original,
+                Variant::Thumbnail,
+                Variant::Preview,
+                Variant::WatermarkedThumbnail,
+                Variant::WatermarkedPreview,
+            ]
+            .map(|variant| self.file(variant).unwrap())
+        }
+
         /// Accepts a photo with `original` stored as its upload.
         async fn new(pool: &PgPool, original: Vec<u8>) -> Self {
             let dir = tempfile::tempdir().unwrap();
@@ -546,6 +640,92 @@ mod tests {
         let image = libvips::VipsImage::new_from_buffer(bytes, "").unwrap();
 
         (image.get_width(), image.get_height())
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn delivery_cancels_queued_or_staged_watermark_only_work(pool: PgPool) {
+        for stage in [false, true] {
+            let fixture = Fixture::new(&pool, jpeg()).await;
+            fixture.run().await.unwrap();
+            let old = fixture.published_files();
+            let revision = fixture.revision().await;
+            let stamp = fixture.stamp().await;
+            fixture.share().await;
+            fixture.save(ProofQuality::Medium, None).await;
+            let staged = if stage {
+                Some(fixture.render_claim().await)
+            } else {
+                None
+            };
+
+            fixture.deliver().await;
+            assert!(!fixture.has_jobs().await);
+            assert_eq!(fixture.status().await, Some(PhotoStatus::Ready));
+            assert_eq!(fixture.stamp().await, stamp);
+            assert_eq!(fixture.revision().await, revision);
+            assert_eq!(fixture.published_files(), old);
+
+            if let Some((job, output)) = staged {
+                let completion = fixture.finalizer().finalize(&job, output).await.unwrap();
+                assert!(!completion.is_current());
+                assert_eq!(fixture.published_files(), old);
+                assert_eq!(fixture.revision().await, revision);
+            }
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn initial_and_quality_jobs_survive_delivery_and_a_later_style_save(pool: PgPool) {
+        for quality in [ProofQuality::Medium, ProofQuality::High] {
+            let fixture = Fixture::new(&pool, jpeg()).await;
+            fixture.share().await;
+            if quality == ProofQuality::High {
+                fixture.run().await.unwrap();
+                fixture.save(quality, None).await;
+            }
+            let revision = fixture.revision().await;
+            let (job, output) = fixture.render_claim().await;
+            fixture.deliver().await;
+            fixture
+                .save(quality, Some("#A12B3C".parse().unwrap()))
+                .await;
+            assert_eq!(fixture.testing().count_jobs(None).await.unwrap(), 1);
+            let completion = fixture.finalizer().finalize(&job, output).await.unwrap();
+            assert!(completion.is_current());
+            assert_eq!(fixture.status().await, Some(PhotoStatus::Ready));
+            assert_eq!(fixture.revision().await, revision + 1);
+            assert!(!fixture.has_jobs().await);
+        }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn canceled_staged_work_cannot_touch_a_later_quality_run(pool: PgPool) {
+        let fixture = Fixture::new(&pool, jpeg()).await;
+        fixture.run().await.unwrap();
+        let old = fixture.published_files();
+        fixture.share().await;
+        fixture.save(ProofQuality::Medium, None).await;
+        let (canceled_job, canceled_output) = fixture.render_claim().await;
+        fixture.deliver().await;
+
+        fixture.save(ProofQuality::High, None).await;
+        let (quality_job, quality_output) = fixture.render_claim().await;
+        let completion = fixture
+            .finalizer()
+            .finalize(&canceled_job, canceled_output)
+            .await
+            .unwrap();
+        assert!(!completion.is_current());
+        assert_eq!(fixture.published_files(), old);
+        let completion = fixture
+            .finalizer()
+            .finalize(&quality_job, quality_output)
+            .await
+            .unwrap();
+        assert!(completion.is_current());
+        assert_eq!(fixture.status().await, Some(PhotoStatus::Ready));
+        assert_ne!(fixture.published_files()[1], old[1]);
+        assert!(!fixture.has_jobs().await);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

@@ -250,7 +250,7 @@ pub struct PhotoLocation {
 ///
 /// Callers choose it; the repository only checks that those files are ready. Clean files are
 /// ready as soon as they are published, even while marked copies are being regenerated; marked
-/// ones only at the workspace's current watermark revision.
+/// ones only at the proof's requested watermark revision.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
 pub struct Watermarked(pub bool);
@@ -261,9 +261,7 @@ impl Watermarked {
     const fn ready_condition(self) -> &'static str {
         if self.0 {
             "CASE WHEN p.kind = 'proof' THEN p.clean_ready AND
-                p.watermark_revision = COALESCE(
-                    (SELECT s.watermark_revision FROM workspace_settings s
-                     WHERE s.workspace_id = p.workspace_id), 0)
+                p.watermark_revision = p.requested_watermark_revision
                 ELSE p.status = 'ready' END"
         } else {
             "CASE WHEN p.kind = 'proof' THEN p.clean_ready ELSE p.status = 'ready' END"
@@ -324,9 +322,12 @@ impl PhotoRepository<'_> {
 
         let inserted: Option<Photo> = sqlx::query_as(
             "INSERT INTO photos
-                 (id, workspace_id, gallery_id, original_name, size, width, height, kind)
-             SELECT $1, $2, g.id, $4, $5, $6, $7, $8
+                 (id, workspace_id, gallery_id, original_name, size, width, height, kind,
+                  requested_watermark_revision)
+             SELECT $1, $2, g.id, $4, $5, $6, $7, $8,
+                    CASE WHEN $8 = 'proof' THEN COALESCE(s.watermark_revision, 0) ELSE 0 END
              FROM galleries AS g
+             LEFT JOIN workspace_settings s ON s.workspace_id = g.workspace_id
              WHERE g.id = $3 AND g.workspace_id = $2
              ON CONFLICT (id) DO NOTHING
              RETURNING id, clean_ready, revision, original_name, size, width, height,
@@ -698,11 +699,11 @@ impl PhotoRepository<'_> {
         let result = sqlx::query(
             "UPDATE photos SET status = $2::photo_status, failure_reason = $3,
                  clean_ready = clean_ready OR $2 = 'ready',
+                 watermark_only_pending = watermark_only_pending AND $2 <> 'ready',
                  watermark_revision = CASE WHEN $2 = 'ready' AND kind = 'proof'
-                     THEN COALESCE((SELECT watermark_revision FROM workspace_settings
-                                    WHERE workspace_id = photos.workspace_id), 0)
+                     THEN requested_watermark_revision
                      ELSE watermark_revision END,
-                 clean_quality = CASE WHEN $2 = 'ready' AND kind = 'proof'
+                 clean_quality = CASE WHEN $2 = 'ready' AND kind = 'proof' AND NOT watermark_only_pending
                      THEN COALESCE((SELECT proof_quality FROM workspace_settings
                                     WHERE workspace_id = photos.workspace_id), 'medium')
                      ELSE clean_quality END,
@@ -1236,8 +1237,8 @@ mod tests {
         );
 
         sqlx::query(
-            "INSERT INTO workspace_settings(workspace_id, studio_name, watermark_revision)
-             VALUES ($1, 'Studio', 1)",
+            "UPDATE photos SET requested_watermark_revision = 1
+                     WHERE workspace_id = $1 AND kind = 'proof'",
         )
         .bind(location.workspace_id)
         .execute(&pool)

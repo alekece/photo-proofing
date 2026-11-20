@@ -143,7 +143,7 @@ impl<'a> WatermarkPainter<'a> {
 
     fn pad(mark: &VipsImage, padding: i32) -> Result<VipsImage, RenderError> {
         ops::embed(
-            &Self::as_srgb(&mark)?,
+            &Self::as_srgb(mark)?,
             padding,
             padding,
             mark.get_width() + 2 * padding,
@@ -460,7 +460,9 @@ mod tests {
             };
             let signal = |painted: Vec<u8>| {
                 painted
-                    .chunks_exact(3)
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
                     .map(|pixel| u64::from(pixel[0].saturating_sub(pixel[1])))
                     .sum::<u64>()
             };

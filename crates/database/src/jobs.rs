@@ -642,8 +642,6 @@ impl JobRepository<'_> {
             "SELECT p.status = ANY(ARRAY['waiting', 'processing']::photo_status[]) AS unfinished,
                     {} AS stamp
              FROM photos p
-             JOIN galleries g ON g.id = p.gallery_id
-             LEFT JOIN workspace_settings s ON s.workspace_id = p.workspace_id
              WHERE p.id = $1",
             WatermarkStamp::SQL
         )))
