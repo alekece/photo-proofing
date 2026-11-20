@@ -11,7 +11,7 @@
 <div
 	role="img"
 	aria-label={label}
-	class="[container-type:inline-size] relative mb-14 aspect-[3/2] w-full max-w-[48rem] overflow-hidden rounded-xl bg-linear-to-br from-[#ecd3b6] via-[#b5aaa0] to-[#3d4852]"
+	class="[container-type:inline-size] relative aspect-[3/2] w-full max-w-[48rem] overflow-hidden rounded-xl bg-linear-to-br from-[#ecd3b6] via-[#b5aaa0] to-[#3d4852]"
 >
 	{@render children()}
 </div>

@@ -9,17 +9,22 @@
 	import ButtonFace from '#lib/components/ButtonFace.svelte';
 	import ClickRipple from '#lib/components/ClickRipple.svelte';
 	import ProofQualityPicker from '#lib/components/ProofQualityPicker.svelte';
+	import SamplePhoto from '#lib/components/SamplePhoto.svelte';
 	import SignatureEditor from '#lib/components/SignatureEditor.svelte';
+	import SignaturePreview from '#lib/components/SignaturePreview.svelte';
 	import SaveButton, { type SaveStatus } from '#lib/components/SaveButton.svelte';
 	import WatermarkEditor from '#lib/components/WatermarkEditor.svelte';
+	import WatermarkPreview from '#lib/components/WatermarkPreview.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import PageShell from '#lib/components/ui/PageShell/PageShell.svelte';
+	import Tabs from '#lib/components/ui/Tabs/Tabs.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import { ApiError } from '#lib/http.js';
 	import {
 		LOGO_TYPES,
 		SettingsApi,
+		normalizeWatermarkHex,
 		settingsChanged,
 		type WorkspaceSettings
 	} from '#lib/settings/settings.js';
@@ -34,13 +39,23 @@
 	let saved = $state<WorkspaceSettings>({ ...data.settings });
 	// svelte-ignore state_referenced_locally
 	let draft = $state<WorkspaceSettings>({ ...data.settings });
+	let hexEdit = $state<string | null>(null);
+	let section = $state('studio');
+	const sections = [
+		{ id: 'studio', label: m.studio_group_studio() },
+		{ id: 'watermark', label: m.watermark_label() },
+		{ id: 'signature', label: m.signature_label() },
+		{ id: 'quality', label: m.quality_label() }
+	];
 	let dirty = $derived(settingsChanged(draft, saved));
+	let invalidHex = $derived(hexEdit !== null && normalizeWatermarkHex(hexEdit) === null);
+	let hasEdits = $derived(dirty || hexEdit !== null);
 	let feedback = $state<'reverted' | null>(null);
 	let status = $state<SaveStatus>('idle');
 	// A new edit ends the confirmation early so Save is offered again at once.
-	let shown = $derived<SaveStatus>(status === 'saved' && dirty ? 'idle' : status);
+	let shown = $derived<SaveStatus>(status === 'saved' && hasEdits ? 'idle' : status);
 	// Like Saved, Reverted gives way as soon as there is something to cancel again.
-	let reverted = $derived(feedback === 'reverted' && !dirty);
+	let reverted = $derived(feedback === 'reverted' && !hasEdits);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let savedTimer: ReturnType<typeof setTimeout> | undefined;
 	let signingOut = $state(false);
@@ -73,7 +88,7 @@
 	}
 
 	async function save() {
-		if (!dirty || shown !== 'idle') return;
+		if (!dirty || invalidHex || shown !== 'idle') return;
 
 		status = 'saving';
 		clearTimeout(timer);
@@ -81,11 +96,13 @@
 		feedback = null;
 		try {
 			const submitted = { ...draft };
+			const submittedHex = hexEdit;
 
 			saved = await api.save(submitted, saved);
 			for (const key of Object.keys(submitted) as (keyof WorkspaceSettings)[]) {
 				if (draft[key] === submitted[key]) draft = { ...draft, [key]: saved[key] };
 			}
+			if (hexEdit === submittedHex) hexEdit = null;
 			confirmSaved();
 		} catch (error) {
 			if (error instanceof ApiError && (error.status === 422 || error.status === 413)) {
@@ -98,9 +115,10 @@
 	}
 
 	function cancel() {
-		if (!dirty) return;
+		if (!hasEdits || status === 'saving') return;
 
 		draft = { ...saved };
+		hexEdit = null;
 		show('reverted', REVERTED_MS);
 	}
 
@@ -143,6 +161,39 @@
 		'relative inline-grid h-11 min-h-0 px-[1.375rem] max-sm:flex-1 font-semibold! tracking-normal! transition-[background-color,opacity] duration-300 disabled:opacity-35';
 </script>
 
+{#snippet studio()}
+	<div class="flex items-center gap-4">
+		{#if draft.logo}
+			<div
+				class="group/logo relative grid size-16 flex-none place-items-center rounded-[0.875rem] border-[1.5px] border-border bg-golden-hour"
+			>
+				<img src={draft.logo} alt={m.studio_logo_alt()} class="max-h-[2.375rem] max-w-[2.375rem]" />
+				<button
+					type="button"
+					aria-label={m.studio_logo_remove()}
+					class="absolute -top-2 -right-2 grid size-[1.625rem] cursor-pointer place-items-center rounded-full bg-foreground text-inverse opacity-0 transition-opacity group-hover/logo:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+					onclick={removeLogo}><X size={13} aria-hidden="true" /></button
+				>
+			</div>
+		{:else}
+			<label
+				class="grid size-16 flex-none cursor-pointer place-content-center justify-items-center gap-0.5 rounded-[0.875rem] border-[1.5px] border-dashed border-border text-xs font-semibold text-muted-foreground focus-within:outline-3 focus-within:outline-offset-3"
+			>
+				<Upload size={20} strokeWidth={1.8} aria-hidden="true" />
+				{m.common_logo()}
+				<input type="file" accept="image/png,image/jpeg" class="sr-only" onchange={pickLogo} />
+			</label>
+		{/if}
+		<Input
+			bind:value={draft.studioName}
+			aria-label={m.studio_name()}
+			placeholder={m.studio_name()}
+			autocomplete="organization"
+			class="min-h-0 max-w-[32.5rem] min-w-0 flex-1 rounded-none border-0 border-b-[1.5px] border-border bg-transparent px-0 py-1.5 font-serif text-[1.625rem] leading-[normal] shadow-none focus:border-foreground"
+		/>
+	</div>
+{/snippet}
+
 <svelte:head><title>{m.header_settings()} — PhotoProofing</title></svelte:head>
 <AppHeader onsignout={logout} />
 <div class="sm:pl-60">
@@ -155,13 +206,18 @@
 			><ArrowLeft class="size-4" aria-hidden="true" />{m.header_back_to_galleries()}</a
 		>
 		{#if message}<p role="alert" class="mb-4 text-danger">{message}</p>{/if}
-		<div class="mb-7 flex flex-wrap items-center gap-3">
-			<h1 class="m-0 flex-1 text-4xl leading-[1.1] max-sm:basis-full sm:text-[3.25rem]">
-				{m.header_settings()}
-			</h1>
+		<h1 class="mb-3 text-4xl leading-[1.1] sm:text-[3.25rem]">{m.header_settings()}</h1>
+		<div
+			class="sticky top-[env(safe-area-inset-top)] z-20 mb-2 flex flex-wrap items-center justify-end gap-2 bg-background py-2"
+		>
+			{#if invalidHex && section !== 'watermark'}
+				<p aria-live="polite" class="mr-auto text-sm text-danger max-sm:basis-full">
+					{m.watermark_color_invalid()}
+				</p>
+			{/if}
 			<Button
 				variant="outline"
-				disabled={!reverted && (!dirty || status === 'saving')}
+				disabled={!reverted && (!hasEdits || status === 'saving')}
 				aria-disabled={reverted || undefined}
 				onclick={cancel}
 				class="{action} border-[1.5px]! border-border! bg-input! aria-disabled:cursor-default {reverted
@@ -181,7 +237,7 @@
 			</Button>
 			<SaveButton
 				status={shown}
-				disabled={shown === 'idle' && !dirty}
+				disabled={shown === 'idle' && (!dirty || invalidHex)}
 				onclick={save}
 				class={action}
 			/>
@@ -190,49 +246,39 @@
 			{feedback === 'reverted' ? m.studio_reverted() : ''}
 		</span>
 
-		<div class="mb-10 flex items-center gap-5">
-			{#if draft.logo}
+		<Tabs
+			bind:value={section}
+			items={sections}
+			label={m.studio_sections()}
+			listClass="min-w-0 overflow-x-auto whitespace-nowrap [&>button]:shrink-0 [&>button]:focus-visible:outline-offset-[-2px]"
+		>
+			{#snippet panel(active)}
 				<div
-					class="group/logo relative grid size-16 flex-none place-items-center rounded-[0.875rem] border-[1.5px] border-border bg-input"
+					class="grid min-w-0 items-start gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
 				>
-					<img
-						src={draft.logo}
-						alt={m.studio_logo_alt()}
-						class="max-h-[2.375rem] max-w-[2.375rem]"
-					/>
-					<button
-						type="button"
-						aria-label={m.studio_logo_remove()}
-						class="absolute -top-2 -right-2 grid size-[1.625rem] cursor-pointer place-items-center rounded-full bg-foreground text-inverse opacity-0 transition-opacity group-hover/logo:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-						onclick={removeLogo}><X size={13} aria-hidden="true" /></button
+					<div data-settings-controls class="min-w-0">
+						{#if active === 'studio'}
+							{@render studio()}
+						{:else if active === 'watermark'}
+							<WatermarkEditor bind:settings={draft} bind:hexEdit />
+						{:else if active === 'signature'}
+							<SignatureEditor bind:settings={draft} />
+						{:else}
+							<p class="mb-4 text-muted-foreground">{m.quality_hint()}</p>
+							<ProofQualityPicker bind:value={draft.proofQuality} />
+						{/if}
+					</div>
+					<SamplePhoto
+						label={active === 'signature' ? m.signature_preview() : m.watermark_preview()}
 					>
+						{#if active === 'signature'}
+							<SignaturePreview settings={draft} />
+						{:else}
+							<WatermarkPreview settings={draft} />
+						{/if}
+					</SamplePhoto>
 				</div>
-			{:else}
-				<label
-					class="grid size-16 flex-none cursor-pointer place-content-center justify-items-center gap-0.5 rounded-[0.875rem] border-[1.5px] border-dashed border-border text-xs font-semibold text-muted-foreground focus-within:outline-3 focus-within:outline-offset-3"
-				>
-					<Upload size={20} strokeWidth={1.8} aria-hidden="true" />
-					{m.common_logo()}
-					<input type="file" accept="image/png,image/jpeg" class="sr-only" onchange={pickLogo} />
-				</label>
-			{/if}
-			<Input
-				bind:value={draft.studioName}
-				aria-label={m.studio_name()}
-				placeholder={m.studio_name()}
-				autocomplete="organization"
-				class="min-h-0 max-w-[32.5rem] min-w-0 flex-1 rounded-none border-0 border-b-[1.5px] border-border bg-transparent px-0 py-1.5 font-serif text-[1.625rem] leading-[normal] shadow-none focus:border-foreground"
-			/>
-		</div>
-
-		<h2 class="mb-4 text-[1.875rem] leading-[1.15]">{m.studio_watermark()}</h2>
-		<WatermarkEditor bind:settings={draft} />
-
-		<h2 class="mb-4 text-[1.875rem] leading-[1.15]">{m.signature_label()}</h2>
-		<SignatureEditor bind:settings={draft} />
-
-		<h2 class="mt-10 mb-2 text-[1.875rem] leading-[1.15]">{m.quality_label()}</h2>
-		<p class="mb-4 text-muted-foreground">{m.quality_hint()}</p>
-		<ProofQualityPicker bind:value={draft.proofQuality} />
+			{/snippet}
+		</Tabs>
 	</PageShell>
 </div>

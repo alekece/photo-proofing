@@ -3,6 +3,7 @@ import { ApiError } from '#lib/http.js';
 import {
 	DEFAULT_SETTINGS,
 	LOGO_URL,
+	normalizeWatermarkHex,
 	parseSettings,
 	SettingsApi,
 	settingsChanged,
@@ -41,6 +42,8 @@ it('maps the API settings and rejects a malformed body', () => {
 		signature: 'logo',
 		signatureSize: 4,
 		proofQuality: 'high',
+		watermarkOpacity: 50,
+		watermarkTextColor: '#FFFFFF',
 		emailEnabled: false
 	});
 	expect(parseSettings({ ...body, email_enabled: true })?.emailEnabled).toBe(true);
@@ -48,6 +51,37 @@ it('maps the API settings and rejects a malformed body', () => {
 	expect(parseSettings({ ...body, position: 9 })).toBeNull();
 	expect(parseSettings({ ...body, mark: 'x' })).toBeNull();
 	expect(parseSettings(null)).toBeNull();
+});
+
+it('reads validated appearance, defaulting only omitted fields', () => {
+	expect(
+		parseSettings({ ...body, watermark_opacity: 0, watermark_text_color: '#A12B3C' })
+	).toMatchObject({ watermarkOpacity: 0, watermarkTextColor: '#A12B3C' });
+	for (const watermark_opacity of [-1, 101, 0.1, '50', null]) {
+		expect(parseSettings({ ...body, watermark_opacity })).toBeNull();
+	}
+	for (const watermark_text_color of ['red', 'A12B3C', '#123456ff', '#A12B3C\n', null]) {
+		expect(parseSettings({ ...body, watermark_text_color })).toBeNull();
+	}
+});
+
+it('normalizes only six-digit hex from the UI', () => {
+	expect(normalizeWatermarkHex(' a12b3c ')).toBe('#A12B3C');
+	for (const invalid of ['#ABC', 'red', 'rgb(1 2 3)', '#123456ff', '#00 000']) {
+		expect(normalizeWatermarkHex(invalid)).toBeNull();
+	}
+});
+
+it('sends and detects appearance edits even with an inactive text mark', async () => {
+	const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(body)));
+	const previous = { ...DEFAULT_SETTINGS, mark: 'logo' as const };
+	const draft = { ...previous, watermarkOpacity: 0, watermarkTextColor: '#A12B3C' };
+
+	expect(settingsChanged({ ...previous, watermarkTextColor: '#A12B3C' }, previous)).toBe(true);
+	expect(settingsChanged({ ...previous, watermarkOpacity: 0 }, previous)).toBe(true);
+	await new SettingsApi(fetcher).save(draft, previous);
+
+	expect(sent(fetcher)).toMatchObject({ watermark_opacity: 0, watermark_text_color: '#A12B3C' });
 });
 
 function sent(fetcher: ReturnType<typeof vi.fn>) {
