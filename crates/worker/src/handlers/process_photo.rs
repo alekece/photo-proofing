@@ -66,9 +66,8 @@ impl ProcessPhotoHandler {
 
     /// Renders the derivatives of one photo and stages them without making them visible.
     ///
-    /// The proofs carry the watermark that is current when rendering starts. The finalizer
-    /// publishes them only if it is still current then; otherwise the change that outdated them
-    /// already queued a job for the photo.
+    /// Proofs use the watermark saved when rendering starts. The finalizer publishes only
+    /// if the render still matches the photo's requested revision and owns the job claim.
     ///
     /// An original that cannot be rendered is reported as [`PhotoOutput::Failed`], since
     /// retrying cannot change the bytes. Database, storage and library faults are returned for
@@ -90,8 +89,7 @@ impl ProcessPhotoHandler {
             return Ok(PhotoOutput::Skipped);
         }
 
-        // Read after `mark_processing`: a change from here on resets the photo and queues
-        // another job, and publication checks the stamp, so no outdated proof is ever shown.
+        // A reset or delivery between these queries may have canceled this render.
         let Some(proof) = self
             .database
             .repository::<SettingsRepository>()
