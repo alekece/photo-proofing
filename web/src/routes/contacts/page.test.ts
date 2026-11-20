@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -479,6 +479,33 @@ describe('/contacts page', () => {
 		await advance(1);
 		expect(deleteButton()).toBeTruthy();
 		expect(requests).toEqual([]);
+	});
+
+	it('disarms on a same-tab link click without waiting for the router hook', async () => {
+		const { user, requests, deleteButton, advance } = deletionSession();
+		await user.click(deleteButton());
+		expect(screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' })).toBeTruthy();
+		await advance(2999);
+		const link = screen.getByRole('link', { name: 'Galleries' });
+		// Stop jsdom's default navigation after the capture listener sees the click.
+		link.addEventListener('click', (event) => event.preventDefault(), { once: true });
+		link.click();
+		vi.advanceTimersByTime(1);
+		await advance(0);
+
+		expect(requests).toEqual([]);
+		expect(deleteButton()).toBeTruthy();
+	});
+
+	it('does not cancel the original tab’s countdown on a modified link click', async () => {
+		const { user, requests, deleteButton, advance } = deletionSession();
+		await user.click(deleteButton());
+		const link = screen.getByRole('link', { name: 'Galleries' });
+		link.addEventListener('click', (event) => event.preventDefault(), { once: true });
+		await fireEvent.click(link, { ctrlKey: true });
+		await advance(3000);
+
+		expect(requests).toEqual(['/api/v1/contacts/c1']);
 	});
 });
 

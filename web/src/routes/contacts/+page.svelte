@@ -5,7 +5,7 @@
 	import { cubicIn } from 'svelte/easing';
 	import { slide } from 'svelte/transition';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
-	import { navigating } from '$app/state';
+	import { navigating, page } from '$app/state';
 	import { ArrowUpDown, ChevronDown, Pencil, Trash2, Users } from '@lucide/svelte';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import { authRequest } from '#lib/auth.js';
@@ -246,10 +246,39 @@
 		if (restoreFocus) void tick().then(() => newButton?.focus());
 	}
 
-	async function removeContact(id: string): Promise<boolean> {
+	function disarmForLink(event: MouseEvent): void {
+		if (
+			event.defaultPrevented ||
+			event.button ||
+			event.metaKey ||
+			event.ctrlKey ||
+			event.shiftKey ||
+			event.altKey
+		)
+			return;
+
+		const link = event.composedPath().find((node) => node instanceof HTMLAnchorElement);
+		if (!link?.hasAttribute('href') || link.hasAttribute('download')) return;
+
+		const target = link.target.toLowerCase();
+		if (
+			target &&
+			target !== '_self' &&
+			!(window.parent === window && (target === '_parent' || target === '_top'))
+		)
+			return;
+		if (link.protocol !== 'http:' && link.protocol !== 'https:') return;
+		if (link.origin === page.url.origin && link.pathname === page.url.pathname) return;
+
+		// SvelteKit can yield for a repaint before beforeNavigate runs.
+		deleteEpoch += 1;
+	}
+
+	async function removeContact(id: string, epoch: number): Promise<boolean> {
 		if (
 			disposed ||
 			departing ||
+			epoch !== deleteEpoch ||
 			writes.has(id) ||
 			(panel?.mode === 'edit' && panel.id === id) ||
 			!matching.some((item) => item.id === id)
@@ -316,6 +345,7 @@
 </script>
 
 <svelte:head><title>{m.contacts_title()} — PhotoProofing</title></svelte:head>
+<svelte:document onclickcapture={disarmForLink} />
 
 <AppHeader onsignout={logout} studioName={data.settings?.studioName} />
 
@@ -538,7 +568,7 @@
 									<Pencil size={16} aria-hidden="true" />
 									<span class="max-sm:sr-only">{m.contacts_edit()}</span>
 								</Button>
-								{#key deleteEpoch}
+								{#each [deleteEpoch] as epoch (epoch)}
 									<ActionButton
 										variant="ghost"
 										labels={{ idle: m.action_delete(), pending: m.contacts_deleting() }}
@@ -552,11 +582,11 @@
 										compactOnMobile
 										disabled={writes.has(item.id) || departing}
 										class="min-w-11 text-danger sm:px-3.5"
-										onaction={() => removeContact(item.id)}
+										onaction={() => removeContact(item.id, epoch)}
 									>
 										{#snippet icon()}<Trash2 size={16} aria-hidden="true" />{/snippet}
 									</ActionButton>
-								{/key}
+								{/each}
 								<Button
 									id="{rowId(item.id)}-toggle"
 									variant="ghost"
