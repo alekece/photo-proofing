@@ -69,9 +69,13 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
 
 ## Collection views (`Photos`, `Favorites`, `Comments`, `Final`)
 
+Photos, Favorites and Final use a compact grid of cropped 3:2 tiles. The panel width determines
+the number of columns: two below 36 rem, three from 36 rem, and four from 58 rem.
+
 ### Photos
 
-The proofs. Toolbar: **Select** and **Upload**. Tiles show only:
+The proofs. The toolbar keeps **Upload** visible, even in select mode. Besides the selection
+circle, tiles show:
 
 - a star at the top right: **Set as hero** / **Remove hero** (a toggle). On hover and focus only,
   except the hero's own star, which stays visible as a gold star with no text (its tooltip and
@@ -81,7 +85,8 @@ The proofs. Toolbar: **Select** and **Upload**. Tiles show only:
 No hearts or favorite marks here: favorites belong to the Favorites tab. Clicking a photo opens
 the [viewer](viewer.md).
 
-**Empty:** a drop zone, "Drop the shoot here", **Upload**.
+**Empty:** a drop zone, "Drop the shoot here", **Upload**. Uploads and failures stay in the grid
+beside existing photos; the drop zone only appears when both are empty.
 
 **Upload:** each new tile goes Waiting → Uploading → Processing → ready, each with a label and an
 indeterminate bar (no percentages, no overall counter). The status stays centered inside its
@@ -101,9 +106,10 @@ unwatermarked. Switching watermarking on or off only selects existing files.
 
 ### Favorites
 
-Only the client's selection, read-only. Toolbar: **Select** and **Download all** (every favorite as a ZIP, or **Download X** for the X selected photos; hidden when there are no favorites, with a busy state while it's prepared). Hovering a photo shows a small download button
-for that photo (always visible on touch). Empty: the same striped drop-area look as the other
-empty tabs, with a heart and "No favorites yet". Opening a photo
+Only the client's selection, read-only. The toolbar offers **Download all** when there are any
+favorites. Hovering a photo shows a small download button
+for that photo (always visible on touch). The empty state has a heart and "No favorites yet".
+Opening a photo
 shows the viewer with the favorite heart and the same individual-original download action.
 The whole or selected subset uses one ZIP preparation slot: **Downloading…** is disabled from
 the initial request until download initiation, with errors left visible and no separate success
@@ -112,21 +118,30 @@ tile and viewer downloads stream the individual original with a busy download co
 
 ### Final
 
-The finished photos, private until delivered. Same toolbar as Photos (**Select**, **Upload**),
-× to delete, drop zone "Drop the finished photos here" when empty. After delivery, a small
-download mark shows which photos the client has downloaded.
+The finished photos, private to the photographer until delivered. The toolbar offers **Upload**
+and, when at least one Final is ready, **Download all** for a ZIP of ready originals. The
+selection bar offers **Download X** for the exact selected set; if any selected photo is not
+ready, it explains why the ZIP is unavailable and still allows Delete. Owner ZIPs require an
+authenticated session and are independent of client delivery: they do not deliver the gallery,
+change client selection, or record client downloads. When the client has downloaded a Final,
+the owner can see the timestamp in the viewer, not on the tile.
+
+Use × to delete a photo, or the "Drop the finished photos here" zone to start an empty Final grid.
 
 ### Select mode
 
-Select mode replaces the toolbar with one sticky, accent-tinted bar: an icon-only **✕** (Exit
-selection) on the left, "3 selected", a tri-state **Select all** checkbox (clicking it when all are
-selected unselects all) and, on the right, **Delete** on Photos and Final or **Download** on
-Favorites (both disabled at 0; Upload is hidden). On small screens it collapses to `[✕] 3 selected`
-with icon-only actions. **✕** and Escape leave select mode. Tiles show a check; clicking toggles.
-Select all only picks the current tab.
+Start by pressing the 26 px circle at a tile's top left. It appears on hover or keyboard focus,
+and is always visible on touch and while selecting. In select mode, the tile body toggles
+selection instead of opening the viewer. The normal toolbar and tile positions stay put.
 
-All three tabs use the same striped empty-state background. Confirming a photo deletion shows
-a disabled **Deleting…** button with a spinner and retains the confirmed count.
+A floating bar shows **Exit selection**, the count and **Select all** (or **Unselect all**).
+Photos offers **Delete**, Favorites **Download**, and Final both. These actions are disabled at
+zero, but select mode stays open until exited with **✕** or Escape. Small screens use icon-only
+actions with accessible names. Select all picks only photos currently shown in that tab and
+does not include local queue items.
+
+Confirming a photo deletion shows a disabled **Deleting…** button with a spinner and retains
+the confirmed count.
 Cancel and Escape cannot dismiss it while deletion runs; removed tiles shrink and fade unless
 reduced motion is requested. Desktop journey steps are centered within the banner.
 
