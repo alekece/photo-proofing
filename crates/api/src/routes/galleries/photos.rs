@@ -99,7 +99,7 @@ async fn download_original(
 /// The photo set a route addresses, chosen by the `finals` query parameter: the client proofs by
 /// default, or the finished photos of a draft with `?finals=true`.
 #[derive(Debug, Clone, Copy, Deserialize)]
-struct PhotoSet {
+pub(super) struct PhotoSet {
     #[serde(default)]
     finals: bool,
     /// Whether the photographer wants the marked proof files: only photos ready for them are
