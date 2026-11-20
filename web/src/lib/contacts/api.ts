@@ -32,6 +32,7 @@ export interface NewContactInput {
 export interface ContactChangesInput {
 	name?: string;
 	email?: string;
+	expected_email?: string;
 	phone?: string | null;
 	notes?: string | null;
 }

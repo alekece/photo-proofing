@@ -44,6 +44,7 @@ pub(crate) enum ErrorCode {
     GalleryExpired,
     GalleryDelivered,
     ContactEmailTaken,
+    ContactEmailChanged,
     TooManyRecipients,
     ThreadFull,
     GalleryNotShared,
@@ -340,6 +341,9 @@ impl From<ContactError> for ErrorResponse {
                 Self::new(StatusCode::CONFLICT, ErrorCode::ContactEmailTaken)
                     .with_context(error.to_string())
             }
+            ContactError::EmailChanged => {
+                Self::new(StatusCode::CONFLICT, ErrorCode::ContactEmailChanged)
+            }
             ContactError::Database(_) => Self::unavailable(),
         }
     }
@@ -468,6 +472,7 @@ mod tests {
             (ErrorCode::GalleryExpired, "gallery_expired"),
             (ErrorCode::GalleryDelivered, "gallery_delivered"),
             (ErrorCode::ContactEmailTaken, "contact_email_taken"),
+            (ErrorCode::ContactEmailChanged, "contact_email_changed"),
             (ErrorCode::TooManyRecipients, "too_many_recipients"),
             (ErrorCode::GalleryNotShared, "gallery_not_shared"),
             (ErrorCode::SelectionEmpty, "selection_empty"),

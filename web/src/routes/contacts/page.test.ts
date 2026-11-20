@@ -1,19 +1,21 @@
-import { render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
 import type { Contact } from '#lib/contacts/api.js';
 
-vi.mock('$app/navigation', () => ({
-	afterNavigate: vi.fn(),
-	goto: vi.fn()
-}));
 const state = vi.hoisted(() => ({
 	page: { url: new URL('http://localhost/contacts') },
-	navigating: { to: null }
+	navigating: { to: null },
+	beforeNavigate: vi.fn()
 }));
-vi.mock('$app/state', () => state);
+vi.mock('$app/navigation', () => ({
+	afterNavigate: vi.fn(),
+	beforeNavigate: state.beforeNavigate,
+	goto: vi.fn()
+}));
+vi.mock('$app/state', () => ({ page: state.page, navigating: state.navigating }));
 
 import Page from './+page.svelte';
 
@@ -46,11 +48,44 @@ function open(contacts: Contact[] | null) {
 
 beforeEach(() => {
 	state.page.url = new URL('http://localhost/contacts');
+	state.beforeNavigate.mockClear();
+	vi.stubGlobal('matchMedia', () => ({ matches: true }));
 });
 
 afterEach(() => {
+	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
+
+function deletionSession() {
+	vi.useFakeTimers();
+	const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+	const requests: string[] = [];
+	let respond!: (status: number) => void;
+	vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+		if (init?.method !== 'DELETE') return new Response(null, { status: 204 });
+
+		requests.push(String(input));
+		return new Promise<Response>((resolve) => {
+			respond = (status) => resolve(new Response(null, { status }));
+		});
+	});
+
+	const { unmount } = open([
+		contact(),
+		contact({ id: 'c2', name: 'Zoé Laurent', email: 'zoe@example.test', galleries: [] })
+	]);
+	const deleteButton = () => screen.getByRole('button', { name: 'Delete Camille & Hugo?' });
+	const advance = vi.advanceTimersByTimeAsync;
+	return {
+		user,
+		requests,
+		deleteButton,
+		unmount,
+		advance,
+		respond: (status: number) => respond(status)
+	};
+}
 
 describe('/contacts page', () => {
 	it('renders the empty directory state with disabled search and no axe violations', async () => {
@@ -58,6 +93,7 @@ describe('/contacts page', () => {
 
 		expect(screen.getByRole('heading', { level: 1, name: 'Contacts' })).toBeTruthy();
 		expect(screen.getByText('No contacts yet.')).toBeTruthy();
+		expect(screen.getByRole('button', { name: '+ New contact' })).toBeTruthy();
 		const search = screen.getByRole('searchbox', {
 			name: 'Search by name, email or phone'
 		}) as HTMLInputElement;
@@ -65,7 +101,7 @@ describe('/contacts page', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('filters contacts by name, email or phone and links gallery tags to /dashboard/{id}', async () => {
+	it('opens only one row of details and keeps search and linked galleries available', async () => {
 		const user = userEvent.setup();
 		const camille = contact();
 		const zoe = contact({
@@ -78,7 +114,12 @@ describe('/contacts page', () => {
 		});
 		const { container } = open([camille, zoe]);
 
-		// Selected contact inspector shows clickable linked-gallery links.
+		const disclosure = screen.getByRole('button', { name: 'Show details for Camille & Hugo' });
+		disclosure.focus();
+		await user.keyboard('{Enter}');
+		expect(disclosure.getAttribute('aria-expanded')).toBe('true');
+		expect(screen.getByText('Prefers matte paper')).toBeTruthy();
+		expect(screen.queryByLabelText('Name')).toBeNull();
 		const weddingLink = screen
 			.getAllByRole('link', { name: 'Summer Wedding' })
 			.find((el) => el.getAttribute('href') === '/dashboard/g1');
@@ -87,6 +128,9 @@ describe('/contacts page', () => {
 			.find((el) => el.getAttribute('href') === '/dashboard/g2');
 		expect(weddingLink).toBeTruthy();
 		expect(untitledLink).toBeTruthy();
+		await user.click(screen.getByRole('button', { name: 'Show details for Zoé Laurent' }));
+		expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+		expect(screen.queryByText('Prefers matte paper')).toBeNull();
 
 		const search = screen.getByRole('searchbox', { name: 'Search by name, email or phone' });
 		await user.type(search, '0601');
@@ -127,8 +171,8 @@ describe('/contacts page', () => {
 		expect(toolbar.className).not.toContain('max-w-');
 		const names = () =>
 			within(screen.getByRole('list', { name: 'Workspace contacts' }))
-				.getAllByRole('button')
-				.map((button) => button.textContent);
+				.getAllByRole('listitem')
+				.map((row) => row.textContent);
 
 		expect(names()[0]).toContain('Alex Martin');
 		await user.type(search, 'example.test');
@@ -141,6 +185,28 @@ describe('/contacts page', () => {
 		await user.click(sort);
 		await user.click(screen.getByRole('menuitemradio', { name: 'Name A–Z' }));
 		expect(names()[0]).toContain('Camille & Hugo');
+	});
+
+	it('opens New above a filtered list and restores focus without saving on cancel', async () => {
+		const user = userEvent.setup();
+		const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+		vi.stubGlobal('fetch', fetcher);
+		open([contact()]);
+		const search = screen.getByRole('searchbox');
+		await user.type(search, 'no match');
+
+		const newContact = screen.getByRole('button', { name: '+ New contact' });
+		await user.click(newContact);
+		expect(document.activeElement).toBe(screen.getByLabelText('Name'));
+		await user.click(screen.getByRole('button', { name: 'Create contact' }));
+		expect(screen.getByRole('alert').textContent).toBe('Enter a name.');
+		await user.type(screen.getByLabelText('Name'), 'Unsaved');
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+		expect(screen.queryByLabelText('Name')).toBeNull();
+		expect(document.activeElement).toBe(newContact);
+		expect(search).toHaveProperty('value', 'no match');
+		expect(fetcher.mock.calls.every(([url]) => !String(url).includes('/contacts'))).toBe(true);
 	});
 
 	it('creates a new contact and handles duplicate-email 409 conflicts', async () => {
@@ -171,14 +237,17 @@ describe('/contacts page', () => {
 
 		open([]);
 
-		await user.click(screen.getAllByRole('button', { name: '+ New contact' })[0]);
+		await user.click(screen.getByRole('button', { name: '+ New contact' }));
 		await user.type(screen.getByLabelText('Name'), 'Léo Martin');
 		await user.type(screen.getByLabelText('Email'), 'leo@example.test');
 		await user.click(screen.getByRole('button', { name: 'Create contact' }));
 
 		expect(await screen.findByText('A contact with this email already exists.')).toBeTruthy();
+		expect(screen.getByLabelText('Email')).toHaveProperty('value', 'leo@example.test');
 
 		await user.click(screen.getByRole('button', { name: 'Create contact' }));
+		expect(await screen.findByRole('button', { name: 'Contact saved' })).toBeTruthy();
+		expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).matches(':disabled')).toBe(true);
 		expect(
 			await within(screen.getByRole('list', { name: 'Workspace contacts' })).findByText(
 				'Léo Martin'
@@ -212,28 +281,29 @@ describe('/contacts page', () => {
 
 		open([camille, zoe]);
 
+		await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
 		const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
 		await user.clear(nameInput);
 		await user.type(nameInput, 'Camille Laurent');
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
 		// Switch to the other contact while the save for Camille is still in flight.
-		await user.click(screen.getByText('Zoé Laurent'));
-		expect(screen.getByRole('heading', { level: 2, name: 'Zoé Laurent' })).toBeTruthy();
+		await user.click(screen.getByRole('button', { name: 'Edit Zoé Laurent' }));
+		expect(screen.getByLabelText('Name')).toHaveProperty('value', 'Zoé Laurent');
 
 		resolvePatch(
 			new Response(JSON.stringify(contact({ name: 'Camille Laurent', phone: null })), {
 				status: 200
 			})
 		);
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(await screen.findByText('Camille Laurent')).toBeTruthy();
 
 		// Zoé's panel must not show a stale "Saved" confirmation meant for Camille's edit.
 		expect(screen.queryByRole('button', { name: 'Saved' })).toBeNull();
-		expect(screen.getByRole('heading', { level: 2, name: 'Zoé Laurent' })).toBeTruthy();
+		expect(screen.getByLabelText('Name')).toHaveProperty('value', 'Zoé Laurent');
 	});
 
-	it('edits and deletes a selected contact after confirmation', async () => {
+	it('edits an existing contact and restores focus on cancel', async () => {
 		const user = userEvent.setup();
 		const initial = contact();
 		const updated = contact({ name: 'Camille Laurent', phone: null });
@@ -247,6 +317,7 @@ describe('/contacts page', () => {
 
 		open([initial]);
 
+		await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
 		const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
 		const phoneInput = screen.getByLabelText('Phone') as HTMLInputElement;
 		expect(nameInput.value).toBe('Camille & Hugo');
@@ -256,21 +327,185 @@ describe('/contacts page', () => {
 		await user.clear(phoneInput);
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
-		expect(await screen.findByRole('heading', { level: 2, name: 'Camille Laurent' })).toBeTruthy();
+		expect(await screen.findByText('Camille Laurent')).toBeTruthy();
 		const savedBtn = screen.getByRole('button', { name: 'Saved' });
 		expect(savedBtn.hasAttribute('disabled')).toBe(false);
 		expect(savedBtn.getAttribute('aria-disabled')).toBe('true');
 		expect(fetcher).toHaveBeenCalledWith(
 			'/api/v1/contacts/c1',
-			expect.objectContaining({ method: 'PATCH' })
+			expect.objectContaining({
+				method: 'PATCH',
+				body: JSON.stringify({ name: 'Camille Laurent', phone: null })
+			})
 		);
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(screen.queryByLabelText('Name')).toBeNull();
+		expect(document.activeElement).toBe(
+			screen.getByRole('button', { name: 'Edit Camille Laurent' })
+		);
+	});
 
-		await user.click(screen.getByRole('button', { name: 'Delete' }));
-		const dialog = screen.getByRole('dialog');
-		expect(within(dialog).getByText('Delete Camille Laurent?')).toBeTruthy();
-		await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+	it('puts edit actions after fields in keyboard order', async () => {
+		const user = userEvent.setup();
+		open([contact()]);
+		await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
+		await user.type(screen.getByLabelText('Name'), ' Martin');
+		screen.getByLabelText('Notes').focus();
+		await user.tab();
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
+		await user.tab();
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save changes' }));
+	});
 
-		expect(await screen.findByText('No contacts yet.')).toBeTruthy();
+	it('pairs an explicit recipient change with the email shown when Edit opened', async () => {
+		const user = userEvent.setup();
+		const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+			String(input).endsWith('/contacts/c1') && init?.method === 'PATCH'
+				? new Response(JSON.stringify({ code: 'contact_email_changed' }), { status: 409 })
+				: new Response(null, { status: 204 })
+		);
+		vi.stubGlobal('fetch', fetcher);
+		open([contact()]);
+		await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
+		const email = screen.getByLabelText('Email');
+		await user.clear(email);
+		await user.type(email, 'new@example.test');
+		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+		expect(fetcher).toHaveBeenCalledWith(
+			'/api/v1/contacts/c1',
+			expect.objectContaining({
+				method: 'PATCH',
+				body: JSON.stringify({ email: 'new@example.test', expected_email: 'camille@example.test' })
+			})
+		);
+		expect(await screen.findByRole('alert')).toHaveProperty(
+			'textContent',
+			'This contact’s email has changed. Reload Contacts and try again.'
+		);
+		expect(email).toHaveProperty('value', 'new@example.test');
+	});
+
+	it.each(['removed row', 'toolbar'])(
+		'deletes only the armed contact after three seconds when focus is in the %s',
+		async (focusLocation) => {
+			const { user, requests, deleteButton, advance, respond } = deletionSession();
+			await user.click(screen.getByRole('button', { name: 'Show details for Camille & Hugo' }));
+			const link = screen.getByRole('link', { name: 'Summer Wedding' });
+			const button = deleteButton();
+			await user.click(button);
+			expect(screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' })).toBe(
+				button
+			);
+			expect(
+				document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent
+			).toContain('revokes their personal gallery links');
+
+			const sort = screen.getByRole('button', { name: /^Sort by:/ });
+			await user.click(sort);
+			await user.click(screen.getByRole('menuitemradio', { name: 'Name Z–A' }));
+			if (focusLocation === 'removed row') button.focus();
+			else sort.focus();
+
+			await advance(2999);
+			expect(requests).toEqual([]);
+			await advance(1);
+			expect(requests).toEqual(['/api/v1/contacts/c1']);
+			expect(screen.getByRole('link', { name: 'Summer Wedding' })).toBe(link);
+			expect(
+				(screen.getByRole('button', { name: 'Edit Camille & Hugo' }) as HTMLButtonElement).disabled
+			).toBe(true);
+
+			respond(204);
+			await advance(0);
+			expect(screen.queryByText('Camille & Hugo')).toBeNull();
+			const next = screen.getByRole('button', { name: 'Show details for Zoé Laurent' });
+			expect(document.activeElement).toBe(focusLocation === 'removed row' ? next : sort);
+		}
+	);
+
+	it.each(['click', 'Enter', 'Escape', 'filter', 'edit', 'unmount'])(
+		'never deletes a contact after an armed action is cancelled by %s',
+		async (cancel) => {
+			const { user, requests, deleteButton, advance, unmount } = deletionSession();
+			await user.click(deleteButton());
+			const armed = screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' });
+			if (cancel === 'click') await user.click(armed);
+			else if (cancel === 'filter') {
+				const search = screen.getByRole('searchbox');
+				await user.type(search, 'zoé');
+				expect(screen.queryByText('Camille & Hugo')).toBeNull();
+				await user.clear(search);
+				expect(deleteButton()).toBeTruthy();
+			} else if (cancel === 'edit') {
+				await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
+				await user.click(screen.getByRole('button', { name: 'Cancel' }));
+			} else if (cancel === 'unmount') unmount();
+			else await user.keyboard(`{${cancel}}`);
+
+			await advance(3000);
+			expect(requests).toEqual([]);
+		}
+	);
+
+	it('keeps the contact and focus after a failed deletion and requires a fresh countdown', async () => {
+		const { user, requests, deleteButton, advance, respond } = deletionSession();
+		await user.click(screen.getByRole('button', { name: 'Show details for Camille & Hugo' }));
+		const button = deleteButton();
+		await user.click(button);
+		expect(screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' })).toBe(button);
+		await advance(3000);
+		respond(503);
+		await advance(0);
+
+		const row = screen.getByText('Camille & Hugo').closest('li')!;
+		expect(within(row).getByRole('alert').textContent).toContain('delete this contact');
+		expect(within(row).getByRole('link', { name: 'Summer Wedding' })).toBeTruthy();
+		expect(document.activeElement).toBe(deleteButton());
+		await user.click(button);
+		await advance(2999);
+		expect(requests).toEqual(['/api/v1/contacts/c1']);
+		await advance(1);
+		expect(requests).toEqual(['/api/v1/contacts/c1', '/api/v1/contacts/c1']);
+	});
+
+	it('disarms an uncommitted countdown as soon as navigation starts', async () => {
+		const { user, requests, deleteButton, advance } = deletionSession();
+		await user.click(deleteButton());
+		expect(screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' })).toBeTruthy();
+		await advance(2999);
+		expect(state.beforeNavigate).toHaveBeenCalledOnce();
+		state.beforeNavigate.mock.calls[0][0]({ to: { route: { id: '/dashboard' } } });
+		await advance(1);
+		expect(deleteButton()).toBeTruthy();
+		expect(requests).toEqual([]);
+	});
+
+	it('disarms on a same-tab link click without waiting for the router hook', async () => {
+		const { user, requests, deleteButton, advance } = deletionSession();
+		await user.click(deleteButton());
+		expect(screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' })).toBeTruthy();
+		await advance(2999);
+		const link = screen.getByRole('link', { name: 'Galleries' });
+		// Stop jsdom's default navigation after the capture listener sees the click.
+		link.addEventListener('click', (event) => event.preventDefault(), { once: true });
+		link.click();
+		vi.advanceTimersByTime(1);
+		await advance(0);
+
+		expect(requests).toEqual([]);
+		expect(deleteButton()).toBeTruthy();
+	});
+
+	it('does not cancel the original tab’s countdown on a modified link click', async () => {
+		const { user, requests, deleteButton, advance } = deletionSession();
+		await user.click(deleteButton());
+		const link = screen.getByRole('link', { name: 'Galleries' });
+		link.addEventListener('click', (event) => event.preventDefault(), { once: true });
+		await fireEvent.click(link, { ctrlKey: true });
+		await advance(3000);
+
+		expect(requests).toEqual(['/api/v1/contacts/c1']);
 	});
 });
 
@@ -282,6 +517,7 @@ describe('/contacts page in French', () => {
 
 		expect(screen.getByRole('heading', { level: 1, name: 'Contacts' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: '+ Nouveau contact' })).toBeTruthy();
+		await userEvent.setup().click(screen.getByRole('button', { name: 'Modifier Camille & Hugo' }));
 		expect(screen.getByLabelText('Nom')).toBeTruthy();
 		expect(screen.getByLabelText('Téléphone')).toBeTruthy();
 		expect((await axe(container)).violations).toEqual([]);
