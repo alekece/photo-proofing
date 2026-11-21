@@ -11,7 +11,7 @@ Add Storybook to `web/` so every shared primitive can be viewed and changed on i
 ## Goals
 
 - Storybook runs from `web/` with the existing Tailwind theme, fonts and Paraglide messages, so a story looks like the real app.
-- Every primitive in `src/lib/components/ui/` (all 24 folders, composites such as `ConfirmDialog` and `WorkspaceToolbar` included; none import `$app/*`) has a story file next to it, showing its main variants and states.
+- Every primitive in `src/lib/components/ui/`, including composites such as `ConfirmDialog` and `WorkspaceToolbar`, has a story file next to it showing its main variants and states.
 - Copilot CLI and Codex can connect to Storybook MCP using their local user configuration.
 - Reusable components are covered progressively over time; this slice covers `ui/` only.
 
@@ -24,7 +24,7 @@ Add Storybook to `web/` so every shared primitive can be viewed and changed on i
 
 ## Constraints
 
-- Frontend stack stays SvelteKit 3, Svelte 5, Vite 8, Tailwind 4, pnpm. All Storybook packages are dev dependencies pinned to the same minor version.
+- Frontend stack stays SvelteKit 3, Svelte 5, Vite 8, Tailwind 4, pnpm. Pin Storybook, its SvelteKit framework, and the MCP addon to matching releases as dev dependencies. The Svelte CSF addon has its own version.
 - Follow `web/AGENTS.md`: PascalCase component folders, user-visible text through Paraglide, zero lint/type warnings.
 - `pnpm --dir web verify` must pass unchanged: stories and `.storybook/` are linted, formatted and type-checked like other source, and `storybook-static/` is ignored by Git, ESLint and Prettier.
 - The MCP server is only available while `storybook dev` runs. It is not part of a static build.
