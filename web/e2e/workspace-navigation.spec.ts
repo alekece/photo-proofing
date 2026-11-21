@@ -76,6 +76,40 @@ test('gallery return restores the grid, but browser Back still honors Activity',
 	await expect(page).toHaveURL(/\/activity$/);
 });
 
+test('all unread notifications fit within reach on short viewports', async ({ page }) => {
+	test.skip(!process.env.PP_E2E_WORKSPACE_FIXTURE, 'Run against the synthetic workspace fixture.');
+	await page.route('**/api/v1/notifications', (route) =>
+		route.fulfill({
+			json: {
+				unread: 12,
+				notifications: Array.from({ length: 12 }, (_, i) => ({
+					id: `notification-${i}`,
+					gallery_id: `gallery-${i + 1}`,
+					title: `Unread gallery ${i + 1}`,
+					hero_id: null,
+					kind: 'open',
+					count: 1,
+					selected: 0,
+					updated_at: '2026-11-18T10:00:00Z',
+					read_at: null
+				}))
+			}
+		})
+	);
+
+	for (const width of [900, 390]) {
+		await page.setViewportSize({ width, height: 390 });
+		await page.goto('/dashboard');
+		await page.getByRole('button', { name: 'Notifications, 12 unread' }).click();
+		const last = page.getByRole('link', { name: /unread gallery 12/i });
+		await last.focus();
+		await expect(last).toBeInViewport({ ratio: 1 });
+		await expect(page.getByRole('button', { name: 'Mark all as read' })).toBeInViewport({
+			ratio: 1
+		});
+	}
+});
+
 test('the gallery form closes back to its trigger, including with reduced motion', async ({
 	page
 }) => {
