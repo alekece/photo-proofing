@@ -238,7 +238,7 @@ copilot mcp add --transport http storybook http://localhost:6006/mcp
 codex mcp add storybook --url http://localhost:6006/mcp
 ```
 
-The endpoint is loopback-only and unavailable when the dev server is stopped. The static build does not provide MCP. Do not commit local MCP client settings.
+The endpoint is loopback-only and unavailable when the dev server is stopped. Use it to find stories and open their previews; the SvelteKit integration does not expose component documentation over MCP. The static build does not provide MCP. Do not commit local MCP client settings.
 
 ## Configuration
 

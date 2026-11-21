@@ -6,7 +6,7 @@ Status: approved by the maintainer. Issue: [#429](https://github.com/alekece/pho
 
 Working on a component today means running the whole app and navigating to a page that uses it. Copilot CLI and Codex cannot iterate on one component in isolation, so a UI tweak risks touching unrelated pages.
 
-Add Storybook to `web/` so every shared primitive can be viewed and changed on its own, and expose Storybook's MCP server so both agents can list stories, read component docs and get preview URLs.
+Add Storybook to `web/` so every shared primitive can be viewed and changed on its own, and expose Storybook's MCP server so both agents can find stories and get preview URLs.
 
 ## Goals
 
@@ -21,6 +21,7 @@ Add Storybook to `web/` so every shared primitive can be viewed and changed on i
 - No stories for non-`ui/` components in this slice, and never added in bulk afterwards. A business component gets a story only when someone needs to iterate on it. Components bound to the API, stores or routes (the panels) are not good candidates and keep relying on their Vitest tests.
 - Storybook is not a test runner here: no interaction tests, no `@storybook/addon-vitest`, no `@storybook/addon-a11y` (accessibility is already covered by `vitest-axe`).
 - Storybook does not join `pnpm --dir web verify`, and CI does not build it in this slice.
+- No component documentation over MCP in this slice: the Storybook SvelteKit framework does not generate the required component manifest.
 
 ## Constraints
 
@@ -61,6 +62,7 @@ Known limitations to respect:
 
 - Each developer opts in by registering `http://localhost:6006/mcp` in the local user configuration for Copilot CLI or Codex. The README documents both setups and explains that Storybook must be running to connect.
 - Do not add a Storybook entry to `.github/mcp.json`, create a repository `.codex/config.toml`, or commit any personal MCP settings. The Storybook project configuration and stories are still versioned.
+- Disable Storybook's experimental review feature so MCP clients cannot create or replace a local review.
 - Verify that both clients can list MCP tools using local settings, without modifying the repository's MCP configuration.
 
 ### Conventions for later stories

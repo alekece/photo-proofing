@@ -8,6 +8,7 @@ const photoFixture = fileURLToPath(
 export default {
 	framework: '@storybook/sveltekit',
 	core: { disableTelemetry: true },
+	features: { experimentalReview: false },
 	stories: ['../src/lib/components/ui/**/*.stories.svelte'],
 	addons: ['@storybook/addon-svelte-csf', '@storybook/addon-mcp'],
 	viteFinal(config) {
