@@ -1,19 +1,21 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount, tick } from 'svelte';
-	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { cubicIn } from 'svelte/easing';
 	import { slide } from 'svelte/transition';
 	import { afterNavigate, beforeNavigate } from '$app/navigation';
-	import { navigating, page } from '$app/state';
-	import { ArrowUpDown, ChevronDown, Pencil, Plus, Trash2, Users } from '@lucide/svelte';
+	import { ArrowUpDown, Check, ChevronDown, Pencil, Plus, Trash2, Users } from '@lucide/svelte';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import ContactIdentity from '#lib/components/ContactIdentity.svelte';
 	import ActionButton from '#lib/components/ui/ActionButton/ActionButton.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
+	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
+	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
+	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 	import {
@@ -47,7 +49,7 @@
 	const formId = $props.id();
 	let draftNumber = 0;
 	const writes = new SvelteSet<string | null>();
-	const deleteErrors = new SvelteMap<string, string>();
+	const selectedIds = new SvelteSet<string>();
 	// svelte-ignore state_referenced_locally
 	let contacts = $state<Contact[]>(data.contacts ? [...data.contacts] : []);
 	let panel = $state<Panel | null>(null);
@@ -57,11 +59,10 @@
 	let root: HTMLElement;
 	let newButton = $state<HTMLButtonElement | null>(null);
 	let saveButton = $state<ActionButton>();
-	let deleteEpoch = $state(0);
+	let deleteTargets = $state<Contact[] | null>(null);
 	let disposed = false;
 
 	const loadFailed = $derived(data.contacts === null);
-	const departing = $derived(navigating.to !== null && navigating.to.route.id !== '/contacts');
 	const sorts = $derived([
 		{ value: 'name_asc', label: m.contacts_sort_name_asc() },
 		{ value: 'name_desc', label: m.contacts_sort_name_desc() }
@@ -80,11 +81,15 @@
 				(item.phone?.toLowerCase().includes(needle) ?? false)
 		);
 	});
+	const selection = $derived(matching.filter(({ id }) => selectedIds.has(id)));
+	const selectable = $derived(
+		matching.filter(({ id }) => !writes.has(id) && !(panel?.mode === 'edit' && panel.id === id))
+	);
 
 	const activity = $derived(createSessionActivity(data.idleTimeoutMs));
 
 	beforeNavigate(({ to, willUnload }) => {
-		if (willUnload || to?.route.id !== '/contacts') deleteEpoch += 1;
+		if (willUnload || to?.route.id !== '/contacts') deleteTargets = null;
 	});
 	afterNavigate(() => {
 		void activity();
@@ -99,9 +104,13 @@
 	});
 
 	$effect.pre(() => {
+		const visibleIds = new Set(matching.map(({ id }) => id));
+		for (const id of selectedIds) {
+			if (!visibleIds.has(id)) selectedIds.delete(id);
+		}
+
 		const current = panel;
-		if (!current || current.mode === 'new' || matching.some((item) => item.id === current.id))
-			return;
+		if (!current || current.mode === 'new' || visibleIds.has(current.id)) return;
 
 		const row = document.getElementById(rowId(current.id));
 		const restoreFocus = row?.contains(document.activeElement);
@@ -120,6 +129,8 @@
 	}
 
 	function openEditor(contact?: Contact): void {
+		if (contact) selectedIds.delete(contact.id);
+
 		const draft: Draft = {
 			form: `${formId}-draft-${++draftNumber}`,
 			name: contact?.name ?? '',
@@ -243,73 +254,37 @@
 		if (restoreFocus) void tick().then(() => newButton?.focus());
 	}
 
-	function disarmForLink(event: MouseEvent): void {
-		if (
-			event.defaultPrevented ||
-			event.button ||
-			event.metaKey ||
-			event.ctrlKey ||
-			event.shiftKey ||
-			event.altKey
-		)
-			return;
-
-		const link = event.composedPath().find((node) => node instanceof HTMLAnchorElement);
-		if (!link?.hasAttribute('href') || link.hasAttribute('download')) return;
-
-		const target = link.target.toLowerCase();
-		if (
-			target &&
-			target !== '_self' &&
-			!(window.parent === window && (target === '_parent' || target === '_top'))
-		)
-			return;
-		if (link.protocol !== 'http:' && link.protocol !== 'https:') return;
-		if (link.origin === page.url.origin && link.pathname === page.url.pathname) return;
-
-		// SvelteKit can yield for a repaint before beforeNavigate runs.
-		deleteEpoch += 1;
+	function clearSelection(): void {
+		selectedIds.clear();
+		void focusFallback();
 	}
 
-	async function removeContact(id: string, epoch: number): Promise<boolean> {
-		if (
-			disposed ||
-			departing ||
-			epoch !== deleteEpoch ||
-			writes.has(id) ||
-			(panel?.mode === 'edit' && panel.id === id) ||
-			!matching.some((item) => item.id === id)
-		)
-			return false;
+	async function removeSelection() {
+		const targets = deleteTargets;
+		if (!targets) return;
 
-		writes.add(id);
-		deleteErrors.delete(id);
-		try {
-			await deleteContact(id);
-			if (disposed) return false;
+		for (const [index, { id }] of targets.entries()) {
+			if (disposed || deleteTargets !== targets) return;
 
-			const row = document.getElementById(rowId(id));
-			const restoreFocus = row?.contains(document.activeElement);
-			const index = matching.findIndex((item) => item.id === id);
-			const neighbor = index < 0 ? undefined : (matching[index + 1] ?? matching[index - 1]);
-			if (panel && panel.mode !== 'new' && panel.id === id) panel = null;
-			contacts = contacts.filter((contact) => contact.id !== id);
+			writes.add(id);
+			try {
+				await deleteContact(id);
+				if (disposed) return;
 
-			if (restoreFocus) {
-				await tick();
-				if (document.activeElement === document.body || row?.contains(document.activeElement)) {
-					const toggle = neighbor && document.getElementById(`${rowId(neighbor.id)}-toggle`);
-					(toggle || newButton)?.focus();
-				}
+				selectedIds.delete(id);
+				contacts = contacts.filter((item) => item.id !== id);
+			} catch {
+				if (disposed || deleteTargets !== targets) return;
+
+				deleteTargets = targets.slice(index);
+				throw new Error(
+					index
+						? m.contacts_delete_partial({ deleted: index, total: targets.length })
+						: m.contacts_delete_failed()
+				);
+			} finally {
+				writes.delete(id);
 			}
-
-			return true;
-		} catch {
-			if (!disposed) deleteErrors.set(id, m.contacts_delete_failed());
-
-			return false;
-		} finally {
-			writes.delete(id);
 		}
 	}
 
@@ -326,7 +301,6 @@
 </script>
 
 <svelte:head><title>{m.contacts_title()} — PhotoProofing</title></svelte:head>
-<svelte:document onclickcapture={disarmForLink} />
 
 {#snippet fields(draft: Draft, busy: boolean)}
 	<form
@@ -413,7 +387,7 @@
 	{/key}
 {/snippet}
 
-<main bind:this={root} class="flex flex-1 flex-col workspace-inset pt-4 pb-12 sm:pt-6">
+<main bind:this={root} class="flex flex-1 flex-col workspace-inset pt-4 pb-24 sm:pt-6">
 	<div class="mb-4 flex flex-wrap items-end justify-between gap-3 sm:mb-6">
 		<div>
 			<h1 class="text-[1.875rem] leading-[1.08] sm:text-[2.5rem]">{m.contacts_title()}</h1>
@@ -505,7 +479,28 @@
 					class="min-w-0 rounded-card border border-border bg-panel"
 					out:removal={item.id}
 				>
-					<div class="flex flex-wrap items-start gap-2 p-3 sm:items-center sm:gap-3 sm:p-3.5">
+					<div
+						class="group/contact flex flex-wrap items-start gap-2 p-3 sm:items-center sm:gap-3 sm:p-3.5"
+					>
+						<label class="relative grid h-9 w-7 shrink-0 cursor-pointer place-items-center">
+							<Checkbox
+								aria-label={m.tile_select({ name: item.name })}
+								checked={selectedIds.has(item.id)}
+								disabled={writes.has(item.id) || active?.mode === 'edit'}
+								onchange={(event) => {
+									if (event.currentTarget.checked) selectedIds.add(item.id);
+									else selectedIds.delete(item.id);
+								}}
+								class="peer size-5 cursor-pointer appearance-none rounded-full border border-border-strong bg-input transition-opacity checked:border-foreground checked:bg-foreground hover:bg-background focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none {selection.length
+									? ''
+									: 'group-hover/contact:opacity-100 [@media(hover:hover)]:opacity-0'}"
+							/>
+							<Check
+								size={14}
+								aria-hidden="true"
+								class="pointer-events-none absolute text-inverse opacity-0 peer-checked:opacity-100"
+							/>
+						</label>
 						<ContactIdentity contact={item}>
 							{#snippet details()}
 								{#if item.galleries.length > 0}
@@ -535,25 +530,6 @@
 									<Pencil size={16} aria-hidden="true" />
 									<span class="max-sm:sr-only">{m.contacts_edit()}</span>
 								</Button>
-								{#each [deleteEpoch] as epoch (epoch)}
-									<ActionButton
-										variant="ghost"
-										labels={{ idle: m.action_delete(), pending: m.contacts_deleting() }}
-										idleLabel={m.contacts_delete_title({ name: item.name })}
-										confirmation={{
-											duration: 3000,
-											cancelLabel: m.common_cancel(),
-											cancelAccessibleLabel: m.contacts_cancel_delete({ name: item.name }),
-											description: m.contacts_delete_body()
-										}}
-										compactOnMobile
-										disabled={writes.has(item.id) || departing}
-										class="min-w-11 text-danger sm:px-3.5"
-										onaction={() => removeContact(item.id, epoch)}
-									>
-										{#snippet icon()}<Trash2 size={16} aria-hidden="true" />{/snippet}
-									</ActionButton>
-								{/each}
 								<Button
 									id="{rowId(item.id)}-toggle"
 									variant="ghost"
@@ -577,11 +553,6 @@
 							{/if}
 						</div>
 					</div>
-					{#if deleteErrors.has(item.id)}
-						<p role="alert" class="px-3.5 pb-3.5 text-sm text-danger">
-							{deleteErrors.get(item.id)}
-						</p>
-					{/if}
 					<div id={detailsId} inert={!active} aria-hidden={!active}>
 						{#if active}
 							<div
@@ -636,3 +607,53 @@
 		</ul>
 	{/if}
 </main>
+
+{#if selection.length > 0}
+	<SelectActions
+		count={selection.length}
+		total={selectable.length}
+		rail="dashboard"
+		onselectall={() => {
+			for (const { id } of selectable) selectedIds.add(id);
+		}}
+		onunselectall={clearSelection}
+		onexit={clearSelection}
+		canEscape={() =>
+			!deleteTargets &&
+			(!panel || panel.mode === 'details') &&
+			!document.querySelector('[data-slot="popover"] > button[aria-expanded="true"]')}
+	>
+		{#snippet actions()}
+			<Button
+				variant="destructive"
+				size="sm"
+				class="min-h-9! gap-1.5"
+				onclick={() => (deleteTargets = selection)}
+			>
+				<Trash2 size={16} aria-hidden="true" />
+				<span class="max-sm:sr-only">{m.action_delete()}</span>
+			</Button>
+		{/snippet}
+	</SelectActions>
+{/if}
+
+{#if deleteTargets}
+	<ConfirmDialog
+		title={deleteTargets.length === 1
+			? m.contacts_delete_title({ name: deleteTargets[0].name })
+			: m.contacts_delete_many({ count: deleteTargets.length })}
+		confirmLabel={m.action_delete()}
+		destructive
+		onconfirm={removeSelection}
+		onclose={() => {
+			deleteTargets = null;
+			if (!selection.length) void focusFallback();
+		}}
+	>
+		{#snippet description()}
+			<p class="text-sm text-muted-foreground">
+				{deleteTargets?.length === 1 ? m.contacts_delete_body() : m.contacts_delete_many_body()}
+			</p>
+		{/snippet}
+	</ConfirmDialog>
+{/if}

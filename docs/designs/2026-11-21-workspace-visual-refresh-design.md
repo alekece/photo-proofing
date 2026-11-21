@@ -33,7 +33,9 @@ the branch to ship.
   stay at the bottom on desktop. The count is galleries with unread notifications.
   The menu opens on activation, not on hover or focus alone.
 - Share the workspace frame and content spacing so the menu and footer do not
-  overlap. Returning from a gallery restores search, filters, sort and scroll.
+  overlap. Workspace, Gallery Studio and Settings menus share white idle,
+  cream hover and warm-black selected states. Returning from a gallery restores
+  search, filters, sort and scroll.
   Browser Back still goes to the actual origin, such as Activity. Restore UI state
   independently of protected data; do not cache authenticated responses.
 
@@ -56,21 +58,23 @@ the branch to ship.
   file name or a proof badge. Open the viewer over the grid; download and delete
   stay on selection, not on the viewer.
 - Keep Contacts compact with initials, a disclosure for details, and actions at
-  the right. Use one plus icon and one form for creation and editing. Reuse the
-  directory row in the gallery when appropriate; preserve the meaning of
-  associating and dissociating contacts.
+  the right. Delete from the shared selection bar after confirmation, not from
+  individual rows. Use one plus icon and one form for creation and editing.
+  Preserve the meaning of associating and dissociating contacts.
 - Keep the activity feed in date order with bold actor, warm ink icons and a
   filled favorite heart. Put the gallery pill after the sentence and time to the
-  right. Show all the entry's recorded favorite thumbnails when expanded. Keep
-  cursor-based pagination, and omit the Gallery filter inside a gallery.
+  right. Wrap favorite thumbnails across the full width and show all recorded
+  thumbnails when expanded. Keep cursor-based pagination, and omit the Gallery
+  filter inside a gallery.
 
 ## Workspace settings
 
 Use the workspace sidebar plus an ungrouped secondary menu: General, Watermark
-and Cover signature. General holds name/logo, language and quality, without a
-preview. Both editors use a compact toolbar over a large live preview. The
-always-visible Cancel/Save bar is disabled without edits and its divider spans
-the full panel. Keep edits across sections and cancel back to the saved state.
+and Cover signature. General holds name/logo, the workspace's only language
+selector, and quality, without a preview. Both editors use a compact toolbar
+over a large live preview. The always-visible Cancel/Save bar is disabled without
+edits and its divider spans the full panel. Keep edits across sections and cancel
+back to the saved state.
 
 In Single watermark mode, show the nine placement controls on the preview.
 In Repeated mode, hide them and remember the position. Keep compact size and
@@ -80,8 +84,9 @@ the text only; the logo keeps the colors supplied by its file.
 
 Cover signature keeps None, Name, Logo and Both. In Both, center the logo above
 the name. Save an optional text color and show it on the actual cover, not just
-in the editor. Without an override, inherit the existing cover color. Disable
-the color control without a name; do not add opacity or recolor the gallery title.
+in the editor. A reset icon clears the override and restores the existing cover
+color. Disable the color control without a name; do not add opacity or recolor
+the gallery title.
 
 ## Motion and delivery
 

@@ -35,7 +35,7 @@ const settings = {
 	size: 4,
 	signature: 'name',
 	signature_size: 4,
-	signature_text_color: '#F6CCB4',
+	signature_color: '#F6CCB4',
 	proof_quality: 'medium'
 };
 const photos = Array.from({ length: 7 }, (_, i) => ({
@@ -118,7 +118,7 @@ createServer((req, res) => {
 			studio_name: settings.studio_name,
 			signature: settings.signature,
 			signature_size: settings.signature_size,
-			signature_text_color: settings.signature_text_color,
+			signature_color: settings.signature_color,
 			has_logo: false
 		});
 	}

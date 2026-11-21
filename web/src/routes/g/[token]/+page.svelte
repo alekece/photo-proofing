@@ -75,7 +75,7 @@
 				: null}
 			signature={data.gallery.signature}
 			signatureSize={data.gallery.signature_size}
-			signatureTextColor={data.gallery.signature_text_color}
+			signatureTextColor={data.gallery.signature_color}
 		/>
 	</div>
 {:else if data.lockedGallery}

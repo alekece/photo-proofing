@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Check } from '@lucide/svelte';
+	import { Check, RotateCcw } from '@lucide/svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import {
 		normalizeWatermarkHex,
@@ -72,11 +72,15 @@
 					class="size-11 cursor-pointer p-1"
 				/>
 				<Button
-					variant="outline"
-					size="sm"
+					variant="ghost"
+					class="size-11 p-0"
 					disabled={settings.signatureTextColor === null}
-					onclick={() => (settings.signatureTextColor = null)}>{m.signature_inherit_color()}</Button
+					title={m.signature_reset_color()}
+					aria-label={m.signature_reset_color()}
+					onclick={() => (settings.signatureTextColor = null)}
 				>
+					<RotateCcw size={16} aria-hidden="true" />
+				</Button>
 			</div>
 		</fieldset>
 	{/snippet}

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { Activity, Bell, Image, Images, LogOut, Settings, User, Users } from '@lucide/svelte';
-	import LanguageMenu from '#lib/components/LanguageMenu.svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import NotificationBell from '#lib/components/NotificationBell.svelte';
 	import { getGalleryGridReturn } from '#lib/gallery/dashboardNavigation.svelte.js';
@@ -28,9 +27,8 @@
 	const gridReturn = getGalleryGridReturn();
 	const identityName = $derived(studioName?.trim() || m.account_photographer());
 	const round = 'grid size-[2.375rem] place-items-center rounded-full';
-	const hover = 'hover:bg-border/60';
 	const pill =
-		'inline-flex min-h-8 items-center gap-2 rounded-full px-3 py-1 text-[0.84375rem] leading-tight whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus sm:focus-visible:-outline-offset-2';
+		'menu-choice min-h-8 py-1 leading-tight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus sm:focus-visible:-outline-offset-2';
 
 	const pathname = $derived.by(() => {
 		try {
@@ -47,15 +45,6 @@
 	const contactsActive = $derived(pathname === '/contacts' || pathname.startsWith('/contacts/'));
 	const activityActive = $derived(pathname === '/activity' || pathname.startsWith('/activity/'));
 	const settingsActive = $derived(pathname === '/settings' || pathname.startsWith('/settings/'));
-
-	function linkClass(active: boolean) {
-		return cn(
-			pill,
-			active
-				? 'bg-foreground font-semibold text-background'
-				: 'font-medium text-muted-foreground hover:bg-border/60 hover:text-foreground'
-		);
-	}
 </script>
 
 <header
@@ -88,34 +77,22 @@
 			'sm:order-none sm:mt-3 sm:min-h-0 sm:flex-col sm:flex-nowrap sm:items-stretch sm:gap-1 sm:overflow-y-auto sm:border-t-0 sm:pt-0 [&>a]:shrink-0'
 		)}
 	>
-		<a
-			href={galleriesHref}
-			aria-current={galleriesActive ? 'page' : undefined}
-			class={linkClass(galleriesActive)}
+		<a href={galleriesHref} aria-current={galleriesActive ? 'page' : undefined} class={pill}
 			><Images size={16} aria-hidden="true" />{m.nav_galleries()}</a
 		>
-		<a
-			href="/photos"
-			aria-current={allPhotosActive ? 'page' : undefined}
-			class={linkClass(allPhotosActive)}
+		<a href="/photos" aria-current={allPhotosActive ? 'page' : undefined} class={pill}
 			><Image size={16} aria-hidden="true" />{m.nav_all_photos()}</a
 		>
-		<a
-			href="/contacts"
-			aria-current={contactsActive ? 'page' : undefined}
-			class={linkClass(contactsActive)}
+		<a href="/contacts" aria-current={contactsActive ? 'page' : undefined} class={pill}
 			><Users size={16} aria-hidden="true" />{m.contacts_title()}</a
 		>
-		<a
-			href="/activity"
-			aria-current={activityActive ? 'page' : undefined}
-			class={linkClass(activityActive)}
+		<a href="/activity" aria-current={activityActive ? 'page' : undefined} class={pill}
 			><Activity size={16} aria-hidden="true" />{m.nav_activity()}</a
 		>
 		<a
 			href="/settings"
 			aria-current={settingsActive ? 'page' : undefined}
-			class={cn(linkClass(settingsActive), 'sm:mt-2 sm:border-t sm:border-border/60 sm:pt-2')}
+			class={cn(pill, 'sm:mt-2 sm:border-t sm:border-border/60 sm:pt-2')}
 			><Settings size={16} aria-hidden="true" />{m.header_settings()}</a
 		>
 	</nav>
@@ -126,7 +103,6 @@
 			'sm:mt-auto sm:shrink-0 sm:flex-col sm:items-stretch sm:gap-1 sm:border-t sm:border-border/60 sm:pt-3'
 		)}
 	>
-		<LanguageMenu class="{round} {hover}" />
 		<Popover
 			label={m.header_account_menu()}
 			align="end"

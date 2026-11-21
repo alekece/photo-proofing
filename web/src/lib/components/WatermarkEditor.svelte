@@ -180,15 +180,12 @@
 							variant="outline"
 							aria-label={m.watermark_position_cell({ cell: cell + 1 })}
 							aria-pressed={settings.position === cell}
-							class="pointer-events-auto relative size-11 min-h-0 rounded-full bg-panel/85 p-0 text-foreground aria-pressed:border-white/60 aria-pressed:bg-transparent {rows[
+							class="pointer-events-auto size-11 min-h-0 control-choice p-0 {rows[
 								Math.floor(cell / 3)
 							]} {columns[cell % 3]}"
 							onclick={() => (settings.position = cell)}
 						>
-							{#if settings.position === cell}<span
-									class="absolute -right-1 -bottom-1 grid size-5 place-items-center rounded-full bg-golden-hour"
-									><Check size={13} aria-hidden="true" /></span
-								>
+							{#if settings.position === cell}<Check size={16} aria-hidden="true" />
 							{:else}<Crosshair size={16} aria-hidden="true" />{/if}
 						</Button>
 					{/each}

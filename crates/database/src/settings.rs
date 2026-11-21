@@ -12,9 +12,7 @@ use pp_core::types::bounded::BoundedU8;
 pub use pp_core::types::studio::{CoverSignature, Language};
 use serde::{Deserialize, Serialize};
 use sqlx::{
-    AssertSqlSafe, Decode, FromRow, PgConnection, PgPool, Postgres, Row, Transaction, Type,
-    error::BoxDynError,
-    postgres::{PgTypeInfo, PgValueRef},
+    AssertSqlSafe, FromRow, PgConnection, PgPool, Postgres, Row, Transaction, Type, types::Text,
 };
 use thiserror::Error;
 
@@ -152,19 +150,22 @@ pub struct InvalidWatermarkColor;
 /// assert_eq!(color.rgb(), [161, 43, 60]);
 /// assert_eq!(color.to_string(), "#A12B3C");
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(try_from = "String", into = "String")]
-pub struct WatermarkColor([u8; 3]);
+#[sqlx(transparent, no_pg_array)]
+pub struct WatermarkColor(Text<Rgb>);
 
 impl WatermarkColor {
     pub const fn rgb(self) -> [u8; 3] {
-        self.0
+        let Self(Text(Rgb(channels))) = self;
+
+        channels
     }
 }
 
 impl Default for WatermarkColor {
     fn default() -> Self {
-        Self([255; 3])
+        Self(Text(Rgb([255; 3])))
     }
 }
 
@@ -172,25 +173,13 @@ impl FromStr for WatermarkColor {
     type Err = InvalidWatermarkColor;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let hex = value.strip_prefix('#').ok_or(InvalidWatermarkColor)?;
-
-        if hex.len() != 6 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(InvalidWatermarkColor);
-        }
-
-        let [_, r, g, b] = u32::from_str_radix(hex, 16)
-            .map_err(|_| InvalidWatermarkColor)?
-            .to_be_bytes();
-
-        Ok(Self([r, g, b]))
+        value.parse().map(|rgb| Self(Text(rgb)))
     }
 }
 
 impl fmt::Display for WatermarkColor {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let [r, g, b] = self.0;
-
-        write!(formatter, "#{r:02X}{g:02X}{b:02X}")
+        fmt::Display::fmt(&*self.0, formatter)
     }
 }
 
@@ -208,19 +197,32 @@ impl From<WatermarkColor> for String {
     }
 }
 
-impl Type<Postgres> for WatermarkColor {
-    fn type_info() -> PgTypeInfo {
-        <String as Type<Postgres>>::type_info()
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Rgb([u8; 3]);
 
-    fn compatible(ty: &PgTypeInfo) -> bool {
-        <String as Type<Postgres>>::compatible(ty)
+impl FromStr for Rgb {
+    type Err = InvalidWatermarkColor;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let hex = value.strip_prefix('#').ok_or(InvalidWatermarkColor)?;
+
+        if hex.len() != 6 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(InvalidWatermarkColor);
+        }
+
+        let [_, r, g, b] = u32::from_str_radix(hex, 16)
+            .map_err(|_| InvalidWatermarkColor)?
+            .to_be_bytes();
+
+        Ok(Self([r, g, b]))
     }
 }
 
-impl<'r> Decode<'r, Postgres> for WatermarkColor {
-    fn decode(value: PgValueRef<'r>) -> Result<Self, BoxDynError> {
-        Ok(<&str as Decode<'r, Postgres>>::decode(value)?.parse()?)
+impl fmt::Display for Rgb {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let [r, g, b] = self.0;
+
+        write!(formatter, "#{r:02X}{g:02X}{b:02X}")
     }
 }
 
@@ -264,7 +266,7 @@ pub struct WorkspaceSettings {
     pub signature: CoverSignature,
     pub signature_size: SizeStep,
     /// `None` inherits the cover's text color.
-    pub signature_text_color: Option<WatermarkColor>,
+    pub signature_color: Option<WatermarkColor>,
     pub proof_quality: ProofQuality,
     pub watermark_opacity: WatermarkOpacity,
     pub watermark_text_color: WatermarkColor,
@@ -282,7 +284,7 @@ impl Default for WorkspaceSettings {
             size: DEFAULT_SIZE_STEP,
             signature: CoverSignature::Name,
             signature_size: DEFAULT_SIZE_STEP,
-            signature_text_color: None,
+            signature_color: None,
             proof_quality: ProofQuality::default(),
             watermark_opacity: DEFAULT_WATERMARK_OPACITY,
             watermark_text_color: WatermarkColor::default(),
@@ -344,7 +346,7 @@ pub struct SettingsUpdate {
     pub signature: CoverSignature,
     pub signature_size: SizeStep,
     /// Omit to keep the current color; an explicit `None` restores inheritance.
-    pub signature_text_color: Option<Option<WatermarkColor>>,
+    pub signature_color: Option<Option<WatermarkColor>>,
     pub proof_quality: ProofQuality,
     pub watermark_opacity: Option<WatermarkOpacity>,
     pub watermark_text_color: Option<WatermarkColor>,
@@ -412,7 +414,7 @@ impl SettingsRepository<'_> {
         COALESCE(s.position, 8::smallint) AS position, COALESCE(s.size, 4::smallint) AS size,
         COALESCE(s.signature, 'name') AS signature,
         COALESCE(s.signature_size, 4::smallint) AS signature_size,
-        s.signature_text_color AS signature_text_color,
+        s.signature_color,
         COALESCE(s.proof_quality, 'medium') AS proof_quality, s.logo AS logo,
         COALESCE(s.watermark_opacity, 50::smallint) AS watermark_opacity,
         COALESCE(s.watermark_text_color, '#FFFFFF') AS watermark_text_color";
@@ -467,7 +469,7 @@ impl SettingsRepository<'_> {
         .await?;
 
         let current: WorkspaceSettings = sqlx::query_as(
-            "SELECT studio_name, mark, pattern, position, size, signature, signature_size, signature_text_color,
+            "SELECT studio_name, mark, pattern, position, size, signature, signature_size, signature_color,
                     proof_quality, logo, watermark_opacity, watermark_text_color
              FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
         )
@@ -492,9 +494,7 @@ impl SettingsRepository<'_> {
             size: update.size,
             signature: update.signature,
             signature_size: update.signature_size,
-            signature_text_color: update
-                .signature_text_color
-                .unwrap_or(current.signature_text_color),
+            signature_color: update.signature_color.unwrap_or(current.signature_color),
             proof_quality: update.proof_quality,
             watermark_opacity: update
                 .watermark_opacity
@@ -517,7 +517,7 @@ impl SettingsRepository<'_> {
                  studio_name = $2, mark = $3, pattern = $4, position = $5, size = $6,
                  signature = $7, logo = $8, proof_quality = $10, signature_size = $11,
                  watermark_revision = watermark_revision + $9, updated_at = now(),
-                 watermark_opacity = $12, watermark_text_color = $13, signature_text_color = $14
+                 watermark_opacity = $12, watermark_text_color = $13, signature_color = $14
              WHERE workspace_id = $1 RETURNING watermark_revision",
         )
         .bind(workspace_id)
@@ -532,8 +532,8 @@ impl SettingsRepository<'_> {
         .bind(saved.proof_quality)
         .bind(saved.signature_size)
         .bind(saved.watermark_opacity)
-        .bind(saved.watermark_text_color.to_string())
-        .bind(saved.signature_text_color.map(String::from))
+        .bind(saved.watermark_text_color)
+        .bind(saved.signature_color)
         .fetch_one(&mut *transaction)
         .await?;
 
@@ -872,7 +872,7 @@ mod tests {
             size: SizeStep::constant::<2>(),
             signature: CoverSignature::Name,
             signature_size: DEFAULT_SIZE_STEP,
-            signature_text_color: None,
+            signature_color: None,
             proof_quality: ProofQuality::Medium,
             watermark_opacity: None,
             watermark_text_color: None,
@@ -1584,7 +1584,7 @@ mod tests {
             .save(SettingsUpdate {
                 signature: CoverSignature::None,
                 signature_size: SizeStep::constant::<9>(),
-                signature_text_color: Some(Some("#C04020".parse().unwrap())),
+                signature_color: Some(Some("#C04020".parse().unwrap())),
                 position: GridCell::try_from(0).unwrap(),
                 logo: LogoChange::Replace(PNG.to_vec()),
                 ..update("Studio")
@@ -1592,7 +1592,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(saved.signature_text_color, Some("#C04020".parse().unwrap()));
+        assert_eq!(saved.signature_color, Some("#C04020".parse().unwrap()));
         assert_eq!(fixture.status(photo).await, PhotoStatus::Ready);
         assert_eq!(fixture.jobs(photo).await, 0);
 
@@ -1779,17 +1779,17 @@ mod tests {
 
         let mut transaction = fixture.pool.begin().await.unwrap();
 
-        sqlx::raw_sql("ALTER TABLE workspace_settings DROP COLUMN signature_text_color")
+        sqlx::raw_sql("ALTER TABLE workspace_settings DROP COLUMN signature_color")
             .execute(&mut *transaction)
             .await
             .unwrap();
-        sqlx::raw_sql(include_str!("../migrations/0043_signature_text_color.sql"))
+        sqlx::raw_sql(include_str!("../migrations/0043_signature_color.sql"))
             .execute(&mut *transaction)
             .await
             .unwrap();
 
         let settings: (String, Option<WatermarkColor>) =
-            sqlx::query_as("SELECT studio_name, signature_text_color FROM workspace_settings")
+            sqlx::query_as("SELECT studio_name, signature_color FROM workspace_settings")
                 .fetch_one(&mut *transaction)
                 .await
                 .unwrap();

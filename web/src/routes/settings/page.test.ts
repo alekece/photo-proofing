@@ -132,12 +132,11 @@ describe('Settings page', () => {
 		expect(hex.value).toBe('#A12B3C');
 	});
 
-	it('links back to the galleries', () => {
+	it('keeps the language selector in General without a redundant link to the galleries', () => {
 		open();
 
-		expect(screen.getByRole('link', { name: 'Back to galleries' }).getAttribute('href')).toBe(
-			'/dashboard'
-		);
+		expect(screen.queryByRole('link', { name: 'Back to galleries' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'Language: English' })).toBeTruthy();
 	});
 
 	it('shows Saving and prevents another submission while saving', async () => {
@@ -292,7 +291,7 @@ describe('Settings page', () => {
 		const fetcher = vi.fn(async (_url: string, init?: RequestInit) => {
 			const body = JSON.parse(init?.body as string);
 
-			return Response.json({ ...saved, signature_text_color: body.signature_text_color });
+			return Response.json({ ...saved, signature_color: body.signature_color });
 		});
 		vi.stubGlobal('fetch', fetcher);
 		open({ ...DEFAULT_SETTINGS, studioName: 'Studio X' });
@@ -307,7 +306,8 @@ describe('Settings page', () => {
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 		await screen.findByRole('button', { name: 'Saved' });
 
-		await user.click(screen.getByRole('button', { name: 'Use cover color' }));
+		expect(screen.queryByRole('button', { name: 'Use cover color' })).toBeNull();
+		await user.click(screen.getByRole('button', { name: 'Reset text color' }));
 		expect(name.style.color).toBe('');
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 		await screen.findByRole('button', { name: 'Saved' });
@@ -315,7 +315,7 @@ describe('Settings page', () => {
 		expect(
 			fetcher.mock.calls
 				.filter(([url]) => url === '/api/v1/settings')
-				.map(([, init]) => JSON.parse(init?.body as string).signature_text_color)
+				.map(([, init]) => JSON.parse(init?.body as string).signature_color)
 		).toEqual(['#A12B3C', null]);
 	});
 

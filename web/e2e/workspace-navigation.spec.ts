@@ -110,6 +110,40 @@ test('all unread notifications fit within reach on short viewports', async ({ pa
 	}
 });
 
+test('activity uses the available width for favorite thumbnails', async ({ page }) => {
+	test.skip(!process.env.PP_E2E_WORKSPACE_FIXTURE, 'Run against the synthetic workspace fixture.');
+	await page.setViewportSize({ width: 1200, height: 800 });
+	await page.goto('/activity');
+	const photos = page.getByRole('img', { name: 'Photo', exact: true });
+	await expect(photos).toHaveCount(7);
+	const rows = await photos.evaluateAll((images) =>
+		images.map((image) => image.getBoundingClientRect().top)
+	);
+	expect(new Set(rows).size).toBe(1);
+});
+
+test('workspace and Settings menus use the same hover and selected colors', async ({ page }) => {
+	test.skip(!process.env.PP_E2E_WORKSPACE_FIXTURE, 'Run against the synthetic workspace fixture.');
+	await page.setViewportSize({ width: 1200, height: 800 });
+	await page.goto('/settings');
+	const rail = page.getByRole('banner');
+	const contacts = rail.getByRole('link', { name: 'Contacts' });
+	const settings = rail.getByRole('link', { name: 'Settings' });
+	const general = page.getByRole('tab', { name: 'General' });
+	const watermark = page.getByRole('tab', { name: 'Watermark' });
+	for (const item of [contacts, watermark]) {
+		await expect(item).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+		await item.hover();
+		await expect(item).toHaveCSS('background-color', 'rgb(244, 239, 232)');
+	}
+	for (const item of [settings, general]) {
+		await item.hover();
+		await expect(item).toHaveCSS('background-color', 'rgb(43, 36, 32)');
+	}
+	await expect(rail.getByRole('button', { name: /^Language:/ })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Language: English' })).toBeVisible();
+});
+
 test('the gallery form closes back to its trigger, including with reduced motion', async ({
 	page
 }) => {

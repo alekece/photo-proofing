@@ -90,7 +90,7 @@
 		logo={studioLogo}
 		signature={gallery.signature ?? 'name'}
 		size={gallery.signature_size ?? DEFAULT_SIZE}
-		textColor={gallery.signature_text_color}
+		textColor={gallery.signature_color}
 		class="font-serif text-[1.1875rem] italic max-sm:text-[0.9375rem]"
 	/>
 

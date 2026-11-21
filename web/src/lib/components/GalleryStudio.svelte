@@ -306,9 +306,7 @@
 		disabled={item.disabled ?? false}
 		title={item.title}
 		tabindex={active ? 0 : -1}
-		class="flex shrink-0 cursor-pointer items-center gap-2 rounded-full px-3 py-1.5 text-[0.84375rem] leading-[1.2] whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-45 md:w-full md:rounded-[0.5625rem] md:px-2.5 md:py-2 {active
-			? 'bg-foreground font-semibold text-background'
-			: 'bg-border/45 font-medium text-foreground enabled:hover:bg-border/70 md:bg-transparent'}"
+		class="menu-choice shrink-0 cursor-pointer leading-[1.2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-45 md:w-full"
 		onclick={() => selectSection(item.id)}
 		onkeydown={moveTab}
 	>

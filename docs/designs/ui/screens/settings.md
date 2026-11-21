@@ -21,11 +21,12 @@ keyboard-navigable sections. Both actions are disabled until there is an edit.
   only in Once; ten size steps; opacity from 5–100% on adjustment; and a text color picker
   with a hex field. Lower saved values stay as they are until adjusted.
 - **Cover signature:** Name, Logo, Both or None, with ten size steps. Both centers the logo
-  above the name. The name can use a custom text color or inherit the cover color.
+  above the name. The name can use a custom text color; the reset icon restores the cover color.
 
-Mark and signature choices use a cream surface and a border/check for selection, without
-tinting logos or losing transparency. Logo choices are disabled without a logo. The watermark
-and signature each have a compact toolbar over a live preview; General has no preview.
+The section menu shares the workspace navigation's white, cream-hover and warm-black
+selected states. Mark and signature controls use the same palette without tinting logos.
+Logo choices are disabled without a logo. The watermark and signature each have a compact
+toolbar over a live preview; General has no preview.
 
 ## Save and Cancel
 

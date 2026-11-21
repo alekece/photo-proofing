@@ -88,11 +88,13 @@
 				disabled={disabled ?? false}
 				{title}
 				tabindex={value === id ? 0 : -1}
-				class="-mb-px flex items-baseline gap-1.5 border-b-2 pt-1.5 pb-[0.5625rem] text-[0.90625rem] leading-[1.2] enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 sm:gap-2 sm:pb-2.5 sm:text-[0.9375rem] {sidebar
-					? 'md:mb-0 md:rounded-control md:border-0 md:px-3 md:py-2.5 md:text-left md:aria-selected:bg-golden-hour'
-					: ''} {value === id
-					? 'border-foreground font-semibold text-foreground'
-					: 'border-transparent font-medium text-muted-foreground'}"
+				class={sidebar
+					? 'menu-choice min-h-8 text-left leading-tight disabled:cursor-not-allowed disabled:opacity-50'
+					: `-mb-px flex items-baseline gap-1.5 border-b-2 pt-1.5 pb-[0.5625rem] text-[0.90625rem] leading-[1.2] enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 sm:gap-2 sm:pb-2.5 sm:text-[0.9375rem] ${
+							value === id
+								? 'border-foreground font-semibold text-foreground'
+								: 'border-transparent font-medium text-muted-foreground'
+						}`}
 				onclick={() => (value = id)}
 				onkeydown={moveTab}
 			>

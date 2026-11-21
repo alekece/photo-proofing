@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { slide } from 'svelte/transition';
+	import { fade } from 'svelte/transition';
 	import { m } from '#lib/paraglide/messages.js';
 	import {
 		Activity,
@@ -190,12 +190,16 @@
 		{/if}
 	</EmptyState>
 {:else}
-	{#snippet thumbnail(event: ActivityEvent, photoId: string, size: string)}
+	{#snippet thumbnail(event: ActivityEvent, photoId: string, size: string, reveal = false)}
 		<img
 			src={thumbnailUrl(event.gallery_id, photoId)}
 			alt={m.activity_photo_alt()}
 			loading="lazy"
 			class="{size} rounded-md border border-border object-cover"
+			transition:fade={{
+				duration:
+					reveal && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 180 : 0
+			}}
 		/>
 	{/snippet}
 
@@ -253,28 +257,10 @@
 										/>
 									</Button>
 								{/if}
-								<div
-									id={photoGridId}
-									class="grid w-full max-w-64 grid-cols-3 gap-1.5 sm:max-w-80 sm:grid-cols-5"
-								>
-									{#each photos.slice(0, photoLimit) as photoId (photoId)}
-										{@render thumbnail(event, photoId, 'aspect-square w-full')}
+								<div id={photoGridId} class="flex flex-wrap gap-1.5">
+									{#each photos.slice(0, isExpanded ? undefined : photoLimit) as photoId, index (photoId)}
+										{@render thumbnail(event, photoId, 'size-14 shrink-0', index >= photoLimit)}
 									{/each}
-									{#if isExpanded && photos.length > photoLimit}
-										<div
-											class="col-span-full grid grid-cols-subgrid gap-1.5"
-											transition:slide={{
-												duration: globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')
-													.matches
-													? 0
-													: 200
-											}}
-										>
-											{#each photos.slice(photoLimit) as photoId (photoId)}
-												{@render thumbnail(event, photoId, 'aspect-square w-full')}
-											{/each}
-										</div>
-									{/if}
 								</div>
 							{:else if photos.length > 0}
 								<div class="flex gap-1.5">

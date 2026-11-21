@@ -4,7 +4,7 @@
 </script>
 
 {#if logo}
-	<img src={logo} alt="" class="{className} object-contain" />
+	<img src={logo} alt="" class="{className} rounded-sm bg-input object-contain" />
 {:else}
 	<svg viewBox="0 0 48 48" aria-hidden="true" class={className}>
 		<circle cx="24" cy="24" r="22" fill="none" stroke="currentColor" stroke-width="1.6" />

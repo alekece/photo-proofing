@@ -97,7 +97,7 @@ const sharedBrandingEntries = {
 	studio_name: v.optional(v.string()),
 	signature: v.optional(v.picklist(['name', 'logo', 'both', 'none'])),
 	signature_size: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(9))),
-	signature_text_color: v.optional(rgbHexSchema),
+	signature_color: v.optional(rgbHexSchema),
 	has_logo: v.optional(v.boolean())
 };
 

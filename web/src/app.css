@@ -75,6 +75,34 @@
 	@apply px-3.5 sm:px-8;
 }
 
+@utility menu-choice {
+	@apply flex items-center gap-2 rounded-full bg-input px-3 py-1.5 text-sm font-medium whitespace-nowrap text-foreground transition-colors;
+
+	&:where(:hover:not(:disabled)) {
+		background: var(--color-background);
+	}
+
+	&:is([aria-current='page'], [aria-selected='true']) {
+		background: var(--color-foreground);
+		color: var(--color-background);
+		font-weight: 600;
+	}
+}
+
+@utility control-choice {
+	@apply border-border-strong bg-input text-foreground transition-colors;
+
+	&:where(:hover:not(:disabled)) {
+		background: var(--color-background);
+	}
+
+	&:is([aria-pressed='true'], [aria-checked='true']) {
+		background: var(--color-foreground);
+		border-color: var(--color-foreground);
+		color: var(--color-inverse);
+	}
+}
+
 @layer base {
 	body {
 		margin: 0;
@@ -134,6 +162,9 @@
 		padding: 0.5rem 0.75rem;
 		background: var(--color-input);
 		color: var(--foreground);
+	}
+	.cn-input:hover:not(:disabled, [readonly]) {
+		background: var(--background);
 	}
 	.cn-label {
 		font-weight: 500;

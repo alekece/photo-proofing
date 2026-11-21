@@ -113,7 +113,7 @@ const settingsResponseSchema = v.object({
 	watermark_text_color: v.optional(rgbHexSchema, DEFAULT_SETTINGS.watermarkTextColor),
 	signature: v.picklist(SIGNATURES),
 	signature_size: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(SIZE_STEPS - 1)),
-	signature_text_color: v.nullish(rgbHexSchema, null),
+	signature_color: v.nullish(rgbHexSchema, null),
 	proof_quality: v.picklist(QUALITIES),
 	has_logo: v.boolean(),
 	email_enabled: v.optional(v.boolean(), false)
@@ -134,7 +134,7 @@ function toWorkspaceSettings(
 		watermarkTextColor: settings.watermark_text_color,
 		signature: settings.signature,
 		signatureSize: settings.signature_size,
-		signatureTextColor: settings.signature_text_color,
+		signatureTextColor: settings.signature_color,
 		proofQuality: settings.proof_quality,
 		emailEnabled: settings.email_enabled
 	};
@@ -180,7 +180,7 @@ export class SettingsApi {
 					watermark_text_color: settings.watermarkTextColor,
 					signature: settings.signature,
 					signature_size: settings.signatureSize,
-					signature_text_color: settings.signatureTextColor,
+					signature_color: settings.signatureTextColor,
 					proof_quality: settings.proofQuality,
 					logo: logoChange(settings.logo, saved.logo)
 				})

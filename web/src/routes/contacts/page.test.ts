@@ -1,22 +1,15 @@
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
 import type { Contact } from '#lib/contacts/api.js';
-import AppHeader from '#lib/components/AppHeader.svelte';
 
-const state = vi.hoisted(() => ({
-	page: { url: new URL('http://localhost/contacts') },
-	navigating: { to: null },
-	beforeNavigate: vi.fn()
-}));
 vi.mock('$app/navigation', () => ({
 	afterNavigate: vi.fn(),
-	beforeNavigate: state.beforeNavigate,
+	beforeNavigate: vi.fn(),
 	goto: vi.fn()
 }));
-vi.mock('$app/state', () => ({ page: state.page, navigating: state.navigating }));
 
 import Page from './+page.svelte';
 
@@ -48,8 +41,6 @@ function open(contacts: Contact[] | null) {
 }
 
 beforeEach(() => {
-	state.page.url = new URL('http://localhost/contacts');
-	state.beforeNavigate.mockClear();
 	vi.stubGlobal('matchMedia', () => ({ matches: true }));
 });
 
@@ -58,37 +49,97 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-function deletionSession() {
-	vi.useFakeTimers();
-	const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-	const requests: string[] = [];
-	let respond!: (status: number) => void;
-	vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
-		if (init?.method !== 'DELETE') return new Response(null, { status: 204 });
+describe('/contacts page', () => {
+	it('deletes only the selected contacts after explicit confirmation', async () => {
+		const user = userEvent.setup();
+		const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+		vi.stubGlobal('fetch', fetcher);
+		open([contact(), contact({ id: 'c2', name: 'Zoé Laurent' })]);
 
-		requests.push(String(input));
-		return new Promise<Response>((resolve) => {
-			respond = (status) => resolve(new Response(null, { status }));
-		});
+		expect(screen.queryAllByRole('button', { name: /Delete/ })).toHaveLength(0);
+		await user.click(screen.getByRole('button', { name: 'Show details for Camille & Hugo' }));
+		expect(screen.getByRole('checkbox', { name: 'Select Camille & Hugo' })).toHaveProperty(
+			'checked',
+			false
+		);
+		await user.click(screen.getByRole('checkbox', { name: 'Select Camille & Hugo' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		const dialog = screen.getByRole('dialog', { name: 'Delete Camille & Hugo?' });
+		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(0);
+		await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+		expect(fetcher).toHaveBeenCalledWith(
+			'/api/v1/contacts/c1',
+			expect.objectContaining({ method: 'DELETE' })
+		);
+		expect(screen.queryByText('Camille & Hugo')).toBeNull();
+		expect(screen.getByText('Zoé Laurent')).toBeTruthy();
 	});
 
-	const { unmount } = open([
-		contact(),
-		contact({ id: 'c2', name: 'Zoé Laurent', email: 'zoe@example.test', galleries: [] })
-	]);
-	const deleteButton = () => screen.getByRole('button', { name: 'Delete Camille & Hugo?' });
-	const advance = vi.advanceTimersByTimeAsync;
-	return {
-		user,
-		requests,
-		deleteButton,
-		unmount,
-		advance,
-		respond: (status: number) => respond(status)
-	};
-}
+	it('retries a partial deletion and continues past a contact that is already gone', async () => {
+		const user = userEvent.setup();
+		const requests: string[] = [];
+		vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+			if (init?.method !== 'DELETE') return new Response(null, { status: 204 });
 
-describe('/contacts page', () => {
+			requests.push(String(input));
+			return new Response(null, { status: [204, 503, 404, 204][requests.length - 1] ?? 500 });
+		});
+		open([
+			contact(),
+			contact({ id: 'c2', name: 'Louis Laurent' }),
+			contact({ id: 'c3', name: 'Zoé Laurent' })
+		]);
+
+		await user.click(screen.getByRole('checkbox', { name: 'Select Camille & Hugo' }));
+		await user.click(screen.getByRole('button', { name: 'Select all' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		let dialog = screen.getByRole('dialog', { name: 'Delete 3 contacts?' });
+		await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+		expect((await screen.findByRole('alert')).textContent).toContain(
+			'Deleted 1 of 3 contacts. Please try again.'
+		);
+		expect(screen.getByText('2 selected')).toBeTruthy();
+		expect(screen.queryByText('Camille & Hugo')).toBeNull();
+		dialog = screen.getByRole('dialog', { name: 'Delete 2 contacts?' });
+		await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+		expect(requests).toEqual([
+			'/api/v1/contacts/c1',
+			'/api/v1/contacts/c2',
+			'/api/v1/contacts/c2',
+			'/api/v1/contacts/c3'
+		]);
+		expect(screen.getByText('No contacts yet.')).toBeTruthy();
+	});
+
+	it('returns keyboard focus to search when all contacts are unselected', async () => {
+		const user = userEvent.setup();
+		open([contact()]);
+
+		await user.click(screen.getByRole('checkbox', { name: 'Select Camille & Hugo' }));
+		screen.getByRole('button', { name: 'Unselect all' }).focus();
+		await user.keyboard('{Enter}');
+
+		expect(document.activeElement).toBe(screen.getByRole('searchbox'));
+	});
+
+	it('cancels deletion without writes and drops contacts hidden by search from the selection', async () => {
+		const user = userEvent.setup();
+		const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+		vi.stubGlobal('fetch', fetcher);
+		open([contact(), contact({ id: 'c2', name: 'Zoé Laurent' })]);
+
+		await user.click(screen.getByRole('checkbox', { name: 'Select Camille & Hugo' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		const dialog = screen.getByRole('dialog', { name: 'Delete Camille & Hugo?' });
+		await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+		expect(screen.getByText('1 selected')).toBeTruthy();
+		await user.type(screen.getByRole('searchbox'), 'zoé');
+		expect(screen.queryByText('1 selected')).toBeNull();
+		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(0);
+	});
+
 	it('renders the empty directory state with disabled search and no axe violations', async () => {
 		const { container } = open([]);
 
@@ -385,130 +436,6 @@ describe('/contacts page', () => {
 			'This contact’s email has changed. Reload Contacts and try again.'
 		);
 		expect(email).toHaveProperty('value', 'new@example.test');
-	});
-
-	it.each(['removed row', 'toolbar'])(
-		'deletes only the armed contact after three seconds when focus is in the %s',
-		async (focusLocation) => {
-			const { user, requests, deleteButton, advance, respond } = deletionSession();
-			await user.click(screen.getByRole('button', { name: 'Show details for Camille & Hugo' }));
-			const link = screen.getByRole('link', { name: 'Summer Wedding' });
-			const button = deleteButton();
-			await user.click(button);
-			expect(screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' })).toBe(
-				button
-			);
-			expect(
-				document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent
-			).toContain('revokes their personal gallery links');
-
-			const sort = screen.getByRole('button', { name: /^Sort by:/ });
-			await user.click(sort);
-			await user.click(screen.getByRole('menuitemradio', { name: 'Name Z–A' }));
-			if (focusLocation === 'removed row') button.focus();
-			else sort.focus();
-
-			await advance(2999);
-			expect(requests).toEqual([]);
-			await advance(1);
-			expect(requests).toEqual(['/api/v1/contacts/c1']);
-			expect(screen.getByRole('link', { name: 'Summer Wedding' })).toBe(link);
-			expect(
-				(screen.getByRole('button', { name: 'Edit Camille & Hugo' }) as HTMLButtonElement).disabled
-			).toBe(true);
-
-			respond(204);
-			await advance(0);
-			expect(screen.queryByText('Camille & Hugo')).toBeNull();
-			const next = screen.getByRole('button', { name: 'Show details for Zoé Laurent' });
-			expect(document.activeElement).toBe(focusLocation === 'removed row' ? next : sort);
-		}
-	);
-
-	it.each(['click', 'Enter', 'Escape', 'filter', 'edit', 'unmount'])(
-		'never deletes a contact after an armed action is cancelled by %s',
-		async (cancel) => {
-			const { user, requests, deleteButton, advance, unmount } = deletionSession();
-			await user.click(deleteButton());
-			const armed = screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' });
-			if (cancel === 'click') await user.click(armed);
-			else if (cancel === 'filter') {
-				const search = screen.getByRole('searchbox');
-				await user.type(search, 'zoé');
-				expect(screen.queryByText('Camille & Hugo')).toBeNull();
-				await user.clear(search);
-				expect(deleteButton()).toBeTruthy();
-			} else if (cancel === 'edit') {
-				await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
-				await user.click(screen.getByRole('button', { name: 'Cancel' }));
-			} else if (cancel === 'unmount') unmount();
-			else await user.keyboard(`{${cancel}}`);
-
-			await advance(3000);
-			expect(requests).toEqual([]);
-		}
-	);
-
-	it('keeps the contact and focus after a failed deletion and requires a fresh countdown', async () => {
-		const { user, requests, deleteButton, advance, respond } = deletionSession();
-		await user.click(screen.getByRole('button', { name: 'Show details for Camille & Hugo' }));
-		const button = deleteButton();
-		await user.click(button);
-		expect(screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' })).toBe(button);
-		await advance(3000);
-		respond(503);
-		await advance(0);
-
-		const row = screen.getByText('Camille & Hugo').closest('li')!;
-		expect(within(row).getByRole('alert').textContent).toContain('delete this contact');
-		expect(within(row).getByRole('link', { name: 'Summer Wedding' })).toBeTruthy();
-		expect(document.activeElement).toBe(deleteButton());
-		await user.click(button);
-		await advance(2999);
-		expect(requests).toEqual(['/api/v1/contacts/c1']);
-		await advance(1);
-		expect(requests).toEqual(['/api/v1/contacts/c1', '/api/v1/contacts/c1']);
-	});
-
-	it('disarms an uncommitted countdown as soon as navigation starts', async () => {
-		const { user, requests, deleteButton, advance } = deletionSession();
-		await user.click(deleteButton());
-		expect(screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' })).toBeTruthy();
-		await advance(2999);
-		expect(state.beforeNavigate).toHaveBeenCalledOnce();
-		state.beforeNavigate.mock.calls[0][0]({ to: { route: { id: '/dashboard' } } });
-		await advance(1);
-		expect(deleteButton()).toBeTruthy();
-		expect(requests).toEqual([]);
-	});
-
-	it('disarms on a same-tab link click without waiting for the router hook', async () => {
-		const { user, requests, deleteButton, advance } = deletionSession();
-		render(AppHeader);
-		await user.click(deleteButton());
-		expect(screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' })).toBeTruthy();
-		await advance(2999);
-		const link = screen.getByRole('link', { name: 'Galleries' });
-		// Stop jsdom's default navigation after the capture listener sees the click.
-		link.addEventListener('click', (event) => event.preventDefault(), { once: true });
-		link.click();
-		vi.advanceTimersByTime(1);
-		await advance(0);
-
-		expect(requests).toEqual([]);
-		expect(deleteButton()).toBeTruthy();
-	});
-
-	it('does not cancel the original tab’s countdown on a modified link click', async () => {
-		const { user, requests, deleteButton, advance } = deletionSession();
-		render(AppHeader);
-		await user.click(deleteButton());
-		const link = screen.getByRole('link', { name: 'Galleries' });
-		link.addEventListener('click', (event) => event.preventDefault(), { once: true });
-		await fireEvent.click(link, { ctrlKey: true });
-		await advance(3000);
-
-		expect(requests).toEqual(['/api/v1/contacts/c1']);
 	});
 });
 

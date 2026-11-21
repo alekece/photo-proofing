@@ -7,7 +7,7 @@
 //!   default when absent), `{"action": "remove"}` or `{"action": "replace", "image_base64": …}`
 //!   (a PNG or JPEG, stored as a normalised PNG). A visible watermark change regenerates
 //!   unpublished proofs only; a proof quality change regenerates all proofs.
-//!   Omit `signature_text_color` to keep it, or send `null` to inherit the cover color.
+//!   Omit `signature_color` to keep it, or send `null` to inherit the cover color.
 //! - `PUT /language` saves the workspace language alone, `{"language": "en" | "fr"}`, and returns
 //!   it. The proofs are untouched.
 //! - `GET /logo` returns the saved logo as a PNG, or a 404.
@@ -45,7 +45,7 @@ struct SettingsView {
     size: SizeStep,
     signature: CoverSignature,
     signature_size: SizeStep,
-    signature_text_color: Option<WatermarkColor>,
+    signature_color: Option<WatermarkColor>,
     proof_quality: ProofQuality,
     watermark_opacity: WatermarkOpacity,
     watermark_text_color: WatermarkColor,
@@ -63,7 +63,7 @@ impl SettingsView {
             size: settings.size,
             signature: settings.signature,
             signature_size: settings.signature_size,
-            signature_text_color: settings.signature_text_color,
+            signature_color: settings.signature_color,
             proof_quality: settings.proof_quality,
             watermark_opacity: settings.watermark_opacity,
             watermark_text_color: settings.watermark_text_color,
@@ -92,7 +92,7 @@ struct SettingsRequest {
     signature: CoverSignature,
     signature_size: SizeStep,
     #[serde(default, deserialize_with = "SettingsRequest::deserialize_present")]
-    signature_text_color: Option<Option<WatermarkColor>>,
+    signature_color: Option<Option<WatermarkColor>>,
     proof_quality: ProofQuality,
     #[serde(default, deserialize_with = "SettingsRequest::deserialize_present")]
     watermark_opacity: Option<WatermarkOpacity>,
@@ -148,7 +148,7 @@ impl SettingsRequest {
             size: self.size,
             signature: self.signature,
             signature_size: self.signature_size,
-            signature_text_color: self.signature_text_color,
+            signature_color: self.signature_color,
             proof_quality: self.proof_quality,
             watermark_opacity: self.watermark_opacity,
             watermark_text_color: self.watermark_text_color,
@@ -499,9 +499,9 @@ mod tests {
         signed_in_app!(pool, app, cookie);
 
         for (changes, expected) in [
-            (json!({"signature_text_color": "#a12b3c"}), json!("#A12B3C")),
+            (json!({"signature_color": "#a12b3c"}), json!("#A12B3C")),
             (json!({}), json!("#A12B3C")),
-            (json!({"signature_text_color": null}), Value::Null),
+            (json!({"signature_color": null}), Value::Null),
         ] {
             let (status, saved) = call(
                 &app,
@@ -511,7 +511,7 @@ mod tests {
             let (_, read) = call(&app, request(test::TestRequest::get(), &cookie)).await;
 
             assert_eq!(status, StatusCode::OK);
-            assert_eq!(saved.get("signature_text_color"), Some(&expected));
+            assert_eq!(saved.get("signature_color"), Some(&expected));
             assert_eq!(read, saved);
         }
     }
@@ -543,7 +543,7 @@ mod tests {
             json!({"position": 9}),
             json!({"size": 10}),
             json!({"signature_size": 10}),
-            json!({"signature_text_color": "red"}),
+            json!({"signature_color": "red"}),
             json!({"mark": "other"}),
             json!({"unknown": 1}),
         ] {

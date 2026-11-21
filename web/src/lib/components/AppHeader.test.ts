@@ -77,11 +77,11 @@ describe('AppHeader', () => {
 		expect(screen.getByRole('link', { name: 'Galleries' }).getAttribute('aria-current')).toBeNull();
 	});
 
-	it('exposes direct Settings, language and account controls in the rail', () => {
+	it('exposes Settings and the account without duplicating the language control', () => {
 		render(AppHeader);
 
 		expect(screen.getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings');
-		expect(screen.getByRole('button', { name: 'Language: English' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Language: English' })).toBeNull();
 		expect(screen.getByRole('button', { name: 'Account menu' })).toBeTruthy();
 	});
 

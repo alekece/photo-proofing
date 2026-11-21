@@ -2,7 +2,7 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { afterNavigate } from '$app/navigation';
-	import { ArrowLeft, Undo2, Upload, X } from '@lucide/svelte';
+	import { Undo2, Upload, X } from '@lucide/svelte';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import { getStudioNamePreview } from '#lib/components/WorkspaceLayout.svelte';
 	import ButtonFace from '#lib/components/ButtonFace.svelte';
@@ -150,7 +150,7 @@
 	<div class="flex items-center gap-4">
 		{#if draft.logo}
 			<div
-				class="group/logo relative grid size-16 flex-none place-items-center rounded-[0.875rem] border-[1.5px] border-border bg-golden-hour"
+				class="group/logo relative grid size-16 flex-none place-items-center rounded-card border border-border bg-input"
 			>
 				<img src={draft.logo} alt={m.studio_logo_alt()} class="max-h-[2.375rem] max-w-[2.375rem]" />
 				<Button
@@ -174,7 +174,7 @@
 			aria-label={m.studio_name()}
 			placeholder={m.studio_name()}
 			autocomplete="organization"
-			class="min-h-0 max-w-[32.5rem] min-w-0 flex-1 rounded-none border-0 border-b-[1.5px] border-border bg-transparent px-0 py-1.5 font-serif text-[1.625rem] leading-[normal] shadow-none focus:border-foreground"
+			class="max-w-[32.5rem] flex-1"
 		/>
 	</div>
 {/snippet}
@@ -182,11 +182,6 @@
 <svelte:head><title>{m.header_settings()} — PhotoProofing</title></svelte:head>
 <main class="min-w-0 flex-1 pb-12">
 	<div class="workspace-inset pt-4 sm:pt-6">
-		<a
-			href="/dashboard"
-			class="mb-4 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground underline-offset-2 hover:underline"
-			><ArrowLeft class="size-4" aria-hidden="true" />{m.header_back_to_galleries()}</a
-		>
 		<h1 class="mb-3 text-4xl leading-[1.1] sm:text-[3.25rem]">{m.header_settings()}</h1>
 	</div>
 	<div
@@ -248,7 +243,7 @@
 							<LanguageMenu
 								disabled={hasEdits || status === 'saving'}
 								align="start"
-								class="min-h-11 rounded-control border border-border bg-panel px-4 disabled:opacity-50"
+								class="min-h-11 rounded-control border control-choice px-4 disabled:opacity-50"
 							/>
 							{#if hasEdits}
 								<p class="text-sm text-muted-foreground">{m.settings_language_pending()}</p>
