@@ -6,7 +6,7 @@ A maintainer working on one control should be able to see it, request an adjustm
 
 ## Approaches
 
-We considered making Storybook and a browser pass mandatory for every UI change. That would add work to small edits without showing whether a control fits its page. Using only the app has the opposite problem: it makes repeated feedback on one component unnecessarily slow. The chosen approach is to pick the view that answers the design question.
+We considered making Storybook and a browser pass mandatory for every UI change. A story adds little when the problem is how a page arranges its controls. Using only the app has the opposite problem: it makes repeated feedback on one component unnecessarily slow. The chosen approach is to pick the view that answers the design question.
 
 ## Decision
 
