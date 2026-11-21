@@ -12,7 +12,7 @@ Add Storybook to `web/` so every shared primitive can be viewed and changed on i
 
 - Storybook runs from `web/` with the existing Tailwind theme, fonts and Paraglide messages, so a story looks like the real app.
 - Every primitive in `src/lib/components/ui/` (all 24 folders, composites such as `ConfirmDialog` and `WorkspaceToolbar` included; none import `$app/*`) has a story file next to it, showing its main variants and states.
-- The Storybook MCP server is declared in the repository for Copilot CLI and Codex.
+- Copilot CLI and Codex can connect to Storybook MCP using their local user configuration.
 - Reusable components are covered progressively over time; this slice covers `ui/` only.
 
 ## Non-goals / anti-goals
@@ -59,9 +59,9 @@ Known limitations to respect:
 
 ### MCP configuration
 
-- Copilot CLI: add a `storybook` HTTP server (`"type": "http"`, `http://localhost:6006/mcp`, `"tools": ["*"]`) to the existing `.github/mcp.json`; the builder confirms with `copilot mcp get storybook` that it loads.
-- Codex: add `.codex/config.toml` with the same server URL.
-- Both are inert unless Storybook runs; the README says to start it first. A missing server shows as unavailable in the agent, which is acceptable.
+- Each developer opts in by registering `http://localhost:6006/mcp` in the local user configuration for Copilot CLI or Codex. The README documents both setups and explains that Storybook must be running to connect.
+- Do not add a Storybook entry to `.github/mcp.json`, create a repository `.codex/config.toml`, or commit any personal MCP settings. The Storybook project configuration and stories are still versioned.
+- Verify that both clients can list MCP tools using local settings, without modifying the repository's MCP configuration.
 
 ### Conventions for later stories
 
@@ -83,4 +83,3 @@ Known limitations to respect:
 - Port 6006, the Storybook default.
 - No CI job and no `addon-vitest`/`addon-a11y` in this slice.
 - Dependabot needs no change: its existing `npm-dev-minor-patch` group already bumps the Storybook dev dependencies together.
-- `.codex/config.toml` at the repository root for Codex, since there is no Codex config yet.
