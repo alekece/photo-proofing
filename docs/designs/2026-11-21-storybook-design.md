@@ -1,6 +1,6 @@
 # Storybook for the web UI primitives — design
 
-Status: draft, awaiting maintainer approval. Issue: [#429](https://github.com/alekece/photo-proofing/issues/429).
+Status: approved by the maintainer. Issue: [#429](https://github.com/alekece/photo-proofing/issues/429).
 
 ## Intent
 
@@ -41,7 +41,7 @@ The maintainer chose A.
 
 ### Compatibility (checked in a throwaway copy, not in the repository)
 
-A copy of `web/` with `storybook`, `@storybook/sveltekit`, `@storybook/addon-svelte-csf` and `@storybook/addon-mcp` at 10.6.8 built successfully with Vite 8 and SvelteKit 3, using the project's Tailwind CSS. `storybook dev` then served `/mcp`, which answered MCP `initialize` and `tools/list`.
+A copy of `web/` with `storybook`, `@storybook/sveltekit` and `@storybook/addon-mcp` at 10.6.8 and `@storybook/addon-svelte-csf` at 5.1.6 built successfully with Vite 8 and SvelteKit 3, using the project's Tailwind CSS. `storybook dev` then served `/mcp`, which answered MCP `initialize` and `tools/list`.
 
 Known limitations to respect:
 
@@ -77,7 +77,7 @@ Known limitations to respect:
 - The README wording.
 - If `@storybook/sveltekit` fails with SvelteKit 3 in the real tree, stop and report to the maintainer; do not switch to approach B on your own.
 
-## Calls made by the author (not yet agreed)
+## Implementation decisions
 
 - Svelte CSF stories rather than CSF in TypeScript, since the SvelteKit framework installs it by default and it lets stories pass snippets as children.
 - Port 6006, the Storybook default.
