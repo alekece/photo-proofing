@@ -51,18 +51,16 @@ function proofPreview() {
 }
 
 describe('Settings page', () => {
-	it('keeps a single preview beside the selected settings section', async () => {
+	it('puts language and proof quality in General and reserves previews for the editors', async () => {
 		open();
 		const user = userEvent.setup();
 		expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
-		expect(proofPreview()).toBeTruthy();
+		expect(screen.queryByRole('img', { name: /Preview of/ })).toBeNull();
+		expect(screen.getByRole('button', { name: /language/i })).toBeTruthy();
+		expect(screen.getByRole('radio', { name: /Medium/ })).toBeTruthy();
 
-		tab('Studio').focus();
+		tab('General').focus();
 		await user.keyboard('{End}');
-		expect(tab('Proof quality')).toBe(document.activeElement);
-		expect(tab('Proof quality').getAttribute('aria-selected')).toBe('true');
-		expect(proofPreview()).toBeTruthy();
-		await user.keyboard('{ArrowLeft}');
 		expect(tab('Cover signature')).toBe(document.activeElement);
 		expect(
 			screen.getByRole('img', { name: 'Preview of a client cover with the signature' })
@@ -73,13 +71,18 @@ describe('Settings page', () => {
 		expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
 	});
 
-	it('previews and validates color and opacity', async () => {
-		const { container } = open();
+	it('previews text color and floors new opacity adjustments without changing a saved zero', async () => {
+		const { container } = open({ ...DEFAULT_SETTINGS, watermarkOpacity: 0 });
 		const user = userEvent.setup();
 		await user.click(tab('Watermark'));
 		const color = container.querySelector<HTMLInputElement>('input[type=color]')!;
 		const hex = screen.getByLabelText('Hex color') as HTMLInputElement;
 		const opacity = screen.getByRole('slider', { name: 'Watermark opacity' });
+
+		expect(proofPreview().querySelector<HTMLElement>('[style*="opacity"]')?.style.opacity).toBe(
+			'0'
+		);
+		expect(screen.getByRole('button', { name: 'Save changes' })).toHaveProperty('disabled', true);
 
 		await fireEvent.input(color, { target: { value: '#a12b3c' } });
 		expect(hex.value).toBe('#A12B3C');
@@ -95,7 +98,7 @@ describe('Settings page', () => {
 			expect(stamp()).toBeTruthy();
 			await fireEvent.input(opacity, { target: { value: '0' } });
 			expect(proofPreview().querySelector<HTMLElement>('[style*="opacity"]')?.style.opacity).toBe(
-				'0'
+				'0.05'
 			);
 			await fireEvent.input(opacity, { target: { value: '100' } });
 			expect(proofPreview().querySelector<HTMLElement>('[style*="opacity"]')?.style.opacity).toBe(
@@ -110,7 +113,9 @@ describe('Settings page', () => {
 		await user.click(screen.getByRole('button', { name: 'Cancel' }));
 		expect(hex.value).toBe('#FFFFFF');
 		expect(color.value).toBe('#ffffff');
-		expect(opacity).toHaveProperty('value', '50');
+		expect(proofPreview().querySelector<HTMLElement>('[style*="opacity"]')?.style.opacity).toBe(
+			'0'
+		);
 	});
 
 	it('drops an invalid hex buffer, but keeps the last valid color on a logo-only mark', async () => {
@@ -204,7 +209,7 @@ describe('Settings page', () => {
 		expect(screen.getByText('Enter a six-digit hex color.')).toBeTruthy();
 		expect(screen.queryByRole('button', { name: 'Saved' })).toBeNull();
 		expect(screen.getByRole('button', { name: 'None' }).getAttribute('aria-pressed')).toBe('true');
-		await user.click(tab('Studio'));
+		await user.click(tab('General'));
 		expect(screen.getByLabelText('Studio name')).toHaveProperty('value', 'Studio X II');
 		await user.click(tab('Watermark'));
 		expect(screen.getByRole('slider', { name: 'Watermark opacity' })).toHaveProperty('value', '71');
@@ -283,6 +288,37 @@ describe('Settings page', () => {
 		expect(toasts.items).toEqual([]);
 	});
 
+	it('saves a signature text color and can reset it to the inherited cover color', async () => {
+		const fetcher = vi.fn(async (_url: string, init?: RequestInit) => {
+			const body = JSON.parse(init?.body as string);
+
+			return Response.json({ ...saved, signature_text_color: body.signature_text_color });
+		});
+		vi.stubGlobal('fetch', fetcher);
+		open({ ...DEFAULT_SETTINGS, studioName: 'Studio X' });
+		const user = userEvent.setup();
+
+		await user.click(tab('Cover signature'));
+		const color = screen.getByLabelText('Text color');
+		const name = screen.getByText('Studio X');
+		expect(name.style.color).toBe('');
+		await fireEvent.input(color, { target: { value: '#a12b3c' } });
+		expect(name.style.color).toBe('rgb(161, 43, 60)');
+		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await screen.findByRole('button', { name: 'Saved' });
+
+		await user.click(screen.getByRole('button', { name: 'Use cover color' }));
+		expect(name.style.color).toBe('');
+		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await screen.findByRole('button', { name: 'Saved' });
+
+		expect(
+			fetcher.mock.calls
+				.filter(([url]) => url === '/api/v1/settings')
+				.map(([, init]) => JSON.parse(init?.body as string).signature_text_color)
+		).toEqual(['#A12B3C', null]);
+	});
+
 	it('saves the proof quality without a toast', async () => {
 		toasts.items = [];
 		const fetcher = respond({ ...saved, proof_quality: 'high' });
@@ -290,7 +326,6 @@ describe('Settings page', () => {
 		open();
 		const user = userEvent.setup();
 
-		await user.click(tab('Proof quality'));
 		expect(screen.getByRole('radio', { name: /Medium/ }).getAttribute('aria-checked')).toBe('true');
 		await user.click(screen.getByRole('radio', { name: /High/ }));
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
@@ -351,9 +386,15 @@ describe('Settings page', () => {
 		const name = screen.getByLabelText('Studio name') as HTMLInputElement;
 
 		await user.type(name, 'Studio X');
+		await user.click(tab('Watermark'));
+		await user.click(screen.getByRole('button', { name: 'Once' }));
 		await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
-		expect(name.value).toBe('');
+		expect(screen.getByRole('button', { name: 'Repeat' }).getAttribute('aria-pressed')).toBe(
+			'true'
+		);
+		await user.click(tab('General'));
+		expect(screen.getByLabelText('Studio name')).toHaveProperty('value', '');
 
 		const reverted = await screen.findByRole('button', { name: /Reverted/ });
 
@@ -366,24 +407,31 @@ describe('Settings page', () => {
 		);
 	});
 
-	it('disables logo options and the position grid until they apply', async () => {
+	it('hides watermark positions in Repeat and restores the selected cell in Once', async () => {
 		open();
 		const user = userEvent.setup();
-		await user.click(tab('Cover signature'));
-
-		for (const name of ['Logo', 'Both'])
-			for (const button of screen.getAllByRole('button', { name }))
-				expect(button.hasAttribute('disabled')).toBe(true);
 		await user.click(tab('Watermark'));
-		expect(screen.getByRole('button', { name: 'Position 1' }).closest('fieldset')?.disabled).toBe(
-			true
-		);
+		expect(screen.queryByRole('button', { name: 'Position 1' })).toBeNull();
 
 		await user.click(screen.getByRole('button', { name: 'Once' }));
-
-		expect(screen.getByRole('button', { name: 'Position 1' }).closest('fieldset')?.disabled).toBe(
-			false
+		await user.click(screen.getByRole('button', { name: 'Position 1' }));
+		await user.click(screen.getByRole('button', { name: 'Repeat' }));
+		expect(screen.queryByRole('button', { name: 'Position 1' })).toBeNull();
+		await user.click(screen.getByRole('button', { name: 'Once' }));
+		expect(screen.getByRole('button', { name: 'Position 1' }).getAttribute('aria-pressed')).toBe(
+			'true'
 		);
+	});
+
+	it('does not offer a signature color for logo-only or hidden signatures', async () => {
+		open({ ...DEFAULT_SETTINGS, logo: '/api/v1/settings/logo' });
+		const user = userEvent.setup();
+
+		await user.click(tab('Cover signature'));
+		for (const name of ['Logo', 'None']) {
+			await user.click(screen.getByRole('button', { name }));
+			expect(screen.getByLabelText('Text color').matches(':disabled')).toBe(true);
+		}
 	});
 
 	it('has no accessibility violations', async () => {

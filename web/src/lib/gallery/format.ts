@@ -69,7 +69,7 @@ export function formatDateTime(iso: string, timeZone?: string): string {
 	}).format(new Date(iso));
 }
 
-/** The one status a gallery shows: archived and expired win over its progress state. */
+/** The current filter buckets: archived and expired win over the progress state. */
 export function galleryStatus(
 	states: readonly ('draft' | 'shared' | 'delivered' | 'archived' | 'expired')[]
 ) {
@@ -77,6 +77,17 @@ export function galleryStatus(
 	if (states.includes('expired')) return 'expired';
 
 	return states[0] ?? 'draft';
+}
+
+/** Expiry is an access flag, not a lifecycle stage. */
+export function galleryLifecycle(
+	states: Parameters<typeof galleryStatus>[0]
+): Exclude<ReturnType<typeof galleryStatus>, 'expired'> {
+	if (states.includes('archived')) return 'archived';
+	if (states.includes('delivered')) return 'delivered';
+	if (states.includes('shared')) return 'shared';
+
+	return 'draft';
 }
 
 /** Up to two capitals for a gallery without a hero photo; "Camille & Hugo" gives "CH". */
@@ -117,7 +128,8 @@ export interface SummaryPart {
 	over: boolean;
 }
 
-function expiredAgo(iso: string | null, now: Date): string {
+/** Relative expiry used to explain closed access on the card. */
+export function galleryExpiryDescription(iso: string | null, now: Date = new Date()): string {
 	if (iso === null) return m.summary_expired();
 
 	const days = CALENDAR_DATE_RE.test(iso)
@@ -139,19 +151,15 @@ const plain = (text: string): SummaryPart[] => [{ text, over: false }];
 /**
  * The one line on a gallery card, as runs so the selection can be highlighted.
  */
-export function gallerySummary(
-	gallery: {
-		states: Parameters<typeof galleryStatus>[0];
-		included_photos: number | null;
-		expires_at: string | null;
-		photo_count: number;
-		favorite_count: number;
-		final_count: number;
-		downloaded_count: number;
-	},
-	now: Date = new Date()
-): SummaryPart[] {
-	const status = galleryStatus(gallery.states);
+export function gallerySummary(gallery: {
+	states: Parameters<typeof galleryStatus>[0];
+	included_photos: number | null;
+	photo_count: number;
+	favorite_count: number;
+	final_count: number;
+	downloaded_count: number;
+}): SummaryPart[] {
+	const status = galleryLifecycle(gallery.states);
 	const photos = m.summary_photos({ count: gallery.photo_count });
 	const finalsText = m.summary_finals({ count: gallery.final_count });
 
@@ -174,15 +182,8 @@ export function gallerySummary(
 	}
 
 	const over = gallery.included_photos !== null && gallery.favorite_count > gallery.included_photos;
-	const selected: SummaryPart[] = [
-		{ text: `${photos} · `, over: false },
+	return [
 		{ text: String(gallery.favorite_count), over },
 		{ text: m.summary_selected({ count: gallery.favorite_count }), over: false }
 	];
-
-	if (status === 'expired') {
-		return [...selected, { text: ` · ${expiredAgo(gallery.expires_at, now)}`, over: false }];
-	}
-
-	return selected;
 }

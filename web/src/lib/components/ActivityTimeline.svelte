@@ -213,22 +213,29 @@
 						{@const isExpanded = expandedIds.has(event.id)}
 						{@const photoGridId = `${instanceId}-photos-${event.id}`}
 						<li class="grid gap-2 rounded-xl border border-border bg-panel px-4 py-3">
-							<div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-								<div class="flex min-w-0 items-center gap-2">
-									<Icon size={16} class="shrink-0 text-muted-foreground" aria-hidden="true" />
-									<p class="text-[0.9375rem] wrap-anywhere">
-										{before}<strong>{actor}</strong>{after}
-									</p>
-								</div>
-								<span class="text-xs text-muted-foreground">{timeAgo(event.last_at)}</span>
+							<div
+								class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-x-2 sm:gap-x-3"
+							>
+								<Icon
+									size={16}
+									class="relative top-0.5 self-start text-foreground"
+									fill={event.kind === 'favorite' ? 'currentColor' : 'none'}
+									aria-hidden="true"
+								/>
+								<p class="text-[0.9375rem] wrap-anywhere">
+									{before}<strong>{actor}</strong>{after}
+									{#if showGallery}
+										<a
+											href="/dashboard/{encodeURIComponent(event.gallery_id)}"
+											class="ml-1 inline-block max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 align-middle text-xs font-medium text-foreground hover:bg-border/60"
+											>{event.gallery_title ?? m.gallery_untitled()}</a
+										>
+									{/if}
+								</p>
+								<time datetime={event.last_at} class="text-right text-xs text-muted-foreground">
+									{timeAgo(event.last_at)}
+								</time>
 							</div>
-							{#if showGallery}
-								<a
-									href="/dashboard/{encodeURIComponent(event.gallery_id)}"
-									class="w-fit text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-									>{event.gallery_title ?? m.gallery_untitled()}</a
-								>
-							{/if}
 							{#if isSelection && photos.length > 0}
 								{#if photos.length > photoLimit}
 									<Button

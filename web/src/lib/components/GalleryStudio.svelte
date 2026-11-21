@@ -28,6 +28,7 @@
 		Users
 	} from '@lucide/svelte';
 	import { tick, type Component, type Snippet } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import CommentsPanel from '#lib/components/CommentsPanel.svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
 	import GalleryActivityPanel from '#lib/components/GalleryActivityPanel.svelte';
@@ -41,6 +42,7 @@
 	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import type { FocalPoint, Gallery, GalleryChanges, QueuedInvitations } from '#lib/gallery/api.js';
+	import { getGalleryGridReturn } from '#lib/gallery/dashboardNavigation.svelte.js';
 	import { formatDateTime, formatLongDate, galleryStatus } from '#lib/gallery/format.js';
 	import { previewUrl } from '#lib/gallery/photos.js';
 	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
@@ -109,6 +111,8 @@
 	} = $props();
 
 	let section = $state<StudioSection>('photos');
+	const gridReturn = getGalleryGridReturn();
+	const headerActions = new SvelteMap<StudioSection, Snippet>();
 	const requestedId = $derived(requestedPhoto?.id);
 	const requestedKind = $derived(requestedPhoto?.kind);
 	$effect(() => {
@@ -219,14 +223,6 @@
 			title: shared ? undefined : m.tab_after_sharing()
 		},
 		{
-			id: 'comments',
-			label: m.tab_comments(),
-			icon: MessageSquare,
-			count: commentCount,
-			disabled: !shared,
-			title: shared ? undefined : m.tab_after_sharing()
-		},
-		{
 			id: 'final',
 			label: m.tab_final(),
 			icon: CheckCircle2,
@@ -242,6 +238,14 @@
 			id: 'activity',
 			label: m.nav_activity(),
 			icon: ActivityIcon,
+			disabled: !shared,
+			title: shared ? undefined : m.tab_after_sharing()
+		},
+		{
+			id: 'comments',
+			label: m.tab_comments(),
+			icon: MessageSquare,
+			count: commentCount,
 			disabled: !shared,
 			title: shared ? undefined : m.tab_after_sharing()
 		},
@@ -340,7 +344,7 @@
 		class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1.5 bg-panel px-3.5 pt-2.5 pb-2 [grid-area:identity] md:grid-cols-1 md:items-stretch md:gap-3 md:border-r md:border-border md:px-4 md:pt-4 md:pb-3"
 	>
 		<a
-			href="/dashboard"
+			href={gridReturn?.href ?? '/dashboard'}
 			aria-label={m.header_back_to_galleries()}
 			class="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-medium text-muted-foreground hover:text-foreground md:size-auto md:w-fit md:justify-start md:gap-1.5 md:border-0 md:bg-transparent md:px-0.5 md:py-0.5"
 		>
@@ -407,12 +411,12 @@
 			gallery={{ ...gallery, share_token: shareToken }}
 			{photoCount}
 			{favoriteCount}
-			sharing={section === 'share'}
+			action={headerActions.get(section)}
 			onupload={() => selectSection('photos')}
 			onshare={() => selectSection('share')}
 			oncollect={() => selectSection('favorites')}
 			ondelivery={() => selectSection('share')}
-			{onrestore}
+			onrestore={section === 'settings' ? undefined : onrestore}
 		/>
 	</div>
 
@@ -446,7 +450,7 @@
 		</div>
 	</div>
 
-	<main class="min-w-0 px-3.5 pt-4 pb-10 [grid-area:stage] sm:px-7 sm:pt-5 sm:pb-12">
+	<main class="min-w-0 workspace-inset pt-4 pb-10 [grid-area:stage] sm:pt-5 sm:pb-12">
 		<!-- All panels stay mounted so counts load on open and in-flight edits survive tab switches. -->
 		<div
 			role="tabpanel"
@@ -461,6 +465,7 @@
 				bind:heroRevision
 				active={section === 'photos'}
 				oncount={(n) => (photoCount = n)}
+				onheader={(action) => headerActions.set('photos', action)}
 			/>
 		</div>
 		<div
@@ -483,7 +488,11 @@
 			hidden={section !== 'comments'}
 			class={section === 'comments' ? 'grid gap-4' : undefined}
 		>
-			<CommentsPanel galleryId={id} layout={gallery.layout} oncount={(n) => (commentCount = n)} />
+			<CommentsPanel
+				galleryId={id}
+				active={section === 'comments'}
+				oncount={(n) => (commentCount = n)}
+			/>
 		</div>
 		<div role="tabpanel" id="panel-final" aria-labelledby="tab-final" hidden={section !== 'final'}>
 			<PhotosPanel
@@ -492,6 +501,7 @@
 				galleryId={id}
 				active={section === 'final'}
 				oncount={(n) => (finalCount = n)}
+				onheader={(action) => headerActions.set('final', action)}
 			/>
 		</div>
 		<div
@@ -519,6 +529,7 @@
 				{onsave}
 				{onsavefocal}
 				{onbeforepreview}
+				onheader={(action) => headerActions.set('design', action)}
 			/>
 		</div>
 		<div role="tabpanel" id="panel-share" aria-labelledby="tab-share" hidden={section !== 'share'}>
@@ -538,6 +549,8 @@
 					{onstartsend}
 					oncancel={leaveShare}
 					{onpublish}
+					onheader={(action) =>
+						action ? headerActions.set('share', action) : headerActions.delete('share')}
 					onopensettings={() => selectSection('settings')}
 					onsent={(result) => {
 						oninvitationsent?.(result);
@@ -558,6 +571,7 @@
 			<GalleryContactsPanel
 				galleryId={id}
 				revision={contactsPanelRevision}
+				onheader={(action) => headerActions.set('contacts', action)}
 				oncount={(n) => {
 					if (contactCount !== null && contactCount !== n) {
 						shareContactsRevision += 1;
@@ -573,10 +587,7 @@
 			hidden={section !== 'settings'}
 		>
 			<GallerySettingsPanel
-				gallery={{ ...gallery, hero_id: coverId, focal_point: liveFocalPoint }}
-				{settings}
-				{heroRevision}
-				active={section === 'settings'}
+				{gallery}
 				{shareToken}
 				{origin}
 				bind:expectedAccessCode

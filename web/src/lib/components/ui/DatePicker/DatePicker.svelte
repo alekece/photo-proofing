@@ -96,7 +96,7 @@
 	<div class={cn(presets && 'flex flex-col sm:flex-row')}>
 		{#if presets}
 			<div
-				class="grid grid-cols-2 gap-1 border-b border-border p-1.5 sm:flex sm:w-36 sm:shrink-0 sm:flex-col sm:border-r sm:border-b-0"
+				class="grid grid-cols-2 gap-1 border-b border-border p-1.5 sm:order-last sm:flex sm:w-36 sm:shrink-0 sm:flex-col sm:border-b-0 sm:border-l"
 			>
 				{#each relativePresets as preset (preset.label())}
 					<button

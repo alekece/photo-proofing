@@ -110,6 +110,7 @@
 			studioLogo={settings.logo}
 			signature={settings.signature}
 			signatureSize={settings.signatureSize}
+			signatureTextColor={settings.signatureTextColor}
 			preview
 			embedded={variant === 'inline'}
 			framed={view === 'phone'}

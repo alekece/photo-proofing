@@ -99,8 +99,8 @@
 		persistentSelect?: boolean;
 		/** A hover/focus/touch circle; in active mode the tile body also toggles selection. */
 		collectionSelect?: 'idle' | 'active';
-		/** The owning gallery and kind, shown as a badge; used by the workspace-wide photo list. */
-		source?: { title: string; kind: 'proof' | 'final' };
+		/** The owning gallery, shown on tiles in the workspace photo library. */
+		source?: string;
 	} = $props();
 
 	const failed = $derived(
@@ -335,12 +335,9 @@
 
 	{#if source}
 		<p
-			class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/60 to-transparent px-2 pt-6 pb-1.5 text-xs font-semibold text-white"
+			class="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/60 to-transparent px-2 pt-6 pb-1.5 text-xs font-semibold text-white"
 		>
-			<span class="truncate">{source.title}</span>
-			<span class="shrink-0 rounded-full bg-black/40 px-1.5 py-0.5 text-[0.625rem] uppercase"
-				>{source.kind === 'final' ? m.photos_kind_final() : m.photos_kind_proof()}</span
-			>
+			{source}
 		</p>
 	{/if}
 

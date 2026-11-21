@@ -48,6 +48,8 @@ pub struct Comment {
 pub struct CommentCount {
     pub photo_id: PhotoId,
     pub count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_body: Option<String>,
 }
 
 #[must_use]
@@ -118,26 +120,32 @@ impl CommentRepository<'_> {
     pub async fn counts(
         &self,
         location: PhotoLocation,
+        viewer: CommentAuthor,
     ) -> Result<Vec<CommentCount>, DatabaseError> {
-        let rows: Vec<(PhotoId, i64)> = sqlx::query_as(
-            "SELECT c.photo_id, count(*)
+        let rows: Vec<(PhotoId, i64, Option<String>)> = sqlx::query_as(
+            "SELECT DISTINCT ON (c.photo_id) c.photo_id, count(*) OVER (PARTITION BY c.photo_id),
+                    CASE WHEN $3 = 'photographer' THEN c.body END AS latest_body
              FROM photo_comments AS c JOIN photos AS p ON p.id = c.photo_id
              WHERE c.workspace_id = $1 AND c.gallery_id = $2 AND c.deleted_at IS NULL
                AND p.kind = 'proof' AND p.clean_ready
-             GROUP BY c.photo_id
-             ORDER BY c.photo_id",
+             ORDER BY c.photo_id, c.created_at DESC, c.id DESC",
         )
         .bind(location.workspace_id)
         .bind(location.gallery_id)
+        .bind(viewer)
         .fetch_all(self.pool)
         .await?;
 
         rows.into_iter()
-            .map(|(photo_id, count)| {
+            .map(|(photo_id, count, latest_body)| {
                 let count =
                     usize::try_from(count).map_err(|error| sqlx::Error::Decode(error.into()))?;
 
-                Ok(CommentCount { photo_id, count })
+                Ok(CommentCount {
+                    photo_id,
+                    count,
+                    latest_body,
+                })
             })
             .collect()
     }
@@ -460,12 +468,69 @@ mod tests {
             vec![comment]
         );
         assert_eq!(
-            repo.counts(f.location).await.unwrap(),
+            repo.counts(f.location, CommentAuthor::Client)
+                .await
+                .unwrap(),
             vec![CommentCount {
                 photo_id: f.proof,
-                count: 1
+                count: 1,
+                latest_body: None,
             }]
         );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn only_the_photographer_gets_the_latest_live_body_in_the_summary(pool: PgPool) {
+        let f = Fixture::new(&pool).await;
+        let first = f.add(CommentAuthor::Client).await;
+        let second = f.add(CommentAuthor::Photographer).await;
+        let repo = f.database.repository::<CommentRepository>();
+
+        let edited = repo
+            .edit(
+                f.location,
+                second.id,
+                CommentAuthor::Photographer,
+                &"Warmer, then?".to_owned().try_into().unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(edited, CommentChange::Applied(_)));
+        sqlx::query(
+            "UPDATE photo_comments SET created_at = now() - interval '1 minute' WHERE id = $1",
+        )
+        .bind(first.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let owner = repo
+            .counts(f.location, CommentAuthor::Photographer)
+            .await
+            .unwrap();
+        let client = repo
+            .counts(f.location, CommentAuthor::Client)
+            .await
+            .unwrap();
+
+        assert_eq!(owner[0].count, 2);
+        assert_eq!(owner[0].latest_body.as_deref(), Some("Warmer, then?"));
+        assert_eq!(client[0].count, 2);
+        assert_eq!(client[0].latest_body, None);
+
+        assert_eq!(
+            repo.delete(f.location, second.id, CommentAuthor::Photographer)
+                .await
+                .unwrap(),
+            CommentChange::Applied(())
+        );
+        let owner = repo
+            .counts(f.location, CommentAuthor::Photographer)
+            .await
+            .unwrap();
+
+        assert_eq!(owner[0].count, 1);
+        assert_eq!(owner[0].latest_body.as_deref(), Some("Nice"));
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -615,7 +680,12 @@ mod tests {
                 .as_deref(),
             Some("Nice")
         );
-        assert!(repo.counts(f.location).await.unwrap().is_empty());
+        assert!(
+            repo.counts(f.location, CommentAuthor::Photographer)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(
             repo.edit(
                 f.location,

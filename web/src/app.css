@@ -71,6 +71,10 @@
 	--gallery-heading-font: Georgia, serif;
 	--gallery-rail-width: clamp(15rem, 16vw, 17.5rem);
 }
+@utility workspace-inset {
+	@apply px-3.5 sm:px-8;
+}
+
 @layer base {
 	body {
 		margin: 0;

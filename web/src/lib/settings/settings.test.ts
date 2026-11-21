@@ -41,6 +41,7 @@ it('maps the API settings and rejects a malformed body', () => {
 		size: 3,
 		signature: 'logo',
 		signatureSize: 4,
+		signatureTextColor: null,
 		proofQuality: 'high',
 		watermarkOpacity: 50,
 		watermarkTextColor: '#FFFFFF',

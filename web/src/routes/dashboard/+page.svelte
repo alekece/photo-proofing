@@ -1,13 +1,11 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-	import { afterNavigate, goto } from '$app/navigation';
+	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { navigating } from '$app/state';
-	import { authRequest } from '#lib/auth.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import Placeholder from '#lib/components/Placeholder.svelte';
-	import AppHeader from '#lib/components/AppHeader.svelte';
 	import EmptyWorkspace from '#lib/components/EmptyWorkspace.svelte';
 	import GalleryCard from '#lib/components/GalleryCard.svelte';
 	import NewGalleryDialog from '#lib/components/NewGalleryDialog.svelte';
@@ -19,6 +17,7 @@
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
+	import WorkspaceHeading from '#lib/components/ui/WorkspaceHeading/WorkspaceHeading.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 	import { ArrowUpDown, Pencil, Plus, Star, Trash2 } from '@lucide/svelte';
 	import GalleryStateFilter from '#lib/components/GalleryStateFilter.svelte';
@@ -29,20 +28,23 @@
 		type GalleryOverview
 	} from '#lib/gallery/api.js';
 	import { ApiError } from '#lib/http.js';
+	import {
+		getGalleryGridReturn,
+		type GalleryGridSnapshot
+	} from '#lib/gallery/dashboardNavigation.svelte.js';
 	import type { GallerySort, GalleryState } from '#lib/gallery/schemas.js';
 	import { ALL_STATES, DEFAULT_STATES, sameStates } from '#lib/gallery/states.js';
 	import { galleryStatus } from '#lib/gallery/format.js';
-	import { getNotifications, notificationBadge } from '#lib/gallery/notifications.svelte.js';
-	import type { PageData } from './$types';
+	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
+	import type { PageData, Snapshot } from './$types';
 
 	let { data }: { data: PageData } = $props();
 	const notifications = getNotifications();
-	let pending = $state(false);
+	const gridReturn = getGalleryGridReturn();
 	let bulkBusy = $state(false);
-	let message = $state('');
 
 	const gridClass =
-		'grid grid-cols-2 gap-2.5 px-2.5 sm:grid-cols-[repeat(auto-fill,minmax(230px,1fr))] sm:gap-5 sm:px-8';
+		'workspace-inset grid grid-cols-2 gap-2.5 sm:grid-cols-[repeat(auto-fill,minmax(230px,1fr))] sm:gap-5';
 
 	let dialogOpen = $state(false);
 	let quickEditOpen = $state(false);
@@ -51,9 +53,19 @@
 	let resultsHeight = $state(0);
 	let selectionMode = $state(false);
 	// Only a same-page navigation (changing the sort) shows the loading cards.
-	let loading = $derived(navigating.to?.route.id === '/dashboard');
+	let loading = $derived(
+		navigating.from?.route.id === '/dashboard' && navigating.to?.route.id === '/dashboard'
+	);
 	let selected = $state<GalleryState[]>([...DEFAULT_STATES]);
 	let localGalleries = $derived<GalleryOverview[] | null>(data.galleries);
+	export const snapshot: Snapshot<GalleryGridSnapshot> = {
+		capture: () => ({ query, selected: [...selected], scrollY: window.scrollY }),
+		restore: (view) => {
+			query = view.query;
+			selected = view.selected;
+			void tick().then(() => window.scrollTo(0, view.scrollY));
+		}
+	};
 	const sorts = $derived<{ value: GallerySort; label: string }[]>([
 		{ value: 'updated', label: m.sort_updated() },
 		{ value: 'created', label: m.sort_created() },
@@ -112,7 +124,7 @@
 	});
 
 	const selectedIds = new SvelteSet<string>();
-	// Staged bulk favorite/quick-edit changes: previewed on the card but never sent until Apply.
+	// Quick edits are previewed on the card but never sent until Apply.
 	const draftById = new SvelteMap<string, GalleryChanges>();
 
 	function withDraft(gallery: GalleryOverview): GalleryOverview {
@@ -140,15 +152,6 @@
 			])
 		) as Record<GalleryState, number>
 	);
-	// Archived galleries stay out of the totals, as in the prototype.
-	let totals = $derived.by(() => {
-		const live = all.filter((gallery) => galleryStatus(gallery.states) !== 'archived');
-
-		return {
-			galleries: live.length,
-			photos: live.reduce((sum, gallery) => sum + gallery.photo_count, 0)
-		};
-	});
 	// Plain substring match on the displayed title; never a regular expression.
 	let matching = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
@@ -234,8 +237,7 @@
 		);
 	}
 
-	// Merges staged changes for a gallery, dropping any key that now matches the server value so an
-	// undone edit (e.g. toggling favorite back) clears the draft instead of leaving a no-op entry.
+	// Drop unchanged fields so undoing a quick edit does not leave a no-op draft.
 	function stageChanges(id: string, changes: GalleryChanges) {
 		const applied = localGalleries?.find((g) => g.id === id);
 
@@ -252,13 +254,13 @@
 	}
 
 	function toggleBulkFavorite() {
-		if (selectedGalleries.length === 0) return;
+		const favorite = !allSelectedFavorited;
+		const targets = selectedGalleries.filter((gallery) => Boolean(gallery.favorite) !== favorite);
 
-		const target = !allSelectedFavorited;
-
-		for (const gallery of selectedGalleries) {
-			stageChanges(gallery.id, { favorite: target });
-		}
+		void persistChanges(
+			targets.map(({ id }) => [id, { favorite }]),
+			false
+		);
 	}
 
 	// The dialog remains the editor; it only hands back edits for the page to stage as a preview.
@@ -270,13 +272,14 @@
 		return null;
 	}
 
-	function cancelChanges() {
-		for (const id of selectedIds) draftById.delete(id);
+	function applyChanges() {
+		void persistChanges(
+			[...draftById.entries()].filter(([id]) => selectedIds.has(id)),
+			true
+		);
 	}
 
-	async function applyChanges() {
-		const entries = [...draftById.entries()].filter(([id]) => selectedIds.has(id));
-
+	async function persistChanges(entries: [string, GalleryChanges][], clearDraft: boolean) {
 		if (bulkBusy || entries.length === 0) return;
 
 		bulkBusy = true;
@@ -289,8 +292,10 @@
 					const updated = await updateGallery(id, changes);
 
 					mergeUpdated(updated);
-					draftById.delete(id);
-					selectedIds.delete(id);
+					if (clearDraft) {
+						draftById.delete(id);
+						selectedIds.delete(id);
+					}
 				} catch (cause) {
 					if (cause instanceof ApiError && cause.status === 401) {
 						await goto('/login', { refreshAll: true });
@@ -342,40 +347,21 @@
 	}
 
 	let hiddenMatches = $derived(matching.length - visible.length);
-	let galleriesWithNews = $derived(
-		new Set(
-			(notifications?.items ?? [])
-				.filter((item) => item.read_at === null)
-				.map((item) => item.gallery_id)
-		).size
-	);
-	let greeting = $derived.by(() => {
-		const hour = new Date().getHours();
-
-		return hour < 12
-			? m.dashboard_morning()
-			: hour < 18
-				? m.dashboard_afternoon()
-				: m.dashboard_evening();
-	});
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
-	afterNavigate(() => {
+	beforeNavigate(({ to }) => {
+		if (gridReturn && to?.route.id === '/dashboard/[id]') {
+			gridReturn.view = { snapshot: snapshot.capture(), sort: data.sort };
+		}
+	});
+	afterNavigate(({ from, type }) => {
 		void activity();
+		const view = gridReturn?.view;
+
+		if (type === 'link' && from?.route.id === '/dashboard/[id]' && view) {
+			snapshot.restore(view.snapshot);
+		}
 	});
 	onMount(() => listenForActivity(() => activity()));
-	async function logout() {
-		if (pending) return;
-		pending = true;
-		message = '';
-		try {
-			await authRequest('logout');
-			await goto('/login', { refreshAll: true });
-		} catch (error) {
-			message = error instanceof Error ? error.message : m.sign_out_failed();
-		} finally {
-			pending = false;
-		}
-	}
 	function changeSort(sort: GallerySort) {
 		void goto(`?sort=${sort}`, { reset: false });
 	}
@@ -387,27 +373,18 @@
 
 <svelte:window onkeydown={handleWindowKeydown} />
 <svelte:head><title>{m.dashboard_head()} — PhotoProofing</title></svelte:head>
-<AppHeader onsignout={logout} studioName={data.settings?.studioName} />
 <main class="flex flex-1 flex-col">
-	<div
-		class="grid items-end gap-3 px-3.5 pt-[1.125rem] pb-[1.125rem] sm:grid-cols-[1fr_auto] sm:gap-6 sm:px-8 sm:pt-6 sm:pb-[1.625rem]"
-	>
-		<div>
-			<h1 class="text-[1.875rem] leading-[1.05] sm:text-[2.75rem]">
-				{greeting}.
-				{#if galleriesWithNews > 0}
-					<em class="text-danger">{m.dashboard_news({ count: galleriesWithNews })}</em>
-				{:else}
-					<em class="text-danger">{m.dashboard_quiet()}</em>
-					{m.dashboard_quiet_rest()}
-				{/if}
-			</h1>
-		</div>
+	<div class="grid items-end gap-3 workspace-inset py-4 sm:grid-cols-[1fr_auto] sm:gap-6 sm:py-6">
+		<WorkspaceHeading
+			title={m.nav_galleries()}
+			count={data.galleries === null
+				? undefined
+				: m.dashboard_total_galleries({ count: visible.length })}
+		/>
 		<Button class="justify-self-start sm:justify-self-auto" onclick={() => (dialogOpen = true)}
 			>{m.dashboard_new_gallery()}</Button
 		>
 	</div>
-	{#if message}<p role="alert" class="px-3.5 pb-3 text-danger sm:px-8">{message}</p>{/if}
 
 	{#if data.galleries !== null}
 		{@const none = all.length === 0}
@@ -447,7 +424,7 @@
 		<p class="sr-only" role="status">{m.dashboard_loading()}</p>
 		<ul class={gridClass} aria-busy="true">
 			{#each [1, 2, 3, 4] as n (n)}
-				<li class="aspect-[3/4] overflow-hidden rounded-card border border-border sm:aspect-[4/5]">
+				<li class="aspect-[4/3] overflow-hidden rounded-card border border-border">
 					<Placeholder background="sheet" loading />
 				</li>
 			{/each}
@@ -461,16 +438,12 @@
 	{:else}
 		<ul bind:clientHeight={resultsHeight} class="{gridClass} mb-12">
 			{#each visible as gallery (gallery.id)}
-				{@const news = [
-					...new Set(notifications?.unreadFor(gallery.id).map((note) => notificationBadge(note)))
-				]}
 				<GalleryCard
 					{gallery}
 					{query}
-					{news}
+					unread={(notifications?.unreadFor(gallery.id).length ?? 0) > 0}
 					selected={selectedIds.has(gallery.id)}
 					selecting={selectedIds.size > 0}
-					pending={draftById.has(gallery.id)}
 					onselect={() => toggleSelect(gallery.id)}
 				/>
 			{:else}
@@ -493,7 +466,7 @@
 				</li>
 			{/each}
 			{#if visible.length > 0}
-				<li class="aspect-[3/4] sm:aspect-[4/5]">
+				<li class="min-h-36">
 					<button
 						type="button"
 						class="group grid size-full cursor-pointer content-center justify-items-center gap-2.5 rounded-card border-[1.5px] border-dashed border-[#cdbda9] bg-[radial-gradient(120%_80%_at_50%_30%,#faf5ee,transparent_70%)] text-center text-muted-foreground transition-colors duration-250 hover:border-danger hover:bg-[#f8f1e8]"
@@ -516,15 +489,6 @@
 				</li>
 			{/if}
 		</ul>
-		<p
-			class="mt-auto px-3.5 pt-6 {selectedGalleries.length > 0
-				? 'pb-24'
-				: 'pb-6'} text-[0.8125rem] text-muted-foreground sm:px-8"
-		>
-			{m.dashboard_total_galleries({ count: totals.galleries })} · {m.summary_photos({
-				count: totals.photos
-			})}
-		</p>
 	{/if}
 </main>
 {#if selectionMode}
@@ -572,21 +536,12 @@
 				<Pencil size={15} aria-hidden="true" />
 				<span class="max-sm:sr-only">{m.dashboard_bulk_quick_edit()}</span>
 			</Button>
-			{#if hasDraft}
-				<Button
-					variant="outline"
-					size="sm"
-					class="min-h-9! px-3!"
-					disabled={bulkBusy}
-					onclick={cancelChanges}>{m.dashboard_bulk_cancel()}</Button
-				>
-				<Button
-					size="sm"
-					class="min-h-9! px-3!"
-					disabled={bulkBusy}
-					onclick={() => void applyChanges()}>{m.dashboard_bulk_apply()}</Button
-				>
-			{/if}
+			<Button
+				size="sm"
+				class="min-h-9! px-3!"
+				disabled={bulkBusy || !hasDraft}
+				onclick={applyChanges}>{m.dashboard_bulk_apply()}</Button
+			>
 			<Button
 				variant="destructive"
 				size="sm"

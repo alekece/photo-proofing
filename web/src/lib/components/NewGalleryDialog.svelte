@@ -74,6 +74,8 @@
 
 <Dialog
 	{onclose}
+	formMotion
+	dismissible={!creating}
 	labelledby="new-gallery-title"
 	class="m-auto w-[min(24rem,calc(100vw-2rem))] overflow-visible rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
 >

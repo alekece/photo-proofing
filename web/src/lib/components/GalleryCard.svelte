@@ -3,130 +3,120 @@
 	import { Check, EyeOff, Lock, Star } from '@lucide/svelte';
 	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
 	import type { GalleryOverview } from '#lib/gallery/api.js';
-	import { galleryStatus, gallerySummary, highlightParts } from '#lib/gallery/format.js';
+	import {
+		galleryExpiryDescription,
+		galleryLifecycle,
+		gallerySummary,
+		highlightParts
+	} from '#lib/gallery/format.js';
 	import { previewUrl } from '#lib/gallery/photos.js';
 	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
 
 	let {
 		gallery,
 		query = '',
-		news = [],
+		unread = false,
 		selected = false,
 		selecting = false,
-		pending = false,
 		onselect
 	}: {
 		gallery: GalleryOverview;
 		/** The search text to highlight in the title. */
 		query?: string;
-		/** One badge per kind of unread activity, e.g. "New selection" and "New downloads". */
-		news?: string[];
+		/** Whether the gallery has unread activity. */
+		unread?: boolean;
 		/** Whether this card is currently selected for dashboard bulk actions. */
 		selected?: boolean;
 		/** Whether dashboard selection mode is active so every card shows its selection circle. */
 		selecting?: boolean;
-		/** Whether this card previews a staged bulk edit not yet applied to the server. */
-		pending?: boolean;
 		/** Toggles this card's selection without navigating to the gallery. */
 		onselect?: () => void;
 	} = $props();
 
-	let status = $derived(galleryStatus(gallery.states));
+	let status = $derived(galleryLifecycle(gallery.states));
 	let title = $derived(gallery.title ?? m.gallery_untitled());
-	let faded = $derived(status === 'expired' || status === 'archived');
+	let expired = $derived(gallery.states.includes('expired'));
+	let closed = $derived(expired || status === 'archived');
+	let summary = $derived(gallerySummary(gallery));
 	let focalPoint = $derived(gallery.focal_point ?? DEFAULT_FOCAL_POINT);
 </script>
 
 <li
-	class="group relative aspect-[3/4] overflow-hidden rounded-card bg-[repeating-linear-gradient(45deg,#efe7dc_0_10px,#f6f0e8_10px_20px)] shadow-[0_14px_30px_-18px_rgb(43_36_32/0.6)] transition-[transform,box-shadow] duration-250 hover:-translate-y-[3px] sm:aspect-[4/5] {selected
+	class="group relative min-w-0 overflow-hidden rounded-card border border-border bg-panel {selected
 		? 'ring-[2.5px] ring-foreground ring-offset-2 ring-offset-background'
 		: ''}"
 >
 	<a
 		href={`/dashboard/${gallery.id}`}
-		class="absolute inset-0 block text-panel no-underline outline-none focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-focus"
+		class="block h-full text-foreground no-underline outline-none focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-focus"
 	>
-		{#if gallery.hero_id}
-			<img
-				src={previewUrl(gallery.id, gallery.hero_id)}
-				alt=""
-				loading="lazy"
-				style:object-position="{focalPoint.x}% {focalPoint.y}%"
-				class="size-full object-cover {faded ? 'brightness-90 grayscale-[0.6]' : ''}"
-			/>
-		{/if}
 		<div
-			class="absolute inset-0 bg-[linear-gradient(180deg,rgb(43_36_32/0)_40%,rgb(43_36_32/0.82)_100%)]"
-		></div>
-		<StatusChip
-			{status}
-			dot
-			cover
-			workspace
-			class="absolute top-2 right-2 px-2 py-[3px] text-[0.65625rem] sm:top-3 sm:right-3 sm:px-2.5 sm:py-1 sm:text-xs"
-		/>
-		<div class="absolute inset-x-0 bottom-0 px-3 py-2.5 sm:px-[1.125rem] sm:py-4">
-			{#if pending || news.length > 0}
-				<div class="mb-2 flex flex-wrap gap-1.5">
-					{#if pending}
-						<span
-							class="inline-block rounded-full bg-warning px-[9px] py-[3px] text-[0.6875rem] font-bold tracking-[0.02em] text-inverse"
-							>{m.card_pending_changes()}</span
-						>
-					{/if}
-					{#each news as badge (badge)}
-						<span
-							class="inline-block rounded-full bg-danger px-[9px] py-[3px] text-[0.6875rem] font-bold tracking-[0.02em] text-inverse"
-							>{badge}</span
-						>
-					{/each}
-				</div>
+			class="relative aspect-[4/3] bg-[repeating-linear-gradient(45deg,var(--border)_0_10px,var(--panel)_10px_20px)]"
+		>
+			{#if gallery.hero_id}
+				<img
+					src={previewUrl(gallery.id, gallery.hero_id)}
+					alt=""
+					loading="lazy"
+					style:object-position="{focalPoint.x}% {focalPoint.y}%"
+					class="absolute inset-0 size-full object-cover"
+				/>
 			{/if}
-			<div class="mb-1.5 flex items-center gap-1.5">
-				<h2
-					class="min-w-0 font-serif text-[1.0625rem] leading-[1.1] sm:text-[1.4375rem] {gallery.title ===
-					null
-						? 'opacity-70'
-						: ''}"
-				>
-					{#each highlightParts(title, query) as part, index (index)}{#if part.match}<mark
-								class="rounded-[2px] bg-hero/55 px-px text-inherit">{part.text}</mark
-							>{:else}{part.text}{/if}{/each}
-				</h2>
-				{#if gallery.favorite}
-					<span
-						role="img"
-						aria-label={m.card_favorited()}
-						title={m.card_favorited()}
-						class="inline-flex shrink-0 text-[#f2c063]"
-					>
-						<Star class="size-3.5 fill-current sm:size-4" aria-hidden="true" />
-					</span>
-				{/if}
-				{#if gallery.access_code}
-					<span
-						role="img"
-						aria-label={m.card_access_code_protected()}
-						title={m.card_access_code_protected()}
-						class="inline-flex shrink-0 text-panel/85"
-					>
-						<Lock class="size-3.5 sm:size-4" aria-hidden="true" />
-					</span>
-				{/if}
-				{#if faded}
-					<span
-						role="img"
-						aria-label={m.card_client_access_closed()}
-						title={m.card_client_access_closed()}
-						class="inline-flex shrink-0 text-panel/85"
-					>
-						<EyeOff class="size-3.5 sm:size-4" aria-hidden="true" />
+			{#if unread}
+				<span
+					role="img"
+					aria-label={m.card_unread_activity()}
+					title={m.card_unread_activity()}
+					class="absolute top-2 right-2 size-3 rounded-full border border-panel bg-danger sm:top-3 sm:right-3"
+				></span>
+			{/if}
+			<div
+				class="absolute inset-x-2 bottom-2 flex flex-wrap items-end justify-between gap-1 sm:inset-x-3 sm:bottom-3"
+			>
+				<StatusChip {status} class="border-transparent bg-panel text-foreground" />
+				{#if gallery.access_code || closed || gallery.favorite}
+					<span class="ml-auto inline-flex items-center gap-1.5 rounded-full bg-panel px-2 py-1">
+						{#if gallery.access_code}
+							<span
+								role="img"
+								aria-label={m.card_access_code_protected()}
+								title={m.card_access_code_protected()}
+								><Lock class="size-3.5" aria-hidden="true" /></span
+							>
+						{/if}
+						{#if closed}
+							<span
+								role="img"
+								aria-label={m.card_client_access_closed()}
+								title={expired
+									? galleryExpiryDescription(gallery.expires_at)
+									: m.card_client_access_closed()}
+								><EyeOff class="size-3.5" aria-hidden="true" /></span
+							>
+						{/if}
+						{#if gallery.favorite}
+							<span role="img" aria-label={m.card_favorited()} title={m.card_favorited()}>
+								<Star class="size-3.5 fill-current text-hero" aria-hidden="true" />
+							</span>
+						{/if}
 					</span>
 				{/if}
 			</div>
-			<p class="text-[0.71875rem] opacity-90 sm:text-[0.8125rem]">
-				{#each gallerySummary(gallery) as part, index (index)}{#if part.over}<b
-							class="font-extrabold text-warning-on-dark">{part.text}</b
+		</div>
+		<div class="grid gap-1.5 px-3 py-2.5 sm:px-4 sm:py-4">
+			<h2
+				class="min-w-0 font-serif text-lg leading-tight wrap-anywhere sm:text-2xl {gallery.title ===
+				null
+					? 'opacity-70'
+					: ''}"
+			>
+				{#each highlightParts(title, query) as part, index (index)}{#if part.match}<mark
+							class="rounded-sm bg-hero/20 text-inherit">{part.text}</mark
+						>{:else}{part.text}{/if}{/each}
+			</h2>
+			<p class="text-xs text-muted-foreground sm:text-sm">
+				{#each summary as part, index (index)}{#if part.over}<b
+							class="text-base leading-none font-extrabold text-danger">{part.text}</b
 						>{:else}{part.text}{/if}{/each}
 			</p>
 		</div>

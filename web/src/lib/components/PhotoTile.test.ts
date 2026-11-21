@@ -157,7 +157,7 @@ describe('PhotoTile states', () => {
 			onopen,
 			onselect,
 			persistentSelect: true,
-			source: { title: 'Wedding', kind: 'final' }
+			source: 'Wedding'
 		});
 
 		await user.click(screen.getByRole('button', { name: 'Open a.jpg' }));
@@ -169,7 +169,6 @@ describe('PhotoTile states', () => {
 		expect(onopen).toHaveBeenCalledOnce();
 
 		expect(screen.getByText('Wedding')).toBeTruthy();
-		expect(screen.getByText('Final')).toBeTruthy();
 	});
 
 	it('marks the persistent select circle pressed once selected', async () => {

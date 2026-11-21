@@ -4,6 +4,7 @@ import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
 import type { Contact } from '#lib/contacts/api.js';
+import AppHeader from '#lib/components/AppHeader.svelte';
 
 const state = vi.hoisted(() => ({
 	page: { url: new URL('http://localhost/contacts') },
@@ -93,7 +94,7 @@ describe('/contacts page', () => {
 
 		expect(screen.getByRole('heading', { level: 1, name: 'Contacts' })).toBeTruthy();
 		expect(screen.getByText('No contacts yet.')).toBeTruthy();
-		expect(screen.getByRole('button', { name: '+ New contact' })).toBeTruthy();
+		expect(screen.getAllByRole('button', { name: 'New contact' })).toHaveLength(1);
 		const search = screen.getByRole('searchbox', {
 			name: 'Search by name, email or phone'
 		}) as HTMLInputElement;
@@ -195,7 +196,7 @@ describe('/contacts page', () => {
 		const search = screen.getByRole('searchbox');
 		await user.type(search, 'no match');
 
-		const newContact = screen.getByRole('button', { name: '+ New contact' });
+		const newContact = screen.getByRole('button', { name: 'New contact' });
 		await user.click(newContact);
 		expect(document.activeElement).toBe(screen.getByLabelText('Name'));
 		await user.click(screen.getByRole('button', { name: 'Create contact' }));
@@ -237,7 +238,7 @@ describe('/contacts page', () => {
 
 		open([]);
 
-		await user.click(screen.getByRole('button', { name: '+ New contact' }));
+		await user.click(screen.getByRole('button', { name: 'New contact' }));
 		await user.type(screen.getByLabelText('Name'), 'Léo Martin');
 		await user.type(screen.getByLabelText('Email'), 'leo@example.test');
 		await user.click(screen.getByRole('button', { name: 'Create contact' }));
@@ -483,6 +484,7 @@ describe('/contacts page', () => {
 
 	it('disarms on a same-tab link click without waiting for the router hook', async () => {
 		const { user, requests, deleteButton, advance } = deletionSession();
+		render(AppHeader);
 		await user.click(deleteButton());
 		expect(screen.getByRole('button', { name: 'Cancel deletion of Camille & Hugo' })).toBeTruthy();
 		await advance(2999);
@@ -499,6 +501,7 @@ describe('/contacts page', () => {
 
 	it('does not cancel the original tab’s countdown on a modified link click', async () => {
 		const { user, requests, deleteButton, advance } = deletionSession();
+		render(AppHeader);
 		await user.click(deleteButton());
 		const link = screen.getByRole('link', { name: 'Galleries' });
 		link.addEventListener('click', (event) => event.preventDefault(), { once: true });
@@ -516,7 +519,7 @@ describe('/contacts page in French', () => {
 		const { container } = open([contact()]);
 
 		expect(screen.getByRole('heading', { level: 1, name: 'Contacts' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: '+ Nouveau contact' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Nouveau contact' })).toBeTruthy();
 		await userEvent.setup().click(screen.getByRole('button', { name: 'Modifier Camille & Hugo' }));
 		expect(screen.getByLabelText('Nom')).toBeTruthy();
 		expect(screen.getByLabelText('Téléphone')).toBeTruthy();

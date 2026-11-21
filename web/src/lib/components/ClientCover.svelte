@@ -22,6 +22,7 @@
 		studioLogo = null,
 		signature = 'name',
 		signatureSize = DEFAULT_SIZE,
+		signatureTextColor = null,
 		delivered = false,
 		downloading = false,
 		preview = false,
@@ -42,6 +43,7 @@
 		studioLogo?: string | null;
 		signature?: Signature;
 		signatureSize?: number;
+		signatureTextColor?: string | null;
 		delivered?: boolean;
 		downloading?: boolean;
 		preview?: boolean;
@@ -132,6 +134,7 @@
 				logo={studioLogo}
 				{signature}
 				size={signatureSize}
+				textColor={signatureTextColor}
 				class="font-serif text-[1.1875rem] text-foreground italic @max-[700px]:text-[0.9375rem]"
 			/>
 			<div class="my-auto max-w-md animate-photo-in py-6">
@@ -156,6 +159,7 @@
 			logo={studioLogo}
 			{signature}
 			size={signatureSize}
+			textColor={signatureTextColor}
 			class="font-serif text-[1.1875rem] text-foreground italic @max-[700px]:text-[0.9375rem]"
 		/>
 		<div
@@ -200,6 +204,7 @@
 				logo={studioLogo}
 				{signature}
 				size={signatureSize}
+				textColor={signatureTextColor}
 				class="font-serif text-[1.1875rem] text-foreground italic @max-[700px]:text-[0.9375rem]"
 			/>
 			<div class="mt-4 animate-photo-in">
@@ -252,6 +257,7 @@
 			logo={studioLogo}
 			{signature}
 			size={signatureSize}
+			textColor={signatureTextColor}
 			class="px-5 pt-7 font-serif text-[1.1875rem] italic @max-[700px]:text-[0.9375rem]"
 		/>
 		<div class="mt-auto animate-photo-in px-6 pb-[34px]">

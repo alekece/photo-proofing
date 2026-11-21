@@ -49,7 +49,7 @@ async fn counts(
     let counts = state
         .database()
         .repository::<CommentRepository>()
-        .counts(access.location)
+        .counts(access.location, access.author)
         .await?;
 
     Ok(HttpResponse::Ok().no_store().no_referrer().json(counts))
@@ -218,7 +218,7 @@ mod tests {
         let cookie = sign_up(&app).await;
 
         call(&app, request("POST", "/api/v1/galleries", Some(&cookie))).await;
-        let (_, token, photo) = gallery(&pool).await;
+        let (gallery_id, token, photo) = gallery(&pool).await;
         let base = format!("/api/v1/galleries/shared/{token}");
         let path = format!("{base}/photos/{photo}/comments");
         let (status, comment) = call(
@@ -242,6 +242,21 @@ mod tests {
         let (_, counts) = call(&app, request("GET", &format!("{base}/comments"), None)).await;
 
         assert_eq!(counts[0]["count"], 1);
+        assert!(counts[0].get("latest_body").is_none());
+
+        let (status, owner_counts) = call(
+            &app,
+            request(
+                "GET",
+                &format!("/api/v1/galleries/{gallery_id}/comments"),
+                Some(&cookie),
+            ),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(owner_counts[0]["latest_body"], "Nice");
+
         let (_, bell) = call(&app, request("GET", "/api/v1/notifications", Some(&cookie))).await;
 
         assert_eq!(bell["notifications"][0]["kind"], "comment");

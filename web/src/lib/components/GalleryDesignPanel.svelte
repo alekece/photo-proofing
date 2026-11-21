@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, type Snippet } from 'svelte';
 	import { Check, Eye, ImagePlus, Maximize2, X } from '@lucide/svelte';
 	import ClientGallery from '#lib/components/ClientGallery.svelte';
 	import ClientPreview from '#lib/components/ClientPreview.svelte';
@@ -61,7 +61,8 @@
 		onsave,
 		onsavefocal = async (point: FocalPoint) =>
 			(await onsave({ focal_point: point })) ? point : undefined,
-		onbeforepreview
+		onbeforepreview,
+		onheader
 	}: {
 		gallery: Gallery;
 		settings?: WorkspaceSettings;
@@ -73,7 +74,10 @@
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
 		onsavefocal?: (point: FocalPoint) => Promise<FocalPoint | undefined>;
 		onbeforepreview?: () => void;
+		onheader?: (action: Snippet) => void;
 	} = $props();
+
+	$effect(() => onheader?.(previewAction));
 
 	const events = getLiveEvents();
 
@@ -476,20 +480,24 @@
 	</span>
 {/snippet}
 
+{#snippet previewAction()}
+	<Button
+		variant="outline"
+		size="sm"
+		onclick={() => {
+			onbeforepreview?.();
+			expanded = true;
+		}}
+	>
+		<Maximize2 size={14} aria-hidden="true" />
+		{m.preview_open_full()}
+	</Button>
+{/snippet}
+
 <div class="grid gap-4">
 	<div class="flex flex-wrap items-center justify-between gap-2">
 		<h2 class="text-2xl leading-tight">{m.tab_design()}</h2>
-		<Button
-			variant="outline"
-			size="sm"
-			onclick={() => {
-				onbeforepreview?.();
-				expanded = true;
-			}}
-		>
-			<Maximize2 size={14} aria-hidden="true" class="mr-1.5" />
-			{m.preview_open_full()}
-		</Button>
+		{#if !onheader}{@render previewAction()}{/if}
 	</div>
 
 	<div
@@ -707,6 +715,7 @@
 						studioLogo={settings.logo}
 						signature={settings.signature}
 						signatureSize={settings.signatureSize}
+						signatureTextColor={settings.signatureTextColor}
 						preview
 						embedded
 						showCoverWhenEmpty

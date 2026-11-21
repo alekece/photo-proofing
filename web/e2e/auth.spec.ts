@@ -1,8 +1,21 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 
-test('real setup, persistent cookie, login, and revocable logout', async ({ browser, baseURL }) => {
+async function signOut(page: Page) {
+	const menu = page.getByRole('button', { name: 'Account menu' });
+	await expect(async () => {
+		if ((await menu.getAttribute('aria-expanded')) === 'false') await menu.click();
+		await expect(menu).toHaveAttribute('aria-expanded', 'true', { timeout: 500 });
+	}).toPass({ timeout: 5000 });
+	await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+	await expect(page).toHaveURL(/\/login$/);
+}
+
+test('real setup, persistent cookie, login, and revocable logout', async ({
+	browser,
+	baseURL
+}, testInfo) => {
 	const context = await browser.newContext();
 	const page = await context.newPage();
 	await page.goto(`${baseURL}/dashboard`);
@@ -21,7 +34,7 @@ test('real setup, persistent cookie, login, and revocable logout', async ({ brow
 			exact: true
 		})
 		.click();
-	await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Galleries', exact: true })).toBeVisible();
 	await expect(page.getByRole('checkbox')).toHaveCount(0);
 	const storage = await context.storageState();
 	const cookie = storage.cookies.find((c) => c.name === 'pp_session');
@@ -31,32 +44,31 @@ test('real setup, persistent cookie, login, and revocable logout', async ({ brow
 	const restored = await browser.newContext({ storageState: storage });
 	const returned = await restored.newPage();
 	await returned.goto(`${baseURL}/dashboard`);
-	await expect(returned.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+	await expect(returned.getByRole('heading', { name: 'Galleries', exact: true })).toBeVisible();
 	const other = await browser.newContext();
 	const otherPage = await other.newPage();
 	await otherPage.goto(`${baseURL}/login`);
 	await otherPage.getByLabel('Email', { exact: true }).fill('trial@example.test');
 	await otherPage.getByLabel('Password', { exact: true }).fill(password);
 	await otherPage.getByRole('button', { name: 'Sign in', exact: true }).click();
-	await expect(otherPage.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
-	await returned.getByRole('button', { name: 'Sign out', exact: true }).click();
-	await expect(returned).toHaveURL(/\/login$/);
+	await expect(otherPage.getByRole('heading', { name: 'Galleries', exact: true })).toBeVisible();
+	await signOut(returned);
 	const replay = await browser.newContext({ storageState: storage });
 	const response = await replay.request.post(`${baseURL}/api/v1/auth/renew`, {
 		headers: { Origin: baseURL! }
 	});
 	expect(response.status()).toBe(401);
 	await otherPage.reload();
-	await expect(otherPage.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+	await expect(otherPage.getByRole('heading', { name: 'Galleries', exact: true })).toBeVisible();
 	await otherPage.setViewportSize({ width: 320, height: 800 });
 	expect(
 		await otherPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
 	).toBe(true);
-	await otherPage.getByRole('button', { name: 'Sign out', exact: true }).click();
+	await signOut(otherPage);
 	await otherPage.getByLabel('Email', { exact: true }).fill('trial@example.test');
 	await otherPage.getByLabel('Password', { exact: true }).fill('incorrect password');
 	await otherPage.getByRole('button', { name: 'Sign in', exact: true }).click();
-	await expect(otherPage.getByRole('alert')).toContainText('invalid email or password');
+	await expect(otherPage.getByRole('alert')).toHaveText('Invalid email or password.');
 	await otherPage.addScriptTag({
 		path: require.resolve('axe-core/axe.min.js')
 	});
@@ -69,7 +81,7 @@ test('real setup, persistent cookie, login, and revocable logout', async ({ brow
 		return (await axe.run()).violations;
 	});
 	expect(violations).toEqual([]);
-	await otherPage.screenshot({ path: '/tmp/pp63-login-mobile.png' });
+	await otherPage.screenshot({ path: testInfo.outputPath('login-mobile.png') });
 	await replay.close();
 	await other.close();
 	await restored.close();
@@ -83,7 +95,7 @@ test('activity extends a short session while idle browser traffic does not', asy
 	await page.getByLabel('Email', { exact: true }).fill('trial@example.test');
 	await page.getByLabel('Password', { exact: true }).fill('synthetic trial password only');
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-	await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Galleries', exact: true })).toBeVisible();
 	await page.waitForTimeout(timeout * 0.6);
 	const renewal = page.waitForResponse(
 		(r) => r.url().endsWith('/auth/renew') && r.request().method() === 'POST'

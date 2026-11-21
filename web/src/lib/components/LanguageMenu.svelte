@@ -6,7 +6,8 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { getLocale, locales, setLocale, type Locale } from '#lib/paraglide/runtime.js';
 
-	let { class: className = '' }: { class?: string } = $props();
+	let { class: className = '', disabled = false }: { class?: string; disabled?: boolean } =
+		$props();
 
 	/** Each language is offered in its own name, so it can be found whatever is shown now. */
 	const AUTONYMS: Record<Locale, string> = { en: 'English', fr: 'Français' };
@@ -19,7 +20,7 @@
 
 	async function choose(language: Locale) {
 		open = false;
-		if (language === current || saving) return;
+		if (language === current || saving || disabled) return;
 
 		saving = true;
 
@@ -40,7 +41,7 @@
 <Popover
 	bind:open
 	label={m.language_menu_label({ language: NAMES[current]() })}
-	disabled={saving}
+	disabled={saving || disabled}
 	align="end"
 	class="{className} text-xs font-semibold tracking-wide"
 	panelClass="w-44 text-foreground"

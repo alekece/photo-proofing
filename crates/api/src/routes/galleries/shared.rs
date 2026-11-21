@@ -38,7 +38,7 @@ use pp_database::photo::PhotoId;
 use pp_database::{
     gallery::{GalleryAccessCode, GalleryRepository, SharedGallery, SharedGalleryGate},
     photo::{PhotoKind, PhotoRepository, Watermarked},
-    settings::{CoverSignature, SettingsRepository, SizeStep, WorkspaceSettings},
+    settings::{CoverSignature, SettingsRepository, SizeStep, WatermarkColor, WorkspaceSettings},
 };
 use pp_storage::{ArchiveKey, PhotoKey, Variant};
 use serde::{Deserialize, Serialize};
@@ -66,6 +66,8 @@ struct StudioBranding {
     studio_name: String,
     signature: CoverSignature,
     signature_size: SizeStep,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signature_text_color: Option<WatermarkColor>,
     has_logo: bool,
 }
 
@@ -82,6 +84,11 @@ impl From<WorkspaceSettings> for StudioBranding {
             studio_name,
             signature: settings.signature,
             signature_size: settings.signature_size,
+            signature_text_color: if settings.signature.shows_name() {
+                settings.signature_text_color
+            } else {
+                None
+            },
             has_logo,
         }
     }
@@ -614,7 +621,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        sqlx::query("INSERT INTO workspace_settings(workspace_id, studio_name, signature, logo) VALUES ($1, 'Studio', 'both', $2)")
+        sqlx::query("INSERT INTO workspace_settings(workspace_id, studio_name, signature, logo, signature_text_color) VALUES ($1, 'Studio', 'both', $2, '#A12B3C')")
             .bind(workspace).bind(b"normalized PNG".as_slice()).execute(&pool).await.unwrap();
         let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
@@ -629,6 +636,7 @@ mod tests {
         assert_eq!(body["studio_name"], "Studio");
         assert_eq!(body["signature"], "both");
         assert_eq!(body["signature_size"], 4);
+        assert_eq!(body["signature_text_color"], "#A12B3C");
         assert_eq!(body["has_logo"], true);
         for (link, expected) in [
             (&token, StatusCode::OK),

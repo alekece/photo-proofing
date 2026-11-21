@@ -19,8 +19,8 @@ describe('StatusChip', () => {
 
 	it.each<[GalleryStatus, string]>([
 		['draft', 'Draft'],
-		['shared', 'Prepublish'],
-		['delivered', 'Publish'],
+		['shared', 'Shared'],
+		['delivered', 'Delivered'],
 		['expired', 'Expired'],
 		['archived', 'Archived']
 	])('labels %s', async (status, label) => {
@@ -41,7 +41,7 @@ describe('StatusChip', () => {
 	it('stays legible over a photo in its cover form', async () => {
 		const { container } = render(StatusChip, { status: 'delivered', dot: true, cover: true });
 
-		expect(screen.getByText('Publish').className).toMatch(/bg-panel\/90/);
+		expect(screen.getByText('Delivered').className).toMatch(/bg-panel\/90/);
 		expect((await axe(container)).violations).toEqual([]);
 	});
 });

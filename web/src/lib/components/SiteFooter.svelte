@@ -7,17 +7,20 @@
 	let {
 		version = buildVersion,
 		legalNotices = defaultNotices,
+		compact = false,
 		class: className
 	}: {
 		version?: string;
 		legalNotices?: LegalNotice[];
+		compact?: boolean;
 		class?: string;
 	} = $props();
 </script>
 
 <footer
 	class={cn(
-		'grid justify-items-start gap-2 border-t border-border px-3.5 py-6 text-xs text-muted-foreground sm:px-8',
+		'grid justify-items-start gap-2 border-t border-border workspace-inset py-6 text-xs text-muted-foreground',
+		compact && 'py-3',
 		className
 	)}
 >
@@ -31,12 +34,14 @@
 				{/each}
 			</nav>
 		{/if}
-		{#if version}
-			<span class="font-mono" title={version}
-				>{m.footer_build({ version: displayVersion(version) })}</span
-			>
-		{:else}
-			<span>{m.footer_development_build()}</span>
-		{/if}
+		<span class={cn(compact && 'sm:hidden')}>
+			{#if version}
+				<span class="font-mono" title={version}
+					>{m.footer_build({ version: displayVersion(version) })}</span
+				>
+			{:else}
+				{m.footer_development_build()}
+			{/if}
+		</span>
 	</div>
 </footer>

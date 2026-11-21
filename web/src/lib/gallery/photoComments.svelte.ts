@@ -6,7 +6,9 @@ import type { CommentsClient } from './comments';
 
 /** Counts and thread refreshes shared by the client, Photos and Favorites surfaces. */
 export class PhotoComments {
-	counts = $state.raw<ReadonlyMap<string, number>>(new SvelteMap());
+	#summaries = $state.raw<ReadonlyMap<string, { count: number; latest_body?: string }>>(
+		new SvelteMap()
+	);
 	revision = $state(0);
 	error = $state('');
 	#latest = 0;
@@ -14,16 +16,20 @@ export class PhotoComments {
 	constructor(readonly client: CommentsClient) {}
 
 	count(id: string): number {
-		return this.counts.get(id) ?? 0;
+		return this.#summaries.get(id)?.count ?? 0;
+	}
+
+	latestBody(id: string): string | undefined {
+		return this.#summaries.get(id)?.latest_body;
 	}
 
 	async refresh(): Promise<void> {
 		const current = ++this.#latest;
 		this.revision++;
 		try {
-			const counts = await this.client.counts();
+			const summaries = await this.client.summaries();
 			if (current !== this.#latest) return;
-			this.counts = counts;
+			this.#summaries = summaries;
 			this.error = '';
 		} catch (cause) {
 			if (current === this.#latest)

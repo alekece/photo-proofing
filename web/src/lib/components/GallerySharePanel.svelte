@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { m } from '#lib/paraglide/messages.js';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, type Snippet } from 'svelte';
 	import { AlertCircle, Mail, Search, Users, X } from '@lucide/svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
 	import StudioSignature from '#lib/components/StudioSignature.svelte';
@@ -53,7 +53,8 @@
 		onsent,
 		oncancel,
 		onpublish,
-		onopensettings
+		onopensettings,
+		onheader
 	}: {
 		gallery: Gallery;
 		settings?: WorkspaceSettings;
@@ -75,6 +76,7 @@
 		oncancel?: () => void;
 		onpublish?: () => void;
 		onopensettings?: () => void;
+		onheader?: (action: Snippet | undefined) => void;
 	} = $props();
 
 	const id = $props.id();
@@ -87,9 +89,11 @@
 	const delivered = $derived(gallery.states.includes('delivered'));
 	const expired = $derived(gallery.states.includes('expired'));
 	const archived = $derived(gallery.states.includes('archived'));
+	const shared = $derived(gallery.share_token !== null);
+	const canPublish = $derived(shared && !delivered && !archived && !!onpublish);
+	$effect(() => onheader?.(canPublish ? publishAction : undefined));
 	const emailEnabled = $derived(Boolean(settings.emailEnabled));
 	const displayTitle = $derived(gallery.title?.trim() || m.gallery_untitled());
-	const shared = $derived(gallery.share_token !== null);
 	const canInvite = $derived(active && emailEnabled && !archived && !expired);
 	const events = getLiveEvents();
 
@@ -539,13 +543,17 @@
 	}
 </script>
 
+{#snippet publishAction()}
+	<Button size="sm" disabled={sending} onclick={onpublish}>{m.action_deliver()}</Button>
+{/snippet}
+
 <div class="@container mx-auto grid w-full max-w-[72rem] gap-4">
-	{#if shared && !delivered && !archived && onpublish}
+	{#if canPublish}
 		<div
 			class="flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-panel p-4 text-sm"
 		>
 			<p class="text-muted-foreground">{m.share_publish_hint()}</p>
-			<Button size="sm" disabled={sending} onclick={onpublish}>{m.action_deliver()}</Button>
+			{#if !onheader}{@render publishAction()}{/if}
 		</div>
 	{/if}
 
@@ -803,6 +811,7 @@
 					logo={settings.logo}
 					signature={settings.signature}
 					size={settings.signatureSize}
+					textColor={settings.signatureTextColor}
 					stacked
 				/>
 			</div>

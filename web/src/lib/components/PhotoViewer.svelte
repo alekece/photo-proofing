@@ -28,6 +28,7 @@
 		title,
 		readonly = false,
 		autoplay = false,
+		mobileArrows = false,
 		actions,
 		trailing,
 		thread,
@@ -50,6 +51,8 @@
 		readonly?: boolean;
 		/** Starts sequential slideshow playback immediately in client mode. */
 		autoplay?: boolean;
+		/** The library can step through the grid without enabling client-only gestures. */
+		mobileArrows?: boolean;
 		/** The photo's actions in the top bar, which depend on where the viewer was opened from. */
 		actions?: Snippet<[Proof]>;
 		/** Actions that follow the comments button, such as the destructive ones. */
@@ -67,7 +70,7 @@
 	const wide =
 		typeof matchMedia === 'function' ? new MediaQuery('min-width: 701px') : { current: true };
 	const arrow =
-		'absolute top-1/2 z-[2] grid size-12 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-white/8 text-panel transition-colors hover:bg-white/16 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus aria-disabled:cursor-default aria-disabled:opacity-40 aria-disabled:hover:bg-white/8 max-[700px]:hidden';
+		'absolute top-1/2 z-[2] grid size-12 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-white/8 text-panel transition-colors hover:bg-white/16 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus aria-disabled:cursor-default aria-disabled:opacity-40 aria-disabled:hover:bg-white/8';
 	const overlay =
 		'absolute right-3.5 bottom-3.5 z-[3] grid size-[46px] place-items-center rounded-full backdrop-blur-[4px] transition-[background-color,opacity] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus';
 	const pill =
@@ -78,6 +81,9 @@
 	const proof = $derived(proofs[index]);
 	const status = $derived(proof.status ?? 'ready');
 	const client = $derived(title !== undefined);
+	const mobileNavigation = $derived(client && !wide.current && proofs.length > 1);
+	const showMobileArrows = $derived((client || mobileArrows) && proofs.length > 1);
+	let swipe: { id: number; x: number; y: number } | undefined;
 	// The photographer reads feedback while reviewing, so the thread starts open; the client's starts closed.
 	// svelte-ignore state_referenced_locally
 	let threadOpen = $state(!client && !!thread);
@@ -89,6 +95,27 @@
 		playing = false;
 		go(to);
 	};
+
+	function startSwipe(event: PointerEvent & { currentTarget: HTMLDivElement }) {
+		swipe = undefined;
+		if (!mobileNavigation || event.pointerType !== 'touch' || !event.isPrimary) return;
+		if (event.target instanceof Element && event.target.closest('button, a')) return;
+
+		swipe = { id: event.pointerId, x: event.clientX, y: event.clientY };
+		event.currentTarget.setPointerCapture?.(event.pointerId);
+	}
+
+	function finishSwipe(event: PointerEvent) {
+		if (event.pointerId !== swipe?.id) return;
+
+		const x = event.clientX - swipe.x;
+		const y = event.clientY - swipe.y;
+		swipe = undefined;
+
+		if (mobileNavigation && Math.abs(x) >= 48 && Math.abs(x) > Math.abs(y) * 1.4) {
+			step(index + (x < 0 ? 1 : -1));
+		}
+	}
 
 	function toggleSlideshow() {
 		if (playing) {
@@ -243,7 +270,7 @@
 					>{title}</span
 				>
 			{:else}
-				<span class="font-mono text-[0.8125rem] whitespace-nowrap text-[#a8998a]">{proof.alt}</span>
+				<span class="truncate font-mono text-[0.8125rem] text-[#a8998a]">{proof.alt}</span>
 			{/if}
 			<span aria-live="polite" class="whitespace-nowrap text-[#a8998a] tabular-nums"
 				>{m.viewer_position({ position: index + 1, total: proofs.length })}</span
@@ -328,7 +355,15 @@
 			</button>
 		</div>
 		<div
-			class="photo-stage relative flex min-h-0 items-center justify-center overflow-hidden px-[84px] max-[700px]:px-0"
+			role="presentation"
+			class={cn(
+				'photo-stage relative flex min-h-0 items-center justify-center overflow-hidden px-[84px] max-[700px]:px-0',
+				mobileNavigation && '[touch-action:pan-y_pinch-zoom]'
+			)}
+			onpointerdown={startSwipe}
+			onpointerup={finishSwipe}
+			onpointercancel={() => (swipe = undefined)}
+			onlostpointercapture={() => (swipe = undefined)}
 		>
 			{#if status === 'ready'}
 				{#key proof.id}
@@ -374,14 +409,22 @@
 			{/if}
 			<button
 				type="button"
-				class="{arrow} left-5"
+				class={cn(
+					arrow,
+					'left-5',
+					showMobileArrows ? 'max-[700px]:left-2 max-[700px]:bg-dark/55' : 'max-[700px]:hidden'
+				)}
 				aria-disabled={index === 0}
 				onclick={() => step(index - 1)}
 				aria-label={m.viewer_previous()}><ChevronLeft size={22} aria-hidden="true" /></button
 			>
 			<button
 				type="button"
-				class="{arrow} right-5"
+				class={cn(
+					arrow,
+					'right-5',
+					showMobileArrows ? 'max-[700px]:right-2 max-[700px]:bg-dark/55' : 'max-[700px]:hidden'
+				)}
 				aria-disabled={index === proofs.length - 1}
 				onclick={() => step(index + 1)}
 				aria-label={m.viewer_next()}><ChevronRight size={22} aria-hidden="true" /></button

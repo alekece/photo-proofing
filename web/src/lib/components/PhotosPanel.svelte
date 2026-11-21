@@ -6,7 +6,7 @@
 	import OwnerZipError from './OwnerZipError.svelte';
 	import { Download, ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
-	import { onDestroy, tick, untrack } from 'svelte';
+	import { onDestroy, tick, untrack, type Snippet } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { scale } from 'svelte/transition';
 	import PhotoTile, {
@@ -51,7 +51,8 @@
 		oncount,
 		set = 'photos',
 		openPhotoId,
-		active = true
+		active = true,
+		onheader
 	}: {
 		galleryId: string;
 		heroId?: string | null;
@@ -61,10 +62,13 @@
 		/** Whether the gallery has watermarking on. */
 		/** The client proofs, or the photographer's finished photos, which have no hero or favorites. */
 		set?: PhotoSet;
-		/** Opens this photo once it has loaded, for a source-context link from All Photos. */
+		/** Opens a linked photo once it has loaded. */
 		openPhotoId?: string;
 		active?: boolean;
+		onheader?: (action: Snippet) => void;
 	} = $props();
+
+	$effect(() => onheader?.(uploadAction));
 
 	const finals = $derived(set === 'finals');
 	const loadedGalleryId = $derived(galleryId);
@@ -527,6 +531,12 @@
 
 <svelte:window {onkeydown} />
 
+{#snippet uploadAction()}
+	<Button bind:ref={uploadButton} size="sm" onclick={() => picker?.click()}>
+		<Upload size={16} aria-hidden="true" />{m.action_upload()}
+	</Button>
+{/snippet}
+
 <section
 	aria-label={finals ? m.tab_final() : m.common_photos()}
 	class={[
@@ -537,35 +547,31 @@
 	ondragleave={() => (dragging = false)}
 	{ondrop}
 >
-	<WorkspaceToolbar>
-		{#snippet actions()}
-			{#if updatingWatermarks}
-				<p class="mr-auto flex items-center gap-2 text-sm text-muted-foreground">
-					<LoaderCircle size={16} class="animate-spin-slow" aria-hidden="true" />
-					{m.photos_updating_watermarks()}
-				</p>
-			{/if}
-			{#if finals && anyReady}
-				<Button
-					size="sm"
-					class="min-h-9! gap-1.5"
-					disabled={zip.busy}
-					aria-busy={zip.busy}
-					onclick={() => void zip.request()}
-				>
-					<Download size={16} aria-hidden="true" />
-					{zip.busy ? m.favorites_downloading() : m.favorites_download_all()}
-				</Button>
-			{/if}
-			<Button
-				bind:ref={uploadButton}
-				size="sm"
-				class="min-h-9! gap-1.5"
-				onclick={() => picker?.click()}
-				><Upload size={16} aria-hidden="true" />{m.action_upload()}</Button
-			>
-		{/snippet}
-	</WorkspaceToolbar>
+	{#if !onheader || updatingWatermarks || (finals && anyReady)}
+		<WorkspaceToolbar>
+			{#snippet actions()}
+				{#if updatingWatermarks}
+					<p class="mr-auto flex items-center gap-2 text-sm text-muted-foreground">
+						<LoaderCircle size={16} class="animate-spin-slow" aria-hidden="true" />
+						{m.photos_updating_watermarks()}
+					</p>
+				{/if}
+				{#if finals && anyReady}
+					<Button
+						size="sm"
+						class="min-h-9! gap-1.5"
+						disabled={zip.busy}
+						aria-busy={zip.busy}
+						onclick={() => void zip.request()}
+					>
+						<Download size={16} aria-hidden="true" />
+						{zip.busy ? m.favorites_downloading() : m.favorites_download_all()}
+					</Button>
+				{/if}
+				{#if !onheader}{@render uploadAction()}{/if}
+			{/snippet}
+		</WorkspaceToolbar>
+	{/if}
 	<input
 		bind:this={picker}
 		type="file"

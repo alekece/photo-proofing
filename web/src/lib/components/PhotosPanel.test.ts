@@ -1587,7 +1587,7 @@ describe('PhotosPanel', () => {
 
 			await screen.findByRole('button', { name: 'Open f1.jpg' });
 
-			expect(screen.getByRole('region', { name: 'Final' })).toBeTruthy();
+			expect(screen.getByRole('region', { name: 'Retouched' })).toBeTruthy();
 			expect(screen.queryByRole('button', { name: 'Set as cover' })).toBeNull();
 
 			queue.add('g1', [jpeg('a.jpg')], 'finals');

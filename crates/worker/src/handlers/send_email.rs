@@ -393,6 +393,7 @@ mod tests {
                     size: current_settings.size,
                     signature: CoverSignature::Name,
                     signature_size: current_settings.signature_size,
+                    signature_text_color: None,
                     proof_quality: current_settings.proof_quality,
                     watermark_opacity: None,
                     watermark_text_color: None,

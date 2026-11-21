@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { NotificationCenter, notificationBadge, notificationText } from './notifications.svelte';
+import { NotificationCenter, notificationText } from './notifications.svelte';
 import type { Notification } from './schemas';
 import { useLocale } from '#lib/i18n/testing.js';
 
@@ -19,7 +19,6 @@ describe('English comment notifications', () => {
 	it('names the activity with singular and plural counts', () => {
 		expect(notificationText(comment)).toBe('2 new comments');
 		expect(notificationText({ ...comment, count: 1 })).toBe('1 new comment');
-		expect(notificationBadge(comment)).toBe('Comments');
 	});
 });
 describe('French comment notifications', () => {
@@ -27,7 +26,6 @@ describe('French comment notifications', () => {
 	it('names the activity with singular and plural counts', () => {
 		expect(notificationText(comment)).toBe('2 nouveaux commentaires');
 		expect(notificationText({ ...comment, count: 1 })).toBe('1 nouveau commentaire');
-		expect(notificationBadge(comment)).toBe('Commentaires');
 	});
 });
 

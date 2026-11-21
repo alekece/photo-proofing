@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -28,7 +28,7 @@ const photo = (id: string) => ({
 	created_at: '2026-11-04T10:00:00Z'
 });
 
-const stub = (counts: { photo_id: string; count: number }[]) =>
+const stub = (counts: { photo_id: string; count: number; latest_body?: string }[]) =>
 	vi.stubGlobal(
 		'fetch',
 		vi.fn(async (url: string) => {
@@ -44,6 +44,7 @@ const stub = (counts: { photo_id: string; count: number }[]) =>
 						deleted_at: null
 					}
 				]);
+			if (url.endsWith('/photos/p1/comments')) return Response.json([]);
 			if (url.endsWith('/comments')) return Response.json(counts);
 			return Response.json([photo('p1'), photo('p2')]);
 		})
@@ -55,14 +56,37 @@ describe('CommentsPanel', () => {
 	it('lists only the photos with comments, reports their number and opens the thread', async () => {
 		const user = userEvent.setup();
 		const oncount = vi.fn();
-		stub([{ photo_id: 'p2', count: 2 }]);
+		stub([{ photo_id: 'p2', count: 2, latest_body: 'Brighter please' }]);
 		render(Harness, { props: { events, oncount } });
 
-		await user.click(await screen.findByRole('button', { name: 'Open p2.jpg' }));
+		const button = await screen.findByRole('button', { name: /p2\.jpg/ });
+		const row = button.closest('li')!;
+		expect(within(row).getByText('Brighter please')).toBeTruthy();
+		await user.click(button);
 
-		expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull();
-		expect(await screen.findByText('Brighter please')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: /p1\.jpg/ })).toBeNull();
+		const thread = within(row).getByRole('region', { name: 'Comments' });
+		expect(await within(thread).findByText('Brighter please')).toBeTruthy();
+		expect(screen.queryByRole('dialog')).toBeNull();
 		expect(oncount).toHaveBeenLastCalledWith(1);
+	});
+
+	it('keeps unsent replies on their own row when switching threads', async () => {
+		const user = userEvent.setup();
+		stub([
+			{ photo_id: 'p1', count: 1 },
+			{ photo_id: 'p2', count: 2 }
+		]);
+		render(Harness, { props: { events } });
+
+		const first = await screen.findByRole('button', { name: /p1\.jpg/ });
+		const second = screen.getByRole('button', { name: /p2\.jpg/ });
+		await user.click(first);
+		await user.type(await screen.findByRole('textbox'), 'Try a lighter version');
+		await user.click(second);
+		expect(screen.getByRole('textbox')).toHaveProperty('value', '');
+		await user.click(first);
+		expect(screen.getByRole('textbox')).toHaveProperty('value', 'Try a lighter version');
 	});
 
 	it('explains when no photo has comments', async () => {

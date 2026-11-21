@@ -4,12 +4,11 @@
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { cubicIn } from 'svelte/easing';
 	import { slide } from 'svelte/transition';
-	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+	import { afterNavigate, beforeNavigate } from '$app/navigation';
 	import { navigating, page } from '$app/state';
-	import { ArrowUpDown, ChevronDown, Pencil, Trash2, Users } from '@lucide/svelte';
+	import { ArrowUpDown, ChevronDown, Pencil, Plus, Trash2, Users } from '@lucide/svelte';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
-	import { authRequest } from '#lib/auth.js';
-	import AppHeader from '#lib/components/AppHeader.svelte';
+	import ContactIdentity from '#lib/components/ContactIdentity.svelte';
 	import ActionButton from '#lib/components/ui/ActionButton/ActionButton.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
@@ -24,7 +23,7 @@
 		type Contact,
 		type ContactChangesInput
 	} from '#lib/contacts/api.js';
-	import { contactInitials, sortContacts } from '#lib/contacts/format.js';
+	import { sortContacts } from '#lib/contacts/format.js';
 	import { ApiError } from '#lib/http.js';
 	import type { PageData } from './$types';
 
@@ -60,8 +59,6 @@
 	let saveButton = $state<ActionButton>();
 	let deleteEpoch = $state(0);
 	let disposed = false;
-	let signingOut = $state(false);
-	let signOutError = $state('');
 
 	const loadFailed = $derived(data.contacts === null);
 	const departing = $derived(navigating.to !== null && navigating.to.route.id !== '/contacts');
@@ -326,28 +323,10 @@
 	function duration(ms: number): number {
 		return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : ms;
 	}
-
-	async function logout() {
-		if (signingOut) return;
-
-		signingOut = true;
-		signOutError = '';
-
-		try {
-			await authRequest('logout');
-			await goto('/login', { refreshAll: true });
-		} catch (error) {
-			signOutError = error instanceof Error ? error.message : m.sign_out_failed();
-		} finally {
-			signingOut = false;
-		}
-	}
 </script>
 
 <svelte:head><title>{m.contacts_title()} — PhotoProofing</title></svelte:head>
 <svelte:document onclickcapture={disarmForLink} />
-
-<AppHeader onsignout={logout} studioName={data.settings?.studioName} />
 
 {#snippet fields(draft: Draft, busy: boolean)}
 	<form
@@ -434,11 +413,7 @@
 	{/key}
 {/snippet}
 
-<main bind:this={root} class="flex flex-1 flex-col px-3.5 pt-4 pb-12 sm:px-8 sm:pt-6">
-	{#if signOutError}
-		<p role="alert" class="mb-3 text-sm text-danger">{signOutError}</p>
-	{/if}
-
+<main bind:this={root} class="flex flex-1 flex-col workspace-inset pt-4 pb-12 sm:pt-6">
 	<div class="mb-4 flex flex-wrap items-end justify-between gap-3 sm:mb-6">
 		<div>
 			<h1 class="text-[1.875rem] leading-[1.08] sm:text-[2.5rem]">{m.contacts_title()}</h1>
@@ -449,6 +424,7 @@
 			{/if}
 		</div>
 		<Button bind:ref={newButton} onclick={() => openEditor()} disabled={loadFailed}>
+			<Plus size={16} aria-hidden="true" />
 			{m.contacts_new()}
 		</Button>
 	</div>
@@ -530,30 +506,21 @@
 					out:removal={item.id}
 				>
 					<div class="flex flex-wrap items-start gap-2 p-3 sm:items-center sm:gap-3 sm:p-3.5">
-						<span
-							aria-hidden="true"
-							class="grid size-9 shrink-0 place-items-center rounded-full bg-border-strong/55 text-xs font-semibold tracking-wide text-foreground"
-						>
-							{contactInitials(item.name)}
-						</span>
-						<div class="grid min-w-0 flex-1 gap-0.5">
-							<p class="truncate text-sm font-semibold text-foreground">{item.name}</p>
-							<p class="truncate text-xs text-muted-foreground">{item.email}</p>
-							{#if item.phone}<p class="truncate text-xs text-muted-foreground">
-									{item.phone}
-								</p>{/if}
-							{#if item.galleries.length > 0}
-								<div class="mt-1 flex min-w-0 flex-wrap gap-1">
-									{#each item.galleries as linked (linked.id)}
-										<span
-											class="max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground"
-										>
-											{linked.title ?? m.gallery_untitled()}
-										</span>
-									{/each}
-								</div>
-							{/if}
-						</div>
+						<ContactIdentity contact={item}>
+							{#snippet details()}
+								{#if item.galleries.length > 0}
+									<div class="mt-1 flex min-w-0 flex-wrap gap-1">
+										{#each item.galleries as linked (linked.id)}
+											<span
+												class="max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground"
+											>
+												{linked.title ?? m.gallery_untitled()}
+											</span>
+										{/each}
+									</div>
+								{/if}
+							{/snippet}
+						</ContactIdentity>
 						<div class="ml-auto flex flex-initial flex-wrap justify-end gap-1 sm:gap-2">
 							{#if active?.mode !== 'edit'}
 								<Button
