@@ -332,7 +332,6 @@ async fn serve_shared_photo(
             ))
         })
         .await
-        .map(ImageFile::proof)
 }
 
 impl From<&ClientAccess> for DerivativeAccess {
@@ -480,7 +479,6 @@ async fn serve_shared_cover(
         &PhotoKey::with_location(link.access.location, id, Variant::Preview),
     )
     .await
-    .map(ImageFile::proof)
 }
 
 #[cfg(test)]
@@ -1268,7 +1266,7 @@ mod tests {
             .read_selected(&state, selected, reauthorize)
             .await
             .unwrap();
-        let response = image.proof().respond_to(&request);
+        let response = image.respond_to(&request);
         assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
         assert_eq!(
             to_bytes(response.into_body()).await.unwrap().as_ref(),

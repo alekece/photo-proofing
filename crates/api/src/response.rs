@@ -16,9 +16,6 @@ pub(crate) trait ResponseBuilderExt {
     /// Forbids caching: every response here is specific to the session.
     fn no_store(&mut self) -> &mut Self;
 
-    /// Lets the browser, but no shared cache, keep a private image for an hour.
-    fn private_cache(&mut self) -> &mut Self;
-
     /// Keeps the page URL out of `Referer` headers sent onward, which matters when the URL
     /// carries a private link token.
     fn no_referrer(&mut self) -> &mut Self;
@@ -29,42 +26,23 @@ impl ResponseBuilderExt for HttpResponseBuilder {
         self.insert_header((header::CACHE_CONTROL, "no-store"))
     }
 
-    fn private_cache(&mut self) -> &mut Self {
-        self.insert_header((header::CACHE_CONTROL, "private, max-age=3600"))
-    }
-
     fn no_referrer(&mut self) -> &mut Self {
         self.insert_header((header::REFERRER_POLICY, "no-referrer"))
     }
 }
 
-/// A private image: kept by the browser only, never sniffed as another type, and never
-/// named in a `Referer`. Callers include the published render revision in image URLs so a
-/// regenerated derivative does not reuse the previous image's private cache entry.
+/// A private image: never cached, sniffed as another type, or named in a `Referer`.
 pub(crate) struct ImageFile {
     content_type: ContentType,
     bytes: Vec<u8>,
-    cache: ImageCache,
-}
-
-enum ImageCache {
-    Private,
-    NoStore,
 }
 
 impl ImageFile {
-    pub(crate) fn jpeg(bytes: Vec<u8>) -> Self {
+    fn jpeg(bytes: Vec<u8>) -> Self {
         Self {
             content_type: ContentType::jpeg(),
             bytes,
-            cache: ImageCache::Private,
         }
-    }
-
-    pub(crate) fn proof(mut self) -> Self {
-        self.cache = ImageCache::NoStore;
-
-        self
     }
 
     /// Reads a stored JPEG; a file removed meanwhile is not found.
@@ -91,14 +69,8 @@ impl Responder for ImageFile {
     type Body = BoxBody;
 
     fn respond_to(self, _request: &HttpRequest) -> HttpResponse {
-        let mut response = HttpResponse::Ok();
-
-        match self.cache {
-            ImageCache::Private => response.private_cache(),
-            ImageCache::NoStore => response.no_store(),
-        };
-
-        response
+        HttpResponse::Ok()
+            .no_store()
             .content_type(self.content_type)
             .no_referrer()
             .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))

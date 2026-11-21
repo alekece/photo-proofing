@@ -28,7 +28,10 @@ const photo = (id: string) => ({
 	created_at: '2026-11-04T10:00:00Z'
 });
 
-const stub = (counts: { photo_id: string; count: number; latest_body?: string }[]) =>
+const stub = (
+	counts: { photo_id: string; count: number; latest_body?: string }[],
+	summary = () => Response.json(counts)
+) =>
 	vi.stubGlobal(
 		'fetch',
 		vi.fn(async (url: string) => {
@@ -45,7 +48,7 @@ const stub = (counts: { photo_id: string; count: number; latest_body?: string }[
 					}
 				]);
 			if (url.endsWith('/photos/p1/comments')) return Response.json([]);
-			if (url.endsWith('/comments')) return Response.json(counts);
+			if (url.endsWith('/comments')) return summary();
 			return Response.json([photo('p1'), photo('p2')]);
 		})
 	);
@@ -86,6 +89,34 @@ describe('CommentsPanel', () => {
 		await user.click(second);
 		expect(screen.getByRole('textbox')).toHaveProperty('value', '');
 		await user.click(first);
+		expect(screen.getByRole('textbox')).toHaveProperty('value', 'Try a lighter version');
+	});
+
+	it('keeps the open reply when a live summary refresh fails', async () => {
+		const user = userEvent.setup();
+		const counts = [{ photo_id: 'p2', count: 1 }];
+		const summary = vi
+			.fn(() => Response.json(counts))
+			.mockReturnValueOnce(Response.json(counts))
+			.mockReturnValueOnce(Response.json({}, { status: 503 }));
+		stub(counts, summary);
+		let refresh: Parameters<LiveEvents['onNotification']>[0] | undefined;
+		render(Harness, {
+			props: {
+				events: {
+					...events,
+					onNotification: (handler) => {
+						refresh = handler;
+						return () => {};
+					}
+				}
+			}
+		});
+
+		await user.click(await screen.findByRole('button', { name: /p2\.jpg/ }));
+		await user.type(await screen.findByRole('textbox'), 'Try a lighter version');
+		refresh?.({ gallery_id: 'g1' });
+		expect(await screen.findByRole('alert')).toBeTruthy();
 		expect(screen.getByRole('textbox')).toHaveProperty('value', 'Try a lighter version');
 	});
 

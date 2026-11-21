@@ -61,6 +61,7 @@
 
 		photos = [];
 		loaded = false;
+		failed = false;
 		expanded = undefined;
 		opened.clear();
 		void load(id);
@@ -93,7 +94,9 @@
 	<p role="alert" class="text-sm text-danger">{m.comments_tab_load_failed()}</p>
 {:else if comments.error}
 	<p role="alert" class="text-sm text-danger">{comments.error}</p>
-{:else if loaded && commented.length === 0}
+{/if}
+
+{#if loaded && !failed && !comments.error && commented.length === 0}
 	<EmptyState variant="plain">
 		<span class="grid size-14 place-items-center rounded-full bg-background"
 			><MessageSquare size={26} aria-hidden="true" /></span
@@ -101,7 +104,7 @@
 		<h3>{m.comments_tab_empty()}</h3>
 		<p class="text-sm">{m.comments_tab_empty_body()}</p>
 	</EmptyState>
-{:else}
+{:else if commented.length > 0}
 	<ul
 		aria-label={m.tab_comments()}
 		class="divide-y divide-border rounded-card border border-border bg-panel"

@@ -7,6 +7,26 @@ test('gallery return restores the grid, but browser Back still honors Activity',
 		!process.env.PP_E2E_WORKSPACE_FIXTURE,
 		'Use a disposable workspace with the Coast galleries and activity fixture.'
 	);
+	await page.route('**/api/v1/notifications', (route) =>
+		route.fulfill({
+			json: {
+				unread: 1,
+				notifications: [
+					{
+						id: 'notification-1',
+						gallery_id: 'gallery-28',
+						title: 'Forest 28',
+						hero_id: null,
+						kind: 'open',
+						count: 1,
+						selected: 0,
+						updated_at: '2026-11-18T10:00:00Z',
+						read_at: null
+					}
+				]
+			}
+		})
+	);
 	await page.setViewportSize({ width: 1200, height: 660 });
 	await page.goto('/dashboard?sort=title');
 	const search = page.getByRole('searchbox', { name: 'Search galleries' });
@@ -35,6 +55,19 @@ test('gallery return restores the grid, but browser Back still honors Activity',
 		await expect(page.getByRole('link', { name: /coast 01|forest 28/i })).toHaveCount(0);
 		await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(position);
 	}
+
+	await gallery.click();
+	await page.getByRole('button', { name: 'Notifications, 1 unread' }).click();
+	await expect(page.getByRole('button', { name: 'Mark all as read' })).toBeInViewport({
+		ratio: 1
+	});
+	await page.getByRole('link', { name: /forest 28/i }).click();
+	await expect(page).toHaveURL(/\/dashboard\/gallery-28$/);
+	await page.goBack();
+	await expect(page).toHaveURL(/\/dashboard\/gallery-21$/);
+	await page.getByRole('link', { name: 'Back to galleries' }).click();
+	await expect(search).toHaveValue('Coast');
+	await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(position);
 
 	await page.getByRole('link', { name: 'Activity', exact: true }).click();
 	await page.getByRole('link', { name: 'Coast 01' }).first().click();

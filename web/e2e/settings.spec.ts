@@ -131,6 +131,8 @@ test('saves real watermark and signature settings and keeps the editor usable on
 	const settings = page.getByRole('main');
 	await page.getByRole('tab', { name: 'General' }).click();
 	await settings.getByRole('button', { name: /language/i }).click();
+	await expect(page.getByRole('radio', { name: 'English' })).toBeInViewport({ ratio: 1 });
+	await expect(page.getByRole('radio', { name: 'Français' })).toBeInViewport({ ratio: 1 });
 	const frenchMounted = page.waitForRequest(
 		(request) => new URL(request.url()).pathname === '/api/v1/events'
 	);

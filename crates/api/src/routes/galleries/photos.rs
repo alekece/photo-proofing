@@ -319,7 +319,7 @@ async fn serve_derivative_photo(
         kind: set.into(),
         watermarked: set.watermark.unwrap_or_default(),
     };
-    let image = access
+    access
         .read(&state, photo_id, derivative, async || {
             let Authenticated(identity) = Authenticated::extract(&request).await?;
             Ok(DerivativeAccess {
@@ -330,9 +330,7 @@ async fn serve_derivative_photo(
                 ..access
             })
         })
-        .await?;
-
-    Ok(if set.finals { image } else { image.proof() })
+        .await
 }
 
 #[post("/{id}/photos")]
@@ -2027,17 +2025,19 @@ pub(super) mod tests {
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
         let finished = upload_final(&app, &cookie, &gallery_id, &jpeg(3, 2)).await;
-        let get = |query: &str| {
+        let get = |variant: &str, query: &str| {
             test::TestRequest::get()
                 .uri(&format!(
-                    "/api/v1/galleries/{gallery_id}/photos/{finished}/thumbnail{query}"
+                    "/api/v1/galleries/{gallery_id}/photos/{finished}/{variant}{query}"
                 ))
                 .cookie(cookie.clone())
                 .to_request()
         };
 
         assert_eq!(
-            test::call_service(&app, get("?finals=true")).await.status(),
+            test::call_service(&app, get("thumbnail", "?finals=true"))
+                .await
+                .status(),
             StatusCode::NOT_FOUND
         );
 
@@ -2046,13 +2046,20 @@ pub(super) mod tests {
             .force_photo_status(photo_id(&finished), &PhotoStatus::Ready)
             .await
             .unwrap();
-        let stored = store_derivative(&pool, directory.path(), &finished, "thumbnail").await;
-        let served = test::call_service(&app, get("?finals=true")).await;
 
-        assert_eq!(served.status(), StatusCode::OK);
-        assert_eq!(test::read_body(served).await, stored);
+        for variant in ["thumbnail", "preview"] {
+            let stored = store_derivative(&pool, directory.path(), &finished, variant).await;
+            let served = test::call_service(&app, get(variant, "?finals=true")).await;
+
+            assert_eq!(served.status(), StatusCode::OK);
+            assert_eq!(served.headers().get("Cache-Control").unwrap(), "no-store");
+            assert_eq!(test::read_body(served).await, stored);
+        }
+
         assert_eq!(
-            test::call_service(&app, get("")).await.status(),
+            test::call_service(&app, get("thumbnail", ""))
+                .await
+                .status(),
             StatusCode::NOT_FOUND
         );
     }

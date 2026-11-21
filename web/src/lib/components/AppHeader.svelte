@@ -30,7 +30,7 @@
 	const round = 'grid size-[2.375rem] place-items-center rounded-full';
 	const hover = 'hover:bg-border/60';
 	const pill =
-		'inline-flex min-h-8 items-center gap-2 rounded-full px-3 py-1 text-[0.84375rem] leading-tight whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
+		'inline-flex min-h-8 items-center gap-2 rounded-full px-3 py-1 text-[0.84375rem] leading-tight whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus sm:focus-visible:-outline-offset-2';
 
 	const pathname = $derived.by(() => {
 		try {
@@ -61,10 +61,10 @@
 <header
 	class={cn(
 		'relative z-30 flex flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-border px-3.5 py-2.5 text-foreground sm:gap-4 sm:px-8 sm:py-3.5',
-		'sm:fixed sm:inset-y-0 sm:left-0 sm:w-(--gallery-rail-width) sm:flex-col sm:items-stretch sm:justify-start sm:gap-2 sm:overflow-y-auto sm:border-r sm:border-b-0 sm:px-3 sm:py-5'
+		'sm:fixed sm:inset-y-0 sm:left-0 sm:w-(--gallery-rail-width) sm:flex-col sm:flex-nowrap sm:items-stretch sm:justify-start sm:gap-2 sm:border-r sm:border-b-0 sm:px-3 sm:py-5'
 	)}
 >
-	<div class="flex min-w-0 items-center gap-1">
+	<div class="flex min-w-0 items-center gap-1 sm:shrink-0">
 		<a href={galleriesHref} class="brand text-lg whitespace-nowrap sm:text-[1.3125rem]"
 			>PhotoProofing</a
 		>
@@ -85,7 +85,7 @@
 		aria-label={m.nav_sections()}
 		class={cn(
 			'order-last flex w-full flex-wrap items-center gap-1 border-t border-border/60 pt-2',
-			'sm:order-none sm:mt-3 sm:flex-col sm:items-stretch sm:gap-1 sm:border-t-0 sm:pt-0'
+			'sm:order-none sm:mt-3 sm:min-h-0 sm:flex-col sm:flex-nowrap sm:items-stretch sm:gap-1 sm:overflow-y-auto sm:border-t-0 sm:pt-0 [&>a]:shrink-0'
 		)}
 	>
 		<a
@@ -123,7 +123,7 @@
 	<div
 		class={cn(
 			'flex items-center gap-1.5',
-			'sm:mt-auto sm:flex-col sm:items-stretch sm:gap-1 sm:border-t sm:border-border/60 sm:pt-3'
+			'sm:mt-auto sm:shrink-0 sm:flex-col sm:items-stretch sm:gap-1 sm:border-t sm:border-border/60 sm:pt-3'
 		)}
 	>
 		<LanguageMenu class="{round} {hover}" />

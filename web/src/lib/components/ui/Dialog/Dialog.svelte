@@ -96,6 +96,7 @@
 		}
 
 		dismissing = true;
+		dialog.setAttribute('inert', '');
 		motion.reverse();
 		void motion.finished.then(close, () => {});
 	}

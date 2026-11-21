@@ -247,6 +247,7 @@
 							<h2 class="text-xl">{m.language_menu_options()}</h2>
 							<LanguageMenu
 								disabled={hasEdits || status === 'saving'}
+								align="start"
 								class="min-h-11 rounded-control border border-border bg-panel px-4 disabled:opacity-50"
 							/>
 							{#if hasEdits}

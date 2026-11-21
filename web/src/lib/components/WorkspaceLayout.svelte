@@ -9,7 +9,8 @@
 </script>
 
 <script lang="ts">
-	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+	import { afterNavigate, goto, snapshot } from '$app/navigation';
+	import { page } from '$app/state';
 	import { onMount, setContext, type Snippet } from 'svelte';
 	import { authRequest } from '#lib/auth.js';
 	import { createLiveEvents, setLiveEvents } from '#lib/events.js';
@@ -41,14 +42,24 @@
 		};
 	});
 
-	afterNavigate(() => (signOutError = ''));
-	beforeNavigate(({ from, to }) => {
+	afterNavigate(({ from, to }) => {
+		signOutError = '';
+
 		if (
 			to?.route.id === '/dashboard/[id]' &&
 			from?.route.id !== '/dashboard' &&
 			to.url.pathname !== from?.url.pathname
 		) {
 			gridReturn.view = undefined;
+		}
+	});
+
+	snapshot({
+		id: 'studio-gallery-grid-return',
+		capture: () =>
+			page.route.id === '/dashboard/[id]' ? $state.snapshot(gridReturn.view) : undefined,
+		restore: (view) => {
+			if (page.route.id === '/dashboard/[id]') gridReturn.view = view;
 		}
 	});
 

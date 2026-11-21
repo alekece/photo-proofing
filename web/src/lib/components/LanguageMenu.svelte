@@ -6,8 +6,11 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { getLocale, locales, setLocale, type Locale } from '#lib/paraglide/runtime.js';
 
-	let { class: className = '', disabled = false }: { class?: string; disabled?: boolean } =
-		$props();
+	let {
+		class: className = '',
+		disabled = false,
+		align = 'end'
+	}: { class?: string; disabled?: boolean; align?: 'start' | 'end' } = $props();
 
 	/** Each language is offered in its own name, so it can be found whatever is shown now. */
 	const AUTONYMS: Record<Locale, string> = { en: 'English', fr: 'Français' };
@@ -42,7 +45,7 @@
 	bind:open
 	label={m.language_menu_label({ language: NAMES[current]() })}
 	disabled={saving || disabled}
-	align="end"
+	{align}
 	class="{className} text-xs font-semibold tracking-wide"
 	panelClass="w-44 text-foreground"
 >
