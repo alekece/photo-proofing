@@ -38,7 +38,7 @@ use pp_database::photo::PhotoId;
 use pp_database::{
     gallery::{GalleryAccessCode, GalleryRepository, SharedGallery, SharedGalleryGate},
     photo::{PhotoKind, PhotoRepository, Watermarked},
-    settings::{CoverSignature, SettingsRepository, SizeStep, WorkspaceSettings},
+    settings::{CoverSignature, SettingsRepository, SizeStep, WatermarkColor, WorkspaceSettings},
 };
 use pp_storage::{ArchiveKey, PhotoKey, Variant};
 use serde::{Deserialize, Serialize};
@@ -66,6 +66,8 @@ struct StudioBranding {
     studio_name: String,
     signature: CoverSignature,
     signature_size: SizeStep,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signature_color: Option<WatermarkColor>,
     has_logo: bool,
 }
 
@@ -82,6 +84,11 @@ impl From<WorkspaceSettings> for StudioBranding {
             studio_name,
             signature: settings.signature,
             signature_size: settings.signature_size,
+            signature_color: if settings.signature.shows_name() {
+                settings.signature_color
+            } else {
+                None
+            },
             has_logo,
         }
     }
@@ -325,7 +332,6 @@ async fn serve_shared_photo(
             ))
         })
         .await
-        .map(ImageFile::proof)
 }
 
 impl From<&ClientAccess> for DerivativeAccess {
@@ -473,7 +479,6 @@ async fn serve_shared_cover(
         &PhotoKey::with_location(link.access.location, id, Variant::Preview),
     )
     .await
-    .map(ImageFile::proof)
 }
 
 #[cfg(test)]
@@ -614,7 +619,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        sqlx::query("INSERT INTO workspace_settings(workspace_id, studio_name, signature, logo) VALUES ($1, 'Studio', 'both', $2)")
+        sqlx::query("INSERT INTO workspace_settings(workspace_id, studio_name, signature, logo, signature_color) VALUES ($1, 'Studio', 'both', $2, '#A12B3C')")
             .bind(workspace).bind(b"normalized PNG".as_slice()).execute(&pool).await.unwrap();
         let (state, _directory) = app_state(pool).await;
         let app = test::init_service(
@@ -629,6 +634,7 @@ mod tests {
         assert_eq!(body["studio_name"], "Studio");
         assert_eq!(body["signature"], "both");
         assert_eq!(body["signature_size"], 4);
+        assert_eq!(body["signature_color"], "#A12B3C");
         assert_eq!(body["has_logo"], true);
         for (link, expected) in [
             (&token, StatusCode::OK),
@@ -1260,7 +1266,7 @@ mod tests {
             .read_selected(&state, selected, reauthorize)
             .await
             .unwrap();
-        let response = image.proof().respond_to(&request);
+        let response = image.respond_to(&request);
         assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
         assert_eq!(
             to_bytes(response.into_body()).await.unwrap().as_ref(),

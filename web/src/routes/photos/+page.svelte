@@ -3,11 +3,9 @@
 	import { onMount } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { afterNavigate, goto } from '$app/navigation';
-	import { authRequest } from '#lib/auth.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
-	import AppHeader from '#lib/components/AppHeader.svelte';
-	import PhotoTile from '#lib/components/PhotoTile.svelte';
-	import { GRID_CLASSES } from '#lib/components/PhotoTile.svelte';
+	import PhotoTile, { GRID_CLASSES, ITEM_CLASSES } from '#lib/components/PhotoTile.svelte';
+	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
@@ -15,16 +13,19 @@
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
+	import WorkspaceHeading from '#lib/components/ui/WorkspaceHeading/WorkspaceHeading.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
-	import { ArrowUpDown, Download, Images, ListFilter, Trash2 } from '@lucide/svelte';
+	import { ArrowUpDown, Download, Images, Trash2 } from '@lucide/svelte';
 	import {
 		BULK_DELETE_LIMIT,
 		deletePhotos,
 		downloadOriginal,
+		previewUrl,
 		thumbnailUrl,
 		type PhotoSet,
 		type WorkspacePhoto
 	} from '#lib/gallery/photos.js';
+	import type { Proof } from '#lib/gallery/types.js';
 	import { ApiError } from '#lib/http.js';
 	import type { PageData } from './$types';
 
@@ -45,8 +46,7 @@
 	let selectionMode = $state(false);
 	let deleteConfirmOpen = $state(false);
 	let downloadBusy = $state(false);
-	let signingOut = $state(false);
-	let signOutError = $state('');
+	let viewerIndex = $state<number | null>(null);
 
 	const loadFailed = $derived(data.photos === null);
 
@@ -62,19 +62,6 @@
 
 		return [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1]));
 	});
-	const filterLabels = $derived(
-		[
-			galleryFilter === 'all'
-				? undefined
-				: galleryOptions.find(([id]) => id === galleryFilter)?.[1],
-			typeFilter === 'all'
-				? undefined
-				: typeFilter === 'proof'
-					? m.photos_kind_proof()
-					: m.photos_kind_final()
-		].filter((label) => label !== undefined)
-	);
-
 	const matching = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
 
@@ -83,11 +70,7 @@
 			if (typeFilter !== 'all' && entry.kind !== typeFilter) return false;
 			if (needle === '') return true;
 
-			return (
-				galleryLabel(entry).toLowerCase().includes(needle) ||
-				entry.original_name.toLowerCase().includes(needle) ||
-				entry.id.toLowerCase().includes(needle)
-			);
+			return galleryLabel(entry).toLowerCase().includes(needle);
 		});
 	});
 
@@ -100,6 +83,23 @@
 	);
 
 	const selection = $derived(visible.filter((entry) => selectedIds.has(entry.id)));
+	const viewerPhotos = $derived<Proof[]>(
+		viewerIndex === null
+			? []
+			: visible.map((entry) => ({
+					id: entry.id,
+					alt: galleryLabel(entry),
+					width: entry.width,
+					height: entry.height,
+					thumbnailUrl: thumbnailUrl(
+						entry.gallery_id,
+						entry.id,
+						photoSet(entry.kind),
+						entry.revision
+					),
+					previewUrl: previewUrl(entry.gallery_id, entry.id, photoSet(entry.kind), entry.revision)
+				}))
+	);
 
 	// A photo hidden by a filter change is no longer offered among the selection's actions.
 	$effect(() => {
@@ -239,31 +239,14 @@
 		void activity();
 	});
 	onMount(() => listenForActivity(() => activity()));
-
-	async function logout() {
-		if (signingOut) return;
-
-		signingOut = true;
-		signOutError = '';
-
-		try {
-			await authRequest('logout');
-			await goto('/login', { refreshAll: true });
-		} catch (error) {
-			signOutError = error instanceof Error ? error.message : m.sign_out_failed();
-		} finally {
-			signingOut = false;
-		}
-	}
 </script>
 
 <svelte:head><title>{m.photos_head()} — PhotoProofing</title></svelte:head>
 <svelte:window onkeydown={handleWindowKeydown} />
-<AppHeader onsignout={logout} studioName={data.settings?.studioName} />
-<main class="flex flex-1 flex-col px-3.5 pt-4 pb-24 sm:px-8 sm:pt-6">
-	{#if signOutError}<p role="alert" class="mb-3 text-sm text-danger">{signOutError}</p>{/if}
-
-	<h1 class="mb-4 text-[1.875rem] leading-[1.08] sm:mb-6 sm:text-[2.5rem]">{m.photos_head()}</h1>
+<main class="flex flex-1 flex-col workspace-inset pt-4 pb-24 sm:pt-6">
+	<div class="mb-4 sm:mb-6">
+		<WorkspaceHeading title={m.photos_head()} />
+	</div>
 
 	{#if !loadFailed}
 		{@const none = photos.length === 0}
@@ -281,35 +264,27 @@
 				: undefined}
 		>
 			{#snippet filters()}
-				<ToolbarMenu
-					label={m.toolbar_filters()}
-					summary={filterLabels.join(', ') || m.toolbar_filters()}
-					icon={ListFilter}
+				<Select
+					class="min-h-9 max-w-48 min-w-0"
+					aria-label={m.photos_filter_gallery()}
+					bind:value={galleryFilter}
 					disabled={none}
-					activeCount={filterLabels.length}
 				>
-					<div class="grid gap-2 p-2">
-						<Select
-							class="w-full min-w-0"
-							aria-label={m.photos_filter_gallery()}
-							bind:value={galleryFilter}
-						>
-							<option value="all">{m.photos_filter_gallery_all()}</option>
-							{#each galleryOptions as [id, label] (id)}
-								<option value={id}>{label}</option>
-							{/each}
-						</Select>
-						<Select
-							class="w-full min-w-0"
-							aria-label={m.photos_filter_type()}
-							bind:value={typeFilter}
-						>
-							<option value="all">{m.photos_filter_type_all()}</option>
-							<option value="proof">{m.photos_kind_proof()}</option>
-							<option value="final">{m.photos_kind_final()}</option>
-						</Select>
-					</div>
-				</ToolbarMenu>
+					<option value="all">{m.photos_filter_gallery_all()}</option>
+					{#each galleryOptions as [id, label] (id)}
+						<option value={id}>{label}</option>
+					{/each}
+				</Select>
+				<Select
+					class="min-h-9"
+					aria-label={m.photos_filter_type()}
+					bind:value={typeFilter}
+					disabled={none}
+				>
+					<option value="all">{m.photos_filter_type_all()}</option>
+					<option value="proof">{m.photos_kind_proof()}</option>
+					<option value="final">{m.photos_kind_final()}</option>
+				</Select>
 			{/snippet}
 			{#snippet sort()}
 				<ToolbarMenu
@@ -339,14 +314,11 @@
 			<Button variant="outline" onclick={clearFilters}>{m.photos_clear_filters()}</Button>
 		</EmptyState>
 	{:else}
-		<ul bind:clientHeight={resultsHeight} aria-label={m.photos_head()} class={GRID_CLASSES.grid}>
-			{#each visible as entry (entry.id)}
-				{@const name = `${galleryLabel(entry)} — ${entry.original_name} — ${
-					entry.kind === 'final' ? m.photos_kind_final() : m.photos_kind_proof()
-				}`}
-				<li>
+		<ul bind:clientHeight={resultsHeight} aria-label={m.photos_head()} class={GRID_CLASSES.masonry}>
+			{#each visible as entry, index (entry.id)}
+				<li class={ITEM_CLASSES.masonry}>
 					<PhotoTile
-						{name}
+						name={`${galleryLabel(entry)} — ${entry.original_name}`}
 						state="ready"
 						cleanReady
 						persistentSelect
@@ -358,21 +330,24 @@
 							entry.revision
 						)}
 						selected={selectedIds.has(entry.id)}
-						onopen={() =>
-							void goto(
-								`/dashboard/${encodeURIComponent(entry.gallery_id)}?photo=${encodeURIComponent(entry.id)}&kind=${entry.kind}`
-							)}
+						onopen={() => (viewerIndex = index)}
 						onselect={() => toggleSelect(entry.id)}
-						source={{ title: galleryLabel(entry), kind: entry.kind }}
+						source={galleryLabel(entry)}
 					/>
-					<p class="truncate px-1 pt-1 text-xs text-muted-foreground" title={entry.original_name}>
-						{entry.original_name}
-					</p>
 				</li>
 			{/each}
 		</ul>
 	{/if}
 </main>
+
+{#if viewerIndex !== null}
+	<PhotoViewer
+		proofs={viewerPhotos}
+		bind:index={() => viewerIndex ?? 0, (index) => (viewerIndex = index)}
+		mobileArrows
+		onclose={() => (viewerIndex = null)}
+	/>
+{/if}
 
 {#if selectionMode}
 	<SelectActions

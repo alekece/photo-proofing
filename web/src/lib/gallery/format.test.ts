@@ -5,6 +5,7 @@ import {
 	formatFullDate,
 	formatLongDate,
 	formatShortDate,
+	galleryExpiryDescription,
 	galleryInitials,
 	gallerySummary,
 	galleryStatus,
@@ -95,18 +96,16 @@ describe('highlightParts', () => {
 });
 
 describe('gallerySummary', () => {
-	const now = new Date('2026-11-10T12:00:00Z');
 	const base = {
 		states: ['shared'] as never,
 		included_photos: 10,
-		expires_at: null,
 		photo_count: 32,
 		favorite_count: 12,
 		final_count: 0,
 		downloaded_count: 0
 	};
 	const line = (gallery: Parameters<typeof gallerySummary>[0]) =>
-		gallerySummary(gallery, now)
+		gallerySummary(gallery)
 			.map(({ text }) => text)
 			.join('');
 
@@ -114,8 +113,11 @@ describe('gallerySummary', () => {
 		expect(line({ ...base, states: ['draft'] as never })).toBe('32 photos');
 		expect(line({ ...base, states: ['draft'] as never, photo_count: 1 })).toBe('1 photo');
 		expect(line({ ...base, states: ['draft'] as never, photo_count: 0 })).toBe('No photos yet');
-		expect(line(base)).toBe('32 photos · 12\u00a0selected');
+		expect(line(base)).toBe('12\u00a0selected');
 		expect(line({ ...base, states: ['delivered'] as never })).toBe('Final photos delivered');
+		expect(line({ ...base, states: ['delivered', 'expired'] as never })).toBe(
+			'Final photos delivered'
+		);
 		expect(line({ ...base, states: ['delivered', 'archived'] as never })).toBe(
 			'32 photos · archived'
 		);
@@ -133,7 +135,7 @@ describe('gallerySummary', () => {
 
 	it('flags the selected count only when it exceeds the included photos', () => {
 		const over = (gallery: Parameters<typeof gallerySummary>[0]) =>
-			gallerySummary(gallery, now)
+			gallerySummary(gallery)
 				.filter((part) => part.over)
 				.map(({ text }) => text);
 
@@ -143,44 +145,37 @@ describe('gallerySummary', () => {
 		expect(over({ ...base, favorite_count: 0, included_photos: 10 })).toEqual([]);
 	});
 
-	it('says how long ago an expired gallery ended', () => {
-		const expired = { ...base, states: ['shared', 'expired'] as never };
+	it('describes expiry independently of the card summary', () => {
+		const now = new Date('2026-11-10T12:00:00Z');
 
-		expect(line({ ...expired, expires_at: '2026-11-06' })).toBe(
-			'32 photos · 12\u00a0selected · expired 3 days ago'
-		);
-		expect(line({ ...expired, expires_at: '2026-11-08' })).toContain('expired yesterday');
-		expect(line({ ...expired, expires_at: '2026-11-09' })).toContain('expired today');
-		expect(line(expired)).toMatch(/ · expired$/);
+		expect(galleryExpiryDescription('2026-11-06', now)).toBe('expired 3 days ago');
+		expect(galleryExpiryDescription('2026-11-08', now)).toBe('expired yesterday');
+		expect(galleryExpiryDescription('2026-11-09', now)).toBe('expired today');
+		expect(galleryExpiryDescription(null, now)).toBe('expired');
 	});
 });
 
 describe('gallerySummary in French', () => {
 	useLocale('fr');
 
-	const now = new Date('2026-11-10T12:00:00Z');
 	const base = {
 		states: ['shared'] as never,
 		included_photos: 10,
-		expires_at: null,
 		photo_count: 32,
 		favorite_count: 12,
 		final_count: 0,
 		downloaded_count: 0
 	};
 	const line = (gallery: Parameters<typeof gallerySummary>[0]) =>
-		gallerySummary(gallery, now)
+		gallerySummary(gallery)
 			.map(({ text }) => text)
 			.join('');
 
 	it('agrees with the counts', () => {
-		expect(line(base)).toBe('32 photos · 12\u00a0sélectionnées');
-		expect(line({ ...base, favorite_count: 1 })).toBe('32 photos · 1\u00a0sélectionnée');
+		expect(line(base)).toBe('12\u00a0sélectionnées');
+		expect(line({ ...base, favorite_count: 1 })).toBe('1\u00a0sélectionnée');
 		expect(
 			line({ ...base, states: ['delivered'] as never, final_count: 20, downloaded_count: 1 })
 		).toBe('20 photos retouchées · 1\u00a0téléchargée');
-		expect(
-			line({ ...base, states: ['shared', 'expired'] as never, expires_at: '2026-11-06' })
-		).toBe('32 photos · 12\u00a0sélectionnées · expirée il y a 3 jours');
 	});
 });

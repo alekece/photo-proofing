@@ -1,12 +1,81 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import DialogHarness from './DialogHarness.test.svelte';
 
 const dialog = () => document.querySelector('dialog') as HTMLDialogElement;
 
+afterEach(() => {
+	vi.unstubAllGlobals();
+	Reflect.deleteProperty(HTMLDialogElement.prototype, 'animate');
+});
+
+function enableMotion(reduced = false, finished = Promise.resolve()) {
+	const reverse = vi.fn();
+	const animate = vi.fn(() => ({ cancel: vi.fn(), reverse, finished }));
+	Object.defineProperty(HTMLDialogElement.prototype, 'animate', {
+		configurable: true,
+		value: animate
+	});
+	vi.stubGlobal('matchMedia', () => ({ matches: reduced }));
+
+	return { animate, reverse };
+}
+
 describe('Dialog', () => {
+	it('animates a form from its opener and reverses the motion only on cancel', async () => {
+		const { animate, reverse } = enableMotion();
+		const onclose = vi.fn();
+		const user = userEvent.setup();
+		const { unmount } = render(DialogHarness, { onclose, opened: false, formMotion: true });
+
+		await user.click(screen.getByRole('button', { name: 'Open' }));
+		expect(animate).toHaveBeenCalledOnce();
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(reverse).toHaveBeenCalledOnce();
+		expect(onclose).toHaveBeenCalledOnce();
+		unmount();
+
+		render(DialogHarness, { onclose, opened: false, formMotion: true });
+		await user.click(screen.getByRole('button', { name: 'Open' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
+		expect(animate).toHaveBeenCalledTimes(2);
+		expect(reverse).toHaveBeenCalledOnce();
+		expect(onclose).toHaveBeenCalledTimes(2);
+	});
+
+	it('skips form motion when reduced motion is requested', async () => {
+		const { animate } = enableMotion(true);
+		const onclose = vi.fn();
+		const user = userEvent.setup();
+		render(DialogHarness, { onclose, opened: false, formMotion: true });
+
+		await user.click(screen.getByRole('button', { name: 'Open' }));
+		screen.getByRole('button', { name: 'Cancel' }).focus();
+		await user.keyboard('{Escape}');
+		expect(animate).not.toHaveBeenCalled();
+		expect(onclose).toHaveBeenCalledOnce();
+	});
+
+	it('makes the form inert as soon as cancellation begins', async () => {
+		const closing = Promise.withResolvers<void>();
+		enableMotion(false, closing.promise);
+		const onclose = vi.fn();
+		const user = userEvent.setup();
+		render(DialogHarness, { onclose, opened: false, formMotion: true });
+
+		await user.click(screen.getByRole('button', { name: 'Open' }));
+		screen.getByRole('button', { name: 'Save' }).focus();
+		await user.keyboard('{Escape}');
+		expect(dialog().hasAttribute('inert')).toBe(true);
+		expect(onclose).not.toHaveBeenCalled();
+
+		closing.resolve();
+		await closing.promise;
+		expect(onclose).toHaveBeenCalledOnce();
+	});
+
 	it('opens as a labelled dialog', async () => {
 		const { container } = render(DialogHarness, { onclose: () => {} });
 

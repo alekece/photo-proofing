@@ -9,7 +9,7 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-/** What happened, in the words of the bell and the card badge. */
+/** What happened, in the words of the bell. */
 export function notificationText(notification: Notification): string {
 	if (notification.kind === 'selection') {
 		return m.notification_selected({ count: notification.selected });
@@ -20,14 +20,6 @@ export function notificationText(notification: Notification): string {
 	if (notification.count === 0) return m.notification_zip();
 
 	return m.notification_downloads({ count: notification.count });
-}
-
-export function notificationBadge(notification: Notification): string {
-	if (notification.kind === 'selection') return m.notification_badge_selection();
-	if (notification.kind === 'open') return m.notification_badge_opened();
-	if (notification.kind === 'comment') return m.comments_title();
-
-	return m.notification_badge_downloads();
 }
 
 export function timeAgo(iso: string, now: number = Date.now()): string {
@@ -128,7 +120,7 @@ export function setNotifications(center: NotificationCenter) {
 	setContext(key, center);
 }
 
-/** The notifications of the enclosing dashboard layout; none outside it. */
+/** The notifications of the enclosing workspace layout; none outside it. */
 export function getNotifications(): NotificationCenter | undefined {
 	return getContext(key);
 }

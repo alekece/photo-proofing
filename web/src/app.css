@@ -71,6 +71,38 @@
 	--gallery-heading-font: Georgia, serif;
 	--gallery-rail-width: clamp(15rem, 16vw, 17.5rem);
 }
+@utility workspace-inset {
+	@apply px-3.5 sm:px-8;
+}
+
+@utility menu-choice {
+	@apply flex items-center gap-2 rounded-full bg-transparent px-3 py-1.5 text-sm font-medium whitespace-nowrap text-foreground transition-colors motion-reduce:transition-none;
+
+	&:where(:hover:not(:disabled)) {
+		background: var(--color-border);
+	}
+
+	&:is([aria-current='page'], [aria-selected='true']) {
+		background: var(--color-foreground);
+		color: var(--color-background);
+		font-weight: 600;
+	}
+}
+
+@utility control-choice {
+	@apply border-border-strong bg-input text-foreground transition-colors;
+
+	&:where(:hover:not(:disabled, :has(> input:disabled))) {
+		background: var(--color-background);
+	}
+
+	&:is([aria-pressed='true'], [aria-checked='true'], :has(> input:checked)) {
+		background: var(--color-foreground);
+		border-color: var(--color-foreground);
+		color: var(--color-inverse);
+	}
+}
+
 @layer base {
 	body {
 		margin: 0;
@@ -130,6 +162,9 @@
 		padding: 0.5rem 0.75rem;
 		background: var(--color-input);
 		color: var(--foreground);
+	}
+	.cn-input:hover:not(:disabled, [readonly]) {
+		background: var(--background);
 	}
 	.cn-label {
 		font-weight: 500;

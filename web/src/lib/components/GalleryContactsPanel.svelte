@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { Check, LoaderCircle, Plus, Search, UserMinus, Users, X } from '@lucide/svelte';
+	import type { Snippet } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
+	import ContactIdentity from './ContactIdentity.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
@@ -9,7 +11,7 @@
 	import Label from '#lib/components/ui/Label/Label.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import { createContact, listContacts, type Contact } from '#lib/contacts/api.js';
-	import { contactInitials, sortContacts } from '#lib/contacts/format.js';
+	import { sortContacts } from '#lib/contacts/format.js';
 	import {
 		linkGalleryContact,
 		listGalleryContacts,
@@ -20,12 +22,16 @@
 	let {
 		galleryId,
 		revision = 0,
-		oncount
+		oncount,
+		onheader
 	}: {
 		galleryId: string;
 		revision?: number;
 		oncount?: (count: number) => void;
+		onheader?: (action: Snippet) => void;
 	} = $props();
+
+	$effect(() => onheader?.(manageContacts));
 
 	const dialogId = $props.id();
 
@@ -248,12 +254,16 @@
 	}
 </script>
 
+{#snippet manageContacts()}
+	<Button size="sm" onclick={() => void openPicker()}>
+		{m.gallery_contacts_manage()}
+	</Button>
+{/snippet}
+
 <div class="grid gap-4">
 	<div class="flex flex-wrap items-center justify-between gap-3">
 		<h2 class="text-xl">{m.contacts_title()}</h2>
-		<Button size="sm" onclick={() => void openPicker()}>
-			{m.gallery_contacts_manage()}
-		</Button>
+		{#if !onheader}{@render manageContacts()}{/if}
 	</div>
 
 	{#if loadError}
@@ -272,21 +282,7 @@
 		<ul class="divide-y divide-[#ece3d6] rounded-[0.875rem] border border-border bg-panel">
 			{#each linked as item (item.id)}
 				<li class="flex flex-wrap items-center justify-between gap-3 p-4">
-					<div class="flex min-w-0 items-center gap-3">
-						<span
-							aria-hidden="true"
-							class="grid size-9 shrink-0 place-items-center rounded-full bg-border-strong/55 text-xs font-semibold text-foreground"
-						>
-							{contactInitials(item.name)}
-						</span>
-						<div class="grid min-w-0 gap-0.5">
-							<span class="break-anywhere text-sm font-semibold text-foreground">{item.name}</span>
-							<span class="break-anywhere text-xs text-muted-foreground">
-								{item.email}{#if item.phone}
-									· {item.phone}{/if}
-							</span>
-						</div>
-					</div>
+					<ContactIdentity contact={item} />
 					<Button
 						variant="outline"
 						size="sm"
@@ -312,6 +308,7 @@
 
 {#if dialogOpen}
 	<Dialog
+		formMotion
 		labelledby="{dialogId}-title"
 		dismissible={!creatingAndLinking}
 		onclose={() => (dialogOpen = false)}
@@ -377,20 +374,7 @@
 										<li
 											class="flex items-center justify-between gap-2.5 rounded-control border border-border bg-background p-2.5"
 										>
-											<div class="flex min-w-0 items-center gap-2.5">
-												<span
-													aria-hidden="true"
-													class="grid size-8 shrink-0 place-items-center rounded-full bg-border-strong/55 text-xs font-semibold text-foreground"
-												>
-													{contactInitials(item.name)}
-												</span>
-												<div class="grid min-w-0">
-													<span class="truncate text-sm font-medium text-foreground">
-														{item.name}
-													</span>
-													<span class="truncate text-xs text-muted-foreground">{item.email}</span>
-												</div>
-											</div>
+											<ContactIdentity contact={item} showPhone={false} />
 											<Button
 												size="sm"
 												variant={isLinked || rowState === 'linked' ? 'outline' : 'default'}

@@ -89,7 +89,6 @@ function stubApi(
 		retry?: number;
 		bulk?: (ids: string[]) => Response | Promise<Response>;
 		list?: () => Response | void | Promise<Response | void>;
-		hero?: (heroId: string | null) => Response | Promise<Response>;
 		export?: (url: string, init?: RequestInit) => Response | Promise<Response>;
 	} = {}
 ) {
@@ -107,12 +106,6 @@ function stubApi(
 		if (url.endsWith('/export?finals=true'))
 			return answers.export?.(url, init) ?? new Response(null, { status: 204 });
 		if (url.endsWith('/comments')) return Response.json([]);
-		if (init?.method === 'PATCH') {
-			const { hero_id } = JSON.parse(String(init.body));
-
-			return answers.hero?.(hero_id) ?? Response.json({ ...gallery, hero_id });
-		}
-
 		if (init?.method === 'DELETE') {
 			const status = (await answers.delete) ?? 204;
 
@@ -142,10 +135,6 @@ function stubApi(
 
 	return {
 		lists: () => fetcher.mock.calls.filter(([, init]) => init?.method === undefined).length,
-		heroes: () =>
-			fetcher.mock.calls
-				.filter(([, init]) => init?.method === 'PATCH')
-				.map(([, init]) => JSON.parse(String(init?.body)).hero_id as string | null),
 		calls: (method: string) =>
 			fetcher.mock.calls.filter(([, init]) => init?.method === method).map(([url]) => url),
 		bulk: () =>
@@ -158,22 +147,6 @@ function stubApi(
 				.map(([url]) => url)
 	};
 }
-
-const gallery = {
-	id: 'g1',
-	title: null,
-	layout: 'grid',
-	expires_at: null,
-	included_photos: null,
-	watermark_enabled: false,
-	hero_id: null,
-	share_token: null,
-	last_opened_at: null,
-	shoot_date: null,
-	states: ['draft'],
-	created_at: '2026-11-04T10:00:00Z',
-	updated_at: '2026-11-04T10:00:00Z'
-};
 
 function setup(
 	upload?: (file: File) => Promise<UploadOutcome>,
@@ -999,21 +972,18 @@ describe('PhotosPanel', () => {
 		);
 	});
 
-	it('sets and removes the hero from the viewer', async () => {
-		const api = stubApi([photo('p1'), photo('p2')]);
+	it('does not offer cover changes on photo tiles or in the viewer', async () => {
+		stubApi([photo('p1'), photo('p2')]);
 		const user = userEvent.setup();
 
-		setup();
-		await user.click(await screen.findByRole('button', { name: 'Open p2.jpg' }));
+		setup(undefined, 'p1');
+		const open = await screen.findByRole('button', { name: 'Open p2.jpg' });
+		expect(screen.queryByRole('button', { name: 'Set as cover' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Remove cover' })).toBeNull();
 
+		await user.click(open);
 		const viewer = screen.getByRole('dialog', { name: /proof viewer/i });
-
-		await user.click(within(viewer).getByRole('button', { name: 'Set as cover' }));
-		await waitFor(() =>
-			expect(within(viewer).getByRole('button', { name: 'Remove cover' })).toBeTruthy()
-		);
-		expect(toasts.items).toEqual([]);
-		expect(api.heroes()).toEqual(['p2']);
+		expect(within(viewer).queryByRole('button', { name: 'Set as cover' })).toBeNull();
 	});
 
 	it('deletes from the viewer after confirming and moves to the next photo', async () => {
@@ -1039,85 +1009,19 @@ describe('PhotosPanel', () => {
 		).toBeTruthy();
 	});
 
-	describe('hero photo', () => {
-		const star = (name: string, label = 'Set as cover') =>
-			within(tile(name)).getByRole('button', { name: label });
+	it('forgets the hero once its photo is gone', async () => {
+		const server = [photo('p1'), photo('p2')];
+		stubApi(server);
+		const { emit } = setup(undefined, 'p1');
 
-		it('moves the hero with one click and clears it by clicking the hero again', async () => {
-			const api = stubApi([photo('p1'), photo('p2')]);
-			const user = userEvent.setup();
+		await screen.findByRole('button', { name: 'Open p2.jpg' });
+		const hero = screen.getByTestId('bound-hero');
+		expect(hero.textContent).toBe('p1');
+		server.shift();
+		emit({ photo_id: 'p1', status: 'deleted' });
 
-			setup(undefined, 'p1');
-			await screen.findByRole('button', { name: 'Open p2.jpg' });
-
-			expect(star('p1.jpg', 'Remove cover').getAttribute('aria-pressed')).toBe('true');
-			expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false');
-
-			await user.click(star('p2.jpg'));
-
-			await waitFor(() =>
-				expect(star('p2.jpg', 'Remove cover').getAttribute('aria-pressed')).toBe('true')
-			);
-			expect(star('p1.jpg').getAttribute('aria-pressed')).toBe('false');
-
-			await user.click(star('p2.jpg', 'Remove cover'));
-
-			await waitFor(() => expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false'));
-			expect(api.heroes()).toEqual(['p2', null]);
-		});
-
-		it('keeps the previous hero and says so when saving fails', async () => {
-			stubApi([photo('p1'), photo('p2')], {
-				hero: () => Response.json({ error: 'nope' }, { status: 500 })
-			});
-			const user = userEvent.setup();
-
-			setup(undefined, 'p1');
-			await user.click(await waitFor(() => star('p2.jpg')));
-
-			expect((await screen.findByRole('alert')).textContent).toContain('cover photo');
-			expect(star('p1.jpg', 'Remove cover').getAttribute('aria-pressed')).toBe('true');
-			expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false');
-		});
-
-		it('goes to sign-in when saving finds the session ended', async () => {
-			stubApi([photo('p1')], { hero: () => new Response(null, { status: 401 }) });
-			const user = userEvent.setup();
-
-			setup();
-			await user.click(await waitFor(() => star('p1.jpg')));
-
-			await waitFor(() =>
-				expect(goto).toHaveBeenCalledWith('/login?expired=1', { refreshAll: true })
-			);
-		});
-
-		it('offers no star on photos that are not ready, or while selecting', async () => {
-			stubApi([photo('p1'), photo('p2', 'processing')]);
-			const user = userEvent.setup();
-
-			setup();
-			await screen.findByText('p2.jpg');
-
-			expect(within(tile('p2.jpg')).queryByRole('button', { name: /hero/ })).toBeNull();
-
-			await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
-
-			expect(screen.queryAllByRole('button', { name: /hero/ })).toEqual([]);
-		});
-
-		it('forgets the hero once its photo is gone', async () => {
-			const server = [photo('p1'), photo('p2')];
-			stubApi(server);
-			const { emit } = setup(undefined, 'p1');
-
-			await screen.findByRole('button', { name: 'Open p2.jpg' });
-			server.shift();
-			emit({ photo_id: 'p1', status: 'deleted' });
-
-			await waitFor(() => expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull());
-			expect(star('p2.jpg').getAttribute('aria-pressed')).toBe('false');
-		});
+		await waitFor(() => expect(hero.textContent).toBe(''));
+		expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull();
 	});
 
 	it('has no detectable accessibility violations', async () => {
@@ -1587,7 +1491,7 @@ describe('PhotosPanel', () => {
 
 			await screen.findByRole('button', { name: 'Open f1.jpg' });
 
-			expect(screen.getByRole('region', { name: 'Final' })).toBeTruthy();
+			expect(screen.getByRole('region', { name: 'Retouched' })).toBeTruthy();
 			expect(screen.queryByRole('button', { name: 'Set as cover' })).toBeNull();
 
 			queue.add('g1', [jpeg('a.jpg')], 'finals');

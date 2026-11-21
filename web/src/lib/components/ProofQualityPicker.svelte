@@ -21,10 +21,7 @@
 			type="button"
 			role="radio"
 			aria-checked={value === quality}
-			class="grid cursor-pointer gap-1 rounded-xl border-[1.5px] px-4 py-3 text-left transition-colors {value ===
-			quality
-				? 'border-foreground bg-foreground text-inverse'
-				: 'border-border bg-input hover:border-[#cdbda8]'}"
+			class="grid cursor-pointer gap-1 rounded-card border control-choice px-4 py-3 text-left"
 			onclick={() => (value = quality)}
 		>
 			<span class="font-semibold">{LABELS[quality].name()}</span>

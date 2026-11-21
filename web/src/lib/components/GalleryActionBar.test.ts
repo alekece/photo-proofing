@@ -63,10 +63,9 @@ describe('GalleryActionBar', () => {
 		expect(screen.queryByRole('button', { name: 'Go to Publish' })).toBeNull();
 		await user.click(screen.getByRole('button', { name: 'Go to Upload' }));
 		await user.click(screen.getByRole('button', { name: 'Go to Share' }));
-		await user.click(screen.getByRole('button', { name: 'Share' }));
 
 		expect(onupload).toHaveBeenCalledOnce();
-		expect(onshare).toHaveBeenCalledTimes(2);
+		expect(onshare).toHaveBeenCalledOnce();
 		await rerender({ gallery: { ...base, share_token: 'T'.repeat(22), states: ['shared'] } });
 		await user.click(screen.getByRole('button', { name: 'Go to Collect favorites' }));
 		await user.click(screen.getByRole('button', { name: 'Go to Publish' }));
@@ -77,7 +76,7 @@ describe('GalleryActionBar', () => {
 	});
 
 	it('omits Publish and invitation actions from the stage header', async () => {
-		const { container, rerender } = setup(
+		const { container } = setup(
 			{ share_token: 'T'.repeat(22), states: ['shared'], included_photos: 10 },
 			{ photos: 48, favorites: 13 }
 		);
@@ -87,7 +86,6 @@ describe('GalleryActionBar', () => {
 
 		expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
-		await rerender({ sharing: true });
 		expect(screen.getByRole('navigation', { name: 'Gallery progress' })).toBeTruthy();
 		expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
 		expect(screen.queryByRole('button', { name: /Send invitation/ })).toBeNull();

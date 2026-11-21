@@ -11,7 +11,10 @@ vi.mock('$app/navigation', () => ({
 }));
 const state = vi.hoisted(() => ({
 	page: { url: new URL('http://localhost/dashboard') },
-	navigating: { to: null as null | { route: { id: string } } }
+	navigating: {
+		from: { route: { id: '/dashboard' } },
+		to: null as null | { route: { id: string } }
+	}
 }));
 vi.mock('$app/state', () => state);
 import { goto } from '$app/navigation';
@@ -60,14 +63,38 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('dashboard', () => {
-	it('greets the photographer and lists galleries as cover cards with sort options', async () => {
+	it('restores gallery search and status from browser history without storing results', async () => {
+		vi.stubGlobal('scrollTo', vi.fn());
+		const data = props([
+			gallery({ title: 'Port wedding', states: ['shared'] }),
+			gallery({ id: 'g2', title: 'Port portrait', states: ['draft'] }),
+			gallery({ id: 'g3', title: 'Forest wedding', states: ['shared'] })
+		]);
+		const { component, unmount } = render(Dashboard, { props: data });
+
+		await userEvent.type(screen.getByRole('searchbox'), 'port');
+		await userEvent.click(screen.getByRole('button', { name: /status/i }));
+		await userEvent.click(screen.getByRole('checkbox', { name: /draft/i }));
+		const state = component.snapshot.capture();
+		unmount();
+
+		const { component: returned } = render(Dashboard, { props: data });
+		returned.snapshot.restore(state);
+
+		await waitFor(() => {
+			expect(screen.getByRole('searchbox')).toHaveProperty('value', 'port');
+			expect(screen.getByRole('heading', { name: 'Port wedding' })).toBeTruthy();
+			expect(screen.queryByRole('heading', { name: 'Port portrait' })).toBeNull();
+			expect(screen.queryByRole('heading', { name: 'Forest wedding' })).toBeNull();
+		});
+	});
+
+	it('lists galleries as cover cards with sort options', async () => {
 		const { container } = render(Dashboard, {
 			props: props([gallery(), gallery({ id: 'g2', title: 'Portraits', layout: 'masonry' })])
 		});
 
-		expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(
-			/^Good (morning|afternoon|evening)/
-		);
+		expect(screen.getByRole('heading', { level: 1, name: 'Galleries' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Wedding' })).toBeTruthy();
 		expect(screen.getByRole('link', { name: /Portraits/ }).getAttribute('href')).toBe(
 			'/dashboard/g2'
@@ -86,25 +113,26 @@ describe('dashboard', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('closes the grid with a card that creates a gallery, and totals below it', async () => {
+	it('closes the grid with a card that creates a gallery', async () => {
 		render(Dashboard, { props: props([gallery(), gallery({ id: 'g2', title: 'Portraits' })]) });
 		const user = userEvent.setup();
 
-		expect(screen.getByText('2 galleries · 0 photos')).toBeTruthy();
 		await user.click(screen.getByRole('button', { name: /Who’s in front of your lens next/ }));
 		expect(screen.getByRole('dialog', { name: 'New gallery' })).toBeTruthy();
 	});
 
-	it('sums the photos of the galleries that are not archived', () => {
+	it('counts only galleries that match the filters and search', async () => {
 		render(Dashboard, {
 			props: props([
 				gallery({ id: 'a', photo_count: 32 }),
-				gallery({ id: 'b', photo_count: 1 }),
+				gallery({ id: 'b', title: 'Portraits', photo_count: 1 }),
 				gallery({ id: 'c', photo_count: 80, states: ['delivered', 'archived'] })
 			])
 		});
 
-		expect(screen.getByText('2 galleries · 33 photos')).toBeTruthy();
+		expect(screen.getByText('2 galleries')).toBeTruthy();
+		await userEvent.type(screen.getByRole('searchbox', { name: 'Search galleries' }), 'port');
+		expect(screen.getByText('1 gallery')).toBeTruthy();
 	});
 
 	it('shows loading placeholders while the sort change loads', async () => {
@@ -225,11 +253,11 @@ describe('dashboard', () => {
 
 	describe('states', () => {
 		const choose = async (user: ReturnType<typeof userEvent.setup>, ...names: RegExp[]) => {
-			await user.click(screen.getByRole('button', { name: /^Status|Prepublish|Draft|Archived/ }));
+			await user.click(screen.getByRole('button', { name: /^Status|Shared|Draft|Archived/ }));
 			for (const name of names) await user.click(screen.getByRole('checkbox', { name }));
 		};
 
-		it('shows the one chip of each card, with expired winning', () => {
+		it('keeps expired galleries in the expired filter even though their cards show lifecycle', async () => {
 			render(Dashboard, {
 				props: props([
 					gallery({ id: 'a', title: 'One', states: ['shared'] }),
@@ -242,10 +270,10 @@ describe('dashboard', () => {
 				])
 			});
 
-			expect(
-				within(screen.getByRole('link', { name: /One/ })).getByText('Prepublish')
-			).toBeTruthy();
-			expect(within(screen.getByRole('link', { name: /Two/ })).getByText('Expired')).toBeTruthy();
+			expect(within(screen.getByRole('link', { name: /One/ })).getByText('Shared')).toBeTruthy();
+			expect(within(screen.getByRole('link', { name: /Two/ })).getByText('Shared')).toBeTruthy();
+			await choose(userEvent.setup(), /Expired/);
+			expect(screen.queryByRole('link', { name: /Two/ })).toBeNull();
 		});
 
 		it('hides archived galleries until the filter asks for them', async () => {
@@ -258,7 +286,7 @@ describe('dashboard', () => {
 			});
 
 			expect(screen.queryByRole('link', { name: /Old/ })).toBeNull();
-			expect(screen.getByText('1 gallery · 0 photos')).toBeTruthy();
+			expect(screen.getByText('1 gallery')).toBeTruthy();
 			await choose(user, /Archived/);
 			expect(screen.getByRole('link', { name: /Old/ })).toBeTruthy();
 		});
@@ -354,7 +382,7 @@ describe('dashboard', () => {
 			expect(screen.queryByText(/selected/)).toBeNull();
 		});
 
-		it('stages a favorite change as a preview without a PATCH, and keeps card order stable through Apply', async () => {
+		it('saves a favorite immediately without reordering or requiring Apply', async () => {
 			const stored = new Map<string, GalleryOverview>([
 				['g1', gallery({ id: 'g1', title: 'Wedding', updated_at: '2026-01-02T10:00:00Z' })],
 				['g2', gallery({ id: 'g2', title: 'Portraits', updated_at: '2026-01-01T10:00:00Z' })]
@@ -368,29 +396,25 @@ describe('dashboard', () => {
 			await user.click(screen.getByRole('button', { name: 'Select Portraits' }));
 			await user.click(screen.getByRole('button', { name: 'Favorite' }));
 
-			// Staged: the star previews, order is untouched, and nothing is sent to the server yet.
-			expect(screen.getByRole('button', { name: 'Unfavorite' })).toBeTruthy();
-			expect(cardTitles()).toEqual(['Wedding', 'Portraits']);
-			expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
-			expect(screen.getByText('Unapplied changes')).toBeTruthy();
-			expect((await axe(container)).violations).toEqual([]);
-
-			await user.click(screen.getByRole('button', { name: 'Apply changes' }));
-
 			await waitFor(() =>
 				expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1)
 			);
+			expect(await screen.findByRole('button', { name: 'Unfavorite' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Apply' })).toHaveProperty('disabled', true);
+			expect((await axe(container)).violations).toEqual([]);
+
 			expect(fetcher).toHaveBeenCalledWith(
 				'/api/v1/galleries/g2',
 				expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ favorite: true }) })
 			);
 			// The sort snapshot only changes on refresh or an explicit sort; favoriting never reorders.
 			expect(cardTitles()).toEqual(['Wedding', 'Portraits']);
-			expect(screen.queryByText('Unapplied changes')).toBeNull();
-			expect(screen.queryByText(/selected/)).toBeNull();
+			await user.keyboard('{Escape}');
+			expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull();
+			expect(screen.getByRole('img', { name: 'Favorited gallery' })).toBeTruthy();
 		});
 
-		it('discards the draft when a card is deselected, so no orphaned badge or draft remains', async () => {
+		it('discards an unsaved quick edit when selection is closed', async () => {
 			const stored = new Map<string, GalleryOverview>([
 				['g1', gallery({ id: 'g1', title: 'Wedding' })],
 				['g2', gallery({ id: 'g2', title: 'Portraits' })]
@@ -400,34 +424,6 @@ describe('dashboard', () => {
 			render(Dashboard, { props: props([...stored.values()]) });
 
 			await user.click(screen.getByRole('button', { name: 'Select Portraits' }));
-			await user.click(screen.getByRole('button', { name: 'Favorite' }));
-			expect(screen.getByText('Unapplied changes')).toBeTruthy();
-
-			// Deselect the card's circle again, without ever applying or cancelling the draft.
-			await user.click(screen.getByRole('button', { name: 'Select Portraits' }));
-
-			expect(screen.getByText('0 selected')).toBeTruthy();
-			expect(screen.queryByText('Unapplied changes')).toBeNull();
-
-			// Reselecting shows the real, unfavorited server state: the draft was discarded, not
-			// left behind for a later selection to silently inherit.
-			await user.click(screen.getByRole('button', { name: 'Select Portraits' }));
-			expect(screen.getByRole('button', { name: 'Favorite' })).toBeTruthy();
-			expect(screen.queryByText('Unapplied changes')).toBeNull();
-			expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
-		});
-
-		it('cancels a staged favorite and quick edit without mutating state or calling the server', async () => {
-			const stored = new Map<string, GalleryOverview>([
-				['g1', gallery({ id: 'g1', title: 'Wedding' })],
-				['g2', gallery({ id: 'g2', title: 'Portraits' })]
-			]);
-			const fetcher = stubPatchAndDeleteFetch(stored);
-			const user = userEvent.setup();
-			render(Dashboard, { props: props([...stored.values()]) });
-
-			await user.click(screen.getByRole('button', { name: 'Select Portraits' }));
-			await user.click(screen.getByRole('button', { name: 'Favorite' }));
 			await user.click(screen.getByRole('button', { name: 'Quick edit' }));
 			const titleField = screen.getByDisplayValue('Portraits');
 			await user.clear(titleField);
@@ -435,16 +431,13 @@ describe('dashboard', () => {
 			await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
 			expect(cardTitles()).toEqual(['Wedding', 'Editorial Portraits']);
-			expect(screen.getByText('Unapplied changes')).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Apply' })).toHaveProperty('disabled', false);
 
-			await user.click(screen.getByRole('button', { name: 'Cancel changes' }));
+			await user.keyboard('{Escape}');
 
-			expect(screen.queryByText('Unapplied changes')).toBeNull();
-			expect(screen.getByRole('button', { name: 'Favorite' })).toBeTruthy();
+			expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull();
 			expect(cardTitles()).toEqual(['Wedding', 'Portraits']);
 			expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
-			// Cancelling discards the draft but keeps the selection active.
-			expect(screen.getByText('1 selected')).toBeTruthy();
 		});
 
 		it('keeps the failed id selected with its draft intact, and clears only the succeeded one', async () => {
@@ -470,8 +463,13 @@ describe('dashboard', () => {
 
 			await user.click(screen.getByRole('button', { name: 'Select Wedding' }));
 			await user.click(screen.getByRole('button', { name: 'Select all' }));
-			await user.click(screen.getByRole('button', { name: 'Favorite' }));
-			await user.click(screen.getByRole('button', { name: 'Apply changes' }));
+			await user.click(screen.getByRole('button', { name: 'Quick edit' }));
+			const first = screen.getByDisplayValue('Wedding');
+			const second = screen.getByDisplayValue('Portraits');
+			await user.type(first, ' updated');
+			await user.type(second, ' updated');
+			await user.click(screen.getByRole('button', { name: 'Save changes' }));
+			await user.click(screen.getByRole('button', { name: 'Apply' }));
 
 			await waitFor(() =>
 				expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(2)
@@ -479,12 +477,14 @@ describe('dashboard', () => {
 			// Wedding (g1) failed and stays selected with its draft; Portraits (g2) succeeded and cleared.
 			expect(screen.getByText('1 selected')).toBeTruthy();
 			expect(
-				screen.getByRole('button', { name: 'Select Wedding' }).getAttribute('aria-pressed')
+				screen.getByRole('button', { name: 'Select Wedding updated' }).getAttribute('aria-pressed')
 			).toBe('true');
 			expect(
-				screen.getByRole('button', { name: 'Select Portraits' }).getAttribute('aria-pressed')
+				screen
+					.getByRole('button', { name: 'Select Portraits updated' })
+					.getAttribute('aria-pressed')
 			).toBe('false');
-			expect(screen.getByRole('button', { name: 'Apply changes' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Apply' })).toHaveProperty('disabled', false);
 		});
 
 		it('deletes after confirmation and layers Escape over the dialog, the sort popover, then selection', async () => {
@@ -524,18 +524,16 @@ describe('dashboard', () => {
 describe('dashboard in French', () => {
 	useLocale('fr');
 
-	it('greets, searches, sorts, selects, and totals in French', async () => {
+	it('labels galleries, search, sort and selection in French', async () => {
 		const user = userEvent.setup();
 		const { container } = render(Dashboard, {
 			props: props([gallery(), gallery({ id: 'g2', title: 'Portraits' })])
 		});
 
-		expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(
-			/^(Bonjour|Bon après-midi|Bonsoir)/
-		);
+		expect(screen.getByRole('heading', { level: 1, name: 'Galeries' })).toBeTruthy();
 		expect(screen.getByRole('searchbox', { name: 'Rechercher une galerie' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Modifiées récemment/ })).toBeTruthy();
-		expect(screen.getByText('2 galeries · 0 photo')).toBeTruthy();
+		expect(screen.getByText('2 galeries')).toBeTruthy();
 		expect(screen.queryByText(/Who’s in front/)).toBeNull();
 
 		await user.click(screen.getByRole('button', { name: 'Sélectionner Portraits' }));

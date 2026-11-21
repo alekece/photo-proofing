@@ -32,10 +32,10 @@ describe('AppHeader', () => {
 		const links = nav.querySelectorAll('a');
 		const names = [...links].map((link) => link.textContent?.trim());
 
-		expect(names).toEqual(['Galleries', 'All Photos', 'Contacts', 'Activity', 'Settings']);
+		expect(names).toEqual(['Galleries', 'Photos', 'Contacts', 'Activity', 'Settings']);
 
 		const galleries = screen.getByRole('link', { name: 'Galleries' });
-		const allPhotos = screen.getByRole('link', { name: 'All Photos' });
+		const allPhotos = screen.getByRole('link', { name: 'Photos' });
 		const contacts = screen.getByRole('link', { name: 'Contacts' });
 		const activity = screen.getByRole('link', { name: 'Activity' });
 
@@ -69,21 +69,19 @@ describe('AppHeader', () => {
 		expect(screen.getByRole('link', { name: 'Galleries' }).getAttribute('aria-current')).toBeNull();
 	});
 
-	it('marks All Photos as active when viewing /photos', () => {
+	it('marks Photos as active when viewing /photos', () => {
 		state.page.url = new URL('http://localhost/photos');
 		render(AppHeader);
 
-		expect(screen.getByRole('link', { name: 'All Photos' }).getAttribute('aria-current')).toBe(
-			'page'
-		);
+		expect(screen.getByRole('link', { name: 'Photos' }).getAttribute('aria-current')).toBe('page');
 		expect(screen.getByRole('link', { name: 'Galleries' }).getAttribute('aria-current')).toBeNull();
 	});
 
-	it('exposes direct Settings, language and account controls in the rail', () => {
+	it('exposes Settings and the account without duplicating the language control', () => {
 		render(AppHeader);
 
 		expect(screen.getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings');
-		expect(screen.getByRole('button', { name: 'Language: English' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Language: English' })).toBeNull();
 		expect(screen.getByRole('button', { name: 'Account menu' })).toBeTruthy();
 	});
 
@@ -93,7 +91,7 @@ describe('AppHeader', () => {
 		const nav = screen.getByRole('navigation', { name: 'Main sections' });
 		const links = [...nav.querySelectorAll('a')].map((link) => link.textContent?.trim());
 
-		expect(links).toEqual(['Galleries', 'All Photos', 'Contacts', 'Activity', 'Settings']);
+		expect(links).toEqual(['Galleries', 'Photos', 'Contacts', 'Activity', 'Settings']);
 	});
 
 	it('uses the clamped desktop rail and compact phone navigation', () => {
@@ -102,7 +100,7 @@ describe('AppHeader', () => {
 		const header = screen.getByRole('banner');
 		const nav = screen.getByRole('navigation', { name: 'Main sections' });
 
-		expect(header.className).toContain('sm:w-[clamp(15rem,16vw,17.5rem)]');
+		expect(header.className).toContain('sm:w-(--gallery-rail-width)');
 		expect(nav.className).toContain('flex-wrap');
 		expect(nav.className).toContain('sm:flex-col');
 	});
@@ -146,10 +144,17 @@ describe('AppHeader', () => {
 		expect(onsignout).toHaveBeenCalledOnce();
 	});
 
-	it('shows what the page puts beside the account menu, such as the bell', () => {
+	it('keeps the bell with the brand, above the workspace navigation', () => {
 		render(AppHeader, { actions: bell });
 
-		expect(screen.getByRole('button', { name: 'Notifications' })).toBeTruthy();
+		const brand = screen.getByRole('link', { name: 'PhotoProofing' });
+		const notifications = screen.getByRole('button', { name: 'Notifications' });
+
+		expect(brand.parentElement?.contains(notifications)).toBe(true);
+		expect(brand.parentElement?.contains(screen.getByRole('navigation'))).toBe(false);
+		expect(
+			brand.parentElement?.contains(screen.getByRole('button', { name: 'Account menu' }))
+		).toBe(false);
 	});
 
 	it('collapses into a compact row on small screens and a column rail on larger ones', () => {
@@ -189,7 +194,7 @@ describe('AppHeader in French', () => {
 		const { container } = render(AppHeader);
 
 		expect(screen.getByRole('link', { name: 'Galeries' })).toBeTruthy();
-		expect(screen.getByRole('link', { name: 'Toutes les photos' })).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Photos' })).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'Contacts' })).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'Activité' }).getAttribute('href')).toBe('/activity');
 		expect((await axe(container)).violations).toEqual([]);

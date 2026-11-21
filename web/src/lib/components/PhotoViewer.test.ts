@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { createRawSnippet, tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -10,6 +10,7 @@ import ViewerHarness from './ViewerHarness.test.svelte';
 
 afterEach(() => {
 	vi.useRealTimers();
+	vi.unstubAllGlobals();
 });
 
 const proofs: Proof[] = [1, 2, 3].map((n) => ({
@@ -25,6 +26,33 @@ const shown = () => screen.getByRole('img').getAttribute('alt');
 
 describe('PhotoViewer', () => {
 	useLocale('en');
+
+	it.each([
+		['horizontal touch on the client', true, true, 'touch', 20, 105, false, 'Proof 2'],
+		['horizontal touch in Studio', false, true, 'touch', 20, 105, false, 'Proof 1'],
+		['touch on a wide viewport', true, false, 'touch', 20, 105, false, 'Proof 1'],
+		['a mouse drag', true, true, 'mouse', 20, 105, false, 'Proof 1'],
+		['vertical touch', true, true, 'touch', 145, 260, false, 'Proof 1'],
+		['cancelled touch', true, true, 'touch', 20, 105, true, 'Proof 1']
+	])(
+		'handles %s without changing unrelated actions',
+		async (_, client, narrow, pointerType, x, y, cancelled, expected) => {
+			vi.stubGlobal('matchMedia', (query: string) => ({
+				matches: !narrow && query.includes('min-width'),
+				addEventListener: vi.fn(),
+				removeEventListener: vi.fn()
+			}));
+			render(PhotoViewer, { proofs, title: client ? 'Wedding' : undefined, onclose: () => {} });
+			const stage = screen.getByRole('img');
+			const pointer = { pointerId: 1, pointerType, isPrimary: true };
+
+			await fireEvent.pointerDown(stage, { ...pointer, clientX: 160, clientY: 100 });
+			if (cancelled) await fireEvent.pointerCancel(stage, pointer);
+			await fireEvent.pointerUp(stage, { ...pointer, clientX: x, clientY: y });
+
+			expect(shown()).toBe(expected);
+		}
+	);
 
 	it('opens the photographer thread by default, keeps it across navigation, and closes it on Escape first', async () => {
 		const user = userEvent.setup();

@@ -11,13 +11,17 @@
 		photoId,
 		viewer,
 		onchange,
-		refresh = 0
+		refresh = 0,
+		inline = false,
+		active = true
 	}: {
 		client: CommentsClient;
 		photoId: string;
 		viewer: 'client' | 'photographer';
 		onchange?: () => void;
 		refresh?: number;
+		inline?: boolean;
+		active?: boolean;
 	} = $props();
 
 	const id = $props.id();
@@ -52,9 +56,11 @@
 	});
 
 	$effect(() => {
+		if (!active) return;
+
 		const current = photoId;
 		void refresh;
-		let active = true;
+		let currentRequest = true;
 
 		if (current !== threadPhoto) {
 			threadPhoto = current;
@@ -67,21 +73,21 @@
 		client
 			.thread(current)
 			.then((thread) => {
-				if (active) {
+				if (currentRequest) {
 					comments = thread;
 					error = '';
 				}
 			})
 			.catch((cause) => {
-				if (active) error = cause instanceof Error ? cause.message : m.api_error_generic();
+				if (currentRequest) error = cause instanceof Error ? cause.message : m.api_error_generic();
 			})
 			.finally(() => {
-				if (!active) return;
+				if (!currentRequest) return;
 				loading = false;
 				loaded = true;
 			});
 		return () => {
-			active = false;
+			currentRequest = false;
 		};
 	});
 
@@ -118,8 +124,15 @@
 	const swap =
 		'col-start-1 row-start-1 flex gap-0.5 transition-[opacity,scale] duration-200 motion-reduce:transition-none';
 	const hidden = 'pointer-events-none scale-75 opacity-0';
-	const iconButton =
-		'inline-grid size-7 cursor-pointer place-items-center rounded-full text-panel/75 transition-colors hover:bg-white/14 hover:text-panel focus-visible:outline-2 focus-visible:outline-viewer-focus disabled:opacity-30';
+	const iconButton = $derived(
+		`inline-grid size-7 cursor-pointer place-items-center rounded-full transition-colors focus-visible:outline-2 disabled:opacity-30 ${inline ? 'text-muted-foreground hover:bg-border focus-visible:outline-focus' : 'text-panel/75 hover:bg-white/14 hover:text-panel focus-visible:outline-viewer-focus'}`
+	);
+	const secondary = $derived(inline ? 'text-muted-foreground' : 'text-panel/75');
+	const inputClass = $derived(
+		inline
+			? 'border-border bg-background text-foreground placeholder:text-muted-foreground focus-visible:border-foreground'
+			: 'border-panel/30 bg-dark text-panel placeholder:text-panel/55 focus-visible:border-panel'
+	);
 
 	async function remove() {
 		if (!deleting) return;
@@ -129,16 +142,19 @@
 	}
 </script>
 
-<section class="flex h-full min-h-0 flex-col gap-4 text-panel" aria-label={m.comments_title()}>
-	<h2 class="font-serif text-xl">{m.comments_title()}</h2>
+<section
+	class="flex h-full min-h-0 flex-col gap-4 {inline ? 'text-foreground' : 'text-panel'}"
+	aria-label={m.comments_title()}
+>
+	{#if !inline}<h2 class="font-serif text-xl">{m.comments_title()}</h2>{/if}
 	<div
 		class="min-h-0 flex-1 [scrollbar-width:none] overflow-y-auto overscroll-contain transition-opacity delay-150 duration-200 [&::-webkit-scrollbar]:hidden {loading &&
 		loaded
 			? 'opacity-50'
 			: ''}"
 	>
-		{#if !loaded}<p role="status" class="text-sm text-panel/75">{m.comments_loading()}</p>{/if}
-		{#if loaded && !loading && comments.length === 0}<p class="text-sm text-panel/75">
+		{#if !loaded}<p role="status" class="text-sm {secondary}">{m.comments_loading()}</p>{/if}
+		{#if loaded && !loading && comments.length === 0}<p class="text-sm {secondary}">
 				{m.comments_empty()}
 			</p>{/if}
 		<ol class="space-y-4">
@@ -147,9 +163,7 @@
 				{@const editable = mine && !comment.deleted_at}
 				{@const isEditing = editing === comment.id}
 				<li class="group flex flex-col gap-1 {mine ? 'items-end' : 'items-start'}">
-					<div
-						class="flex min-h-7 w-[90%] items-center justify-between gap-2 text-xs text-panel/75"
-					>
+					<div class="flex min-h-7 w-[90%] items-center justify-between gap-2 text-xs {secondary}">
 						<span class="flex gap-x-2">
 							<time datetime={comment.created_at}>{formatDateTime(comment.created_at)}</time>
 							{#if comment.edited_at && !comment.deleted_at}<span>{m.comments_edited()}</span>{/if}
@@ -224,14 +238,16 @@
 									bind:value={editDraft}
 									disabled={pending}
 									rows="1"
-									class="max-h-40 min-h-11 w-full resize-none [scrollbar-width:none] rounded-3xl border border-panel/30 bg-dark px-4 py-2.5 text-base leading-6 text-panel focus-visible:border-panel focus-visible:outline-none disabled:opacity-50 [&::-webkit-scrollbar]:hidden"
+									class="max-h-40 min-h-11 w-full resize-none [scrollbar-width:none] rounded-3xl border px-4 py-2.5 text-base leading-6 focus-visible:outline-none disabled:opacity-50 [&::-webkit-scrollbar]:hidden {inputClass}"
 								></textarea>
 							</form>
 						{:else}
 							<p
 								class="w-[90%] rounded-2xl px-3.5 py-2 wrap-anywhere whitespace-pre-wrap {mine
 									? 'rounded-br-md bg-[#d9ccbc] text-foreground'
-									: 'rounded-bl-md bg-white/10 text-[#efe6da]'} {comment.deleted_at
+									: inline
+										? 'rounded-bl-md bg-background text-foreground'
+										: 'rounded-bl-md bg-white/10 text-[#efe6da]'} {comment.deleted_at
 									? 'italic opacity-65'
 									: ''} {comment.deleted_at && comment.body !== null ? 'line-through' : ''}"
 							>
@@ -239,7 +255,7 @@
 							</p>
 						{/if}
 					</div>
-					<strong class="text-xs font-semibold text-panel"
+					<strong class="text-xs font-semibold"
 						>{mine
 							? m.comments_you()
 							: comment.author === 'client'
@@ -250,7 +266,9 @@
 			{/each}
 		</ol>
 	</div>
-	{#if error}<p role="alert" class="text-sm text-warning-on-dark">{error}</p>{/if}
+	{#if error}<p role="alert" class="text-sm {inline ? 'text-danger' : 'text-warning-on-dark'}">
+			{error}
+		</p>{/if}
 	<form
 		class="grid gap-2"
 		onsubmit={(event) => {
@@ -269,13 +287,15 @@
 				disabled={pending || !loaded}
 				rows="1"
 				placeholder={viewer === 'client' ? m.comments_add() : m.comments_reply()}
-				class="max-h-40 min-h-11 min-w-0 flex-1 resize-none [scrollbar-width:none] rounded-3xl border border-panel/30 bg-dark px-4 py-2.5 text-base leading-6 text-panel placeholder:text-panel/55 focus-visible:border-panel focus-visible:outline-none disabled:opacity-50 [&::-webkit-scrollbar]:hidden"
+				class="max-h-40 min-h-11 min-w-0 flex-1 resize-none [scrollbar-width:none] rounded-3xl border px-4 py-2.5 text-base leading-6 focus-visible:outline-none disabled:opacity-50 [&::-webkit-scrollbar]:hidden {inputClass}"
 			></textarea>
 			<button
 				type="submit"
 				disabled={pending || !loaded || !valid}
 				aria-label={pending && !editing ? m.comments_saving() : m.comments_send()}
-				class="inline-grid size-11 shrink-0 cursor-pointer place-items-center rounded-full bg-panel text-foreground transition-colors hover:bg-panel/90 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus disabled:cursor-default disabled:bg-white/10 disabled:text-panel/40 disabled:hover:bg-white/10"
+				class="inline-grid size-11 shrink-0 cursor-pointer place-items-center rounded-full transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 disabled:cursor-default {inline
+					? 'bg-foreground text-inverse hover:bg-foreground/90 focus-visible:outline-focus disabled:bg-border disabled:text-muted-foreground'
+					: 'bg-panel text-foreground hover:bg-panel/90 focus-visible:outline-viewer-focus disabled:bg-white/10 disabled:text-panel/40 disabled:hover:bg-white/10'}"
 			>
 				{#if pending && !editing}
 					<LoaderCircle size={18} aria-hidden="true" class="animate-spin-slow" />

@@ -54,11 +54,10 @@ describe('/photos page', () => {
 	it('renders the empty workspace state with disabled search and no axe violations', async () => {
 		const { container } = open([]);
 
-		expect(screen.getByRole('heading', { level: 1, name: 'All Photos' })).toBeTruthy();
+		expect(screen.getByRole('heading', { level: 1, name: 'Photos' })).toBeTruthy();
 		expect(screen.getByText('No photos yet.')).toBeTruthy();
 		expect(
-			(screen.getByRole('searchbox', { name: 'Search by gallery or photo' }) as HTMLInputElement)
-				.disabled
+			(screen.getByRole('searchbox', { name: 'Search by gallery' }) as HTMLInputElement).disabled
 		).toBe(true);
 		expect((await axe(container)).violations).toEqual([]);
 	});
@@ -68,37 +67,37 @@ describe('/photos page', () => {
 		expect(screen.getByRole('alert').textContent).toMatch(/Couldn.t load the photos/);
 	});
 
-	it('lists photos across galleries with their gallery and kind badge', () => {
+	it('lists both types across galleries without a filename or kind badge', () => {
 		open([
 			photo({ id: 'p1', gallery_title: 'Wedding', kind: 'proof' }),
 			photo({ id: 'p2', gallery_id: 'g2', gallery_title: 'Portraits', kind: 'final' })
 		]);
-		const list = screen.getByRole('list', { name: 'All Photos' });
+		const list = screen.getByRole('list', { name: 'Photos' });
 
 		expect(within(list).getByText('Wedding')).toBeTruthy();
-		expect(within(list).getByText('Proof')).toBeTruthy();
 		expect(within(list).getByText('Portraits')).toBeTruthy();
-		expect(within(list).getByText('Final')).toBeTruthy();
+		expect(within(list).queryByText(/^(Proof|Final|DSC_1234.jpg)$/)).toBeNull();
 	});
 
-	it('searches by gallery title or photo id', async () => {
+	it('searches by gallery title only', async () => {
 		const user = userEvent.setup();
 		open([
 			photo({ id: 'abc1', gallery_title: 'Wedding' }),
 			photo({ id: 'xyz2', gallery_id: 'g2', gallery_title: 'Portraits' })
 		]);
-		const list = () => screen.getByRole('list', { name: 'All Photos' });
+		const list = () => screen.getByRole('list', { name: 'Photos' });
 
-		const search = screen.getByRole('searchbox', { name: 'Search by gallery or photo' });
+		const search = screen.getByRole('searchbox', { name: 'Search by gallery' });
 		await user.type(search, 'portraits');
 		expect(document.activeElement).toBe(search);
 		expect(within(list()).queryByText('Wedding')).toBeNull();
 		expect(within(list()).getByText('Portraits')).toBeTruthy();
 
-		await user.clear(search);
-		await user.type(search, 'abc1');
-		expect(within(list()).getByText('Wedding')).toBeTruthy();
-		expect(within(list()).queryByText('Portraits')).toBeNull();
+		for (const match of ['abc1', 'dsc_1234']) {
+			await user.clear(search);
+			await user.type(search, match);
+			expect(screen.getByText('No photos match these filters.')).toBeTruthy();
+		}
 
 		await user.clear(search);
 		await user.type(search, 'nobody-here');
@@ -108,24 +107,24 @@ describe('/photos page', () => {
 		expect(within(list()).getByText('Portraits')).toBeTruthy();
 		await user.type(search, 'missing');
 		await user.click(screen.getByRole('button', { name: 'Reset' }));
-		expect(screen.getByRole('searchbox', { name: 'Search by gallery or photo' })).toBe(search);
+		expect(screen.getByRole('searchbox', { name: 'Search by gallery' })).toBe(search);
 		expect(search).toHaveProperty('value', '');
 	});
 
-	it('filters by gallery and by type', async () => {
+	it('combines directly available gallery and type filters', async () => {
 		const user = userEvent.setup();
 		open([
 			photo({ id: 'p1', gallery_id: 'g1', gallery_title: 'Wedding', kind: 'proof' }),
-			photo({ id: 'p2', gallery_id: 'g2', gallery_title: 'Portraits', kind: 'final' })
+			photo({ id: 'p2', gallery_id: 'g2', gallery_title: 'Portraits', kind: 'final' }),
+			photo({ id: 'p3', gallery_id: 'g2', gallery_title: 'Portraits', kind: 'proof' }),
+			photo({ id: 'p4', gallery_id: 'g1', gallery_title: 'Wedding', kind: 'final' })
 		]);
-		const list = () => screen.getByRole('list', { name: 'All Photos' });
+		const list = () => screen.getByRole('list', { name: 'Photos' });
 
-		await user.click(screen.getByRole('button', { name: 'Filters' }));
 		await user.selectOptions(screen.getByRole('combobox', { name: 'Gallery' }), 'g2');
 		expect(within(list()).queryByText('Wedding')).toBeNull();
-		expect(within(list()).getByText('Portraits')).toBeTruthy();
+		expect(within(list()).getAllByText('Portraits')).toHaveLength(2);
 
-		await user.selectOptions(screen.getByRole('combobox', { name: 'Gallery' }), 'all');
 		await user.selectOptions(screen.getByRole('combobox', { name: 'Type' }), 'final');
 		expect(within(list()).queryByText('Wedding')).toBeNull();
 		expect(within(list()).getByText('Portraits')).toBeTruthy();
@@ -148,22 +147,27 @@ describe('/photos page', () => {
 		expect(titlesInOrder()[0]).toMatch(/Older/);
 	});
 
-	it.each(['proof', 'final'] as const)('opens a %s in its source gallery viewer', async (kind) => {
-		const user = userEvent.setup();
-		open([photo({ id: 'p1', gallery_id: 'g1', gallery_title: 'Wedding', kind })]);
-
-		await user.click(screen.getByRole('button', { name: /^Open/ }));
-		expect(goto).toHaveBeenCalledWith(`/dashboard/g1?photo=p1&kind=${kind}`);
-	});
-
-	it('shows and searches the original filename', async () => {
-		open([photo()]);
-		expect(screen.getByText('DSC_1234.jpg')).toBeTruthy();
-		await userEvent
-			.setup()
-			.type(screen.getByRole('searchbox', { name: 'Search by gallery or photo' }), 'dsc_1234');
-		expect(screen.getByRole('button', { name: /^Open.*DSC_1234/ })).toBeTruthy();
-	});
+	it.each(['proof', 'final'] as const)(
+		'opens a %s over the filtered grid without download or delete',
+		async (kind) => {
+			const user = userEvent.setup();
+			open([photo({ kind }), photo({ id: 'p2', gallery_title: 'Portraits' })]);
+			const search = screen.getByRole('searchbox', { name: 'Search by gallery' });
+			await user.type(search, 'Wedding');
+			const thumbnail = screen.getByRole('button', { name: /^Open Wedding/ });
+			await user.click(thumbnail);
+			const viewer = screen.getByRole('dialog');
+			expect(within(viewer).getByRole('img').getAttribute('src')).toBe(
+				`/api/v1/galleries/g1/photos/p1/preview${kind === 'final' ? '?finals=true&' : '?'}revision=0`
+			);
+			expect(within(viewer).queryByRole('button', { name: /Download|Delete/ })).toBeNull();
+			await user.click(within(viewer).getByRole('button', { name: 'Close viewer' }));
+			expect(goto).not.toHaveBeenCalled();
+			expect(screen.getByRole('button', { name: /^Open Wedding/ })).toBe(thumbnail);
+			expect(screen.queryByRole('button', { name: /^Open Portraits/ })).toBeNull();
+			expect(search).toHaveProperty('value', 'Wedding');
+		}
+	);
 
 	it('selects photos from their circle, offers select all, and shows only Download and Delete', async () => {
 		const user = userEvent.setup();
@@ -248,7 +252,7 @@ describe('/photos page', () => {
 			photo({ id: 'p1', gallery_id: 'g1', gallery_title: 'Wedding', kind: 'proof' }),
 			photo({ id: 'p2', gallery_id: 'g2', gallery_title: 'Portraits', kind: 'final' })
 		]);
-		const list = () => screen.getByRole('list', { name: 'All Photos' });
+		const list = () => screen.getByRole('list', { name: 'Photos' });
 
 		await user.click(screen.getByRole('button', { name: /^Select Wedding/ }));
 		await user.click(screen.getByRole('button', { name: 'Select all' }));
@@ -285,6 +289,6 @@ describe('/photos page in French', () => {
 
 	it('renders localized French copy', () => {
 		open([photo()]);
-		expect(screen.getByRole('heading', { level: 1, name: 'Toutes les photos' })).toBeTruthy();
+		expect(screen.getByRole('heading', { level: 1, name: 'Photos' })).toBeTruthy();
 	});
 });

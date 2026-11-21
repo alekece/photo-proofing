@@ -69,16 +69,18 @@ afterEach(() => vi.unstubAllGlobals());
 describe('activity page', () => {
 	useLocale('en');
 
-	it('shows the log under the header with Activity active and the filter choices', async () => {
+	it('shows the activity feed and the filter choices', async () => {
 		open(vi.fn(async () => Response.json({ events: [line('a')], next: null })));
 
-		expect((await screen.findByRole('listitem')).querySelector('p')?.textContent?.trim()).toBe(
-			'Alice left a comment'
+		const row = await screen.findByRole('listitem');
+		const sentence = row.querySelector('p')!;
+
+		expect(sentence.querySelector('strong')?.textContent).toBe('Alice');
+		expect(within(sentence).getByRole('link', { name: 'Wedding' }).getAttribute('href')).toBe(
+			'/dashboard/g1'
 		);
+		expect(sentence.textContent?.trim()).toMatch(/^Alice left a comment\s+Wedding$/);
 		expect(screen.getByRole('heading', { level: 1, name: 'Activity' })).toBeTruthy();
-		expect(screen.getByRole('link', { name: 'Activity' }).getAttribute('aria-current')).toBe(
-			'page'
-		);
 		await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
 		expect(screen.getByRole('option', { name: 'Wedding' })).toBeTruthy();
 	});
@@ -116,7 +118,11 @@ describe('activity page', () => {
 		await waitFor(() =>
 			expect(
 				screen.getAllByRole('listitem').map((row) => row.querySelector('p')?.textContent?.trim())
-			).toEqual(['Alice favorited 13 photos', 'Alice opened the gallery', 'Alice left a comment'])
+			).toEqual([
+				expect.stringMatching(/^Alice favorited 13 photos\s+Wedding$/),
+				expect.stringMatching(/^Alice opened the gallery\s+Wedding$/),
+				expect.stringMatching(/^Alice left a comment\s+Wedding$/)
+			])
 		);
 		expect(within(expanded()).getAllByRole('img')).toHaveLength(12);
 

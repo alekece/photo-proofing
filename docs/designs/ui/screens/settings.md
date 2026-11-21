@@ -12,19 +12,21 @@ The images below show the historical layout, not the current screen.
 
 ## Layout
 
-**Settings** has sticky **Cancel** and **Save changes** actions and four keyboard-navigable tabs:
+**Settings** has a full-width sticky **Cancel** and **Save changes** bar and three
+keyboard-navigable sections. Both actions are disabled until there is an edit.
 
-- **Studio:** studio name and logo upload/removal.
-- **Watermark:** Name, Logo or Both; Repeat or Once; a 3 × 3 position grid enabled for Once;
-  ten size steps; opacity from 0–100%; and a paired text color picker and hex field.
-- **Cover signature:** Name, Logo, Both or None, with ten size steps.
-- **Proof quality:** the workspace's Low, Medium or High proof resolution and compression.
+- **General:** studio name and logo, workspace language, and Low, Medium or High proof
+  resolution and compression. Changing language reloads the page after the preference is saved.
+- **Watermark:** Name, Logo or Both; Repeat or Once; nine positions shown on the preview
+  only in Once; ten size steps; opacity from 5–100% on adjustment; and a text color picker
+  with a hex field. Lower saved values stay as they are until adjusted.
+- **Cover signature:** Name, Logo, Both or None, with ten size steps. Both centers the logo
+  above the name. The name can use a custom text color; the reset icon restores the cover color.
 
-Mark and signature choices use a cream surface and a border/check for selection, without
-tinting logos or losing transparency. Logo choices are disabled without a logo. There is one
-shared live sample: on the right of the active controls on desktop, below them on a phone.
-It shows the cover signature on its tab and the watermark on the other tabs. At 390 px the
-tabs scroll horizontally; the controls and sample do not.
+The section menu shares the workspace navigation's white, cream-hover and warm-black
+selected states. Mark and signature controls use the same palette without tinting logos.
+Logo choices are disabled without a logo. The watermark and signature each have a compact
+toolbar over a live preview; General has no preview.
 
 ## Save and Cancel
 

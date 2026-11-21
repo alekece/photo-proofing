@@ -111,7 +111,7 @@ describe('GalleryDesignPanel', () => {
 		vi.unstubAllGlobals();
 	});
 
-	it('renders Cover, Typography, and Photo Grid & Spacing cards plus live Desktop/Phone preview with no axe violations', async () => {
+	it('shows device choices only in full preview', async () => {
 		const fetcher = stubPreviewFetch();
 		const { container, user } = setup();
 
@@ -147,16 +147,20 @@ describe('GalleryDesignPanel', () => {
 		const pad = screen.getByRole('button', { name: /Cover focal point/ }) as HTMLButtonElement;
 		expect(pad.disabled).toBe(true);
 
-		const desktop = screen.getByRole('button', { name: 'Desktop' });
-		const phone = screen.getByRole('button', { name: 'Phone' });
+		const inline = screen.getByRole('region', { name: 'Client preview' });
+		expect(within(inline).queryByRole('group', { name: 'Preview size' })).toBeNull();
+		expect((await axe(container)).violations).toEqual([]);
+
+		await user.click(screen.getByRole('button', { name: 'Open full preview' }));
+		const modal = screen.getByRole('dialog');
+		const desktop = within(modal).getByRole('button', { name: 'Desktop' });
+		const phone = within(modal).getByRole('button', { name: 'Phone' });
 		expect(desktop.getAttribute('aria-pressed')).toBe('true');
 		expect(phone.getAttribute('aria-pressed')).toBe('false');
 
 		await user.click(phone);
 		expect(phone.getAttribute('aria-pressed')).toBe('true');
-		expect(container.querySelector('[data-frame="phone"]')).toBeTruthy();
-
-		expect((await axe(container)).violations).toEqual([]);
+		expect(modal.querySelector('[data-frame="phone"]')).toBeTruthy();
 	});
 
 	it('uses one cover preview as the focal control and styles Remove cover destructively', async () => {
@@ -396,8 +400,7 @@ describe('GalleryDesignPanel', () => {
 			'editorial'
 		);
 
-		// Grid density (verify live update in Phone frame too)
-		await user.click(screen.getByRole('button', { name: 'Phone' }));
+		// Grid density updates the inline preview.
 		const densityGroup = screen.getByRole('group', { name: 'Grid density' });
 		await user.click(within(densityGroup).getByRole('button', { name: 'Large' }));
 		expect(onsave).toHaveBeenLastCalledWith({ grid_density: 'large' });
@@ -629,7 +632,7 @@ describe('GalleryDesignPanel in French', () => {
 		expect(screen.getByRole('button', { name: 'Moderne' })).toBeTruthy();
 		expect(screen.getByRole('group', { name: 'Densité de la grille' })).toBeTruthy();
 		expect(screen.getByRole('group', { name: 'Espacement' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Téléphone' })).toBeTruthy();
+		expect(screen.getByRole('region', { name: 'Aperçu client' })).toBeTruthy();
 		expect((await axe(container)).violations).toEqual([]);
 	});
 });

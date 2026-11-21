@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { ArchiveRestore, Send } from '@lucide/svelte';
+	import { ArchiveRestore } from '@lucide/svelte';
+	import type { Snippet } from 'svelte';
 	import JourneySteps, { type Step } from '#lib/components/JourneySteps.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import type { Gallery } from '#lib/gallery/api.js';
@@ -14,7 +15,7 @@
 		gallery,
 		photoCount = null,
 		favoriteCount = null,
-		sharing = false,
+		action,
 		onupload,
 		onshare,
 		oncollect,
@@ -24,12 +25,12 @@
 		gallery: Gallery;
 		photoCount?: number | null;
 		favoriteCount?: number | null;
-		sharing?: boolean;
+		action?: Snippet;
 		onupload: () => void;
 		onshare: () => void;
 		oncollect?: () => void;
 		ondelivery: () => void;
-		onrestore: () => void;
+		onrestore?: () => void;
 	} = $props();
 
 	const status = $derived(galleryStatus(gallery.states));
@@ -73,26 +74,22 @@
 
 <div
 	data-slot="gallery-action-bar"
-	class="@container border-b border-border bg-panel px-3.5 py-2.5 sm:px-7 sm:py-3"
+	class="@container border-b border-border bg-panel workspace-inset py-2.5 sm:py-3"
 >
-	<div class="relative grid justify-items-center gap-1">
+	<div class="flex flex-wrap items-center justify-between gap-2">
 		{#if !archived}
 			<JourneySteps {steps} />
 		{/if}
 
-		{#if archived}
-			<Button size="sm" class="min-h-9! gap-2 justify-self-end" onclick={onrestore}>
-				<ArchiveRestore size={16} aria-hidden="true" />{m.action_restore()}
-			</Button>
-		{:else if !shared && !sharing}
-			<Button
-				data-share-trigger
-				size="sm"
-				class="min-h-9! gap-2 justify-self-end @min-[56rem]:absolute @min-[56rem]:right-0 @min-[56rem]:self-center"
-				onclick={onshare}
-			>
-				<Send size={16} aria-hidden="true" />{m.action_share()}
-			</Button>
+		{#if action || (archived && onrestore)}
+			<div class="ml-auto flex shrink-0 items-center gap-2">
+				{#if archived && onrestore}
+					<Button size="sm" variant="outline" onclick={onrestore}>
+						<ArchiveRestore size={16} aria-hidden="true" />{m.action_restore()}
+					</Button>
+				{/if}
+				{@render action?.()}
+			</div>
 		{/if}
 	</div>
 </div>

@@ -29,6 +29,7 @@
 		studioLogo = null,
 		signature = 'name',
 		signatureSize = DEFAULT_SIZE,
+		signatureTextColor = null,
 		preview = false,
 		framed = false,
 		showCoverWhenEmpty = false,
@@ -48,6 +49,7 @@
 		signature?: Signature;
 		/** Size step of the signature, from Settings. */
 		signatureSize?: number;
+		signatureTextColor?: string | null;
 		/** The owner's read-only preview: marks the page and gates every write action. */
 		preview?: boolean;
 		/** Shown inside the preview's phone frame, which has a fixed height. */
@@ -185,6 +187,7 @@
 			logo={studioLogo}
 			{signature}
 			size={signatureSize}
+			textColor={signatureTextColor}
 			stacked
 			class="text-[2.75rem] opacity-95 @max-[700px]:text-4xl"
 		/>
@@ -243,6 +246,7 @@
 				logo={studioLogo}
 				{signature}
 				size={signatureSize}
+				textColor={signatureTextColor}
 				class="absolute inset-x-0 top-[22px] font-serif text-[1.1875rem] italic"
 			/>
 			<h1
@@ -295,6 +299,7 @@
 			{studioLogo}
 			{signature}
 			{signatureSize}
+			{signatureTextColor}
 			{delivered}
 			{downloading}
 			{preview}

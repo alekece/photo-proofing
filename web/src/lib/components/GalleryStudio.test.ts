@@ -207,7 +207,7 @@ describe('GalleryStudio', () => {
 		expect(shared.container.textContent).toContain('Not yet');
 		expect(shared.container.textContent).not.toContain('Created');
 		expect(shared.container.textContent).not.toContain('12 Jun 2026');
-		expect(screen.getByText('Prepublish')).toBeTruthy();
+		expect(screen.getByText('Shared')).toBeTruthy();
 	});
 
 	it('skips disabled collection tabs during keyboard navigation before sharing and enables them after', async () => {
@@ -215,7 +215,7 @@ describe('GalleryStudio', () => {
 		const photos = screen.getByRole('tab', { name: /^Photos/ });
 		const favorites = screen.getByRole('tab', { name: /^Favorites/ }) as HTMLButtonElement;
 		const comments = screen.getByRole('tab', { name: /^Comments/ }) as HTMLButtonElement;
-		const finals = screen.getByRole('tab', { name: /^Final/ }) as HTMLButtonElement;
+		const finals = screen.getByRole('tab', { name: /^Retouched/ }) as HTMLButtonElement;
 		const design = screen.getByRole('tab', { name: 'Design' });
 		const share = screen.getByRole('tab', { name: 'Share' }) as HTMLButtonElement;
 		const contacts = screen.getByRole('tab', { name: /^Contacts/ }) as HTMLButtonElement;
@@ -297,7 +297,7 @@ describe('GalleryStudio', () => {
 		const view = setup({ share_token: null, states: ['draft'] });
 
 		await view.user.click(screen.getByRole('tab', { name: 'Design' }));
-		await view.user.click(screen.getByRole('button', { name: 'Share' }));
+		await view.user.click(screen.getByRole('button', { name: 'Go to Share' }));
 
 		expect(screen.getByRole('tab', { name: 'Share' }).getAttribute('aria-selected')).toBe('true');
 		expect(view.onshare).not.toHaveBeenCalled();
@@ -336,7 +336,15 @@ describe('GalleryStudio', () => {
 
 		expect(identity).not.toBeNull();
 
-		const sections = ['Photos', 'Favorites', 'Comments', 'Final', 'Activity', 'Design', 'Contacts'];
+		const sections = [
+			'Photos',
+			'Favorites',
+			'Comments',
+			'Retouched',
+			'Activity',
+			'Design',
+			'Contacts'
+		];
 
 		for (const name of sections) {
 			const tab = screen.getByRole('tab', { name: new RegExp(`^${name}`) });
@@ -354,7 +362,22 @@ describe('GalleryStudio', () => {
 		}
 	});
 
-	it('loads the Settings preview only when selected, using the live cover and studio props', async () => {
+	it('keeps the journey in one header, even on a section without actions', async () => {
+		const view = setup({ share_token: 'tok', states: ['shared'] });
+		const header = view.container.querySelector<HTMLElement>(
+			'[data-slot="gallery-content-header"]'
+		)!;
+		const journey = within(header).getByRole('navigation', { name: 'Gallery progress' });
+
+		await view.user.click(screen.getByRole('tab', { name: 'Design' }));
+		expect(within(header).getByRole('button', { name: 'Open full preview' })).toBeTruthy();
+		expect(screen.getAllByRole('button', { name: 'Open full preview' })).toHaveLength(1);
+		await view.user.click(screen.getByRole('tab', { name: 'Activity' }));
+		expect(within(header).getByRole('navigation', { name: 'Gallery progress' })).toBe(journey);
+		expect(within(header).queryByRole('button', { name: 'Open full preview' })).toBeNull();
+	});
+
+	it('keeps the live cover preview in Design instead of Settings', async () => {
 		const fetcher = vi.fn<typeof fetch>(async () => Response.json([]));
 		vi.stubGlobal('fetch', fetcher);
 		const view = setup({ hero_id: 'saved' });
@@ -365,10 +388,13 @@ describe('GalleryStudio', () => {
 			settings: { ...DEFAULT_SETTINGS, studioName: 'Studio Lune' }
 		});
 		await view.user.click(screen.getByRole('tab', { name: 'Settings' }));
-		const panel = screen.getByRole('tabpanel', { name: 'Settings' });
-		const cover = await within(panel).findByRole('img', { name: 'Gallery cover' });
+		expect(screen.queryByRole('region', { name: 'Client preview' })).toBeNull();
+		await view.user.click(screen.getByRole('tab', { name: 'Design' }));
+		await view.user.click(screen.getByRole('button', { name: 'Open full preview' }));
+		const preview = screen.getByRole('dialog', { name: 'Client preview' });
+		const cover = await within(preview).findByRole('img', { name: 'Gallery cover' });
 		expect(cover.getAttribute('src')).toBe('/api/v1/galleries/g1/photos/live/preview?revision=7');
-		expect(within(panel).getAllByText('Studio Lune').length).toBeGreaterThan(0);
+		expect(within(preview).getAllByText('Studio Lune').length).toBeGreaterThan(0);
 		expect(
 			fetcher.mock.calls.every(([url]) => String(url).startsWith('/api/v1/galleries/g1/'))
 		).toBe(true);
@@ -379,14 +405,17 @@ describe('GalleryStudio', () => {
 		const cover = screen.getByRole('button', { name: 'Edit cover and design' });
 		const pin = screen.getByRole('button', { name: 'Pin gallery to top' });
 		expect(pin.parentElement).toBe(cover.parentElement);
-		expect(cover.parentElement?.textContent).toContain('Prepublish');
+		expect(cover.parentElement?.textContent).toContain('Shared');
 		await view.user.click(pin);
 		expect(view.onsave).toHaveBeenCalledExactlyOnceWith({ favorite: true });
 		expect(screen.getByRole('tabpanel', { name: /^Photos/ })).toBeTruthy();
 		const design = screen.getByRole('tab', { name: 'Design' });
 		const activity = screen.getByRole('tab', { name: 'Activity' });
 		expect(activity.parentElement).toBe(design.parentElement);
-		await fireEvent.keyDown(screen.getByRole('tab', { name: /^Final/ }), { key: 'ArrowRight' });
+		expect(screen.getByRole('tab', { name: /^Comments/ }).parentElement).toBe(
+			activity.parentElement
+		);
+		await fireEvent.keyDown(screen.getByRole('tab', { name: /^Retouched/ }), { key: 'ArrowRight' });
 		expect(document.activeElement).toBe(design);
 		await fireEvent.keyDown(design, { key: 'ArrowRight' });
 		expect(document.activeElement).toBe(activity);

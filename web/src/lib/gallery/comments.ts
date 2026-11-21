@@ -8,14 +8,14 @@ export class CommentsClient {
 		private fetcher: typeof fetch = fetch
 	) {}
 
-	async counts(): Promise<Map<string, number>> {
-		const counts = await requestJson(
+	async summaries() {
+		const summaries = await requestJson(
 			`${this.base}/comments`,
 			{ method: 'GET', cache: 'no-store' },
 			commentCountsSchema,
 			this.fetcher
 		);
-		return new Map(counts.map(({ photo_id, count }) => [photo_id, count]));
+		return new Map(summaries.map(({ photo_id, ...summary }) => [photo_id, summary]));
 	}
 
 	thread(photoId: string) {

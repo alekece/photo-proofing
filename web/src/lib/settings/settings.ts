@@ -1,5 +1,6 @@
 import * as v from 'valibot';
 import { requestJson } from '#lib/http.js';
+import { rgbHexSchema } from './color.js';
 
 export const MARKS = ['name', 'logo', 'both'] as const;
 export const PATTERNS = ['repeat', 'once'] as const;
@@ -32,6 +33,8 @@ export type WorkspaceSettings = {
 	signature: Signature;
 	/** Step from 0 (small) to `SIZE_STEPS - 1` (large) of the cover signature. */
 	signatureSize: number;
+	/** Overrides the cover's inherited text color only for the studio signature. */
+	signatureTextColor: string | null;
 	/** How sharp thumbnails and previews are; changing it regenerates all of them. */
 	proofQuality: Quality;
 	/** Whether `[smtp]` is configured on the server so email invitations can be queued. */
@@ -49,6 +52,7 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
 	watermarkTextColor: '#FFFFFF',
 	signature: 'name',
 	signatureSize: DEFAULT_SIZE,
+	signatureTextColor: null,
 	proofQuality: 'medium',
 	emailEnabled: false
 };
@@ -77,7 +81,8 @@ export function settingsChanged(a: WorkspaceSettings, b: WorkspaceSettings) {
 		watermarkChanged(a, b) ||
 		qualityChanged(a, b) ||
 		a.signature !== b.signature ||
-		a.signatureSize !== b.signatureSize
+		a.signatureSize !== b.signatureSize ||
+		a.signatureTextColor !== b.signatureTextColor
 	);
 }
 
@@ -105,12 +110,10 @@ const settingsResponseSchema = v.object({
 		v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(100)),
 		DEFAULT_SETTINGS.watermarkOpacity
 	),
-	watermark_text_color: v.optional(
-		v.pipe(v.string(), v.length(7), v.regex(/^#[0-9A-F]{6}$/)),
-		DEFAULT_SETTINGS.watermarkTextColor
-	),
+	watermark_text_color: v.optional(rgbHexSchema, DEFAULT_SETTINGS.watermarkTextColor),
 	signature: v.picklist(SIGNATURES),
 	signature_size: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(SIZE_STEPS - 1)),
+	signature_color: v.nullish(rgbHexSchema, null),
 	proof_quality: v.picklist(QUALITIES),
 	has_logo: v.boolean(),
 	email_enabled: v.optional(v.boolean(), false)
@@ -131,6 +134,7 @@ function toWorkspaceSettings(
 		watermarkTextColor: settings.watermark_text_color,
 		signature: settings.signature,
 		signatureSize: settings.signature_size,
+		signatureTextColor: settings.signature_color,
 		proofQuality: settings.proof_quality,
 		emailEnabled: settings.email_enabled
 	};
@@ -176,6 +180,7 @@ export class SettingsApi {
 					watermark_text_color: settings.watermarkTextColor,
 					signature: settings.signature,
 					signature_size: settings.signatureSize,
+					signature_color: settings.signatureTextColor,
 					proof_quality: settings.proofQuality,
 					logo: logoChange(settings.logo, saved.logo)
 				})

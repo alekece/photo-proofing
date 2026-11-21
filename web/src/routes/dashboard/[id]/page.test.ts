@@ -723,7 +723,7 @@ describe('gallery page', () => {
 		await user.click(screen.getByRole('button', { name: 'Share link' }));
 		expect(screen.queryByRole('button', { name: 'Share anyway' })).toBeNull();
 		expect((codeInput as HTMLInputElement).value).toBe('12');
-		await user.click(screen.getByRole('button', { name: 'Share' }));
+		await user.click(screen.getByRole('button', { name: 'Go to Share' }));
 		expect(screen.getByRole('tab', { name: 'Settings' }).getAttribute('aria-selected')).toBe(
 			'true'
 		);
@@ -1089,14 +1089,14 @@ describe('gallery page', () => {
 				}
 			});
 
-			await user.click(screen.getByRole('button', { name: 'Share' }));
+			await user.click(screen.getByRole('button', { name: 'Go to Share' }));
 			expect(screen.getByRole('tab', { name: 'Share' }).getAttribute('aria-selected')).toBe('true');
 
 			const share = within(screen.getByRole('tabpanel', { name: 'Share' }));
 			await user.type(share.getByLabelText('To'), 'camille@example.com{Enter}');
 			await user.click(share.getByRole('button', { name: 'Send invitation (1)' }));
 
-			await waitFor(() => expect(screen.getByText('Prepublish')).toBeTruthy());
+			await waitFor(() => expect(screen.getByText('Shared')).toBeTruthy());
 			expect(toasts.items.map((item) => item.message)).toContain('Invitation queued');
 			expect(screen.getByRole('tab', { name: /^Photos/ }).getAttribute('aria-selected')).toBe(
 				'true'
@@ -1119,7 +1119,7 @@ describe('gallery page', () => {
 			expect(shares()).toHaveLength(1);
 
 			await user.click(screen.getByRole('button', { name: 'Done' }));
-			expect(screen.getByText('Prepublish')).toBeTruthy();
+			expect(screen.getByText('Shared')).toBeTruthy();
 			expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
 			expect(screen.getByLabelText('Client link')).toBeTruthy();
 		});
@@ -1132,7 +1132,7 @@ describe('gallery page', () => {
 			await user.click(screen.getByRole('button', { name: 'Share link' }));
 			await user.click(await screen.findByRole('button', { name: 'Cancel' }));
 			expect(shares()).toHaveLength(0);
-			expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Go to Share' })).toBeTruthy();
 		});
 
 		it('warns instead of blocking when sharing link with no photos', async () => {
@@ -1169,11 +1169,11 @@ describe('gallery page', () => {
 			stubShareFlow();
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22), states: ['shared'] });
-			expect(screen.getByText('Prepublish')).toBeTruthy();
+			expect(screen.getByText('Shared')).toBeTruthy();
 			expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
 			await user.click(screen.getByRole('tab', { name: 'Share' }));
 			const share = within(screen.getByRole('tabpanel', { name: 'Share' }));
-			expect((share.getByRole('button', { name: 'Publish' }) as HTMLButtonElement).disabled).toBe(
+			expect((screen.getByRole('button', { name: 'Publish' }) as HTMLButtonElement).disabled).toBe(
 				false
 			);
 			await user.click(share.getByRole('button', { name: 'Cancel' }));
@@ -1475,10 +1475,10 @@ describe('gallery page', () => {
 			expect(tabs).toEqual([
 				'Photos',
 				'Favorites',
-				'Comments',
-				'Final',
+				'Retouched',
 				'Design',
 				'Activity',
+				'Comments',
 				'Share',
 				'Contacts',
 				'Settings'
@@ -1493,8 +1493,8 @@ describe('gallery page', () => {
 			vi.stubGlobal('fetch', async () => new Response('[]'));
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22), states: ['shared'] });
-			await user.click(screen.getByRole('tab', { name: /^Final/ }));
-			expect(screen.getByRole('tab', { name: /^Final/ }).getAttribute('aria-selected')).toBe(
+			await user.click(screen.getByRole('tab', { name: /^Retouched/ }));
+			expect(screen.getByRole('tab', { name: /^Retouched/ }).getAttribute('aria-selected')).toBe(
 				'true'
 			);
 			expect(screen.getAllByRole('tabpanel').length).toBeGreaterThan(0);
@@ -1510,7 +1510,9 @@ describe('gallery page', () => {
 			expect((screen.getByRole('tab', { name: 'Comments' }) as HTMLButtonElement).disabled).toBe(
 				true
 			);
-			expect((screen.getByRole('tab', { name: 'Final' }) as HTMLButtonElement).disabled).toBe(true);
+			expect((screen.getByRole('tab', { name: 'Retouched' }) as HTMLButtonElement).disabled).toBe(
+				true
+			);
 			expect((screen.getByRole('tab', { name: 'Design' }) as HTMLButtonElement).disabled).toBe(
 				false
 			);

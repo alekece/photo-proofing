@@ -16,8 +16,6 @@
 	import { page } from '$app/state';
 	import { getUploadQueue } from '#lib/gallery/uploads.svelte.js';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
-	import { authRequest } from '#lib/auth.js';
-	import AppHeader from '#lib/components/AppHeader.svelte';
 	import ArchiveGalleryDialog from '#lib/components/ArchiveGalleryDialog.svelte';
 	import DeleteGalleryDialog from '#lib/components/DeleteGalleryDialog.svelte';
 	import GalleryStudio from '#lib/components/GalleryStudio.svelte';
@@ -78,7 +76,6 @@
 	let expectedAccessCode = $state<string | null | 'invalid' | undefined>();
 	let accessCodeRevision = 0;
 	let directShareAttempt: ShareAttempt | undefined;
-	let signOutError = $state('');
 	let inflight = $state(0);
 	// Attempted values of fields whose last save failed; cleared per field on that field's success.
 	let failed = $state<GalleryChanges>({});
@@ -408,31 +405,12 @@
 			toasts.error(error instanceof ApiError ? error.message : m.gallery_restore_failed());
 		}
 	}
-	async function logout() {
-		signOutError = '';
-		try {
-			await authRequest('logout');
-			await goto('/login', { refreshAll: true });
-		} catch (error) {
-			signOutError = error instanceof Error ? error.message : m.sign_out_failed();
-		}
-	}
 	function retry() {
 		for (const [key, value] of Object.entries(failed)) void save({ [key]: value });
 	}
 </script>
 
 <svelte:head><title>{saved.title ?? m.gallery_untitled()} — PhotoProofing</title></svelte:head>
-<AppHeader onsignout={logout} studioName={data.settings?.studioName} />
-{#if signOutError}
-	<p
-		role="alert"
-		class="border-b border-border bg-panel px-3.5 py-2 text-center text-sm text-danger sm:px-8"
-	>
-		{signOutError}
-	</p>
-{/if}
-
 <GalleryStudio
 	{requestedPhoto}
 	gallery={saved}

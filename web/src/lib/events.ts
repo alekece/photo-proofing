@@ -169,7 +169,7 @@ export function setLiveEvents(events: LiveEvents) {
 	setContext(key, events);
 }
 
-/** The live events of the enclosing dashboard layout. */
+/** The live events of the enclosing workspace layout. */
 export function getLiveEvents(): LiveEvents {
 	return getContext(key);
 }

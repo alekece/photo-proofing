@@ -1,25 +1,22 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
-	import { afterNavigate, goto } from '$app/navigation';
-	import { ArrowLeft, Undo2, Upload, X } from '@lucide/svelte';
-	import { authRequest } from '#lib/auth.js';
+	import { afterNavigate } from '$app/navigation';
+	import { Undo2, Upload, X } from '@lucide/svelte';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
-	import AppHeader from '#lib/components/AppHeader.svelte';
+	import { getStudioNamePreview } from '#lib/components/WorkspaceLayout.svelte';
 	import ButtonFace from '#lib/components/ButtonFace.svelte';
 	import ClickRipple from '#lib/components/ClickRipple.svelte';
+	import LanguagePicker from '#lib/components/LanguagePicker.svelte';
 	import ProofQualityPicker from '#lib/components/ProofQualityPicker.svelte';
-	import SamplePhoto from '#lib/components/SamplePhoto.svelte';
 	import SignatureEditor from '#lib/components/SignatureEditor.svelte';
-	import SignaturePreview from '#lib/components/SignaturePreview.svelte';
 	import SaveButton, { type SaveStatus } from '#lib/components/SaveButton.svelte';
 	import WatermarkEditor from '#lib/components/WatermarkEditor.svelte';
-	import WatermarkPreview from '#lib/components/WatermarkPreview.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
-	import PageShell from '#lib/components/ui/PageShell/PageShell.svelte';
 	import Tabs from '#lib/components/ui/Tabs/Tabs.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+	import WorkspaceHeading from '#lib/components/ui/WorkspaceHeading/WorkspaceHeading.svelte';
 	import { ApiError } from '#lib/http.js';
 	import {
 		LOGO_TYPES,
@@ -40,12 +37,13 @@
 	// svelte-ignore state_referenced_locally
 	let draft = $state<WorkspaceSettings>({ ...data.settings });
 	let hexEdit = $state<string | null>(null);
-	let section = $state('studio');
+	let section = $state('general');
+	let changingLanguage = $state(false);
+	let headerHeight = $state(0);
 	const sections = [
-		{ id: 'studio', label: m.studio_group_studio() },
+		{ id: 'general', label: m.settings_general() },
 		{ id: 'watermark', label: m.watermark_label() },
-		{ id: 'signature', label: m.signature_label() },
-		{ id: 'quality', label: m.quality_label() }
+		{ id: 'signature', label: m.signature_label() }
 	];
 	let dirty = $derived(settingsChanged(draft, saved));
 	let invalidHex = $derived(hexEdit !== null && normalizeWatermarkHex(hexEdit) === null);
@@ -58,9 +56,14 @@
 	let reverted = $derived(feedback === 'reverted' && !hasEdits);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let savedTimer: ReturnType<typeof setTimeout> | undefined;
-	let signingOut = $state(false);
-	let message = $state('');
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
+	const previewStudioName = getStudioNamePreview();
+
+	$effect(() => {
+		previewStudioName?.(draft.studioName);
+
+		return () => previewStudioName?.(undefined);
+	});
 
 	afterNavigate(() => {
 		void activity();
@@ -142,37 +145,22 @@
 		if (draft.signature === 'logo' || draft.signature === 'both') draft.signature = 'name';
 	}
 
-	async function logout() {
-		if (signingOut) return;
-
-		signingOut = true;
-		message = '';
-		try {
-			await authRequest('logout');
-			await goto('/login', { refreshAll: true });
-		} catch (error) {
-			message = error instanceof Error ? error.message : m.sign_out_failed();
-		} finally {
-			signingOut = false;
-		}
-	}
-
 	const action =
-		'relative inline-grid h-11 min-h-0 px-[1.375rem] max-sm:flex-1 font-semibold! tracking-normal! transition-[background-color,opacity] duration-300 disabled:opacity-35';
+		'relative inline-grid h-11 min-h-0 px-3 sm:px-[1.375rem] max-sm:flex-1 font-semibold! tracking-normal! transition-[background-color,opacity] duration-300 disabled:opacity-35';
 </script>
 
 {#snippet studio()}
 	<div class="flex items-center gap-4">
 		{#if draft.logo}
 			<div
-				class="group/logo relative grid size-16 flex-none place-items-center rounded-[0.875rem] border-[1.5px] border-border bg-golden-hour"
+				class="group/logo relative grid size-16 flex-none place-items-center rounded-card border border-border bg-input"
 			>
 				<img src={draft.logo} alt={m.studio_logo_alt()} class="max-h-[2.375rem] max-w-[2.375rem]" />
-				<button
-					type="button"
+				<Button
+					variant="ghost"
 					aria-label={m.studio_logo_remove()}
-					class="absolute -top-2 -right-2 grid size-[1.625rem] cursor-pointer place-items-center rounded-full bg-foreground text-inverse opacity-0 transition-opacity group-hover/logo:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-					onclick={removeLogo}><X size={13} aria-hidden="true" /></button
+					class="absolute -top-2 -right-2 size-8 min-h-0 rounded-full bg-foreground p-0 text-inverse opacity-0 transition-opacity group-hover/logo:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+					onclick={removeLogo}><X size={13} aria-hidden="true" /></Button
 				>
 			</div>
 		{:else}
@@ -189,96 +177,100 @@
 			aria-label={m.studio_name()}
 			placeholder={m.studio_name()}
 			autocomplete="organization"
-			class="min-h-0 max-w-[32.5rem] min-w-0 flex-1 rounded-none border-0 border-b-[1.5px] border-border bg-transparent px-0 py-1.5 font-serif text-[1.625rem] leading-[normal] shadow-none focus:border-foreground"
+			class="max-w-[32.5rem] flex-1"
 		/>
 	</div>
 {/snippet}
 
 <svelte:head><title>{m.header_settings()} — PhotoProofing</title></svelte:head>
-<AppHeader onsignout={logout} studioName={draft.studioName} />
-<div>
-	<PageShell
-		class="max-w-[75rem] gap-0 px-3.5 pt-5 pb-[3.75rem] sm:px-[clamp(1.25rem,5vw,3.5rem)] sm:pt-9"
+<main class="min-w-0 flex-1 pb-12">
+	<div
+		bind:offsetHeight={headerHeight}
+		class="sticky top-[env(safe-area-inset-top)] z-20 border-b border-border bg-background workspace-inset py-2 sm:py-3"
 	>
-		<a
-			href="/dashboard"
-			class="mb-4 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground underline-offset-2 hover:underline"
-			><ArrowLeft class="size-4" aria-hidden="true" />{m.header_back_to_galleries()}</a
-		>
-		{#if message}<p role="alert" class="mb-4 text-danger">{message}</p>{/if}
-		<h1 class="mb-3 text-4xl leading-[1.1] sm:text-[3.25rem]">{m.header_settings()}</h1>
-		<div
-			class="sticky top-[env(safe-area-inset-top)] z-20 mb-2 flex flex-wrap items-center justify-end gap-2 bg-background py-2"
-		>
-			{#if invalidHex && section !== 'watermark'}
-				<p aria-live="polite" class="mr-auto text-sm text-danger max-sm:basis-full">
-					{m.watermark_color_invalid()}
-				</p>
-			{/if}
-			<Button
-				variant="outline"
-				disabled={!reverted && (!hasEdits || status === 'saving')}
-				aria-disabled={reverted || undefined}
-				onclick={cancel}
-				class="{action} border-[1.5px]! border-border! bg-input! aria-disabled:cursor-default {reverted
-					? 'border-[#d8cab7]! bg-[#efe7dc]!'
-					: ''}"
-			>
-				<ButtonFace shown={!reverted}>{m.common_cancel()}</ButtonFace>
-				<ButtonFace shown={reverted}>
-					{#snippet icon()}
-						<span class="relative inline-grid">
-							<Undo2 size={16} strokeWidth={2.4} aria-hidden="true" />
-							{#if reverted}<ClickRipple />{/if}
-						</span>
-					{/snippet}
-					{m.studio_reverted()}
-				</ButtonFace>
-			</Button>
-			<SaveButton
-				status={shown}
-				disabled={shown === 'idle' && (!dirty || invalidHex)}
-				onclick={save}
-				class={action}
-			/>
+		<div class="flex flex-wrap items-center justify-between gap-2">
+			<WorkspaceHeading title={m.header_settings()} />
+			<div class="flex grow gap-2 sm:grow-0">
+				<Button
+					variant="outline"
+					disabled={!reverted && (!hasEdits || status === 'saving')}
+					aria-disabled={reverted || undefined}
+					onclick={cancel}
+					class="{action} border-[1.5px]! border-border! bg-input! aria-disabled:cursor-default {reverted
+						? 'border-[#d8cab7]! bg-[#efe7dc]!'
+						: ''}"
+				>
+					<ButtonFace shown={!reverted}>{m.common_cancel()}</ButtonFace>
+					<ButtonFace shown={reverted}>
+						{#snippet icon()}
+							<span class="relative inline-grid">
+								<Undo2 size={16} strokeWidth={2.4} aria-hidden="true" />
+								{#if reverted}<ClickRipple />{/if}
+							</span>
+						{/snippet}
+						{m.studio_reverted()}
+					</ButtonFace>
+				</Button>
+				<SaveButton
+					status={shown}
+					disabled={shown === 'idle' && (!dirty || invalidHex)}
+					onclick={save}
+					class={action}
+				/>
+			</div>
 		</div>
-		<span role="status" class="sr-only">
-			{feedback === 'reverted' ? m.studio_reverted() : ''}
-		</span>
+		{#if invalidHex && section !== 'watermark'}
+			<p aria-live="polite" class="mt-2 text-sm text-danger">
+				{m.watermark_color_invalid()}
+			</p>
+		{/if}
+	</div>
+	<span role="status" class="sr-only">
+		{feedback === 'reverted' ? m.studio_reverted() : ''}
+	</span>
 
+	<div
+		class="workspace-inset pt-4 sm:pt-6 [&_:focus-visible]:scroll-mt-[calc(var(--settings-header-height)_+_env(safe-area-inset-top)_+_0.25rem)]"
+		style:--settings-header-height="{headerHeight}px"
+	>
 		<Tabs
 			bind:value={section}
 			items={sections}
 			label={m.studio_sections()}
+			sidebar
 			listClass="min-w-0 overflow-x-auto whitespace-nowrap [&>button]:shrink-0 [&>button]:focus-visible:outline-offset-[-2px]"
 		>
 			{#snippet panel(active)}
-				<div
-					class="grid min-w-0 items-start gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
-				>
-					<div data-settings-controls class="min-w-0">
-						{#if active === 'studio'}
-							{@render studio()}
-						{:else if active === 'watermark'}
-							<WatermarkEditor bind:settings={draft} bind:hexEdit />
-						{:else if active === 'signature'}
-							<SignatureEditor bind:settings={draft} />
-						{:else}
-							<p class="mb-4 text-muted-foreground">{m.quality_hint()}</p>
-							<ProofQualityPicker bind:value={draft.proofQuality} />
-						{/if}
-					</div>
-					<SamplePhoto
-						label={active === 'signature' ? m.signature_preview() : m.watermark_preview()}
-					>
-						{#if active === 'signature'}
-							<SignaturePreview settings={draft} />
-						{:else}
-							<WatermarkPreview settings={draft} />
-						{/if}
-					</SamplePhoto>
-				</div>
+				<fieldset disabled={changingLanguage} class="grid min-w-0 gap-4">
+					{#if active === 'general'}
+						<div class="grid max-w-[48rem] min-w-0 gap-5">
+							<section class="grid gap-2">
+								<h2 class="text-xl">{m.studio_group_studio()}</h2>
+								{@render studio()}
+							</section>
+							<section class="grid gap-2 border-t border-border pt-4">
+								<h2 class="text-xl">{m.settings_language()}</h2>
+								<LanguagePicker
+									disabled={hasEdits || status === 'saving'}
+									bind:saving={changingLanguage}
+								/>
+								{#if hasEdits}
+									<p class="text-sm text-muted-foreground">{m.settings_language_pending()}</p>
+								{/if}
+							</section>
+							<section class="grid gap-2 border-t border-border pt-4">
+								<h2 class="text-xl">{m.quality_label()}</h2>
+								<p class="text-muted-foreground">{m.quality_hint()}</p>
+								<ProofQualityPicker bind:value={draft.proofQuality} />
+							</section>
+						</div>
+					{:else if active === 'watermark'}
+						<WatermarkEditor bind:settings={draft} bind:hexEdit />
+					{:else}
+						<SignatureEditor bind:settings={draft} />
+					{/if}
+				</fieldset>
 			{/snippet}
 		</Tabs>
-	</PageShell>
-</div>
+	</div>
+</main>

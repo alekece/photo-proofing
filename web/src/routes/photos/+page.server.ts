@@ -4,7 +4,7 @@ import { listWorkspacePhotos } from '#lib/server/photos.js';
 import { getSettings } from '#lib/server/settings.js';
 import type { PageServerLoad } from './$types';
 
-/** Guards the All Photos workspace page on the server and loads every ready photo. */
+/** Guards the workspace photo library and loads its ready photos. */
 export const load: PageServerLoad = async ({ fetch, request, setHeaders }) => {
 	setHeaders({ 'Cache-Control': 'no-store' });
 	const cookie = request.headers.get('cookie');

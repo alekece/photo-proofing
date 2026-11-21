@@ -1,4 +1,5 @@
 import * as v from 'valibot';
+import { rgbHexSchema } from '#lib/settings/color.js';
 
 /**
  * The shapes the API returns, described once: each type is inferred from its schema. Schemas
@@ -96,6 +97,7 @@ const sharedBrandingEntries = {
 	studio_name: v.optional(v.string()),
 	signature: v.optional(v.picklist(['name', 'logo', 'both', 'none'])),
 	signature_size: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(9))),
+	signature_color: v.optional(rgbHexSchema),
 	has_logo: v.optional(v.boolean())
 };
 
@@ -135,7 +137,7 @@ export const sharedGalleryResponseSchema = v.union([
 	sharedGallerySchema
 ]);
 
-/** A ready photo in the workspace-wide All Photos list; mirrors the API's `WorkspacePhoto`. */
+/** A ready photo in the workspace photo library; mirrors the API's `WorkspacePhoto`. */
 export const workspacePhotoSchema = v.object({
 	id: v.string(),
 	original_name: v.string(),
@@ -218,7 +220,8 @@ export const commentsSchema = v.array(commentSchema);
 export const commentCountsSchema = v.array(
 	v.object({
 		photo_id: v.string(),
-		count: v.pipe(finite, v.integer(), v.minValue(0))
+		count: v.pipe(finite, v.integer(), v.minValue(0)),
+		latest_body: v.optional(v.string())
 	})
 );
 export type Comment = v.InferOutput<typeof commentSchema>;

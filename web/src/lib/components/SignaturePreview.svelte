@@ -14,6 +14,7 @@
 	logo={settings.logo}
 	signature={settings.signature}
 	size={settings.signatureSize}
+	textColor={settings.signatureTextColor}
 	class="absolute inset-x-0 top-[4cqw] z-10 font-serif text-[2.8cqw] text-inverse italic"
 />
 <span

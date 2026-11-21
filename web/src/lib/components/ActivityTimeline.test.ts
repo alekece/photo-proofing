@@ -100,14 +100,14 @@ describe('ActivityTimeline', () => {
 
 		const rows = screen.getAllByRole('listitem');
 		const paragraphs = rows.map((row) => row.querySelector('p'));
-		expect(paragraphs.map((p) => p?.textContent?.trim())).toEqual([
-			'Alice favorited 3 photos',
-			'Anonymous client un-picked a photo',
-			'Alice left 2 comments',
-			'Alice downloaded 4 photos',
-			'Alice downloaded the ZIP',
-			'Alice opened the gallery',
-			'Invitation email sent to <b>Alice</b>'
+		expect(paragraphs.map((p) => p?.textContent?.trim().replace(/\s+/g, ' '))).toEqual([
+			'Alice favorited 3 photos Wedding',
+			'Anonymous client un-picked a photo Wedding',
+			'Alice left 2 comments Wedding',
+			'Alice downloaded 4 photos Wedding',
+			'Alice downloaded the ZIP Wedding',
+			'Alice opened the gallery Wedding',
+			'Invitation email sent to <b>Alice</b> Wedding'
 		]);
 		expect(paragraphs.map((p) => p?.querySelector('strong')?.textContent)).toEqual([
 			'Alice',
@@ -400,7 +400,9 @@ describe('ActivityTimeline in French', () => {
 		render(ActivityTimeline, { feed: feedWith([line('a', { contact: null })]) });
 
 		const paragraph = screen.getByRole('listitem').querySelector('p');
-		expect(paragraph?.textContent?.trim()).toBe('Client anonyme a mis 3 photos en favori');
+		expect(paragraph?.textContent?.trim().replace(/\s+/g, ' ')).toBe(
+			'Client anonyme a mis 3 photos en favori Wedding'
+		);
 		expect(paragraph?.querySelector('strong')?.textContent).toBe('Client anonyme');
 		expect(screen.getByRole('heading', { level: 3, name: 'Aujourd’hui' })).toBeTruthy();
 	});

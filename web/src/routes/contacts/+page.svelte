@@ -1,20 +1,22 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount, tick } from 'svelte';
-	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { cubicIn } from 'svelte/easing';
 	import { slide } from 'svelte/transition';
-	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
-	import { navigating, page } from '$app/state';
-	import { ArrowUpDown, ChevronDown, Pencil, Trash2, Users } from '@lucide/svelte';
+	import { afterNavigate, beforeNavigate } from '$app/navigation';
+	import { ArrowUpDown, Check, Pencil, Plus, Trash2, Users } from '@lucide/svelte';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
-	import { authRequest } from '#lib/auth.js';
-	import AppHeader from '#lib/components/AppHeader.svelte';
+	import ContactIdentity from '#lib/components/ContactIdentity.svelte';
 	import ActionButton from '#lib/components/ui/ActionButton/ActionButton.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
+	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
+	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
+	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
+	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 	import {
@@ -24,7 +26,7 @@
 		type Contact,
 		type ContactChangesInput
 	} from '#lib/contacts/api.js';
-	import { contactInitials, sortContacts } from '#lib/contacts/format.js';
+	import { sortContacts } from '#lib/contacts/format.js';
 	import { ApiError } from '#lib/http.js';
 	import type { PageData } from './$types';
 
@@ -36,35 +38,29 @@
 		notes: string;
 		error: string;
 		invalid: 'name' | 'email' | null;
-		created: boolean;
 	};
-	type Panel =
-		| { mode: 'new'; draft: Draft }
-		| { mode: 'details'; id: string }
-		| { mode: 'edit'; id: string; draft: Draft; original: Contact };
+	type Editor =
+		{ mode: 'new'; draft: Draft } | { mode: 'edit'; id: string; draft: Draft; original: Contact };
 
 	let { data }: { data: PageData } = $props();
 
 	const formId = $props.id();
 	let draftNumber = 0;
 	const writes = new SvelteSet<string | null>();
-	const deleteErrors = new SvelteMap<string, string>();
+	const selectedIds = new SvelteSet<string>();
 	// svelte-ignore state_referenced_locally
 	let contacts = $state<Contact[]>(data.contacts ? [...data.contacts] : []);
-	let panel = $state<Panel | null>(null);
+	let editor = $state<Editor | null>(null);
 	let query = $state('');
 	let resultsHeight = $state(0);
 	let sortOrder = $state<'name_asc' | 'name_desc'>('name_asc');
 	let root: HTMLElement;
 	let newButton = $state<HTMLButtonElement | null>(null);
 	let saveButton = $state<ActionButton>();
-	let deleteEpoch = $state(0);
+	let deleteTargets = $state<Contact[] | null>(null);
 	let disposed = false;
-	let signingOut = $state(false);
-	let signOutError = $state('');
 
 	const loadFailed = $derived(data.contacts === null);
-	const departing = $derived(navigating.to !== null && navigating.to.route.id !== '/contacts');
 	const sorts = $derived([
 		{ value: 'name_asc', label: m.contacts_sort_name_asc() },
 		{ value: 'name_desc', label: m.contacts_sort_name_desc() }
@@ -83,11 +79,15 @@
 				(item.phone?.toLowerCase().includes(needle) ?? false)
 		);
 	});
+	const selection = $derived(matching.filter(({ id }) => selectedIds.has(id)));
+	const selectable = $derived(
+		matching.filter(({ id }) => !writes.has(id) && !(editor?.mode === 'edit' && editor.id === id))
+	);
 
 	const activity = $derived(createSessionActivity(data.idleTimeoutMs));
 
 	beforeNavigate(({ to, willUnload }) => {
-		if (willUnload || to?.route.id !== '/contacts') deleteEpoch += 1;
+		if (willUnload || to?.route.id !== '/contacts') deleteTargets = null;
 	});
 	afterNavigate(() => {
 		void activity();
@@ -102,19 +102,11 @@
 	});
 
 	$effect.pre(() => {
-		const current = panel;
-		if (!current || current.mode === 'new' || matching.some((item) => item.id === current.id))
-			return;
-
-		const row = document.getElementById(rowId(current.id));
-		const restoreFocus = row?.contains(document.activeElement);
-		panel = null;
-		if (restoreFocus) void focusFallback();
+		const visibleIds = new Set(matching.map(({ id }) => id));
+		for (const id of selectedIds) {
+			if (!visibleIds.has(id)) selectedIds.delete(id);
+		}
 	});
-
-	function rowId(id: string): string {
-		return `${formId}-row-${id}`;
-	}
 
 	async function focusFallback(): Promise<void> {
 		await tick();
@@ -123,6 +115,8 @@
 	}
 
 	function openEditor(contact?: Contact): void {
+		if (contact) selectedIds.delete(contact.id);
+
 		const draft: Draft = {
 			form: `${formId}-draft-${++draftNumber}`,
 			name: contact?.name ?? '',
@@ -130,29 +124,21 @@
 			phone: contact?.phone ?? '',
 			notes: contact?.notes ?? '',
 			error: '',
-			invalid: null,
-			created: false
+			invalid: null
 		};
 
-		panel = contact
+		editor = contact
 			? { mode: 'edit', id: contact.id, draft, original: contact }
 			: { mode: 'new', draft };
 		void tick().then(() => document.getElementById(`${draft.form}-name`)?.focus());
 	}
 
-	function toggleDetails(id: string): void {
-		panel = panel && panel.mode !== 'new' && panel.id === id ? null : { mode: 'details', id };
-	}
-
-	async function cancelEditor(): Promise<void> {
-		if (!panel || panel.mode === 'details') return;
-
-		const id = panel.mode === 'edit' ? panel.id : null;
-		panel = id === null ? null : { mode: 'details', id };
-		await tick();
-
-		if (id === null) newButton?.focus();
-		else document.getElementById(`${rowId(id)}-edit`)?.focus();
+	function closeEditor(): void {
+		const previous = editor;
+		editor = null;
+		if (previous?.mode === 'edit' && !matching.some(({ id }) => id === previous.id)) {
+			void focusFallback();
+		}
 	}
 
 	function markInvalid(draft: Draft, field: 'name' | 'email', input: HTMLInputElement): void {
@@ -184,10 +170,10 @@
 	}
 
 	async function submitContact(draft: Draft): Promise<boolean> {
-		const editor = panel;
-		if (!editor || editor.mode === 'details' || editor.draft !== draft) return false;
+		const current = editor;
+		if (!current || current.draft !== draft) return false;
 
-		const id = editor.mode === 'edit' ? editor.id : null;
+		const id = current.mode === 'edit' ? current.id : null;
 		if (writes.has(id)) return false;
 
 		if (!draft.name.trim()) {
@@ -204,9 +190,9 @@
 
 		try {
 			const saved =
-				editor.mode === 'new'
+				current.mode === 'new'
 					? await createContact(values(draft))
-					: await updateContact(editor.id, changes(draft, editor.original));
+					: await updateContact(current.id, changes(draft, current.original));
 			if (disposed) return false;
 
 			contacts =
@@ -214,18 +200,9 @@
 					? [...contacts, saved]
 					: contacts.map((contact) => (contact.id === id ? saved : contact));
 
-			if (panel !== editor) return false;
-
-			if (editor.mode === 'edit') editor.original = saved;
-			else draft.created = true;
-			draft.name = saved.name;
-			draft.email = saved.email;
-			draft.phone = saved.phone ?? '';
-			draft.notes = saved.notes ?? '';
-
-			return true;
+			return editor === current;
 		} catch (error) {
-			if (!disposed && panel === editor) {
+			if (!disposed && editor === current) {
 				draft.error =
 					error instanceof ApiError && (error.status === 409 || error.status === 422)
 						? error.message
@@ -238,81 +215,37 @@
 		}
 	}
 
-	function finishNew(draft: Draft): void {
-		if (panel?.mode !== 'new' || panel.draft !== draft) return;
-
-		const restoreFocus = document.getElementById(`${formId}-new`)?.contains(document.activeElement);
-		panel = null;
-		if (restoreFocus) void tick().then(() => newButton?.focus());
+	function clearSelection(): void {
+		selectedIds.clear();
+		void focusFallback();
 	}
 
-	function disarmForLink(event: MouseEvent): void {
-		if (
-			event.defaultPrevented ||
-			event.button ||
-			event.metaKey ||
-			event.ctrlKey ||
-			event.shiftKey ||
-			event.altKey
-		)
-			return;
+	async function removeSelection() {
+		const targets = deleteTargets;
+		if (!targets) return;
 
-		const link = event.composedPath().find((node) => node instanceof HTMLAnchorElement);
-		if (!link?.hasAttribute('href') || link.hasAttribute('download')) return;
+		for (const [index, { id }] of targets.entries()) {
+			if (disposed || deleteTargets !== targets) return;
 
-		const target = link.target.toLowerCase();
-		if (
-			target &&
-			target !== '_self' &&
-			!(window.parent === window && (target === '_parent' || target === '_top'))
-		)
-			return;
-		if (link.protocol !== 'http:' && link.protocol !== 'https:') return;
-		if (link.origin === page.url.origin && link.pathname === page.url.pathname) return;
+			writes.add(id);
+			try {
+				await deleteContact(id);
+				if (disposed) return;
 
-		// SvelteKit can yield for a repaint before beforeNavigate runs.
-		deleteEpoch += 1;
-	}
+				selectedIds.delete(id);
+				contacts = contacts.filter((item) => item.id !== id);
+			} catch {
+				if (disposed || deleteTargets !== targets) return;
 
-	async function removeContact(id: string, epoch: number): Promise<boolean> {
-		if (
-			disposed ||
-			departing ||
-			epoch !== deleteEpoch ||
-			writes.has(id) ||
-			(panel?.mode === 'edit' && panel.id === id) ||
-			!matching.some((item) => item.id === id)
-		)
-			return false;
-
-		writes.add(id);
-		deleteErrors.delete(id);
-		try {
-			await deleteContact(id);
-			if (disposed) return false;
-
-			const row = document.getElementById(rowId(id));
-			const restoreFocus = row?.contains(document.activeElement);
-			const index = matching.findIndex((item) => item.id === id);
-			const neighbor = index < 0 ? undefined : (matching[index + 1] ?? matching[index - 1]);
-			if (panel && panel.mode !== 'new' && panel.id === id) panel = null;
-			contacts = contacts.filter((contact) => contact.id !== id);
-
-			if (restoreFocus) {
-				await tick();
-				if (document.activeElement === document.body || row?.contains(document.activeElement)) {
-					const toggle = neighbor && document.getElementById(`${rowId(neighbor.id)}-toggle`);
-					(toggle || newButton)?.focus();
-				}
+				deleteTargets = targets.slice(index);
+				throw new Error(
+					index
+						? m.contacts_delete_partial({ deleted: index, total: targets.length })
+						: m.contacts_delete_failed()
+				);
+			} finally {
+				writes.delete(id);
 			}
-
-			return true;
-		} catch {
-			if (!disposed) deleteErrors.set(id, m.contacts_delete_failed());
-
-			return false;
-		} finally {
-			writes.delete(id);
 		}
 	}
 
@@ -326,35 +259,16 @@
 	function duration(ms: number): number {
 		return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : ms;
 	}
-
-	async function logout() {
-		if (signingOut) return;
-
-		signingOut = true;
-		signOutError = '';
-
-		try {
-			await authRequest('logout');
-			await goto('/login', { refreshAll: true });
-		} catch (error) {
-			signOutError = error instanceof Error ? error.message : m.sign_out_failed();
-		} finally {
-			signingOut = false;
-		}
-	}
 </script>
 
 <svelte:head><title>{m.contacts_title()} — PhotoProofing</title></svelte:head>
-<svelte:document onclickcapture={disarmForLink} />
-
-<AppHeader onsignout={logout} studioName={data.settings?.studioName} />
 
 {#snippet fields(draft: Draft, busy: boolean)}
 	<form
 		id={draft.form}
 		onsubmit={(event) => {
 			event.preventDefault();
-			if (panel?.mode !== 'details' && panel?.draft === draft) saveButton?.activate();
+			if (editor?.draft === draft) saveButton?.activate();
 		}}
 	>
 		<fieldset disabled={busy} class="grid min-w-0 gap-4">
@@ -412,33 +326,7 @@
 	</form>
 {/snippet}
 
-{#snippet actions(draft: Draft, isNew: boolean, busy: boolean, disabled = busy)}
-	{#key draft}
-		<Button variant="outline" disabled={busy} onclick={() => void cancelEditor()}>
-			{m.common_cancel()}
-		</Button>
-		<ActionButton
-			bind:this={saveButton}
-			form={draft.form}
-			{disabled}
-			labels={isNew
-				? {
-						idle: m.contacts_create(),
-						pending: m.contacts_creating(),
-						succeeded: m.contacts_created()
-					}
-				: { idle: m.studio_save(), pending: m.studio_saving(), succeeded: m.studio_saved() }}
-			onaction={() => submitContact(draft)}
-			onsettled={isNew ? () => finishNew(draft) : undefined}
-		/>
-	{/key}
-{/snippet}
-
-<main bind:this={root} class="flex flex-1 flex-col px-3.5 pt-4 pb-12 sm:px-8 sm:pt-6">
-	{#if signOutError}
-		<p role="alert" class="mb-3 text-sm text-danger">{signOutError}</p>
-	{/if}
-
+<main bind:this={root} class="flex flex-1 flex-col workspace-inset pt-4 pb-24 sm:pt-6">
 	<div class="mb-4 flex flex-wrap items-end justify-between gap-3 sm:mb-6">
 		<div>
 			<h1 class="text-[1.875rem] leading-[1.08] sm:text-[2.5rem]">{m.contacts_title()}</h1>
@@ -449,6 +337,7 @@
 			{/if}
 		</div>
 		<Button bind:ref={newButton} onclick={() => openEditor()} disabled={loadFailed}>
+			<Plus size={16} aria-hidden="true" />
 			{m.contacts_new()}
 		</Button>
 	</div>
@@ -482,22 +371,7 @@
 			<h2 class="text-[1.625rem] text-foreground sm:text-[1.75rem]">{m.contacts_load_failed()}</h2>
 		</EmptyState>
 	{:else}
-		{#if panel?.mode === 'new'}
-			<section
-				id="{formId}-new"
-				aria-labelledby="{formId}-new-heading"
-				class="mb-3 grid gap-4 rounded-card border border-border bg-panel p-4 sm:p-5"
-				transition:slide={{ duration: duration(200) }}
-			>
-				<h2 id="{formId}-new-heading" class="text-xl">{m.contacts_new_heading()}</h2>
-				{@render fields(panel.draft, writes.has(null) || panel.draft.created)}
-				<div class="flex flex-wrap justify-end gap-2">
-					{@render actions(panel.draft, true, writes.has(null))}
-				</div>
-			</section>
-		{/if}
-
-		{#if contacts.length === 0 && panel?.mode !== 'new'}
+		{#if contacts.length === 0}
 			<EmptyState variant="plain" class="rounded-card py-14">
 				<Users size={28} aria-hidden="true" class="text-muted-foreground" />
 				<h2 class="text-[1.625rem] text-foreground sm:text-[1.75rem]">{m.contacts_empty()}</h2>
@@ -522,150 +396,155 @@
 			class="grid gap-2"
 		>
 			{#each matching as item (item.id)}
-				{@const active = panel && panel.mode !== 'new' && panel.id === item.id ? panel : null}
-				{@const detailsId = `${rowId(item.id)}-details`}
-				<li
-					id={rowId(item.id)}
-					class="min-w-0 rounded-card border border-border bg-panel"
-					out:removal={item.id}
-				>
-					<div class="flex flex-wrap items-start gap-2 p-3 sm:items-center sm:gap-3 sm:p-3.5">
-						<span
-							aria-hidden="true"
-							class="grid size-9 shrink-0 place-items-center rounded-full bg-border-strong/55 text-xs font-semibold tracking-wide text-foreground"
-						>
-							{contactInitials(item.name)}
-						</span>
-						<div class="grid min-w-0 flex-1 gap-0.5">
-							<p class="truncate text-sm font-semibold text-foreground">{item.name}</p>
-							<p class="truncate text-xs text-muted-foreground">{item.email}</p>
-							{#if item.phone}<p class="truncate text-xs text-muted-foreground">
-									{item.phone}
-								</p>{/if}
-							{#if item.galleries.length > 0}
-								<div class="mt-1 flex min-w-0 flex-wrap gap-1">
-									{#each item.galleries as linked (linked.id)}
-										<span
-											class="max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground"
-										>
-											{linked.title ?? m.gallery_untitled()}
-										</span>
-									{/each}
-								</div>
-							{/if}
-						</div>
-						<div class="ml-auto flex flex-initial flex-wrap justify-end gap-1 sm:gap-2">
-							{#if active?.mode !== 'edit'}
-								<Button
-									id="{rowId(item.id)}-edit"
-									variant="ghost"
-									size="sm"
-									aria-label={m.contacts_edit_label({ name: item.name })}
-									disabled={writes.has(item.id)}
-									class="min-w-11 gap-2 max-sm:px-0"
-									onclick={() => openEditor(item)}
-								>
-									<Pencil size={16} aria-hidden="true" />
-									<span class="max-sm:sr-only">{m.contacts_edit()}</span>
-								</Button>
-								{#each [deleteEpoch] as epoch (epoch)}
-									<ActionButton
-										variant="ghost"
-										labels={{ idle: m.action_delete(), pending: m.contacts_deleting() }}
-										idleLabel={m.contacts_delete_title({ name: item.name })}
-										confirmation={{
-											duration: 3000,
-											cancelLabel: m.common_cancel(),
-											cancelAccessibleLabel: m.contacts_cancel_delete({ name: item.name }),
-											description: m.contacts_delete_body()
-										}}
-										compactOnMobile
-										disabled={writes.has(item.id) || departing}
-										class="min-w-11 text-danger sm:px-3.5"
-										onaction={() => removeContact(item.id, epoch)}
-									>
-										{#snippet icon()}<Trash2 size={16} aria-hidden="true" />{/snippet}
-									</ActionButton>
-								{/each}
-								<Button
-									id="{rowId(item.id)}-toggle"
-									variant="ghost"
-									size="sm"
-									class="min-w-11 px-0"
-									aria-expanded={active !== null}
-									aria-controls={detailsId}
-									aria-label={active
-										? m.contacts_hide_details({ name: item.name })
-										: m.contacts_show_details({ name: item.name })}
-									onclick={() => toggleDetails(item.id)}
-								>
-									<ChevronDown
-										size={18}
-										aria-hidden="true"
-										class="transition-transform motion-reduce:transition-none {active
-											? 'rotate-180'
-											: ''}"
-									/>
-								</Button>
-							{/if}
-						</div>
-					</div>
-					{#if deleteErrors.has(item.id)}
-						<p role="alert" class="px-3.5 pb-3.5 text-sm text-danger">
-							{deleteErrors.get(item.id)}
-						</p>
-					{/if}
-					<div id={detailsId} inert={!active} aria-hidden={!active}>
-						{#if active}
-							<div
-								class="grid gap-4 border-t border-border p-3.5 sm:p-5"
-								transition:slide={{ duration: duration(200) }}
-							>
-								{#if active.mode === 'edit'}
-									{@render fields(active.draft, writes.has(item.id))}
-									<div class="flex flex-wrap justify-end gap-2">
-										{@render actions(
-											active.draft,
-											false,
-											writes.has(item.id),
-											writes.has(item.id) ||
-												Object.keys(changes(active.draft, active.original)).length === 0
-										)}
-									</div>
-								{:else if item.notes}
-									<div class="grid gap-1.5">
-										<p class="text-xs font-semibold text-muted-foreground uppercase">
-											{m.contacts_notes()}
-										</p>
-										<p class="text-sm [overflow-wrap:anywhere] whitespace-pre-wrap">
-											{item.notes}
-										</p>
+				<li class="min-w-0 rounded-card border border-border bg-panel" out:removal={item.id}>
+					<div
+						class="group/contact flex flex-wrap items-start gap-2 p-3 sm:items-center sm:gap-3 sm:p-3.5"
+					>
+						<label class="relative grid h-9 w-7 shrink-0 cursor-pointer place-items-center">
+							<Checkbox
+								aria-label={m.tile_select({ name: item.name })}
+								checked={selectedIds.has(item.id)}
+								disabled={writes.has(item.id)}
+								onchange={(event) => {
+									if (event.currentTarget.checked) selectedIds.add(item.id);
+									else selectedIds.delete(item.id);
+								}}
+								class="peer size-5 cursor-pointer appearance-none rounded-full border border-border-strong bg-input transition-opacity checked:border-foreground checked:bg-foreground hover:bg-background focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none {selection.length
+									? ''
+									: 'group-hover/contact:opacity-100 [@media(hover:hover)]:opacity-0'}"
+							/>
+							<Check
+								size={14}
+								aria-hidden="true"
+								class="pointer-events-none absolute text-inverse opacity-0 peer-checked:opacity-100"
+							/>
+						</label>
+						<ContactIdentity contact={item}>
+							{#snippet details()}
+								{#if item.galleries.length > 0}
+									<div class="mt-1 flex min-w-0 flex-wrap gap-1">
+										{#each item.galleries as linked (linked.id)}
+											<a
+												href="/dashboard/{encodeURIComponent(linked.id)}"
+												class="max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 text-xs text-foreground transition-colors hover:bg-border/60"
+											>
+												{linked.title ?? m.gallery_untitled()}
+											</a>
+										{/each}
 									</div>
 								{/if}
-								<div class="grid gap-2">
-									<p class="text-xs font-semibold text-muted-foreground uppercase">
-										{m.contacts_linked_galleries()}
+								{#if item.notes}
+									<p
+										class="mt-1 line-clamp-2 text-sm [overflow-wrap:anywhere] text-muted-foreground"
+									>
+										{item.notes}
 									</p>
-									{#if item.galleries.length === 0}
-										<p class="text-sm text-muted-foreground">{m.contacts_no_galleries()}</p>
-									{:else}
-										<div class="flex flex-wrap gap-2">
-											{#each item.galleries as linked (linked.id)}
-												<a
-													href="/dashboard/{encodeURIComponent(linked.id)}"
-													class="inline-flex max-w-full items-center rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-border/60"
-												>
-													<span class="truncate">{linked.title ?? m.gallery_untitled()}</span>
-												</a>
-											{/each}
-										</div>
-									{/if}
-								</div>
-							</div>
-						{/if}
+								{/if}
+							{/snippet}
+						</ContactIdentity>
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label={m.contacts_edit_label({ name: item.name })}
+							disabled={writes.has(item.id)}
+							class="min-w-11 max-sm:px-0"
+							onclick={() => openEditor(item)}
+						>
+							<Pencil size={16} aria-hidden="true" />
+							<span class="max-sm:sr-only">{m.contacts_edit()}</span>
+						</Button>
 					</div>
 				</li>
 			{/each}
 		</ul>
 	{/if}
 </main>
+
+{#if editor}
+	{@const current = editor}
+	{@const draft = current.draft}
+	{@const busy = writes.has(current.mode === 'edit' ? current.id : null)}
+	<Dialog
+		formMotion
+		dismissible={!busy}
+		labelledby="{draft.form}-title"
+		onclose={closeEditor}
+		class="m-auto max-h-[calc(100dvh-2rem)] w-[min(34rem,calc(100vw-2rem))] overflow-auto rounded-dialog border border-border bg-panel p-4 text-foreground shadow-xl sm:p-6"
+	>
+		{#snippet children(dismiss, complete)}
+			<div class="grid gap-4">
+				<h2 id="{draft.form}-title" class="text-xl">
+					{current.mode === 'new'
+						? m.contacts_new_heading()
+						: m.contacts_edit_label({ name: current.original.name })}
+				</h2>
+				{@render fields(draft, busy)}
+				<div class="flex flex-wrap justify-end gap-2">
+					<Button variant="outline" disabled={busy} onclick={dismiss}>{m.common_cancel()}</Button>
+					<ActionButton
+						bind:this={saveButton}
+						form={draft.form}
+						disabled={busy ||
+							(current.mode === 'edit' &&
+								Object.keys(changes(draft, current.original)).length === 0)}
+						labels={current.mode === 'new'
+							? { idle: m.contacts_create(), pending: m.contacts_creating() }
+							: { idle: m.studio_save(), pending: m.studio_saving() }}
+						onaction={() => submitContact(draft)}
+						onsettled={complete}
+					/>
+				</div>
+			</div>
+		{/snippet}
+	</Dialog>
+{/if}
+
+{#if selection.length > 0}
+	<SelectActions
+		count={selection.length}
+		total={selectable.length}
+		rail="dashboard"
+		onselectall={() => {
+			for (const { id } of selectable) selectedIds.add(id);
+		}}
+		onunselectall={clearSelection}
+		onexit={clearSelection}
+		canEscape={() =>
+			!deleteTargets &&
+			!editor &&
+			!document.querySelector('[data-slot="popover"] > button[aria-expanded="true"]')}
+	>
+		{#snippet actions()}
+			<Button
+				variant="destructive"
+				size="sm"
+				class="min-h-9! gap-1.5"
+				onclick={() => (deleteTargets = selection)}
+			>
+				<Trash2 size={16} aria-hidden="true" />
+				<span class="max-sm:sr-only">{m.action_delete()}</span>
+			</Button>
+		{/snippet}
+	</SelectActions>
+{/if}
+
+{#if deleteTargets}
+	<ConfirmDialog
+		title={deleteTargets.length === 1
+			? m.contacts_delete_title({ name: deleteTargets[0].name })
+			: m.contacts_delete_many({ count: deleteTargets.length })}
+		confirmLabel={m.action_delete()}
+		destructive
+		onconfirm={removeSelection}
+		onclose={() => {
+			deleteTargets = null;
+			if (!selection.length) void focusFallback();
+		}}
+	>
+		{#snippet description()}
+			<p class="text-sm text-muted-foreground">
+				{deleteTargets?.length === 1 ? m.contacts_delete_body() : m.contacts_delete_many_body()}
+			</p>
+		{/snippet}
+	</ConfirmDialog>
+{/if}

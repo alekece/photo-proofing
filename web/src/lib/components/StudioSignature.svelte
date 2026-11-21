@@ -7,6 +7,7 @@
 		logo = null,
 		signature = 'name',
 		size = DEFAULT_SIZE,
+		textColor = null,
 		stacked = false,
 		class: className = ''
 	}: {
@@ -16,6 +17,7 @@
 		signature?: Signature;
 		/** Size step from Settings; the default step is the original size. */
 		size?: number;
+		textColor?: string | null;
 		/** Logo above the name, as on the empty "photos on their way" page. */
 		stacked?: boolean;
 		class?: string;
@@ -49,6 +51,7 @@
 		{/if}
 		{#if showName}
 			<span
+				style:color={textColor}
 				class="text-[calc(0.62em*var(--signature-scale))] font-semibold tracking-[0.22em] whitespace-nowrap uppercase not-italic"
 				>{name}</span
 			>

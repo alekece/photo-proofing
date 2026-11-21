@@ -1,10 +1,9 @@
-import { render, screen, waitFor, within } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Gallery } from '#lib/gallery/api.js';
-import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
 import { toasts } from './ui/Toast/toasts.svelte.js';
 import GallerySettingsPanel from './GallerySettingsPanel.svelte';
 
@@ -19,12 +18,7 @@ const gallery = {
 	states: ['draft']
 } as Gallery;
 
-function setup(
-	over: Partial<Gallery> = {},
-	saves = true,
-	shareToken: string | null = null,
-	active = true
-) {
+function setup(over: Partial<Gallery> = {}, saves = true, shareToken: string | null = null) {
 	const onsave = vi.fn().mockResolvedValue(saves);
 	const schedule = vi.fn();
 	const cancel = vi.fn();
@@ -35,7 +29,6 @@ function setup(
 
 	const view = render(GallerySettingsPanel, {
 		gallery: { ...gallery, ...over },
-		active,
 		shareToken,
 		origin: 'https://pp.test',
 		onsave,
@@ -74,65 +67,14 @@ afterEach(() => {
 });
 
 describe('GallerySettingsPanel', () => {
-	it('shows live client media beside one-third controls at lg and opens the same full preview', async () => {
-		const photo = {
-			id: 'p1',
-			original_name: 'Ceremony.jpg',
-			size: 100,
-			width: 1200,
-			height: 800,
-			status: 'ready',
-			favorited_at: null,
-			created_at: '2026-06-01T10:00:00Z'
-		};
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async () => Response.json([photo]))
-		);
-		const { container, user, rerender } = setup({ hero_id: 'p1' });
-		await rerender({
-			settings: { ...DEFAULT_SETTINGS, studioName: 'Studio Lune' },
-			heroRevision: 3
-		});
+	it('shows an empty numeric allowance and does not request preview media', () => {
+		setup({ hero_id: 'p1' });
+		const allowance = screen.getByRole('spinbutton', { name: 'Included photos' });
 
-		const preview = screen.getByRole('region', { name: 'Client preview' });
-		const split = container.querySelector('[data-slot="settings-split"]') as HTMLElement;
-		expect(split.className).toContain('lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]');
-		const stage = preview.closest('[data-slot="settings-preview"]') as HTMLElement;
-		expect(stage.className).toContain('hidden');
-		expect(stage.className).toContain('lg:block');
-		expect(split.contains(screen.getByRole('heading', { name: 'General' }))).toBe(true);
-		await within(preview).findByRole('button', { name: /open proof 1 of 1/i });
-		expect(within(preview).getAllByText('Studio Lune').length).toBeGreaterThan(0);
-		expect(within(preview).getByRole('img', { name: 'Gallery cover' }).getAttribute('src')).toBe(
-			'/api/v1/galleries/g1/photos/p1/preview?revision=3'
-		);
-		await user.click(screen.getByRole('switch', { name: 'Enable watermarks' }));
-		await waitFor(() =>
-			expect(
-				within(preview)
-					.getByRole('button', { name: /open proof 1 of 1/i })
-					.querySelector('img')
-					?.getAttribute('src')
-			).toContain('watermark=true')
-		);
-		await user.click(within(preview).getByRole('button', { name: 'Open full preview' }));
-		const dialog = screen.getByRole('dialog', { name: 'Client preview' });
-		await within(dialog).findByRole('button', { name: /open proof 1 of 1/i });
-		expect(
-			within(dialog).getByRole('img', { name: 'Gallery cover' }).getAttribute('src')
-		).toContain('revision=3');
-		expect(within(dialog).getAllByText('Studio Lune').length).toBeGreaterThan(0);
-		await user.click(within(dialog).getByRole('button', { name: 'Close preview' }));
-		expect(screen.queryByRole('dialog', { name: 'Client preview' })).toBeNull();
-	});
-
-	it('does not load a client preview for an inactive Settings panel', async () => {
-		const { rerender } = setup({}, true, null, false);
+		expect(allowance).toHaveProperty('value', '');
+		expect(allowance.hasAttribute('placeholder')).toBe(false);
 		expect(screen.queryByRole('region', { name: 'Client preview' })).toBeNull();
 		expect(fetch).not.toHaveBeenCalled();
-		await rerender({ active: true });
-		expect(screen.getByRole('region', { name: 'Client preview' })).toBeTruthy();
 	});
 
 	it('splits settings into General, Privacy & Protection, and Actions cards', async () => {
@@ -367,7 +309,7 @@ describe('GallerySettingsPanel', () => {
 		expect(codeInput.readOnly).toBe(true);
 		expect(codeInput.value).toBe('042819');
 		expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull();
-		expect(screen.getByText('Locked after sharing')).toBeTruthy();
+		expect(screen.queryByText('Locked after sharing')).toBeNull();
 
 		const copyButtons = screen.getAllByRole('button', { name: 'Copy' });
 		await sharedWithCode.user.click(copyButtons[1]!);
@@ -383,9 +325,8 @@ describe('GallerySettingsPanel', () => {
 		);
 		const disabledSwitch = screen.getByRole('switch', { name: 'Require access code' });
 		expect((disabledSwitch as HTMLButtonElement).disabled).toBe(true);
-		expect(
-			screen.getByText('Shared without an access code — cannot be added after sharing')
-		).toBeTruthy();
+		const reason = screen.getByText('Cannot add a code after sharing.');
+		expect(disabledSwitch.getAttribute('aria-describedby')).toBe(reason.id);
 		expect((await axe(sharedWithoutCode.container)).violations).toEqual([]);
 	});
 

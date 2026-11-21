@@ -29,7 +29,7 @@
 	align="end"
 	placement="right"
 	class="relative {className}"
-	panelClass="fixed top-14 right-3 left-3 w-auto text-foreground sm:absolute sm:top-0 sm:right-auto sm:left-full sm:mt-0 sm:ml-2 sm:w-[min(22rem,calc(100vw-1.5rem))]"
+	panelClass="fixed top-14 right-3 left-3 flex max-h-[calc(100dvh-4.25rem)] w-auto flex-col text-foreground sm:absolute sm:top-0 sm:right-auto sm:left-full sm:mt-0 sm:ml-2 sm:max-h-[calc(100dvh-2rem)] sm:w-[min(22rem,calc(100vw-1.5rem))]"
 >
 	{#snippet trigger()}
 		<Bell size={18} aria-hidden="true" />
@@ -41,7 +41,7 @@
 			>
 		{/if}
 	{/snippet}
-	<div class="flex items-center justify-between px-3 py-2">
+	<div class="flex shrink-0 items-center justify-between px-3 py-2">
 		<span class="text-sm font-semibold">{m.header_notifications()}</span>
 		<button
 			type="button"
@@ -51,13 +51,13 @@
 		>
 	</div>
 	{#if unread.length === 0}
-		<div class="flex flex-col items-center gap-1 px-6 pt-4 pb-6 text-center">
+		<div class="flex flex-col items-center gap-1 overflow-y-auto px-6 pt-4 pb-6 text-center">
 			<img src={emptyIllustration} alt="" width="128" height="128" class="size-32" />
 			<p class="text-sm font-semibold">{m.notifications_none()}</p>
 			<p class="text-xs text-muted-foreground">{m.notifications_none_hint()}</p>
 		</div>
 	{:else}
-		<ul class="max-h-96 overflow-y-auto">
+		<ul class="max-h-96 min-h-0 overflow-y-auto">
 			{#each unread as item (item.id)}
 				<li>
 					<a

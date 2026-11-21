@@ -4,14 +4,16 @@ import { expect, test } from '@playwright/test';
 
 test.use({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
 
-test('saves a real watermark and keeps Settings usable on desktop and phone', async ({ page }) => {
+test('saves real watermark and signature settings and keeps the editor usable on desktop and phone', async ({
+	page
+}) => {
 	test.setTimeout(60_000);
 	await page.goto('/settings');
 	await expect(page).toHaveURL(/\/login$/);
 	const setup = await page
 		.getByRole('heading', { name: 'Create your photographer account' })
 		.isVisible();
-	const password = 'synthetic settings trial password';
+	const password = 'synthetic trial password only';
 	await page.getByLabel('Email', { exact: true }).fill('trial@example.test');
 	await page.getByLabel('Password', { exact: true }).fill(password);
 	if (setup) await page.getByLabel('Confirm password', { exact: true }).fill(password);
@@ -19,7 +21,11 @@ test('saves a real watermark and keeps Settings usable on desktop and phone', as
 		.getByRole('button', { name: setup ? 'Create account' : 'Sign in', exact: true })
 		.click();
 	await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
+	const mounted = page.waitForRequest(
+		(request) => new URL(request.url()).pathname === '/api/v1/events'
+	);
 	await page.goto('/settings');
+	await mounted;
 	await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
 	await page.getByLabel('Studio name').fill('Studio Juniper');
 
@@ -46,22 +52,33 @@ test('saves a real watermark and keeps Settings usable on desktop and phone', as
 	await expect(remove).toBeVisible();
 
 	const watermark = page.getByRole('tab', { name: 'Watermark' });
+	const signature = page.getByRole('tab', { name: 'Cover signature' });
 	const preview = page.getByRole('img', { name: 'Preview of a proof with the watermark' });
 	const both = page.getByRole('button', { name: 'Name and logo' });
 	const hex = page.getByLabel('Hex color');
 	const opacity = page.getByRole('slider', { name: 'Watermark opacity' });
+	await signature.click();
+	await page.getByRole('button', { name: 'Both', exact: true }).click();
+	await page.getByLabel('Text color', { exact: true }).fill('#F6CCB4');
 	await watermark.click();
 	await both.click();
 	await hex.fill('#A12B3C');
 	await opacity.fill('50');
-	await page.getByRole('button', { name: 'Save changes' }).click();
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Saved', exact: true })).toBeVisible();
 	await page.reload();
+	await expect(async () => {
+		if ((await signature.getAttribute('aria-selected')) === 'false') await signature.click();
+		await expect(signature).toHaveAttribute('aria-selected', 'true', { timeout: 500 });
+	}).toPass({ timeout: 5000 });
+	const printedName = page
+		.getByRole('img', { name: 'Preview of a client cover with the signature' })
+		.getByText('Studio Juniper', { exact: true });
+	await expect(printedName).toHaveCSS('color', 'rgb(246, 204, 180)');
 	await watermark.click();
 	await expect(hex).toHaveValue('#A12B3C');
 	await expect(opacity).toHaveValue('50');
 	await expect(both).toHaveAttribute('aria-pressed', 'true');
-	await expect(both).toHaveCSS('background-color', 'rgb(247, 227, 196)');
 	const logo = both.locator('img');
 	await expect(logo).toHaveCSS('filter', 'none');
 	await expect(logo).toHaveCSS('box-shadow', 'none');
@@ -85,7 +102,6 @@ test('saves a real watermark and keeps Settings usable on desktop and phone', as
 
 	const directory = process.env.PP_SETTINGS_CAPTURE_DIR;
 	if (directory) await mkdir(directory, { recursive: true });
-	const controls = page.locator('[data-settings-controls]');
 	for (const [view, width, height] of [
 		['desktop', 1280, 800],
 		['phone', 390, 844]
@@ -96,11 +112,10 @@ test('saves a real watermark and keeps Settings usable on desktop and phone', as
 			true
 		);
 		const previewBox = (await preview.boundingBox())!;
-		const controlsBox = (await controls.boundingBox())!;
-		if (view === 'desktop') expect(previewBox.x).toBeGreaterThan(controlsBox.x);
-		else expect(previewBox.y).toBeGreaterThanOrEqual(controlsBox.y + controlsBox.height);
+		const hexBox = (await hex.boundingBox())!;
+		expect(previewBox.y).toBeGreaterThanOrEqual(hexBox.y + hexBox.height);
 		await hex.scrollIntoViewIfNeeded();
-		await expect(page.getByRole('button', { name: 'Save changes' })).toBeInViewport();
+		await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
 		await expect(page.getByRole('button', { name: 'Cancel' })).toBeInViewport();
 
 		if (directory) {
@@ -113,21 +128,21 @@ test('saves a real watermark and keeps Settings usable on desktop and phone', as
 		}
 	}
 
-	await page.getByRole('button', { name: /language/i }).click();
-	await page.getByRole('radio', { name: 'Français' }).click();
+	await page.getByRole('tab', { name: 'General' }).click();
+	await expect(page.getByRole('radio', { name: 'English' })).toBeInViewport({ ratio: 1 });
+	await expect(page.getByRole('radio', { name: 'Français' })).toBeInViewport({ ratio: 1 });
+	const frenchMounted = page.waitForRequest(
+		(request) => new URL(request.url()).pathname === '/api/v1/events'
+	);
+	await page.getByRole('radio', { name: 'English' }).press('ArrowRight');
+	await frenchMounted;
 	await expect(page.getByRole('heading', { name: 'Réglages' })).toBeVisible();
 	const french = page.getByRole('tablist', { name: 'Sections des réglages' });
-	await french.getByRole('tab', { name: 'Studio' }).focus();
+	await french.getByRole('tab', { name: 'Général' }).focus();
 	await page.keyboard.press('End');
-	const quality = french.getByRole('tab', { name: 'Qualité des photos' });
-	await expect(quality).toBeFocused();
-	await expect(quality).toHaveAttribute('aria-selected', 'true');
-	const strip = await french.evaluate(({ scrollWidth, clientWidth }) => ({
-		scrollWidth,
-		clientWidth
-	}));
-	expect(strip.scrollWidth).toBeGreaterThan(strip.clientWidth);
-	await expect.poll(() => french.evaluate((strip) => strip.scrollLeft)).toBeGreaterThan(0);
+	const frenchSignature = french.getByRole('tab', { name: 'Signature de couverture' });
+	await expect(frenchSignature).toBeFocused();
+	await expect(frenchSignature).toHaveAttribute('aria-selected', 'true');
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 	await page.keyboard.press('Home');
 	await page.keyboard.press('ArrowRight');
@@ -135,7 +150,7 @@ test('saves a real watermark and keeps Settings usable on desktop and phone', as
 	await expect(page.getByLabel('Code hexadécimal')).toHaveValue('#A12B3C');
 	await expect(page.getByRole('button', { name: 'Enregistrer' })).toBeInViewport();
 	await expect(page.getByRole('button', { name: 'Annuler' })).toBeInViewport();
-	await page.getByRole('button', { name: /langue/i }).click();
+	await french.getByRole('tab', { name: 'Général' }).click();
 	await page.getByRole('radio', { name: 'English' }).click();
 	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 });

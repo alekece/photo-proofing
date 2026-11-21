@@ -18,7 +18,16 @@ Proof photos have shared plain-text conversations in the client and photographer
 
 A photo with prepared clean images can be starred as the gallery hero, used on the dashboard and client cover. Settings (`GET/PUT /api/v1/settings`, `GET /api/v1/settings/logo`) save the studio name, normalized PNG logo, watermark (name/logo/both, repeat/one of nine positions, ten sizes) and cover signature (name/logo/both/none, ten sizes). The client cover and Preview draw the saved signature over the clean 2000 px preview, with the logo above the name for Both; no proof original is exposed. Shared logo access requires an available private link and does not expose private settings.
 
-Every proof upload prepares clean and watermarked thumbnail/preview pairs. Gallery switches choose existing files instantly, without jobs or photo resets. Only client grids/viewers and the client preview (owner routes with `?watermark=true`) use marked files; ordinary photographer surfaces and Settings samples stay clean. Effective watermark changes regenerate only marked copies in all galleries, including disabled ones. Stale marked proofs stay hidden from enabled clients, while clean covers, disabled clients and owner images remain usable with processing/failure/retry feedback. Finals, originals and exports stay unchanged. Proof responses use no-store; published render revisions refresh mounted images.
+The [workspace visual refresh](docs/designs/2026-11-21-workspace-visual-refresh-design.md)
+keeps search, sort, filters and scroll when returning from a gallery. The private
+Photos library searches by gallery name and opens a viewer over its filtered
+grid; downloads and deletions stay in the selection bar. Studio has an inline
+Comments tab. In [Settings](docs/designs/ui/screens/settings.md), General holds
+the studio identity, language and proof quality. The cover signature can
+override the cover color for the studio name without recoloring the logo or
+regenerating proofs. Clients can swipe between photos on a phone or use arrows.
+
+Every proof upload prepares clean and watermarked thumbnail/preview pairs. Gallery switches choose existing files instantly, without jobs or photo resets. Only client grids/viewers and the client preview (owner routes with `?watermark=true`) use marked files; ordinary photographer surfaces and Settings samples stay clean. Effective watermark changes regenerate only marked copies in all galleries, including disabled ones. Stale marked proofs stay hidden from enabled clients, while clean covers, disabled clients and owner images remain usable with processing/failure/retry feedback. Finals, originals and exports are not watermarked. Private photo images use `Cache-Control: no-store`; published render revisions refresh mounted proofs.
 
 Favorites offers **Download**, disabled **Downloading…** during preparation, with no separate download-started message. Tile and viewer actions stream an authenticated owner's unchanged proof original (`GET /api/v1/galleries/<id>/photos/<photo>/download`); client links never serve originals. Whole and select-mode subset selections use `POST /api/v1/galleries/<id>/export`, even for one selected photo: an omitted body snapshots all favorite proofs, while `{ "photo_ids": [...] }` snapshots an explicit nonempty favorite subset. Invalid, duplicate or foreign IDs are refused. One ZIP preparation slot per gallery rejects competing requests with 409. The worker archives exactly the persisted snapshot; ZIPs stay available for 15 min, whether or not they were downloaded; asking again for an unchanged selection reuses the ready ZIP (`200`) instead of building a new one (`202`). ZIPs are capped at 2 GiB (see `[export]`).
 
@@ -289,6 +298,15 @@ PP_E2E_URL=http://localhost:15163 pnpm --dir web test:auth
 ```
 
 Use a fresh disposable database to exercise initial setup; reruns verify its persisted `trial@example.test` account with synthetic test credentials. The harness does not reset databases. For the short-idle scenario, start the API with `PP_SESSION_IDLE_TIMEOUT=10s` and run with `PP_E2E_IDLE_MS=10000`; otherwise that scenario is explicitly skipped. `PP_BROWSER_PATH` selects a Chrome/Chromium binary. Browser artifacts go to `/tmp/pp63-playwright-results` by default, override with `PP_E2E_OUTPUT`. Unit/component tests do not substitute for this browser/API/database check. Compose proxy and persistence checks are additional integration evidence, not automatic release acceptance.
+
+The workspace navigation smoke tests use a separate, read-only synthetic API.
+Run these commands in separate terminals; they do not need a database or real photos:
+
+```bash
+node web/e2e/workspace-fixture.mjs
+PP_API_INTERNAL_URL=http://127.0.0.1:15274 PP_API_PROXY_TARGET=http://127.0.0.1:15274 pnpm --dir web dev --host 127.0.0.1 --port 15273 --strictPort
+PP_E2E_WORKSPACE_FIXTURE=1 PP_E2E_URL=http://127.0.0.1:15273 pnpm --dir web test:auth workspace-navigation.spec.ts
+```
 
 For a Rust build-output reset, use `cargo clean`. The photo-comment layout regression runs against a disposable shared gallery containing at least
 one ready proof, in English. It checks desktop, portrait phone and short landscape viewports:

@@ -21,7 +21,7 @@ describe('CommentsClient', () => {
 			.mockResolvedValueOnce(Response.json({ ...comment, body: 'Changed' }))
 			.mockResolvedValueOnce(new Response(null, { status: 204 }));
 		const client = new CommentsClient('/api/v1/galleries/shared/token', fetcher);
-		expect(await client.counts()).toEqual(new Map([['p1', 2]]));
+		expect(await client.summaries()).toEqual(new Map([['p1', { count: 2 }]]));
 		expect(await client.add('p1', 'Nice')).toEqual(comment);
 		expect(await client.edit('c1', 'Changed')).toMatchObject({ body: 'Changed' });
 		await client.remove('c1');

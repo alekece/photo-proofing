@@ -41,6 +41,7 @@ it('maps the API settings and rejects a malformed body', () => {
 		size: 3,
 		signature: 'logo',
 		signatureSize: 4,
+		signatureTextColor: null,
 		proofQuality: 'high',
 		watermarkOpacity: 50,
 		watermarkTextColor: '#FFFFFF',
@@ -57,6 +58,10 @@ it('reads validated appearance, defaulting only omitted fields', () => {
 	expect(
 		parseSettings({ ...body, watermark_opacity: 0, watermark_text_color: '#A12B3C' })
 	).toMatchObject({ watermarkOpacity: 0, watermarkTextColor: '#A12B3C' });
+	expect(parseSettings({ ...body, signature_color: '#A12B3C' })?.signatureTextColor).toBe(
+		'#A12B3C'
+	);
+	expect(parseSettings({ ...body, signature_color: 'red' })).toBeNull();
 	for (const watermark_opacity of [-1, 101, 0.1, '50', null]) {
 		expect(parseSettings({ ...body, watermark_opacity })).toBeNull();
 	}

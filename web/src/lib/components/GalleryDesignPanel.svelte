@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, type Snippet } from 'svelte';
 	import { Check, Eye, ImagePlus, Maximize2, X } from '@lucide/svelte';
 	import ClientGallery from '#lib/components/ClientGallery.svelte';
 	import ClientPreview from '#lib/components/ClientPreview.svelte';
@@ -23,7 +23,7 @@
 		HeadingFont
 	} from '#lib/gallery/api.js';
 	import { hasCleanPhoto, previewUrl, thumbnailUrl, type Photo } from '#lib/gallery/photos.js';
-	import { loadClientPreviewData, type PreviewViewport } from '#lib/gallery/preview.js';
+	import { loadClientPreviewData } from '#lib/gallery/preview.js';
 	import { DEFAULT_FOCAL_POINT, HEADING_FONT_FAMILIES } from '#lib/gallery/schemas.js';
 	import type { Proof } from '#lib/gallery/types.js';
 	import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
@@ -61,7 +61,8 @@
 		onsave,
 		onsavefocal = async (point: FocalPoint) =>
 			(await onsave({ focal_point: point })) ? point : undefined,
-		onbeforepreview
+		onbeforepreview,
+		onheader
 	}: {
 		gallery: Gallery;
 		settings?: WorkspaceSettings;
@@ -73,7 +74,10 @@
 		onsave: (changes: GalleryChanges) => Promise<boolean>;
 		onsavefocal?: (point: FocalPoint) => Promise<FocalPoint | undefined>;
 		onbeforepreview?: () => void;
+		onheader?: (action: Snippet) => void;
 	} = $props();
+
+	$effect(() => onheader?.(previewAction));
 
 	const events = getLiveEvents();
 
@@ -165,7 +169,6 @@
 
 	let pickingCover = $state(false);
 	let expanded = $state(false);
-	let previewMode = $state<PreviewViewport>('desktop');
 	// svelte-ignore state_referenced_locally
 	let opened = $state(active);
 	let proofPhotos = $state<Photo[]>([]);
@@ -476,20 +479,24 @@
 	</span>
 {/snippet}
 
+{#snippet previewAction()}
+	<Button
+		variant="outline"
+		size="sm"
+		onclick={() => {
+			onbeforepreview?.();
+			expanded = true;
+		}}
+	>
+		<Maximize2 size={14} aria-hidden="true" />
+		{m.preview_open_full()}
+	</Button>
+{/snippet}
+
 <div class="grid gap-4">
 	<div class="flex flex-wrap items-center justify-between gap-2">
 		<h2 class="text-2xl leading-tight">{m.tab_design()}</h2>
-		<Button
-			variant="outline"
-			size="sm"
-			onclick={() => {
-				onbeforepreview?.();
-				expanded = true;
-			}}
-		>
-			<Maximize2 size={14} aria-hidden="true" class="mr-1.5" />
-			{m.preview_open_full()}
-		</Button>
+		{#if !onheader}{@render previewAction()}{/if}
 	</div>
 
 	<div
@@ -569,9 +576,12 @@
 				<span id={focalHelpId} class="sr-only">
 					{hasCover ? m.design_focal_point_keyboard() : m.design_focal_point_empty()}
 				</span>
-				<div data-slot="design-cover-actions" class="flex flex-wrap items-center gap-1">
+				<div
+					data-slot="design-cover-actions"
+					class="flex items-stretch gap-2 [&>button]:min-w-0 [&>button]:shrink [&>button]:px-2 [&>button]:whitespace-normal"
+				>
 					<Button variant="outline" size="sm" onclick={() => (pickingCover = true)}>
-						<ImagePlus size={15} aria-hidden="true" class="mr-1" />
+						<ImagePlus size={15} aria-hidden="true" />
 						{hasCover ? m.design_change_cover() : m.design_select_cover()}
 					</Button>
 					{#if hasCover}
@@ -684,8 +694,8 @@
 			aria-label={m.preview_label()}
 			class="hidden min-w-0 flex-col overflow-hidden rounded-[0.875rem] border border-border bg-[#1d1815] shadow-[0_18px_40px_-24px_rgb(43_36_32/0.45)] lg:flex"
 		>
-			<PreviewFrame bind:mode={previewMode} stageClass="flex-1" scrollable={false}>
-				{#snippet header(toggle)}
+			<PreviewFrame stageClass="flex-1" scrollable={false}>
+				{#snippet header()}
 					<div
 						class="flex flex-wrap items-center justify-between gap-2.5 border-b border-[#3b322b] bg-foreground px-4 py-2.5 text-sm font-medium text-[#efe6da]"
 					>
@@ -693,7 +703,6 @@
 							<Eye size={16} aria-hidden="true" />
 							<span>{m.preview_label()}</span>
 						</span>
-						{@render toggle()}
 					</div>
 				{/snippet}
 
@@ -707,10 +716,10 @@
 						studioLogo={settings.logo}
 						signature={settings.signature}
 						signatureSize={settings.signatureSize}
+						signatureTextColor={settings.signatureTextColor}
 						preview
 						embedded
 						showCoverWhenEmpty
-						framed={previewMode === 'phone'}
 					/>
 				{/if}
 			</PreviewFrame>

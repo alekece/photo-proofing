@@ -1,5 +1,5 @@
 import * as v from 'valibot';
-import { requestEmpty, requestJson } from '#lib/http.js';
+import { ApiError, requestEmpty, requestJson } from '#lib/http.js';
 
 export const linkedGallerySchema = v.object({
 	id: v.string(),
@@ -66,6 +66,10 @@ export function updateContact(
 	);
 }
 
-export function deleteContact(id: string, fetcher: typeof fetch = fetch): Promise<void> {
-	return requestEmpty(`/api/v1/contacts/${encodeURIComponent(id)}`, { method: 'DELETE' }, fetcher);
+export async function deleteContact(id: string, fetcher: typeof fetch = fetch): Promise<void> {
+	try {
+		await requestEmpty(`/api/v1/contacts/${encodeURIComponent(id)}`, { method: 'DELETE' }, fetcher);
+	} catch (error) {
+		if (!(error instanceof ApiError) || error.status !== 404) throw error;
+	}
 }

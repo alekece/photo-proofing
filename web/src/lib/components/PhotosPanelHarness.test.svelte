@@ -30,3 +30,4 @@
 </script>
 
 <PhotosPanel {galleryId} bind:heroId {set} {openPhotoId} {active} />
+<div data-testid="bound-hero" hidden>{heroId ?? ''}</div>

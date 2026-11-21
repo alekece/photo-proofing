@@ -39,8 +39,8 @@ describe('GalleryCard', () => {
 		const link = screen.getByRole('link', { name: /Martin Wedding/ });
 
 		expect(link.getAttribute('href')).toBe('/dashboard/g1');
-		expect(within(link).getByText('Prepublish')).toBeTruthy();
-		expect(within(link).getByText('32 photos · 12 selected')).toBeTruthy();
+		expect(within(link).getByText('Shared')).toBeTruthy();
+		expect(within(link).getByText('12 selected')).toBeTruthy();
 		// The grid supplies the list; the page test checks the whole.
 		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
 			[]
@@ -60,14 +60,15 @@ describe('GalleryCard', () => {
 		expect(container.querySelector('b')).toBeNull();
 	});
 
-	it('shows only the winning status when the gallery is also expired', () => {
+	it('shows the lifecycle separately from closed access', () => {
 		render(GalleryCard, {
-			gallery: gallery({ states: ['shared', 'expired'], expires_at: '2026-01-01' }),
+			gallery: gallery({ states: ['delivered', 'expired'], expires_at: '2026-01-01' }),
 			query: ''
 		});
 
-		expect(screen.getByText('Expired')).toBeTruthy();
-		expect(screen.queryByText('Prepublish')).toBeNull();
+		expect(screen.getByText('Delivered')).toBeTruthy();
+		expect(screen.getByRole('img', { name: 'Closed to clients' })).toBeTruthy();
+		expect(screen.queryByText('Expired')).toBeNull();
 	});
 
 	it('uses the hero photo with its focal point, else the striped cover', () => {
@@ -90,18 +91,17 @@ describe('GalleryCard', () => {
 		expect(screen.getByRole('heading', { name: 'Martin Wedding' })).toBeTruthy();
 	});
 
-	it('shows the untitled name muted, and a news badge when given', () => {
+	it('shows one accessible unread indicator, without displaying activity labels', () => {
 		render(GalleryCard, {
 			gallery: gallery({ title: null }),
 			query: '',
-			news: ['New selection', 'New downloads']
+			unread: true
 		});
 
 		expect(screen.getByRole('heading', { name: 'Untitled gallery' }).className).toMatch(
 			/opacity-70/
 		);
-		expect(screen.getByText('New selection')).toBeTruthy();
-		expect(screen.getByText('New downloads')).toBeTruthy();
+		expect(screen.getAllByRole('img', { name: 'Unread activity' })).toHaveLength(1);
 	});
 
 	it('shows inline Lock when access_code is set and EyeOff when Expired or Archived with zero axe violations', async () => {
@@ -167,18 +167,6 @@ describe('GalleryCard', () => {
 			onselect
 		});
 		expect(selectBtn.getAttribute('aria-pressed')).toBe('true');
-		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
-			[]
-		);
-	});
-
-	it('shows an unapplied-changes badge for a staged draft preview, with zero axe violations', async () => {
-		const { container, rerender } = render(GalleryCard, { gallery: gallery(), query: '' });
-
-		expect(screen.queryByText('Unapplied changes')).toBeNull();
-
-		await rerender({ gallery: gallery(), query: '', pending: true });
-		expect(screen.getByText('Unapplied changes')).toBeTruthy();
 		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
 			[]
 		);
