@@ -56,7 +56,8 @@ describe('Settings page', () => {
 		const user = userEvent.setup();
 		expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
 		expect(screen.queryByRole('img', { name: /Preview of/ })).toBeNull();
-		expect(screen.getByRole('button', { name: /language/i })).toBeTruthy();
+		expect(screen.getByRole('radio', { name: 'English', checked: true })).toBeTruthy();
+		expect(screen.getByRole('radio', { name: 'Français', checked: false })).toBeTruthy();
 		expect(screen.getByRole('radio', { name: /Medium/ })).toBeTruthy();
 
 		tab('General').focus();
@@ -71,6 +72,24 @@ describe('Settings page', () => {
 		expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
 	});
 
+	it('blocks edits until a pending language change succeeds or fails', async () => {
+		let finish!: (response: Response) => void;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => new Promise<Response>((resolve) => (finish = resolve)))
+		);
+		open();
+		const user = userEvent.setup();
+		const studioName = screen.getByLabelText('Studio name');
+
+		await user.click(screen.getByRole('radio', { name: 'Français' }));
+		expect(studioName.matches(':disabled')).toBe(true);
+
+		finish(new Response(null, { status: 500 }));
+		await vi.waitFor(() => expect(studioName.matches(':disabled')).toBe(false));
+		expect(screen.getByRole('radio', { name: 'English', checked: true })).toBeTruthy();
+	});
+
 	it('previews text color and floors new opacity adjustments without changing a saved zero', async () => {
 		const { container } = open({ ...DEFAULT_SETTINGS, watermarkOpacity: 0 });
 		const user = userEvent.setup();
@@ -82,7 +101,7 @@ describe('Settings page', () => {
 		expect(proofPreview().querySelector<HTMLElement>('[style*="opacity"]')?.style.opacity).toBe(
 			'0'
 		);
-		expect(screen.getByRole('button', { name: 'Save changes' })).toHaveProperty('disabled', true);
+		expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true);
 
 		await fireEvent.input(color, { target: { value: '#a12b3c' } });
 		expect(hex.value).toBe('#A12B3C');
@@ -109,7 +128,7 @@ describe('Settings page', () => {
 		await fireEvent.input(hex, { target: { value: '#a12' } });
 		expect(hex.getAttribute('aria-invalid')).toBe('true');
 		expect(color.value).toBe('#a12b3c');
-		expect(screen.getByRole('button', { name: 'Save changes' })).toHaveProperty('disabled', true);
+		expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true);
 		await user.click(screen.getByRole('button', { name: 'Cancel' }));
 		expect(hex.value).toBe('#FFFFFF');
 		expect(color.value).toBe('#ffffff');
@@ -127,16 +146,22 @@ describe('Settings page', () => {
 		await fireEvent.input(hex, { target: { value: '#A12' } });
 		await user.click(screen.getByRole('button', { name: 'Logo' }));
 		expect(hex.matches(':disabled')).toBe(true);
-		expect(screen.getByRole('button', { name: 'Save changes' })).toHaveProperty('disabled', false);
+		expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', false);
 		await user.click(screen.getByRole('button', { name: 'Name' }));
 		expect(hex.value).toBe('#A12B3C');
 	});
 
-	it('keeps the language selector in General without a redundant link to the galleries', () => {
+	it('prevents a language change while settings have unsaved edits', async () => {
 		open();
+		const user = userEvent.setup();
 
 		expect(screen.queryByRole('link', { name: 'Back to galleries' })).toBeNull();
-		expect(screen.getByRole('button', { name: 'Language: English' })).toBeTruthy();
+		const french = screen.getByRole('radio', { name: 'Français' });
+		expect(french).toHaveProperty('disabled', false);
+		await user.type(screen.getByLabelText('Studio name'), 'Studio X');
+		expect(french).toHaveProperty('disabled', true);
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(french).toHaveProperty('disabled', false);
 	});
 
 	it('shows Saving and prevents another submission while saving', async () => {
@@ -151,7 +176,7 @@ describe('Settings page', () => {
 		const user = userEvent.setup();
 
 		await user.type(screen.getByLabelText('Studio name'), 'Studio X');
-		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
 		const pending = screen.getByRole('button', { name: /Saving/ });
 		expect(pending.hasAttribute('disabled')).toBe(false);
 		expect(pending.getAttribute('aria-disabled')).toBe('true');
@@ -166,16 +191,12 @@ describe('Settings page', () => {
 		open();
 		const user = userEvent.setup();
 
-		expect(screen.getByRole('button', { name: 'Save changes' }).hasAttribute('disabled')).toBe(
-			true
-		);
+		expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(true);
 		expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true);
 
 		await user.type(screen.getByLabelText('Studio name'), 'Studio X');
 
-		expect(screen.getByRole('button', { name: 'Save changes' }).hasAttribute('disabled')).toBe(
-			false
-		);
+		expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(false);
 	});
 
 	it('preserves settings edited after a save started', async () => {
@@ -191,7 +212,7 @@ describe('Settings page', () => {
 		const name = screen.getByLabelText('Studio name');
 
 		await user.type(name, 'Studio X');
-		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
 		await user.type(name, ' II');
 		await user.click(tab('Watermark'));
 		await fireEvent.input(screen.getByRole('slider', { name: 'Watermark opacity' }), {
@@ -203,7 +224,7 @@ describe('Settings page', () => {
 		finish(Response.json(saved));
 
 		await vi.waitFor(() =>
-			expect(screen.getByRole('button', { name: 'Save changes' })).toHaveProperty('disabled', true)
+			expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true)
 		);
 		expect(screen.getByText('Enter a six-digit hex color.')).toBeTruthy();
 		expect(screen.queryByRole('button', { name: 'Saved' })).toBeNull();
@@ -215,7 +236,7 @@ describe('Settings page', () => {
 		const hex = screen.getByLabelText('Hex color');
 		expect(hex).toHaveProperty('value', '#a12');
 		await fireEvent.input(hex, { target: { value: '#a12b3c' } });
-		expect(screen.getByRole('button', { name: 'Save changes' })).toHaveProperty('disabled', false);
+		expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', false);
 		expect(fetcher.mock.calls.filter(([url]) => url === '/api/v1/settings')).toHaveLength(1);
 	});
 
@@ -226,7 +247,7 @@ describe('Settings page', () => {
 		const user = userEvent.setup();
 
 		await user.type(screen.getByLabelText('Studio name'), 'Studio X');
-		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
 
 		await vi.waitFor(() =>
 			expect(
@@ -259,12 +280,12 @@ describe('Settings page', () => {
 		open();
 		const name = screen.getByLabelText('Studio name');
 		await fireEvent.input(name, { target: { value: 'Studio X' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 		await act(() => vi.advanceTimersByTimeAsync(0));
 		await act(() => vi.advanceTimersByTimeAsync(1599));
 		expect(screen.getByRole('button', { name: 'Saved' })).toBeTruthy();
 		await act(() => vi.advanceTimersByTimeAsync(1));
-		expect(screen.getByRole('button', { name: 'Save changes' })).toHaveProperty('disabled', true);
+		expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true);
 
 		await fireEvent.input(name, { target: { value: 'New draft' } });
 		await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -282,7 +303,7 @@ describe('Settings page', () => {
 
 		await user.click(tab('Cover signature'));
 		await user.click(screen.getByRole('button', { name: 'None' }));
-		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
 
 		expect(toasts.items).toEqual([]);
 	});
@@ -303,13 +324,13 @@ describe('Settings page', () => {
 		expect(name.style.color).toBe('');
 		await fireEvent.input(color, { target: { value: '#a12b3c' } });
 		expect(name.style.color).toBe('rgb(161, 43, 60)');
-		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
 		await screen.findByRole('button', { name: 'Saved' });
 
 		expect(screen.queryByRole('button', { name: 'Use cover color' })).toBeNull();
 		await user.click(screen.getByRole('button', { name: 'Reset text color' }));
 		expect(name.style.color).toBe('');
-		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
 		await screen.findByRole('button', { name: 'Saved' });
 
 		expect(
@@ -328,7 +349,7 @@ describe('Settings page', () => {
 
 		expect(screen.getByRole('radio', { name: /Medium/ }).getAttribute('aria-checked')).toBe('true');
 		await user.click(screen.getByRole('radio', { name: /High/ }));
-		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
 
 		await screen.findByRole('button', { name: 'Saved' });
 		expect(toasts.items).toEqual([]);
@@ -348,7 +369,7 @@ describe('Settings page', () => {
 		const user = userEvent.setup();
 
 		await user.type(screen.getByLabelText('Studio name'), 'Studio X');
-		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
 
 		await vi.waitFor(() =>
 			expect(toasts.items.map((toast) => toast.message)).toContain(
@@ -356,7 +377,7 @@ describe('Settings page', () => {
 			)
 		);
 		expect(screen.queryByTestId('click-ripple')).toBeNull();
-		expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
 	});
 
 	it('refuses a logo that is not a PNG or JPEG before uploading it and leaves its size to the server', async () => {
@@ -415,6 +436,9 @@ describe('Settings page', () => {
 
 		await user.click(screen.getByRole('button', { name: 'Once' }));
 		await user.click(screen.getByRole('button', { name: 'Position 1' }));
+		const selected = screen.getByRole('button', { name: 'Position 1', pressed: true });
+		const inactive = screen.getByRole('button', { name: 'Position 2', pressed: false });
+		expect(selected.querySelector('svg')?.innerHTML).toBe(inactive.querySelector('svg')?.innerHTML);
 		await user.click(screen.getByRole('button', { name: 'Repeat' }));
 		expect(screen.queryByRole('button', { name: 'Position 1' })).toBeNull();
 		await user.click(screen.getByRole('button', { name: 'Once' }));
@@ -450,7 +474,7 @@ describe('Settings page in French', () => {
 
 		expect(screen.getByRole('heading', { level: 1, name: 'Réglages' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeTruthy();
-		expect(screen.queryByText('Save changes')).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
 		await userEvent.setup().click(tab('Filigrane'));
 		expect(screen.getByLabelText('Couleur du texte')).toBeTruthy();
 		expect(screen.getByLabelText('Code hexadécimal')).toBeTruthy();

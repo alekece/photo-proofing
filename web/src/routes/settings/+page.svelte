@@ -7,7 +7,7 @@
 	import { getStudioNamePreview } from '#lib/components/WorkspaceLayout.svelte';
 	import ButtonFace from '#lib/components/ButtonFace.svelte';
 	import ClickRipple from '#lib/components/ClickRipple.svelte';
-	import LanguageMenu from '#lib/components/LanguageMenu.svelte';
+	import LanguagePicker from '#lib/components/LanguagePicker.svelte';
 	import ProofQualityPicker from '#lib/components/ProofQualityPicker.svelte';
 	import SignatureEditor from '#lib/components/SignatureEditor.svelte';
 	import SaveButton, { type SaveStatus } from '#lib/components/SaveButton.svelte';
@@ -16,6 +16,7 @@
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Tabs from '#lib/components/ui/Tabs/Tabs.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+	import WorkspaceHeading from '#lib/components/ui/WorkspaceHeading/WorkspaceHeading.svelte';
 	import { ApiError } from '#lib/http.js';
 	import {
 		LOGO_TYPES,
@@ -37,6 +38,8 @@
 	let draft = $state<WorkspaceSettings>({ ...data.settings });
 	let hexEdit = $state<string | null>(null);
 	let section = $state('general');
+	let changingLanguage = $state(false);
+	let headerHeight = $state(0);
 	const sections = [
 		{ id: 'general', label: m.settings_general() },
 		{ id: 'watermark', label: m.watermark_label() },
@@ -143,7 +146,7 @@
 	}
 
 	const action =
-		'relative inline-grid h-11 min-h-0 px-[1.375rem] max-sm:flex-1 font-semibold! tracking-normal! transition-[background-color,opacity] duration-300 disabled:opacity-35';
+		'relative inline-grid h-11 min-h-0 px-3 sm:px-[1.375rem] max-sm:flex-1 font-semibold! tracking-normal! transition-[background-color,opacity] duration-300 disabled:opacity-35';
 </script>
 
 {#snippet studio()}
@@ -181,49 +184,55 @@
 
 <svelte:head><title>{m.header_settings()} — PhotoProofing</title></svelte:head>
 <main class="min-w-0 flex-1 pb-12">
-	<div class="workspace-inset pt-4 sm:pt-6">
-		<h1 class="mb-3 text-4xl leading-[1.1] sm:text-[3.25rem]">{m.header_settings()}</h1>
-	</div>
 	<div
-		class="sticky top-[env(safe-area-inset-top)] z-20 flex flex-wrap items-center justify-end gap-2 border-b border-border bg-background workspace-inset py-2"
+		bind:offsetHeight={headerHeight}
+		class="sticky top-[env(safe-area-inset-top)] z-20 border-b border-border bg-background workspace-inset py-2 sm:py-3"
 	>
+		<div class="flex flex-wrap items-center justify-between gap-2">
+			<WorkspaceHeading title={m.header_settings()} />
+			<div class="flex grow gap-2 sm:grow-0">
+				<Button
+					variant="outline"
+					disabled={!reverted && (!hasEdits || status === 'saving')}
+					aria-disabled={reverted || undefined}
+					onclick={cancel}
+					class="{action} border-[1.5px]! border-border! bg-input! aria-disabled:cursor-default {reverted
+						? 'border-[#d8cab7]! bg-[#efe7dc]!'
+						: ''}"
+				>
+					<ButtonFace shown={!reverted}>{m.common_cancel()}</ButtonFace>
+					<ButtonFace shown={reverted}>
+						{#snippet icon()}
+							<span class="relative inline-grid">
+								<Undo2 size={16} strokeWidth={2.4} aria-hidden="true" />
+								{#if reverted}<ClickRipple />{/if}
+							</span>
+						{/snippet}
+						{m.studio_reverted()}
+					</ButtonFace>
+				</Button>
+				<SaveButton
+					status={shown}
+					disabled={shown === 'idle' && (!dirty || invalidHex)}
+					onclick={save}
+					class={action}
+				/>
+			</div>
+		</div>
 		{#if invalidHex && section !== 'watermark'}
-			<p aria-live="polite" class="mr-auto text-sm text-danger max-sm:basis-full">
+			<p aria-live="polite" class="mt-2 text-sm text-danger">
 				{m.watermark_color_invalid()}
 			</p>
 		{/if}
-		<Button
-			variant="outline"
-			disabled={!reverted && (!hasEdits || status === 'saving')}
-			aria-disabled={reverted || undefined}
-			onclick={cancel}
-			class="{action} border-[1.5px]! border-border! bg-input! aria-disabled:cursor-default {reverted
-				? 'border-[#d8cab7]! bg-[#efe7dc]!'
-				: ''}"
-		>
-			<ButtonFace shown={!reverted}>{m.common_cancel()}</ButtonFace>
-			<ButtonFace shown={reverted}>
-				{#snippet icon()}
-					<span class="relative inline-grid">
-						<Undo2 size={16} strokeWidth={2.4} aria-hidden="true" />
-						{#if reverted}<ClickRipple />{/if}
-					</span>
-				{/snippet}
-				{m.studio_reverted()}
-			</ButtonFace>
-		</Button>
-		<SaveButton
-			status={shown}
-			disabled={shown === 'idle' && (!dirty || invalidHex)}
-			onclick={save}
-			class={action}
-		/>
 	</div>
 	<span role="status" class="sr-only">
 		{feedback === 'reverted' ? m.studio_reverted() : ''}
 	</span>
 
-	<div class="workspace-inset pt-4 sm:pt-6">
+	<div
+		class="workspace-inset pt-4 sm:pt-6 [&_:focus-visible]:scroll-mt-[calc(var(--settings-header-height)_+_env(safe-area-inset-top)_+_0.25rem)]"
+		style:--settings-header-height="{headerHeight}px"
+	>
 		<Tabs
 			bind:value={section}
 			items={sections}
@@ -232,34 +241,35 @@
 			listClass="min-w-0 overflow-x-auto whitespace-nowrap [&>button]:shrink-0 [&>button]:focus-visible:outline-offset-[-2px]"
 		>
 			{#snippet panel(active)}
-				{#if active === 'general'}
-					<div class="grid max-w-[48rem] min-w-0 gap-5">
-						<section class="grid gap-2">
-							<h2 class="text-xl">{m.studio_group_studio()}</h2>
-							{@render studio()}
-						</section>
-						<section class="grid justify-items-start gap-2 border-t border-border pt-4">
-							<h2 class="text-xl">{m.language_menu_options()}</h2>
-							<LanguageMenu
-								disabled={hasEdits || status === 'saving'}
-								align="start"
-								class="min-h-11 rounded-control border control-choice px-4 disabled:opacity-50"
-							/>
-							{#if hasEdits}
-								<p class="text-sm text-muted-foreground">{m.settings_language_pending()}</p>
-							{/if}
-						</section>
-						<section class="grid gap-2 border-t border-border pt-4">
-							<h2 class="text-xl">{m.quality_label()}</h2>
-							<p class="text-muted-foreground">{m.quality_hint()}</p>
-							<ProofQualityPicker bind:value={draft.proofQuality} />
-						</section>
-					</div>
-				{:else if active === 'watermark'}
-					<WatermarkEditor bind:settings={draft} bind:hexEdit />
-				{:else}
-					<SignatureEditor bind:settings={draft} />
-				{/if}
+				<fieldset disabled={changingLanguage} class="grid min-w-0 gap-4">
+					{#if active === 'general'}
+						<div class="grid max-w-[48rem] min-w-0 gap-5">
+							<section class="grid gap-2">
+								<h2 class="text-xl">{m.studio_group_studio()}</h2>
+								{@render studio()}
+							</section>
+							<section class="grid gap-2 border-t border-border pt-4">
+								<h2 class="text-xl">{m.settings_language()}</h2>
+								<LanguagePicker
+									disabled={hasEdits || status === 'saving'}
+									bind:saving={changingLanguage}
+								/>
+								{#if hasEdits}
+									<p class="text-sm text-muted-foreground">{m.settings_language_pending()}</p>
+								{/if}
+							</section>
+							<section class="grid gap-2 border-t border-border pt-4">
+								<h2 class="text-xl">{m.quality_label()}</h2>
+								<p class="text-muted-foreground">{m.quality_hint()}</p>
+								<ProofQualityPicker bind:value={draft.proofQuality} />
+							</section>
+						</div>
+					{:else if active === 'watermark'}
+						<WatermarkEditor bind:settings={draft} bind:hexEdit />
+					{:else}
+						<SignatureEditor bind:settings={draft} />
+					{/if}
+				</fieldset>
 			{/snippet}
 		</Tabs>
 	</div>

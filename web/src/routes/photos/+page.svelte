@@ -15,7 +15,7 @@
 	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
 	import WorkspaceHeading from '#lib/components/ui/WorkspaceHeading/WorkspaceHeading.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
-	import { ArrowUpDown, Download, Images, ListFilter, Trash2 } from '@lucide/svelte';
+	import { ArrowUpDown, Download, Images, Trash2 } from '@lucide/svelte';
 	import {
 		BULK_DELETE_LIMIT,
 		deletePhotos,
@@ -62,19 +62,6 @@
 
 		return [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1]));
 	});
-	const filterLabels = $derived(
-		[
-			galleryFilter === 'all'
-				? undefined
-				: galleryOptions.find(([id]) => id === galleryFilter)?.[1],
-			typeFilter === 'all'
-				? undefined
-				: typeFilter === 'proof'
-					? m.photos_kind_proof()
-					: m.photos_kind_final()
-		].filter((label) => label !== undefined)
-	);
-
 	const matching = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
 
@@ -277,35 +264,27 @@
 				: undefined}
 		>
 			{#snippet filters()}
-				<ToolbarMenu
-					label={m.toolbar_filters()}
-					summary={filterLabels.join(', ') || m.toolbar_filters()}
-					icon={ListFilter}
+				<Select
+					class="min-h-9 max-w-48 min-w-0"
+					aria-label={m.photos_filter_gallery()}
+					bind:value={galleryFilter}
 					disabled={none}
-					activeCount={filterLabels.length}
 				>
-					<div class="grid gap-2 p-2">
-						<Select
-							class="w-full min-w-0"
-							aria-label={m.photos_filter_gallery()}
-							bind:value={galleryFilter}
-						>
-							<option value="all">{m.photos_filter_gallery_all()}</option>
-							{#each galleryOptions as [id, label] (id)}
-								<option value={id}>{label}</option>
-							{/each}
-						</Select>
-						<Select
-							class="w-full min-w-0"
-							aria-label={m.photos_filter_type()}
-							bind:value={typeFilter}
-						>
-							<option value="all">{m.photos_filter_type_all()}</option>
-							<option value="proof">{m.photos_kind_proof()}</option>
-							<option value="final">{m.photos_kind_final()}</option>
-						</Select>
-					</div>
-				</ToolbarMenu>
+					<option value="all">{m.photos_filter_gallery_all()}</option>
+					{#each galleryOptions as [id, label] (id)}
+						<option value={id}>{label}</option>
+					{/each}
+				</Select>
+				<Select
+					class="min-h-9"
+					aria-label={m.photos_filter_type()}
+					bind:value={typeFilter}
+					disabled={none}
+				>
+					<option value="all">{m.photos_filter_type_all()}</option>
+					<option value="proof">{m.photos_kind_proof()}</option>
+					<option value="final">{m.photos_kind_final()}</option>
+				</Select>
 			{/snippet}
 			{#snippet sort()}
 				<ToolbarMenu

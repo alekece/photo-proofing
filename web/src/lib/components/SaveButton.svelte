@@ -32,7 +32,7 @@
 	onclick={() => !busy && onclick()}
 	class="relative inline-grid aria-disabled:cursor-default {className}"
 >
-	<ButtonFace shown={status === 'idle'}>{m.studio_save()}</ButtonFace>
+	<ButtonFace shown={status === 'idle'}>{m.settings_save()}</ButtonFace>
 	<ButtonFace shown={status === 'saving'}>
 		{#snippet icon()}
 			<LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />

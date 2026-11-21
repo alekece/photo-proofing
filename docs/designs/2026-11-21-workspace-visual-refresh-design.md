@@ -4,6 +4,9 @@ Approved scope: [#423](https://github.com/alekece/photo-proofing/issues/423). Th
 the outcome of the visual workshop and the audit, with the final mobile and motion
 decisions. It supersedes the older screen designs where they differ.
 
+The approved adjustments from the video review of [#428](https://github.com/alekece/photo-proofing/pull/428)
+are included below.
+
 ## Intent and approach
 
 The photographer should recognize the shooting first, know what changed, and get
@@ -33,9 +36,11 @@ the branch to ship.
   stay at the bottom on desktop. The count is galleries with unread notifications.
   The menu opens on activation, not on hover or focus alone.
 - Share the workspace frame and content spacing so the menu and footer do not
-  overlap. Workspace, Gallery Studio and Settings menus share white idle,
-  cream hover and warm-black selected states. Returning from a gallery restores
-  search, filters, sort and scroll.
+  overlap. Equivalent navigation entries in the workspace, Gallery Studio and
+  Settings share transparent resting states, a slightly darker tone from the
+  existing palette on hover, and warm black for the active entry. Keep visible
+  keyboard focus. This does not change the background of inputs or other controls.
+  Returning from a gallery restores search, filters, sort and scroll.
   Browser Back still goes to the actual origin, such as Activity. Restore UI state
   independently of protected data; do not cache authenticated responses.
 
@@ -43,24 +48,36 @@ the branch to ship.
 
 - Keep the two menus and gallery identity. Put the journey at the left of one
   header and the active section's action at its right. Leave the journey in place
-  when no action is available. Collection contains Photos, Favorites and
-  Retouched, including the latter's quiet empty drop area. Keep cover choice in
-  Design, with the desktop inline preview and Desktop/Phone in full preview.
+  when no action is available. Place the gallery's favorite star at the bottom
+  right of the Studio cover, matching its position on dashboard cards; the
+  Studio star remains clickable. Collection contains Photos, Favorites and
+  Retouched, including the latter's quiet empty drop area. Only Design offers
+  choosing or removing the cover; do not offer either action on Photos tiles or
+  in the photographer's photo viewer. Show Change cover and Remove cover side by
+  side where they fit. Keep the standard inline client preview without a device
+  selector; offer Desktop and Phone only in the full preview.
 - Move Comments into Studio beside Activity. Show one row per commented photo
   with a non-interactive thumbnail and latest message. Expand the existing thread
   beneath the row, with the composer and own-message actions. Do not change
   which photos accept comments or which clients can read them.
 - Remove the preview column from gallery Settings. Leave the shoot date alone.
   Put expiry presets to the right of the calendar on desktop. Keep Included
-  photos numeric, with steppers and no placeholder when unset.
-- Keep Photos a private masonry library, with gallery/type filters and
-  chronological sort. Search by gallery name, not filename. Do not overlay a
-  file name or a proof badge. Open the viewer over the grid; download and delete
-  stay on selection, not on the viewer.
-- Keep Contacts compact with initials, a disclosure for details, and actions at
-  the right. Delete from the shared selection bar after confirmation, not from
-  individual rows. Use one plus icon and one form for creation and editing.
-  Preserve the meaning of associating and dissociating contacts.
+  photos numeric, with steppers and no placeholder when unset. After sharing
+  without a code, show the disabled switch and a short reason on the same row:
+  a code cannot be added once the gallery is shared. Remove explanatory
+  paragraphs; if a code was already set, it stays active and can still be copied.
+- Keep Photos a private masonry library. Put the Gallery and Type filters
+  directly in the toolbar alongside search and chronological sort, without a
+  parent Filters menu. They work together and can wrap on narrow screens.
+  Search by gallery name, not filename. Do not overlay a file name or a proof
+  badge. Open the viewer over the grid; download and delete stay on selection,
+  not on the viewer.
+- Show contact initials, name, email, optional phone, linked galleries and a
+  short note directly in each row, with the Edit action at the right and no
+  details disclosure. New contact (one plus icon) and Edit open the same modal,
+  blank for creation and prefilled for editing; the full note is editable there.
+  Delete from the shared selection bar after confirmation, not from individual
+  rows. Preserve the meaning of associating and dissociating contacts.
 - Keep the activity feed in date order with bold actor, warm ink icons and a
   filled favorite heart. Put the gallery pill after the sentence and time to the
   right. Wrap favorite thumbnails across the full width and show all recorded
@@ -71,16 +88,23 @@ the branch to ship.
 
 Use the workspace sidebar plus an ungrouped secondary menu: General, Watermark
 and Cover signature. General holds name/logo, the workspace's only language
-selector, and quality, without a preview. Both editors use a compact toolbar
-over a large live preview. The always-visible Cancel/Save bar is disabled without
-edits and its divider spans the full panel. Keep edits across sections and cancel
-back to the saved state.
+selector, and quality, without a preview. Show Français and English as direct
+choices, using the same selected-state styling as the quality choices. Keep
+language changes immediate and prevent losing unsaved settings. Both editors use
+a compact toolbar over a large live preview. Put Cancel and Save on the same row
+as the Settings title where they fit; let it wrap on narrow screens. Keep the
+full-width divider and disable the actions without edits. In English use
+**Save**, not **Save changes**. Keep edits across sections and cancel back to the
+saved state.
 
 In Single watermark mode, show the nine placement controls on the preview.
-In Repeated mode, hide them and remember the position. Keep compact size and
-opacity controls without a displayed percentage; the minimum for a new opacity
-adjustment is 5%, without rewriting earlier values on load. The color changes
-the text only; the logo keeps the colors supplied by its file.
+Use the same target icon for all nine, including the active target; warm black
+marks the active one. Likewise, use warm black without an extra checkmark on
+selected mark and pattern choices. In Repeated mode, hide the targets and
+remember the position. Keep compact size and opacity controls without a displayed
+percentage; the minimum for a new opacity adjustment is 5%, without rewriting
+earlier values on load. The color changes the text only; the logo keeps the colors
+supplied by its file.
 
 Cover signature keeps None, Name, Logo and Both. In Both, center the logo above
 the name. Save an optional text color and show it on the actual cover, not just
@@ -108,3 +132,9 @@ Use comparable synthetic before/after screenshots or a video in one PR. Keep
 [final photo conversations](https://github.com/alekece/photo-proofing/issues/419)
 and [activity search](https://github.com/alekece/photo-proofing/issues/421)
 outside this slice. No release scope or access-policy changes.
+
+After applying the video review, have a fresh reviewer check the updated screens
+on desktop and phone for consistent alignment, spacing, control treatments and
+hover/active states. Prefer existing shared components or tokens over local
+overrides for equivalent behavior. Correct findings within the agreed scope
+without introducing a new pattern or palette.

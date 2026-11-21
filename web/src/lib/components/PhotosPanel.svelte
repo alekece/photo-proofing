@@ -4,7 +4,7 @@
 	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
 	import CommentThread from './CommentThread.svelte';
 	import OwnerZipError from './OwnerZipError.svelte';
-	import { Download, ImagePlus, LoaderCircle, Star, Trash2, Upload } from '@lucide/svelte';
+	import { Download, ImagePlus, LoaderCircle, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack, type Snippet } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -23,7 +23,6 @@
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
 	import { getLiveEvents, type PhotoEvent } from '#lib/events.js';
-	import { updateGallery } from '#lib/gallery/api.js';
 	import { OwnerExport } from '#lib/gallery/export.svelte.js';
 	import { ApiError } from '#lib/http.js';
 	import { formatDateTime } from '#lib/gallery/format.js';
@@ -215,35 +214,6 @@
 		if (proofs.length === 0) viewing = false;
 		else viewIndex = proofs.length - 1;
 	});
-
-	let savingHero = false;
-
-	/** Stars `photo`, or clears the star when it already is the hero; the old hero stays on failure. */
-	async function toggleHero(photo: Photo) {
-		if (savingHero) return;
-
-		const target = photo.id === heroId ? null : photo.id;
-		const id = galleryId;
-
-		savingHero = true;
-		alert = '';
-
-		try {
-			const gallery = await updateGallery(id, { hero_id: target });
-
-			if (galleryId === id) heroId = gallery.hero_id;
-		} catch (cause) {
-			if (cause instanceof ApiError && cause.status === 401) {
-				await signedOut();
-
-				return;
-			}
-
-			if (galleryId === id) alert = m.photos_cover_failed();
-		} finally {
-			savingHero = false;
-		}
-	}
 
 	// A deleted photo cannot stay the hero; the server clears it the same way.
 	$effect(() => {
@@ -678,8 +648,6 @@
 						onremove={() => (confirming = photo)}
 						onretry={() => retry(photo)}
 						onopen={() => open(photo)}
-						hero={!finals && photo.id === heroId}
-						onhero={finals ? undefined : () => toggleHero(photo)}
 						collectionSelect={selecting ? 'active' : 'idle'}
 						onselect={() => toggle(photo.id)}
 					/>
@@ -798,22 +766,6 @@
 				<time datetime={photo.downloaded_at} class="min-w-0 text-xs leading-tight text-panel/80">
 					{m.tile_downloaded_at({ date: formatDateTime(photo.downloaded_at) })}
 				</time>
-			{:else if !finals && photo && hasCleanPhoto(photo)}
-				<ViewerButton
-					pressed={photo.id === heroId}
-					aria-label={photo.id === heroId ? m.cover_remove() : m.cover_set()}
-					onclick={() => void toggleHero(photo)}
-				>
-					<Star
-						size={18}
-						fill={photo.id === heroId ? 'currentColor' : 'none'}
-						aria-hidden="true"
-						class="text-[#f2c063]"
-					/>
-					<span class="max-[700px]:hidden"
-						>{photo.id === heroId ? m.cover_remove() : m.cover_set()}</span
-					>
-				</ViewerButton>
 			{/if}
 		{/snippet}
 		{#snippet trailing(proof)}

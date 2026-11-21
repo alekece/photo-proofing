@@ -111,20 +111,20 @@ describe('/photos page', () => {
 		expect(search).toHaveProperty('value', '');
 	});
 
-	it('filters by gallery and by type', async () => {
+	it('combines directly available gallery and type filters', async () => {
 		const user = userEvent.setup();
 		open([
 			photo({ id: 'p1', gallery_id: 'g1', gallery_title: 'Wedding', kind: 'proof' }),
-			photo({ id: 'p2', gallery_id: 'g2', gallery_title: 'Portraits', kind: 'final' })
+			photo({ id: 'p2', gallery_id: 'g2', gallery_title: 'Portraits', kind: 'final' }),
+			photo({ id: 'p3', gallery_id: 'g2', gallery_title: 'Portraits', kind: 'proof' }),
+			photo({ id: 'p4', gallery_id: 'g1', gallery_title: 'Wedding', kind: 'final' })
 		]);
 		const list = () => screen.getByRole('list', { name: 'Photos' });
 
-		await user.click(screen.getByRole('button', { name: 'Filters' }));
 		await user.selectOptions(screen.getByRole('combobox', { name: 'Gallery' }), 'g2');
 		expect(within(list()).queryByText('Wedding')).toBeNull();
-		expect(within(list()).getByText('Portraits')).toBeTruthy();
+		expect(within(list()).getAllByText('Portraits')).toHaveLength(2);
 
-		await user.selectOptions(screen.getByRole('combobox', { name: 'Gallery' }), 'all');
 		await user.selectOptions(screen.getByRole('combobox', { name: 'Type' }), 'final');
 		expect(within(list()).queryByText('Wedding')).toBeNull();
 		expect(within(list()).getByText('Portraits')).toBeTruthy();

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Check, Crosshair } from '@lucide/svelte';
+	import { Crosshair } from '@lucide/svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getLocale } from '#lib/paraglide/runtime.js';
 	import {
@@ -81,10 +81,6 @@
 							{#if id !== 'name'}<MarkLogo logo={settings.logo} class="size-5" />{/if}
 							{#if id !== 'logo'}Aa{/if}
 						</span>
-						{#if settings.mark === id}<Check
-								class="absolute top-0.5 right-0.5 size-3"
-								aria-hidden="true"
-							/>{/if}
 					</Button>
 				{/each}
 			</div>
@@ -120,10 +116,6 @@
 								<rect x="11" y="8" width="8" height="6" rx="1.5" fill="currentColor" />
 							{/if}
 						</svg>
-						{#if settings.pattern === id}<Check
-								class="absolute top-0.5 right-0.5 size-3"
-								aria-hidden="true"
-							/>{/if}
 					</Button>
 				{/each}
 			</div>
@@ -185,8 +177,7 @@
 							]} {columns[cell % 3]}"
 							onclick={() => (settings.position = cell)}
 						>
-							{#if settings.position === cell}<Check size={16} aria-hidden="true" />
-							{:else}<Crosshair size={16} aria-hidden="true" />{/if}
+							<Crosshair size={16} aria-hidden="true" />
 						</Button>
 					{/each}
 				</div>

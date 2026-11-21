@@ -309,7 +309,7 @@ describe('GallerySettingsPanel', () => {
 		expect(codeInput.readOnly).toBe(true);
 		expect(codeInput.value).toBe('042819');
 		expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull();
-		expect(screen.getByText('Locked after sharing')).toBeTruthy();
+		expect(screen.queryByText('Locked after sharing')).toBeNull();
 
 		const copyButtons = screen.getAllByRole('button', { name: 'Copy' });
 		await sharedWithCode.user.click(copyButtons[1]!);
@@ -325,9 +325,8 @@ describe('GallerySettingsPanel', () => {
 		);
 		const disabledSwitch = screen.getByRole('switch', { name: 'Require access code' });
 		expect((disabledSwitch as HTMLButtonElement).disabled).toBe(true);
-		expect(
-			screen.getByText('Shared without an access code — cannot be added after sharing')
-		).toBeTruthy();
+		const reason = screen.getByText('Cannot add a code after sharing.');
+		expect(disabledSwitch.getAttribute('aria-describedby')).toBe(reason.id);
 		expect((await axe(sharedWithoutCode.container)).violations).toEqual([]);
 	});
 

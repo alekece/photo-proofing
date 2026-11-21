@@ -37,7 +37,7 @@
 </script>
 
 <script lang="ts">
-	import { Check, Download, Heart, LoaderCircle, RotateCw, Star, X } from '@lucide/svelte';
+	import { Check, Download, Heart, LoaderCircle, RotateCw, X } from '@lucide/svelte';
 	import { formatDateTime } from '#lib/gallery/format.js';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
 	import ClickRipple from './ClickRipple.svelte';
@@ -58,8 +58,6 @@
 		onretry,
 		onopen,
 		onselect,
-		hero = false,
-		onhero,
 		commentCount = 0,
 		persistentSelect = false,
 		collectionSelect,
@@ -86,10 +84,6 @@
 		onopen?: () => void;
 		/** Puts the tile in select mode: clicking it toggles `selected`; no remove, retry or open. */
 		onselect?: () => void;
-		/** Whether this photo is the gallery's hero. */
-		hero?: boolean;
-		/** Toggles the hero star; only a ready photo outside select mode offers it. */
-		onhero?: () => void;
 		commentCount?: number;
 		/**
 		 * Shows an always-present selection circle alongside `onopen`, instead of the two being
@@ -266,27 +260,11 @@
 			{#if rippling && selected}<ClickRipple onend={() => (rippling = false)} />{/if}
 		</span>
 	{:else if !selectingCollection}
-		{#if showPhoto && onhero}
-			<button
-				type="button"
-				class={[
-					'absolute top-2 grid size-[1.875rem] cursor-pointer place-items-center rounded-full bg-panel/95',
-					collectionSelect ? 'right-2' : persistentSelect && onselect ? 'left-10' : 'left-2',
-					hero ? 'text-hero opacity-100' : `text-foreground ${reveal}`
-				]}
-				aria-label={hero ? m.cover_remove() : m.cover_set()}
-				title={hero ? m.cover_remove() : m.cover_set()}
-				aria-pressed={hero}
-				onclick={onhero}
-				><Star size={14} fill={hero ? 'currentColor' : 'none'} aria-hidden="true" /></button
-			>
-		{/if}
 		{#if onremove}
 			<button
 				type="button"
 				class={[
-					'absolute top-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground',
-					collectionSelect && showPhoto && onhero ? 'right-11' : 'right-1.5',
+					'absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground',
 					failed ? 'opacity-100' : reveal
 				]}
 				aria-label={m.tile_remove({ name })}

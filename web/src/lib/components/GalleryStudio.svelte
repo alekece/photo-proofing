@@ -375,7 +375,7 @@
 				title={favorite ? m.studio_favorite_remove() : m.studio_favorite_add()}
 				aria-pressed={favorite}
 				onclick={() => void toggleFavorite()}
-				class="absolute top-2 left-2 grid size-8 cursor-pointer place-items-center rounded-full bg-panel transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus {favorite
+				class="absolute right-2 bottom-2 grid size-8 cursor-pointer place-items-center rounded-full bg-panel transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus {favorite
 					? 'text-hero'
 					: 'text-muted-foreground hover:text-foreground'}"
 			>

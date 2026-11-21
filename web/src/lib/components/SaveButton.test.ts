@@ -9,7 +9,7 @@ describe('SaveButton', () => {
 		const onclick = vi.fn();
 
 		render(SaveButton, { status: 'idle', onclick });
-		await userEvent.setup().click(screen.getByRole('button', { name: 'Save changes' }));
+		await userEvent.setup().click(screen.getByRole('button', { name: 'Save' }));
 
 		expect(onclick).toHaveBeenCalledOnce();
 		expect(screen.queryByTestId('click-ripple')).toBeNull();

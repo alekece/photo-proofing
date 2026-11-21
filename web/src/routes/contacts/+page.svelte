@@ -5,13 +5,14 @@
 	import { cubicIn } from 'svelte/easing';
 	import { slide } from 'svelte/transition';
 	import { afterNavigate, beforeNavigate } from '$app/navigation';
-	import { ArrowUpDown, Check, ChevronDown, Pencil, Plus, Trash2, Users } from '@lucide/svelte';
+	import { ArrowUpDown, Check, Pencil, Plus, Trash2, Users } from '@lucide/svelte';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import ContactIdentity from '#lib/components/ContactIdentity.svelte';
 	import ActionButton from '#lib/components/ui/ActionButton/ActionButton.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
+	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
 	import Label from '#lib/components/ui/Label/Label.svelte';
@@ -37,12 +38,9 @@
 		notes: string;
 		error: string;
 		invalid: 'name' | 'email' | null;
-		created: boolean;
 	};
-	type Panel =
-		| { mode: 'new'; draft: Draft }
-		| { mode: 'details'; id: string }
-		| { mode: 'edit'; id: string; draft: Draft; original: Contact };
+	type Editor =
+		{ mode: 'new'; draft: Draft } | { mode: 'edit'; id: string; draft: Draft; original: Contact };
 
 	let { data }: { data: PageData } = $props();
 
@@ -52,7 +50,7 @@
 	const selectedIds = new SvelteSet<string>();
 	// svelte-ignore state_referenced_locally
 	let contacts = $state<Contact[]>(data.contacts ? [...data.contacts] : []);
-	let panel = $state<Panel | null>(null);
+	let editor = $state<Editor | null>(null);
 	let query = $state('');
 	let resultsHeight = $state(0);
 	let sortOrder = $state<'name_asc' | 'name_desc'>('name_asc');
@@ -83,7 +81,7 @@
 	});
 	const selection = $derived(matching.filter(({ id }) => selectedIds.has(id)));
 	const selectable = $derived(
-		matching.filter(({ id }) => !writes.has(id) && !(panel?.mode === 'edit' && panel.id === id))
+		matching.filter(({ id }) => !writes.has(id) && !(editor?.mode === 'edit' && editor.id === id))
 	);
 
 	const activity = $derived(createSessionActivity(data.idleTimeoutMs));
@@ -108,19 +106,7 @@
 		for (const id of selectedIds) {
 			if (!visibleIds.has(id)) selectedIds.delete(id);
 		}
-
-		const current = panel;
-		if (!current || current.mode === 'new' || visibleIds.has(current.id)) return;
-
-		const row = document.getElementById(rowId(current.id));
-		const restoreFocus = row?.contains(document.activeElement);
-		panel = null;
-		if (restoreFocus) void focusFallback();
 	});
-
-	function rowId(id: string): string {
-		return `${formId}-row-${id}`;
-	}
 
 	async function focusFallback(): Promise<void> {
 		await tick();
@@ -138,29 +124,21 @@
 			phone: contact?.phone ?? '',
 			notes: contact?.notes ?? '',
 			error: '',
-			invalid: null,
-			created: false
+			invalid: null
 		};
 
-		panel = contact
+		editor = contact
 			? { mode: 'edit', id: contact.id, draft, original: contact }
 			: { mode: 'new', draft };
 		void tick().then(() => document.getElementById(`${draft.form}-name`)?.focus());
 	}
 
-	function toggleDetails(id: string): void {
-		panel = panel && panel.mode !== 'new' && panel.id === id ? null : { mode: 'details', id };
-	}
-
-	async function cancelEditor(): Promise<void> {
-		if (!panel || panel.mode === 'details') return;
-
-		const id = panel.mode === 'edit' ? panel.id : null;
-		panel = id === null ? null : { mode: 'details', id };
-		await tick();
-
-		if (id === null) newButton?.focus();
-		else document.getElementById(`${rowId(id)}-edit`)?.focus();
+	function closeEditor(): void {
+		const previous = editor;
+		editor = null;
+		if (previous?.mode === 'edit' && !matching.some(({ id }) => id === previous.id)) {
+			void focusFallback();
+		}
 	}
 
 	function markInvalid(draft: Draft, field: 'name' | 'email', input: HTMLInputElement): void {
@@ -192,10 +170,10 @@
 	}
 
 	async function submitContact(draft: Draft): Promise<boolean> {
-		const editor = panel;
-		if (!editor || editor.mode === 'details' || editor.draft !== draft) return false;
+		const current = editor;
+		if (!current || current.draft !== draft) return false;
 
-		const id = editor.mode === 'edit' ? editor.id : null;
+		const id = current.mode === 'edit' ? current.id : null;
 		if (writes.has(id)) return false;
 
 		if (!draft.name.trim()) {
@@ -212,9 +190,9 @@
 
 		try {
 			const saved =
-				editor.mode === 'new'
+				current.mode === 'new'
 					? await createContact(values(draft))
-					: await updateContact(editor.id, changes(draft, editor.original));
+					: await updateContact(current.id, changes(draft, current.original));
 			if (disposed) return false;
 
 			contacts =
@@ -222,18 +200,9 @@
 					? [...contacts, saved]
 					: contacts.map((contact) => (contact.id === id ? saved : contact));
 
-			if (panel !== editor) return false;
-
-			if (editor.mode === 'edit') editor.original = saved;
-			else draft.created = true;
-			draft.name = saved.name;
-			draft.email = saved.email;
-			draft.phone = saved.phone ?? '';
-			draft.notes = saved.notes ?? '';
-
-			return true;
+			return editor === current;
 		} catch (error) {
-			if (!disposed && panel === editor) {
+			if (!disposed && editor === current) {
 				draft.error =
 					error instanceof ApiError && (error.status === 409 || error.status === 422)
 						? error.message
@@ -244,14 +213,6 @@
 		} finally {
 			writes.delete(id);
 		}
-	}
-
-	function finishNew(draft: Draft): void {
-		if (panel?.mode !== 'new' || panel.draft !== draft) return;
-
-		const restoreFocus = document.getElementById(`${formId}-new`)?.contains(document.activeElement);
-		panel = null;
-		if (restoreFocus) void tick().then(() => newButton?.focus());
 	}
 
 	function clearSelection(): void {
@@ -307,7 +268,7 @@
 		id={draft.form}
 		onsubmit={(event) => {
 			event.preventDefault();
-			if (panel?.mode !== 'details' && panel?.draft === draft) saveButton?.activate();
+			if (editor?.draft === draft) saveButton?.activate();
 		}}
 	>
 		<fieldset disabled={busy} class="grid min-w-0 gap-4">
@@ -365,28 +326,6 @@
 	</form>
 {/snippet}
 
-{#snippet actions(draft: Draft, isNew: boolean, busy: boolean, disabled = busy)}
-	{#key draft}
-		<Button variant="outline" disabled={busy} onclick={() => void cancelEditor()}>
-			{m.common_cancel()}
-		</Button>
-		<ActionButton
-			bind:this={saveButton}
-			form={draft.form}
-			{disabled}
-			labels={isNew
-				? {
-						idle: m.contacts_create(),
-						pending: m.contacts_creating(),
-						succeeded: m.contacts_created()
-					}
-				: { idle: m.studio_save(), pending: m.studio_saving(), succeeded: m.studio_saved() }}
-			onaction={() => submitContact(draft)}
-			onsettled={isNew ? () => finishNew(draft) : undefined}
-		/>
-	{/key}
-{/snippet}
-
 <main bind:this={root} class="flex flex-1 flex-col workspace-inset pt-4 pb-24 sm:pt-6">
 	<div class="mb-4 flex flex-wrap items-end justify-between gap-3 sm:mb-6">
 		<div>
@@ -432,22 +371,7 @@
 			<h2 class="text-[1.625rem] text-foreground sm:text-[1.75rem]">{m.contacts_load_failed()}</h2>
 		</EmptyState>
 	{:else}
-		{#if panel?.mode === 'new'}
-			<section
-				id="{formId}-new"
-				aria-labelledby="{formId}-new-heading"
-				class="mb-3 grid gap-4 rounded-card border border-border bg-panel p-4 sm:p-5"
-				transition:slide={{ duration: duration(200) }}
-			>
-				<h2 id="{formId}-new-heading" class="text-xl">{m.contacts_new_heading()}</h2>
-				{@render fields(panel.draft, writes.has(null) || panel.draft.created)}
-				<div class="flex flex-wrap justify-end gap-2">
-					{@render actions(panel.draft, true, writes.has(null))}
-				</div>
-			</section>
-		{/if}
-
-		{#if contacts.length === 0 && panel?.mode !== 'new'}
+		{#if contacts.length === 0}
 			<EmptyState variant="plain" class="rounded-card py-14">
 				<Users size={28} aria-hidden="true" class="text-muted-foreground" />
 				<h2 class="text-[1.625rem] text-foreground sm:text-[1.75rem]">{m.contacts_empty()}</h2>
@@ -472,13 +396,7 @@
 			class="grid gap-2"
 		>
 			{#each matching as item (item.id)}
-				{@const active = panel && panel.mode !== 'new' && panel.id === item.id ? panel : null}
-				{@const detailsId = `${rowId(item.id)}-details`}
-				<li
-					id={rowId(item.id)}
-					class="min-w-0 rounded-card border border-border bg-panel"
-					out:removal={item.id}
-				>
+				<li class="min-w-0 rounded-card border border-border bg-panel" out:removal={item.id}>
 					<div
 						class="group/contact flex flex-wrap items-start gap-2 p-3 sm:items-center sm:gap-3 sm:p-3.5"
 					>
@@ -486,7 +404,7 @@
 							<Checkbox
 								aria-label={m.tile_select({ name: item.name })}
 								checked={selectedIds.has(item.id)}
-								disabled={writes.has(item.id) || active?.mode === 'edit'}
+								disabled={writes.has(item.id)}
 								onchange={(event) => {
 									if (event.currentTarget.checked) selectedIds.add(item.id);
 									else selectedIds.delete(item.id);
@@ -506,107 +424,80 @@
 								{#if item.galleries.length > 0}
 									<div class="mt-1 flex min-w-0 flex-wrap gap-1">
 										{#each item.galleries as linked (linked.id)}
-											<span
-												class="max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground"
+											<a
+												href="/dashboard/{encodeURIComponent(linked.id)}"
+												class="max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 text-xs text-foreground transition-colors hover:bg-border/60"
 											>
 												{linked.title ?? m.gallery_untitled()}
-											</span>
+											</a>
 										{/each}
 									</div>
 								{/if}
+								{#if item.notes}
+									<p
+										class="mt-1 line-clamp-2 text-sm [overflow-wrap:anywhere] text-muted-foreground"
+									>
+										{item.notes}
+									</p>
+								{/if}
 							{/snippet}
 						</ContactIdentity>
-						<div class="ml-auto flex flex-initial flex-wrap justify-end gap-1 sm:gap-2">
-							{#if active?.mode !== 'edit'}
-								<Button
-									id="{rowId(item.id)}-edit"
-									variant="ghost"
-									size="sm"
-									aria-label={m.contacts_edit_label({ name: item.name })}
-									disabled={writes.has(item.id)}
-									class="min-w-11 gap-2 max-sm:px-0"
-									onclick={() => openEditor(item)}
-								>
-									<Pencil size={16} aria-hidden="true" />
-									<span class="max-sm:sr-only">{m.contacts_edit()}</span>
-								</Button>
-								<Button
-									id="{rowId(item.id)}-toggle"
-									variant="ghost"
-									size="sm"
-									class="min-w-11 px-0"
-									aria-expanded={active !== null}
-									aria-controls={detailsId}
-									aria-label={active
-										? m.contacts_hide_details({ name: item.name })
-										: m.contacts_show_details({ name: item.name })}
-									onclick={() => toggleDetails(item.id)}
-								>
-									<ChevronDown
-										size={18}
-										aria-hidden="true"
-										class="transition-transform motion-reduce:transition-none {active
-											? 'rotate-180'
-											: ''}"
-									/>
-								</Button>
-							{/if}
-						</div>
-					</div>
-					<div id={detailsId} inert={!active} aria-hidden={!active}>
-						{#if active}
-							<div
-								class="grid gap-4 border-t border-border p-3.5 sm:p-5"
-								transition:slide={{ duration: duration(200) }}
-							>
-								{#if active.mode === 'edit'}
-									{@render fields(active.draft, writes.has(item.id))}
-									<div class="flex flex-wrap justify-end gap-2">
-										{@render actions(
-											active.draft,
-											false,
-											writes.has(item.id),
-											writes.has(item.id) ||
-												Object.keys(changes(active.draft, active.original)).length === 0
-										)}
-									</div>
-								{:else if item.notes}
-									<div class="grid gap-1.5">
-										<p class="text-xs font-semibold text-muted-foreground uppercase">
-											{m.contacts_notes()}
-										</p>
-										<p class="text-sm [overflow-wrap:anywhere] whitespace-pre-wrap">
-											{item.notes}
-										</p>
-									</div>
-								{/if}
-								<div class="grid gap-2">
-									<p class="text-xs font-semibold text-muted-foreground uppercase">
-										{m.contacts_linked_galleries()}
-									</p>
-									{#if item.galleries.length === 0}
-										<p class="text-sm text-muted-foreground">{m.contacts_no_galleries()}</p>
-									{:else}
-										<div class="flex flex-wrap gap-2">
-											{#each item.galleries as linked (linked.id)}
-												<a
-													href="/dashboard/{encodeURIComponent(linked.id)}"
-													class="inline-flex max-w-full items-center rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-border/60"
-												>
-													<span class="truncate">{linked.title ?? m.gallery_untitled()}</span>
-												</a>
-											{/each}
-										</div>
-									{/if}
-								</div>
-							</div>
-						{/if}
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label={m.contacts_edit_label({ name: item.name })}
+							disabled={writes.has(item.id)}
+							class="min-w-11 max-sm:px-0"
+							onclick={() => openEditor(item)}
+						>
+							<Pencil size={16} aria-hidden="true" />
+							<span class="max-sm:sr-only">{m.contacts_edit()}</span>
+						</Button>
 					</div>
 				</li>
 			{/each}
 		</ul>
 	{/if}
 </main>
+
+{#if editor}
+	{@const current = editor}
+	{@const draft = current.draft}
+	{@const busy = writes.has(current.mode === 'edit' ? current.id : null)}
+	<Dialog
+		formMotion
+		dismissible={!busy}
+		labelledby="{draft.form}-title"
+		onclose={closeEditor}
+		class="m-auto max-h-[calc(100dvh-2rem)] w-[min(34rem,calc(100vw-2rem))] overflow-auto rounded-dialog border border-border bg-panel p-4 text-foreground shadow-xl sm:p-6"
+	>
+		{#snippet children(dismiss, complete)}
+			<div class="grid gap-4">
+				<h2 id="{draft.form}-title" class="text-xl">
+					{current.mode === 'new'
+						? m.contacts_new_heading()
+						: m.contacts_edit_label({ name: current.original.name })}
+				</h2>
+				{@render fields(draft, busy)}
+				<div class="flex flex-wrap justify-end gap-2">
+					<Button variant="outline" disabled={busy} onclick={dismiss}>{m.common_cancel()}</Button>
+					<ActionButton
+						bind:this={saveButton}
+						form={draft.form}
+						disabled={busy ||
+							(current.mode === 'edit' &&
+								Object.keys(changes(draft, current.original)).length === 0)}
+						labels={current.mode === 'new'
+							? { idle: m.contacts_create(), pending: m.contacts_creating() }
+							: { idle: m.studio_save(), pending: m.studio_saving() }}
+						onaction={() => submitContact(draft)}
+						onsettled={complete}
+					/>
+				</div>
+			</div>
+		{/snippet}
+	</Dialog>
+{/if}
 
 {#if selection.length > 0}
 	<SelectActions
@@ -620,7 +511,7 @@
 		onexit={clearSelection}
 		canEscape={() =>
 			!deleteTargets &&
-			(!panel || panel.mode === 'details') &&
+			!editor &&
 			!document.querySelector('[data-slot="popover"] > button[aria-expanded="true"]')}
 	>
 		{#snippet actions()}

@@ -30,64 +30,17 @@ it('keeps the collection circle and active tile body separately operable by keyb
 	expect(onselect).toHaveBeenCalledTimes(2);
 });
 
-describe('PhotoTile hero star', () => {
-	it('is a toggle named after what a click does', async () => {
-		const onhero = vi.fn();
-		const user = userEvent.setup();
-		const view = render(PhotoTile, { ...base, onhero });
-		const star = screen.getByRole('button', { name: 'Set as cover' });
-
-		expect(star.getAttribute('aria-pressed')).toBe('false');
-
-		await user.click(star);
-
-		expect(onhero).toHaveBeenCalledTimes(1);
-
-		await view.rerender({ ...base, onhero, hero: true });
-
-		expect(screen.getByRole('button', { name: 'Remove cover' }).getAttribute('aria-pressed')).toBe(
-			'true'
-		);
-	});
-
-	it('is reachable by keyboard', async () => {
-		const onhero = vi.fn();
-		const user = userEvent.setup();
-
-		render(PhotoTile, { ...base, onhero });
-		screen.getByRole('button', { name: 'Open a.jpg' }).focus();
-		await user.tab();
-
-		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Set as cover' }));
-
-		await user.keyboard('{Enter}');
-
-		expect(onhero).toHaveBeenCalledTimes(1);
-	});
-
-	it('is absent without a handler and on photos that are not ready', () => {
-		render(PhotoTile, base);
-		render(PhotoTile, { ...base, state: 'processing', onhero: () => {} });
-
-		expect(screen.queryByRole('button', { name: /hero/ })).toBeNull();
-	});
-});
-
 describe('PhotoTile states', () => {
 	it.each(['processing', 'process-failed'] as const)(
 		'keeps a prepared clean photo usable during %s',
 		async (state) => {
 			const onopen = vi.fn();
-			const onhero = vi.fn();
 			const onretry = vi.fn();
-			render(PhotoTile, { ...base, state, cleanReady: true, onopen, onhero, onretry });
+			render(PhotoTile, { ...base, state, cleanReady: true, onopen, onretry });
 
 			expect(screen.getByRole('img', { name: 'a.jpg' }).getAttribute('src')).toBe('/t');
 			await userEvent.click(screen.getByRole('button', { name: 'Open a.jpg' }));
-			await userEvent.click(screen.getByRole('button', { name: 'Set as cover' }));
-
 			expect(onopen).toHaveBeenCalledOnce();
-			expect(onhero).toHaveBeenCalledOnce();
 
 			if (state === 'process-failed') {
 				await userEvent.click(screen.getByRole('button', { name: 'Retry a.jpg' }));

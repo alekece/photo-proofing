@@ -12,41 +12,31 @@ vi.mock('#lib/paraglide/runtime.js', async (original) => {
 	// `getLocale` is read through the module so `overwriteGetLocale` still takes effect.
 	return { ...runtime, getLocale: () => runtime.getLocale(), setLocale: mocks.setLocale };
 });
-import LanguageMenu from './LanguageMenu.svelte';
+import LanguagePicker from './LanguagePicker.svelte';
 import { toasts } from './ui/Toast/toasts.svelte.js';
 
-describe('LanguageMenu', () => {
+describe('LanguagePicker', () => {
 	useLocale('en');
 	afterEach(() => {
 		vi.clearAllMocks();
 		toasts.items = [];
 	});
 
-	it('shows the current language and offers both', async () => {
-		render(LanguageMenu);
+	it('shows both language choices without opening a menu', () => {
+		render(LanguagePicker);
 
-		const button = screen.getByRole('button', { name: 'Language: English' });
-
-		expect(button.textContent?.trim()).toBe('EN');
-
-		await userEvent.setup().click(button);
-
-		expect(screen.getByRole('radio', { name: 'English' }).getAttribute('aria-checked')).toBe(
-			'true'
-		);
-		expect(screen.getByRole('radio', { name: 'Français' }).getAttribute('aria-checked')).toBe(
-			'false'
-		);
-		expect(screen.getByRole('radio', { name: 'Français' }).getAttribute('lang')).toBe('fr');
+		expect(screen.getByRole('radio', { name: 'English', checked: true })).toBeTruthy();
+		expect(
+			screen.getByRole('radio', { name: 'Français', checked: false }).closest('[lang]')
+		).toHaveProperty('lang', 'fr');
 	});
 
 	it('saves the choice, then reloads in it', async () => {
 		mocks.saveLanguage.mockResolvedValue(undefined);
-		render(LanguageMenu);
+		render(LanguagePicker);
 
 		const user = userEvent.setup();
 
-		await user.click(screen.getByRole('button', { name: 'Language: English' }));
 		await user.click(screen.getByRole('radio', { name: 'Français' }));
 
 		await waitFor(() => expect(mocks.setLocale).toHaveBeenCalledWith('fr'));
@@ -58,11 +48,10 @@ describe('LanguageMenu', () => {
 
 	it('stays on the current language when the save fails', async () => {
 		mocks.saveLanguage.mockRejectedValue(new Error('down'));
-		render(LanguageMenu);
+		render(LanguagePicker);
 
 		const user = userEvent.setup();
 
-		await user.click(screen.getByRole('button', { name: 'Language: English' }));
 		await user.click(screen.getByRole('radio', { name: 'Français' }));
 
 		await waitFor(() =>
@@ -71,26 +60,22 @@ describe('LanguageMenu', () => {
 			])
 		);
 		expect(mocks.setLocale).not.toHaveBeenCalled();
-		expect(screen.getByRole('button', { name: 'Language: English' }).textContent?.trim()).toBe(
-			'EN'
-		);
+		expect(screen.getByRole('radio', { name: 'English', checked: true })).toBeTruthy();
 	});
 
 	it('has no axe violations', async () => {
-		const { container } = render(LanguageMenu);
+		const { container } = render(LanguagePicker);
 
 		expect((await axe(container)).violations).toEqual([]);
 	});
 });
 
-describe('LanguageMenu in French', () => {
+describe('LanguagePicker in French', () => {
 	useLocale('fr');
 
 	it('shows French as the current language', () => {
-		render(LanguageMenu);
+		render(LanguagePicker);
 
-		expect(screen.getByRole('button', { name: 'Langue : français' }).textContent?.trim()).toBe(
-			'FR'
-		);
+		expect(screen.getByRole('radio', { name: 'Français', checked: true })).toBeTruthy();
 	});
 });

@@ -76,10 +76,10 @@
 }
 
 @utility menu-choice {
-	@apply flex items-center gap-2 rounded-full bg-input px-3 py-1.5 text-sm font-medium whitespace-nowrap text-foreground transition-colors;
+	@apply flex items-center gap-2 rounded-full bg-transparent px-3 py-1.5 text-sm font-medium whitespace-nowrap text-foreground transition-colors motion-reduce:transition-none;
 
 	&:where(:hover:not(:disabled)) {
-		background: var(--color-background);
+		background: var(--color-border);
 	}
 
 	&:is([aria-current='page'], [aria-selected='true']) {
@@ -92,11 +92,11 @@
 @utility control-choice {
 	@apply border-border-strong bg-input text-foreground transition-colors;
 
-	&:where(:hover:not(:disabled)) {
+	&:where(:hover:not(:disabled, :has(> input:disabled))) {
 		background: var(--color-background);
 	}
 
-	&:is([aria-pressed='true'], [aria-checked='true']) {
+	&:is([aria-pressed='true'], [aria-checked='true'], :has(> input:checked)) {
 		background: var(--color-foreground);
 		border-color: var(--color-foreground);
 		color: var(--color-inverse);

@@ -12,6 +12,7 @@
 	import Switch from '#lib/components/ui/Switch/Switch.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import type { Gallery, GalleryChanges } from '#lib/gallery/api.js';
+	import { cn } from '#lib/utils.js';
 
 	let {
 		gallery,
@@ -45,6 +46,7 @@
 	const savedIncluded = $derived(gallery.included_photos);
 	const savedWatermark = $derived(gallery.watermark_enabled);
 	const savedAccessCode = $derived(gallery.access_code ?? null);
+	const codeLockedReasonId = $props.id();
 
 	let expiryDay = $derived(savedExpiry);
 	let shootDate = $derived(savedShootDate);
@@ -339,11 +341,7 @@
 		{#if shareToken}
 			{#if lockedAccessCode !== null}
 				<div class={row}>
-					<div class="grid gap-0.5">
-						<span class="text-foreground">{m.settings_access_code()}</span>
-						<span class="text-xs text-muted-foreground">{m.settings_access_code_locked_hint()}</span
-						>
-					</div>
+					<span class="text-foreground">{m.settings_access_code()}</span>
 					<CopyLink
 						link={lockedAccessCode}
 						label={m.settings_access_code_label()}
@@ -354,15 +352,19 @@
 					/>
 				</div>
 			{:else}
-				<div class={row}>
-					<div class="grid gap-0.5">
-						<Label for="access-code-switch" class="text-foreground"
-							>{m.settings_access_code()}</Label
-						>
-						<span class="text-xs text-muted-foreground">{m.settings_access_code_none_locked()}</span
-						>
+				<div class={cn(row, 'flex-nowrap')}>
+					<Label for="access-code-switch" class="text-foreground">{m.settings_access_code()}</Label>
+					<div class="flex items-center gap-2">
+						<span id={codeLockedReasonId} class="text-end text-xs text-muted-foreground">
+							{m.settings_access_code_none_locked()}
+						</span>
+						<Switch
+							id="access-code-switch"
+							checked={false}
+							aria-describedby={codeLockedReasonId}
+							disabled
+						/>
 					</div>
-					<Switch id="access-code-switch" checked={false} disabled />
 				</div>
 			{/if}
 		{:else}

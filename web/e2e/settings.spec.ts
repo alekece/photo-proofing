@@ -64,7 +64,7 @@ test('saves real watermark and signature settings and keeps the editor usable on
 	await both.click();
 	await hex.fill('#A12B3C');
 	await opacity.fill('50');
-	await page.getByRole('button', { name: 'Save changes' }).click();
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Saved', exact: true })).toBeVisible();
 	await page.reload();
 	await expect(async () => {
@@ -115,7 +115,7 @@ test('saves real watermark and signature settings and keeps the editor usable on
 		const hexBox = (await hex.boundingBox())!;
 		expect(previewBox.y).toBeGreaterThanOrEqual(hexBox.y + hexBox.height);
 		await hex.scrollIntoViewIfNeeded();
-		await expect(page.getByRole('button', { name: 'Save changes' })).toBeInViewport();
+		await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
 		await expect(page.getByRole('button', { name: 'Cancel' })).toBeInViewport();
 
 		if (directory) {
@@ -128,15 +128,13 @@ test('saves real watermark and signature settings and keeps the editor usable on
 		}
 	}
 
-	const settings = page.getByRole('main');
 	await page.getByRole('tab', { name: 'General' }).click();
-	await settings.getByRole('button', { name: /language/i }).click();
 	await expect(page.getByRole('radio', { name: 'English' })).toBeInViewport({ ratio: 1 });
 	await expect(page.getByRole('radio', { name: 'Français' })).toBeInViewport({ ratio: 1 });
 	const frenchMounted = page.waitForRequest(
 		(request) => new URL(request.url()).pathname === '/api/v1/events'
 	);
-	await page.getByRole('radio', { name: 'Français' }).click();
+	await page.getByRole('radio', { name: 'English' }).press('ArrowRight');
 	await frenchMounted;
 	await expect(page.getByRole('heading', { name: 'Réglages' })).toBeVisible();
 	const french = page.getByRole('tablist', { name: 'Sections des réglages' });
@@ -153,7 +151,6 @@ test('saves real watermark and signature settings and keeps the editor usable on
 	await expect(page.getByRole('button', { name: 'Enregistrer' })).toBeInViewport();
 	await expect(page.getByRole('button', { name: 'Annuler' })).toBeInViewport();
 	await french.getByRole('tab', { name: 'Général' }).click();
-	await settings.getByRole('button', { name: /langue/i }).click();
 	await page.getByRole('radio', { name: 'English' }).click();
 	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 });
