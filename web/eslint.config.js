@@ -9,6 +9,7 @@ export default ts.config(
 		ignores: [
 			'.svelte-kit/',
 			'build/',
+			'storybook-static/',
 			'.output/',
 			'node_modules/',
 			'playwright-report/',

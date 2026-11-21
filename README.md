@@ -220,6 +220,26 @@ curl http://127.0.0.1:8080/api/v1/health
 
 Open `http://localhost:5173/login` for native setup/sign-in. Account setup closes after the first account, including concurrent attempts, but until then anyone who can reach the API can create it: run setup before exposing the host to other devices. Sign out revokes that particular session, including any copy of its cookie; independent sessions remain signed in. The current HTTP trial sends passwords and cookies unencrypted: use a trusted network and synthetic credentials that you do not reuse. Do not use real client photos.
 
+### Storybook
+
+Preview the shared UI components in isolation, without starting the API:
+
+```sh
+pnpm --dir web storybook        # http://localhost:6006
+pnpm --dir web build-storybook  # static output in web/storybook-static/
+```
+
+Stories live next to their components in `web/src/lib/components/ui/`. These commands are separate from `pnpm --dir web verify`.
+
+To let Copilot CLI or Codex inspect stories, start the Storybook dev server and register its MCP endpoint in your local user configuration:
+
+```sh
+copilot mcp add --transport http storybook http://localhost:6006/mcp
+codex mcp add storybook --url http://localhost:6006/mcp
+```
+
+The endpoint is loopback-only and unavailable when the dev server is stopped. Use it to find stories and open their previews; the SvelteKit integration does not expose component documentation over MCP. The static build does not provide MCP. Do not commit local MCP client settings.
+
 ## Configuration
 
 Rust process settings use this precedence: CLI flags, environment variables, optional TOML file, defaults. Copy [config.example.toml](config.example.toml) to the ignored `config.toml` if needed. For example:
