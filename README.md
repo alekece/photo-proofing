@@ -23,7 +23,9 @@ A photo with prepared clean images can be starred as the gallery hero, used on t
 The [workspace visual refresh](docs/designs/2026-11-21-workspace-visual-refresh-design.md)
 keeps search, sort, filters and scroll when returning from a gallery. The private
 Photos library searches by gallery name and opens a viewer over its filtered
-grid; downloads and deletions stay in the selection bar. Studio has an inline
+grid; downloads and deletions stay in the selection bar. One checked photo
+downloads directly. For two or more, the studio prepares one ZIP of the checked
+originals, even across galleries, and starts the download when ready. Studio has an inline
 Comments tab. In [Settings](docs/designs/ui/screens/settings.md), General holds
 the studio identity, language and proof quality. The cover signature can
 override the cover color for the studio name without recoloring the logo or

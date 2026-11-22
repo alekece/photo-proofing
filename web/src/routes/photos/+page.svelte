@@ -6,6 +6,7 @@
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import PhotoTile, { GRID_CLASSES, ITEM_CLASSES } from '#lib/components/PhotoTile.svelte';
 	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
+	import OwnerZipError from '#lib/components/OwnerZipError.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
@@ -14,7 +15,8 @@
 	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
 	import WorkspaceHeading from '#lib/components/ui/WorkspaceHeading/WorkspaceHeading.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
-	import { ArrowUpDown, Download, Images, ListFilter, Trash2 } from '@lucide/svelte';
+	import { ArrowUpDown, Download, Images, ListFilter, LoaderCircle, Trash2 } from '@lucide/svelte';
+	import { OwnerExport } from '#lib/gallery/export.svelte.js';
 	import {
 		BULK_DELETE_LIMIT,
 		deletePhotos,
@@ -44,6 +46,7 @@
 	let selectionMode = $state(false);
 	let deleteConfirmOpen = $state(false);
 	let downloadBusy = $state(false);
+	const zip = new OwnerExport(() => null, 'photos');
 	let viewerIndex = $state<number | null>(null);
 
 	const loadFailed = $derived(data.photos === null);
@@ -157,34 +160,25 @@
 	}
 
 	async function downloadSelected() {
-		if (downloadBusy) return;
+		if (downloadBusy || selection.length === 0) return;
 
-		const targets = [...selection];
+		if (selection.length > 1) {
+			await zip.request(selection.map(({ id }) => id));
+			return;
+		}
 
-		if (targets.length === 0) return;
-
+		const entry = selection[0]!;
 		downloadBusy = true;
-		let failed = 0;
 
 		try {
-			for (const entry of targets) {
-				try {
-					await downloadOriginal(entry.gallery_id, entry.id, fetch, photoSet(entry.kind));
-				} catch (cause) {
-					if (cause instanceof ApiError && cause.status === 401) {
-						await goto('/login', { refreshAll: true });
-
-						return;
-					}
-
-					failed += 1;
-				}
-			}
+			await downloadOriginal(entry.gallery_id, entry.id, fetch, photoSet(entry.kind));
+		} catch (cause) {
+			if (cause instanceof ApiError && cause.status === 401)
+				await goto('/login', { refreshAll: true });
+			else toasts.error(m.photos_download_some_failed());
 		} finally {
 			downloadBusy = false;
 		}
-
-		if (failed > 0) toasts.error(m.photos_download_some_failed());
 	}
 
 	/**
@@ -377,10 +371,15 @@
 				variant="outline"
 				size="sm"
 				class="min-h-9! gap-1.5"
-				disabled={selection.length === 0 || downloadBusy}
+				disabled={selection.length === 0 || downloadBusy || zip.busy}
+				aria-busy={downloadBusy || zip.busy}
 				onclick={() => void downloadSelected()}
-				><Download size={16} aria-hidden="true" /><span class="max-sm:sr-only"
-					>{m.action_download()}</span
+				>{#if zip.busy || downloadBusy}<LoaderCircle
+						size={16}
+						class="animate-spin motion-reduce:animate-none"
+						aria-hidden="true"
+					/>{:else}<Download size={16} aria-hidden="true" />{/if}<span class="max-sm:sr-only"
+					>{zip.busy || downloadBusy ? m.favorites_downloading() : m.action_download()}</span
 				></Button
 			>
 			<Button
@@ -396,6 +395,8 @@
 		{/snippet}
 	</SelectActions>
 {/if}
+
+<OwnerZipError {zip} />
 
 {#if deleteConfirmOpen}
 	<ConfirmDialog
