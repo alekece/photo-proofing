@@ -135,6 +135,7 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           arguments: --workspace
+          command-arguments: bans licenses sources
 
   rust-test:
     name: Rust tests
