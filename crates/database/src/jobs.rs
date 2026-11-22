@@ -777,12 +777,19 @@ impl JobRepository<'_> {
     /// Manually requeues a failed job with a fresh set of attempts. `false` means there is no
     /// failed job with this id.
     pub async fn retry(&self, id: JobId) -> Result<bool, DatabaseError> {
+        Self::retry_in(self.pool, id).await
+    }
+
+    pub(crate) async fn retry_in(
+        executor: impl PgExecutor<'_>,
+        id: JobId,
+    ) -> Result<bool, DatabaseError> {
         let done = sqlx::query(
             "UPDATE jobs SET state = 'queued', attempts = 0, run_at = now(), last_error = NULL
              WHERE id = $1 AND state = 'failed'",
         )
         .bind(id)
-        .execute(self.pool)
+        .execute(executor)
         .await?;
 
         Ok(done.rows_affected() == 1)

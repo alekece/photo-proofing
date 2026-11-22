@@ -15,12 +15,12 @@
 //! `notification` event.
 
 use actix_web::{
-    HttpResponse, get,
+    HttpResponse, get, post,
     web::{Data, Path, Query, ServiceConfig},
 };
 use pp_database::{
     activity::{
-        ActivityCursor, ActivityKind, ActivityOrder, ActivityQuery, ActivityRange,
+        ActivityCursor, ActivityEventId, ActivityKind, ActivityOrder, ActivityQuery, ActivityRange,
         ActivityRepository, ContactFilter,
     },
     gallery::{GalleryId, GalleryRepository},
@@ -35,7 +35,29 @@ use crate::{
 /// Registers the activity routes. They sit beside the `/galleries` scope, ahead of it, which
 /// would otherwise answer the per-gallery path with a 404.
 pub fn configure(cfg: &mut ServiceConfig) {
-    cfg.service(list_activity).service(list_gallery_activity);
+    cfg.service(list_activity)
+        .service(list_gallery_activity)
+        .service(retry_email);
+}
+
+#[post("/galleries/{id}/timeline/{event}/retry")]
+async fn retry_email(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    path: Path<(GalleryId, ActivityEventId)>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let (gallery, event) = path.into_inner();
+    let retried = state
+        .database()
+        .repository::<ActivityRepository>()
+        .retry_email(identity.workspace_id, gallery, event)
+        .await?;
+
+    if !retried {
+        return Err(ErrorResponse::not_found());
+    }
+
+    Ok(HttpResponse::NoContent().no_store().finish())
 }
 
 #[derive(Deserialize)]
@@ -110,11 +132,14 @@ async fn list_gallery_activity(
 
 #[cfg(test)]
 mod tests {
+    use std::{num::NonZeroU16, time::Duration};
+
     use actix_web::{App, http::StatusCode, test, web::Data};
     use pp_database::{
         Database,
         auth::WorkspaceId,
-        gallery::{GalleryId, GalleryRepository},
+        gallery::{GalleryId, GalleryRepository, InvitationBatch},
+        jobs::{JobKind, JobOptions, JobRepository},
     };
     use serde_json::Value;
     use sqlx::PgPool;
@@ -160,6 +185,142 @@ mod tests {
             .uri(uri)
             .cookie(cookie.clone())
             .insert_header(("Origin", ORIGIN))
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn only_an_eligible_failed_email_can_be_retried_from_its_activity_line(pool: PgPool) {
+        let (state, _directory) = app_state(pool.clone()).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let post = |uri: &str| {
+            test::TestRequest::post()
+                .uri(uri)
+                .cookie(cookie.clone())
+                .insert_header(("Origin", ORIGIN))
+        };
+        let (_, gallery) = call(&app, post("/api/v1/galleries")).await;
+        let (workspace, id) = gallery_of(&pool, &gallery).await;
+        let database = Database::new(pool.clone());
+        let galleries = database.repository::<GalleryRepository>();
+        let jobs = database.repository::<JobRepository>();
+        let batch = InvitationBatch::new(
+            vec![],
+            vec![
+                "first@example.test".parse().unwrap(),
+                "second@example.test".parse().unwrap(),
+            ],
+            "Private subject".parse().unwrap(),
+            "Private text".parse().unwrap(),
+        );
+        let options = JobOptions {
+            max_attempts: NonZeroU16::MIN,
+            ..JobOptions::default()
+        };
+        galleries
+            .queue_invitations(workspace, id, &batch, options)
+            .await
+            .unwrap()
+            .unwrap();
+        let first = jobs
+            .claim(&[JobKind::SendEmail], Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(jobs.complete(&first).await.unwrap().is_current());
+        let second = jobs
+            .claim(&[JobKind::SendEmail], Duration::ZERO)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            jobs.claim(&[JobKind::SendEmail], Duration::ZERO)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let timeline = format!("/api/v1/galleries/{}/timeline", id.0);
+        let (_, feed) = call(&app, get("/api/v1/timeline", &cookie)).await;
+        let (_, local) = call(&app, get(&timeline, &cookie)).await;
+        assert_eq!(feed, local);
+        let events = feed["events"].as_array().unwrap();
+        assert_eq!(events.len(), 1);
+        let event = &events[0];
+        assert_eq!(event["kind"], "email_failed");
+        assert_eq!(event["can_retry"], true);
+        assert!(event["contact"].is_null() && event["detail"].is_null());
+        assert!(!event.to_string().contains("example.test"));
+        let event_id = event["id"].as_str().unwrap();
+        let retry = format!("{timeline}/{event_id}/retry");
+        let foreign = galleries
+            .create(other_workspace(&pool).await)
+            .await
+            .unwrap();
+        assert_eq!(
+            call(
+                &app,
+                post(&format!(
+                    "/api/v1/galleries/{}/timeline/{event_id}/retry",
+                    foreign.id.0
+                ))
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+
+        sqlx::query(
+            "UPDATE galleries SET expires_at = (now() AT TIME ZONE 'UTC')::date - 1 WHERE id=$1",
+        )
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(call(&app, post(&retry)).await.0, StatusCode::NOT_FOUND);
+        let (_, expired) = call(&app, get(&timeline, &cookie)).await;
+        assert_eq!(expired["events"][0]["can_retry"], false);
+        sqlx::query("UPDATE galleries SET expires_at=NULL WHERE id=$1")
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (a, b) = futures_util::join!(call(&app, post(&retry)), call(&app, post(&retry)));
+        assert!(matches!(
+            (a.0, b.0),
+            (StatusCode::NO_CONTENT, StatusCode::NOT_FOUND)
+                | (StatusCode::NOT_FOUND, StatusCode::NO_CONTENT)
+        ));
+        let retried = jobs
+            .claim(&[JobKind::SendEmail], Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(retried.id, second.id);
+        assert!(jobs.abandon(&retried, "Private error").await.unwrap());
+        let (_, failed) = call(&app, get(&timeline, &cookie)).await;
+        assert_eq!(failed["events"].as_array().unwrap().len(), 1);
+        assert_eq!(failed["events"][0]["id"], event_id);
+        assert_eq!(failed["events"][0]["can_retry"], true);
+        assert!(!failed.to_string().contains("Private"));
+        assert_eq!(call(&app, post(&retry)).await.0, StatusCode::NO_CONTENT);
+        let last = jobs
+            .claim(&[JobKind::SendEmail], Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(jobs.complete(&last).await.unwrap().is_current());
+        let (_, historical) = call(&app, get(&timeline, &cookie)).await;
+        assert_eq!(historical["events"][0]["id"], event_id);
+        assert_eq!(historical["events"][0]["can_retry"], false);
+        let bell: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(bell, 0);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
