@@ -124,8 +124,8 @@ impl JobKind {
 pub enum EmailRecipient {
     Contact {
         contact_id: ContactId,
-        /// Missing only for legacy jobs whose original link could not be recovered.
-        link_id: Option<Uuid>,
+        link_id: Uuid,
+        email: Email,
     },
     Bcc {
         email: Email,
@@ -241,7 +241,7 @@ pub enum JobState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
     pub id: JobId,
-    claim_generation: i64,
+    pub(crate) claim_generation: i64,
     kind: JobKind,
     body: Value,
     /// Including the current run, so the first run sees `1`.

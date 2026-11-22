@@ -272,6 +272,17 @@
 		if (accessCodeIntent() !== previous) accessCodeRevision++;
 	}
 
+	async function settleSaves() {
+		flush();
+
+		while (pendingSaves.size > 0) {
+			const outcomes = await Promise.all([...pendingSaves]);
+			if (!isCurrent() || outcomes.includes(false)) return false;
+		}
+
+		return isCurrent();
+	}
+
 	function beginShareAttempt(): ShareAttempt {
 		const code = accessCodeIntent();
 		const revision = accessCodeRevision;
@@ -285,15 +296,7 @@
 		return {
 			isReady,
 			async prepare() {
-				if (!valid()) return false;
-				flush();
-
-				while (pendingSaves.size > 0) {
-					const outcomes = await Promise.all([...pendingSaves]);
-					if (!valid() || outcomes.includes(false)) return false;
-				}
-
-				return isReady();
+				return valid() && (await settleSaves()) && isReady();
 			}
 		};
 	}
@@ -321,7 +324,7 @@
 		};
 	}
 
-	async function confirmStage(email?: SendInvitationsInput) {
+	async function confirmStage(readEmail: () => SendInvitationsInput | undefined) {
 		const sharing = publishing === 'share';
 		const failure = sharing ? m.gallery_share_failed() : m.gallery_deliver_failed();
 		const success = sharing ? m.publish_shared_title() : m.publish_delivered_title();
@@ -346,10 +349,10 @@
 					!(await directShareAttempt.prepare()) ||
 					!directShareAttempt.isReady() ||
 					hasFailures
-				: !canDeliver())
+				: !(await settleSaves()) || !canDeliver() || hasFailures)
 		)
 			throw new Error(failure);
-		flush();
+		const email = readEmail();
 
 		try {
 			const queued = email ? await sendGalleryInvitations(galleryId, email) : null;

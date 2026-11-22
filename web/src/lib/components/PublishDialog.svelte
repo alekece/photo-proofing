@@ -28,7 +28,7 @@
 		gallery?: Gallery;
 		settings?: WorkspaceSettings;
 		heroRevision?: number;
-		onconfirm: (email?: SendInvitationsInput) => Promise<void>;
+		onconfirm: (readEmail: () => SendInvitationsInput | undefined) => Promise<void>;
 		onclose: () => void;
 	};
 
@@ -95,7 +95,7 @@
 	confirmLabel={sharing ? m.action_share() : m.action_deliver()}
 	busy={photos === null || blocked}
 	{expanded}
-	onconfirm={() => onconfirm(editor?.draft())}
+	onconfirm={() => onconfirm(() => editor?.draft())}
 	{onclose}
 >
 	{#snippet visual(done)}

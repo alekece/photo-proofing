@@ -96,10 +96,27 @@ impl HandlerRegistry {
     /// `finalizer`.
     /// Registering a kind again replaces it.
     #[must_use]
-    pub fn register<P, F, Fut, Z>(mut self, kind: JobKind, handler: F, finalizer: Z) -> Self
+    pub fn register<P, F, Fut, Z>(self, kind: JobKind, handler: F, finalizer: Z) -> Self
     where
         P: DeserializeOwned + Send + 'static,
         F: Fn(P) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<Z::Output, HandlerError>> + Send + 'static,
+        Z: Finalizer,
+    {
+        self.register_with_claim(kind, move |_, payload| handler(payload), finalizer)
+    }
+
+    /// Also passes the claim to handlers that must check ownership before an external side effect.
+    #[must_use]
+    pub fn register_with_claim<P, F, Fut, Z>(
+        mut self,
+        kind: JobKind,
+        handler: F,
+        finalizer: Z,
+    ) -> Self
+    where
+        P: DeserializeOwned + Send + 'static,
+        F: Fn(&Job, P) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<Z::Output, HandlerError>> + Send + 'static,
         Z: Finalizer,
     {
@@ -109,7 +126,7 @@ impl HandlerRegistry {
                 Ok(payload) => payload,
                 Err(error) => return Box::pin(async move { Err(HandlerError::Payload(error)) }),
             };
-            let handling = handler(payload);
+            let handling = handler(job, payload);
             let finalizer = Arc::clone(&finalizer);
             let job = job.clone();
 

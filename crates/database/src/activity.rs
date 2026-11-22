@@ -425,10 +425,13 @@ impl ActivityRepository<'_> {
 
         if let Some(link_id) = link_id {
             let link = sqlx::query(
-                "SELECT FROM gallery_contacts WHERE gallery_id=$1 AND link_id=$2 FOR KEY SHARE",
+                "SELECT FROM gallery_contacts gc JOIN contacts c ON c.id=gc.contact_id
+                 JOIN jobs j ON j.id=$3 WHERE gc.gallery_id=$1 AND gc.link_id=$2
+                   AND c.email=j.payload #>> '{payload,recipient,email}' FOR SHARE OF gc, c",
             )
             .bind(gallery)
             .bind(link_id)
+            .bind(job)
             .fetch_optional(&mut *tx)
             .await?;
 
@@ -1034,6 +1037,18 @@ mod tests {
         let contact = line.contact.unwrap().id;
         let retry = || activity.retry_email(workspace_id, gallery_id, line.id);
         assert!(line.can_retry);
+        sqlx::query("UPDATE contacts SET email='replacement@example.test' WHERE id=$1")
+            .bind(contact)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(!fixture.list(ActivityQuery::default()).await.events[0].can_retry);
+        assert!(!retry().await.unwrap());
+        sqlx::query("UPDATE contacts SET email='client@example.test' WHERE id=$1")
+            .bind(contact)
+            .execute(&pool)
+            .await
+            .unwrap();
         galleries.archive(workspace_id, gallery_id).await.unwrap();
         assert!(!retry().await.unwrap());
         galleries.restore(workspace_id, gallery_id).await.unwrap();

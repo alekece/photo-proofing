@@ -141,9 +141,9 @@ async fn main() -> Result<()> {
                 move |payload| Arc::clone(&export_handler).run(payload),
                 export_finalizer,
             )
-            .register(
+            .register_with_claim(
                 JobKind::SendEmail,
-                move |payload| Arc::clone(&send_email_handler).run(payload),
+                move |job, payload| Arc::clone(&send_email_handler).run(job.clone(), payload),
                 CompleteJob::new(database.clone()),
             )
     })

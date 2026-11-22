@@ -1098,6 +1098,42 @@ describe('gallery page', () => {
 			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/share'))).toHaveLength(0);
 		});
 
+		it('uses the saved title when confirmation waits for a pending title change', async () => {
+			const save = Promise.withResolvers<Response>();
+			let subject: string | undefined;
+			vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+				if (init?.method === 'PATCH') return save.promise;
+				if (url.endsWith('/invitations')) {
+					subject = JSON.parse(String(init?.body)).subject;
+					return Response.json({
+						gallery: { ...base, share_token: 'T'.repeat(22), states: ['shared'] },
+						queued_count: 1
+					});
+				}
+				return Response.json([]);
+			});
+			const user = userEvent.setup();
+			render(GalleryPage, {
+				props: {
+					data: {
+						gallery: base,
+						settings: { ...DEFAULT_SETTINGS, emailEnabled: true },
+						idleTimeoutMs: 2592000000
+					} as never
+				}
+			});
+			const title = screen.getByLabelText('Gallery title');
+			await user.clear(title);
+			await user.type(title, 'Portraits');
+			await user.click(screen.getByRole('button', { name: 'Go to Share' }));
+			await user.click(await screen.findByRole('button', { name: 'Add a recipient' }));
+			await user.type(screen.getByLabelText('To'), 'bob@example.test{Enter}');
+			await user.click(screen.getByRole('button', { name: 'Share' }));
+			expect(subject).toBeUndefined();
+			save.resolve(Response.json({ ...base, title: 'Portraits' }));
+			await waitFor(() => expect(subject).toContain('Portraits'));
+		});
+
 		it('keeps the edited envelope when reconciliation finds the same draft', async () => {
 			const submissions: unknown[] = [];
 			const contact = {

@@ -31,7 +31,7 @@ use crate::{
     auth::WorkspaceId,
     contact::{ContactName, ContactNameExt, ContactRepository},
     error::{DatabaseError, UniqueViolation},
-    jobs::{EmailRecipient, InvitationStage, JobOptions, JobRepository, SendEmail},
+    jobs::{EmailRecipient, InvitationStage, Job, JobOptions, JobRepository, SendEmail},
     patch::Present,
     photo::{PhotoId, PhotoLocation},
 };
@@ -1071,7 +1071,8 @@ impl GalleryRepository<'_> {
                     gallery_id,
                     recipient: EmailRecipient::Contact {
                         contact_id,
-                        link_id: Some(link_id),
+                        link_id,
+                        email: recipient.email.clone(),
                     },
                     stage,
                     subject: batch.subject.clone(),
@@ -1158,9 +1159,10 @@ impl GalleryRepository<'_> {
         .await?)
     }
 
-    /// Checks the stage, link and destination of a prepared invitation just before sending.
+    /// Checks the claim, stage, link and destination of a prepared invitation just before sending.
     pub async fn invitation_is_current(
         &self,
+        job: &Job,
         location: PhotoLocation,
         stage: InvitationStage,
         token: &ShareToken,
@@ -1169,6 +1171,7 @@ impl GalleryRepository<'_> {
         Ok(sqlx::query_scalar(
             "SELECT EXISTS (SELECT FROM galleries g
              WHERE g.id=$1 AND g.workspace_id=$2 AND g.archived_at IS NULL AND g.shared_at IS NOT NULL
+               AND EXISTS (SELECT FROM jobs WHERE id=$6 AND claim_generation=$7 AND state='running')
                AND (g.expires_at IS NULL OR g.expires_at >= (now() AT TIME ZONE 'UTC')::date)
                AND (g.delivered_at IS NOT NULL) = $3
                AND (g.share_token=$4 OR EXISTS (SELECT FROM gallery_contacts gc
@@ -1180,6 +1183,8 @@ impl GalleryRepository<'_> {
         .bind(stage == InvitationStage::Finals)
         .bind(token)
         .bind(email)
+        .bind(job.id)
+        .bind(job.claim_generation)
         .fetch_one(self.pool)
         .await?)
     }
@@ -3835,23 +3840,21 @@ mod tests {
             vec![
                 EmailRecipient::Contact {
                     contact_id: existing_contact.id,
-                    link_id: Some(
-                        linked
-                            .iter()
-                            .find(|c| c.contact.id == existing_contact.id)
-                            .unwrap()
-                            .link_id
-                    ),
+                    email: existing_contact.email.clone(),
+                    link_id: linked
+                        .iter()
+                        .find(|c| c.contact.id == existing_contact.id)
+                        .unwrap()
+                        .link_id,
                 },
                 EmailRecipient::Contact {
                     contact_id: claire.id,
-                    link_id: Some(
-                        linked
-                            .iter()
-                            .find(|c| c.contact.id == claire.id)
-                            .unwrap()
-                            .link_id
-                    ),
+                    email: claire.email.clone(),
+                    link_id: linked
+                        .iter()
+                        .find(|c| c.contact.id == claire.id)
+                        .unwrap()
+                        .link_id,
                 },
                 EmailRecipient::Bcc {
                     email: "planner@example.test".parse().unwrap()

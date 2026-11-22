@@ -24,5 +24,7 @@ WHERE e.kind = 'email_failed' AND j.state = 'failed' AND j.payload->>'kind' = 's
   AND (j.payload #>> '{payload,recipient,kind}' = 'bcc'
        OR (j.payload #>> '{payload,recipient,kind}' = 'contact'
            AND j.payload #>> '{payload,recipient,contact_id}' = e.contact_id::text
-           AND EXISTS (SELECT FROM gallery_contacts gc WHERE gc.gallery_id = g.id AND gc.contact_id = e.contact_id
+           AND EXISTS (SELECT FROM gallery_contacts gc JOIN contacts c ON c.id = gc.contact_id
+                       WHERE gc.gallery_id = g.id AND gc.contact_id = e.contact_id AND c.workspace_id = g.workspace_id
+                       AND c.email = j.payload #>> '{payload,recipient,email}'
                        AND gc.link_id::text = j.payload #>> '{payload,recipient,link_id}')));
