@@ -154,10 +154,10 @@ mod tests {
         };
 
         for invalid_count in [0, 1001] {
-            assert_eq!(
-                call(&app, request(&vec![proof; invalid_count])).await.0,
-                StatusCode::UNPROCESSABLE_ENTITY
-            );
+            let (status, error) = call(&app, request(&vec![proof; invalid_count])).await;
+
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(error["code"], "invalid_request_body");
         }
 
         let foreign = other_workspace(&pool).await;
@@ -200,6 +200,14 @@ mod tests {
                 .insert_header(("Content-Type", content_type))
                 .set_payload(payload)
         };
+        let (status, error) = call(
+            &app,
+            raw_request("application/json", r#"{"photo_ids":[]} {}"#.into()),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(error["code"], "bad_request");
         assert_eq!(
             call(&app, raw_request("text/plain", body.clone())).await.0,
             StatusCode::UNSUPPORTED_MEDIA_TYPE

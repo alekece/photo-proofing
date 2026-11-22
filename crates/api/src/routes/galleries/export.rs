@@ -11,7 +11,9 @@ use actix_web::{
     FromRequest, HttpMessage, HttpRequest, HttpResponse,
     dev::Payload,
     error::JsonPayloadError,
-    get, mime, post,
+    get,
+    http::StatusCode,
+    mime, post,
     web::{Data, JsonBody, Path as WebPath, Query, ServiceConfig},
 };
 use futures_util::future::LocalBoxFuture;
@@ -22,12 +24,12 @@ use pp_database::{
     photo::{PhotoId, PhotoKind},
 };
 use pp_storage::ArchiveKey;
-use serde::{Deserialize, Deserializer, Serialize, de::Error};
+use serde::{Deserialize, Serialize};
 
 use super::photos::PhotoSet;
 use crate::{
     api::ApiState,
-    error::{ErrorResponse, ExportStatusResponse},
+    error::{ErrorCode, ErrorResponse, ExportStatusResponse},
     extractors::identity::Authenticated,
     response::{Attachment, ResponseBuilderExt},
 };
@@ -37,29 +39,41 @@ pub(crate) mod workspace;
 /// The name the browser saves the ZIP under, the same for every gallery.
 const DOWNLOAD_NAME: &str = "selection.zip";
 
+/// A required JSON subset for a workspace export.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ExportSelection {
     photo_ids: Vec<PhotoId>,
 }
 
 impl ExportSelection {
     const JSON_LIMIT: usize = 64 * 1024;
+
+    fn has_valid_count(&self) -> bool {
+        (1..=1000).contains(&self.photo_ids.len())
+    }
 }
 
-impl<'de> Deserialize<'de> for ExportSelection {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct SelectionBody {
-            photo_ids: Vec<PhotoId>,
-        }
+impl FromRequest for ExportSelection {
+    type Error = ErrorResponse;
+    type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
 
-        let SelectionBody { photo_ids } = SelectionBody::deserialize(deserializer)?;
+    fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let body = JsonBody::<Self>::new(request, payload, None, true).limit(Self::JSON_LIMIT);
 
-        if !(1..=1000).contains(&photo_ids.len()) {
-            return Err(D::Error::custom("expected between 1 and 1000 photo IDs"));
-        }
+        Box::pin(async move {
+            let selection = body.await?;
 
-        Ok(Self { photo_ids })
+            if !selection.has_valid_count() {
+                return Err(ErrorResponse::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    ErrorCode::InvalidRequestBody,
+                )
+                .with_context("expected between 1 and 1000 photo IDs"));
+            }
+
+            Ok(selection)
+        })
     }
 }
 
@@ -75,11 +89,14 @@ impl FromRequest for GallerySelection {
             request.mime_type().ok().flatten().is_some_and(|mime| {
                 mime.subtype() == mime::JSON || mime.suffix() == Some(mime::JSON)
             });
-        let body = JsonBody::new(request, payload, None, false).limit(ExportSelection::JSON_LIMIT);
+        let body = JsonBody::<ExportSelection>::new(request, payload, None, false)
+            .limit(ExportSelection::JSON_LIMIT);
 
         Box::pin(async move {
             match body.await {
-                Ok(selection) if is_json => Ok(Self(Some(selection))),
+                Ok(selection) if is_json && selection.has_valid_count() => {
+                    Ok(Self(Some(selection)))
+                }
                 // EOF before the first byte, not whitespace or a truncated JSON document.
                 Err(JsonPayloadError::Deserialize(error))
                     if error.is_eof() && error.line() == 1 && error.column() == 0 =>

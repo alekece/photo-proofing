@@ -2,7 +2,7 @@
 
 use actix_web::{
     HttpResponse, get, post,
-    web::{self, Data, Json, JsonConfig, Path as WebPath, ServiceConfig},
+    web::{self, Data, Path as WebPath, ServiceConfig},
 };
 use pp_database::export::{ExportId, ExportOptions, ExportRepository};
 use pp_storage::ArchiveKey;
@@ -16,11 +16,6 @@ use crate::{
 pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(
         web::scope("/export")
-            .app_data(
-                JsonConfig::default()
-                    .limit(ExportSelection::JSON_LIMIT)
-                    .error_handler(|error, _| ErrorResponse::from(error).into()),
-            )
             .service(request_workspace)
             .service(show_workspace)
             .service(download_workspace),
@@ -31,7 +26,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
 async fn request_workspace(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    selection: Json<ExportSelection>,
+    selection: ExportSelection,
 ) -> Result<HttpResponse, ErrorResponse> {
     let outcome = state
         .database()
