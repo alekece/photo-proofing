@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import PhotoTile from './PhotoTile.svelte';
 
-const base = { name: 'a.jpg', state: 'ready', thumbnailUrl: '/t', onremove: () => {} } as const;
+const base = { name: 'a.jpg', state: 'ready', thumbnailUrl: '/t' } as const;
 
 it('keeps the collection circle and active tile body separately operable by keyboard', async () => {
 	const user = userEvent.setup();
@@ -56,13 +56,13 @@ describe('PhotoTile states', () => {
 
 	it('shows a failed upload with its reason, Retry and ×', async () => {
 		const onretry = vi.fn();
-		const onremove = vi.fn();
+		const oncancelUpload = vi.fn();
 
 		render(PhotoTile, {
 			name: 'a.jpg',
 			state: 'upload-failed',
 			error: 'Storage full',
-			onremove,
+			oncancelUpload,
 			onretry
 		});
 
@@ -73,7 +73,7 @@ describe('PhotoTile states', () => {
 		await userEvent.click(screen.getByRole('button', { name: 'Remove a.jpg' }));
 
 		expect(onretry).toHaveBeenCalledOnce();
-		expect(onremove).toHaveBeenCalledOnce();
+		expect(oncancelUpload).toHaveBeenCalledOnce();
 	});
 
 	it('ripples the select circle only when a photo becomes selected', async () => {
@@ -155,18 +155,6 @@ describe('PhotoTile states', () => {
 
 		expect(screen.getByText(label)).toBeTruthy();
 		expect(container.querySelector('.bar')).toBeTruthy();
-	});
-
-	it('is read-only without onremove and offers a download when given one', async () => {
-		const ondownload = vi.fn();
-
-		render(PhotoTile, { name: 'a.jpg', state: 'ready', thumbnailUrl: '/t', ondownload });
-
-		expect(screen.queryByRole('button', { name: 'Remove a.jpg' })).toBeNull();
-
-		await userEvent.click(screen.getByRole('button', { name: 'Download a.jpg' }));
-
-		expect(ondownload).toHaveBeenCalledOnce();
 	});
 
 	it('dates a photo the client has downloaded or favorited', async () => {

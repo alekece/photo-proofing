@@ -85,7 +85,6 @@ function fakeEvents() {
 function stubApi(
 	server: Photo[] | Record<string, Photo[]>,
 	answers: {
-		delete?: number | Promise<number>;
 		retry?: number;
 		bulk?: (ids: string[]) => Response | Promise<Response>;
 		list?: () => Response | void | Promise<Response | void>;
@@ -106,15 +105,8 @@ function stubApi(
 		if (url.endsWith('/export?finals=true'))
 			return answers.export?.(url, init) ?? new Response(null, { status: 204 });
 		if (url.endsWith('/comments')) return Response.json([]);
-		if (init?.method === 'DELETE') {
-			const status = (await answers.delete) ?? 204;
 
-			if (status < 400) drop(url, [url.split('?')[0].split('/')[6]]);
-
-			return new Response(null, { status });
-		}
-
-		if (init?.method === 'POST' && url.endsWith('/photos/delete')) {
+		if (init?.method === 'POST' && url.split('?')[0].endsWith('/photos/delete')) {
 			const ids: string[] = JSON.parse(String(init.body)).photo_ids;
 
 			if (answers.bulk) return answers.bulk(ids);
@@ -139,11 +131,15 @@ function stubApi(
 			fetcher.mock.calls.filter(([, init]) => init?.method === method).map(([url]) => url),
 		bulk: () =>
 			fetcher.mock.calls
-				.filter(([url, init]) => init?.method === 'POST' && url.endsWith('/photos/delete'))
+				.filter(
+					([url, init]) => init?.method === 'POST' && url.split('?')[0].endsWith('/photos/delete')
+				)
 				.map(([, init]) => JSON.parse(String(init?.body)).photo_ids as string[]),
 		bulkUrls: () =>
 			fetcher.mock.calls
-				.filter(([url, init]) => init?.method === 'POST' && url.endsWith('/photos/delete'))
+				.filter(
+					([url, init]) => init?.method === 'POST' && url.split('?')[0].endsWith('/photos/delete')
+				)
 				.map(([url]) => url)
 	};
 }
@@ -304,19 +300,6 @@ describe('PhotosPanel', () => {
 		expect(screen.queryByRole('button', { name: 'Comments' })).toBeNull();
 		expect(fetcher.mock.calls.every((args) => !String(args[0]).endsWith('/comments'))).toBe(true);
 	});
-	it('keeps deletion confirmation busy until the real photo request finishes', async () => {
-		let finish!: (status: number) => void;
-		const pending = new Promise<number>((resolve) => (finish = resolve));
-		stubApi([photo('p1')], { delete: pending });
-		setup();
-		const user = userEvent.setup();
-		await user.click(await screen.findByRole('button', { name: 'Remove p1.jpg' }));
-		await user.click(screen.getByRole('button', { name: 'Delete' }));
-
-		expect(screen.getByRole('button', { name: 'Deleting…' })).toHaveProperty('disabled', true);
-		finish(204);
-		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-	});
 
 	it('toasts once per batch of uploads that fail', async () => {
 		stubApi([photo('p1')]);
@@ -427,7 +410,9 @@ describe('PhotosPanel', () => {
 			const item = within(tile(name));
 
 			expect(item.getByText(label), name).toBeTruthy();
-			expect(item.getByRole('button', { name: `Remove ${name}` })).toBeTruthy();
+			expect(item.queryByRole('button', { name: `Remove ${name}` }) !== null).toBe(
+				['lost.jpg', 'sending.jpg', 'next.jpg', 'notes.txt'].includes(name)
+			);
 			expect(item.queryByRole('button', { name: `Retry ${name}` }) !== null, name).toBe(retry);
 		}
 
@@ -550,8 +535,9 @@ describe('PhotosPanel', () => {
 			dataTransfer: { files: [jpeg('new.jpg')] }
 		});
 		await waitFor(() => expect(pending).toHaveLength(1));
-		await user.click(screen.getByRole('button', { name: 'Remove p3.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Select p3.jpg' }));
 		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 
 		server.push(photo('new', 'waiting'));
 		server[1] = photo('p2');
@@ -568,7 +554,7 @@ describe('PhotosPanel', () => {
 		);
 		expect(screen.queryByRole('button', { name: 'Open p3.jpg' })).toBeNull();
 		expect(within(tile('p2.jpg')).getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
-		expect(api.calls('DELETE')).toHaveLength(1);
+		expect(api.bulk()).toHaveLength(1);
 	});
 
 	it('ignores a late answer from the gallery it no longer shows', async () => {
@@ -650,19 +636,6 @@ describe('PhotosPanel', () => {
 		);
 	});
 
-	it('moves focus to the next tile once a deletion is confirmed', async () => {
-		stubApi([photo('p1'), photo('p2')]);
-		const user = userEvent.setup();
-
-		setup();
-		await user.click(await screen.findByRole('button', { name: 'Remove p1.jpg' }));
-		await user.click(screen.getByRole('button', { name: 'Delete' }));
-
-		await waitFor(() =>
-			expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open p2.jpg' }))
-		);
-	});
-
 	it('says a favorite is the client’s choice before deleting it, and keeps the others', async () => {
 		const api = stubApi([
 			{ ...photo('p1'), favorited_at: '2026-11-05T10:00:00Z' },
@@ -671,15 +644,16 @@ describe('PhotosPanel', () => {
 		const user = userEvent.setup();
 
 		setup();
-		await user.click(await screen.findByRole('button', { name: 'Remove p1.jpg' }));
+		await user.click(await screen.findByRole('button', { name: 'Select p1.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
 
-		const dialog = screen.getByRole('dialog', { name: 'Delete p1.jpg?' });
+		const dialog = screen.getByRole('dialog', { name: 'Delete 1 photo?' });
 
 		expect(within(dialog).getByText(/client.s favorites/)).toBeTruthy();
 
 		await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
-		expect(api.calls('DELETE')).toHaveLength(1);
+		expect(api.bulk()).toHaveLength(1);
 		expect(screen.getByRole('button', { name: 'Open p2.jpg' })).toBeTruthy();
 	});
 
@@ -688,7 +662,8 @@ describe('PhotosPanel', () => {
 		const user = userEvent.setup();
 
 		setup();
-		await user.click(await screen.findByRole('button', { name: 'Remove p1.jpg' }));
+		await user.click(await screen.findByRole('button', { name: 'Select p1.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
 
 		expect(within(screen.getByRole('dialog')).queryByText(/favorites/)).toBeNull();
 	});
@@ -718,80 +693,40 @@ describe('PhotosPanel', () => {
 		const user = userEvent.setup();
 
 		setup();
-		await user.click(await screen.findByRole('button', { name: 'Remove p1.jpg' }));
+		await user.click(await screen.findByRole('button', { name: 'Select p1.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Delete' }));
 
-		const dialog = screen.getByRole('dialog', { name: 'Delete p1.jpg?' });
+		const dialog = screen.getByRole('dialog', { name: 'Delete 1 photo?' });
 
 		await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
 
-		expect(api.calls('DELETE')).toEqual([]);
+		expect(api.bulk()).toEqual([]);
 
-		await user.click(screen.getByRole('button', { name: 'Remove p1.jpg' }));
 		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 
 		expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull();
-		expect(api.calls('DELETE')).toEqual(['/api/v1/galleries/g1/photos/p1']);
-	});
-
-	it('puts a photo back when its deletion fails', async () => {
-		stubApi([photo('p1'), photo('p2')], { delete: 500 });
-		const user = userEvent.setup();
-
-		setup();
-		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
-		await user.click(screen.getByRole('button', { name: 'Delete' }));
-
-		expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t delete p2\.jpg/);
-		expect(screen.getAllByRole('button', { name: /^Open/ }).map((open) => open.ariaLabel)).toEqual([
-			'Open p1.jpg',
-			'Open p2.jpg'
-		]);
+		expect(api.bulk()).toEqual([['p1']]);
 	});
 
 	it('puts a photo back as the server lists it when its deletion fails', async () => {
-		const answer = Promise.withResolvers<number>();
+		const answer = Promise.withResolvers<Response>();
 		const server = [photo('p1'), photo('p2', 'waiting')];
-		stubApi(server, { delete: answer.promise });
+		stubApi(server, { bulk: () => answer.promise });
 		const user = userEvent.setup();
 		const { emit } = setup();
 
-		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
+		await user.click(await screen.findByRole('button', { name: 'Select p2.jpg' }));
+
 		await user.click(screen.getByRole('button', { name: 'Delete' }));
+		await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 		server[1] = photo('p2', { failed: 'x' });
 		emit({ photo_id: 'p2', status: 'failed' });
-		answer.resolve(500);
+		answer.resolve(new Response(null, { status: 500 }));
 
-		expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t delete p2\.jpg/);
+		expect((await screen.findByRole('alert')).textContent).toMatch(/0 of 1/);
 		await waitFor(() => expect(tile('p2.jpg').textContent).toContain('Processing failed'));
 		expect(screen.getAllByRole('listitem')).toHaveLength(2);
-	});
-
-	it('refetches without an alert when the photo to delete is already gone', async () => {
-		const server = [photo('p1'), photo('p2')];
-		const api = stubApi(server, { delete: 404 });
-		const user = userEvent.setup();
-
-		setup();
-		await user.click(await screen.findByRole('button', { name: 'Remove p2.jpg' }));
-		server.pop();
-		await user.click(screen.getByRole('button', { name: 'Delete' }));
-
-		await waitFor(() => expect(api.lists()).toBe(2));
-		expect(screen.queryByRole('alert')).toBeNull();
-		expect(screen.queryByText('p2.jpg')).toBeNull();
-	});
-
-	it('goes to sign-in when a deletion finds the session ended', async () => {
-		stubApi([photo('p1')], { delete: 401 });
-		const user = userEvent.setup();
-
-		setup();
-		await user.click(await screen.findByRole('button', { name: 'Remove p1.jpg' }));
-		await user.click(screen.getByRole('button', { name: 'Delete' }));
-
-		await waitFor(() =>
-			expect(goto).toHaveBeenCalledWith('/login?expired=1', { refreshAll: true })
-		);
 	});
 
 	it('retries a photo whose processing failed', async () => {
@@ -834,27 +769,17 @@ describe('PhotosPanel', () => {
 		expect(within(viewer).queryByRole('button', { name: 'Set as cover' })).toBeNull();
 	});
 
-	it('deletes from the viewer after confirming and moves to the next photo', async () => {
-		const api = stubApi([photo('p1'), photo('p2')]);
+	it('offers no individual delete shortcut on a photo tile or in its viewer', async () => {
+		stubApi([photo('p1'), photo('p2')]);
 		const user = userEvent.setup();
 
 		setup();
-		await user.click(await screen.findByRole('button', { name: 'Open p1.jpg' }));
-		await user.click(
-			within(screen.getByRole('dialog', { name: /proof viewer/i })).getByRole('button', {
-				name: 'Delete'
-			})
-		);
-		await user.click(
-			within(screen.getByRole('dialog', { name: /delete p1\.jpg/i })).getByRole('button', {
-				name: 'Delete'
-			})
-		);
-
-		await waitFor(() => expect(api.calls('DELETE')).toEqual(['/api/v1/galleries/g1/photos/p1']));
+		const open = await screen.findByRole('button', { name: 'Open p1.jpg' });
+		expect(within(tile('p1.jpg')).queryByRole('button', { name: /remove|delete/i })).toBeNull();
+		await user.click(open);
 		expect(
-			within(screen.getByRole('dialog', { name: /proof viewer/i })).getByText('1 of 1')
-		).toBeTruthy();
+			within(screen.getByRole('dialog')).queryByRole('button', { name: /delete/i })
+		).toBeNull();
 	});
 
 	it('forgets the hero once its photo is gone', async () => {
@@ -945,7 +870,7 @@ describe('PhotosPanel', () => {
 			await user.keyboard('{Escape}');
 
 			expect(circle('p2.jpg')?.getAttribute('aria-pressed')).toBe('false');
-			expect(screen.getByRole('button', { name: 'Remove p1.jpg' })).toBeTruthy();
+			expect(screen.queryByRole('button', { name: 'Remove p1.jpg' })).toBeNull();
 			await waitFor(() => expect(document.activeElement).toBe(uploadButton()));
 		});
 
@@ -1343,11 +1268,12 @@ describe('PhotosPanel', () => {
 			expect(screen.queryByRole('button', { name: 'Set as cover' })).toBeNull();
 
 			queue.add('g1', [jpeg('a.jpg')], 'finals');
-			await user.click(await screen.findByRole('button', { name: 'Remove f1.jpg' }));
+			await user.click(await screen.findByRole('button', { name: 'Select f1.jpg' }));
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
+			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 
 			await waitFor(() =>
-				expect(api.calls('DELETE')).toEqual(['/api/v1/galleries/g1/photos/f1?finals=true'])
+				expect(api.bulkUrls()).toEqual(['/api/v1/galleries/g1/photos/delete?finals=true'])
 			);
 			expect(api.lists()).toBe(2);
 		});

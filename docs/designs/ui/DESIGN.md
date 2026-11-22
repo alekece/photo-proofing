@@ -20,7 +20,7 @@ Unsplash, so it needs a network connection.
 | Contacts | [contacts](screens/contacts.md) | Workspace contact directory, search by name/email/phone, master-detail editor, linked gallery pills, create and delete |
 | Activity | [activity](screens/activity.md) | Day-grouped lines, filters and sort, responsive favorite grids, automatic paging and live refresh; shared with the gallery `Activity` tab |
 | Gallery | [gallery](screens/gallery.md) | Left studio rail (`Collection` + `Studio`), top Journey Wizard bar, `Photos`, `Favorites`, `Comments`, `Final`, `Design`, `Contacts` and `Settings` views, Share, Publish and Delete dialogs |
-| Photo viewer | [viewer](screens/viewer.md) | Full-screen photo with set or remove hero, delete, favorite state |
+| Photo viewer | [viewer](screens/viewer.md) | Full-screen photo, comments and favorite state; no photographer delete or download shortcuts |
 | Preview | [preview](screens/preview.md) | The client page inside the app, Desktop and Phone |
 | Settings | [settings](screens/settings.md) | Studio name and logo, watermark, cover signature |
 | Client gallery | [client](screens/client.md) | Cover, grid with hearts, favorites filter, viewer, delivered downloads |
