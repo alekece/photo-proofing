@@ -16,7 +16,8 @@ network:
   allowed: [defaults, rust, github, rustsec.org]
 tools:
   github:
-    mode: gh-proxy
+    mode: local
+    github-token: ${{ secrets.GITHUB_TOKEN }}
     toolsets: [issues, pull_requests]
 concurrency:
   group: rustsec-triage
