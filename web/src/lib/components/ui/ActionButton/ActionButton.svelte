@@ -12,6 +12,8 @@
 			description: string;
 		};
 		confirmationDuration?: number;
+		/** Delay visual feedback, not dispatch; a slow write shows only the wheel. */
+		pendingDelayMs?: number;
 		onsettled?: () => void;
 		disabled?: boolean;
 		form?: string;
@@ -34,6 +36,7 @@
 		onaction,
 		confirmation,
 		confirmationDuration = 1600,
+		pendingDelayMs,
 		onsettled,
 		disabled = false,
 		form,
@@ -45,17 +48,20 @@
 	}: ActionButtonProps = $props();
 
 	const warningId = $props.id();
-	let state = $state<'idle' | 'armed' | 'pending' | 'confirmed'>('idle');
+	let phase = $state<'idle' | 'armed' | 'pending' | 'confirmed'>('idle');
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let disposed = false;
-	const busy = $derived(state === 'pending' || state === 'confirmed');
+	let showPending = $state(false);
+	const busy = $derived(phase === 'pending' || phase === 'confirmed');
 	const labelClass = $derived(compactOnMobile && icon ? 'sr-only sm:not-sr-only' : undefined);
 	const label = $derived(
-		state === 'armed'
+		phase === 'armed'
 			? (confirmation?.cancelAccessibleLabel ?? confirmation?.cancelLabel)
-			: state === 'pending'
-				? labels.pending
-				: state === 'confirmed'
+			: phase === 'pending' && showPending
+				? pendingDelayMs === undefined
+					? labels.pending
+					: (idleLabel ?? labels.idle)
+				: phase === 'confirmed'
 					? labels.succeeded
 					: (idleLabel ?? labels.idle)
 	);
@@ -63,7 +69,8 @@
 	function reset(): void {
 		clearTimeout(timer);
 		timer = undefined;
-		state = 'idle';
+		phase = 'idle';
+		showPending = false;
 	}
 
 	async function run(): Promise<void> {
@@ -73,7 +80,9 @@
 			return;
 		}
 
-		state = 'pending';
+		phase = 'pending';
+		showPending = !pendingDelayMs;
+		if (pendingDelayMs) timer = setTimeout(() => (showPending = true), pendingDelayMs);
 		let succeeded = false;
 
 		try {
@@ -83,6 +92,7 @@
 		}
 
 		if (disposed) return;
+		clearTimeout(timer);
 
 		if (!succeeded || !labels.succeeded) {
 			reset();
@@ -91,7 +101,7 @@
 			return;
 		}
 
-		state = 'confirmed';
+		phase = 'confirmed';
 		timer = setTimeout(() => {
 			reset();
 			onsettled?.();
@@ -101,10 +111,10 @@
 	export function activate(): void {
 		if (disposed || disabled || busy) return;
 
-		if (state === 'armed') {
+		if (phase === 'armed') {
 			reset();
 		} else if (confirmation) {
-			state = 'armed';
+			phase = 'armed';
 			timer = setTimeout(() => void run(), confirmation.duration);
 		} else {
 			void run();
@@ -117,7 +127,7 @@
 	});
 </script>
 
-<span class="relative inline-grid motion-reduce:[&_*]:transition-none">
+<span class="relative inline-grid w-max shrink-0 motion-reduce:[&_*]:transition-none">
 	<Button
 		disabled={disabled && !busy}
 		{form}
@@ -125,9 +135,12 @@
 		type={form ? 'submit' : 'button'}
 		aria-label={label}
 		aria-disabled={busy || undefined}
-		aria-describedby={state === 'armed' ? warningId : undefined}
-		class="relative inline-grid overflow-hidden aria-disabled:cursor-default {compactOnMobile &&
-		icon
+		aria-busy={phase === 'pending' || undefined}
+		aria-describedby={phase === 'armed' ? warningId : undefined}
+		class="relative inline-grid overflow-hidden aria-disabled:cursor-default {pendingDelayMs ===
+		undefined
+			? ''
+			: '[&>span]:transition-none'} {compactOnMobile && icon
 			? 'max-sm:min-w-11 max-sm:px-0 max-sm:[&>span[aria-hidden]]:grid-cols-1 max-sm:[&>span[aria-hidden]]:gap-0 max-sm:[&>span[aria-hidden]>span:last-child]:hidden'
 			: ''} {className ?? ''}"
 		onclick={(event) => {
@@ -135,43 +148,51 @@
 			else if (!form) activate();
 		}}
 		onkeydown={(event) => {
-			if (event.key !== 'Escape' || state !== 'armed') return;
+			if (event.key !== 'Escape' || phase !== 'armed') return;
 
 			event.preventDefault();
 			event.stopPropagation();
 			reset();
 		}}
 	>
-		<ButtonFace shown={state === 'idle'} {icon}>
+		<ButtonFace shown={phase === 'idle' || (phase === 'pending' && !showPending)} {icon}>
 			<span class={labelClass}>{labels.idle}</span>
 		</ButtonFace>
 		{#if confirmation}
-			<ButtonFace shown={state === 'armed'}>
+			<ButtonFace shown={phase === 'armed'}>
 				{#snippet icon()}
 					<X size={16} aria-hidden="true" />
 				{/snippet}
 				<span class={labelClass}>{confirmation.cancelLabel}</span>
 			</ButtonFace>
 		{/if}
-		<ButtonFace shown={state === 'pending'}>
-			{#snippet icon()}
-				<LoaderCircle
-					size={16}
-					class="animate-spin motion-reduce:animate-none"
-					aria-hidden="true"
-				/>
-			{/snippet}
-			<span class={labelClass}>{labels.pending}</span>
-		</ButtonFace>
+		{#if pendingDelayMs === undefined}
+			<ButtonFace shown={phase === 'pending' && showPending}>
+				{#snippet icon()}
+					<LoaderCircle
+						size={16}
+						class="animate-spin motion-reduce:animate-none"
+						aria-hidden="true"
+					/>
+				{/snippet}
+				<span class={labelClass}>{labels.pending}</span>
+			</ButtonFace>
+		{:else if phase === 'pending' && showPending}
+			<LoaderCircle
+				size={16}
+				aria-hidden="true"
+				class="col-start-1 row-start-1 animate-spin place-self-center motion-reduce:animate-none"
+			/>
+		{/if}
 		{#if labels.succeeded}
-			<ButtonFace shown={state === 'confirmed'}>
+			<ButtonFace shown={phase === 'confirmed'}>
 				{#snippet icon()}
 					<Check size={16} aria-hidden="true" />
 				{/snippet}
 				<span class={labelClass}>{labels.succeeded}</span>
 			</ButtonFace>
 		{/if}
-		{#if state === 'armed' && confirmation}
+		{#if phase === 'armed' && confirmation}
 			<span
 				aria-hidden="true"
 				class="countdown absolute inset-x-0 bottom-0 h-1 origin-left bg-danger motion-reduce:animate-none"
@@ -179,7 +200,7 @@
 			></span>
 		{/if}
 	</Button>
-	{#if state === 'armed' && confirmation}
+	{#if phase === 'armed' && confirmation}
 		<span
 			id={warningId}
 			class="absolute top-full right-0 z-10 mt-1 w-48 rounded-control border border-border bg-panel p-2 text-sm text-foreground shadow-sm transition-opacity duration-150 starting:opacity-0"
@@ -188,7 +209,13 @@
 		</span>
 	{/if}
 	<span role="status" class="sr-only">
-		{state === 'armed' ? confirmation?.description : state === 'idle' ? '' : label}
+		{phase === 'armed'
+			? confirmation?.description
+			: phase === 'pending'
+				? labels.pending
+				: phase === 'idle'
+					? ''
+					: label}
 	</span>
 </span>
 

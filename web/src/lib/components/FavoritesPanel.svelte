@@ -5,7 +5,7 @@
 	import CommentThread from './CommentThread.svelte';
 	import OwnerZipError from './OwnerZipError.svelte';
 	import { Download, Heart, LoaderCircle } from '@lucide/svelte';
-	import { tick, untrack } from 'svelte';
+	import { tick, untrack, type Snippet } from 'svelte';
 	import PhotoTile, { COLLECTION_GRID_CLASSES } from '#lib/components/PhotoTile.svelte';
 	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
 	import ViewerButton from '#lib/components/ViewerButton.svelte';
@@ -24,6 +24,7 @@
 	let {
 		galleryId,
 		oncount,
+		onheader,
 		active = true,
 		ondownload = async (photos: Photo[]) => {
 			const current = generation;
@@ -37,6 +38,7 @@
 		galleryId: string;
 		/** How many favorites the client has picked, for the tab. */
 		oncount?: (count: number | null) => void;
+		onheader?: (action: Snippet) => void;
 		active?: boolean;
 		/**
 		 * Downloads an individual original from a tile or viewer. Selected subsets use ZIP export.
@@ -56,14 +58,17 @@
 	let loaded = $state(false);
 	let failed = $state(false);
 	let loads = 0;
-	let viewIndex = $state(0);
-	let viewing = $state(false);
+	let viewedId = $state<string | null>(null);
+	const viewIndex = $derived(
+		viewedId === null ? -1 : favorites.findIndex(({ id }) => id === viewedId)
+	);
 	let panel = $state<HTMLElement | null>(null);
 	let downloadAll = $state<HTMLElement | null>(null);
 	let downloading = $state<string | null>(null);
 	let individualError = $state<string | null>(null);
 	let generation = 0;
 	const mode = new SelectMode();
+	const showDownloadAll = $derived(favorites.length > 0 && !mode.active);
 
 	async function load(id: string) {
 		const current = ++loads;
@@ -73,7 +78,10 @@
 
 			if (current !== loads) return;
 
-			favorites = photos.filter(({ favorited_at }) => favorited_at);
+			favorites = photos
+				.filter(({ favorited_at }) => favorited_at)
+				.sort((a, b) => Date.parse(b.favorited_at!) - Date.parse(a.favorited_at!));
+			if (viewIndex < 0) viewedId = null;
 			failed = false;
 		} catch {
 			if (current === loads) failed = true;
@@ -91,7 +99,7 @@
 		loaded = false;
 		downloading = null;
 		individualError = null;
-		viewing = false;
+		viewedId = null;
 		void load(id);
 
 		const unsubscribe = [
@@ -123,6 +131,7 @@
 			height
 		}))
 	);
+	$effect(() => onheader?.(headerDownload));
 
 	$effect(() => {
 		oncount?.(loaded && !failed ? favorites.length : null);
@@ -157,6 +166,10 @@
 		if (active) (downloadAll?.matches(':disabled') ? panel : (downloadAll ?? panel))?.focus();
 	}
 </script>
+
+{#snippet headerDownload()}
+	{#if showDownloadAll}{@render downloadButton(true)}{/if}
+{/snippet}
 
 {#snippet downloadButton(all = false)}
 	<Button
@@ -194,7 +207,7 @@
 	tabindex="-1"
 	bind:this={panel}
 >
-	{#if favorites.length > 0}
+	{#if !onheader && showDownloadAll}
 		<WorkspaceToolbar>
 			{#snippet actions()}{@render downloadButton(true)}{/snippet}
 		</WorkspaceToolbar>
@@ -207,7 +220,7 @@
 			onselectall={() => mode.selectAll(favorites.map(({ id }) => id))}
 			onunselectall={() => mode.unselectAll()}
 			onexit={() => void finishSelecting()}
-			canEscape={() => active && mode.active && !viewing && selectionHotkeysAllowed()}
+			canEscape={() => active && mode.active && viewedId === null && selectionHotkeysAllowed()}
 		>
 			{#snippet actions()}{@render downloadButton()}{/snippet}
 		</SelectActions>
@@ -220,6 +233,7 @@
 
 	{#if failed}
 		<p role="alert" class="text-sm text-danger">{m.favorites_load_failed()}</p>
+		<Button variant="outline" onclick={() => void load(galleryId)}>{m.action_retry()}</Button>
 	{:else if loaded && favorites.length === 0}
 		<EmptyState variant="plain">
 			<span class="grid size-14 place-items-center rounded-full bg-background"
@@ -230,7 +244,7 @@
 		</EmptyState>
 	{:else}
 		<ul aria-label={m.tab_favorites()} class={COLLECTION_GRID_CLASSES}>
-			{#each favorites as photo, index (photo.id)}
+			{#each favorites as photo (photo.id)}
 				<li class="min-w-0">
 					<PhotoTile
 						name={photo.original_name}
@@ -244,10 +258,7 @@
 							mode.enter();
 							mode.toggle(photo.id);
 						}}
-						onopen={() => {
-							viewIndex = index;
-							viewing = true;
-						}}
+						onopen={() => (viewedId = photo.id)}
 						ondownload={() => void download([photo])}
 						downloadBusy={downloading === photo.id}
 					/>
@@ -267,15 +278,15 @@
 		onchange={() => void comments.refresh()}
 	/>
 {/snippet}
-{#if viewing && proofs[viewIndex]}
+{#if viewIndex >= 0}
 	<PhotoViewer
 		{proofs}
-		bind:index={viewIndex}
+		bind:index={() => viewIndex, (index) => (viewedId = proofs[index].id)}
 		thread={photoThread}
 		commentCount={(id) => comments.count(id)}
 		readonly
 		isSelected={() => true}
-		onclose={() => (viewing = false)}
+		onclose={() => (viewedId = null)}
 	>
 		{#snippet actions(proof)}
 			<ViewerButton

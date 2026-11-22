@@ -32,20 +32,18 @@ desktop (`md:`), collapsing to a single-DOM compact stack on `390 px` phones:
   - The desktop rail stays visible across stages and matches the workspace sidebar: `16vw`,
     clamped to `240–280 px`.
   - `← Back to galleries` link and a framed cover thumbnail button showing the hero or a
-    `CoverBackdrop` stand-in; clicking it opens **Design**. The gallery pin is at the top-left,
+    `CoverBackdrop` stand-in; clicking it opens **Design**. The gallery pin is at the bottom-right,
     status at the top-right and shoot date, if set, at the bottom-left.
   - The inline-editable gallery title is below the cover. `Last opened` stays separate below
-    the title (`Not yet` after sharing if there has been no client visit).
+    the title only after the first client visit.
   - **Collection** navigation with counts: **Photos**, **Favorites** (accented when over allowance,
-    padlock once published), **Comments**, and **Final**. Favorites, Comments, Final and Studio
+    no owner padlock after publication), **Comments**, and **Final**. Favorites, Comments, Final and Studio
     Activity remain visible but disabled before the first share.
   - **Studio** navigation: **Design**, **Share** (disabled when archived), **Contacts** (with
     linked-contact count), **Activity**, and **Settings**.
   - On phones (`< md`), `nav` becomes a horizontally scrollable pill strip below the Journey bar.
 - **Top Journey Wizard & action bar (`journey`):**
-  - Centered **Upload → Share → Collect favorites → Publish** shortcuts open Photos, Share or
-    Favorites when available; the Publish shortcut opens Share. They do not publish or send email.
-    On phones the Journey shows four compact bars and the active step label and fact.
+  - **Upload → Share → Collect favorites → Delivered** shortcuts open Photos, Share or Favorites when available, without publishing or sending email. Keep all four labels on phones; the contextual action can wrap.
   - There is no separate header Preview or Publish action. When archived, **Restore** replaces
     the Journey.
 
@@ -115,8 +113,8 @@ unwatermarked. Switching watermarking on or off only selects existing files.
 
 ### Favorites
 
-Only the client's selection, read-only. The toolbar offers **Download all** when there are any
-favorites. Hovering a photo shows a small download button
+Only the client's selection, most recent first and read-only. Outside selection mode the stage header offers **Download all**;
+inside selection mode the selection bar offers the selected subset instead. Hovering a photo shows a small download button
 for that photo (always visible on touch). The empty state has a heart and "No favorites yet".
 Opening a photo
 shows the viewer with the favorite heart and the same individual-original download action.
@@ -130,15 +128,7 @@ Individual download errors appear separately from ZIP errors.
 
 ### Final
 
-The finished photos, private to the photographer until delivered. The toolbar offers **Upload**
-and, when at least one Final is ready, **Download all** for a ZIP of ready originals. The
-selection bar offers **Download X** for the exact selected set; if any selected photo is not
-ready, it explains why the ZIP is unavailable and still allows Delete. Owner ZIPs require an
-authenticated session and are independent of client delivery: they do not deliver the gallery,
-change client selection, or record client downloads. When the client has downloaded a Final,
-the owner can see the timestamp in the viewer, not on the tile.
-As with Favorites, **Retry ZIP status** resumes a failed status check without starting a new ZIP
-or substituting a newer archive.
+Finished photos are private until delivered. The photographer can upload and manage them, but the tab offers no download action. A passive mark and the first request date appear only on requested tiles, not in the viewer. The count is distinct current photos requested, not clicks or confirmed saves.
 
 Use × to delete a photo, or the "Drop the finished photos here" zone to start an empty Final grid.
 
@@ -149,7 +139,7 @@ and is always visible on touch and while selecting. In select mode, the tile bod
 selection instead of opening the viewer. The normal toolbar and tile positions stay put.
 
 A floating bar shows **Exit selection**, the count and **Select all** (or **Unselect all**).
-Photos offers **Delete**, Favorites **Download**, and Final both. These actions are disabled at
+Photos and Final offer **Delete**, Favorites **Download**. These actions are disabled at
 zero, but select mode stays open until exited with **✕** or Escape. Below 80 rem, gallery
 actions use icons with accessible names and can wrap to fit clear of the rails.
 Select all picks only photos currently shown in that tab and

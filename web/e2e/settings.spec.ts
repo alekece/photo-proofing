@@ -27,6 +27,25 @@ test('saves real watermark and signature settings and keeps the editor usable on
 	await page.goto('/settings');
 	await mounted;
 	await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+	const mode = page.locator('select:has(option[value="print"])');
+	const palette = page.locator('select:has(option[value="neutral"])');
+	const nextMode = (await mode.inputValue()) === 'print' ? 'full_image' : 'print';
+	const nextPalette = (await palette.inputValue()) === 'neutral' ? 'warm' : 'neutral';
+	await mode.selectOption(nextMode);
+	await palette.selectOption(nextPalette);
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect(page.locator('[data-studio-mode]')).toHaveAttribute('data-studio-mode', nextMode);
+	const remounted = page.waitForRequest(
+		(request) => new URL(request.url()).pathname === '/api/v1/events'
+	);
+	await page.reload();
+	await remounted;
+	await expect(mode).toHaveValue(nextMode);
+	await expect(palette).toHaveValue(nextPalette);
+	await expect(page.locator('[data-studio-palette]')).toHaveAttribute(
+		'data-studio-palette',
+		nextPalette
+	);
 	await page.getByLabel('Studio name').fill('Studio Juniper');
 
 	const png = await page.evaluate(() => {

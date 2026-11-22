@@ -193,7 +193,7 @@ describe('GalleryStudio', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('formats shoot_date at local noon and shows Last opened only once shared', () => {
+	it('formats shoot_date at local noon and hides Last opened until the first visit', () => {
 		const unshared = setup({ shoot_date: '2026-06-14' });
 
 		expect(unshared.container.textContent).toContain('Shot');
@@ -203,8 +203,7 @@ describe('GalleryStudio', () => {
 		unshared.unmount();
 
 		const shared = setup({ share_token: 'T'.repeat(22), states: ['shared'] });
-		expect(shared.container.textContent).toContain('Last opened');
-		expect(shared.container.textContent).toContain('Not yet');
+		expect(shared.container.textContent).not.toContain('Last opened');
 		expect(shared.container.textContent).not.toContain('Created');
 		expect(shared.container.textContent).not.toContain('12 Jun 2026');
 		expect(screen.getByText('Shared')).toBeTruthy();

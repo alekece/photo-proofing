@@ -394,6 +394,8 @@ mod tests {
                     signature: CoverSignature::Name,
                     signature_size: current_settings.signature_size,
                     signature_color: None,
+                    studio_mode: None,
+                    studio_palette: None,
                     proof_quality: current_settings.proof_quality,
                     watermark_opacity: None,
                     watermark_text_color: None,

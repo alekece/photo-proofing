@@ -36,6 +36,7 @@ export function timeAgo(iso: string, now: number = Date.now()): string {
 export class NotificationCenter {
 	items = $state<Notification[]>([]);
 	unread = $state(0);
+	lastRefresh = $state<'snapshot' | 'live'>();
 	#fetcher: typeof fetch;
 	#latest = 0;
 
@@ -48,7 +49,7 @@ export class NotificationCenter {
 		return this.items.filter((item) => item.gallery_id === galleryId && item.read_at === null);
 	}
 
-	async refresh(): Promise<void> {
+	async refresh(source: 'snapshot' | 'live' = 'snapshot'): Promise<void> {
 		const ticket = ++this.#latest;
 		const response = await this.#fetcher('/api/v1/notifications', {
 			credentials: 'same-origin'
@@ -62,6 +63,8 @@ export class NotificationCenter {
 
 		this.items = list.notifications;
 		this.unread = list.unread;
+		// The first accepted list is a baseline even if a live refresh overtook startup.
+		this.lastRefresh = this.lastRefresh === undefined ? 'snapshot' : source;
 	}
 
 	async markRead(id: string): Promise<void> {
@@ -95,7 +98,7 @@ export class NotificationCenter {
 	/** Loads the list and keeps it current; returns what stops that. */
 	start(events: LiveEvents): () => void {
 		const stops = [
-			events.onNotification(() => void this.refresh()),
+			events.onNotification(() => void this.refresh('live')),
 			events.onResync(() => void this.refresh())
 		];
 

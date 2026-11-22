@@ -1220,7 +1220,7 @@ describe('gallery page', () => {
 			expect(screen.getByText('View final photos')).toBeTruthy();
 			expect(
 				screen.getByRole('tab', { name: /^Favorites/ }).querySelector('[aria-label="Locked"]')
-			).toBeTruthy();
+			).toBeNull();
 			expect(toasts.items).toEqual([]);
 			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/g1/deliver'))).toHaveLength(1);
 			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/invitations'))).toHaveLength(0);

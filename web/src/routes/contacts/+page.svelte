@@ -369,6 +369,7 @@
 	{#if loadFailed}
 		<EmptyState variant="plain" class="rounded-card">
 			<h2 class="text-[1.625rem] text-foreground sm:text-[1.75rem]">{m.contacts_load_failed()}</h2>
+			<Button variant="outline" onclick={() => location.reload()}>{m.action_retry()}</Button>
 		</EmptyState>
 	{:else}
 		{#if contacts.length === 0}
@@ -397,9 +398,7 @@
 		>
 			{#each matching as item (item.id)}
 				<li class="min-w-0 rounded-card border border-border bg-panel" out:removal={item.id}>
-					<div
-						class="group/contact flex flex-wrap items-start gap-2 p-3 sm:items-center sm:gap-3 sm:p-3.5"
-					>
+					<div class="group/contact flex flex-wrap items-center gap-2 p-2.5 sm:gap-3">
 						<label class="relative grid h-9 w-7 shrink-0 cursor-pointer place-items-center">
 							<Checkbox
 								aria-label={m.tile_select({ name: item.name })}
@@ -419,35 +418,35 @@
 								class="pointer-events-none absolute text-inverse opacity-0 peer-checked:opacity-100"
 							/>
 						</label>
-						<ContactIdentity contact={item}>
-							{#snippet details()}
-								{#if item.galleries.length > 0}
-									<div class="mt-1 flex min-w-0 flex-wrap gap-1">
-										{#each item.galleries as linked (linked.id)}
-											<a
-												href="/dashboard/{encodeURIComponent(linked.id)}"
-												class="max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 text-xs text-foreground transition-colors hover:bg-border/60"
-											>
-												{linked.title ?? m.gallery_untitled()}
-											</a>
-										{/each}
-									</div>
-								{/if}
-								{#if item.notes}
-									<p
-										class="mt-1 line-clamp-2 text-sm [overflow-wrap:anywhere] text-muted-foreground"
+						<div class="min-w-[min(12rem,60%)] flex-1">
+							<ContactIdentity contact={item} showPhone={false} />
+						</div>
+						{#if item.phone}<span class="text-xs text-muted-foreground">{item.phone}</span>{/if}
+						{#if item.galleries.length > 0}
+							<div class="flex max-w-full min-w-0 flex-wrap gap-1">
+								{#each item.galleries as linked (linked.id)}
+									<a
+										href="/dashboard/{encodeURIComponent(linked.id)}"
+										class="max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 text-xs text-foreground transition-colors hover:bg-border/60"
 									>
-										{item.notes}
-									</p>
-								{/if}
-							{/snippet}
-						</ContactIdentity>
+										{linked.title ?? m.gallery_untitled()}
+									</a>
+								{/each}
+							</div>
+						{/if}
+						{#if item.notes}
+							<p
+								class="line-clamp-2 max-w-64 text-sm [overflow-wrap:anywhere] text-muted-foreground"
+							>
+								{item.notes}
+							</p>
+						{/if}
 						<Button
 							variant="ghost"
 							size="sm"
 							aria-label={m.contacts_edit_label({ name: item.name })}
 							disabled={writes.has(item.id)}
-							class="min-w-11 max-sm:px-0"
+							class="ml-auto min-w-11 max-sm:px-0"
 							onclick={() => openEditor(item)}
 						>
 							<Pencil size={16} aria-hidden="true" />

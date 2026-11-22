@@ -1,7 +1,7 @@
 import { getContext, setContext } from 'svelte';
 import type { GallerySort, GalleryState } from './schemas.js';
 
-export type GalleryGridSnapshot = { query: string; selected: GalleryState[]; scrollY: number };
+export type GalleryGridSnapshot = { query: string; selected: GalleryState | null; scrollY: number };
 
 const key = Symbol('gallery grid return');
 

@@ -3,8 +3,7 @@
 	import { CommentsClient } from '#lib/gallery/comments.js';
 	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
 	import CommentThread from './CommentThread.svelte';
-	import OwnerZipError from './OwnerZipError.svelte';
-	import { Download, ImagePlus, LoaderCircle, Trash2, Upload } from '@lucide/svelte';
+	import { ImagePlus, LoaderCircle, Trash2, Upload } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack, type Snippet } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -23,9 +22,7 @@
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
 	import { getLiveEvents, type PhotoEvent } from '#lib/events.js';
-	import { OwnerExport } from '#lib/gallery/export.svelte.js';
 	import { ApiError } from '#lib/http.js';
-	import { formatDateTime } from '#lib/gallery/format.js';
 	import { selectionHotkeysAllowed } from '#lib/gallery/select-mode.svelte.js';
 	import {
 		BULK_DELETE_LIMIT,
@@ -71,12 +68,6 @@
 
 	const finals = $derived(set === 'finals');
 	const loadedGalleryId = $derived(galleryId);
-	const zip = new OwnerExport(
-		() => loadedGalleryId,
-		'finals',
-		() => finals
-	);
-	const readinessId = $props.id();
 
 	const queue = getUploadQueue();
 	const events = getLiveEvents();
@@ -145,8 +136,7 @@
 	const queued = $derived(queue.forGallery(galleryId, set));
 	// Photos deleted meanwhile drop out, so the confirmed count is what is sent.
 	const selection = $derived(photos.filter(({ id }) => selected.has(id)));
-	const anyReady = $derived(photos.some(({ status }) => status === 'ready'));
-	const selectionIncludesUnready = $derived(selection.some(({ status }) => status !== 'ready'));
+	const requestedCount = $derived(photos.filter((photo) => photo.downloaded_at).length);
 	// Every photo, so one still processing or failed shows its state in the viewer.
 	const proofs = $derived<Proof[]>(
 		photos.map((photo) => ({
@@ -242,6 +232,7 @@
 
 			if (view === shown) {
 				photos = listed;
+				if (alert === m.photos_load_failed()) alert = '';
 				if (selected.size > 0) {
 					const ids = new Set(listed.map(({ id }) => id));
 					for (const id of selected) if (!ids.has(id)) selected.delete(id);
@@ -302,6 +293,7 @@
 			events.onPhoto(onPhoto),
 			events.onResync(refresh),
 			events.onFavorites((event) => !finals && event.gallery_id === id && refresh()),
+			events.onNotification((event) => finals && event.gallery_id === id && refresh()),
 			queue.onUploaded((gallery, _photo, photoSet) => {
 				if (gallery === id && photoSet === set) refresh();
 			})
@@ -517,7 +509,12 @@
 	ondragleave={() => (dragging = false)}
 	{ondrop}
 >
-	{#if !onheader || updatingWatermarks || (finals && anyReady)}
+	{#if finals && loaded && !alert && photos.length}
+		<p class="text-sm text-muted-foreground">
+			{m.finals_requested_count({ count: requestedCount, total: photos.length })}
+		</p>
+	{/if}
+	{#if !onheader || updatingWatermarks}
 		<WorkspaceToolbar>
 			{#snippet actions()}
 				{#if updatingWatermarks}
@@ -525,18 +522,6 @@
 						<LoaderCircle size={16} class="animate-spin-slow" aria-hidden="true" />
 						{m.photos_updating_watermarks()}
 					</p>
-				{/if}
-				{#if finals && anyReady}
-					<Button
-						size="sm"
-						class="min-h-9! gap-1.5"
-						disabled={zip.busy}
-						aria-busy={zip.busy}
-						onclick={() => void zip.request()}
-					>
-						<Download size={16} aria-hidden="true" />
-						{zip.busy ? m.favorites_downloading() : m.favorites_download_all()}
-					</Button>
 				{/if}
 				{#if !onheader}{@render uploadAction()}{/if}
 			{/snippet}
@@ -563,32 +548,6 @@
 			canEscape={canUseSelectionKeys}
 		>
 			{#snippet actions()}
-				{#if finals}
-					{#if selectionIncludesUnready}
-						<p
-							id={readinessId}
-							role="status"
-							class="absolute inset-x-0 bottom-full mb-1 rounded-lg bg-panel px-2 py-1 text-center text-sm text-muted-foreground"
-						>
-							{m.finals_zip_ready_only()}
-						</p>
-					{/if}
-					<Button
-						size="sm"
-						class="min-h-9! gap-1.5 group-data-[rail=gallery]/select-actions:max-xl:px-2.5"
-						disabled={zip.busy || selection.length === 0 || selectionIncludesUnready}
-						aria-busy={zip.busy}
-						aria-describedby={selectionIncludesUnready ? readinessId : undefined}
-						onclick={() => void zip.request(selection.map(({ id }) => id))}
-					>
-						<Download size={16} aria-hidden="true" />
-						<span class="group-data-[rail=gallery]/select-actions:max-xl:sr-only">
-							{zip.busy
-								? m.favorites_downloading()
-								: m.favorites_download_count({ count: selection.length })}
-						</span>
-					</Button>
-				{/if}
 				<Button
 					variant="destructive"
 					size="sm"
@@ -604,12 +563,11 @@
 		</SelectActions>
 	{/if}
 
-	{#if finals}
-		<OwnerZipError {zip} />
-	{/if}
-
 	{#if alert}
 		<p role="alert" class="text-sm text-danger">{alert}</p>
+		{#if alert === m.photos_load_failed()}<Button variant="outline" onclick={refresh}
+				>{m.action_retry()}</Button
+			>{/if}
 	{/if}
 	<p role="status" aria-live="polite" class="sr-only">
 		{[announcement?.text, summary].filter(Boolean).join('. ')}
@@ -638,6 +596,9 @@
 				>
 					<PhotoTile
 						name={photo.original_name}
+						caption={finals && photo.downloaded_at
+							? { kind: 'downloaded', at: photo.downloaded_at }
+							: undefined}
 						{state}
 						cleanReady={!finals && hasCleanPhoto(photo)}
 						ratio={3 / 2}
@@ -760,14 +721,6 @@
 			if (photo) void retry(photo);
 		}}
 	>
-		{#snippet actions(proof)}
-			{@const photo = current(proof.id)}
-			{#if finals && photo?.downloaded_at}
-				<time datetime={photo.downloaded_at} class="min-w-0 text-xs leading-tight text-panel/80">
-					{m.tile_downloaded_at({ date: formatDateTime(photo.downloaded_at) })}
-				</time>
-			{/if}
-		{/snippet}
 		{#snippet trailing(proof)}
 			{@const photo = current(proof.id)}
 			{#if photo}

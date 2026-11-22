@@ -7,12 +7,8 @@ Workspace-wide client directory. Route `/contacts`, reached from **Contacts** in
 1. **Header and toolbar:** the **Contacts** heading shows the total and the only **+ New contact**
    button. The shared directory toolbar filters by name, email or phone and sorts by name
    without clearing the search. An empty directory keeps the toolbar visible but disabled.
-2. **Full-width rows:** each contact shows a monogram, name, email, optional phone and gallery
-   summaries. **Edit** and the details chevron sit at the right and use named icon buttons
-   on phones. The chevron reveals Notes and gallery links directly below that row.
-3. **Inline forms:** **Edit** opens the same row, preserves its identity and swaps its actions
-   for **Cancel** and **Save changes**. **+ New contact** inserts the form above the list.
-   Only one form or details block is open. Name and email are required; phone and notes are optional.
+2. **Compact rows:** name and email stack beside the monogram. Optional phone, linked galleries, note and Edit share the row and wrap on narrow screens.
+3. **Forms:** Edit and New open a dialog. Name and email are required; phone and notes are optional.
    The form actions follow the fields in keyboard order. Validation errors leave the draft intact.
    Edits save only changed fields. Changing an address checks that the original address still
    matches; if not, reload the directory before retrying. Successful saves briefly show confirmation.

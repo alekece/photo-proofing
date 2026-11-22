@@ -9,13 +9,12 @@
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
-	import Select from '#lib/components/ui/Select/Select.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
 	import WorkspaceHeading from '#lib/components/ui/WorkspaceHeading/WorkspaceHeading.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
-	import { ArrowUpDown, Download, Images, Trash2 } from '@lucide/svelte';
+	import { ArrowUpDown, Download, Images, ListFilter, Trash2 } from '@lucide/svelte';
 	import {
 		BULK_DELETE_LIMIT,
 		deletePhotos,
@@ -31,8 +30,7 @@
 
 	let { data }: { data: PageData } = $props();
 
-	// svelte-ignore state_referenced_locally
-	let photos = $state<WorkspacePhoto[]>(data.photos ? [...data.photos] : []);
+	let photos = $derived<WorkspacePhoto[]>(data.photos ?? []);
 	let query = $state('');
 	let resultsHeight = $state(0);
 	let galleryFilter = $state('all');
@@ -60,8 +58,18 @@
 
 		for (const entry of photos) byId.set(entry.gallery_id, galleryLabel(entry));
 
-		return [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+		return [
+			{ value: 'all', label: m.photos_filter_gallery_all() },
+			...[...byId.entries()]
+				.sort((a, b) => a[1].localeCompare(b[1]))
+				.map(([value, label]) => ({ value, label }))
+		];
 	});
+	const types = $derived([
+		{ value: 'all', label: m.photos_filter_type_all() },
+		{ value: 'proof', label: m.photos_kind_proof() },
+		{ value: 'final', label: m.photos_kind_final() }
+	] as const);
 	const matching = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
 
@@ -245,7 +253,10 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 <main class="flex flex-1 flex-col workspace-inset pt-4 pb-24 sm:pt-6">
 	<div class="mb-4 sm:mb-6">
-		<WorkspaceHeading title={m.photos_head()} />
+		<WorkspaceHeading
+			title={m.photos_head()}
+			count={loadFailed ? undefined : m.summary_photos({ count: visible.length })}
+		/>
 	</div>
 
 	{#if !loadFailed}
@@ -264,27 +275,25 @@
 				: undefined}
 		>
 			{#snippet filters()}
-				<Select
-					class="min-h-9 max-w-48 min-w-0"
-					aria-label={m.photos_filter_gallery()}
-					bind:value={galleryFilter}
+				<ToolbarMenu
+					label={m.photos_filter_gallery()}
+					summary={galleryOptions.find((o) => o.value === galleryFilter)?.label ??
+						m.photos_filter_gallery_all()}
+					icon={Images}
+					value={galleryFilter}
+					options={galleryOptions}
 					disabled={none}
-				>
-					<option value="all">{m.photos_filter_gallery_all()}</option>
-					{#each galleryOptions as [id, label] (id)}
-						<option value={id}>{label}</option>
-					{/each}
-				</Select>
-				<Select
-					class="min-h-9"
-					aria-label={m.photos_filter_type()}
-					bind:value={typeFilter}
+					onchange={(v) => (galleryFilter = v)}
+				/>
+				<ToolbarMenu
+					label={m.photos_filter_type()}
+					summary={types.find((o) => o.value === typeFilter)!.label}
+					icon={ListFilter}
+					value={typeFilter}
+					options={types}
 					disabled={none}
-				>
-					<option value="all">{m.photos_filter_type_all()}</option>
-					<option value="proof">{m.photos_kind_proof()}</option>
-					<option value="final">{m.photos_kind_final()}</option>
-				</Select>
+					onchange={(v) => (typeFilter = v)}
+				/>
 			{/snippet}
 			{#snippet sort()}
 				<ToolbarMenu
@@ -302,6 +311,9 @@
 
 	{#if loadFailed}
 		<p role="alert" class="px-3.5 sm:px-0">{m.photos_load_failed()}</p>
+		<Button variant="outline" class="w-fit" onclick={() => location.reload()}
+			>{m.action_retry()}</Button
+		>
 	{:else if photos.length === 0}
 		<EmptyState variant="plain" class="rounded-card py-14">
 			<Images size={28} aria-hidden="true" class="text-muted-foreground" />

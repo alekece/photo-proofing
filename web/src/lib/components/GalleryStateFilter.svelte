@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { ListFilter } from '@lucide/svelte';
-	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
 	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
-	import { statusDots } from '#lib/components/ui/StatusChip/StatusChip.svelte';
 	import type { GalleryState } from '#lib/gallery/schemas.js';
-	import { ALL_STATES, DEFAULT_STATES, STATE_LABELS, sameStates } from '#lib/gallery/states.js';
+	import { ALL_STATES, STATE_LABELS } from '#lib/gallery/states.js';
 
 	let {
 		selected,
@@ -13,72 +11,27 @@
 		disabled = false,
 		onchange
 	}: {
-		selected: GalleryState[];
+		selected: GalleryState | null;
 		counts: Record<GalleryState, number>;
 		disabled?: boolean;
-		onchange: (next: GalleryState[]) => void;
+		onchange: (next: GalleryState | null) => void;
 	} = $props();
 
-	let isDefault = $derived(sameStates(selected, DEFAULT_STATES));
-	let activeCount = $derived(
-		ALL_STATES.filter((state) => selected.includes(state) !== DEFAULT_STATES.includes(state)).length
-	);
-	let summary = $derived(
-		isDefault
-			? m.filter_status()
-			: selected.length === 0
-				? m.filter_none()
-				: selected.length === ALL_STATES.length
-					? m.filter_all()
-					: ALL_STATES.filter((state) => selected.includes(state))
-							.map((state) => STATE_LABELS[state]())
-							.join(', ')
-	);
-
-	function toggle(state: GalleryState, checked: boolean) {
-		onchange(
-			checked
-				? ALL_STATES.filter((chosen) => chosen === state || selected.includes(chosen))
-				: selected.filter((chosen) => chosen !== state)
-		);
-	}
+	const options = $derived([
+		{ value: '' as const, label: m.filter_all() },
+		...ALL_STATES.map((state) => ({
+			value: state,
+			label: `${STATE_LABELS[state]()} (${counts[state]})`
+		}))
+	]);
 </script>
 
-<ToolbarMenu {disabled} label={m.filter_status()} {summary} {activeCount} icon={ListFilter}>
-	<ul class="grid">
-		{#each ALL_STATES as state (state)}
-			<li>
-				<label
-					class="flex min-h-10 cursor-pointer items-center gap-2 rounded-control px-2 text-[0.8125rem] hover:bg-border/60"
-				>
-					<Checkbox
-						class="size-4 accent-foreground"
-						checked={selected.includes(state)}
-						onchange={(event) => toggle(state, event.currentTarget.checked)}
-					/>
-					<span aria-hidden="true" class="size-[7px] rounded-full {statusDots[state]}"></span>
-					<span class="grow">{STATE_LABELS[state]()}</span>
-					<span class="text-xs text-muted-foreground">{counts[state]}</span>
-				</label>
-			</li>
-		{/each}
-	</ul>
-	<div
-		class="mx-1 mt-1.5 flex justify-between border-t border-border px-2 pt-2 pb-1 text-[0.8125rem]"
-	>
-		<button
-			type="button"
-			class="cursor-pointer text-danger"
-			onclick={() => onchange([...ALL_STATES])}
-		>
-			{m.filter_select_all()}
-		</button>
-		<button
-			type="button"
-			class="cursor-pointer text-danger"
-			onclick={() => onchange([...DEFAULT_STATES])}
-		>
-			{m.filter_reset()}
-		</button>
-	</div>
-</ToolbarMenu>
+<ToolbarMenu
+	{disabled}
+	label={m.filter_status()}
+	summary={selected ? STATE_LABELS[selected]() : m.filter_status()}
+	icon={ListFilter}
+	value={selected ?? ''}
+	{options}
+	onchange={(value) => onchange(value || null)}
+/>

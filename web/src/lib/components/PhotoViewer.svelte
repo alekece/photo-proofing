@@ -253,6 +253,7 @@
 	aria-modal="true"
 	class={cn(
 		'proof-viewer m-0 h-dvh max-h-dvh w-screen max-w-screen animate-photo-in overflow-hidden border-0 bg-dark p-0 text-[0.875rem] font-medium text-[#efe6da] open:grid',
+		!client && 'client-surface',
 		client
 			? 'grid-rows-[60px_1fr_44px] max-[700px]:grid-rows-[56px_1fr_104px]'
 			: 'grid-rows-[60px_1fr_44px] max-[700px]:grid-rows-[56px_1fr_20px]',

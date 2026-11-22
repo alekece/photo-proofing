@@ -121,11 +121,14 @@ describe('/photos page', () => {
 		]);
 		const list = () => screen.getByRole('list', { name: 'Photos' });
 
-		await user.selectOptions(screen.getByRole('combobox', { name: 'Gallery' }), 'g2');
+		await user.click(screen.getByRole('button', { name: /^Gallery:/ }));
+		await user.click(screen.getByRole('menuitemradio', { name: 'Portraits' }));
 		expect(within(list()).queryByText('Wedding')).toBeNull();
 		expect(within(list()).getAllByText('Portraits')).toHaveLength(2);
 
-		await user.selectOptions(screen.getByRole('combobox', { name: 'Type' }), 'final');
+		await user.click(screen.getByRole('button', { name: /^Type:/ }));
+		await user.click(screen.getByRole('menuitemradio', { name: 'Final' }));
+		expect(screen.getByText('1 photo')).toBeTruthy();
 		expect(within(list()).queryByText('Wedding')).toBeNull();
 		expect(within(list()).getByText('Portraits')).toBeTruthy();
 	});

@@ -1,5 +1,12 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
+	"studio_display_mode": "Photo presentation",
+	"studio_display_palette": "Studio palette",
+	"studio_full_image": "Full image",
+	"studio_print": "Print",
+	"studio_warm": "Warm board",
+	"studio_neutral": "Neutral board",
+	"studio_all_statuses": "All statuses",
 	"comments_title": "Comments",
 	"comments_hide": "Hide comments",
 	"comments_count": [
@@ -47,6 +54,7 @@
 	"error_page_detail_not_found_client": "The link may be old or mistyped. Ask your photographer for a new one.",
 	"error_page_detail_not_found": "The link may be old or mistyped.",
 	"error_page_detail_server": "Please try again in a moment. If it keeps happening, let your photographer know.",
+	"error_page_detail_studio": "This studio page couldn’t be loaded. Please try again in a moment.",
 	"error_page_detail_client": "If you expected to see it, let your photographer know.",
 	"error_page_back_to_galleries": "Back to your galleries",
 	"error_page_try_again": "Try again",
@@ -446,6 +454,7 @@
 	"tile_download": "Download {name}",
 	"tile_favorited_at": "Favorited {date}",
 	"tile_downloaded_at": "Downloaded {date}",
+	"finals_requested_count": "Photos requested for download: {count} of {total}",
 	"cover_remove": "Remove cover",
 	"design_cover": "Cover",
 	"design_select_cover": "Select cover",
