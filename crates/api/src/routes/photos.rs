@@ -9,6 +9,7 @@ use actix_web::{
 };
 use pp_database::photo::PhotoRepository;
 
+use super::galleries;
 use crate::{
     api::ApiState, error::ErrorResponse, extractors::identity::Authenticated,
     response::ResponseBuilderExt,
@@ -19,7 +20,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(
         web::scope("/photos")
             .service(list_photos)
-            .configure(super::galleries::export::configure_workspace),
+            .configure(galleries::export::workspace::configure),
     );
 }
 
@@ -183,7 +184,33 @@ mod tests {
                 .0,
             StatusCode::BAD_REQUEST
         );
-        let (status, export) = call(&app, request(&[proof, final_photo])).await;
+        let body = serde_json::json!({"photo_ids": [proof, final_photo]}).to_string();
+        let raw_request = |content_type, payload: String| {
+            test::TestRequest::post()
+                .uri("/api/v1/photos/export")
+                .cookie(cookie.clone())
+                .insert_header(("Origin", ORIGIN))
+                .insert_header(("Content-Type", content_type))
+                .set_payload(payload)
+        };
+        assert_eq!(
+            call(&app, raw_request("text/plain", body.clone())).await.0,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+        assert_eq!(
+            call(
+                &app,
+                raw_request("application/json", format!("{}{body}", " ".repeat(65536)))
+            )
+            .await
+            .0,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+        let (status, export) = call(
+            &app,
+            raw_request("application/json", format!("{}{body}", " ".repeat(4096))),
+        )
+        .await;
         assert_eq!(status, StatusCode::ACCEPTED);
         assert_eq!(export["photo_count"], 2);
         assert_eq!(

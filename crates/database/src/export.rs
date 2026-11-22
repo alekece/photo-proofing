@@ -635,10 +635,12 @@ impl ExportRepository<'_> {
         retention: Duration,
     ) -> Result<ExportRequest, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
+
         sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR NO KEY UPDATE")
             .bind(workspace_id)
             .execute(&mut *transaction)
             .await?;
+
         let preparing = sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM exports WHERE workspace_id = $1 AND kind = 'workspace_selection'
              AND status ->> 'kind' = 'preparing'",
@@ -715,6 +717,7 @@ impl ExportRepository<'_> {
                 &photos,
             )
             .await?;
+
         transaction.commit().await?;
 
         Ok(ExportRequest::Created {
@@ -744,7 +747,7 @@ impl ExportRepository<'_> {
     }
 
     /// Locates a complete, unexpired private Photos batch belonging to the caller.
-    pub async fn workspace_archive_gallery(
+    pub async fn workspace_archive(
         &self,
         workspace_id: WorkspaceId,
         id: ExportId,

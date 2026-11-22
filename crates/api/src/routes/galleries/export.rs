@@ -28,6 +28,8 @@ use crate::{
     response::{Attachment, ResponseBuilderExt},
 };
 
+pub(crate) mod workspace;
+
 /// The name the browser saves the ZIP under, the same for every gallery.
 const DOWNLOAD_NAME: &str = "selection.zip";
 
@@ -38,21 +40,28 @@ struct ExportSelection {
 }
 
 impl ExportSelection {
+    const JSON_LIMIT: usize = 64 * 1024;
+
     fn parse(body: &[u8]) -> Result<Self, ErrorResponse> {
-        if body.len() > 64 * 1024 {
+        if body.len() > Self::JSON_LIMIT {
             return Err(ErrorResponse::bad_request());
         }
 
         let selection: Self =
             serde_json::from_slice(body).map_err(|_| ErrorResponse::bad_request())?;
 
-        if selection.photo_ids.is_empty() || selection.photo_ids.len() > 1000 {
+        selection.validate()
+    }
+
+    fn validate(self) -> Result<Self, ErrorResponse> {
+        if self.photo_ids.is_empty() || self.photo_ids.len() > 1000 {
             return Err(ErrorResponse::bad_request());
         }
 
-        Ok(selection)
+        Ok(self)
     }
 }
+
 /// An export as the photographer's UI receives it.
 #[derive(Debug, Serialize)]
 struct ExportResponse {
@@ -78,81 +87,6 @@ pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(request_export)
         .service(show_export)
         .service(download_export);
-}
-
-/// Registers the signed-in photographer's multi-gallery ZIP under the Photos scope.
-pub(crate) fn configure_workspace(cfg: &mut ServiceConfig) {
-    cfg.service(request_workspace)
-        .service(show_workspace)
-        .service(download_workspace);
-}
-
-#[post("/export")]
-async fn request_workspace(
-    state: Data<ApiState>,
-    Authenticated(identity): Authenticated,
-    body: Bytes,
-) -> Result<HttpResponse, ErrorResponse> {
-    let selection = ExportSelection::parse(&body)?;
-    let outcome = state
-        .database()
-        .repository_with::<ExportRepository>(ExportOptions {
-            job: state.job_options(),
-            ..Default::default()
-        })
-        .request_workspace(
-            identity.workspace_id,
-            &selection.photo_ids,
-            state.export_max_size(),
-            state.export_retention(),
-        )
-        .await?;
-
-    ExportResponse::requested(outcome)
-}
-
-#[get("/export/{export_id}")]
-async fn show_workspace(
-    state: Data<ApiState>,
-    Authenticated(identity): Authenticated,
-    id: WebPath<ExportId>,
-) -> Result<HttpResponse, ErrorResponse> {
-    let export = state
-        .database()
-        .repository::<ExportRepository>()
-        .workspace_export(
-            identity.workspace_id,
-            id.into_inner(),
-            state.export_retention(),
-        )
-        .await?;
-
-    Ok(ExportResponse::latest(export))
-}
-
-#[get("/export/{export_id}/download")]
-async fn download_workspace(
-    state: Data<ApiState>,
-    Authenticated(identity): Authenticated,
-    id: WebPath<ExportId>,
-) -> Result<Attachment, ErrorResponse> {
-    let export = id.into_inner();
-    let gallery = state
-        .database()
-        .repository::<ExportRepository>()
-        .workspace_archive_gallery(identity.workspace_id, export, state.export_retention())
-        .await?
-        .ok_or_else(ErrorResponse::not_found)?;
-
-    ExportResponse::attachment(
-        &state,
-        ArchiveKey {
-            workspace: identity.workspace_id,
-            gallery,
-            export,
-        },
-    )
-    .await
 }
 
 #[post("/{id}/export")]

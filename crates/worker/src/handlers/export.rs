@@ -355,7 +355,7 @@ mod tests {
             .unwrap();
         assert!(fixture.run(export.id, job).await.is_current());
         let gallery = repository
-            .workspace_archive_gallery(workspace, export.id, DAY)
+            .workspace_archive(workspace, export.id, DAY)
             .await
             .unwrap()
             .unwrap();
@@ -377,7 +377,7 @@ mod tests {
             .unwrap();
         assert!(
             repository
-                .workspace_archive_gallery(foreign, export.id, DAY)
+                .workspace_archive(foreign, export.id, DAY)
                 .await
                 .unwrap()
                 .is_none()
@@ -410,7 +410,7 @@ mod tests {
         );
         assert!(
             repository
-                .workspace_archive_gallery(workspace, export.id, DAY)
+                .workspace_archive(workspace, export.id, DAY)
                 .await
                 .unwrap()
                 .is_none()
