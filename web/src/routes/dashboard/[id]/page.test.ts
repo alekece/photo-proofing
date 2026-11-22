@@ -1372,12 +1372,14 @@ describe('gallery page', () => {
 			expect(screen.getByLabelText('Client link')).toBeTruthy();
 		});
 
-		it('names the gallery in the Publish text, plural when it has an ampersand', async () => {
+		it('names the gallery only once in the delivery confirmation', async () => {
 			stubShareFlow();
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22), title: 'Camille & Hugo' });
 			await user.click(screen.getByRole('button', { name: 'Go to Deliver final photos' }));
-			expect(await screen.findByText(/Camille & Hugo see them at the same link/)).toBeTruthy();
+			expect(within(await screen.findByRole('dialog')).getAllByText(/Camille & Hugo/)).toHaveLength(
+				1
+			);
 		});
 
 		it('publishes from Share without awaiting SMTP or sending mail', async () => {

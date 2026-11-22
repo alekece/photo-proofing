@@ -421,7 +421,7 @@ describe('dashboard', () => {
 			);
 			// Clears the clamped workspace rail, not the gallery studio rail.
 			const bar = document.querySelector<HTMLElement>('[data-slot="select-actions"]')!;
-			expect(bar.className).toMatch(/sm:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\)\]/);
+			expect(bar.className).toContain('sm:left-[calc(50%+var(--gallery-rail-width)/2)]');
 			expect(bar.className).not.toMatch(/md:left-/);
 
 			await user.click(screen.getByRole('button', { name: 'Select all' }));

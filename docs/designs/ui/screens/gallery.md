@@ -138,16 +138,19 @@ reduced motion is requested. Desktop journey steps are centered within the banne
 ## Dialogs
 
 Direct Share, Publish and Delete confirm. Direct Share and Publish never refuse: when nothing is ready
-they warn and the button says "anyway". The "until 12 Sep" in the Share text only appears when
+they warn but leave the action available. The "until 12 Sep" in the Share text only appears when
 an Open until date is set.
 
 Publish counts and warns about finals only; proofs do not contribute to that dialog.
 
 | Dialog | Normal | Something missing |
 |---|---|---|
-| Share | "Share 48 photos?" "This creates a private link. Anyone with it can see the proofs and pick favorites until 12 Sep." **Cancel** / **Share** | "Share with no photos?" warning "Clients see an empty gallery until you upload." **Share anyway** |
-| Publish | "Publish 20 photos?" "Camille & Hugo see them at the same link and can download them. Favorites are locked from now on." **Cancel** / **Publish** | "Publish with no photos?" **Publish anyway** |
+| Share | Photo count, gallery name and client link access, including expiry if set. **Cancel** / **Customize** / **Share** | Warn when there are no ready photos. |
+| Deliver | Final photo count, gallery name and one sentence: the client will find the finished photos at the same link. **Cancel** / **Customize** / **Deliver** | Warn that nothing is available to download yet. |
 | Delete photos | Stack of the photos, count; mentions client favorites only if one is a favorite | — |
+
+Send an email starts checked when sending is available and the gallery has a recipient.
+Unchecking it disables Customize without preventing sharing or delivery.
 
 Photos still uploading or failed are mentioned as a warning line ("2 are still uploading and 1
 failed."). After **Settings → Privacy & Protection → Share link**, the photo stack flies out, a green

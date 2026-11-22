@@ -394,8 +394,7 @@
 	"publish_delivered_title": "Final photos delivered",
 	"publish_share_text": "This creates a private link. Anyone with it can see the proofs and pick favorites.",
 	"publish_share_text_until": "This creates a private link. Anyone with it can see the proofs and pick favorites until {until}.",
-	"publish_deliver_text": "{title} sees them at the same link and can download them. Favorites are locked from now on.",
-	"publish_deliver_text_many": "{title} see them at the same link and can download them. Favorites are locked from now on.",
+	"publish_deliver_text": "The client will find the finished photos at the same link.",
 	"publish_uploading": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],

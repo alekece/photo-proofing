@@ -172,7 +172,9 @@
 	{onclose}
 	dismissible={!saving}
 	labelledby="{id}-title"
-	class="mx-auto mt-6 mb-auto w-[min(38rem,calc(100vw-1.5rem))] {rows.length > 4
+	class="mx-auto mt-6 mb-auto {rows.length === 1
+		? 'w-[min(30.625rem,calc(100vw-1.5rem))]'
+		: 'w-[min(38rem,calc(100vw-1.5rem))]'} {rows.length > 4
 		? 'max-h-[calc(100dvh-2rem)] overflow-y-auto'
 		: 'overflow-visible'} rounded-dialog border border-border bg-background p-5 text-foreground shadow-xl sm:my-auto sm:p-6"
 >
@@ -186,11 +188,11 @@
 			class="grid gap-4"
 			aria-busy={saving}
 		>
-			<div class="grid gap-1">
-				<h2 id="{id}-title" class="text-xl leading-tight">{m.quick_edit_title()}</h2>
-				<p class="text-sm text-muted-foreground">
-					{m.quick_edit_subtitle({ count: rows.length })}
-				</p>
+			<div class="grid gap-1 border-b border-border pb-3">
+				<h2 id="{id}-title" class="text-2xl leading-tight sm:text-3xl">{m.quick_edit_title()}</h2>
+				{#if rows.length > 1}<p class="text-sm text-muted-foreground">
+						{m.quick_edit_subtitle({ count: rows.length })}
+					</p>{/if}
 			</div>
 
 			{#if error}
@@ -200,44 +202,56 @@
 			<div class="grid gap-2.5">
 				{#each rows as row, index (row.id)}
 					<div
-						class="grid grid-cols-[2.75rem_1fr] items-center gap-2.5 rounded-[0.75rem] border border-border bg-background/65 p-2.5 sm:grid-cols-[3rem_1fr_10.5rem]"
+						class="grid items-end gap-2.5 {rows.length === 1
+							? 'sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]'
+							: 'grid-cols-[2.75rem_1fr] rounded-control border border-border p-2.5 sm:grid-cols-[3rem_1fr_10.5rem]'}"
 					>
-						<div class="relative aspect-[4/3] w-full overflow-hidden rounded-[0.4375rem] bg-dark">
-							{#if row.heroId}
-								<img
-									src={previewUrl(row.id, row.heroId)}
-									alt=""
-									style:object-position="{row.focalX}% {row.focalY}%"
-									class="size-full object-cover"
+						{#if rows.length > 1}<div
+								class="relative aspect-[4/3] w-full overflow-hidden rounded-[0.4375rem] bg-dark"
+							>
+								{#if row.heroId}
+									<img
+										src={previewUrl(row.id, row.heroId)}
+										alt=""
+										style:object-position="{row.focalX}% {row.focalY}%"
+										class="size-full object-cover"
+									/>
+								{:else}
+									<CoverBackdrop title={row.title.trim() || null} compact />
+								{/if}
+							</div>{/if}
+
+						<div class="grid min-w-0 gap-1">
+							{#if rows.length === 1}<label for="{id}-name-{index}" class="text-sm font-medium"
+									>{m.new_gallery_field()}</label
+								>{/if}
+							{#if index === 0}
+								<Input
+									bind:ref={firstInput}
+									id="{id}-name-{index}"
+									aria-label={m.new_gallery_field()}
+									placeholder={m.gallery_untitled()}
+									bind:value={row.title}
+									disabled={saving}
+									class="min-h-9 w-full bg-white px-2.5 py-1.5 text-sm"
 								/>
 							{:else}
-								<CoverBackdrop title={row.title.trim() || null} compact />
+								<Input
+									id="{id}-name-{index}"
+									aria-label={m.new_gallery_field()}
+									placeholder={m.gallery_untitled()}
+									bind:value={row.title}
+									disabled={saving}
+									class="min-h-9 w-full bg-white px-2.5 py-1.5 text-sm"
+								/>
 							{/if}
 						</div>
-
-						{#if index === 0}
-							<Input
-								bind:ref={firstInput}
-								id="{id}-name-{index}"
-								aria-label={m.new_gallery_field()}
-								placeholder={m.gallery_untitled()}
-								bind:value={row.title}
-								disabled={saving}
-								class="min-h-9 w-full bg-white px-2.5 py-1.5 text-sm"
-							/>
-						{:else}
-							<Input
-								id="{id}-name-{index}"
-								aria-label={m.new_gallery_field()}
-								placeholder={m.gallery_untitled()}
-								bind:value={row.title}
-								disabled={saving}
-								class="min-h-9 w-full bg-white px-2.5 py-1.5 text-sm"
-							/>
-						{/if}
-
-						<div class="col-span-2 sm:col-span-1">
-							<label for="{id}-date-{index}" class="sr-only">{m.shoot_date_label()}</label>
+						<div class={rows.length === 1 ? 'grid min-w-0 gap-1' : 'col-span-2 sm:col-span-1'}>
+							<label
+								for="{id}-date-{index}"
+								class={rows.length === 1 ? 'text-sm font-medium' : 'sr-only'}
+								>{m.shoot_date_label()}</label
+							>
 							<DatePicker
 								disabled={saving}
 								id="{id}-date-{index}"
