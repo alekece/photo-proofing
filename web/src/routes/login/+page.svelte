@@ -112,12 +112,12 @@
 			</div>
 		{/if}
 		{#if message}<p role="alert" class="text-sm text-danger">{message}</p>{/if}
-		<Button type="submit" disabled={pending || !ready}
-			>{pending
+		<Button type="submit" disabled={pending || !ready}>
+			{pending
 				? m.login_please_wait()
 				: data.setupAvailable
 					? m.login_create_account()
-					: m.login_submit()}</Button
-		>
+					: m.login_submit()}
+		</Button>
 	</Card>
 </PageShell>

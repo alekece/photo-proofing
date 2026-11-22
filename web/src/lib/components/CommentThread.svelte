@@ -187,16 +187,19 @@
 										onclick={() => {
 											editing = comment.id;
 											editDraft = comment.body ?? '';
-										}}><Pencil size={14} aria-hidden="true" /></button
+										}}
 									>
+										<Pencil size={14} aria-hidden="true" />
+									</button>
 									<button
 										type="button"
 										disabled={pending}
 										aria-label={m.comments_delete()}
 										class="{iconButton} hover:text-warning-on-dark"
 										onclick={() => (deleting = comment.id)}
-										><Trash2 size={14} aria-hidden="true" /></button
 									>
+										<Trash2 size={14} aria-hidden="true" />
+									</button>
 								</div>
 								<div
 									class="{swap} {isEditing ? '' : hidden}"
@@ -208,16 +211,19 @@
 										disabled={pending}
 										aria-label={m.common_cancel()}
 										class="{iconButton} hover:!text-warning-on-dark"
-										onclick={() => (editing = null)}><X size={14} aria-hidden="true" /></button
+										onclick={() => (editing = null)}
 									>
+										<X size={14} aria-hidden="true" />
+									</button>
 									<button
 										type="submit"
 										form="{id}-edit"
 										disabled={pending || !editValid}
 										aria-label={m.comments_save()}
 										class="{iconButton} hover:!text-ok-on-dark"
-										><Check size={14} aria-hidden="true" /></button
 									>
+										<Check size={14} aria-hidden="true" />
+									</button>
 								</div>
 							</div>
 						{/if}
@@ -255,13 +261,13 @@
 							</p>
 						{/if}
 					</div>
-					<strong class="text-xs font-semibold"
-						>{mine
+					<strong class="text-xs font-semibold">
+						{mine
 							? m.comments_you()
 							: comment.author === 'client'
 								? m.comments_client()
-								: m.comments_photographer()}</strong
-					>
+								: m.comments_photographer()}
+					</strong>
 				</li>
 			{/each}
 		</ol>
@@ -276,9 +282,9 @@
 			void send();
 		}}
 	>
-		<label for="{id}-body" class="sr-only"
-			>{viewer === 'client' ? m.comments_add() : m.comments_reply()}</label
-		>
+		<label for="{id}-body" class="sr-only">
+			{viewer === 'client' ? m.comments_add() : m.comments_reply()}
+		</label>
 		<div class="flex items-end gap-2">
 			<textarea
 				id="{id}-body"

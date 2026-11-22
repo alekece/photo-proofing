@@ -376,12 +376,14 @@
 														'inline-block animate-heart-pop tabular-nums',
 														over &&
 															'font-extrabold text-warning group-aria-pressed:text-warning-on-dark'
-													]}>{selection.count}</span
-												>{/key}
-											{#if gallery.included_photos !== null}
-												<span class="font-medium whitespace-nowrap opacity-75"
-													>{m.client_of_included({ count: gallery.included_photos })}</span
+													]}
 												>
+													{selection.count}
+												</span>{/key}
+											{#if gallery.included_photos !== null}
+												<span class="font-medium whitespace-nowrap opacity-75">
+													{m.client_of_included({ count: gallery.included_photos })}
+												</span>
 											{/if}
 										{:else}
 											{m.client_all()}

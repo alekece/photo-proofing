@@ -19,5 +19,6 @@
 />
 <span
 	class="absolute bottom-[4cqw] left-[4cqw] z-10 font-serif text-[5cqw] leading-none text-inverse"
-	>{m.gallery_title_label()}</span
 >
+	{m.gallery_title_label()}
+</span>

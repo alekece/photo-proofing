@@ -55,9 +55,9 @@
 	)}
 >
 	<div class="flex min-w-0 items-center gap-1 sm:shrink-0">
-		<a href={galleriesHref} class="brand text-lg whitespace-nowrap sm:text-[1.3125rem]"
-			>PhotoProofing</a
-		>
+		<a href={galleriesHref} class="brand text-lg whitespace-nowrap sm:text-[1.3125rem]">
+			PhotoProofing
+		</a>
 		{#if actions}
 			{@render actions()}
 		{:else if notifications}
@@ -67,8 +67,10 @@
 				type="button"
 				disabled
 				aria-label={m.header_notifications()}
-				class="{round} opacity-70"><Bell size={18} aria-hidden="true" /></button
+				class="{round} opacity-70"
 			>
+				<Bell size={18} aria-hidden="true" />
+			</button>
 		{/if}
 	</div>
 	<nav
@@ -78,24 +80,25 @@
 			'sm:order-none sm:mt-3 sm:min-h-0 sm:flex-col sm:flex-nowrap sm:items-stretch sm:gap-1 sm:overflow-y-auto sm:border-t-0 sm:pt-0 [&>a]:shrink-0 sm:[&>a]:rounded-control sm:[&>a[aria-current=page]]:bg-(--studio-choice) sm:[&>a[aria-current=page]]:text-foreground sm:[&>a[aria-current=page]]:shadow-[inset_2px_0_currentColor]'
 		)}
 	>
-		<a href={galleriesHref} aria-current={galleriesActive ? 'page' : undefined} class={pill}
-			><Images size={16} aria-hidden="true" />{m.nav_galleries()}</a
-		>
-		<a href="/photos" aria-current={allPhotosActive ? 'page' : undefined} class={pill}
-			><Image size={16} aria-hidden="true" />{m.nav_all_photos()}</a
-		>
-		<a href="/contacts" aria-current={contactsActive ? 'page' : undefined} class={pill}
-			><Users size={16} aria-hidden="true" />{m.contacts_title()}</a
-		>
-		<a href="/activity" aria-current={activityActive ? 'page' : undefined} class={pill}
-			><Activity size={16} aria-hidden="true" />{m.nav_activity()}</a
-		>
+		<a href={galleriesHref} aria-current={galleriesActive ? 'page' : undefined} class={pill}>
+			<Images size={16} aria-hidden="true" />{m.nav_galleries()}
+		</a>
+		<a href="/photos" aria-current={allPhotosActive ? 'page' : undefined} class={pill}>
+			<Image size={16} aria-hidden="true" />{m.nav_all_photos()}
+		</a>
+		<a href="/contacts" aria-current={contactsActive ? 'page' : undefined} class={pill}>
+			<Users size={16} aria-hidden="true" />{m.contacts_title()}
+		</a>
+		<a href="/activity" aria-current={activityActive ? 'page' : undefined} class={pill}>
+			<Activity size={16} aria-hidden="true" />{m.nav_activity()}
+		</a>
 		<a
 			href="/settings"
 			aria-current={settingsActive ? 'page' : undefined}
 			class={cn(pill, 'border-border/60 max-sm:border-l sm:mt-2 sm:border-t sm:pt-2')}
-			><Settings size={16} aria-hidden="true" />{m.header_settings()}</a
 		>
+			<Settings size={16} aria-hidden="true" />{m.header_settings()}
+		</a>
 	</nav>
 	<span class="flex-1"></span>
 	<div

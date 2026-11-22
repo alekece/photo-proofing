@@ -238,8 +238,9 @@
 										<a
 											href="/dashboard/{encodeURIComponent(event.gallery_id)}"
 											class="ml-1 inline-block max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 align-middle text-xs font-medium text-foreground hover:bg-border/60"
-											>{event.gallery_title ?? m.gallery_untitled()}</a
 										>
+											{event.gallery_title ?? m.gallery_untitled()}
+										</a>
 									{/if}
 								</p>
 								<time datetime={event.last_at} class="text-right text-xs text-muted-foreground">
@@ -254,8 +255,9 @@
 									disabled={feed.retrying.has(event.id)}
 									onclick={() =>
 										feed.retry(event).catch(() => toasts.error(m.activity_retry_failed()))}
-									>{m.action_retry()}</Button
 								>
+									{m.action_retry()}
+								</Button>
 							{/if}
 							{#if isSelection && photos.length > 0}
 								{#if photos.length > photoLimit}

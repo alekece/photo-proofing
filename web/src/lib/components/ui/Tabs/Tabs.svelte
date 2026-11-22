@@ -108,8 +108,10 @@
 							? 'border-danger/40 font-extrabold text-danger'
 							: value === id
 								? 'border-[#cdbda9] text-foreground'
-								: 'border-border text-muted-foreground'}">{count}</em
+								: 'border-border text-muted-foreground'}"
 					>
+						{count}
+					</em>
 				{/if}
 				{#if locked}
 					<Lock size={12} aria-label={m.tab_locked()} />

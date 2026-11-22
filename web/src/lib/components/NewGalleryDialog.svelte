@@ -109,9 +109,9 @@
 			</div>
 			<div class="flex justify-end gap-2">
 				<Button variant="outline" onclick={close} disabled={creating}>{m.common_cancel()}</Button>
-				<Button type="submit" disabled={creating}
-					>{creating ? m.new_gallery_creating() : m.new_gallery_create()}</Button
-				>
+				<Button type="submit" disabled={creating}>
+					{creating ? m.new_gallery_creating() : m.new_gallery_create()}
+				</Button>
 			</div>
 		</form>
 	{/snippet}

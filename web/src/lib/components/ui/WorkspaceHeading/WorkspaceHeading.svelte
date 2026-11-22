@@ -8,8 +8,9 @@
 		{#if count !== undefined}
 			<span
 				class="rounded-full bg-border/60 px-2.5 py-0.5 text-xs font-medium text-foreground tabular-nums"
-				>{count}</span
 			>
+				{count}
+			</span>
 		{/if}
 	</div>
 	{#if subtitle}

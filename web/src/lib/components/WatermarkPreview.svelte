@@ -19,8 +19,10 @@
 		{#if showName}
 			<span
 				class="[text-shadow:0_1px_4px_rgb(0_0_0/0.35)]"
-				style:color={settings.watermarkTextColor}>{name}</span
+				style:color={settings.watermarkTextColor}
 			>
+				{name}
+			</span>
 		{/if}
 	</span>
 {/snippet}

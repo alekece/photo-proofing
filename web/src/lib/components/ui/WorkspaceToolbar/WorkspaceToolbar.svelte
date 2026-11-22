@@ -69,8 +69,10 @@
 			<button
 				type="button"
 				class="min-h-9 shrink-0 cursor-pointer rounded-control px-2 text-sm text-danger hover:underline"
-				onclick={onclear}>{m.filter_reset()}</button
+				onclick={onclear}
 			>
+				{m.filter_reset()}
+			</button>
 		{/if}
 		{@render actions?.()}
 	</div>

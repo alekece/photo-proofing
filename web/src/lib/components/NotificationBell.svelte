@@ -45,8 +45,9 @@
 			<span
 				aria-hidden="true"
 				class="absolute -top-0.5 -right-0.5 grid min-w-4 place-items-center rounded-full bg-danger px-1 text-[0.625rem] leading-4 font-bold text-inverse"
-				>{center.unread}</span
 			>
+				{center.unread}
+			</span>
 		{/if}
 	{/snippet}
 	{#snippet children({ close })}
@@ -56,8 +57,10 @@
 				type="button"
 				disabled={center.unread === 0}
 				class="min-h-9 cursor-pointer text-sm text-muted-foreground underline disabled:cursor-default disabled:no-underline disabled:opacity-50"
-				onclick={() => void center.markAllRead()}>{m.notifications_mark_all_read()}</button
+				onclick={() => void center.markAllRead()}
 			>
+				{m.notifications_mark_all_read()}
+			</button>
 		</div>
 		{#if unread.length === 0}
 			<div class="flex flex-col items-center gap-1 overflow-y-auto px-6 pt-4 pb-6 text-center">
@@ -84,20 +87,26 @@
 								<span class="size-10 shrink-0 rounded-md bg-border"></span>
 							{/if}
 							<span class="min-w-0 flex-1">
-								<span class="block truncate text-sm font-semibold"
-									>{item.title ?? m.gallery_untitled()}</span
-								>
-								<span class="block truncate text-xs text-muted-foreground"
-									>{notificationText(item)} · {timeAgo(item.updated_at)}</span
-								>
+								<span class="block truncate text-sm font-semibold">
+									{item.title ?? m.gallery_untitled()}
+								</span>
+								<span class="block truncate text-xs text-muted-foreground">
+									{notificationText(item)} · {timeAgo(item.updated_at)}
+								</span>
 							</span>
 						</a>
 					</li>
 				{/each}
 			</ul>
 		{/if}
-		<Button size="sm" variant="ghost" class="self-end" aria-label={m.action_close()} onclick={close}
-			><X size={16} aria-hidden="true" /></Button
+		<Button
+			size="sm"
+			variant="ghost"
+			class="self-end"
+			aria-label={m.action_close()}
+			onclick={close}
 		>
+			<X size={16} aria-hidden="true" />
+		</Button>
 	{/snippet}
 </Popover>

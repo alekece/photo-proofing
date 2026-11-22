@@ -143,8 +143,10 @@
 		type="button"
 		class="{classes} flex min-h-8 w-fit cursor-pointer items-center gap-1 rounded-full bg-panel px-3 text-xs text-foreground shadow"
 		aria-label={m.tile_retry({ name })}
-		onclick={onretry}><RotateCw size={14} aria-hidden="true" />{m.action_retry()}</button
+		onclick={onretry}
 	>
+		<RotateCw size={14} aria-hidden="true" />{m.action_retry()}
+	</button>
 {/snippet}
 
 <div class="relative isolate">
@@ -213,8 +215,9 @@
 					<span class="sr-only">{name}</span>
 				{/if}
 				<span class="font-semibold">{LABELS[status]()}</span>
-				{#if failed && error && error !== LABELS[status]()}<span class="line-clamp-1">{error}</span
-					>{/if}
+				{#if failed && error && error !== LABELS[status]()}<span class="line-clamp-1">
+						{error}
+					</span>{/if}
 				{#if !checkboxSelect && !selectingCollection && onretry && (status === 'upload-failed' || status === 'process-failed')}
 					{@render retry('mt-0.5')}
 				{/if}
@@ -265,8 +268,10 @@
 					failed ? 'opacity-100' : reveal
 				]}
 				aria-label={m.tile_remove({ name })}
-				onclick={oncancelUpload}><X size={14} aria-hidden="true" /></button
+				onclick={oncancelUpload}
 			>
+				<X size={14} aria-hidden="true" />
+			</button>
 		{/if}
 		{#if (persistentSelect || collectionSelect) && onselect}
 			<SelectionDisc

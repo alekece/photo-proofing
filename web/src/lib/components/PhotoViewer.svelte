@@ -261,15 +261,15 @@
 			class="col-span-full flex min-w-0 items-center gap-3.5 px-5 max-[700px]:gap-2 max-[700px]:px-3"
 		>
 			{#if client}
-				<span class="truncate font-serif text-[1.1875rem] text-panel max-[700px]:hidden"
-					>{title}</span
-				>
+				<span class="truncate font-serif text-[1.1875rem] text-panel max-[700px]:hidden">
+					{title}
+				</span>
 			{:else}
 				<span class="truncate font-mono text-[0.8125rem] text-[#a8998a]">{proof.alt}</span>
 			{/if}
-			<span aria-live="polite" class="whitespace-nowrap text-[#a8998a] tabular-nums"
-				>{m.viewer_position({ position: index + 1, total: proofs.length })}</span
-			>
+			<span aria-live="polite" class="whitespace-nowrap text-[#a8998a] tabular-nums">
+				{m.viewer_position({ position: index + 1, total: proofs.length })}
+			</span>
 			<span class="flex-1"></span>
 			{#if client && proofs.length > 1}
 				<button
@@ -326,13 +326,14 @@
 						{#if count > 0}
 							<span
 								class="absolute -top-2 -right-2.5 grid h-4 min-w-4 place-items-center rounded-full bg-[#e4573b] px-1 text-[0.6875rem] leading-none font-semibold text-white tabular-nums"
-								>{count}</span
 							>
+								{count}
+							</span>
 						{/if}
 					</span>
-					<span class="max-[700px]:hidden"
-						>{threadOpen ? m.comments_hide() : m.comments_title()}</span
-					>
+					<span class="max-[700px]:hidden">
+						{threadOpen ? m.comments_hide() : m.comments_title()}
+					</span>
 				</button>
 			{/if}
 			<button
@@ -407,8 +408,10 @@
 				)}
 				aria-disabled={index === 0}
 				onclick={() => step(index - 1)}
-				aria-label={m.viewer_previous()}><ChevronLeft size={22} aria-hidden="true" /></button
+				aria-label={m.viewer_previous()}
 			>
+				<ChevronLeft size={22} aria-hidden="true" />
+			</button>
 			<button
 				type="button"
 				class={cn(
@@ -418,8 +421,10 @@
 				)}
 				aria-disabled={index === proofs.length - 1}
 				onclick={() => step(index + 1)}
-				aria-label={m.viewer_next()}><ChevronRight size={22} aria-hidden="true" /></button
+				aria-label={m.viewer_next()}
 			>
+				<ChevronRight size={22} aria-hidden="true" />
+			</button>
 		</div>
 		{#if threadOpen && thread}
 			<aside

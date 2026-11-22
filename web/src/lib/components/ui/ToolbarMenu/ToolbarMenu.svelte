@@ -85,8 +85,9 @@
 			<span
 				aria-hidden="true"
 				class="grid min-w-5 shrink-0 place-items-center rounded-full bg-foreground px-1 text-xs text-background sm:hidden"
-				>{activeCount}</span
 			>
+				{activeCount}
+			</span>
 		{/if}
 		<ChevronDown size={12} aria-hidden="true" class="shrink-0" />
 	{/snippet}

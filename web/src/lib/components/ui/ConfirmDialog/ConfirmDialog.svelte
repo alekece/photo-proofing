@@ -98,8 +98,10 @@
 					size="sm"
 					class="absolute -top-3 -right-3 min-h-9! px-2.5!"
 					aria-label={m.action_close()}
-					onclick={close}><X size={18} aria-hidden="true" /></Button
+					onclick={close}
 				>
+					<X size={18} aria-hidden="true" />
+				</Button>
 				<h2 id="{id}-title" class="text-center text-xl">{result.title}</h2>
 				{@render result.body(close)}
 			{:else}

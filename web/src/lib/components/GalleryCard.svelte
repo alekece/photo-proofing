@@ -103,8 +103,9 @@
 								role="img"
 								aria-label={m.card_access_code_protected()}
 								title={m.card_access_code_protected()}
-								><Lock class="size-3.5" aria-hidden="true" /></span
 							>
+								<Lock class="size-3.5" aria-hidden="true" />
+							</span>
 						{/if}
 						{#if closed}
 							<span
@@ -113,8 +114,9 @@
 								title={expired
 									? galleryExpiryDescription(gallery.expires_at)
 									: m.card_client_access_closed()}
-								><EyeOff class="size-3.5" aria-hidden="true" /></span
 							>
+								<EyeOff class="size-3.5" aria-hidden="true" />
+							</span>
 						{/if}
 					</span>
 				{/if}
@@ -127,14 +129,18 @@
 					: ''}"
 			>
 				{#each highlightParts(title, query) as part, index (index)}{#if part.match}<mark
-							class="rounded-sm bg-hero/20 text-inherit">{part.text}</mark
-						>{:else}{part.text}{/if}{/each}
+							class="rounded-sm bg-hero/20 text-inherit"
+						>
+							{part.text}
+						</mark>{:else}{part.text}{/if}{/each}
 			</h2>
 			<p class="flex flex-wrap items-center gap-x-1 pr-5 text-xs sm:text-sm">
 				{#if gallery.favorite_count > 0}<Heart size={12} aria-hidden="true" />{/if}
 				{#each summary as part, index (index)}{#if part.over}<b
-							class="text-base leading-none font-extrabold text-danger">{part.text}</b
-						>{:else}{part.text}{/if}{/each}
+							class="text-base leading-none font-extrabold text-danger"
+						>
+							{part.text}
+						</b>{:else}{part.text}{/if}{/each}
 			</p>
 			{#if gallery.favorite}
 				<span

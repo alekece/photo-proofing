@@ -35,13 +35,15 @@
 			aria-hidden="true"
 			viewBox="0 0 26 26"
 			class="absolute inset-0 size-full fill-none stroke-white"
-			><circle cx="13" cy="13" r="12" stroke-width="1.25" /></svg
 		>
+			<circle cx="13" cy="13" r="12" stroke-width="1.25" />
+		</svg>
 		{#if selected}<Check size={16} aria-hidden="true" />{/if}
 	</span>
 	{#if touchLabel && !selected}<span
 			aria-hidden="true"
 			class="hidden rounded-full bg-dark/80 px-2 py-1 text-xs text-white [@media(hover:none)]:inline"
-			>{m.action_select()}</span
-		>{/if}
+		>
+			{m.action_select()}
+		</span>{/if}
 </button>
