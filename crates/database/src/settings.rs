@@ -1832,23 +1832,40 @@ mod tests {
         pool: PgPool,
     ) {
         let fixture = Fixture::new(pool).await;
+
         fixture.save(update("Studio")).await.unwrap();
+
         let gallery = fixture.gallery(true).await;
         let photo = fixture.photo(gallery, PhotoStatus::Ready).await;
         let stamp = fixture.proof(photo).await.unwrap().stamp;
         let mut transaction = fixture.pool.begin().await.unwrap();
-        sqlx::raw_sql("ALTER TABLE workspace_settings DROP COLUMN studio_mode, DROP COLUMN studio_palette; DROP TYPE studio_mode, studio_palette")
-            .execute(&mut *transaction).await.unwrap();
+
+        sqlx::raw_sql(
+            "ALTER TABLE workspace_settings DROP COLUMN studio_mode, DROP COLUMN studio_palette;
+             DROP TYPE studio_mode, studio_palette",
+        )
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
         sqlx::raw_sql(include_str!("../migrations/0044_studio_display.sql"))
             .execute(&mut *transaction)
             .await
             .unwrap();
-        let stored: (String,String,String) = sqlx::query_as("SELECT studio_name, studio_mode::text, studio_palette::text FROM workspace_settings WHERE workspace_id=$1")
-            .bind(fixture.workspace_id).fetch_one(&mut *transaction).await.unwrap();
+
+        let stored: (String, String, String) = sqlx::query_as(
+            "SELECT studio_name, studio_mode::text, studio_palette::text
+             FROM workspace_settings WHERE workspace_id = $1",
+        )
+        .bind(fixture.workspace_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .unwrap();
+
         assert_eq!(
             stored,
             ("Studio".into(), "full_image".into(), "warm".into())
         );
+
         transaction.rollback().await.unwrap();
 
         fixture
@@ -1860,6 +1877,7 @@ mod tests {
             )
             .await
             .unwrap();
+
         assert_eq!(fixture.proof(photo).await.unwrap().stamp, stamp);
         assert_eq!(fixture.jobs(photo).await, 0);
     }

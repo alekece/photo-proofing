@@ -10,7 +10,7 @@
 //!   Omit `signature_color` to keep it, or send `null` to inherit the cover color.
 //! - `PUT /language` saves the workspace language alone, `{"language": "en" | "fr"}`, and returns
 //!   it. The proofs are untouched.
-//! - `PUT /display` saves the studio presentation alone, even before branding is configured.
+//! - `PUT /display` saves and returns `mode` and `palette`, even before branding is configured.
 //! - `GET /logo` returns the saved logo as a PNG, or a 404.
 
 use actix_web::{
@@ -39,8 +39,8 @@ const BODY_MARGIN: u64 = 4096;
 
 #[derive(Serialize)]
 struct SettingsView {
-    #[serde(flatten)]
-    display: StudioDisplay,
+    studio_mode: StudioMode,
+    studio_palette: StudioPalette,
     studio_name: String,
     mark: WatermarkMark,
     pattern: WatermarkPattern,
@@ -59,10 +59,8 @@ struct SettingsView {
 impl SettingsView {
     fn new(settings: WorkspaceSettings, email_enabled: bool) -> Self {
         Self {
-            display: StudioDisplay {
-                studio_mode: settings.studio_mode,
-                studio_palette: settings.studio_palette,
-            },
+            studio_mode: settings.studio_mode,
+            studio_palette: settings.studio_palette,
             studio_name: settings.studio_name,
             mark: settings.mark,
             pattern: settings.pattern,
@@ -185,8 +183,8 @@ pub fn configure(cfg: &mut ServiceConfig) {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StudioDisplay {
-    studio_mode: StudioMode,
-    studio_palette: StudioPalette,
+    mode: StudioMode,
+    palette: StudioPalette,
 }
 
 #[put("/display")]
@@ -196,14 +194,11 @@ async fn save_display(
     request: Json<StudioDisplay>,
 ) -> Result<HttpResponse, ErrorResponse> {
     let display = request.into_inner();
+
     state
         .database()
         .repository::<SettingsRepository>()
-        .save_display(
-            identity.workspace_id,
-            display.studio_mode,
-            display.studio_palette,
-        )
+        .save_display(identity.workspace_id, display.mode, display.palette)
         .await?;
 
     Ok(HttpResponse::Ok().no_store().json(display))
@@ -384,6 +379,7 @@ mod tests {
         signed_in_app!(pool, app, cookie);
 
         let (_, initial) = call(&app, request(test::TestRequest::get(), &cookie)).await;
+
         assert_eq!(initial["studio_mode"], "full_image");
         assert_eq!(initial["studio_palette"], "warm");
 
@@ -392,12 +388,16 @@ mod tests {
                 .uri("/api/v1/settings/display")
                 .insert_header(("Origin", ORIGIN))
                 .cookie(cookie.clone())
-                .set_json(json!({"studio_mode": mode, "studio_palette": "neutral"}))
+                .set_json(json!({"mode": mode, "palette": "neutral"}))
         };
-        assert!(call(&app, display("print")).await.0.is_success());
+        let (status, saved) = call(&app, display("print")).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(saved, json!({"mode": "print", "palette": "neutral"}));
         assert!(call(&app, display("unknown")).await.0.is_client_error());
 
         let (_, read) = call(&app, request(test::TestRequest::get(), &cookie)).await;
+
         assert_eq!(read["studio_mode"], "print");
         assert_eq!(read["studio_palette"], "neutral");
         assert_eq!(read["studio_name"], "");
@@ -407,6 +407,7 @@ mod tests {
             request(test::TestRequest::put(), &cookie).set_json(body(json!({}))),
         )
         .await;
+
         assert_eq!(kept["studio_mode"], "print");
         assert_eq!(kept["studio_palette"], "neutral");
     }
@@ -426,6 +427,8 @@ mod tests {
             &app,
             request(test::TestRequest::put(), &cookie).set_json(body(json!({
                 "studio_name": "  Studio  ",
+                "studio_mode": "print",
+                "studio_palette": "neutral",
                 "mark": "both",
                 "pattern": "once",
                 "position": 4,
@@ -438,6 +441,8 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(saved["studio_name"], "Studio");
+        assert_eq!(saved["studio_mode"], "print");
+        assert_eq!(saved["studio_palette"], "neutral");
         assert_eq!(saved["mark"], "both");
         assert_eq!(saved["pattern"], "once");
         assert_eq!(saved["position"], 4);

@@ -40,16 +40,32 @@ it('saves display-only changes without submitting watermark fields', async () =>
 	const fetcher = vi.fn().mockResolvedValue(
 		new Response(
 			JSON.stringify({
-				studio_mode: 'print',
-				studio_palette: 'neutral'
+				mode: 'print',
+				palette: 'neutral'
 			})
 		)
 	);
 	expect(settingsChanged(draft, DEFAULT_SETTINGS)).toBe(true);
 	const stored = await new SettingsApi(fetcher).save(draft, DEFAULT_SETTINGS);
 	expect(fetcher.mock.calls[0][0]).toBe('/api/v1/settings/display');
-	expect(sent(fetcher)).toEqual({ studio_mode: 'print', studio_palette: 'neutral' });
+	expect(sent(fetcher)).toEqual({ mode: 'print', palette: 'neutral' });
 	expect(stored).toEqual(draft);
+});
+
+it('keeps the full settings format for a mixed branding and display save', async () => {
+	const draft = { ...DEFAULT_SETTINGS, studioName: 'Studio', studioMode: 'print' as const };
+	const fetcher = vi
+		.fn()
+		.mockResolvedValue(Response.json({ ...body, studio_mode: 'print', studio_palette: 'warm' }));
+	const stored = await new SettingsApi(fetcher).save(draft, DEFAULT_SETTINGS);
+
+	expect(fetcher.mock.calls[0][0]).toBe('/api/v1/settings');
+	expect(sent(fetcher)).toMatchObject({
+		studio_name: 'Studio',
+		studio_mode: 'print',
+		studio_palette: 'warm'
+	});
+	expect(stored.studioMode).toBe('print');
 });
 
 it('maps the API settings and rejects a malformed body', () => {

@@ -180,7 +180,7 @@ export class SettingsApi {
 	async save(settings: WorkspaceSettings, saved: WorkspaceSettings): Promise<WorkspaceSettings> {
 		const changedDisplay =
 			settings.studioMode !== saved.studioMode || settings.studioPalette !== saved.studioPalette;
-		const display = { studio_mode: settings.studioMode, studio_palette: settings.studioPalette };
+
 		if (
 			changedDisplay &&
 			!settingsChanged(settings, {
@@ -193,12 +193,13 @@ export class SettingsApi {
 				'/api/v1/settings/display',
 				{
 					method: 'PUT',
-					body: JSON.stringify(display)
+					body: JSON.stringify({ mode: settings.studioMode, palette: settings.studioPalette })
 				},
-				v.object({ studio_mode: v.picklist(MODES), studio_palette: v.picklist(PALETTES) }),
+				v.object({ mode: v.picklist(MODES), palette: v.picklist(PALETTES) }),
 				this.fetcher
 			);
-			return { ...saved, studioMode: stored.studio_mode, studioPalette: stored.studio_palette };
+
+			return { ...saved, studioMode: stored.mode, studioPalette: stored.palette };
 		}
 
 		const raw = await requestJson(
@@ -206,7 +207,9 @@ export class SettingsApi {
 			{
 				method: 'PUT',
 				body: JSON.stringify({
-					...(changedDisplay ? display : {}),
+					...(changedDisplay
+						? { studio_mode: settings.studioMode, studio_palette: settings.studioPalette }
+						: {}),
 					studio_name: settings.studioName,
 					mark: settings.mark,
 					pattern: settings.pattern,
