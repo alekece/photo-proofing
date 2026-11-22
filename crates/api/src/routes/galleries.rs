@@ -50,7 +50,7 @@ use crate::{
 
 mod comments;
 mod contacts;
-mod export;
+pub(super) mod export;
 mod invitations;
 mod photos;
 mod shared;

@@ -4,15 +4,17 @@ import { exportSchema, type Export } from './schemas';
 
 export type { Export } from './schemas';
 
-function exportPath(galleryId: string) {
-	return `/api/v1/galleries/${encodeURIComponent(galleryId)}/export`;
+function exportPath(galleryId: string | null) {
+	return galleryId === null
+		? '/api/v1/photos/export'
+		: `/api/v1/galleries/${encodeURIComponent(galleryId)}/export`;
 }
 
 const setQuery = (set: PhotoSet) => (set === 'finals' ? '?finals=true' : '');
 
 /** Queues an owner ZIP of favorite proofs or ready finals, optionally as an exact subset. */
 export function requestExport(
-	galleryId: string,
+	galleryId: string | null,
 	fetcher: typeof fetch = fetch,
 	photoIds?: string[],
 	set: PhotoSet = 'photos'
@@ -30,12 +32,15 @@ export function requestExport(
 
 /** The newest ZIP of the gallery, or `null` when there is none or it expired. */
 export function latestExport(
-	galleryId: string,
+	galleryId: string | null,
 	fetcher: typeof fetch = fetch,
-	set: PhotoSet = 'photos'
+	set: PhotoSet = 'photos',
+	requestedId?: string
 ): Promise<Export | null> {
 	return requestJson(
-		exportPath(galleryId) + setQuery(set),
+		exportPath(galleryId) +
+			(requestedId ? `/${encodeURIComponent(requestedId)}` : '') +
+			setQuery(set),
 		{ method: 'GET' },
 		exportSchema,
 		fetcher,
@@ -43,7 +48,7 @@ export function latestExport(
 	);
 }
 
-export function exportUrl(galleryId: string, exportId: string, set: PhotoSet = 'photos') {
+export function exportUrl(galleryId: string | null, exportId: string, set: PhotoSet = 'photos') {
 	return `${exportPath(galleryId)}/${encodeURIComponent(exportId)}/download${setQuery(set)}`;
 }
 

@@ -5,6 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
 import type { WorkspacePhoto } from '#lib/gallery/schemas.js';
 
+vi.mock('#lib/events.js', async (original) => {
+	const events = await original<typeof import('#lib/events.js')>();
+	return { ...events, getLiveEvents: () => events.createLiveEvents() };
+});
+
 vi.mock('$app/navigation', () => ({
 	afterNavigate: vi.fn(),
 	beforeNavigate: vi.fn(),
@@ -197,7 +202,7 @@ describe('/photos page', () => {
 		expect(screen.queryByText(/selected/)).toBeNull();
 	});
 
-	it('downloads selected photos one by one via their authenticated original URL', async () => {
+	it('downloads a mixed selection as one archive when preparation finishes', async () => {
 		const user = userEvent.setup();
 		const clicks: string[] = [];
 		const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
@@ -205,7 +210,18 @@ describe('/photos page', () => {
 		) {
 			clicks.push(this.href);
 		});
-		const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
+		const posted: unknown[] = [];
+		const ready = Promise.withResolvers<Response>();
+		const zip = { id: 'zip', photo_count: 2, created_at: '2026-11-01T10:00:00Z' };
+		const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+			if (String(url) === '/api/v1/photos/export/zip') return ready.promise;
+			if (String(url) !== '/api/v1/photos/export') return new Response(null);
+			if (init?.method === 'POST') {
+				posted.push(JSON.parse(String(init.body)));
+				return Response.json({ ...zip, status: { kind: 'preparing' } }, { status: 202 });
+			}
+			return new Response(null, { status: 204 });
+		});
 		vi.stubGlobal('fetch', fetcher);
 
 		open([
@@ -217,15 +233,35 @@ describe('/photos page', () => {
 		await user.click(screen.getByRole('button', { name: 'Select all' }));
 		await user.click(screen.getByRole('button', { name: 'Download' }));
 
-		await waitFor(() => expect(clicks).toHaveLength(2));
-		expect(clicks.some((href) => href.includes('/galleries/g1/photos/p1/download'))).toBe(true);
-		expect(
-			clicks.some((href) => href.includes('/galleries/g2/photos/p2/download?finals=true'))
-		).toBe(true);
+		expect(posted).toEqual([{ photo_ids: ['p1', 'p2'] }]);
+		expect(clicks).toEqual([]);
+		ready.resolve(Response.json({ ...zip, status: { kind: 'ready' } }));
+		await waitFor(() =>
+			expect(clicks.map((href) => new URL(href).pathname)).toEqual([
+				'/api/v1/photos/export/zip/download'
+			])
+		);
 		anchor.mockRestore();
 	});
 
-	it('reports when some downloads failed', async () => {
+	it('downloads one checked final directly', async () => {
+		const user = userEvent.setup();
+		const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+		const fetcher = vi.fn<typeof fetch>(async () => new Response(null));
+		vi.stubGlobal('fetch', fetcher);
+		open([photo({ id: 'p2', kind: 'final' })]);
+		await user.click(screen.getByRole('button', { name: /^Select Wedding/ }));
+		await user.click(screen.getByRole('button', { name: 'Download' }));
+		await waitFor(() => expect(anchor).toHaveBeenCalledOnce());
+		expect(
+			fetcher.mock.calls
+				.map(([url]) => String(url))
+				.filter((url) => url.includes('/download') || url.includes('/export'))
+		).toEqual(['/api/v1/galleries/g1/photos/p2/download?finals=true']);
+		anchor.mockRestore();
+	});
+
+	it('reports when the original download fails', async () => {
 		const user = userEvent.setup();
 		toasts.items = [];
 		const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 404 }));

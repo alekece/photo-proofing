@@ -86,15 +86,17 @@ impl ExportHandler {
     }
 
     fn entries(plan: &ExportPlan) -> Vec<ArchiveEntry> {
-        let location = PhotoLocation {
-            workspace_id: plan.workspace_id,
-            gallery_id: plan.gallery_id,
-        };
-
         plan.photos
             .iter()
             .map(|photo| ArchiveEntry {
-                source: PhotoKey::with_location(location, photo.id, Variant::Original),
+                source: PhotoKey::with_location(
+                    PhotoLocation {
+                        workspace_id: plan.workspace_id,
+                        gallery_id: photo.gallery_id,
+                    },
+                    photo.id,
+                    Variant::Original,
+                ),
                 original_name: photo.original_name.clone(),
             })
             .collect()
@@ -306,6 +308,153 @@ mod tests {
         async fn has_zip(&self, id: ExportId) -> bool {
             self.storage.read_archive(&self.key(id)).await.is_ok()
         }
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn workspace_archive_reads_originals_from_each_source_gallery(pool: PgPool) {
+        let mut fixture = Fixture::new(pool.clone()).await;
+        let proof = fixture.favorite("same.jpg", true).await;
+        fixture.location.gallery_id = fixture
+            .database
+            .repository::<GalleryRepository>()
+            .create(fixture.location.workspace_id)
+            .await
+            .unwrap()
+            .id;
+        let final_photo = fixture.favorite("same.jpg", true).await;
+        sqlx::query("UPDATE photos SET kind = 'final', favorited_at = NULL WHERE id = $1")
+            .bind(final_photo)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let repository = fixture.database.repository::<ExportRepository>();
+        let ids = [proof, final_photo];
+        let workspace = fixture.location.workspace_id;
+        let small_limit = NonZeroU64::new(9).unwrap();
+        let limit = NonZeroU64::new(10).unwrap();
+        assert_eq!(
+            repository
+                .request_workspace(workspace, &ids, small_limit, DAY)
+                .await
+                .unwrap(),
+            ExportRequest::TooLarge
+        );
+        let ExportRequest::Created { export, .. } = repository
+            .request_workspace(workspace, &ids, limit, DAY)
+            .await
+            .unwrap()
+        else {
+            panic!("expected private ZIP");
+        };
+        let job = fixture
+            .database
+            .repository::<JobRepository>()
+            .claim(&[JobKind::ZipExport], Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(fixture.run(export.id, job).await.is_current());
+        let gallery = repository
+            .workspace_archive(workspace, export.id, DAY)
+            .await
+            .unwrap()
+            .unwrap();
+        let key = ArchiveKey {
+            workspace,
+            gallery,
+            export: export.id,
+        };
+        assert!(fixture.storage.read_archive(&key).await.is_ok());
+        assert!(matches!(
+            repository.request_workspace(workspace, &[final_photo, proof], limit, DAY).await.unwrap(),
+            ExportRequest::Reused(existing) if existing.id == export.id
+        ));
+        let foreign = fixture
+            .database
+            .repository::<TestRepository>()
+            .create_workspace()
+            .await
+            .unwrap();
+        assert!(
+            repository
+                .workspace_archive(foreign, export.id, DAY)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            repository
+                .workspace_export(foreign, export.id, DAY)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            repository
+                .ready(workspace, gallery, export.id, DAY)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        sqlx::query("DELETE FROM photos WHERE id = $1")
+            .bind(final_photo)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            repository
+                .workspace_export(workspace, export.id, DAY)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            repository
+                .workspace_archive(workspace, export.id, DAY)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let third = fixture.favorite("third.jpg", true).await;
+        let changed = repository
+            .request_workspace(workspace, &[proof, third], limit, DAY)
+            .await
+            .unwrap();
+        assert!(matches!(changed, ExportRequest::Created { .. }));
+        let removed = repository.expire(DAY).await.unwrap();
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].id, export.id);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn removing_a_preparing_workspace_archive_notifies_the_requester(pool: PgPool) {
+        let fixture = Fixture::new(pool.clone()).await;
+        let ids = [
+            fixture.favorite("a.jpg", true).await,
+            fixture.favorite("b.jpg", true).await,
+        ];
+        let workspace = fixture.location.workspace_id;
+        let result = fixture
+            .database
+            .repository::<ExportRepository>()
+            .request_workspace(workspace, &ids, NonZeroU64::new(10).unwrap(), DAY)
+            .await
+            .unwrap();
+        assert!(matches!(result, ExportRequest::Created { .. }));
+        let mut listener = sqlx::postgres::PgListener::connect_with(&pool)
+            .await
+            .unwrap();
+        listener.listen("export_events").await.unwrap();
+        sqlx::query("DELETE FROM exports WHERE gallery_id = $1")
+            .bind(fixture.location.gallery_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let event = tokio::time::timeout(Duration::from_secs(2), listener.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(event.payload().contains(&workspace.0.to_string()));
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

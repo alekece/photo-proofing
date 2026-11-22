@@ -5,7 +5,7 @@ use actix_web::{
     body::{BoxBody, SizedStream},
     http::header::{self, ContentDisposition, ContentType, DispositionParam, DispositionType},
 };
-use pp_storage::{PhotoKey, PhotoStorage, StorageError};
+use pp_storage::{ArchiveKey, PhotoKey, PhotoStorage, StorageError};
 use tokio::{fs::File, io::AsyncReadExt};
 use tokio_util::io::ReaderStream;
 
@@ -109,6 +109,20 @@ impl Attachment {
 
     pub(crate) async fn zip(name: &str, file: File) -> Result<Self, ErrorResponse> {
         Self::new("application/zip", name.to_owned(), file).await
+    }
+
+    pub(crate) async fn read_zip(
+        storage: &PhotoStorage,
+        key: &ArchiveKey,
+        name: &str,
+    ) -> Result<Self, ErrorResponse> {
+        let file = match storage.read_archive(key).await {
+            Ok(file) => file,
+            Err(StorageError::NotFound) => return Err(ErrorResponse::not_found()),
+            Err(error) => return Err(error.into()),
+        };
+
+        Self::zip(name, file).await
     }
 }
 
