@@ -1,6 +1,6 @@
 # Photos grid and selection behavior
 
-Issue: [#404](https://github.com/alekece/photo-proofing/issues/404).
+Issues: [#404](https://github.com/alekece/photo-proofing/issues/404), [#447](https://github.com/alekece/photo-proofing/issues/447).
 Existing design:
 [larger staggered photos](2026-11-08-larger-staggered-photos-design.md),
 [stable select-mode toolbar](2026-11-08-select-mode-toolbar-design.md),
@@ -20,12 +20,12 @@ retouched indicator, not overlays or filenames on every photo.
 - Use adaptive 3 or 4 columns based on the available container width.
 - Start selection from a top-left circle at the tile corner.
 - Show the reusable selection bar after the first selection.
-- Keep Download all on Favorites and Final.
-- Keep existing upload, processing, retry, viewer and delete behavior.
+- Keep Download all on Favorites, independent of the working selection.
+- Keep upload, processing, retry and viewer navigation. Delete photos only through the selection bar and confirmation.
 
 ## Non-goals
 
-- Removing comments, favorites or per-photo viewer actions.
+- Removing comments, favorite state or cover selection.
 - Changing original or final download semantics.
 - Changing client-facing photo grids.
 
@@ -48,8 +48,7 @@ retouched indicator, not overlays or filenames on every photo.
 - In selection mode, clicking a tile toggles it instead of opening the viewer.
 - The bar owns close, selected count, Select all and Escape behavior.
 - Photos and Final supply Delete in selection mode; Favorites supplies Download.
-- Download all remains the primary action in Favorites and Final even though selection mode can also
-   create ZIP subsets.
+- Download all always exports every favorite; Download selected exports exactly the checked favorites. No tile or viewer offers individual deletion or download. Finals retain only their passive client download-status indicator.
 - In the main Photos page, mixed proof/final sets may use a small retouched icon on Final items.
    The dedicated Final tab in Gallery view shows no per-photo indicator; no "Proof", "Final",
    approval or filename text is required over a photo.

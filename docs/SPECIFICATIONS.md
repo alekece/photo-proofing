@@ -107,7 +107,7 @@ The viewer keeps comments closed by default, opening beside rather than over the
 
 ### FR-09
 
-**Photographer selection export.** A single Download action prepares a ZIP containing the selected originals and initiates download when ready. Show disabled Downloading… while pending, replace it with Download afterward, and surface failures without a separate download-started message. The ZIP represents the selection when requested; later changes do not alter that export or lock the live selection. The Favorites tab also lets the photographer download one favorite original, or several chosen with select mode. No separate download-management screen is required for MVP. Empty-selection handling and temporary ZIP retention belong in export design.
+**Photographer selection export.** In Favorites, the header offers **Download all** whenever favorites exist, regardless of which photos are checked. The selection bar offers **Download selected** for exactly the checked favorites, even just one. Both actions prepare a ZIP of the requested originals and initiate download when ready. Keep both controls visible but disabled with download progress feedback while pending, then re-enable them. Surface failures without a separate download-started message. The ZIP represents the selection when requested; later changes do not alter that export or lock the live selection. Photographer tiles and viewers have no individual download or delete shortcuts. Where deletion is allowed, select photos and confirm Delete from the selection bar; cancelling leaves them intact. No separate download-management screen is required for MVP. Empty-selection handling and temporary ZIP retention belong in export design.
 
 ### FR-10
 

@@ -29,8 +29,6 @@
 		readonly = false,
 		autoplay = false,
 		mobileArrows = false,
-		actions,
-		trailing,
 		thread,
 		commentCount,
 		onclose,
@@ -53,10 +51,6 @@
 		autoplay?: boolean;
 		/** The library can step through the grid without enabling client-only gestures. */
 		mobileArrows?: boolean;
-		/** The photo's actions in the top bar, which depend on where the viewer was opened from. */
-		actions?: Snippet<[Proof]>;
-		/** Actions that follow the comments button, such as the destructive ones. */
-		trailing?: Snippet<[Proof]>;
 		thread?: Snippet<[Proof]>;
 		commentCount?: (id: string) => number;
 		onclose: () => void;
@@ -306,9 +300,6 @@
 					<Download size={17} aria-hidden="true" />{m.action_download()}
 				</a>
 			{/if}
-			{#if status === 'ready'}
-				{@render actions?.(proof)}
-			{/if}
 			{#if thread}
 				{@const count = commentCount?.(proof.id) ?? 0}
 				<button
@@ -344,7 +335,6 @@
 					>
 				</button>
 			{/if}
-			{@render trailing?.(proof)}
 			<button
 				type="button"
 				bind:this={closeButton}

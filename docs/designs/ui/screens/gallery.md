@@ -81,13 +81,7 @@ the number of columns: two below 36 rem, three from 36 rem, and four from 58 rem
 
 ### Photos
 
-The proofs. The toolbar keeps **Upload** visible, even in select mode. Besides the selection
-circle, tiles show:
-
-- a star at the top right: **Set as hero** / **Remove hero** (a toggle). On hover and focus only,
-  except the hero's own star, which stays visible as a gold star with no text (its tooltip and
-  screen-reader label are "Remove hero"). On touch screens use the viewer instead;
-- a × to delete, which always asks first.
+The proofs. The toolbar keeps **Upload** visible, even in select mode. Delete is available only in the selection bar and requires confirmation. Cancelling leaves the photos in place.
 
 No hearts or favorite marks here: favorites belong to the Favorites tab. Clicking a photo opens
 the [viewer](viewer.md).
@@ -113,24 +107,15 @@ unwatermarked. Switching watermarking on or off only selects existing files.
 
 ### Favorites
 
-Only the client's selection, most recent first and read-only. Outside selection mode the stage header offers **Download all**;
-inside selection mode the selection bar offers the selected subset instead. Hovering a photo shows a small download button
-for that photo (always visible on touch). The empty state has a heart and "No favorites yet".
-Opening a photo
-shows the viewer with the favorite heart and the same individual-original download action.
-The whole or selected subset uses one ZIP preparation slot: **Downloading…** is disabled from
-the initial request until download initiation, with errors left visible and no separate success
-message. If a ZIP status check fails, **Retry ZIP status** checks the same request without
-starting a new one. If the requested ZIP is no longer available, the photographer can use
-**Download** to request it again. Select-mode subsets always use a ZIP, even for one selected
-photo; tile and viewer downloads stream the individual original with a busy download control.
-Individual download errors appear separately from ZIP errors.
+Only the client's favorites, most recent first and read-only. Whenever favorites exist, the header offers **Download all**, including while a subset is checked. **Download selected** in the selection bar exports only the checked originals, even just one. Neither tiles nor the favorite viewer offer an individual download. The viewer keeps the read-only favorite heart and comments. The empty state has a heart and "No favorites yet".
+
+Both actions share the same ZIP preparation slot and are disabled while a download is preparing. **Retry ZIP status** checks the same request without starting a new one. Errors remain visible; there is no separate success message.
 
 ### Final
 
 Finished photos are private until delivered. The photographer can upload and manage them, but the tab offers no download action. A passive mark and the first request date appear only on requested tiles, not in the viewer. The count is distinct current photos requested, not clicks or confirmed saves.
 
-Use × to delete a photo, or the "Drop the finished photos here" zone to start an empty Final grid.
+Use the selection bar and confirm to delete photos, or the "Drop the finished photos here" zone to start an empty Final grid.
 
 ### Select mode
 
@@ -139,7 +124,7 @@ and is always visible on touch and while selecting. In select mode, the tile bod
 selection instead of opening the viewer. The normal toolbar and tile positions stay put.
 
 A floating bar shows **Exit selection**, the count and **Select all** (or **Unselect all**).
-Photos and Final offer **Delete**, Favorites **Download**. These actions are disabled at
+Photos and Final offer **Delete**, Favorites **Download selected**. These actions are disabled at
 zero, but select mode stays open until exited with **✕** or Escape. Below 80 rem, gallery
 actions use icons with accessible names and can wrap to fit clear of the rails.
 Select all picks only photos currently shown in that tab and

@@ -8,15 +8,12 @@
 	import { tick, untrack, type Snippet } from 'svelte';
 	import PhotoTile, { COLLECTION_GRID_CLASSES } from '#lib/components/PhotoTile.svelte';
 	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
-	import ViewerButton from '#lib/components/ViewerButton.svelte';
-	import { startDownload } from '#lib/gallery/export.js';
 	import { OwnerExport } from '#lib/gallery/export.svelte.js';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 	import { getLiveEvents } from '#lib/events.js';
-	import { ApiError } from '#lib/http.js';
 	import { listPhotos, previewUrl, thumbnailUrl, type Photo } from '#lib/gallery/photos.js';
 	import { selectionHotkeysAllowed, SelectMode } from '#lib/gallery/select-mode.svelte.js';
 	import type { Proof } from '#lib/gallery/types.js';
@@ -25,25 +22,13 @@
 		galleryId,
 		oncount,
 		onheader,
-		active = true,
-		ondownload = async (photos: Photo[]) => {
-			const current = generation;
-			const url = `/api/v1/galleries/${encodeURIComponent(galleryId)}/photos/${encodeURIComponent(photos[0].id)}/download`;
-			const response = await fetch(url, { method: 'HEAD', credentials: 'same-origin' });
-			if (current !== generation) return;
-			if (!response.ok) throw new ApiError(response.status, m.favorites_download_failed());
-			startDownload(url);
-		}
+		active = true
 	}: {
 		galleryId: string;
 		/** How many favorites the client has picked, for the tab. */
 		oncount?: (count: number | null) => void;
 		onheader?: (action: Snippet) => void;
 		active?: boolean;
-		/**
-		 * Downloads an individual original from a tile or viewer. Selected subsets use ZIP export.
-		 */
-		ondownload?: (photos: Photo[]) => void | Promise<void>;
 	} = $props();
 
 	const events = getLiveEvents();
@@ -64,11 +49,7 @@
 	);
 	let panel = $state<HTMLElement | null>(null);
 	let downloadAll = $state<HTMLElement | null>(null);
-	let downloading = $state<string | null>(null);
-	let individualError = $state<string | null>(null);
-	let generation = 0;
 	const mode = new SelectMode();
-	const showDownloadAll = $derived(favorites.length > 0 && !mode.active);
 
 	async function load(id: string) {
 		const current = ++loads;
@@ -93,12 +74,9 @@
 	$effect(() => {
 		const id = loadedGalleryId;
 
-		generation++;
 		favorites = [];
 		untrack(() => mode.leave());
 		loaded = false;
-		downloading = null;
-		individualError = null;
 		viewedId = null;
 		void load(id);
 
@@ -114,7 +92,6 @@
 		];
 
 		return () => {
-			generation++;
 			loads++;
 
 			for (const off of unsubscribe) off();
@@ -144,22 +121,6 @@
 		}
 	});
 
-	async function download(photos: Photo[]) {
-		if (downloading) return;
-
-		const current = generation;
-		downloading = photos[0].id;
-		individualError = null;
-
-		try {
-			await ondownload(photos);
-		} catch {
-			if (current === generation) individualError = m.favorites_download_failed();
-		} finally {
-			if (current === generation) downloading = null;
-		}
-	}
-
 	async function finishSelecting() {
 		mode.leave();
 		await tick();
@@ -168,7 +129,7 @@
 </script>
 
 {#snippet headerDownload()}
-	{#if showDownloadAll}{@render downloadButton(true)}{/if}
+	{#if favorites.length > 0}{@render downloadButton(true)}{/if}
 {/snippet}
 
 {#snippet downloadButton(all = false)}
@@ -185,19 +146,18 @@
 		aria-busy={zip.busy}
 		onclick={() =>
 			void zip.request(
-				!all && mode.count > 0
-					? favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id)
-					: undefined
+				all ? undefined : favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id)
 			)}
 	>
-		<Download size={16} aria-hidden="true" />
+		{#if zip.busy}
+			<LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+		{:else}
+			<Download size={16} aria-hidden="true" />
+		{/if}
 		<span class="group-data-[rail=gallery]/select-actions:max-xl:sr-only">
-			{zip.busy
-				? m.favorites_downloading()
-				: !all
-					? m.favorites_download_count({ count: mode.count })
-					: m.favorites_download_all()}
+			{all ? m.favorites_download_all() : m.favorites_download_count({ count: mode.count })}
 		</span>
+		{#if zip.busy}<span class="sr-only">{m.favorites_downloading()}</span>{/if}
 	</Button>
 {/snippet}
 
@@ -207,7 +167,7 @@
 	tabindex="-1"
 	bind:this={panel}
 >
-	{#if !onheader && showDownloadAll}
+	{#if !onheader && favorites.length > 0}
 		<WorkspaceToolbar>
 			{#snippet actions()}{@render downloadButton(true)}{/snippet}
 		</WorkspaceToolbar>
@@ -227,9 +187,6 @@
 	{/if}
 
 	<OwnerZipError {zip} />
-	{#if individualError}
-		<p role="alert" class="text-right text-sm text-danger">{individualError}</p>
-	{/if}
 
 	{#if failed}
 		<p role="alert" class="text-sm text-danger">{m.favorites_load_failed()}</p>
@@ -259,8 +216,6 @@
 							mode.toggle(photo.id);
 						}}
 						onopen={() => (viewedId = photo.id)}
-						ondownload={() => void download([photo])}
-						downloadBusy={downloading === photo.id}
 					/>
 				</li>
 			{/each}
@@ -287,27 +242,5 @@
 		readonly
 		isSelected={() => true}
 		onclose={() => (viewedId = null)}
-	>
-		{#snippet actions(proof)}
-			<ViewerButton
-				aria-label={m.tile_download({ name: proof.alt })}
-				disabled={downloading !== null}
-				aria-busy={downloading === proof.id}
-				onclick={() => {
-					const photo = favorites.find(({ id }) => id === proof.id);
-					if (photo) void download([photo]);
-				}}
-			>
-				{#if downloading === proof.id}
-					<LoaderCircle
-						size={18}
-						class="animate-spin motion-reduce:animate-none"
-						aria-hidden="true"
-					/>
-				{:else}
-					<Download size={18} aria-hidden="true" />
-				{/if}
-			</ViewerButton>
-		{/snippet}
-	</PhotoViewer>
+	/>
 {/if}

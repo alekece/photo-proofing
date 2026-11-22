@@ -27,7 +27,8 @@ Save these choices explicitly in Settings. Changing only presentation must not r
 ## Inside the gallery
 
 - Opening a gallery from a card, a notification or a direct URL clears **that gallery's** unread indicator, not its activity log or counts. Opening the bell alone clears nothing; keep the explicit mark-all action. The notifications panel has a small accessible close cross at bottom right. Hide Last opened entirely until a client visit exists.
-- **Favorites:** most recent selection first, with its date; one contextual Download action for the working selection, no duplicate toolbar or unread filter. Leave the tab readable without a decorative padlock after publication. This does not unlock client favorites. Neither a quota nor exporting a ZIP signals that the client has finished.
+- **Photo actions** ([#447](https://github.com/alekece/photo-proofing/issues/447)): tiles open or select; neither tiles nor viewers offer individual download or deletion. Where deletion is allowed, use the selection bar and confirm. Cancelling a local queued upload is separate.
+- **Favorites:** most recent selection first, with its date; a header **Download all** for every favorite, independent of **Download selected** in the bottom bar for checked originals. No unread filter. Leave the tab readable without a decorative padlock after publication. This does not unlock client favorites. Neither a quota nor exporting a ZIP signals that the client has finished.
 - **Finals:** keep Import and management actions. Show a distinct-photo download count, not clicks or proof that a file was saved. Only requested photos get a non-interactive dark download mark and first request date, with a legible surface over photographs. No photographer download action on the tab, in a bulk selection, on a tile or in its viewer. No download date in the viewer. Client individual and ZIP downloads are unchanged.
 
 ## The rest of the studio
