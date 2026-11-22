@@ -59,6 +59,7 @@
 {@render header(toggle)}
 <div
 	class={cn(
+		'client-surface',
 		stageClass,
 		mode === 'phone'
 			? 'grid place-items-center overflow-hidden bg-[radial-gradient(circle_at_50%_40%,#3a302a,#1d1815_70%)] p-4 sm:p-6'

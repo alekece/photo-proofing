@@ -7,7 +7,7 @@
 </script>
 
 <div
-	class="absolute inset-0 bg-[linear-gradient(rgb(0_0_0/0.25),transparent_30%,transparent_50%,rgb(0_0_0/0.55))]"
+	class="absolute inset-0 bg-[linear-gradient(rgb(0_0_0/0.65),transparent_35%,transparent_50%,rgb(0_0_0/0.55))]"
 ></div>
 <StudioSignature
 	studio={settings.studioName.trim() || m.watermark_your_studio()}

@@ -4,6 +4,8 @@
 	import { LoaderCircle, X } from '@lucide/svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
+	import ActionButton from '#lib/components/ui/ActionButton/ActionButton.svelte';
+	import Toaster from '#lib/components/ui/Toast/Toaster.svelte';
 
 	/**
 	 * Asks before an action. `onconfirm` may reject with a message to show and retry from; when it
@@ -18,6 +20,7 @@
 		destructive?: boolean;
 		/** Holds the confirm button back, e.g. while the dialog is still gathering facts. */
 		busy?: boolean;
+		pendingDelayMs?: number;
 		onconfirm: () => void | Promise<void>;
 		onclose: () => void;
 		visual?: Snippet<[boolean]>;
@@ -32,6 +35,7 @@
 		cancelLabel = m.common_cancel(),
 		destructive = false,
 		busy = false,
+		pendingDelayMs,
 		onconfirm,
 		onclose,
 		visual,
@@ -46,7 +50,7 @@
 	let error = $state('');
 
 	async function confirm(close: () => void) {
-		if (pending) return;
+		if (pending) return false;
 
 		pending = true;
 		error = '';
@@ -56,8 +60,10 @@
 
 			if (result) done = true;
 			else close();
+			return true;
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : m.api_error_generic();
+			return false;
 		} finally {
 			pending = false;
 		}
@@ -93,25 +99,44 @@
 					<h2 id="{id}-title" class="text-xl">{title}</h2>
 					{@render description?.()}
 				</div>
-				{#if error}<p role="alert" class="text-sm text-danger sm:col-span-2">{error}</p>{/if}
+				{#if error}
+					{#if pendingDelayMs !== undefined}<Toaster
+							studio
+							localError={{ message: error, dismiss: () => (error = '') }}
+						/>
+					{:else}<p role="alert" class="text-sm text-danger sm:col-span-2">{error}</p>{/if}
+				{/if}
 				<div class="flex gap-2.5 sm:col-span-2 sm:justify-end max-sm:[&>*]:flex-1">
 					<Button variant="outline" disabled={pending} onclick={close}>{cancelLabel}</Button>
-					<Button
-						variant={destructive ? 'destructive' : 'default'}
-						disabled={pending || busy}
-						onclick={() => void confirm(close)}
-					>
-						{#if pending}
-							<LoaderCircle
-								size={16}
-								class="animate-spin motion-reduce:animate-none"
-								aria-hidden="true"
-							/>
-							{destructive ? m.dialog_deleting() : m.dialog_working()}
-						{:else}
-							{confirmLabel}
-						{/if}
-					</Button>
+					{#if pendingDelayMs !== undefined}
+						<ActionButton
+							{pendingDelayMs}
+							variant={destructive ? 'destructive' : 'default'}
+							disabled={busy || pending}
+							labels={{
+								idle: confirmLabel,
+								pending: destructive ? m.dialog_deleting() : m.dialog_working()
+							}}
+							onaction={() => confirm(close)}
+						/>
+					{:else}
+						<Button
+							variant={destructive ? 'destructive' : 'default'}
+							disabled={pending || busy}
+							onclick={() => void confirm(close)}
+						>
+							{#if pending}
+								<LoaderCircle
+									size={16}
+									class="animate-spin motion-reduce:animate-none"
+									aria-hidden="true"
+								/>
+								{destructive ? m.dialog_deleting() : m.dialog_working()}
+							{:else}
+								{confirmLabel}
+							{/if}
+						</Button>
+					{/if}
 				</div>
 			{/if}
 		</div>

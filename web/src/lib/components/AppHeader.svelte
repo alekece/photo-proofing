@@ -6,6 +6,7 @@
 	import { getGalleryGridReturn } from '#lib/gallery/dashboardNavigation.svelte.js';
 	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
 	import { buildVersion, displayVersion } from '#lib/build.js';
+	import { legalNotices } from '#lib/footer.js';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Popover from '#lib/components/ui/Popover/Popover.svelte';
 	import { cn } from '#lib/utils.js';
@@ -92,7 +93,7 @@
 		<a
 			href="/settings"
 			aria-current={settingsActive ? 'page' : undefined}
-			class={cn(pill, 'sm:mt-2 sm:border-t sm:border-border/60 sm:pt-2')}
+			class={cn(pill, 'border-border/60 max-sm:border-l sm:mt-2 sm:border-t sm:pt-2')}
 			><Settings size={16} aria-hidden="true" />{m.header_settings()}</a
 		>
 	</nav>
@@ -125,14 +126,21 @@
 				<LogOut size={16} aria-hidden="true" />
 				{m.header_sign_out()}
 			</Button>
+			<div class="sm:hidden">{@render metadata()}</div>
 		</Popover>
-		<small
-			class="hidden px-2 py-1 text-xs text-muted-foreground sm:block"
-			title={buildVersion || undefined}
-		>
-			{buildVersion
-				? m.footer_build({ version: displayVersion(buildVersion) })
-				: m.footer_development_build()}
-		</small>
+		<div class="hidden sm:block">{@render metadata()}</div>
 	</div>
 </header>
+
+{#snippet metadata()}
+	<small class="block px-2 py-1 text-xs text-muted-foreground" title={buildVersion || undefined}>
+		© {new Date().getFullYear()} PhotoProofing · {buildVersion
+			? m.footer_build({ version: displayVersion(buildVersion) })
+			: m.footer_development_build()}
+	</small>
+	{#if legalNotices.length}
+		<nav aria-label={m.footer_legal()} class="flex flex-wrap gap-2 px-2 text-xs">
+			{#each legalNotices as notice (notice.href)}<a href={notice.href}>{notice.label}</a>{/each}
+		</nav>
+	{/if}
+{/snippet}

@@ -16,6 +16,30 @@ const saveLabels = { idle: 'Save', pending: 'Saving', succeeded: 'Saved' };
 afterEach(() => vi.useRealTimers());
 
 describe('ActionButton', () => {
+	it('guards immediately but leaves the idle face visible until a slow action needs a spinner', async () => {
+		vi.useFakeTimers();
+		let resolve!: (value: boolean) => void;
+		const onaction = vi.fn(() => new Promise<boolean>((done) => (resolve = done)));
+		render(ActionButton, { labels: deleteLabels, pendingDelayMs: 150, onaction });
+		const button = screen.getByRole('button', { name: 'Delete' });
+		await fireEvent.click(button);
+		await fireEvent.click(button);
+		expect(onaction).toHaveBeenCalledOnce();
+		expect(button.getAttribute('aria-busy')).toBe('true');
+		await vi.advanceTimersByTimeAsync(40);
+		expect(button.getAttribute('aria-label')).toBe('Delete');
+		resolve(true);
+		await vi.advanceTimersByTimeAsync(200);
+		expect(button.getAttribute('aria-busy')).not.toBe('true');
+		await fireEvent.click(button);
+		await vi.advanceTimersByTimeAsync(150);
+		expect(screen.getByRole('button', { name: 'Delete' })).toBe(button);
+		expect(button.querySelector('svg.animate-spin')).toBeTruthy();
+		resolve(false);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(screen.getByRole('button', { name: 'Delete' })).toBe(button);
+	});
+
 	it('keeps focus and runs only after the confirmation window', async () => {
 		vi.useFakeTimers();
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

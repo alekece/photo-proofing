@@ -3,6 +3,8 @@
 Workspace settings shared by every gallery. Open `/settings` from **Settings** in the app
 navigation (or the account menu on older screens).
 
+General saves the studio's Full image / Print presentation and Warm / Neutral palette independently. These choices do not regenerate photos or change the shared gallery or its preview.
+
 The images below show the historical layout, not the current screen.
 
 | | Desktop | Phone |

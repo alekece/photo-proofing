@@ -11,15 +11,17 @@
 	const serverFault = $derived(page.status >= 500);
 	const path = $derived(page.url.pathname);
 	const onClientLink = $derived(path.startsWith('/g/'));
-	const exit = $derived(
-		path === '/dashboard' || path.startsWith('/dashboard/')
-			? { label: m.error_page_back_to_galleries(), href: '/dashboard' }
-			: onClientLink
-				? serverFault
-					? { label: m.error_page_try_again(), href: path }
-					: null
-				: { label: m.error_page_go_to_sign_in(), href: '/login' }
+	const onStudio = $derived(
+		path.startsWith('/dashboard/') ||
+			['/dashboard', '/settings', '/activity', '/contacts', '/photos'].includes(path)
 	);
+	const retryStudio = $derived(onStudio && !notFound);
+	const exit = $derived.by(() => {
+		if (retryStudio) return { label: m.error_page_try_again(), href: path + page.url.search };
+		if (onStudio) return { label: m.error_page_back_to_galleries(), href: '/dashboard' };
+		if (onClientLink) return serverFault ? { label: m.error_page_try_again(), href: path } : null;
+		return { label: m.error_page_go_to_sign_in(), href: '/login' };
+	});
 	const title = $derived(
 		notFound
 			? m.error_page_title_not_found()
@@ -32,9 +34,11 @@
 			? onClientLink
 				? m.error_page_detail_not_found_client()
 				: m.error_page_detail_not_found()
-			: serverFault
-				? m.error_page_detail_server()
-				: m.error_page_detail_client()
+			: onStudio
+				? m.error_page_detail_studio()
+				: serverFault
+					? m.error_page_detail_server()
+					: m.error_page_detail_client()
 	);
 
 	onMount(() => heading.focus());
@@ -50,6 +54,10 @@
 	<h1 bind:this={heading} tabindex="-1" class="text-3xl">{title}</h1>
 	<p>{detail}</p>
 	{#if exit}
-		<a href={exit.href} class={buttonVariants({ variant: 'outline' })}>{exit.label}</a>
+		<a
+			href={exit.href}
+			data-sveltekit-reload={retryStudio || undefined}
+			class={buttonVariants({ variant: 'outline' })}>{exit.label}</a
+		>
 	{/if}
 </PageShell>

@@ -10,7 +10,9 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { m } from '#lib/paraglide/messages.js';
-	import { LoaderCircle } from '@lucide/svelte';
+	import ActionButton from '#lib/components/ui/ActionButton/ActionButton.svelte';
+	import Toaster from '#lib/components/ui/Toast/Toaster.svelte';
+	import { TITLE_MAX } from '#lib/gallery/format.js';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import DatePicker from '#lib/components/ui/DatePicker/DatePicker.svelte';
@@ -137,19 +139,12 @@
 		return edits;
 	}
 
-	async function submit(event: SubmitEvent, close: () => void) {
-		event.preventDefault();
+	let saveButton: ActionButton;
+	const edits = $derived(buildEdits());
+	const invalid = $derived(rows.some((row) => [...row.title.trim()].length > TITLE_MAX));
 
-		if (saving) return;
-
-		const edits = buildEdits();
-
-		if (edits.length === 0) {
-			close();
-
-			return;
-		}
-
+	async function submit(close: () => void) {
+		if (saving || invalid || !edits.length) return false;
 		saving = true;
 		error = '';
 
@@ -159,12 +154,14 @@
 			if (failure) {
 				error = failure;
 
-				return;
+				return false;
 			}
 
 			close();
+			return true;
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : m.api_error_generic();
+			return false;
 		} finally {
 			saving = false;
 		}
@@ -177,10 +174,18 @@
 	labelledby="{id}-title"
 	class="mx-auto mt-6 mb-auto w-[min(38rem,calc(100vw-1.5rem))] {rows.length > 4
 		? 'max-h-[calc(100dvh-2rem)] overflow-y-auto'
-		: 'overflow-visible'} rounded-dialog border border-border bg-panel p-5 text-foreground shadow-xl sm:my-auto sm:p-6"
+		: 'overflow-visible'} rounded-dialog border border-border bg-background p-5 text-foreground shadow-xl sm:my-auto sm:p-6"
 >
 	{#snippet children(close)}
-		<form onsubmit={(event) => void submit(event, close)} class="grid gap-4" aria-busy={saving}>
+		<form
+			id="{id}-form"
+			onsubmit={(event) => {
+				event.preventDefault();
+				saveButton.activate();
+			}}
+			class="grid gap-4"
+			aria-busy={saving}
+		>
 			<div class="grid gap-1">
 				<h2 id="{id}-title" class="text-xl leading-tight">{m.quick_edit_title()}</h2>
 				<p class="text-sm text-muted-foreground">
@@ -189,7 +194,7 @@
 			</div>
 
 			{#if error}
-				<p role="alert" class="text-sm text-danger">{error}</p>
+				<Toaster studio localError={{ message: error, dismiss: () => (error = '') }} />
 			{/if}
 
 			<div class="grid gap-2.5">
@@ -234,6 +239,7 @@
 						<div class="col-span-2 sm:col-span-1">
 							<label for="{id}-date-{index}" class="sr-only">{m.shoot_date_label()}</label>
 							<DatePicker
+								disabled={saving}
 								id="{id}-date-{index}"
 								placeholder={m.shoot_date_label()}
 								align="end"
@@ -252,19 +258,18 @@
 				<Button variant="outline" type="button" disabled={saving} onclick={close}>
 					{m.common_cancel()}
 				</Button>
-				<Button type="submit" disabled={saving}>
-					{#if saving}
-						<LoaderCircle
-							size={16}
-							class="animate-spin motion-reduce:animate-none"
-							aria-hidden="true"
-						/>
-						{m.quick_edit_saving()}
-					{:else}
-						{m.quick_edit_save()}
-					{/if}
-				</Button>
+				<ActionButton
+					bind:this={saveButton}
+					form="{id}-form"
+					pendingDelayMs={150}
+					disabled={saving || invalid || !edits.length}
+					labels={{ idle: m.quick_edit_save(), pending: m.quick_edit_saving() }}
+					onaction={() => submit(close)}
+				/>
 			</div>
+			{#if invalid}<p role="alert" class="text-sm text-danger">
+					{m.new_gallery_title_too_long({ max: TITLE_MAX })}
+				</p>{/if}
 		</form>
 	{/snippet}
 </Dialog>

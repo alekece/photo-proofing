@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
-	import { afterNavigate } from '$app/navigation';
+	import { afterNavigate, invalidateAll } from '$app/navigation';
 	import { Undo2, Upload, X } from '@lucide/svelte';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import { getStudioNamePreview } from '#lib/components/WorkspaceLayout.svelte';
@@ -14,6 +14,7 @@
 	import WatermarkEditor from '#lib/components/WatermarkEditor.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
+	import Select from '#lib/components/ui/Select/Select.svelte';
 	import Tabs from '#lib/components/ui/Tabs/Tabs.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import WorkspaceHeading from '#lib/components/ui/WorkspaceHeading/WorkspaceHeading.svelte';
@@ -100,12 +101,16 @@
 		try {
 			const submitted = { ...draft };
 			const submittedHex = hexEdit;
+			const displayChanged =
+				saved.studioMode !== submitted.studioMode ||
+				saved.studioPalette !== submitted.studioPalette;
 
 			saved = await api.save(submitted, saved);
 			for (const key of Object.keys(submitted) as (keyof WorkspaceSettings)[]) {
 				if (draft[key] === submitted[key]) draft = { ...draft, [key]: saved[key] };
 			}
 			if (hexEdit === submittedHex) hexEdit = null;
+			if (displayChanged) await invalidateAll();
 			confirmSaved();
 		} catch (error) {
 			if (error instanceof ApiError && (error.status === 422 || error.status === 413)) {
@@ -247,6 +252,24 @@
 							<section class="grid gap-2">
 								<h2 class="text-xl">{m.studio_group_studio()}</h2>
 								{@render studio()}
+							</section>
+							<section class="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
+								<label class="grid gap-1"
+									>{m.studio_display_mode()}
+									<Select bind:value={draft.studioMode}
+										><option value="full_image">{m.studio_full_image()}</option><option
+											value="print">{m.studio_print()}</option
+										></Select
+									>
+								</label>
+								<label class="grid gap-1"
+									>{m.studio_display_palette()}
+									<Select bind:value={draft.studioPalette}
+										><option value="warm">{m.studio_warm()}</option><option value="neutral"
+											>{m.studio_neutral()}</option
+										></Select
+									>
+								</label>
 							</section>
 							<section class="grid gap-2 border-t border-border pt-4">
 								<h2 class="text-xl">{m.settings_language()}</h2>

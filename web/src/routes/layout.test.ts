@@ -28,16 +28,13 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('root layout', () => {
-	it('puts the footer and workspace content beside a single rail', () => {
+	it('puts studio metadata under the workspace identity rather than below each page', () => {
 		state.page.route.id = '/settings';
 		render(Layout, { props: { children } as never });
 
 		expect(screen.getByText('content')).toBeTruthy();
-		expect(screen.getByRole('contentinfo')).toBeTruthy();
-		expect(screen.queryAllByRole('contentinfo')).toHaveLength(1);
-		expect(screen.getByText('content').parentElement).toBe(
-			screen.getByRole('contentinfo').parentElement
-		);
+		expect(screen.queryByRole('contentinfo')).toBeNull();
+		expect(screen.getByRole('banner').textContent).toContain('©');
 	});
 
 	it('owns the workspace navigation outside the signed-in page, not on client routes', () => {
@@ -73,10 +70,8 @@ describe('root layout', () => {
 			state.page.route.id = routeId;
 			const { unmount } = render(Layout, { props: { children } as never });
 			const content = screen.getByText('content').parentElement;
-			const footer = screen.getByRole('contentinfo');
-
 			expect(content?.className).toContain('sm:ml-(--gallery-rail-width)');
-			expect(footer.parentElement).toBe(content);
+			expect(content?.closest('[data-studio-mode]')).toBeTruthy();
 
 			unmount();
 		}

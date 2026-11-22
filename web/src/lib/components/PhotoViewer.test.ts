@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { createRawSnippet, tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
+import { readFileSync } from 'node:fs';
 import { useLocale } from '#lib/i18n/testing.js';
 import type { Proof } from '../gallery/types';
 import PhotoViewer from './PhotoViewer.svelte';
@@ -117,6 +118,20 @@ describe('PhotoViewer', () => {
 		});
 		expect(screen.getByRole('img', { name: 'Marked as a favorite by the client' })).toBeTruthy();
 		expect(screen.queryByRole('button', { name: /favorite/i })).toBeNull();
+	});
+
+	it('keeps the owner viewer on its original palette inside a neutral studio', () => {
+		const { container } = render(PhotoViewer, { proofs, onclose: () => {} });
+		container.dataset.studioPalette = 'neutral';
+		container.appendChild(document.createElement('style')).textContent = readFileSync(
+			'src/app.css',
+			'utf8'
+		);
+
+		const panel = (element: Element) => getComputedStyle(element).getPropertyValue('--panel');
+		const original = panel(document.documentElement);
+		expect(panel(container)).not.toBe(original);
+		expect(panel(screen.getByRole('dialog'))).toBe(original);
 	});
 
 	it('shows a Download button once delivered', () => {

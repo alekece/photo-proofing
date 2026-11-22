@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount, tick } from 'svelte';
-	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+	import { SvelteSet } from 'svelte/reactivity';
+	import { afterNavigate, beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { navigating } from '$app/state';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import Placeholder from '#lib/components/Placeholder.svelte';
@@ -13,6 +13,9 @@
 		type QuickGalleryEdit
 	} from '#lib/components/QuickEditGalleriesDialog.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
+	import ActionButton from '#lib/components/ui/ActionButton/ActionButton.svelte';
+	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
+	import { thumbnailUrl } from '#lib/gallery/photos.js';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import SelectActions from '#lib/components/ui/SelectActions/SelectActions.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
@@ -21,19 +24,19 @@
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 	import { ArrowUpDown, Pencil, Plus, Star, Trash2 } from '@lucide/svelte';
 	import GalleryStateFilter from '#lib/components/GalleryStateFilter.svelte';
-	import {
-		deleteGallery,
-		updateGallery,
-		type GalleryChanges,
-		type GalleryOverview
-	} from '#lib/gallery/api.js';
+	import { deleteGallery, updateGallery, type GalleryOverview } from '#lib/gallery/api.js';
 	import { ApiError } from '#lib/http.js';
 	import {
 		getGalleryGridReturn,
 		type GalleryGridSnapshot
 	} from '#lib/gallery/dashboardNavigation.svelte.js';
-	import type { GallerySort, GalleryState } from '#lib/gallery/schemas.js';
-	import { ALL_STATES, DEFAULT_STATES, sameStates } from '#lib/gallery/states.js';
+	import {
+		galleryStateSchema,
+		parseOrNull,
+		type GallerySort,
+		type GalleryState
+	} from '#lib/gallery/schemas.js';
+	import { ALL_STATES } from '#lib/gallery/states.js';
 	import { galleryStatus } from '#lib/gallery/format.js';
 	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
 	import type { PageData, Snapshot } from './$types';
@@ -56,13 +59,19 @@
 	let loading = $derived(
 		navigating.from?.route.id === '/dashboard' && navigating.to?.route.id === '/dashboard'
 	);
-	let selected = $state<GalleryState[]>([...DEFAULT_STATES]);
+	let selected = $state<GalleryState | null>(null);
 	let localGalleries = $derived<GalleryOverview[] | null>(data.galleries);
 	export const snapshot: Snapshot<GalleryGridSnapshot> = {
-		capture: () => ({ query, selected: [...selected], scrollY: window.scrollY }),
+		capture: () => ({ query, selected, scrollY: window.scrollY }),
 		restore: (view) => {
 			query = view.query;
-			selected = view.selected;
+			// Older history entries can contain several statuses; there is no single equivalent.
+			const status = Array.isArray(view.selected)
+				? view.selected.length === 1
+					? view.selected[0]
+					: null
+				: view.selected;
+			selected = parseOrNull(galleryStateSchema, status);
 			void tick().then(() => window.scrollTo(0, view.scrollY));
 		}
 	};
@@ -115,7 +124,7 @@
 	}
 
 	// A stable sort snapshot captured once per navigation (a fresh `data.galleries`/`data.sort`):
-	// pinning and draft edits never move a card under the pointer. Only a refresh or an explicit
+	// pinning and quick edits never move a card under the pointer. Only a refresh or an explicit
 	// sort action re-sorts, because those are the only actions that change this derivation's inputs.
 	let sortedIds = $derived.by(() => {
 		if (!data.galleries) return [];
@@ -124,24 +133,13 @@
 	});
 
 	const selectedIds = new SvelteSet<string>();
-	// Quick edits are previewed on the card but never sent until Apply.
-	const draftById = new SvelteMap<string, GalleryChanges>();
-
-	function withDraft(gallery: GalleryOverview): GalleryOverview {
-		const changes = draftById.get(gallery.id);
-
-		return changes ? { ...gallery, ...changes } : gallery;
-	}
 
 	let all = $derived.by(() => {
 		if (!localGalleries) return [];
 
 		const byId = new Map(localGalleries.map((g) => [g.id, g]));
 
-		return sortedIds
-			.map((id) => byId.get(id))
-			.filter((g): g is GalleryOverview => g !== undefined)
-			.map(withDraft);
+		return sortedIds.map((id) => byId.get(id)).filter((g): g is GalleryOverview => g !== undefined);
 	});
 
 	let counts = $derived(
@@ -161,48 +159,43 @@
 		);
 	});
 	let visible = $derived(
-		matching.filter((gallery) => selected.includes(galleryStatus(gallery.states)))
+		matching.filter((gallery) => !selected || selected === galleryStatus(gallery.states))
 	);
 
-	// Prune selected IDs (and their drafts) whenever search, status filters, or deletions hide or
-	// remove cards.
+	// Hidden cards are never targets of a bulk action.
 	$effect(() => {
 		const visibleSet = new Set(visible.map((g) => g.id));
 
 		for (const id of [...selectedIds]) {
 			if (!visibleSet.has(id)) {
 				selectedIds.delete(id);
-				draftById.delete(id);
 			}
 		}
 	});
 
 	let selectedGalleries = $derived(visible.filter((g) => selectedIds.has(g.id)));
+	$effect(() => {
+		if (selectedGalleries.length === 0) {
+			quickEditOpen = false;
+			deleteConfirmOpen = false;
+		}
+	});
 	let allSelectedFavorited = $derived(
 		selectedGalleries.length > 0 && selectedGalleries.every((g) => g.favorite)
 	);
-	let hasDraft = $derived([...selectedIds].some((id) => draftById.has(id)));
 
 	function toggleSelect(id: string) {
+		if (bulkBusy) return;
 		selectionMode = true;
 
 		if (selectedIds.has(id)) {
-			// Deselecting a card discards its draft too: a card that isn't selected has no
-			// Apply/Cancel path, so leaving its staged change behind would orphan it.
 			selectedIds.delete(id);
-			draftById.delete(id);
 		} else selectedIds.add(id);
 	}
 
 	function clearSelection() {
-		for (const id of selectedIds) draftById.delete(id);
 		selectedIds.clear();
 		selectionMode = false;
-	}
-
-	function clearSelectedOnly() {
-		for (const id of selectedIds) draftById.delete(id);
-		selectedIds.clear();
 	}
 
 	let hasOpenDialog = $derived(
@@ -216,6 +209,7 @@
 			event.key === 'Escape' &&
 			!event.defaultPrevented &&
 			selectionMode &&
+			!bulkBusy &&
 			!hasOpenDialog &&
 			!document.querySelector('[data-slot="popover"] > button[aria-expanded="true"]')
 		) {
@@ -237,79 +231,44 @@
 		);
 	}
 
-	// Drop unchanged fields so undoing a quick edit does not leave a no-op draft.
-	function stageChanges(id: string, changes: GalleryChanges) {
-		const applied = localGalleries?.find((g) => g.id === id);
-
-		if (!applied) return;
-
-		const merged: GalleryChanges = { ...draftById.get(id), ...changes };
-
-		for (const key of Object.keys(merged) as (keyof GalleryChanges)[]) {
-			if (merged[key] === applied[key]) delete merged[key];
-		}
-
-		if (Object.keys(merged).length === 0) draftById.delete(id);
-		else draftById.set(id, merged);
-	}
-
-	function toggleBulkFavorite() {
+	async function toggleBulkFavorite() {
 		const favorite = !allSelectedFavorited;
 		const targets = selectedGalleries.filter((gallery) => Boolean(gallery.favorite) !== favorite);
-
-		void persistChanges(
-			targets.map(({ id }) => [id, { favorite }]),
-			false
-		);
+		const error = await persistChanges(targets.map(({ id }) => ({ id, changes: { favorite } })));
+		if (error) toasts.error(error);
+		return !error;
 	}
 
-	// The dialog remains the editor; it only hands back edits for the page to stage as a preview.
-	async function saveQuickEdits(edits: QuickGalleryEdit[]): Promise<string | null> {
-		for (const edit of edits) {
-			stageChanges(edit.id, edit.changes);
-		}
-
-		return null;
-	}
-
-	function applyChanges() {
-		void persistChanges(
-			[...draftById.entries()].filter(([id]) => selectedIds.has(id)),
-			true
-		);
-	}
-
-	async function persistChanges(entries: [string, GalleryChanges][], clearDraft: boolean) {
-		if (bulkBusy || entries.length === 0) return;
+	async function persistChanges(entries: QuickGalleryEdit[]) {
+		if (bulkBusy || entries.length === 0) return null;
 
 		bulkBusy = true;
 
 		try {
 			let firstError: string | null = null;
+			const failed = new SvelteSet<string>();
 
-			for (const [id, changes] of entries) {
+			for (const { id, changes } of entries) {
 				try {
 					const updated = await updateGallery(id, changes);
 
 					mergeUpdated(updated);
-					if (clearDraft) {
-						draftById.delete(id);
-						selectedIds.delete(id);
-					}
 				} catch (cause) {
 					if (cause instanceof ApiError && cause.status === 401) {
 						await goto('/login', { refreshAll: true });
 
-						return;
+						return null;
 					}
 
-					// Keep the draft and the selection for the failed id so the photographer can retry.
+					failed.add(id);
 					firstError ??= cause instanceof Error ? cause.message : m.api_error_generic();
 				}
 			}
 
-			if (firstError) toasts.error(firstError);
-			if (selectedIds.size === 0) selectionMode = false;
+			if (firstError) {
+				for (const id of selectedIds) if (!failed.has(id)) selectedIds.delete(id);
+			}
+			return firstError;
 		} finally {
 			bulkBusy = false;
 		}
@@ -323,7 +282,6 @@
 			try {
 				await deleteGallery(item.id);
 				selectedIds.delete(item.id);
-				draftById.delete(item.id);
 				if (localGalleries) {
 					localGalleries = localGalleries.filter((g) => g.id !== item.id);
 				}
@@ -367,7 +325,7 @@
 	}
 	function clearAll() {
 		query = '';
-		selected = [...DEFAULT_STATES];
+		selected = null;
 	}
 </script>
 
@@ -397,7 +355,7 @@
 				oninput: (value) => (query = value)
 			}}
 			resultsHeight={loading || visible.length === 0 ? 0 : resultsHeight}
-			onclear={query.trim() || !sameStates(selected, DEFAULT_STATES) ? clearAll : undefined}
+			onclear={query.trim() || selected ? clearAll : undefined}
 		>
 			{#snippet filters()}
 				<GalleryStateFilter
@@ -432,6 +390,7 @@
 	{:else if localGalleries === null}
 		<p role="alert" class="px-3.5 sm:px-8">
 			{m.dashboard_load_failed()}
+			<Button variant="outline" onclick={() => void invalidateAll()}>{m.action_retry()}</Button>
 		</p>
 	{:else if all.length === 0}
 		<EmptyWorkspace />
@@ -442,6 +401,7 @@
 					{gallery}
 					{query}
 					unread={(notifications?.unreadFor(gallery.id).length ?? 0) > 0}
+					liveUpdate={notifications?.lastRefresh === 'live'}
 					selected={selectedIds.has(gallery.id)}
 					selecting={selectedIds.size > 0}
 					onselect={() => toggleSelect(gallery.id)}
@@ -499,37 +459,37 @@
 		onselectall={() => {
 			for (const gallery of visible) selectedIds.add(gallery.id);
 		}}
-		onunselectall={clearSelectedOnly}
+		disabled={bulkBusy}
+		onunselectall={() => selectedIds.clear()}
 		onexit={clearSelection}
 	>
 		{#snippet actions()}
-			<Button
+			<ActionButton
 				variant="outline"
-				size="sm"
-				class="min-h-9! gap-1.5 px-3!"
-				disabled={bulkBusy}
-				aria-label={allSelectedFavorited
-					? m.dashboard_bulk_unfavorite()
-					: m.dashboard_bulk_favorite()}
-				onclick={toggleBulkFavorite}
+				class="min-h-9! px-3!"
+				disabled={bulkBusy || !selectedGalleries.length}
+				compactOnMobile
+				pendingDelayMs={150}
+				labels={{
+					idle: allSelectedFavorited ? m.dashboard_bulk_unfavorite() : m.dashboard_bulk_favorite(),
+					pending: m.dialog_working()
+				}}
+				onaction={toggleBulkFavorite}
 			>
-				<Star
-					size={15}
-					fill={allSelectedFavorited ? 'currentColor' : 'none'}
-					class={allSelectedFavorited ? 'text-[#b8792b]' : ''}
-					aria-hidden="true"
-				/>
-				<span class="max-sm:sr-only"
-					>{allSelectedFavorited
-						? m.dashboard_bulk_unfavorite()
-						: m.dashboard_bulk_favorite()}</span
-				>
-			</Button>
+				{#snippet icon()}
+					<Star
+						size={15}
+						fill={allSelectedFavorited ? 'currentColor' : 'none'}
+						class={allSelectedFavorited ? 'text-[#b8792b]' : ''}
+						aria-hidden="true"
+					/>
+				{/snippet}
+			</ActionButton>
 			<Button
 				variant="outline"
 				size="sm"
 				class="min-h-9! gap-1.5 px-3!"
-				disabled={bulkBusy}
+				disabled={bulkBusy || !selectedGalleries.length}
 				aria-label={m.dashboard_bulk_quick_edit()}
 				onclick={() => (quickEditOpen = true)}
 			>
@@ -537,16 +497,10 @@
 				<span class="max-sm:sr-only">{m.dashboard_bulk_quick_edit()}</span>
 			</Button>
 			<Button
-				size="sm"
-				class="min-h-9! px-3!"
-				disabled={bulkBusy || !hasDraft}
-				onclick={applyChanges}>{m.dashboard_bulk_apply()}</Button
-			>
-			<Button
 				variant="destructive"
 				size="sm"
 				class="min-h-9! gap-1.5 px-3!"
-				disabled={bulkBusy}
+				disabled={bulkBusy || !selectedGalleries.length}
 				aria-label={m.action_delete()}
 				onclick={() => (deleteConfirmOpen = true)}
 			>
@@ -562,7 +516,7 @@
 {#if quickEditOpen && selectedGalleries.length > 0}
 	<QuickEditGalleriesDialog
 		galleries={selectedGalleries}
-		onsave={saveQuickEdits}
+		onsave={persistChanges}
 		onclose={() => (quickEditOpen = false)}
 	/>
 {/if}
@@ -571,9 +525,32 @@
 		title={m.dashboard_bulk_delete_title({ count: selectedGalleries.length })}
 		confirmLabel={m.action_delete()}
 		destructive
+		pendingDelayMs={200}
 		onconfirm={confirmBulkDelete}
 		onclose={() => (deleteConfirmOpen = false)}
 	>
+		{#snippet visual()}
+			<div class="relative h-20 w-24 self-center" aria-hidden="true">
+				{#each selectedGalleries as gallery, i (gallery.id)}
+					{@const spread =
+						selectedGalleries.length > 1 ? i / (selectedGalleries.length - 1) - 0.5 : 0}
+					<div
+						class="absolute inset-2 overflow-hidden border-2 border-white bg-panel shadow-sm"
+						style:transform="translateX({spread * 12}px) rotate({spread * 18}deg)"
+					>
+						{#if gallery.hero_id}
+							<img
+								src={thumbnailUrl(gallery.id, gallery.hero_id)}
+								alt=""
+								class="size-full object-cover"
+							/>
+						{:else}
+							<CoverBackdrop title={gallery.title} compact />
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/snippet}
 		{#snippet description()}
 			<p class="text-sm text-muted-foreground">{m.dashboard_bulk_delete_body()}</p>
 		{/snippet}

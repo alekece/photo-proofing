@@ -3,85 +3,42 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { describe, expect, it, vi } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
-
 import GalleryStateFilter from './GalleryStateFilter.svelte';
-import { ALL_STATES, DEFAULT_STATES } from '#lib/gallery/states.js';
 
 const counts = { draft: 2, shared: 3, delivered: 1, expired: 0, archived: 4 };
-const setup = (selected = DEFAULT_STATES, onchange = vi.fn(), disabled = false) => ({
-	onchange,
-	...render(GalleryStateFilter, { selected, counts, onchange, disabled })
-});
 
 describe('GalleryStateFilter', () => {
-	it('keeps a fixed trigger and anchors the menu on its right edge', async () => {
+	it('replaces one status with another or all, showing counts and the current choice', async () => {
 		const user = userEvent.setup();
-		setup(['draft', 'shared', 'expired']);
-		const trigger = screen.getByRole('button', { name: 'Status: Draft, Shared, Expired' });
-
-		expect(trigger.parentElement?.className).toContain('w-40');
-		await user.click(trigger);
-		expect(
-			screen
-				.getByRole('checkbox', { name: /Archived/ })
-				.closest('[data-slot="popover"]')
-				?.querySelector('div')?.className
-		).toContain('right-0');
-	});
-
-	it('reads Status by default and the chosen names otherwise', () => {
-		const { unmount } = setup();
-
-		expect(screen.getByRole('button', { name: 'Status' })).toBeTruthy();
-		unmount();
-		setup(['shared', 'expired']);
-		expect(screen.getByRole('button', { name: 'Status: Shared, Expired' })).toBeTruthy();
-	});
-
-	it('lists every status with its count and toggles one', async () => {
-		const user = userEvent.setup();
-		const { onchange } = setup();
-
-		await user.click(screen.getByRole('button', { name: 'Status' }));
-		expect(screen.getByRole('checkbox', { name: /Archived/ })).toHaveProperty('checked', false);
-		expect(screen.getByRole('checkbox', { name: /Shared/ })).toHaveProperty('checked', true);
-		expect(screen.getByText('4')).toBeTruthy();
-		await user.click(screen.getByRole('checkbox', { name: /Archived/ }));
-		expect(onchange).toHaveBeenLastCalledWith(ALL_STATES);
-		await user.click(screen.getByRole('checkbox', { name: /Draft/ }));
-		expect(onchange).toHaveBeenLastCalledWith(['shared', 'delivered', 'expired']);
-	});
-
-	it('selects all and resets to the default', async () => {
-		const user = userEvent.setup();
-		const { onchange } = setup(['shared']);
+		const onchange = vi.fn();
+		const { rerender } = render(GalleryStateFilter, { selected: 'shared', counts, onchange });
 
 		await user.click(screen.getByRole('button', { name: 'Status: Shared' }));
-		await user.click(screen.getByRole('button', { name: 'Select all' }));
-		expect(onchange).toHaveBeenLastCalledWith(ALL_STATES);
-		await user.click(screen.getByRole('button', { name: 'Reset' }));
-		expect(onchange).toHaveBeenLastCalledWith(DEFAULT_STATES);
+		expect(screen.getByRole('menuitemradio', { name: /Shared.*3/, checked: true })).toBeTruthy();
+		await user.click(screen.getByRole('menuitemradio', { name: /Archived.*4/ }));
+		expect(onchange).toHaveBeenLastCalledWith('archived');
+		await rerender({ selected: 'archived', counts, onchange });
+		await user.click(screen.getByRole('button', { name: 'Status: Archived' }));
+		await user.click(screen.getByRole('menuitemradio', { name: /All statuses/ }));
+		expect(onchange).toHaveBeenLastCalledWith(null);
 	});
 
-	it('is disabled for an empty workspace and has no axe violations', async () => {
-		const { container } = setup(DEFAULT_STATES, vi.fn(), true);
-
-		expect((screen.getByRole('button', { name: 'Status' }) as HTMLButtonElement).disabled).toBe(
-			true
-		);
+	it('disables the filter for an empty workspace', async () => {
+		const { container } = render(GalleryStateFilter, {
+			selected: null,
+			counts,
+			disabled: true,
+			onchange: vi.fn()
+		});
+		expect(screen.getByRole('button', { name: 'Status' })).toHaveProperty('disabled', true);
 		expect((await axe(container)).violations).toEqual([]);
 	});
 });
 
 describe('GalleryStateFilter in French', () => {
 	useLocale('fr');
-
-	it('names the statuses in French', () => {
-		const { unmount } = setup();
-
-		expect(screen.getByRole('button', { name: 'Statut' })).toBeTruthy();
-		unmount();
-		setup(['shared', 'expired']);
-		expect(screen.getByRole('button', { name: 'Statut: Partagée, Expirée' })).toBeTruthy();
+	it('names the chosen status in French', () => {
+		render(GalleryStateFilter, { selected: 'shared', counts, onchange: vi.fn() });
+		expect(screen.getByRole('button', { name: 'Statut: Partagée' })).toBeTruthy();
 	});
 });

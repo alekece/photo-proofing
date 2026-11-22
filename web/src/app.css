@@ -57,7 +57,8 @@
 	--radius-dialog: 1.125rem;
 	--shadow-viewfinder: 0 8px 30px rgb(0 0 0 / 0.18);
 }
-:root {
+:root,
+.client-surface {
 	color-scheme: light;
 	--background: #f4efe8;
 	--foreground: #2b2420;
@@ -70,6 +71,40 @@
 	--info: #6b7f8e;
 	--gallery-heading-font: Georgia, serif;
 	--gallery-rail-width: clamp(15rem, 16vw, 17.5rem);
+}
+[data-studio-palette] {
+	--studio-hover: #f1ece6;
+	--studio-choice: #efe3da;
+	--studio-danger: #b94a40;
+	--studio-danger-hover: #8b352d;
+}
+[data-studio-palette='neutral'] {
+	--background: #faf9f6;
+	--panel: #fffefa;
+	--foreground: #26251f;
+	--muted-foreground: #625f56;
+	--border: #e0ded7;
+	--border-strong: #cac8c0;
+	--studio-hover: #f1f1ef;
+	--studio-choice: #ededeb;
+}
+[data-studio-mode]
+	[data-slot='select-actions']
+	:is(.cn-button-variant-outline, .cn-button-variant-ghost):enabled:hover {
+	background-color: var(--studio-hover);
+	filter: none;
+}
+[data-studio-mode] .cn-button-variant-destructive {
+	background-color: var(--studio-danger);
+}
+[data-studio-mode] .cn-button-variant-destructive:enabled:hover {
+	background-color: var(--studio-danger-hover);
+	filter: none;
+}
+[data-studio-mode] dialog .cn-input:focus-visible {
+	outline: 1px solid var(--foreground);
+	outline-offset: 0;
+	box-shadow: none;
 }
 @utility workspace-inset {
 	@apply px-3.5 sm:px-8;

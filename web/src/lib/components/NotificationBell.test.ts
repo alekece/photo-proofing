@@ -1,9 +1,17 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NotificationCenter } from '#lib/gallery/notifications.svelte.js';
 import NotificationBell from './NotificationBell.svelte';
 import { useLocale } from '#lib/i18n/testing.js';
+
+const state = vi.hoisted(() => ({
+	page: { route: { id: '/dashboard/[id]' }, params: { id: 'another' }, error: null }
+}));
+vi.mock('$app/state', () => state);
+beforeEach(() => {
+	state.page.params.id = 'another';
+});
 
 const row = (over = {}) => ({
 	id: 'n1',
@@ -42,6 +50,11 @@ describe('NotificationBell', () => {
 
 		expect(screen.getByText('Wedding')).toBeTruthy();
 		expect(screen.getByText(/13 selected/)).toBeTruthy();
+		await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+		expect(document.activeElement).toBe(
+			screen.getByRole('button', { name: 'Notifications, 1 unread' })
+		);
+		expect(screen.queryByText('Wedding')).toBeNull();
 		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toEqual([]);
 	});
 
@@ -72,22 +85,35 @@ describe('NotificationBell', () => {
 		expect(screen.getByText(/^The client opened the gallery 3 times ·/)).toBeTruthy();
 	});
 
-	it('marks a row read when it is followed', async () => {
+	it('leaves marking the gallery read to the destination', async () => {
 		const { center, fetcher } = setup([row({ kind: 'download', count: 2 })]);
 		await center.refresh();
 		render(NotificationBell, { center });
 
 		await userEvent.click(screen.getByRole('button', { name: /Notifications/ }));
 		const link = screen.getByRole('link', { name: /Wedding/ });
-		link.addEventListener('click', (event) => event.preventDefault());
+		window.addEventListener('click', (event) => event.preventDefault(), { once: true });
 		await userEvent.click(link);
 
 		expect(link.getAttribute('href')).toBe('/dashboard/g1');
-		expect(fetcher).toHaveBeenCalledWith(
-			'/api/v1/notifications/n1/read',
-			expect.objectContaining({ method: 'POST' })
-		);
-		expect(center.unread).toBe(0);
+		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toEqual([]);
+	});
+
+	it('marks an explicit visit to the already-open gallery read exactly once', async () => {
+		state.page.params.id = 'g1';
+		const { center, fetcher } = setup([row()]);
+		await center.refresh();
+		render(NotificationBell, { center });
+
+		await userEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toEqual([]);
+		window.addEventListener('click', (event) => event.preventDefault(), { once: true });
+		await userEvent.click(screen.getByRole('link', { name: /Wedding/ }));
+
+		expect(
+			fetcher.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url]) => url)
+		).toEqual(['/api/v1/notifications/galleries/g1/read']);
+		expect(screen.getByRole('button', { name: 'Notifications' })).toBeTruthy();
 	});
 
 	it('marks everything read, and shows the empty state', async () => {

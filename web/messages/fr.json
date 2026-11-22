@@ -1,5 +1,12 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
+	"studio_display_mode": "Présentation des photos",
+	"studio_display_palette": "Palette du studio",
+	"studio_full_image": "Pleine image",
+	"studio_print": "Tirage",
+	"studio_warm": "Planche chaude",
+	"studio_neutral": "Planche neutre",
+	"studio_all_statuses": "Tous les statuts",
 	"comments_title": "Commentaires",
 	"comments_hide": "Masquer les commentaires",
 	"comments_count": [
@@ -50,6 +57,7 @@
 	"error_page_detail_not_found_client": "Le lien est peut-être ancien ou mal saisi. Demandez-en un nouveau à votre photographe.",
 	"error_page_detail_not_found": "Le lien est peut-être ancien ou mal saisi.",
 	"error_page_detail_server": "Veuillez réessayer dans un instant. Si le problème persiste, prévenez votre photographe.",
+	"error_page_detail_studio": "Impossible de charger cette page du studio. Veuillez réessayer dans un instant.",
 	"error_page_detail_client": "Si vous pensiez pouvoir la voir, prévenez votre photographe.",
 	"error_page_back_to_galleries": "Retour à vos galeries",
 	"error_page_try_again": "Réessayer",
@@ -449,6 +457,7 @@
 	"tile_download": "Télécharger {name}",
 	"tile_favorited_at": "Sélectionnée le {date}",
 	"tile_downloaded_at": "Téléchargée le {date}",
+	"finals_requested_count": "Photos demandées en téléchargement : {count} sur {total}",
 	"cover_remove": "Retirer la couverture",
 	"design_cover": "Couverture",
 	"design_select_cover": "Choisir une couverture",

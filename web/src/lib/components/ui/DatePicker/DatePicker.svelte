@@ -24,6 +24,7 @@
 		min,
 		placeholder = '',
 		clearable = false,
+		disabled = false,
 		presets = false,
 		align,
 		onchange,
@@ -36,6 +37,7 @@
 		min?: string;
 		placeholder?: string;
 		clearable?: boolean;
+		disabled?: boolean;
 		presets?: boolean;
 		align?: 'start' | 'end';
 		onchange: (value: string | null) => void;
@@ -76,6 +78,7 @@
 </script>
 
 <Popover
+	{disabled}
 	{id}
 	bind:open
 	{align}

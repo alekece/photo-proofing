@@ -269,8 +269,8 @@ describe('PhotoTile loading polish', () => {
 
 	it.each([
 		['favorited', 'text-danger'],
-		['downloaded', 'text-ok-on-dark']
-	] as const)('draws the %s caption icon at 16 px in %s', (kind, color) => {
+		['downloaded', 'bg-dark']
+	] as const)('draws the %s caption icon with its own contrast treatment', (kind, color) => {
 		const { container } = render(PhotoTile, {
 			...base,
 			caption: { kind, at: '2026-11-09T12:00:00Z' }

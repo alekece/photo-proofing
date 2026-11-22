@@ -18,7 +18,6 @@
 	import { NotificationCenter, setNotifications } from '#lib/gallery/notifications.svelte.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import AppHeader from './AppHeader.svelte';
-	import SiteFooter from './SiteFooter.svelte';
 
 	let { children, studioName }: { children: Snippet; studioName?: string } = $props();
 	let previewName = $state<string>();
@@ -86,5 +85,4 @@
 		<p role="alert" class="workspace-inset py-2 text-sm text-danger">{signOutError}</p>
 	{/if}
 	{@render children()}
-	<SiteFooter compact />
 </div>

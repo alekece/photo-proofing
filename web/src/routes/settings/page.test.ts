@@ -51,6 +51,17 @@ function proofPreview() {
 }
 
 describe('Settings page', () => {
+	it('enables save for a display change and disables it again after reverting', async () => {
+		open();
+		const user = userEvent.setup();
+		const mode = screen.getByRole('combobox', { name: 'Photo presentation' });
+		const save = screen.getByRole('button', { name: 'Save' });
+		await user.selectOptions(mode, 'print');
+		expect(save).toHaveProperty('disabled', false);
+		await user.selectOptions(mode, 'full_image');
+		expect(save).toHaveProperty('disabled', true);
+	});
+
 	it('puts language and proof quality in General and reserves previews for the editors', async () => {
 		open();
 		const user = userEvent.setup();

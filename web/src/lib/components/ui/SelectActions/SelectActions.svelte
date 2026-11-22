@@ -19,6 +19,7 @@
 		onunselectall,
 		onexit,
 		canEscape,
+		disabled = false,
 		rail,
 		actions
 	}: {
@@ -30,6 +31,7 @@
 		onexit: () => void;
 		/** Opts in to Escape; the panel can let a dialog or field own the key instead. */
 		canEscape?: () => boolean;
+		disabled?: boolean;
 		/**
 		 * Which fixed left workspace rail this consumer renders behind the bar, so it can shift
 		 * clear of the clamped workspace rail or both workspace and gallery rails.
@@ -77,7 +79,7 @@
 	data-rail={rail}
 	out:fly={{ y: 8, duration: leaveDuration() }}
 	class={[
-		'group/select-actions fixed bottom-4 left-1/2 z-20 flex w-fit max-w-[calc(100vw-1.25rem)] -translate-x-1/2 animate-selection-in items-center gap-2 rounded-full border border-border bg-panel px-2 py-1.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.35)] max-sm:gap-1 max-sm:p-1 sm:bottom-6',
+		'group/select-actions fixed bottom-4 left-1/2 z-20 flex w-max max-w-[calc(100vw-1.25rem)] -translate-x-1/2 animate-selection-in flex-wrap items-center justify-center gap-2 rounded-[1.5rem] border border-border bg-panel px-2 py-1.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.35)] max-sm:gap-1 max-sm:p-1 sm:bottom-6',
 		RAIL_CLEARANCE_CLASS[rail],
 		rail === 'gallery' &&
 			'max-xl:w-max max-xl:flex-wrap max-xl:justify-center max-xl:gap-1 max-xl:px-1'
@@ -88,14 +90,15 @@
 		size="sm"
 		class="min-h-9! px-2.5!"
 		aria-label={m.selection_exit()}
+		{disabled}
 		onclick={onexit}><X size={18} aria-hidden="true" /></Button
 	>
-	<strong class={['text-sm font-semibold', rail === 'gallery' && 'whitespace-nowrap']}
+	<strong class="text-sm font-semibold whitespace-nowrap sm:mr-6"
 		>{m.notification_selected({ count })}</strong
 	>
 	<div
 		class={[
-			'ml-auto flex items-center justify-end gap-2 max-sm:ml-0 max-sm:gap-1',
+			'flex flex-wrap items-center justify-center gap-2 max-sm:gap-1',
 			rail === 'gallery' && 'max-xl:ml-0 max-xl:gap-1'
 		]}
 	>
@@ -103,7 +106,7 @@
 			variant="outline"
 			size="sm"
 			class="min-h-9! gap-1.5 px-3! group-data-[rail=gallery]/select-actions:max-xl:px-2.5! max-sm:border-transparent! max-sm:px-2.5!"
-			disabled={total === 0}
+			disabled={disabled || total === 0}
 			onclick={toggle}
 		>
 			{#if all}
