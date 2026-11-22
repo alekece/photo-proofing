@@ -153,6 +153,13 @@ mod tests {
                 .set_json(serde_json::json!({"photo_ids": ids}))
         };
 
+        for invalid_count in [0, 1001] {
+            assert_eq!(
+                call(&app, request(&vec![proof; invalid_count])).await.0,
+                StatusCode::UNPROCESSABLE_ENTITY
+            );
+        }
+
         let foreign = other_workspace(&pool).await;
         let foreign_gallery = database
             .repository::<GalleryRepository>()

@@ -7,7 +7,7 @@ use actix_web::{
 use pp_database::export::{ExportId, ExportOptions, ExportRepository};
 use pp_storage::ArchiveKey;
 
-use super::{ExportResponse, ExportSelection};
+use super::{DOWNLOAD_NAME, ExportResponse, ExportSelection};
 use crate::{
     api::ApiState, error::ErrorResponse, extractors::identity::Authenticated, response::Attachment,
 };
@@ -33,7 +33,6 @@ async fn request_workspace(
     Authenticated(identity): Authenticated,
     selection: Json<ExportSelection>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let selection = selection.into_inner().validate()?;
     let outcome = state
         .database()
         .repository_with::<ExportRepository>(ExportOptions {
@@ -84,13 +83,11 @@ async fn download_workspace(
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    ExportResponse::attachment(
-        &state,
-        ArchiveKey {
-            workspace: identity.workspace_id,
-            gallery,
-            export,
-        },
-    )
-    .await
+    let key = ArchiveKey {
+        workspace: identity.workspace_id,
+        gallery,
+        export,
+    };
+
+    Attachment::read_zip(state.storage(), &key, DOWNLOAD_NAME).await
 }

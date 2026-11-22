@@ -17,8 +17,8 @@ use pp_database::{
     gallery::{GalleryId, GalleryRepository},
     photo::{PhotoId, PhotoKind},
 };
-use pp_storage::{ArchiveKey, StorageError};
-use serde::{Deserialize, Serialize};
+use pp_storage::ArchiveKey;
+use serde::{Deserialize, Deserializer, Serialize, de::Error};
 
 use super::photos::PhotoSet;
 use crate::{
@@ -36,29 +36,23 @@ const DOWNLOAD_NAME: &str = "selection.zip";
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExportSelection {
+    #[serde(deserialize_with = "ExportSelection::deserialize_photo_ids")]
     photo_ids: Vec<PhotoId>,
 }
 
 impl ExportSelection {
     const JSON_LIMIT: usize = 64 * 1024;
 
-    fn parse(body: &[u8]) -> Result<Self, ErrorResponse> {
-        if body.len() > Self::JSON_LIMIT {
-            return Err(ErrorResponse::bad_request());
+    fn deserialize_photo_ids<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<PhotoId>, D::Error> {
+        let photo_ids = Vec::deserialize(deserializer)?;
+
+        if !(1..=1000).contains(&photo_ids.len()) {
+            return Err(D::Error::custom("expected between 1 and 1000 photo IDs"));
         }
 
-        let selection: Self =
-            serde_json::from_slice(body).map_err(|_| ErrorResponse::bad_request())?;
-
-        selection.validate()
-    }
-
-    fn validate(self) -> Result<Self, ErrorResponse> {
-        if self.photo_ids.is_empty() || self.photo_ids.len() > 1000 {
-            return Err(ErrorResponse::bad_request());
-        }
-
-        Ok(self)
+        Ok(photo_ids)
     }
 }
 
@@ -100,8 +94,13 @@ async fn request_export(
     let gallery_id = id.into_inner();
     let selection = if body.is_empty() {
         None
+    } else if body.len() > ExportSelection::JSON_LIMIT {
+        return Err(ErrorResponse::bad_request());
     } else {
-        Some(ExportSelection::parse(&body)?)
+        Some(
+            serde_json::from_slice::<ExportSelection>(&body)
+                .map_err(|_| ErrorResponse::bad_request())?,
+        )
     };
     let outcome = state
         .database()
@@ -122,11 +121,11 @@ async fn request_export(
         .await?;
 
     if let ExportRequest::Created { replaced, .. } = &outcome {
-        for previous in replaced {
+        for previous_export in replaced {
             let key = ArchiveKey {
                 workspace: identity.workspace_id,
                 gallery: gallery_id,
-                export: *previous,
+                export: *previous_export,
             };
 
             if let Err(error) = state.storage().remove_archive(&key).await {
@@ -160,16 +159,6 @@ impl ExportResponse {
             Some(export) => HttpResponse::Ok().no_store().json(Self::from(export)),
             None => HttpResponse::NoContent().no_store().finish(),
         }
-    }
-
-    async fn attachment(state: &ApiState, key: ArchiveKey) -> Result<Attachment, ErrorResponse> {
-        let file = match state.storage().read_archive(&key).await {
-            Ok(file) => file,
-            Err(StorageError::NotFound) => return Err(ErrorResponse::not_found()),
-            Err(error) => return Err(error.into()),
-        };
-
-        Attachment::zip(DOWNLOAD_NAME, file).await
     }
 }
 
@@ -238,7 +227,7 @@ async fn download_export(
         gallery: gallery_id,
         export: export_id,
     };
-    ExportResponse::attachment(&state, key).await
+    Attachment::read_zip(state.storage(), &key, DOWNLOAD_NAME).await
 }
 
 #[cfg(test)]
