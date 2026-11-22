@@ -35,7 +35,7 @@
 <div
 	data-slot="workspace-toolbar"
 	class={cn(
-		'flex flex-wrap items-center gap-2 bg-background py-1',
+		'flex flex-wrap items-center gap-2 bg-background py-1 has-[[aria-expanded=true]]:z-40',
 		viewportHeight > 0 && resultsHeight > viewportHeight ? 'sticky top-2 z-[6]' : 'relative',
 		className
 	)}

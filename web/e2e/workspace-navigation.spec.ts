@@ -315,6 +315,28 @@ test('the last gallery filter is reachable inside a scrollable phone menu', asyn
 	await expect(trigger).toContainText('Forest 28');
 });
 
+test.describe('short touch viewport', () => {
+	test.use({ hasTouch: true, viewport: { width: 390, height: 480 } });
+	test('an upward-opening gallery menu accepts taps over the workspace header', async ({
+		page
+	}) => {
+		test.skip(
+			!process.env.PP_E2E_WORKSPACE_FIXTURE,
+			'Run against the synthetic workspace fixture.'
+		);
+		const mounted = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/v1/events');
+		await page.goto('/photos');
+		await mounted;
+		const trigger = page.getByRole('button', { name: /^Gallery:/ });
+		await trigger.tap();
+		const all = page.getByRole('menuitemradio', { name: 'All galleries' });
+		const first = (await all.boundingBox())!;
+		expect(first.y).toBeLessThan((await trigger.boundingBox())!.y);
+		await all.tap({ timeout: 3000 });
+		await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+	});
+});
+
 test.describe('French selection actions', () => {
 	test.use({ locale: 'fr' });
 	test('keeps the complete action labels reachable beside the workspace rail', async ({ page }) => {
