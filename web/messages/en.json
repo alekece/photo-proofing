@@ -859,6 +859,10 @@
 	"activity_type_downloads": "Downloads",
 	"activity_type_views": "Views",
 	"activity_type_emails": "Emails",
+	"activity_type_failed_emails": "Failed emails",
+	"activity_email_failed": "The invitation to {actor} could not be sent.",
+	"activity_email_failed_private": "An invitation could not be sent.",
+	"activity_retry_failed": "Could not queue this invitation. Try again.",
 	"activity_day_today": "Today",
 	"activity_day_yesterday": "Yesterday",
 	"activity_open": [

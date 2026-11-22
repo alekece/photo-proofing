@@ -871,6 +871,10 @@
 	"activity_type_downloads": "Téléchargements",
 	"activity_type_views": "Visites",
 	"activity_type_emails": "E-mails",
+	"activity_type_failed_emails": "Échecs d’envoi",
+	"activity_email_failed": "L’invitation de {actor} n’a pas pu être envoyée.",
+	"activity_email_failed_private": "Une invitation n’a pas pu être envoyée.",
+	"activity_retry_failed": "Impossible de remettre cette invitation en file d’attente. Réessayez.",
 	"activity_day_today": "Aujourd’hui",
 	"activity_day_yesterday": "Hier",
 	"activity_open": [

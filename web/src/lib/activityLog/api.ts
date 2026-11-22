@@ -1,5 +1,5 @@
 import * as v from 'valibot';
-import { requestJson } from '#lib/http.js';
+import { requestEmpty, requestJson } from '#lib/http.js';
 
 export const ACTIVITY_KINDS = [
 	'open',
@@ -7,7 +7,8 @@ export const ACTIVITY_KINDS = [
 	'unfavorite',
 	'comment',
 	'download',
-	'email'
+	'email',
+	'email_failed'
 ] as const;
 export const ACTIVITY_RANGES = ['today', '7d', '30d'] as const;
 
@@ -22,6 +23,7 @@ export const activityEventSchema = v.object({
 	/** `null` for an anonymous client. */
 	contact: v.nullable(v.object({ id: v.string(), name: v.string() })),
 	kind: v.picklist(ACTIVITY_KINDS),
+	can_retry: v.optional(v.boolean()),
 	count: v.pipe(v.number(), v.integer(), v.minValue(0)),
 	photo_ids: v.array(v.string()),
 	detail: v.nullable(v.string()),
@@ -37,6 +39,15 @@ export const activityPageSchema = v.object({
 
 export type ActivityEvent = v.InferOutput<typeof activityEventSchema>;
 export type ActivityPage = v.InferOutput<typeof activityPageSchema>;
+
+/** Requeues the single invitation associated with this Activity line. */
+export function retryEmail(event: ActivityEvent, fetcher: typeof fetch = fetch): Promise<void> {
+	return requestEmpty(
+		`/api/v1/galleries/${encodeURIComponent(event.gallery_id)}/timeline/${encodeURIComponent(event.id)}/retry`,
+		{ method: 'POST' },
+		fetcher
+	);
+}
 
 /** The filters the API takes; `contact` is a contact id or `anonymous`. */
 export interface ActivityFilters {

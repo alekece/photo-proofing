@@ -17,6 +17,7 @@
 	import type { ActivityEvent, ActivityKind } from '#lib/activityLog/api.js';
 	import { dayHeading } from '#lib/activityLog/format.js';
 	import Button from '#lib/components/ui/Button/Button.svelte';
+	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
 	import { timeAgo } from '#lib/gallery/notifications.svelte.js';
 	import { thumbnailUrl } from '#lib/gallery/photos.js';
@@ -43,7 +44,8 @@
 		unfavorite: HeartOff,
 		comment: MessageSquare,
 		download: Download,
-		email: Mail
+		email: Mail,
+		email_failed: Mail
 	};
 	// Translation chooses where the escaped actor goes, including after the verb.
 	const actorMarker = '\uE000';
@@ -143,6 +145,10 @@
 					: m.activity_download({ actor, count });
 			case 'email':
 				return m.activity_email({ actor });
+			case 'email_failed':
+				return event.contact
+					? m.activity_email_failed({ actor })
+					: m.activity_email_failed_private();
 		}
 	}
 
@@ -227,7 +233,7 @@
 									aria-hidden="true"
 								/>
 								<p class="text-[0.9375rem] wrap-anywhere">
-									{before}<strong>{actor}</strong>{after}
+									{before}{#if after !== undefined}<strong>{actor}</strong>{after}{/if}
 									{#if showGallery}
 										<a
 											href="/dashboard/{encodeURIComponent(event.gallery_id)}"
@@ -240,6 +246,17 @@
 									{timeAgo(event.last_at)}
 								</time>
 							</div>
+							{#if event.kind === 'email_failed' && event.can_retry}
+								<Button
+									size="sm"
+									variant="outline"
+									class="justify-self-start"
+									disabled={feed.retrying.has(event.id)}
+									onclick={() =>
+										feed.retry(event).catch(() => toasts.error(m.activity_retry_failed()))}
+									>{m.action_retry()}</Button
+								>
+							{/if}
 							{#if isSelection && photos.length > 0}
 								{#if photos.length > photoLimit}
 									<Button

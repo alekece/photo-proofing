@@ -26,7 +26,8 @@
 		{ kind: 'comment', label: m.activity_type_comments() },
 		{ kind: 'download', label: m.activity_type_downloads() },
 		{ kind: 'open', label: m.activity_type_views() },
-		{ kind: 'email', label: m.activity_type_emails() }
+		{ kind: 'email', label: m.activity_type_emails() },
+		{ kind: 'email_failed', label: m.activity_type_failed_emails() }
 	]);
 	const sorts = $derived([
 		{ value: 'newest', label: m.activity_sort_newest() },
