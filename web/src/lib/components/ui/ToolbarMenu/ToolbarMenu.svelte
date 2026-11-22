@@ -73,6 +73,7 @@
 	{disabled}
 	label={summary === label ? label : `${label}: ${summary}`}
 	align="end"
+	placement={options ? 'auto' : 'below'}
 	rootClass="w-fit max-w-full max-sm:static max-sm:flex-[1_1_7rem]"
 	class={menuButton}
 	panelClass="sm:w-56 max-sm:inset-x-0 max-sm:w-auto"
@@ -92,7 +93,12 @@
 
 	{#snippet children({ close })}
 		{#if options}
-			<div bind:this={menu} role="menu" aria-label={label} class="grid">
+			<div
+				bind:this={menu}
+				role="menu"
+				aria-label={label}
+				class="grid max-h-[min(18rem,var(--popover-space,40dvh))] overflow-y-auto overscroll-contain"
+			>
 				{#each options as option (option.value)}
 					<button
 						type="button"

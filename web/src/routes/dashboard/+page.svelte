@@ -30,7 +30,12 @@
 		getGalleryGridReturn,
 		type GalleryGridSnapshot
 	} from '#lib/gallery/dashboardNavigation.svelte.js';
-	import type { GallerySort, GalleryState } from '#lib/gallery/schemas.js';
+	import {
+		galleryStateSchema,
+		parseOrNull,
+		type GallerySort,
+		type GalleryState
+	} from '#lib/gallery/schemas.js';
 	import { ALL_STATES } from '#lib/gallery/states.js';
 	import { galleryStatus } from '#lib/gallery/format.js';
 	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
@@ -60,7 +65,13 @@
 		capture: () => ({ query, selected, scrollY: window.scrollY }),
 		restore: (view) => {
 			query = view.query;
-			selected = view.selected;
+			// Older history entries can contain several statuses; there is no single equivalent.
+			const status = Array.isArray(view.selected)
+				? view.selected.length === 1
+					? view.selected[0]
+					: null
+				: view.selected;
+			selected = parseOrNull(galleryStateSchema, status);
 			void tick().then(() => window.scrollTo(0, view.scrollY));
 		}
 	};
@@ -163,6 +174,12 @@
 	});
 
 	let selectedGalleries = $derived(visible.filter((g) => selectedIds.has(g.id)));
+	$effect(() => {
+		if (selectedGalleries.length === 0) {
+			quickEditOpen = false;
+			deleteConfirmOpen = false;
+		}
+	});
 	let allSelectedFavorited = $derived(
 		selectedGalleries.length > 0 && selectedGalleries.every((g) => g.favorite)
 	);
@@ -384,6 +401,7 @@
 					{gallery}
 					{query}
 					unread={(notifications?.unreadFor(gallery.id).length ?? 0) > 0}
+					liveUpdate={notifications?.lastRefresh === 'live'}
 					selected={selectedIds.has(gallery.id)}
 					selecting={selectedIds.size > 0}
 					onselect={() => toggleSelect(gallery.id)}

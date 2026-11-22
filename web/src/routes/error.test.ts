@@ -49,6 +49,23 @@ describe('error page', () => {
 		expect(screen.getByText(/ask your photographer/i)).toBeTruthy();
 	});
 
+	it.each([
+		'/settings',
+		'/dashboard',
+		'/dashboard/abc?photo=p2&kind=final',
+		'/photos',
+		'/activity',
+		'/contacts'
+	])('offers a fresh load of %s after a studio outage', (path) => {
+		show(503, path);
+
+		const retry = screen.getByRole('link', { name: 'Try again' });
+		expect(retry.getAttribute('href')).toBe(path);
+		expect(retry.hasAttribute('data-sveltekit-reload')).toBe(true);
+		expect(screen.queryByText(/your photographer/i)).toBeNull();
+		expect(screen.queryByRole('link', { name: 'Go to sign in' })).toBeNull();
+	});
+
 	it('never shows the raw error text', () => {
 		show(500, '/dashboard');
 
@@ -64,8 +81,6 @@ describe('error page', () => {
 	});
 
 	it.each([
-		['/dashboard', 'Back to your galleries', '/dashboard'],
-		['/dashboard/abc', 'Back to your galleries', '/dashboard'],
 		['/g/token123', 'Try again', '/g/token123'],
 		['/nowhere', 'Go to sign in', '/login']
 	])('from %s links to the safe place', (path, label, href) => {
@@ -93,5 +108,11 @@ describe('error page in French', () => {
 		).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'Retour à vos galeries' })).toBeTruthy();
 		expect(screen.queryByText(/couldn.t find/i)).toBeNull();
+	});
+
+	it('offers recovery to the photographer in French', () => {
+		show(503, '/settings');
+		expect(screen.getByRole('link', { name: 'Réessayer' }).getAttribute('href')).toBe('/settings');
+		expect(screen.queryByText(/votre photographe/i)).toBeNull();
 	});
 });

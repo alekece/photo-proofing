@@ -113,8 +113,8 @@ unwatermarked. Switching watermarking on or off only selects existing files.
 
 ### Favorites
 
-Only the client's selection, most recent first and read-only. The stage header offers **Download all** when there are any
-favorites. Hovering a photo shows a small download button
+Only the client's selection, most recent first and read-only. Outside selection mode the stage header offers **Download all**;
+inside selection mode the selection bar offers the selected subset instead. Hovering a photo shows a small download button
 for that photo (always visible on touch). The empty state has a heart and "No favorites yet".
 Opening a photo
 shows the viewer with the favorite heart and the same individual-original download action.

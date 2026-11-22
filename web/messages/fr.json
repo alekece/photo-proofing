@@ -57,6 +57,7 @@
 	"error_page_detail_not_found_client": "Le lien est peut-être ancien ou mal saisi. Demandez-en un nouveau à votre photographe.",
 	"error_page_detail_not_found": "Le lien est peut-être ancien ou mal saisi.",
 	"error_page_detail_server": "Veuillez réessayer dans un instant. Si le problème persiste, prévenez votre photographe.",
+	"error_page_detail_studio": "Impossible de charger cette page du studio. Veuillez réessayer dans un instant.",
 	"error_page_detail_client": "Si vous pensiez pouvoir la voir, prévenez votre photographe.",
 	"error_page_back_to_galleries": "Retour à vos galeries",
 	"error_page_try_again": "Réessayer",

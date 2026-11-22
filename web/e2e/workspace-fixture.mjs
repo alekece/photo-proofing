@@ -143,15 +143,23 @@ createServer((req, res) => {
 	if (gallery) return json(gallery);
 	if (path.endsWith('/favorites')) return json(photos.slice(0, 4).map(({ id }) => id));
 	if (path === '/api/v1/photos') {
-		return json(
-			photos.map((p, i) => ({
+		return json([
+			...photos.map((p, i) => ({
 				...p,
 				gallery_id: i % 2 ? 'gallery-2' : 'gallery-1',
 				gallery_title: i % 2 ? 'Coast 02' : 'Coast 01',
 				kind: i % 2 ? 'final' : 'proof',
 				revision: 1
+			})),
+			...galleries.slice(2).map((g, i) => ({
+				...photos[0],
+				id: `library-${i}`,
+				gallery_id: g.id,
+				gallery_title: g.title,
+				kind: 'proof',
+				revision: 1
 			}))
-		);
+		]);
 	}
 	if (path.endsWith('/photos')) return json(searchParams.get('finals') === 'true' ? [] : photos);
 	if (/thumbnail|preview|\/cover$/.test(path)) {

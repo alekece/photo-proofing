@@ -153,7 +153,7 @@
 	>
 {/snippet}
 
-<div class="relative">
+<div class="relative isolate">
 	<svelte:element
 		this={checkboxSelect ? 'label' : 'div'}
 		class={[

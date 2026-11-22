@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { m } from '#lib/paraglide/messages.js';
 	import { Bell, X } from '@lucide/svelte';
 	import Button from './ui/Button/Button.svelte';
@@ -15,6 +16,17 @@
 
 	let open = $state(false);
 	let unread = $derived(center.items.filter((item) => item.read_at === null));
+
+	function visit(event: MouseEvent, galleryId: string) {
+		open = false;
+		if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+			return;
+
+		// Other destinations mark on entry; this editor stays mounted.
+		if (page.route.id === '/dashboard/[id]' && page.params.id === galleryId && !page.error) {
+			void center.markGalleryRead(galleryId);
+		}
+	}
 </script>
 
 <Popover
@@ -60,7 +72,7 @@
 						<a
 							href={`/dashboard/${item.gallery_id}`}
 							class="flex min-h-12 items-center gap-3 rounded-control px-3 py-2 text-foreground no-underline hover:bg-border/60"
-							onclick={() => (open = false)}
+							onclick={(event) => visit(event, item.gallery_id)}
 						>
 							{#if item.hero_id}
 								<img

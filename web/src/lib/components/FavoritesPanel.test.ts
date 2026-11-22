@@ -114,9 +114,7 @@ function setup(
 	const rendered = render(Harness, { props: { events, ondownload } });
 
 	return {
-		setActive(active: boolean) {
-			return rendered.rerender({ active });
-		},
+		rerender: rendered.rerender,
 		container: rendered.container,
 		switchGallery(id: string) {
 			return rendered.rerender({ events, ondownload, galleryId: id });
@@ -135,13 +133,14 @@ function setup(
 afterEach(() => vi.unstubAllGlobals());
 
 describe('FavoritesPanel', () => {
-	it('offers the same individual download in the viewer', async () => {
+	it('downloads the individual original from the viewer', async () => {
 		setup([photo('p1', true)]);
 		const user = userEvent.setup();
 		await user.click(await screen.findByRole('button', { name: 'Open p1.jpg' }));
-		expect(
-			screen.getByRole('dialog').querySelector('button[aria-label="Download p1.jpg"]')
-		).not.toBeNull();
+		await user.click(
+			within(screen.getByRole('dialog')).getByRole('button', { name: 'Download p1.jpg' })
+		);
+		expect(startDownload).toHaveBeenCalledWith('/api/v1/galleries/g1/photos/p1/download');
 	});
 
 	it('uses a plain empty state for the read-only collection', async () => {
@@ -183,6 +182,39 @@ describe('FavoritesPanel', () => {
 		change([photo('p1', true)]);
 
 		await waitFor(() => expect(screen.getByAltText('p1.jpg')).toBeTruthy());
+	});
+
+	it('keeps the viewed favorite and its comment draft when a newer favorite arrives', async () => {
+		const first = photo('p1', true);
+		const second = photo('p2', true);
+		const { change } = setup([first, second]);
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole('button', { name: 'Open p1.jpg' }));
+		const viewer = within(screen.getByRole('dialog'));
+		await user.click(viewer.getByRole('button', { name: /next/i }));
+		await user.type(viewer.getByRole('textbox'), 'Keep the original crop');
+
+		change([first, second, { ...photo('new', true), favorited_at: '2026-11-06T09:00:00Z' }]);
+
+		await viewer.findByText('3 of 3');
+		expect(viewer.queryByRole('img', { name: 'p2.jpg' })).not.toBeNull();
+		expect(viewer.getByRole('textbox')).toHaveProperty('value', 'Keep the original crop');
+		await user.click(viewer.getByRole('button', { name: /previous/i }));
+		expect(viewer.getByRole('img', { name: 'p1.jpg' })).toBeTruthy();
+	});
+
+	it('closes the viewer if its favorite is removed and stays closed when it returns', async () => {
+		const first = photo('p1', true);
+		const second = photo('p2', true);
+		const { change } = setup([first, second]);
+		await userEvent.click(await screen.findByRole('button', { name: 'Open p1.jpg' }));
+		change([second]);
+		await waitFor(() => expect(screen.queryByRole('button', { name: 'Open p1.jpg' })).toBeNull());
+		expect(screen.queryByRole('dialog')).toBeNull();
+
+		change([first, second]);
+		await screen.findByRole('button', { name: 'Open p1.jpg' });
+		expect(screen.queryByRole('dialog')).toBeNull();
 	});
 
 	it('says No favorites yet and offers no selection', async () => {
@@ -282,14 +314,13 @@ describe('FavoritesPanel', () => {
 		expect(screen.queryByText('2 selected')).toBeNull();
 	});
 
-	it('requests all favorites without a body in select mode, then downloads once ready', async () => {
+	it('requests all favorites without a body outside select mode, then downloads once ready', async () => {
 		const user = userEvent.setup();
 		const { finish } = setup([photo('p1', true)]);
 
 		await screen.findByAltText('p1.jpg');
 		const download = screen.getByRole('button', { name: 'Download all' });
-		expect(download.closest('[data-slot="workspace-toolbar"]')).toBeTruthy();
-		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
+		expect(within(screen.getByRole('banner')).getByRole('button')).toBe(download);
 		await user.click(download);
 
 		const request = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'POST');
@@ -324,57 +355,66 @@ describe('FavoritesPanel', () => {
 		expect(startDownload).not.toHaveBeenCalled();
 	});
 
-	it('opens the viewer only outside selection and keeps the normal toolbar in place', async () => {
-		setup([photo('p1', true), photo('p2', true)]);
-		const user = userEvent.setup();
-		await screen.findByAltText('p1.jpg');
-		const downloadAll = screen.getByRole('button', { name: 'Download all' });
+	it.each([true, false])(
+		'offers only the contextual batch download (studio header: %s)',
+		async (withHeader) => {
+			const { rerender } = setup([photo('p1', true), photo('p2', true)]);
+			await rerender({ withHeader });
+			const user = userEvent.setup();
+			await screen.findByAltText('p1.jpg');
+			expect(screen.getByRole('button', { name: 'Download all' })).toBeTruthy();
 
-		expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
+			expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
 
-		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
+			await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
 
-		const bar = document.querySelector<HTMLElement>('[data-slot="select-actions"]')!;
+			const bar = document.querySelector<HTMLElement>('[data-slot="select-actions"]')!;
 
-		expect(within(bar).getByRole('button', { name: 'Select all' })).toBeTruthy();
-		expect(within(bar).getByRole('button', { name: 'Download 1' })).toHaveProperty(
-			'disabled',
-			false
-		);
-		expect(screen.getByRole('button', { name: 'Download all' })).toBe(downloadAll);
-		expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
-		expect(bar.dataset.rail).toBe('gallery');
+			expect(within(bar).getByRole('button', { name: 'Select all' })).toBeTruthy();
+			expect(within(bar).getByRole('button', { name: 'Download 1' })).toHaveProperty(
+				'disabled',
+				false
+			);
+			expect(screen.queryByRole('button', { name: 'Download all' })).toBeNull();
+			expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
+			expect(bar.dataset.rail).toBe('gallery');
 
-		await user.click(screen.getByAltText('p2.jpg'));
-		expect(screen.queryByRole('dialog')).toBeNull();
-		expect(within(bar).getByText('2 selected')).toBeTruthy();
-		await user.click(within(bar).getByRole('button', { name: 'Unselect all' }));
-		expect(within(bar).getByText('0 selected')).toBeTruthy();
-		expect(within(bar).getByRole('button', { name: 'Download 0' })).toHaveProperty(
-			'disabled',
-			true
-		);
-		await user.keyboard('{Escape}');
+			await user.click(screen.getByAltText('p2.jpg'));
+			expect(screen.queryByRole('dialog')).toBeNull();
+			expect(within(bar).getByText('2 selected')).toBeTruthy();
+			await user.click(within(bar).getByRole('button', { name: 'Unselect all' }));
+			expect(within(bar).getByText('0 selected')).toBeTruthy();
+			expect(within(bar).getByRole('button', { name: 'Download 0' })).toHaveProperty(
+				'disabled',
+				true
+			);
+			await user.keyboard('{Escape}');
 
-		expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
-		expect(screen.getByRole('button', { name: 'Select p1.jpg' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty('disabled', false);
-		await waitFor(() => expect(document.activeElement).toBe(downloadAll));
-		await user.click(screen.getByRole('button', { name: 'Open p1.jpg' }));
-		expect(screen.getByRole('dialog')).toBeTruthy();
-	});
+			expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
+			expect(screen.getByRole('button', { name: 'Select p1.jpg' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty(
+				'disabled',
+				false
+			);
+			await waitFor(() =>
+				expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Download all' }))
+			);
+			await user.click(screen.getByRole('button', { name: 'Open p1.jpg' }));
+			expect(screen.getByRole('dialog')).toBeTruthy();
+		}
+	);
 
 	it('keeps the staged count and focus in an inactive Favorites panel', async () => {
 		const view = setup([photo('p1', true), photo('p2', true)]);
 		const user = userEvent.setup();
 		const circle = await screen.findByRole('button', { name: 'Select p1.jpg' });
 		await user.click(circle);
-		await view.setActive(false);
+		await view.rerender({ active: false });
 		const otherTab = view.container.appendChild(document.createElement('button'));
 		otherTab.focus();
 		await user.keyboard('{Control>}a{/Control}{Meta>}a{/Meta}{Escape}');
 		expect(document.activeElement).toBe(otherTab);
-		await view.setActive(true);
+		await view.rerender({ active: true });
 		expect(screen.getByRole('button', { name: 'Select p1.jpg' }).getAttribute('aria-pressed')).toBe(
 			'true'
 		);

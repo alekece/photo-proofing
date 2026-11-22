@@ -3,7 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
+import { createLiveEvents } from '#lib/events.js';
+import { getNotifications, NotificationCenter } from '#lib/gallery/notifications.svelte.js';
 
+vi.mock('#lib/gallery/notifications.svelte.js', async (importOriginal) => ({
+	...(await importOriginal<object>()),
+	getNotifications: vi.fn()
+}));
 vi.mock('$app/navigation', () => ({
 	afterNavigate: vi.fn(),
 	beforeNavigate: vi.fn(),
@@ -63,6 +69,53 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('dashboard', () => {
+	it('shows historical unread activity quietly and pulses a dot arriving live', async () => {
+		const row = (id: string) => ({
+			id,
+			gallery_id: id,
+			title: null,
+			hero_id: null,
+			kind: 'open',
+			count: 1,
+			selected: 0,
+			updated_at: '2026-11-09T14:38:00Z',
+			read_at: null
+		});
+		const rows = [row('g1')];
+		const center = new NotificationCenter(async () =>
+			Response.json({ notifications: rows, unread: rows.length })
+		);
+		const events = createLiveEvents();
+		const onNotification = vi.spyOn(events, 'onNotification');
+		vi.mocked(getNotifications).mockReturnValueOnce(center);
+		render(Dashboard, { props: props([gallery(), gallery({ id: 'g2', title: 'Portraits' })]) });
+		const stop = center.start(events);
+		const historical = await screen.findByRole('img', { name: 'Unread activity' });
+		expect(historical.className).not.toContain('animate-');
+
+		rows.push(row('g2'));
+		onNotification.mock.calls[0][0]({ gallery_id: 'g2' });
+		const second = within(screen.getByRole('link', { name: /Portraits/ }));
+		expect((await second.findByRole('img', { name: 'Unread activity' })).className).toContain(
+			'motion-safe:animate-'
+		);
+		expect(historical.className).not.toContain('animate-');
+		stop();
+	});
+
+	it('restores a pre-upgrade multi-status history entry as All statuses', async () => {
+		vi.stubGlobal('scrollTo', vi.fn());
+		const { component } = render(Dashboard, { props: props([gallery()]) });
+		const legacy = {
+			query: 'wed',
+			selected: ['draft', 'shared', 'delivered', 'expired'],
+			scrollY: 0
+		};
+		component.snapshot.restore(legacy as unknown as ReturnType<typeof component.snapshot.capture>);
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Status' })).toBeTruthy());
+		expect(component.snapshot.capture()).toEqual({ query: 'wed', selected: null, scrollY: 0 });
+	});
+
 	it('restores gallery search and status from browser history without storing results', async () => {
 		vi.stubGlobal('scrollTo', vi.fn());
 		const data = props([
@@ -438,6 +491,25 @@ describe('dashboard', () => {
 			expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull();
 			expect(cardTitles()).toEqual(['Wedding', 'Editorial Portraits']);
 			expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1);
+		});
+
+		it('does not reopen quick edit on the next selection after a rename leaves the search', async () => {
+			const rows = [gallery(), gallery({ id: 'g2', title: 'Portrait' })];
+			stubPatchAndDeleteFetch(new Map(rows.map((g) => [g.id, g])));
+			const user = userEvent.setup();
+			render(Dashboard, { props: props(rows) });
+			const search = screen.getByRole('searchbox');
+			await user.type(search, 'Wedding');
+			await user.click(screen.getByRole('button', { name: 'Select Wedding' }));
+			await user.click(screen.getByRole('button', { name: 'Quick edit' }));
+			const title = within(screen.getByRole('dialog')).getByDisplayValue('Wedding');
+			await user.clear(title);
+			await user.type(title, 'Ceramics');
+			await user.click(screen.getByRole('button', { name: 'Save changes' }));
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+			await user.clear(search);
+			await user.click(screen.getByRole('button', { name: 'Select Portrait' }));
+			expect(screen.queryByRole('dialog')).toBeNull();
 		});
 
 		it('keeps the failed id selected with its draft intact, and clears only the succeeded one', async () => {

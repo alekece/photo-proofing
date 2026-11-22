@@ -18,6 +18,7 @@
 		gallery,
 		query = '',
 		unread = false,
+		liveUpdate = false,
 		selected = false,
 		selecting = false,
 		onselect
@@ -27,6 +28,8 @@
 		query?: string;
 		/** Whether the gallery has unread activity. */
 		unread?: boolean;
+		/** A live update, rather than a fetched baseline, may pulse a newly visible dot. */
+		liveUpdate?: boolean;
 		/** Whether this card is currently selected for dashboard bulk actions. */
 		selected?: boolean;
 		/** Whether dashboard selection mode is active so every card shows its selection circle. */
@@ -51,12 +54,14 @@
 		previousStar = star;
 	});
 	$effect.pre(() => {
-		animateUnread = previousUnread === false && unread;
-		previousUnread = unread;
+		if (unread !== previousUnread) {
+			animateUnread = previousUnread === false && unread && liveUpdate;
+			previousUnread = unread;
+		}
 	});
 </script>
 
-<li class="group relative min-w-0">
+<li class="group relative isolate min-w-0">
 	<a
 		href={`/dashboard/${gallery.id}`}
 		class="relative block overflow-hidden text-foreground no-underline transition-transform focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none {selected
@@ -171,5 +176,8 @@
 		overflow: hidden;
 		white-space: nowrap;
 		text-overflow: ellipsis;
+	}
+	:global([data-studio-mode='full_image']) .gallery-caption b {
+		color: var(--color-warning-on-dark);
 	}
 </style>

@@ -1,9 +1,17 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NotificationCenter } from '#lib/gallery/notifications.svelte.js';
 import NotificationBell from './NotificationBell.svelte';
 import { useLocale } from '#lib/i18n/testing.js';
+
+const state = vi.hoisted(() => ({
+	page: { route: { id: '/dashboard/[id]' }, params: { id: 'another' }, error: null }
+}));
+vi.mock('$app/state', () => state);
+beforeEach(() => {
+	state.page.params.id = 'another';
+});
 
 const row = (over = {}) => ({
 	id: 'n1',
@@ -84,11 +92,28 @@ describe('NotificationBell', () => {
 
 		await userEvent.click(screen.getByRole('button', { name: /Notifications/ }));
 		const link = screen.getByRole('link', { name: /Wedding/ });
-		link.addEventListener('click', (event) => event.preventDefault());
+		window.addEventListener('click', (event) => event.preventDefault(), { once: true });
 		await userEvent.click(link);
 
 		expect(link.getAttribute('href')).toBe('/dashboard/g1');
 		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toEqual([]);
+	});
+
+	it('marks an explicit visit to the already-open gallery read exactly once', async () => {
+		state.page.params.id = 'g1';
+		const { center, fetcher } = setup([row()]);
+		await center.refresh();
+		render(NotificationBell, { center });
+
+		await userEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toEqual([]);
+		window.addEventListener('click', (event) => event.preventDefault(), { once: true });
+		await userEvent.click(screen.getByRole('link', { name: /Wedding/ }));
+
+		expect(
+			fetcher.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url]) => url)
+		).toEqual(['/api/v1/notifications/galleries/g1/read']);
+		expect(screen.getByRole('button', { name: 'Notifications' })).toBeTruthy();
 	});
 
 	it('marks everything read, and shows the empty state', async () => {

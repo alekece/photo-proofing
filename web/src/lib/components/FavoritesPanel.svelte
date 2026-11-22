@@ -58,14 +58,17 @@
 	let loaded = $state(false);
 	let failed = $state(false);
 	let loads = 0;
-	let viewIndex = $state(0);
-	let viewing = $state(false);
+	let viewedId = $state<string | null>(null);
+	const viewIndex = $derived(
+		viewedId === null ? -1 : favorites.findIndex(({ id }) => id === viewedId)
+	);
 	let panel = $state<HTMLElement | null>(null);
 	let downloadAll = $state<HTMLElement | null>(null);
 	let downloading = $state<string | null>(null);
 	let individualError = $state<string | null>(null);
 	let generation = 0;
 	const mode = new SelectMode();
+	const showDownloadAll = $derived(favorites.length > 0 && !mode.active);
 
 	async function load(id: string) {
 		const current = ++loads;
@@ -78,6 +81,7 @@
 			favorites = photos
 				.filter(({ favorited_at }) => favorited_at)
 				.sort((a, b) => Date.parse(b.favorited_at!) - Date.parse(a.favorited_at!));
+			if (viewIndex < 0) viewedId = null;
 			failed = false;
 		} catch {
 			if (current === loads) failed = true;
@@ -95,7 +99,7 @@
 		loaded = false;
 		downloading = null;
 		individualError = null;
-		viewing = false;
+		viewedId = null;
 		void load(id);
 
 		const unsubscribe = [
@@ -164,7 +168,7 @@
 </script>
 
 {#snippet headerDownload()}
-	{#if favorites.length > 0}{@render downloadButton(true)}{/if}
+	{#if showDownloadAll}{@render downloadButton(true)}{/if}
 {/snippet}
 
 {#snippet downloadButton(all = false)}
@@ -203,7 +207,7 @@
 	tabindex="-1"
 	bind:this={panel}
 >
-	{#if !onheader && favorites.length > 0}
+	{#if !onheader && showDownloadAll}
 		<WorkspaceToolbar>
 			{#snippet actions()}{@render downloadButton(true)}{/snippet}
 		</WorkspaceToolbar>
@@ -216,7 +220,7 @@
 			onselectall={() => mode.selectAll(favorites.map(({ id }) => id))}
 			onunselectall={() => mode.unselectAll()}
 			onexit={() => void finishSelecting()}
-			canEscape={() => active && mode.active && !viewing && selectionHotkeysAllowed()}
+			canEscape={() => active && mode.active && viewedId === null && selectionHotkeysAllowed()}
 		>
 			{#snippet actions()}{@render downloadButton()}{/snippet}
 		</SelectActions>
@@ -240,7 +244,7 @@
 		</EmptyState>
 	{:else}
 		<ul aria-label={m.tab_favorites()} class={COLLECTION_GRID_CLASSES}>
-			{#each favorites as photo, index (photo.id)}
+			{#each favorites as photo (photo.id)}
 				<li class="min-w-0">
 					<PhotoTile
 						name={photo.original_name}
@@ -254,10 +258,7 @@
 							mode.enter();
 							mode.toggle(photo.id);
 						}}
-						onopen={() => {
-							viewIndex = index;
-							viewing = true;
-						}}
+						onopen={() => (viewedId = photo.id)}
 						ondownload={() => void download([photo])}
 						downloadBusy={downloading === photo.id}
 					/>
@@ -277,15 +278,15 @@
 		onchange={() => void comments.refresh()}
 	/>
 {/snippet}
-{#if viewing && proofs[viewIndex]}
+{#if viewIndex >= 0}
 	<PhotoViewer
 		{proofs}
-		bind:index={viewIndex}
+		bind:index={() => viewIndex, (index) => (viewedId = proofs[index].id)}
 		thread={photoThread}
 		commentCount={(id) => comments.count(id)}
 		readonly
 		isSelected={() => true}
-		onclose={() => (viewing = false)}
+		onclose={() => (viewedId = null)}
 	>
 		{#snippet actions(proof)}
 			<ViewerButton

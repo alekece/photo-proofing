@@ -278,6 +278,43 @@ test('a long gallery title leaves status and selection visible on a phone', asyn
 	expect(status.y).toBeGreaterThanOrEqual(target.y + target.height);
 });
 
+test('a gallery underneath the sticky search field cannot intercept its click', async ({
+	page
+}) => {
+	test.skip(!process.env.PP_E2E_WORKSPACE_FIXTURE, 'Run against the synthetic workspace fixture.');
+	await page.setViewportSize({ width: 1280, height: 640 });
+	const mounted = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/v1/events');
+	await page.goto('/dashboard');
+	await mounted;
+	const disc = page.locator('main li button[aria-pressed]').nth(12);
+	await disc.scrollIntoViewIfNeeded();
+	const search = page.getByRole('searchbox');
+	const field = (await search.boundingBox())!;
+	const target = (await disc.boundingBox())!;
+	const y = field.y + field.height / 2;
+	await page.evaluate((by) => window.scrollBy(0, by), target.y + target.height / 2 - y);
+	await page.mouse.click(target.x + target.width / 2 + 5, y);
+	await expect(search).toBeFocused();
+});
+
+test('the last gallery filter is reachable inside a scrollable phone menu', async ({ page }) => {
+	test.skip(!process.env.PP_E2E_WORKSPACE_FIXTURE, 'Run against the synthetic workspace fixture.');
+	await page.setViewportSize({ width: 390, height: 600 });
+	const mounted = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/v1/events');
+	await page.goto('/photos');
+	await mounted;
+	const trigger = page.getByRole('button', { name: /^Gallery:/ });
+	await trigger.click();
+	const menu = page.getByRole('menu');
+	const last = menu.getByRole('menuitemradio', { name: 'Forest 28' });
+	expect(await menu.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+	await page.keyboard.press('End');
+	await expect(last).toBeFocused();
+	await expect(last).toBeInViewport({ ratio: 1 });
+	await last.click();
+	await expect(trigger).toContainText('Forest 28');
+});
+
 test.describe('French selection actions', () => {
 	test.use({ locale: 'fr' });
 	test('keeps the complete action labels reachable beside the workspace rail', async ({ page }) => {
