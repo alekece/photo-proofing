@@ -31,6 +31,8 @@ export interface InvitationRecipientInput {
 }
 
 export interface SendInvitationsInput {
+	stage: 'proofing' | 'finals';
+	copy_self?: boolean;
 	to: InvitationRecipientInput[];
 	bcc?: string[];
 	subject: string;

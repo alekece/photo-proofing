@@ -50,9 +50,9 @@
 		{
 			id: 'share',
 			label: m.action_share(),
-			onactivate: onshare,
+			onactivate: shared ? undefined : onshare,
 			done: shared,
-			fact: shared ? undefined : m.step_copy_link()
+			fact: undefined
 		},
 		{
 			id: 'collect',
@@ -64,8 +64,8 @@
 		},
 		{
 			id: 'publish',
-			label: m.state_delivered(),
-			onactivate: shared ? ondelivery : undefined,
+			label: delivered ? m.state_delivered() : m.stage_deliver_finals(),
+			onactivate: shared && !delivered ? ondelivery : undefined,
 			done: delivered,
 			fact: delivered ? undefined : m.step_upload_finals()
 		}

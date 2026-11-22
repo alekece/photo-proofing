@@ -313,7 +313,14 @@
 	"action_preview": "Preview",
 	"action_restore": "Restore",
 	"action_share": "Share",
-	"action_deliver": "Publish",
+	"action_deliver": "Deliver",
+	"stage_deliver_finals": "Deliver final photos",
+	"stage_send_email": "Send an email",
+	"stage_customize": "Customize",
+	"stage_copy_self": "Send me a copy",
+	"stage_no_recipient": "No recipient",
+	"stage_add_recipient": "Add a recipient",
+	"stage_without_email": "Continue without email",
 	"action_archive": "Archive",
 	"action_delete": "Delete",
 	"action_upload": "Upload",
@@ -358,9 +365,9 @@
 	"copy_copy": "Copy",
 	"copy_failed": "Couldn’t copy automatically. Please copy it manually.",
 	"publish_share_question": "Share?",
-	"publish_deliver_question": "Publish?",
+	"publish_deliver_question": "Deliver final photos?",
 	"publish_share_empty": "Share with no photos?",
-	"publish_deliver_empty": "Publish with no photos?",
+	"publish_deliver_empty": "Deliver with no final photos?",
 	"publish_share_count": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -376,15 +383,15 @@
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
 			"match": {
-				"countPlural=one": "Publish {count} photo?",
-				"countPlural=*": "Publish {count} photos?"
+				"countPlural=one": "Deliver {count} final photo?",
+				"countPlural=*": "Deliver {count} final photos?"
 			}
 		}
 	],
 	"publish_share_anyway": "Share anyway",
 	"publish_deliver_anyway": "Publish anyway",
 	"publish_shared_title": "Your gallery is shared",
-	"publish_delivered_title": "Your gallery is published",
+	"publish_delivered_title": "Final photos delivered",
 	"publish_share_text": "This creates a private link. Anyone with it can see the proofs and pick favorites.",
 	"publish_share_text_until": "This creates a private link. Anyone with it can see the proofs and pick favorites until {until}.",
 	"publish_deliver_text": "{title} sees them at the same link and can download them. Favorites are locked from now on.",

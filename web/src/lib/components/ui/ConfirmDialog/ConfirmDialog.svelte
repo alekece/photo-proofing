@@ -25,6 +25,8 @@
 		onclose: () => void;
 		visual?: Snippet<[boolean]>;
 		description?: Snippet;
+		content?: Snippet<[boolean]>;
+		expanded?: boolean;
 		/** Shown once the action has succeeded; replaces the question. */
 		result?: { title: string; body: Snippet<[() => void]> };
 	};
@@ -40,6 +42,8 @@
 		onclose,
 		visual,
 		description,
+		content,
+		expanded = false,
 		result
 	}: Props = $props();
 
@@ -74,7 +78,9 @@
 	{onclose}
 	dismissible={!pending}
 	labelledby="{id}-title"
-	class="m-auto w-[min(27.5rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
+	class="m-auto {expanded
+		? 'w-[min(64rem,calc(100vw-2rem))]'
+		: 'w-[min(27.5rem,calc(100vw-2rem))]'} rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
 >
 	{#snippet children(close)}
 		<div
@@ -99,6 +105,7 @@
 					<h2 id="{id}-title" class="text-xl">{title}</h2>
 					{@render description?.()}
 				</div>
+				{#if content}<div class="min-w-0 sm:col-span-2">{@render content(pending)}</div>{/if}
 				{#if error}
 					{#if pendingDelayMs !== undefined}<Toaster
 							studio

@@ -3,7 +3,10 @@
 	import { getLocale } from '#lib/paraglide/runtime.js';
 	import { onMount } from 'svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
-	import Button from '#lib/components/ui/Button/Button.svelte';
+	import GallerySharePanel from '#lib/components/GallerySharePanel.svelte';
+	import type { Gallery, SendInvitationsInput } from '#lib/gallery/api.js';
+	import type { WorkspaceSettings } from '#lib/settings/settings.js';
+	import { previewUrl } from '#lib/gallery/photos.js';
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
 	import { formatLongDate } from '#lib/gallery/format.js';
 	import { listPhotos, summarizePhotoReadiness, type Photo } from '#lib/gallery/photos.js';
@@ -22,7 +25,10 @@
 		/** Files of this gallery still on their way to becoming photos. */
 		uploading?: number;
 		load?: typeof listPhotos;
-		onconfirm: () => Promise<void>;
+		gallery?: Gallery;
+		settings?: WorkspaceSettings;
+		heroRevision?: number;
+		onconfirm: (email?: SendInvitationsInput) => Promise<void>;
 		onclose: () => void;
 	};
 
@@ -33,19 +39,24 @@
 		expiresAt = null,
 		uploading: uploadingFiles = 0,
 		load = listPhotos,
+		gallery,
+		settings,
+		heroRevision,
 		onconfirm,
 		onclose
 	}: Props = $props();
 
 	let photos = $state<Photo[] | null>(null);
 	let checkFailed = $state(false);
+	let expanded = $state(false);
+	let blocked = $state(false);
+	let editor = $state<GallerySharePanel>();
 
 	const readiness = $derived(photos ? summarizePhotoReadiness(photos, uploadingFiles) : null);
 	let ready = $derived(readiness?.ready ?? []);
 	let uploading = $derived(readiness?.uploadingCount ?? uploadingFiles);
 	let failed = $derived(readiness?.failedCount ?? 0);
 	let empty = $derived(readiness?.empty ?? true);
-	let warned = $derived(readiness?.warned ?? true);
 	let until = $derived(expiresAt ? formatLongDate(expiresAt) : '');
 
 	let shareText = $derived(until ? m.publish_share_text_until({ until }) : m.publish_share_text());
@@ -70,7 +81,7 @@
 </script>
 
 <ConfirmDialog
-	title={!photos
+	title={!photos || checkFailed
 		? sharing
 			? m.publish_share_question()
 			: m.publish_deliver_question()
@@ -81,30 +92,30 @@
 			: sharing
 				? m.publish_share_count({ count: ready.length })
 				: m.publish_deliver_count({ count: ready.length })}
-	confirmLabel={warned && photos
-		? sharing
-			? m.publish_share_anyway()
-			: m.publish_deliver_anyway()
-		: sharing
-			? m.action_share()
-			: m.action_deliver()}
-	busy={photos === null}
-	{onconfirm}
+	confirmLabel={sharing ? m.action_share() : m.action_deliver()}
+	busy={photos === null || blocked}
+	{expanded}
+	onconfirm={() => onconfirm(editor?.draft())}
 	{onclose}
-	result={{
-		title: sharing ? m.publish_shared_title() : m.publish_delivered_title(),
-		body: resultBody
-	}}
 >
 	{#snippet visual(done)}
-		<PhotoStack
-			{galleryId}
-			photoIds={ready.map(({ id }) => id)}
-			set={kind === 'deliver' ? 'finals' : 'photos'}
-			{done}
-		/>
+		{#if gallery?.hero_id}<img
+				class="h-24 w-24 rounded-card object-cover"
+				alt=""
+				src={previewUrl(galleryId, gallery.hero_id, 'photos', heroRevision)}
+				style:object-position="{gallery.focal_point.x}% {gallery.focal_point.y}%"
+			/>
+		{:else}
+			<PhotoStack
+				{galleryId}
+				photoIds={ready.map(({ id }) => id)}
+				set={kind === 'deliver' ? 'finals' : 'photos'}
+				{done}
+			/>
+		{/if}
 	{/snippet}
 	{#snippet description()}
+		<p class="text-sm font-semibold wrap-anywhere">{title}</p>
 		{#if photos === null}
 			<p class="text-sm text-muted-foreground" role="status">{m.publish_checking()}</p>
 		{:else}
@@ -117,7 +128,7 @@
 						: m.publish_deliver_text({ title })}
 				{/if}
 			</p>
-			{#if empty}
+			{#if empty && !checkFailed}
 				<p class="text-sm font-bold text-warning">
 					{sharing ? m.publish_empty_share() : m.publish_empty_deliver()}
 				</p>
@@ -130,13 +141,17 @@
 			{/if}
 		{/if}
 	{/snippet}
+	{#snippet content(pending)}
+		{#if gallery}<GallerySharePanel
+				bind:this={editor}
+				{gallery}
+				{settings}
+				{heroRevision}
+				stage={sharing ? 'proofing' : 'finals'}
+				visibleCount={checkFailed || !photos ? null : ready.length}
+				sending={pending}
+				bind:expanded
+				bind:blocked
+			/>{/if}
+	{/snippet}
 </ConfirmDialog>
-
-{#snippet resultBody(close: () => void)}
-	<p class="text-center text-sm text-muted-foreground">
-		{sharing ? m.publish_send_link() : m.publish_can_download()}
-	</p>
-	<div class="flex justify-center">
-		<Button onclick={close}>{m.action_done()}</Button>
-	</div>
-{/snippet}

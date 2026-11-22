@@ -316,7 +316,14 @@
 	"action_preview": "Aperçu",
 	"action_restore": "Restaurer",
 	"action_share": "Partager",
-	"action_deliver": "Publier",
+	"action_deliver": "Livrer",
+	"stage_deliver_finals": "Livrer les photos retouchées",
+	"stage_send_email": "Envoyer un e-mail",
+	"stage_customize": "Personnaliser",
+	"stage_copy_self": "M’envoyer une copie",
+	"stage_no_recipient": "Aucun destinataire",
+	"stage_add_recipient": "Ajouter un destinataire",
+	"stage_without_email": "Continuer sans e-mail",
 	"action_archive": "Archiver",
 	"action_delete": "Supprimer",
 	"action_upload": "Importer",
@@ -361,9 +368,9 @@
 	"copy_copy": "Copier",
 	"copy_failed": "Copie automatique impossible. Copiez le lien vous-même.",
 	"publish_share_question": "Partager ?",
-	"publish_deliver_question": "Publier ?",
+	"publish_deliver_question": "Livrer les photos retouchées ?",
 	"publish_share_empty": "Partager sans photo ?",
-	"publish_deliver_empty": "Publier sans photo ?",
+	"publish_deliver_empty": "Livrer sans photo retouchée ?",
 	"publish_share_count": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -379,15 +386,15 @@
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
 			"match": {
-				"countPlural=one": "Publier {count} photo ?",
-				"countPlural=*": "Publier {count} photos ?"
+				"countPlural=one": "Livrer {count} photo retouchée ?",
+				"countPlural=*": "Livrer {count} photos retouchées ?"
 			}
 		}
 	],
 	"publish_share_anyway": "Partager quand même",
 	"publish_deliver_anyway": "Publier quand même",
 	"publish_shared_title": "Votre galerie est partagée",
-	"publish_delivered_title": "Votre galerie est publiée",
+	"publish_delivered_title": "Les photos retouchées sont livrées",
 	"publish_share_text": "Cela crée un lien privé. Toute personne qui l’a peut voir les épreuves et choisir ses favoris.",
 	"publish_share_text_until": "Cela crée un lien privé. Toute personne qui l’a peut voir les épreuves et choisir ses favoris jusqu’au {until}.",
 	"publish_deliver_text": "{title} les retrouve au même lien et peut les télécharger. Les favoris sont désormais verrouillés.",

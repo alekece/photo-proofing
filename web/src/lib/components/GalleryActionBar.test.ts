@@ -60,7 +60,7 @@ describe('GalleryActionBar', () => {
 
 		expect(screen.queryByRole('button', { name: 'Preview' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Go to Collect favorites' })).toBeNull();
-		expect(screen.queryByRole('button', { name: 'Go to Delivered' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Go to Deliver final photos' })).toBeNull();
 		await user.click(screen.getByRole('button', { name: 'Go to Upload' }));
 		await user.click(screen.getByRole('button', { name: 'Go to Share' }));
 
@@ -68,7 +68,7 @@ describe('GalleryActionBar', () => {
 		expect(onshare).toHaveBeenCalledOnce();
 		await rerender({ gallery: { ...base, share_token: 'T'.repeat(22), states: ['shared'] } });
 		await user.click(screen.getByRole('button', { name: 'Go to Collect favorites' }));
-		await user.click(screen.getByRole('button', { name: 'Go to Delivered' }));
+		await user.click(screen.getByRole('button', { name: 'Go to Deliver final photos' }));
 		expect(oncollect).toHaveBeenCalledOnce();
 		expect(ondelivery).toHaveBeenCalledOnce();
 		expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();

@@ -142,7 +142,7 @@ describe('gallery page', () => {
 		await replace({ ...base, title: 'Server refresh' });
 		expect(input.value).toBe(edited);
 		await user.click(screen.getByRole('button', { name: 'Share link' }));
-		await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+		await user.click(await screen.findByRole('button', { name: 'Share' }));
 
 		await replace({ ...base, id: 'g2', title: 'Second gallery' });
 		expect(screen.queryByRole('dialog')).toBeNull();
@@ -155,7 +155,7 @@ describe('gallery page', () => {
 
 		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		await user.click(screen.getByRole('button', { name: 'Share link' }));
-		await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+		await user.click(await screen.findByRole('button', { name: 'Share' }));
 		await waitFor(() => expect(requests).toEqual(['/api/v1/galleries/g2/share']));
 	});
 
@@ -591,8 +591,9 @@ describe('gallery page', () => {
 		expect((await axe(container)).violations).toEqual([]);
 		await user.click(screen.getByRole('tab', { name: 'Design' }));
 		expect((await axe(container)).violations).toEqual([]);
-		await user.click(screen.getByRole('tab', { name: 'Share' }));
+		await user.click(screen.getByRole('button', { name: 'Go to Share' }));
 		expect((await axe(container)).violations).toEqual([]);
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
 		await user.click(screen.getByRole('tab', { name: 'Settings' }));
 		expect((await axe(container)).violations).toEqual([]);
 	});
@@ -629,7 +630,7 @@ describe('gallery page', () => {
 			await waitFor(() => expect(resolvePatch).toBeDefined());
 
 			await user.click(screen.getByRole('button', { name: 'Share link' }));
-			const confirm = await screen.findByRole('button', { name: 'Share anyway' });
+			const confirm = await screen.findByRole('button', { name: 'Share' });
 			if (when === 'after') await user.click(confirm);
 
 			expect(shareCalls).toHaveLength(0);
@@ -643,11 +644,11 @@ describe('gallery page', () => {
 			if (when === 'before') await user.click(confirm);
 			await screen.findByText('Couldn’t share the gallery. Please try again.');
 			expect(shareCalls).toHaveLength(0);
-			await user.click(screen.getByRole('button', { name: 'Share anyway' }));
+			await user.click(screen.getByRole('button', { name: 'Share' }));
 			expect(shareCalls).toHaveLength(0);
 			await user.click(screen.getByRole('button', { name: 'Cancel' }));
 			await user.click(screen.getByRole('button', { name: 'Share link' }));
-			await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+			await user.click(await screen.findByRole('button', { name: 'Share' }));
 			await waitFor(() => expect(shareCalls).toHaveLength(1));
 		}
 	);
@@ -683,7 +684,7 @@ describe('gallery page', () => {
 		await waitFor(() => expect(finishOkPatch).toBeDefined());
 
 		await user.click(screen.getByRole('button', { name: 'Share link' }));
-		await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+		await user.click(await screen.findByRole('button', { name: 'Share' }));
 		expect(events).toEqual([]);
 
 		finishOkPatch();
@@ -721,7 +722,7 @@ describe('gallery page', () => {
 
 		// Clicking Share link or top-bar Share while '12' is in the field must block and never revert+share the old code.
 		await user.click(screen.getByRole('button', { name: 'Share link' }));
-		expect(screen.queryByRole('button', { name: 'Share anyway' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
 		expect((codeInput as HTMLInputElement).value).toBe('12');
 		await user.click(screen.getByRole('button', { name: 'Go to Share' }));
 		expect(screen.getByRole('tab', { name: 'Settings' }).getAttribute('aria-selected')).toBe(
@@ -760,15 +761,12 @@ describe('gallery page', () => {
 		it('does not send if the access-code save fails while an invitation is being prepared', async () => {
 			const user = userEvent.setup();
 			let resolvePatch!: (response: Response) => void;
-			let resolveReadiness: ((response: Response) => void) | undefined;
-			let sendStarted = false;
 			const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
 				if (url.includes('/auth/')) return new Response(null, { status: 204 });
 				if (init?.method === 'PATCH')
 					return new Promise<Response>((resolve) => (resolvePatch = resolve));
 				if (url.endsWith('/invitations')) return new Response(null, { status: 503 });
 				if (url.endsWith('/photos')) {
-					if (sendStarted) return new Promise<Response>((resolve) => (resolveReadiness = resolve));
 					return Response.json([photo('p1')]);
 				}
 				return Response.json([]);
@@ -786,16 +784,15 @@ describe('gallery page', () => {
 			await user.click(screen.getByRole('tab', { name: 'Settings' }));
 			await user.click(screen.getByRole('switch', { name: 'Require access code' }));
 			await waitFor(() => expect(resolvePatch).toBeDefined());
-			await user.click(screen.getByRole('tab', { name: 'Share' }));
+			await user.click(screen.getByRole('button', { name: 'Go to Share' }));
+			await user.click(await screen.findByRole('button', { name: 'Add a recipient' }));
 			await user.type(screen.getByLabelText('To'), 'camille@example.test{Enter}');
-			const send = screen.getByRole('button', { name: 'Send invitation (1)' });
-			sendStarted = true;
+			const send = screen.getByRole('button', { name: 'Share' });
 			await user.click(send);
 			expect((send as HTMLButtonElement).disabled).toBe(true);
 			resolvePatch(Response.json({ code: 'unavailable' }, { status: 503 }));
 			await waitFor(() => expect(toasts.items).not.toEqual([]));
-			resolveReadiness?.(Response.json([photo('p1')]));
-			await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+			await screen.findByRole('alert');
 			expect(fetcher.mock.calls.some(([url]) => url.endsWith('/invitations'))).toBe(false);
 		});
 
@@ -833,15 +830,11 @@ describe('gallery page', () => {
 					}
 				});
 
-				await user.click(screen.getByRole('tab', { name: 'Share' }));
-				await user.type(screen.getByLabelText('To'), 'camille@example.test{Enter}');
-				const send = screen.getByRole('button', {
-					name: 'Send invitation (1)'
-				}) as HTMLButtonElement;
 				deferNextRead = true;
-				await user.click(send);
+				await user.click(screen.getByRole('button', { name: 'Go to Share' }));
 				await waitFor(() => expect(deferNextRead).toBe(false));
 
+				await user.click(screen.getByRole('button', { name: 'Cancel' }));
 				await user.click(screen.getByRole('tab', { name: 'Settings' }));
 				if (warn) {
 					const protection = screen.getByRole('switch', { name: 'Require access code' });
@@ -849,9 +842,8 @@ describe('gallery page', () => {
 					await waitFor(() => expect(protection.getAttribute('aria-checked')).toBe('false'));
 					expect(toasts.items).not.toEqual([]);
 				}
-				await user.click(screen.getByRole('tab', { name: 'Share' }));
 				readiness.resolve(Response.json(warn ? [] : [photo('p1')]));
-				await waitFor(() => expect(send.disabled).toBe(false));
+				await tick();
 				expect(screen.queryByRole('dialog')).toBeNull();
 				expect(invitations).toHaveLength(0);
 			}
@@ -1027,9 +1019,8 @@ describe('gallery page', () => {
 			vi.stubGlobal('fetch', fetcher);
 			const user = userEvent.setup();
 			const view = open({ share_token: 'T'.repeat(22), states: ['shared'] });
-			await user.click(screen.getByRole('tab', { name: 'Share' }));
-			await user.click(screen.getByRole('button', { name: 'Publish' }));
-			await user.click(await screen.findByRole('button', { name: 'Publish anyway' }));
+			await user.click(screen.getByRole('button', { name: 'Go to Deliver final photos' }));
+			await user.click(await screen.findByRole('button', { name: 'Deliver' }));
 			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/deliver'))).toEqual([
 				['/api/v1/galleries/g1/deliver', expect.anything()]
 			]);
@@ -1042,8 +1033,8 @@ describe('gallery page', () => {
 			expect(screen.queryByRole('dialog')).toBeNull();
 			finishDelivery(Response.json({ code: 'unauthorized' }, { status: 401 }));
 			await tick();
-			await user.click(screen.getByRole('tab', { name: 'Share' }));
-			expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
+			expect(screen.queryByRole('button', { name: 'Go to Deliver final photos' })).toBeNull();
+			expect(screen.queryByRole('button', { name: 'Deliver' })).toBeNull();
 			expect(goto).not.toHaveBeenCalled();
 		});
 
@@ -1054,7 +1045,7 @@ describe('gallery page', () => {
 			expect(screen.getByLabelText('Gallery title')).toBeTruthy();
 		});
 
-		it('opens Studio → Share from the top bar and queues invitations', async () => {
+		it('queues the chosen stage only on confirmation and returns to Photos', async () => {
 			const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
 				if (url.includes('/auth/')) return new Response(null, { status: 204 });
 				if (url.endsWith('/invitations') && init?.method === 'POST') {
@@ -1090,18 +1081,48 @@ describe('gallery page', () => {
 			});
 
 			await user.click(screen.getByRole('button', { name: 'Go to Share' }));
-			expect(screen.getByRole('tab', { name: 'Share' }).getAttribute('aria-selected')).toBe('true');
-
-			const share = within(screen.getByRole('tabpanel', { name: 'Share' }));
+			const share = within(screen.getByRole('dialog'));
+			expect(await share.findByText('No recipient')).toBeTruthy();
+			expect((share.getByRole('button', { name: 'Share' }) as HTMLButtonElement).disabled).toBe(
+				false
+			);
+			await user.click(share.getByRole('button', { name: 'Add a recipient' }));
 			await user.type(share.getByLabelText('To'), 'camille@example.com{Enter}');
-			await user.click(share.getByRole('button', { name: 'Send invitation (1)' }));
+			await user.click(share.getByRole('button', { name: 'Share' }));
 
 			await waitFor(() => expect(screen.getByText('Shared')).toBeTruthy());
-			expect(toasts.items.map((item) => item.message)).toContain('Invitation queued');
+			expect(toasts.items.some((item) => item.message.includes('Invitation queued'))).toBe(true);
 			expect(screen.getByRole('tab', { name: /^Photos/ }).getAttribute('aria-selected')).toBe(
 				'true'
 			);
-			expect(document.activeElement).toBe(screen.getByRole('tab', { name: /^Photos/ }));
+			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/share'))).toHaveLength(0);
+		});
+
+		it('reconciles a lost invitation response without sending twice or claiming delivery by email', async () => {
+			const shared = { ...base, states: ['shared'], share_token: 'C'.repeat(22) };
+			const fetcher = vi.fn(async (url: string) => {
+				if (url.endsWith('/invitations')) throw new TypeError('connection closed');
+				return Response.json(url.endsWith('/g1') ? shared : []);
+			});
+			vi.stubGlobal('fetch', fetcher);
+			const user = userEvent.setup();
+			render(GalleryPage, {
+				props: {
+					data: {
+						gallery: base,
+						settings: { ...DEFAULT_SETTINGS, emailEnabled: true },
+						idleTimeoutMs: 2592000000
+					} as never
+				}
+			});
+			await user.click(screen.getByRole('button', { name: 'Go to Share' }));
+			await user.click(await screen.findByRole('button', { name: 'Add a recipient' }));
+			await user.type(screen.getByLabelText('To'), 'camille@example.test{Enter}');
+			await user.click(screen.getByRole('button', { name: 'Share' }));
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/invitations'))).toHaveLength(1);
+			expect(toasts.items.some((item) => item.message.includes('queued'))).toBe(false);
+			expect(screen.queryByRole('button', { name: 'Go to Share' })).toBeNull();
 		});
 
 		it('shares via Settings → Share link only after confirming in the dialog', async () => {
@@ -1115,10 +1136,9 @@ describe('gallery page', () => {
 			expect(shares()).toHaveLength(0);
 
 			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Share' }));
-			expect(await screen.findByRole('dialog', { name: 'Your gallery is shared' })).toBeTruthy();
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 			expect(shares()).toHaveLength(1);
 
-			await user.click(screen.getByRole('button', { name: 'Done' }));
 			expect(screen.getByText('Shared')).toBeTruthy();
 			expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
 			expect(screen.getByLabelText('Client link')).toBeTruthy();
@@ -1143,7 +1163,7 @@ describe('gallery page', () => {
 			await user.click(screen.getByRole('button', { name: 'Share link' }));
 			expect(await screen.findByRole('dialog', { name: 'Share with no photos?' })).toBeTruthy();
 			expect(screen.getByText('Clients see an empty gallery until you upload.')).toBeTruthy();
-			expect(screen.getByRole('button', { name: 'Share anyway' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
 		});
 
 		it('mentions photos still processing or failed when sharing link', async () => {
@@ -1153,7 +1173,7 @@ describe('gallery page', () => {
 			await user.click(screen.getByRole('tab', { name: 'Settings' }));
 			await user.click(screen.getByRole('button', { name: 'Share link' }));
 			expect(await screen.findByText('1 is still uploading and 1 failed.')).toBeTruthy();
-			expect(screen.getByRole('button', { name: 'Share anyway' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
 		});
 
 		it('names the open-until date only when one is set when sharing link', async () => {
@@ -1170,14 +1190,16 @@ describe('gallery page', () => {
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22), states: ['shared'] });
 			expect(screen.getByText('Shared')).toBeTruthy();
-			expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
-			await user.click(screen.getByRole('tab', { name: 'Share' }));
-			const share = within(screen.getByRole('tabpanel', { name: 'Share' }));
-			expect((screen.getByRole('button', { name: 'Publish' }) as HTMLButtonElement).disabled).toBe(
+			expect(screen.queryByRole('button', { name: 'Deliver' })).toBeNull();
+			await user.click(screen.getByRole('button', { name: 'Go to Deliver final photos' }));
+			const share = within(screen.getByRole('dialog'));
+			expect((screen.getByRole('button', { name: 'Deliver' }) as HTMLButtonElement).disabled).toBe(
 				false
 			);
 			await user.click(share.getByRole('button', { name: 'Cancel' }));
-			expect(document.activeElement).toBe(screen.getByRole('tab', { name: /^Photos/ }));
+			expect(document.activeElement).toBe(
+				screen.getByRole('button', { name: 'Go to Deliver final photos' })
+			);
 			await user.click(screen.getByRole('tab', { name: 'Settings' }));
 			expect(screen.getByLabelText('Client link')).toBeTruthy();
 		});
@@ -1186,8 +1208,7 @@ describe('gallery page', () => {
 			stubShareFlow();
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22), title: 'Camille & Hugo' });
-			await user.click(screen.getByRole('tab', { name: 'Share' }));
-			await user.click(screen.getByRole('button', { name: 'Publish' }));
+			await user.click(screen.getByRole('button', { name: 'Go to Deliver final photos' }));
 			expect(await screen.findByText(/Camille & Hugo see them at the same link/)).toBeTruthy();
 		});
 
@@ -1206,25 +1227,21 @@ describe('gallery page', () => {
 			vi.stubGlobal('fetch', fetcher);
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22), states: ['shared', 'expired'] });
-			await user.click(screen.getByRole('tab', { name: 'Share' }));
-			expect(screen.getByText('Email sending isn’t configured')).toBeTruthy();
+			await user.click(screen.getByRole('button', { name: 'Go to Deliver final photos' }));
 			expect(screen.getByText('This gallery has expired')).toBeTruthy();
-			await user.click(screen.getByRole('button', { name: 'Publish' }));
-			const publish = await screen.findByRole('dialog', { name: 'Publish with no photos?' });
+			const publish = await screen.findByRole('dialog', { name: 'Deliver with no final photos?' });
 			expect(within(publish).queryByText(/still uploading/)).toBeNull();
 			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/deliver'))).toHaveLength(0);
-			await user.click(within(publish).getByRole('button', { name: 'Publish anyway' }));
-			await screen.findByRole('button', { name: 'Done' });
+			await user.click(within(publish).getByRole('button', { name: 'Deliver' }));
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 			expect(screen.getByText('Expired', { selector: '[data-slot="status-chip"]' })).toBeTruthy();
-			expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
-			expect(screen.getByText('View final photos')).toBeTruthy();
+			expect(screen.queryByRole('button', { name: 'Deliver' })).toBeNull();
 			expect(
 				screen.getByRole('tab', { name: /^Favorites/ }).querySelector('[aria-label="Locked"]')
 			).toBeNull();
-			expect(toasts.items).toEqual([]);
+			expect(toasts.items.some((item) => item.message.includes('queued'))).toBe(false);
 			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/g1/deliver'))).toHaveLength(1);
 			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/invitations'))).toHaveLength(0);
-			await user.click(screen.getByRole('button', { name: 'Done' }));
 			await user.click(screen.getByRole('tab', { name: 'Settings' }));
 			expect((screen.getByLabelText('Client link') as HTMLInputElement).value).toBe(
 				`https://pp.test/g/${'B'.repeat(22)}`
@@ -1242,12 +1259,11 @@ describe('gallery page', () => {
 			);
 			const user = userEvent.setup();
 			open({ share_token: 'B'.repeat(22) });
-			await user.click(screen.getByRole('tab', { name: 'Share' }));
-			await user.click(screen.getByRole('button', { name: 'Publish' }));
+			await user.click(screen.getByRole('button', { name: 'Go to Deliver final photos' }));
 			await user.click(
-				within(await screen.findByRole('dialog', { name: 'Publish 1 photo?' })).getByRole(
+				within(await screen.findByRole('dialog', { name: 'Deliver 1 final photo?' })).getByRole(
 					'button',
-					{ name: 'Publish' }
+					{ name: 'Deliver' }
 				)
 			);
 			expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t publish/);
@@ -1264,9 +1280,9 @@ describe('gallery page', () => {
 			open();
 			await user.click(screen.getByRole('tab', { name: 'Settings' }));
 			await user.click(screen.getByRole('button', { name: 'Share link' }));
-			await user.click(await screen.findByRole('button', { name: 'Share anyway' }));
+			await user.click(await screen.findByRole('button', { name: 'Share' }));
 			expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t share/);
-			expect(screen.getByRole('button', { name: 'Share anyway' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
 		});
 	});
 
@@ -1479,7 +1495,6 @@ describe('gallery page', () => {
 				'Design',
 				'Activity',
 				'Comments',
-				'Share',
 				'Contacts',
 				'Settings'
 			]);
