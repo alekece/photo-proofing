@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { Bell } from '@lucide/svelte';
+	import { Bell, X } from '@lucide/svelte';
+	import Button from './ui/Button/Button.svelte';
 	import emptyIllustration from '#lib/assets/empty-notifications.webp';
 	import Popover from '#lib/components/ui/Popover/Popover.svelte';
 	import { previewUrl } from '#lib/gallery/photos.js';
@@ -14,11 +15,6 @@
 
 	let open = $state(false);
 	let unread = $derived(center.items.filter((item) => item.read_at === null));
-
-	function visit(id: string) {
-		open = false;
-		void center.markRead(id);
-	}
 </script>
 
 <Popover
@@ -41,50 +37,55 @@
 			>
 		{/if}
 	{/snippet}
-	<div class="flex shrink-0 items-center justify-between px-3 py-2">
-		<span class="text-sm font-semibold">{m.header_notifications()}</span>
-		<button
-			type="button"
-			disabled={center.unread === 0}
-			class="min-h-9 cursor-pointer text-sm text-muted-foreground underline disabled:cursor-default disabled:no-underline disabled:opacity-50"
-			onclick={() => void center.markAllRead()}>{m.notifications_mark_all_read()}</button
-		>
-	</div>
-	{#if unread.length === 0}
-		<div class="flex flex-col items-center gap-1 overflow-y-auto px-6 pt-4 pb-6 text-center">
-			<img src={emptyIllustration} alt="" width="128" height="128" class="size-32" />
-			<p class="text-sm font-semibold">{m.notifications_none()}</p>
-			<p class="text-xs text-muted-foreground">{m.notifications_none_hint()}</p>
+	{#snippet children({ close })}
+		<div class="flex shrink-0 items-center justify-between px-3 py-2">
+			<span class="text-sm font-semibold">{m.header_notifications()}</span>
+			<button
+				type="button"
+				disabled={center.unread === 0}
+				class="min-h-9 cursor-pointer text-sm text-muted-foreground underline disabled:cursor-default disabled:no-underline disabled:opacity-50"
+				onclick={() => void center.markAllRead()}>{m.notifications_mark_all_read()}</button
+			>
 		</div>
-	{:else}
-		<ul class="max-h-96 min-h-0 overflow-y-auto">
-			{#each unread as item (item.id)}
-				<li>
-					<a
-						href={`/dashboard/${item.gallery_id}`}
-						class="flex min-h-12 items-center gap-3 rounded-control px-3 py-2 text-foreground no-underline hover:bg-border/60"
-						onclick={() => visit(item.id)}
-					>
-						{#if item.hero_id}
-							<img
-								src={previewUrl(item.gallery_id, item.hero_id)}
-								alt=""
-								class="size-10 shrink-0 rounded-md object-cover"
-							/>
-						{:else}
-							<span class="size-10 shrink-0 rounded-md bg-border"></span>
-						{/if}
-						<span class="min-w-0 flex-1">
-							<span class="block truncate text-sm font-semibold"
-								>{item.title ?? m.gallery_untitled()}</span
-							>
-							<span class="block truncate text-xs text-muted-foreground"
-								>{notificationText(item)} · {timeAgo(item.updated_at)}</span
-							>
-						</span>
-					</a>
-				</li>
-			{/each}
-		</ul>
-	{/if}
+		{#if unread.length === 0}
+			<div class="flex flex-col items-center gap-1 overflow-y-auto px-6 pt-4 pb-6 text-center">
+				<img src={emptyIllustration} alt="" width="128" height="128" class="size-32" />
+				<p class="text-sm font-semibold">{m.notifications_none()}</p>
+				<p class="text-xs text-muted-foreground">{m.notifications_none_hint()}</p>
+			</div>
+		{:else}
+			<ul class="max-h-96 min-h-0 overflow-y-auto">
+				{#each unread as item (item.id)}
+					<li>
+						<a
+							href={`/dashboard/${item.gallery_id}`}
+							class="flex min-h-12 items-center gap-3 rounded-control px-3 py-2 text-foreground no-underline hover:bg-border/60"
+							onclick={() => (open = false)}
+						>
+							{#if item.hero_id}
+								<img
+									src={previewUrl(item.gallery_id, item.hero_id)}
+									alt=""
+									class="size-10 shrink-0 rounded-md object-cover"
+								/>
+							{:else}
+								<span class="size-10 shrink-0 rounded-md bg-border"></span>
+							{/if}
+							<span class="min-w-0 flex-1">
+								<span class="block truncate text-sm font-semibold"
+									>{item.title ?? m.gallery_untitled()}</span
+								>
+								<span class="block truncate text-xs text-muted-foreground"
+									>{notificationText(item)} · {timeAgo(item.updated_at)}</span
+								>
+							</span>
+						</a>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+		<Button size="sm" variant="ghost" class="self-end" aria-label={m.action_close()} onclick={close}
+			><X size={16} aria-hidden="true" /></Button
+		>
+	{/snippet}
 </Popover>

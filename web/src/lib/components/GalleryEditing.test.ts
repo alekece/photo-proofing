@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { UploadQueue } from '#lib/gallery/uploads.svelte.js';
@@ -71,7 +71,7 @@ describe('gallery editing integration', () => {
 		};
 		const props = { gallery, queue, events };
 		const view = render(Harness, { props });
-		await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(12));
+		await screen.findByRole('button', { name: 'Open portrait.jpg' });
 		const user = userEvent.setup();
 		await user.click(screen.getByRole('tab', { name: 'Design' }));
 		await user.click(screen.getByRole('tab', { name: /^Contacts/ }));

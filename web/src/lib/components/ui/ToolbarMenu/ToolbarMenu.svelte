@@ -73,7 +73,7 @@
 	{disabled}
 	label={summary === label ? label : `${label}: ${summary}`}
 	align="end"
-	rootClass="w-40 max-w-full max-sm:static max-sm:flex-[1_1_7rem]"
+	rootClass="w-fit max-w-full max-sm:static max-sm:flex-[1_1_7rem]"
 	class={menuButton}
 	panelClass="sm:w-56 max-sm:inset-x-0 max-sm:w-auto"
 >
@@ -99,7 +99,7 @@
 						role="menuitemradio"
 						aria-checked={option.value === value}
 						tabindex="-1"
-						class="flex min-h-10 cursor-pointer items-center gap-2.5 rounded-control px-3 text-left text-[0.8125rem] hover:bg-border/60"
+						class="flex min-h-10 cursor-pointer items-center gap-2.5 rounded-control px-3 text-left text-[0.8125rem] hover:bg-(--studio-choice)"
 						onkeydown={(event) => navigate(event, close)}
 						onclick={() => {
 							close();

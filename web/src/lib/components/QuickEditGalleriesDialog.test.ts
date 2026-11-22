@@ -75,7 +75,7 @@ describe('QuickEditGalleriesDialog', () => {
 		await waitFor(() => expect(onclose).toHaveBeenCalledOnce());
 	});
 
-	it('skips unchanged rows and closes cleanly when nothing changed', async () => {
+	it('disables validation before edits and after reverting them', async () => {
 		const user = userEvent.setup();
 		const onsave = vi.fn().mockResolvedValue(null);
 		const onclose = vi.fn();
@@ -86,10 +86,13 @@ describe('QuickEditGalleriesDialog', () => {
 			onclose
 		});
 
-		await user.click(screen.getByRole('button', { name: 'Save changes' }));
-
+		const save = screen.getByRole('button', { name: 'Save changes' });
+		expect(save).toHaveProperty('disabled', true);
+		await user.type(screen.getByDisplayValue('Unchanged'), 's{Backspace}');
+		expect(save).toHaveProperty('disabled', true);
+		await user.click(save);
 		expect(onsave).not.toHaveBeenCalled();
-		await waitFor(() => expect(onclose).toHaveBeenCalledOnce());
+		expect(onclose).not.toHaveBeenCalled();
 	});
 
 	it('prunes succeeded rows on partial failure so retrying only re-submits failed rows', async () => {
@@ -125,7 +128,7 @@ describe('QuickEditGalleriesDialog', () => {
 		await user.type(inputs[1], ' Updated');
 		await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
-		expect((await screen.findByRole('alert')).textContent).toBe('Could not save Two');
+		expect((await screen.findByRole('alert')).textContent?.trim()).toBe('Could not save Two');
 		expect(screen.getAllByLabelText('Title')).toHaveLength(1);
 		expect(onclose).not.toHaveBeenCalled();
 

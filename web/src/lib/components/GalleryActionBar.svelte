@@ -64,7 +64,7 @@
 		},
 		{
 			id: 'publish',
-			label: m.action_deliver(),
+			label: m.state_delivered(),
 			onactivate: shared ? ondelivery : undefined,
 			done: delivered,
 			fact: delivered ? undefined : m.step_upload_finals()

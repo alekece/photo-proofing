@@ -42,6 +42,11 @@ describe('NotificationBell', () => {
 
 		expect(screen.getByText('Wedding')).toBeTruthy();
 		expect(screen.getByText(/13 selected/)).toBeTruthy();
+		await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+		expect(document.activeElement).toBe(
+			screen.getByRole('button', { name: 'Notifications, 1 unread' })
+		);
+		expect(screen.queryByText('Wedding')).toBeNull();
 		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toEqual([]);
 	});
 
@@ -72,7 +77,7 @@ describe('NotificationBell', () => {
 		expect(screen.getByText(/^The client opened the gallery 3 times ·/)).toBeTruthy();
 	});
 
-	it('marks a row read when it is followed', async () => {
+	it('leaves marking the gallery read to the destination', async () => {
 		const { center, fetcher } = setup([row({ kind: 'download', count: 2 })]);
 		await center.refresh();
 		render(NotificationBell, { center });
@@ -83,11 +88,7 @@ describe('NotificationBell', () => {
 		await userEvent.click(link);
 
 		expect(link.getAttribute('href')).toBe('/dashboard/g1');
-		expect(fetcher).toHaveBeenCalledWith(
-			'/api/v1/notifications/n1/read',
-			expect.objectContaining({ method: 'POST' })
-		);
-		expect(center.unread).toBe(0);
+		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toEqual([]);
 	});
 
 	it('marks everything read, and shows the empty state', async () => {

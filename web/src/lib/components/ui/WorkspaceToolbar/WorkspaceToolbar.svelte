@@ -35,16 +35,16 @@
 <div
 	data-slot="workspace-toolbar"
 	class={cn(
-		'flex flex-wrap items-center gap-2 rounded-[0.875rem] border border-border bg-panel p-2 sm:gap-3 sm:px-3 sm:py-2.5',
+		'flex flex-wrap items-center gap-2 bg-background py-1',
 		viewportHeight > 0 && resultsHeight > viewportHeight ? 'sticky top-2 z-[6]' : 'relative',
 		className
 	)}
 >
 	{#if search}
 		<label
-			class="flex min-h-9 min-w-32 flex-1 items-center gap-2 rounded-control px-2 text-muted-foreground has-focus-visible:outline-2 has-focus-visible:outline-focus/40 max-sm:basis-full"
+			class="flex min-h-10 min-w-32 flex-1 items-center gap-2 rounded-control border border-transparent px-2 text-muted-foreground has-focus-visible:border-muted-foreground max-sm:basis-full"
 		>
-			<Search size={16} aria-hidden="true" class="shrink-0" />
+			{#if !search.value}<Search size={16} aria-hidden="true" class="shrink-0" />{/if}
 			<input
 				type="search"
 				aria-label={search.label}

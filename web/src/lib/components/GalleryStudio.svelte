@@ -19,7 +19,6 @@
 		CheckCircle2,
 		Heart,
 		Image as ImageIcon,
-		Lock,
 		MessageSquare,
 		Palette,
 		Send,
@@ -55,7 +54,6 @@
 		icon: Component<{ size?: number; class?: string; 'aria-hidden'?: boolean | 'true' | 'false' }>;
 		count?: number | null;
 		accent?: boolean;
-		locked?: boolean;
 		disabled?: boolean;
 		title?: string;
 	};
@@ -148,7 +146,6 @@
 		}
 	}
 	const shared = $derived(shareToken !== null);
-	const delivered = $derived(gallery.states.includes('delivered'));
 	const archived = $derived(status === 'archived');
 	const previewAccessCode = $derived(
 		shared
@@ -201,11 +198,6 @@
 	}
 
 	const day = $derived(gallery.shoot_date ? formatLongDate(gallery.shoot_date) : null);
-	const openedValue = $derived(
-		gallery.last_opened_at === null
-			? m.details_not_opened()
-			: formatDateTime(gallery.last_opened_at)
-	);
 
 	const collectionItems = $derived<NavItem[]>([
 		{ id: 'photos', label: m.common_photos(), icon: ImageIcon, count: photoCount },
@@ -218,7 +210,6 @@
 				gallery.included_photos !== null &&
 				favoriteCount !== null &&
 				favoriteCount > gallery.included_photos,
-			locked: delivered,
 			disabled: !shared,
 			title: shared ? undefined : m.tab_after_sharing()
 		},
@@ -323,13 +314,6 @@
 						: 'text-muted-foreground'}">{item.count}</em
 			>
 		{/if}
-		{#if item.locked}
-			<Lock
-				size={12}
-				aria-label={m.tab_locked()}
-				class={item.count == null ? 'ml-auto' : undefined}
-			/>
-		{/if}
 	</button>
 {/snippet}
 
@@ -395,10 +379,10 @@
 			<div class="flex min-w-0 flex-wrap items-center gap-2">
 				{@render heading()}
 			</div>
-			{#if shared}
+			{#if shared && gallery.last_opened_at}
 				<p class="truncate text-xs text-muted-foreground">
 					<span>{m.details_last_opened()}</span>
-					<span>{openedValue}</span>
+					<span>{formatDateTime(gallery.last_opened_at)}</span>
 				</p>
 			{/if}
 		</div>
@@ -477,6 +461,7 @@
 				galleryId={id}
 				active={section === 'favorites'}
 				oncount={(n) => (favoriteCount = n)}
+				onheader={(action) => headerActions.set('favorites', action)}
 			/>
 		</div>
 		<div

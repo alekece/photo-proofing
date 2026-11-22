@@ -41,18 +41,11 @@ studio name, file names) is never translated.
 
 ## Gallery card
 
-Portrait (4:5) cover of the hero photo with a dark gradient at the bottom:
+See the [approved studio examples](../../2026-11-22-photographer-studio-design.md). Square corners frame the cover; captions overlay it in Full image or sit below it in Print.
 
-- top-left `26 px` selection circle (visible on hover/focus, on touch viewports, and whenever
-  selection mode is active) as a sibling button beside the card link; selected cards show a solid
-  ink check disc, crisp ink ring, and reveal a centered floating bottom bulk bar (`✕`, `N selected`,
-  **Favorite** / **Unfavorite**, **Quick edit**, **Delete**);
-- status chip at the top right: Draft, Prepublish, Publish, Expired or Archived, each with its dot
-  colour;
-- "New selection" or "New downloads" badge when the gallery has an unread notification;
-- title in Georgia, accompanied inline by subtle status icons when applicable: a warm gold **Star**
-  when favorited (sorting first ahead of the active sort order), a **Lock** icon when protected by a
-  6-digit access code, and an **EyeOff** icon when client access is closed (`Expired` or `Archived`);
+- A 26 px disc on a separate 44 px target selects without opening. The card shrinks slightly; it has no selection outline. The bulk bar offers Favorite, Quick edit and Delete.
+- Quick edit saves once on validation. A partial failure keeps the failed rows selected for retry.
+- The unread dot sits at the upper right, the star at the lower right, and status above the title. Keep access protection and closed access distinct.
 - one line that says where it stands:
 
 | Status | Line |
@@ -68,9 +61,7 @@ No hero: a warm neutral placeholder instead of the photo. Clicking the card open
 ## Toolbar
 
 - **Search** filters by title as you type and highlights the match.
-- **Status** is a multi-select menu with a checkbox, colour dot and count per status, plus
-  Select all and Reset. Default: everything except Archived. The button reads "Status" for the
-  default, otherwise the chosen names in bold.
+- **Status** shows one checked choice with a count. The default, All statuses, includes archived galleries.
 - **Sort:** Last updated (default), Newest created, Oldest created, Title A–Z.
 - **No results:** "No gallery called “…”" or "No galleries with these statuses", with a hint when
   matches hide in unselected statuses and a **Clear search and status** button.

@@ -31,9 +31,32 @@ const body = {
 	has_logo: true
 };
 
+it('saves display-only changes without submitting watermark fields', async () => {
+	const draft = {
+		...DEFAULT_SETTINGS,
+		studioMode: 'print' as const,
+		studioPalette: 'neutral' as const
+	};
+	const fetcher = vi.fn().mockResolvedValue(
+		new Response(
+			JSON.stringify({
+				studio_mode: 'print',
+				studio_palette: 'neutral'
+			})
+		)
+	);
+	expect(settingsChanged(draft, DEFAULT_SETTINGS)).toBe(true);
+	const stored = await new SettingsApi(fetcher).save(draft, DEFAULT_SETTINGS);
+	expect(fetcher.mock.calls[0][0]).toBe('/api/v1/settings/display');
+	expect(sent(fetcher)).toEqual({ studio_mode: 'print', studio_palette: 'neutral' });
+	expect(stored).toEqual(draft);
+});
+
 it('maps the API settings and rejects a malformed body', () => {
 	expect(parseSettings(body)).toEqual({
 		studioName: 'Studio',
+		studioMode: 'full_image',
+		studioPalette: 'warm',
 		logo: LOGO_URL,
 		mark: 'both',
 		pattern: 'once',

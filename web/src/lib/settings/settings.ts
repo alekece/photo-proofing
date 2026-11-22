@@ -6,6 +6,8 @@ export const MARKS = ['name', 'logo', 'both'] as const;
 export const PATTERNS = ['repeat', 'once'] as const;
 export const SIGNATURES = ['name', 'logo', 'both', 'none'] as const;
 export const QUALITIES = ['low', 'medium', 'high'] as const;
+const MODES = ['full_image', 'print'] as const;
+const PALETTES = ['warm', 'neutral'] as const;
 export const SIZE_STEPS = 10;
 /** The size step that matches the original fixed look. */
 export const DEFAULT_SIZE = 4;
@@ -19,6 +21,8 @@ export type Quality = (typeof QUALITIES)[number];
 
 /** Workspace settings shared by every gallery. */
 export type WorkspaceSettings = {
+	studioMode: (typeof MODES)[number];
+	studioPalette: (typeof PALETTES)[number];
 	studioName: string;
 	/** Image URL of the studio logo; `null` until one is uploaded. */
 	logo: string | null;
@@ -42,6 +46,8 @@ export type WorkspaceSettings = {
 };
 
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
+	studioMode: 'full_image',
+	studioPalette: 'warm',
 	studioName: '',
 	logo: null,
 	mark: 'name',
@@ -79,6 +85,8 @@ export function qualityChanged(a: WorkspaceSettings, b: WorkspaceSettings) {
 export function settingsChanged(a: WorkspaceSettings, b: WorkspaceSettings) {
 	return (
 		watermarkChanged(a, b) ||
+		a.studioMode !== b.studioMode ||
+		a.studioPalette !== b.studioPalette ||
 		qualityChanged(a, b) ||
 		a.signature !== b.signature ||
 		a.signatureSize !== b.signatureSize ||
@@ -101,6 +109,8 @@ export function normalizeWatermarkHex(value: string): string | null {
 }
 
 const settingsResponseSchema = v.object({
+	studio_mode: v.optional(v.picklist(MODES), 'full_image'),
+	studio_palette: v.optional(v.picklist(PALETTES), 'warm'),
 	studio_name: v.string(),
 	mark: v.picklist(MARKS),
 	pattern: v.picklist(PATTERNS),
@@ -125,6 +135,8 @@ function toWorkspaceSettings(
 ): WorkspaceSettings {
 	return {
 		studioName: settings.studio_name,
+		studioMode: settings.studio_mode,
+		studioPalette: settings.studio_palette,
 		logo: settings.has_logo ? logoUrl : null,
 		mark: settings.mark,
 		pattern: settings.pattern,
@@ -166,11 +178,35 @@ export class SettingsApi {
 
 	/** Saves every setting; `saved` is what the server holds now, so a removal can be told. */
 	async save(settings: WorkspaceSettings, saved: WorkspaceSettings): Promise<WorkspaceSettings> {
+		const changedDisplay =
+			settings.studioMode !== saved.studioMode || settings.studioPalette !== saved.studioPalette;
+		const display = { studio_mode: settings.studioMode, studio_palette: settings.studioPalette };
+		if (
+			changedDisplay &&
+			!settingsChanged(settings, {
+				...saved,
+				studioMode: settings.studioMode,
+				studioPalette: settings.studioPalette
+			})
+		) {
+			const stored = await requestJson(
+				'/api/v1/settings/display',
+				{
+					method: 'PUT',
+					body: JSON.stringify(display)
+				},
+				v.object({ studio_mode: v.picklist(MODES), studio_palette: v.picklist(PALETTES) }),
+				this.fetcher
+			);
+			return { ...saved, studioMode: stored.studio_mode, studioPalette: stored.studio_palette };
+		}
+
 		const raw = await requestJson(
 			'/api/v1/settings',
 			{
 				method: 'PUT',
 				body: JSON.stringify({
+					...(changedDisplay ? display : {}),
 					studio_name: settings.studioName,
 					mark: settings.mark,
 					pattern: settings.pattern,

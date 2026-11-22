@@ -31,13 +31,12 @@ test('gallery return restores the grid, but browser Back still honors Activity',
 	await page.goto('/dashboard?sort=title');
 	const search = page.getByRole('searchbox', { name: 'Search galleries' });
 	const status = page.getByRole('button', { name: /status/i });
-	const draft = page.getByRole('checkbox', { name: /draft/i });
+	const shared = page.getByRole('menuitemradio', { name: /shared/i });
 	await expect(async () => {
-		if (!(await draft.isVisible())) await status.click();
-		await expect(draft).toBeVisible({ timeout: 1250 });
+		if (!(await shared.isVisible())) await status.click();
+		await expect(shared).toBeVisible({ timeout: 1250 });
 	}).toPass({ timeout: 12000 });
-	await draft.uncheck();
-	await status.click();
+	await shared.click();
 	await search.fill('Coast');
 	expect(await page.getByRole('banner').count()).toBe(1);
 	const gallery = page.getByRole('link', { name: /coast 21/i });
@@ -243,21 +242,64 @@ test('the locked access-code switch stays beside its label on a phone', async ({
 test('photo filters are directly reachable and fit the phone toolbar', async ({ page }) => {
 	test.skip(!process.env.PP_E2E_WORKSPACE_FIXTURE, 'Run against the synthetic workspace fixture.');
 	await page.setViewportSize({ width: 390, height: 844 });
+	const hydrated = page.waitForRequest(
+		(request) => new URL(request.url()).pathname === '/api/v1/events'
+	);
 	await page.goto('/photos');
-	const gallery = page.getByRole('combobox', { name: 'Gallery', exact: true });
-	const type = page.getByRole('combobox', { name: 'Type', exact: true });
+	await hydrated;
+	const gallery = page.getByRole('button', { name: /^Gallery:/ });
+	const type = page.getByRole('button', { name: /^Type:/ });
 	await expect(gallery).toBeInViewport({ ratio: 1 });
 	await expect(type).toBeInViewport({ ratio: 1 });
 	const visible = page.getByRole('list', { name: 'Photos' }).getByRole('listitem');
-	await expect(async () => {
-		await gallery.selectOption({ label: 'Coast 02' });
-		await expect(visible).toHaveCount(3, { timeout: 750 });
-	}).toPass({ timeout: 5000 });
-	await type.selectOption({ label: 'Proof' });
+	await gallery.click();
+	await page.getByRole('menuitemradio', { name: 'Coast 02' }).click();
+	await expect(visible).toHaveCount(3);
+	await type.click();
+	await page.getByRole('menuitemradio', { name: 'Proof' }).click();
 	await expect(page.getByText('No photos match these filters.')).toBeVisible();
-	await type.selectOption({ label: 'Final' });
+	await type.click();
+	await page.getByRole('menuitemradio', { name: 'Final' }).click();
 	await expect(visible).toHaveCount(3);
 	await expect(visible.first()).toContainText('Coast 02');
+});
+
+test('a long gallery title leaves status and selection visible on a phone', async ({ page }) => {
+	test.skip(!process.env.PP_E2E_WORKSPACE_FIXTURE, 'Run against the synthetic workspace fixture.');
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.goto('/dashboard');
+	const card = page.getByRole('link', { name: /Coast 03 —/ });
+	const chip = card.getByText('Shared');
+	const bounds = (await card.boundingBox())!;
+	const status = (await chip.boundingBox())!;
+	expect(status.y).toBeGreaterThanOrEqual(bounds.y);
+	const select = card.locator('..').getByRole('button');
+	const target = (await select.boundingBox())!;
+	expect(status.y).toBeGreaterThanOrEqual(target.y + target.height);
+});
+
+test.describe('French selection actions', () => {
+	test.use({ locale: 'fr' });
+	test('keeps the complete action labels reachable beside the workspace rail', async ({ page }) => {
+		test.skip(
+			!process.env.PP_E2E_WORKSPACE_FIXTURE,
+			'Run against the synthetic workspace fixture.'
+		);
+		await page.setViewportSize({ width: 820, height: 820 });
+		const mounted = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/v1/events');
+		await page.goto('/dashboard');
+		await mounted;
+		await page.getByRole('button', { name: 'Sélectionner Coast 02', exact: true }).press('Space');
+		for (const width of [820, 1280]) {
+			await page.setViewportSize({ width, height: 820 });
+			const pin = page.getByRole('button', { name: 'Retirer des favoris' });
+			await expect(pin).toBeInViewport({ ratio: 1 });
+			expect(await pin.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+			await expect(page.getByRole('button', { name: 'Supprimer', exact: true })).toBeInViewport({
+				ratio: 1
+			});
+		}
+	});
 });
 
 test('Studio places the favorite at the bottom right and keeps cover actions side by side', async ({

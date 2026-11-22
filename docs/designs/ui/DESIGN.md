@@ -5,6 +5,8 @@ are building. Decisions and their history are in the
 [UI redesign design record](../2026-11-06-ui-redesign-design.md); product rules are in
 [`SPECIFICATIONS.md`](../../SPECIFICATIONS.md).
 
+For photographer screens, the [studio design and workshop references](../2026-11-22-photographer-studio-design.md) supersede earlier prototype images for card presentation, palette, bulk actions and the path from proofing to delivery. They do not apply to the client gallery.
+
 **Sources of truth, in order:** the screen doc, then [`prototype.html`](prototype.html) (open it
 in a browser and click around), then the pictures. The prototype is throwaway HTML: reproduce its
 look and behaviour in SvelteKit and Tailwind, not its markup. Photos in the prototype load from

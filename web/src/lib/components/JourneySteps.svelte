@@ -16,9 +16,8 @@
 	let { steps }: { steps: readonly Step[] } = $props();
 
 	const current = $derived(steps.findIndex(({ done }) => !done));
-	const focus = $derived(steps[current] ?? steps.at(-1));
 	const stepStyle =
-		'flex items-center justify-center rounded-control p-1 @min-[41rem]:justify-start @min-[41rem]:gap-1.5';
+		'flex flex-col items-start gap-1 rounded-control p-1 @min-[41rem]:flex-row @min-[41rem]:items-center @min-[41rem]:gap-1.5';
 </script>
 
 {#snippet marker(step: Step, index: number)}
@@ -34,7 +33,7 @@
 			{#if step.done}<Check size={12} strokeWidth={3} />{:else}{index + 1}{/if}
 		</span>
 	</span>
-	<span class="@max-[41rem]:sr-only @min-[41rem]:flex @min-[41rem]:flex-col">
+	<span class="flex flex-col">
 		<strong
 			class="text-[0.8125rem] leading-[1.15] {step.done || index === current
 				? 'font-semibold text-foreground'
@@ -43,7 +42,7 @@
 		{#if step.done}<span class="sr-only">{m.step_done()}</span>{/if}
 		{#if step.fact}
 			<span
-				class="text-[0.6875rem] leading-[1.2] {step.accent
+				class="hidden text-[0.6875rem] leading-[1.2] @min-[41rem]:block {step.accent
 					? 'font-extrabold text-danger'
 					: 'text-muted-foreground'}"
 				data-slot="step-fact">{step.fact}</span
@@ -53,7 +52,7 @@
 {/snippet}
 
 <nav aria-label={m.step_progress()} class="flex min-w-0 items-center gap-2">
-	<ol class="flex items-center @min-[41rem]:gap-2">
+	<ol class="flex flex-wrap items-start gap-1 @min-[41rem]:items-center @min-[41rem]:gap-2">
 		{#each steps as step, index (step.id)}
 			{#if index > 0}
 				<li
@@ -80,12 +79,4 @@
 			</li>
 		{/each}
 	</ol>
-	<span
-		aria-hidden="true"
-		class="min-w-0 truncate text-[0.78rem] text-muted-foreground @min-[41rem]:hidden"
-	>
-		<b class="font-semibold text-foreground">{focus?.label}</b>
-		{#if focus?.fact}
-			· <span class={focus.accent ? 'font-extrabold text-danger' : ''}>{focus.fact}</span>{/if}
-	</span>
 </nav>

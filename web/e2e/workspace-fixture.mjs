@@ -3,7 +3,10 @@ import { createServer } from 'node:http';
 const now = '2026-11-18T10:00:00Z';
 const galleries = Array.from({ length: 28 }, (_, i) => ({
 	id: `gallery-${i + 1}`,
-	title: `${i === 27 ? 'Forest' : 'Coast'} ${String(i + 1).padStart(2, '0')}`,
+	title:
+		i === 2
+			? 'Coast 03 — Une collection de portraits au bord de la mer au soleil couchant'
+			: `${i === 27 ? 'Forest' : 'Coast'} ${String(i + 1).padStart(2, '0')}`,
 	favorite: i === 1,
 	layout: 'masonry',
 	cover_layout: 'full_bleed',
@@ -14,7 +17,7 @@ const galleries = Array.from({ length: 28 }, (_, i) => ({
 	expires_at: null,
 	included_photos: 4,
 	watermark_enabled: false,
-	hero_id: 'p1',
+	hero_id: i === 3 ? null : 'p1',
 	share_token: i === 0 ? null : 'synthetic-link-fixture',
 	last_opened_at: null,
 	shoot_date: '2026-11-16',

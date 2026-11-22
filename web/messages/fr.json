@@ -1,5 +1,12 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
+	"studio_display_mode": "Présentation des photos",
+	"studio_display_palette": "Palette du studio",
+	"studio_full_image": "Pleine image",
+	"studio_print": "Tirage",
+	"studio_warm": "Planche chaude",
+	"studio_neutral": "Planche neutre",
+	"studio_all_statuses": "Tous les statuts",
 	"comments_title": "Commentaires",
 	"comments_hide": "Masquer les commentaires",
 	"comments_count": [
@@ -449,6 +456,7 @@
 	"tile_download": "Télécharger {name}",
 	"tile_favorited_at": "Sélectionnée le {date}",
 	"tile_downloaded_at": "Téléchargée le {date}",
+	"finals_requested_count": "Photos demandées en téléchargement : {count} sur {total}",
 	"cover_remove": "Retirer la couverture",
 	"design_cover": "Couverture",
 	"design_select_cover": "Choisir une couverture",
