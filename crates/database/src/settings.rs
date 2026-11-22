@@ -255,9 +255,31 @@ pub struct WatermarkText {
     pub color: WatermarkColor,
 }
 
+/// Caption placement on photographer gallery cards and photo tiles.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "studio_mode", rename_all = "snake_case")]
+pub enum StudioMode {
+    #[default]
+    FullImage,
+    Print,
+}
+
+/// Palette used by the photographer's workspace.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "studio_palette", rename_all = "snake_case")]
+pub enum StudioPalette {
+    #[default]
+    Warm,
+    Neutral,
+}
+
 /// The saved workspace settings.
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct WorkspaceSettings {
+    pub studio_mode: StudioMode,
+    pub studio_palette: StudioPalette,
     pub studio_name: String,
     pub mark: WatermarkMark,
     pub pattern: WatermarkPattern,
@@ -278,6 +300,8 @@ impl Default for WorkspaceSettings {
     fn default() -> Self {
         Self {
             studio_name: String::new(),
+            studio_mode: StudioMode::default(),
+            studio_palette: StudioPalette::default(),
             mark: WatermarkMark::Name,
             pattern: WatermarkPattern::Repeat,
             position: DEFAULT_GRID_CELL,
@@ -338,6 +362,8 @@ pub enum LogoChange {
 /// Settings to save, all at once.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsUpdate {
+    pub studio_mode: Option<StudioMode>,
+    pub studio_palette: Option<StudioPalette>,
     pub studio_name: String,
     pub mark: WatermarkMark,
     pub pattern: WatermarkPattern,
@@ -410,6 +436,8 @@ impl<'db> Repository<'db> for SettingsRepository<'db> {
 impl SettingsRepository<'_> {
     /// The settings columns for a workspace that may have no row yet, defaulted like the table.
     const SETTINGS_OR_DEFAULTS: &'static str = "COALESCE(s.studio_name, '') AS studio_name,
+        COALESCE(s.studio_mode, 'full_image') AS studio_mode,
+        COALESCE(s.studio_palette, 'warm') AS studio_palette,
         COALESCE(s.mark, 'name') AS mark, COALESCE(s.pattern, 'repeat') AS pattern,
         COALESCE(s.position, 8::smallint) AS position, COALESCE(s.size, 4::smallint) AS size,
         COALESCE(s.signature, 'name') AS signature,
@@ -470,7 +498,7 @@ impl SettingsRepository<'_> {
 
         let current: WorkspaceSettings = sqlx::query_as(
             "SELECT studio_name, mark, pattern, position, size, signature, signature_size, signature_color,
-                    proof_quality, logo, watermark_opacity, watermark_text_color
+                    proof_quality, logo, watermark_opacity, watermark_text_color, studio_mode, studio_palette
              FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
         )
         .bind(workspace_id)
@@ -488,6 +516,8 @@ impl SettingsRepository<'_> {
 
         let saved = WorkspaceSettings {
             studio_name,
+            studio_mode: update.studio_mode.unwrap_or(current.studio_mode),
+            studio_palette: update.studio_palette.unwrap_or(current.studio_palette),
             mark: update.mark,
             pattern: update.pattern,
             position: update.position,
@@ -517,7 +547,8 @@ impl SettingsRepository<'_> {
                  studio_name = $2, mark = $3, pattern = $4, position = $5, size = $6,
                  signature = $7, logo = $8, proof_quality = $10, signature_size = $11,
                  watermark_revision = watermark_revision + $9, updated_at = now(),
-                 watermark_opacity = $12, watermark_text_color = $13, signature_color = $14
+                 watermark_opacity = $12, watermark_text_color = $13, signature_color = $14,
+                 studio_mode = $15, studio_palette = $16
              WHERE workspace_id = $1 RETURNING watermark_revision",
         )
         .bind(workspace_id)
@@ -534,6 +565,8 @@ impl SettingsRepository<'_> {
         .bind(saved.watermark_opacity)
         .bind(saved.watermark_text_color)
         .bind(saved.signature_color)
+        .bind(saved.studio_mode)
+        .bind(saved.studio_palette)
         .fetch_one(&mut *transaction)
         .await?;
 
@@ -551,6 +584,27 @@ impl SettingsRepository<'_> {
         transaction.commit().await?;
 
         Ok(saved)
+    }
+
+    /// Saves studio presentation independently of branding, without scheduling proof work.
+    pub async fn save_display(
+        &self,
+        workspace_id: WorkspaceId,
+        mode: StudioMode,
+        palette: StudioPalette,
+    ) -> Result<(), DatabaseError> {
+        sqlx::query(
+            "INSERT INTO workspace_settings(workspace_id, studio_mode, studio_palette) VALUES ($1, $2, $3)
+             ON CONFLICT (workspace_id) DO UPDATE SET studio_mode = EXCLUDED.studio_mode,
+                 studio_palette = EXCLUDED.studio_palette, updated_at = now()",
+        )
+        .bind(workspace_id)
+        .bind(mode)
+        .bind(palette)
+        .execute(self.pool)
+        .await?;
+
+        Ok(())
     }
 
     /// The workspace's language, English when none was saved.
@@ -866,6 +920,8 @@ mod tests {
     fn update(name: &str) -> SettingsUpdate {
         SettingsUpdate {
             studio_name: name.to_owned(),
+            studio_mode: None,
+            studio_palette: None,
             mark: WatermarkMark::Name,
             pattern: WatermarkPattern::Repeat,
             position: DEFAULT_GRID_CELL,
@@ -1769,6 +1825,43 @@ mod tests {
                 .unwrap(),
             vec![payload]
         );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn studio_display_migration_preserves_branding_and_display_saves_leave_proofs_alone(
+        pool: PgPool,
+    ) {
+        let fixture = Fixture::new(pool).await;
+        fixture.save(update("Studio")).await.unwrap();
+        let gallery = fixture.gallery(true).await;
+        let photo = fixture.photo(gallery, PhotoStatus::Ready).await;
+        let stamp = fixture.proof(photo).await.unwrap().stamp;
+        let mut transaction = fixture.pool.begin().await.unwrap();
+        sqlx::raw_sql("ALTER TABLE workspace_settings DROP COLUMN studio_mode, DROP COLUMN studio_palette; DROP TYPE studio_mode, studio_palette")
+            .execute(&mut *transaction).await.unwrap();
+        sqlx::raw_sql(include_str!("../migrations/0044_studio_display.sql"))
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        let stored: (String,String,String) = sqlx::query_as("SELECT studio_name, studio_mode::text, studio_palette::text FROM workspace_settings WHERE workspace_id=$1")
+            .bind(fixture.workspace_id).fetch_one(&mut *transaction).await.unwrap();
+        assert_eq!(
+            stored,
+            ("Studio".into(), "full_image".into(), "warm".into())
+        );
+        transaction.rollback().await.unwrap();
+
+        fixture
+            .watermarks()
+            .save_display(
+                fixture.workspace_id,
+                StudioMode::Print,
+                StudioPalette::Neutral,
+            )
+            .await
+            .unwrap();
+        assert_eq!(fixture.proof(photo).await.unwrap().stamp, stamp);
+        assert_eq!(fixture.jobs(photo).await, 0);
     }
 
     #[sqlx::test(migrations = "./migrations")]
