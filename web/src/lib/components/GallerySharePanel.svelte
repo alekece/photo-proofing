@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { Search, Users, X } from '@lucide/svelte';
+	import { tick } from 'svelte';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
 	import type { Gallery, InvitationRecipientInput } from '#lib/gallery/api.js';
 	import type { InvitationDraft } from '#lib/gallery/types.js';
@@ -131,11 +132,15 @@
 	export function canCustomize() {
 		return checked && !sending;
 	}
-	export function toggleCustomization() {
+	export async function toggleCustomization() {
 		if (!canCustomize()) return;
 
 		expanded = !editing;
 		adding = false;
+		if (expanded) {
+			await tick();
+			document.getElementById(toInputId)?.focus();
+		}
 	}
 	const shootDateText = $derived(gallery.shoot_date ? formatLongDate(gallery.shoot_date) : null);
 	$effect(() => {

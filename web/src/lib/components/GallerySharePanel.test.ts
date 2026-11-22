@@ -82,7 +82,8 @@ describe('GallerySharePanel', () => {
 		});
 
 		await screen.findByText('Camille Laurent');
-		view.component.toggleCustomization();
+		await view.component.toggleCustomization();
+		expect(document.activeElement).toBe(screen.getByLabelText('To'));
 		await vi.waitFor(() =>
 			expect(screen.getByRole('button', { name: 'Remove camille@example.com' })).toBeTruthy()
 		);

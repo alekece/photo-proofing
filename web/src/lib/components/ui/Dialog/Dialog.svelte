@@ -57,7 +57,7 @@
 					{ opacity: 1, transform: 'scale(1.012)', offset: 0.7 },
 					{ opacity: 1, transform: 'none' }
 				],
-				{ duration: 250, easing: 'cubic-bezier(0.2, 0, 0, 1)', fill: 'both' }
+				{ duration: 250, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
 			);
 		}
 

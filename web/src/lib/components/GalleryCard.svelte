@@ -173,6 +173,9 @@
 		position: absolute;
 		bottom: calc(100% + 0.5rem);
 		left: 0.75rem;
+		max-width: calc(100% - 3.25rem);
+		flex-wrap: wrap;
+		row-gap: 0.125rem;
 		background: var(--panel);
 		border-radius: var(--radius-control);
 	}
