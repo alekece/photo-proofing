@@ -6,7 +6,8 @@ import { useLocale } from '#lib/i18n/testing.js';
 import type { Contact } from '#lib/contacts/api.js';
 import GalleryContactsPanel from './GalleryContactsPanel.svelte';
 
-const camille: Contact = {
+const camille = {
+	link_id: 'link-a',
 	id: 'c1',
 	name: 'Camille & Hugo',
 	email: 'camille@example.test',
@@ -17,7 +18,8 @@ const camille: Contact = {
 	updated_at: '2026-11-13T10:00:00Z'
 };
 
-const zoe: Contact = {
+const zoe = {
+	link_id: 'link-b',
 	id: 'c2',
 	name: 'Zoé Laurent',
 	email: 'zoe@example.test',

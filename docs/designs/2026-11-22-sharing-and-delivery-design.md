@@ -28,7 +28,7 @@ Confirming the email path commits the intended stage and its email jobs together
 
 The server checks the intended stage under the same transaction as the change. A repeated click, lost response or second browser must not enqueue a second batch or send a proofing invitation as a delivery email. If a response was lost, refresh the gallery before offering to submit again; a completed step is not evidence that anyone received an email. A failure to queue rolls back the stage change. A later SMTP failure does **not** roll it back.
 
-At send time, skip a proofing invitation if the gallery has already moved to finals, just as the worker skips a revoked link. This applies to the first attempt and automatic retries. Do not send an obsolete message, report it as sent, or try to recall mail already handed to SMTP.
+At confirmation, a prefilled address must still match its original gallery link. An explicitly added address can create a link; a stale selection cannot. At the end of preparation, immediately before SMTP, the worker checks the stage, link and destination again. Skip an obsolete invitation without recording a send. Delivery does not wait for, or recall, mail already handed to SMTP.
 
 ## When an email cannot be sent
 

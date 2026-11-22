@@ -34,6 +34,7 @@ describe('GalleryActivityPanel', () => {
 				? Response.json([
 						{
 							id: 'c1',
+							link_id: 'link-a',
 							name: 'Alice',
 							email: 'alice@example.test',
 							phone: null,

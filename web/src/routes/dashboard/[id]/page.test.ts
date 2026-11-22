@@ -1098,6 +1098,62 @@ describe('gallery page', () => {
 			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/share'))).toHaveLength(0);
 		});
 
+		it('keeps the edited envelope when reconciliation finds the same draft', async () => {
+			const submissions: unknown[] = [];
+			const contact = {
+				id: 'c1',
+				link_id: 'link-a',
+				name: 'Alice',
+				email: 'alice@example.test',
+				phone: null,
+				notes: null,
+				galleries: [],
+				created_at: base.created_at,
+				updated_at: base.updated_at
+			};
+			vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+				if (url.endsWith('/invitations')) {
+					submissions.push(JSON.parse(String(init?.body)));
+					if (submissions.length === 1) throw new TypeError('connection closed');
+					return Response.json({ code: 'too_many_recipients' }, { status: 400 });
+				}
+				if (url.endsWith('/contacts')) return Response.json([contact]);
+				return Response.json(url.endsWith('/g1') ? base : []);
+			});
+			const user = userEvent.setup();
+			render(GalleryPage, {
+				props: {
+					data: {
+						gallery: base,
+						settings: { ...DEFAULT_SETTINGS, emailEnabled: true },
+						idleTimeoutMs: 2592000000
+					} as never
+				}
+			});
+
+			await user.click(screen.getByRole('button', { name: 'Go to Share' }));
+			await user.click(await screen.findByRole('button', { name: 'Customize' }));
+			await user.type(screen.getByLabelText('To'), 'bob@example.test{Enter}');
+			await user.click(screen.getByRole('button', { name: 'Remove alice@example.test' }));
+			const subject = screen.getByRole('textbox', { name: 'Subject' });
+			await user.clear(subject);
+			await user.type(subject, 'For Bob');
+			const message = screen.getByRole('textbox', { name: 'Personal message' });
+			await user.clear(message);
+			await user.type(message, 'Hello Bob');
+			await user.click(screen.getByRole('button', { name: 'Share' }));
+			await screen.findByRole('alert');
+			await user.click(screen.getByRole('button', { name: 'Share' }));
+			await waitFor(() => expect(submissions).toHaveLength(2));
+			expect(submissions[1]).toMatchObject({
+				to: [{ email: 'bob@example.test', name: null }],
+				subject: 'For Bob',
+				message: 'Hello Bob'
+			});
+			await waitFor(() =>
+				expect(screen.getByRole('alert').textContent).toMatch(/Too many recipients/)
+			);
+		});
 		it('reconciles a lost invitation response without sending twice or claiming delivery by email', async () => {
 			const shared = { ...base, states: ['shared'], share_token: 'C'.repeat(22) };
 			const fetcher = vi.fn(async (url: string) => {

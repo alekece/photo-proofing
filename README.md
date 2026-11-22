@@ -187,6 +187,12 @@ queued. Existing marked files remain readable under their legacy names until the
 successful render of that proof commits a new pair. New proof renders use a separate
 generation for each attempt. Fresh installations need no drain.
 
+Before upgrading an active installation to invitation and claim identities (`0046`), stop
+the old API and let the old worker finish outstanding invitations before stopping it.
+Upgrade the API, worker and web together, and reopen any sharing dialogs. Older personal
+invitations do not identify their original link: any left in the queue are recorded as
+failed and cannot be retried against a possibly different link. Blind copies are unaffected.
+
 Deployment tooling remains in this repository, but real hostnames, addresses,
 volume mappings, account details, secret-manager identifiers and certificates
 must remain outside Git. This also applies to CI fixtures, documentation, PR/issue

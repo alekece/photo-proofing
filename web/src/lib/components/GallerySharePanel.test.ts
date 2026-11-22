@@ -31,7 +31,8 @@ const baseGallery: Gallery = {
 	updated_at: '2026-06-12T10:00:00Z'
 };
 
-const camille: Contact = {
+const camille = {
+	link_id: 'link-a',
 	id: 'c1',
 	name: 'Camille Laurent',
 	email: 'camille@example.com',
@@ -136,7 +137,7 @@ describe('GallerySharePanel', () => {
 			stage: 'proofing',
 			copy_self: true,
 			to: [
-				{ email: 'camille@example.com', name: 'Camille Laurent' },
+				{ email: 'camille@example.com', name: 'Camille Laurent', link_id: 'link-a' },
 				{ email: 'lucas@example.com', name: 'Lucas Martin' }
 			],
 			bcc: ['archive@example.com'],
@@ -145,8 +146,20 @@ describe('GallerySharePanel', () => {
 		});
 	});
 
+	it('uses the saved gallery title until the subject is customized', async () => {
+		const view = render(GallerySharePanel, {
+			gallery: baseGallery,
+			settings: smtpSettings,
+			stage: 'proofing',
+			loadLinkedContacts: vi.fn().mockResolvedValue([camille])
+		});
+		await screen.findByText('Camille Laurent');
+		await view.rerender({ gallery: { ...baseGallery, title: 'Updated title' } });
+		await vi.waitFor(() => expect(view.component.draft()?.subject).toContain('Updated title'));
+	});
+
 	it('distinguishes a failed lookup from an empty list and keeps manual confirmation explicit', async () => {
-		const contacts = Promise.withResolvers<Contact[]>();
+		const contacts = Promise.withResolvers<(typeof camille)[]>();
 		const user = userEvent.setup();
 		const view = render(GallerySharePanel, {
 			gallery: baseGallery,

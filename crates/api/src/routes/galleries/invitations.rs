@@ -180,6 +180,77 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
+    async fn prefilled_recipient_requires_the_original_link_and_address(pool: PgPool) {
+        let (state, _directory) = app_state(pool).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state.with_smtp(Some(smtp_settings(10)))))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let (_, gallery) = call(
+            &app,
+            authed(test::TestRequest::post(), "/api/v1/galleries", &cookie),
+        )
+        .await;
+        let (_, contact) = call(
+            &app,
+            authed(test::TestRequest::post(), "/api/v1/contacts", &cookie)
+                .set_json(json!({"name":"Alice", "email":"alice@example.test"})),
+        )
+        .await;
+        let gallery_uri = format!("/api/v1/galleries/{}", gallery["id"].as_str().unwrap());
+        let contacts_uri = format!("{gallery_uri}/contacts");
+        let link_uri = format!("{contacts_uri}/{}", contact["id"].as_str().unwrap());
+        call(&app, authed(test::TestRequest::put(), &link_uri, &cookie)).await;
+        let (_, linked) = call(
+            &app,
+            authed(test::TestRequest::get(), &contacts_uri, &cookie),
+        )
+        .await;
+        let original = linked[0]["link_id"]
+            .as_str()
+            .expect("non-secret link identity");
+        let invitations = format!("{gallery_uri}/invitations");
+        let send = |email: &str, link_id: &str| {
+            authed(test::TestRequest::post(), &invitations, &cookie).set_json(json!({
+                "to": [{"email": email, "link_id": link_id}],
+                "subject": "Gallery",
+                "message": "Welcome"
+            }))
+        };
+
+        let (status, error) = call(&app, send("old@example.test", original)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(error["code"], "invitation_recipient_changed");
+        call(
+            &app,
+            authed(test::TestRequest::delete(), &link_uri, &cookie),
+        )
+        .await;
+        let (status, _) = call(&app, send("alice@example.test", original)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        call(&app, authed(test::TestRequest::put(), &link_uri, &cookie)).await;
+        let (status, _) = call(&app, send("alice@example.test", original)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let (_, draft) = call(
+            &app,
+            authed(test::TestRequest::get(), &gallery_uri, &cookie),
+        )
+        .await;
+        assert!(draft["share_token"].is_null());
+        let (_, linked) = call(
+            &app,
+            authed(test::TestRequest::get(), &contacts_uri, &cookie),
+        )
+        .await;
+        let replacement = linked[0]["link_id"].as_str().unwrap();
+        let (status, _) = call(&app, send("alice@example.test", replacement)).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
     async fn invitations_share_draft_link_contacts_deduplicate_and_enforce_caps_and_states(
         pool: PgPool,
     ) {

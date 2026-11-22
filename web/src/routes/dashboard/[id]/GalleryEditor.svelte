@@ -365,6 +365,12 @@
 			);
 		} catch (error) {
 			if (
+				error instanceof ApiError &&
+				(error.code === 'too_many_recipients' || error.code === 'invitation_recipient_changed')
+			) {
+				throw error;
+			}
+			if (
 				isCurrent() &&
 				(!(error instanceof ApiError) || error.status >= 500 || error.status === 409)
 			) {

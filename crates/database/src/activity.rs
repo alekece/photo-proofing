@@ -409,8 +409,8 @@ impl ActivityRepository<'_> {
         event: ActivityEventId,
     ) -> Result<bool, DatabaseError> {
         let mut tx = self.pool.begin().await?;
-        let eligible: Option<(JobId, Option<ContactId>)> = sqlx::query_as(
-            "SELECT job_id, contact_id FROM retryable_email_activity
+        let eligible: Option<(JobId, Option<Uuid>)> = sqlx::query_as(
+            "SELECT job_id, link_id FROM retryable_email_activity
              WHERE workspace_id=$1 AND gallery_id=$2 AND event_id=$3 FOR UPDATE",
         )
         .bind(workspace)
@@ -419,16 +419,16 @@ impl ActivityRepository<'_> {
         .fetch_optional(&mut *tx)
         .await?;
 
-        let Some((job, contact)) = eligible else {
+        let Some((job, link_id)) = eligible else {
             return Ok(false);
         };
 
-        if let Some(contact) = contact {
+        if let Some(link_id) = link_id {
             let link = sqlx::query(
-                "SELECT FROM gallery_contacts WHERE gallery_id=$1 AND contact_id=$2 FOR KEY SHARE",
+                "SELECT FROM gallery_contacts WHERE gallery_id=$1 AND link_id=$2 FOR KEY SHARE",
             )
             .bind(gallery)
-            .bind(contact)
+            .bind(link_id)
             .fetch_optional(&mut *tx)
             .await?;
 
@@ -558,6 +558,7 @@ mod tests {
     use std::time::Duration;
 
     use pp_core::types::generate::Generate;
+    use serde_json::json;
     use sqlx::{FromRow, PgPool};
     use tokio::time;
 
@@ -984,6 +985,7 @@ mod tests {
         let batch = InvitationBatch::new(
             vec![InvitationContact {
                 email: "client@example.test".parse().unwrap(),
+                link_id: None,
                 name: None,
             }],
             vec![],
@@ -1045,10 +1047,90 @@ mod tests {
             .link_gallery(workspace_id, gallery_id, contact)
             .await
             .unwrap();
+        assert!(
+            !retry().await.unwrap(),
+            "a replacement link is not the failed invitation's link"
+        );
         galleries.deliver(workspace_id, gallery_id).await.unwrap();
         assert!(!retry().await.unwrap());
         assert_eq!(activity.expire(Duration::ZERO).await.unwrap(), 1);
         assert!(!retry().await.unwrap());
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn upgrade_preserves_blind_copies_but_does_not_guess_legacy_personal_links(pool: PgPool) {
+        for migration in crate::MIGRATOR.iter().take_while(|m| m.version < 46) {
+            sqlx::raw_sql(AssertSqlSafe(migration.sql.as_ref()))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let fixture = Fixture::new(&pool).await;
+        let PhotoLocation {
+            workspace_id,
+            gallery_id,
+        } = fixture.location;
+        let contact = fixture.insert_contact("client@example.test").await;
+        let db = Database::new(pool.clone());
+        db.repository::<GalleryRepository>()
+            .share(workspace_id, gallery_id)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO gallery_contacts(gallery_id, contact_id, share_token) VALUES ($1,$2,$3)",
+        )
+        .bind(gallery_id)
+        .bind(contact)
+        .bind(crate::gallery::ShareToken::generate())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        for recipient in [
+            json!({"kind":"contact","contact_id":contact}),
+            json!({"kind":"bcc","email":"copy@example.test"}),
+        ] {
+            let payload = json!({"kind":"send_email", "payload":{
+                "workspace_id":workspace_id, "gallery_id":gallery_id, "stage":"proofing", "recipient":recipient,
+                "subject":"Gallery", "message":"Welcome"
+            }});
+            sqlx::query(
+                "INSERT INTO jobs(id, payload, max_attempts) VALUES (gen_random_uuid(), $1, 3)",
+            )
+            .bind(payload)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        sqlx::raw_sql(include_str!(
+            "../migrations/0046_invitation_and_claim_identity.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let events = fixture.list(ActivityQuery::default()).await.events;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, ActivityKind::EmailFailed);
+        assert!(!events[0].can_retry);
+        let jobs = db.repository::<JobRepository>();
+        let copy = jobs
+            .claim(&[JobKind::SendEmail], Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            copy.payload::<serde_json::Value>().unwrap()["recipient"]["email"],
+            "copy@example.test"
+        );
+        assert!(
+            jobs.claim(&[JobKind::SendEmail], Duration::from_secs(60))
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]

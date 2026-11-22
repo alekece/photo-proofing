@@ -43,6 +43,7 @@ pub(crate) enum ErrorCode {
     GalleryArchived,
     GalleryExpired,
     GalleryStageChanged,
+    InvitationRecipientChanged,
     GalleryDelivered,
     ContactEmailTaken,
     ContactEmailChanged,
@@ -362,6 +363,9 @@ impl From<InvitationError> for ErrorResponse {
             InvitationError::StageConflict => {
                 Self::new(StatusCode::CONFLICT, ErrorCode::GalleryStageChanged)
                     .with_context(error.to_string())
+            }
+            InvitationError::RecipientChanged => {
+                Self::new(StatusCode::CONFLICT, ErrorCode::InvitationRecipientChanged)
             }
             InvitationError::Database(_) => Self::unavailable(),
         }

@@ -87,22 +87,23 @@
 	let toError = $state('');
 	let bccError = $state('');
 
-	// svelte-ignore state_referenced_locally
-	let subject = $state<string>(defaultSubject);
+	let customSubject = $state<string>();
+	const subject = $derived(customSubject ?? defaultSubject);
 	// svelte-ignore state_referenced_locally
 	let message = $state<string>(defaultMessage);
+	const galleryId = $derived(gallery.id);
 	$effect(() => {
-		const currentGalleryId = gallery.id;
 		void lookup;
 		if (!emailEnabled) return;
 		contactsState = 'loading';
 		let cancelled = false;
 
-		void loadLinkedContacts(currentGalleryId)
+		void loadLinkedContacts(galleryId)
 			.then((contacts) => {
 				if (cancelled) return;
 				contactsState = 'ready';
 				toRecipients = contacts.map((contact) => ({
+					link_id: contact.link_id,
 					email: contact.email.toLowerCase(),
 					name: contact.name
 				}));
@@ -499,7 +500,7 @@
 							disabled={!emailEnabled || sending}
 							value={subject}
 							oninput={(event) => {
-								subject = event.currentTarget.value;
+								customSubject = event.currentTarget.value;
 							}}
 							class="border-border-strong bg-input text-sm"
 						/>

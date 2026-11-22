@@ -113,15 +113,22 @@ pub struct Contact {
     pub updated_at: Timestamp,
 }
 
+/// A selected contact and the non-secret identity of this particular gallery association.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, FromRow)]
+pub struct LinkedContact {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub contact: Contact,
+    pub link_id: Uuid,
+}
+
 /// A contact linked to a gallery together with its per-contact private link token.
 ///
-/// Intentionally omits `Serialize` so route handlers return [`Self::contact`] and never send
-/// raw per-contact tokens over photographer JSON endpoints. [`ShareToken`] redacts the secret
-/// in [`Debug`].
+/// Only [`Self::recipient`] is serializable; the token is not part of photographer responses.
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct GalleryContactLink {
     #[sqlx(flatten)]
-    pub contact: Contact,
+    pub recipient: LinkedContact,
     pub share_token: ShareToken,
 }
 
@@ -223,19 +230,17 @@ impl ContactRepository<'_> {
                 c.created_at,
                 c.updated_at";
 
-    async fn has_link_in(
+    async fn link_id_in(
         tx: &mut Transaction<'_, Postgres>,
         gallery_id: GalleryId,
         contact_id: ContactId,
-    ) -> Result<bool, DatabaseError> {
+    ) -> Result<Option<Uuid>, DatabaseError> {
         Ok(sqlx::query_scalar(
-            "SELECT EXISTS (
-                 SELECT 1 FROM gallery_contacts WHERE gallery_id = $1 AND contact_id = $2
-             )",
+            "SELECT link_id FROM gallery_contacts WHERE gallery_id = $1 AND contact_id = $2 FOR KEY SHARE",
         )
         .bind(gallery_id)
         .bind(contact_id)
-        .fetch_one(&mut **tx)
+        .fetch_optional(&mut **tx)
         .await?)
     }
 
@@ -369,7 +374,7 @@ impl ContactRepository<'_> {
         &self,
         workspace_id: WorkspaceId,
         gallery_id: GalleryId,
-    ) -> Result<Option<Vec<Contact>>, DatabaseError> {
+    ) -> Result<Option<Vec<LinkedContact>>, DatabaseError> {
         let gallery_exists: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM galleries WHERE workspace_id = $1 AND id = $2)",
         )
@@ -383,7 +388,7 @@ impl ContactRepository<'_> {
         }
 
         let contacts = sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {} FROM contacts AS c
+            "SELECT {}, link.link_id FROM contacts AS c
              JOIN gallery_contacts AS link
                ON link.contact_id = c.id AND link.gallery_id = $2
              WHERE c.workspace_id = $1
@@ -407,7 +412,7 @@ impl ContactRepository<'_> {
         contact_id: ContactId,
     ) -> Result<Option<GalleryContactLink>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {}, link.share_token
+            "SELECT {}, link.link_id, link.share_token
              FROM gallery_contacts AS link
              JOIN galleries AS linked_gallery ON linked_gallery.id = link.gallery_id
              JOIN contacts AS c ON c.id = link.contact_id
@@ -431,7 +436,7 @@ impl ContactRepository<'_> {
         email: &Email,
         fallback_name: &ContactName,
         next_token: impl FnMut() -> ShareToken,
-    ) -> Result<ContactId, DatabaseError> {
+    ) -> Result<(ContactId, Uuid), DatabaseError> {
         sqlx::query(
             "INSERT INTO contacts (id, workspace_id, name, email)
              VALUES ($1, $2, $3, $4)
@@ -444,15 +449,16 @@ impl ContactRepository<'_> {
         .execute(&mut **tx)
         .await?;
 
-        let contact_id: ContactId =
-            sqlx::query_scalar("SELECT id FROM contacts WHERE workspace_id = $1 AND email = $2")
-                .bind(workspace_id)
-                .bind(email)
-                .fetch_one(&mut **tx)
-                .await?;
+        let contact_id: ContactId = sqlx::query_scalar(
+            "SELECT id FROM contacts WHERE workspace_id = $1 AND email = $2 FOR SHARE",
+        )
+        .bind(workspace_id)
+        .bind(email)
+        .fetch_one(&mut **tx)
+        .await?;
 
-        if Self::has_link_in(tx, gallery_id, contact_id).await? {
-            return Ok(contact_id);
+        if let Some(link_id) = Self::link_id_in(tx, gallery_id, contact_id).await? {
+            return Ok((contact_id, link_id));
         }
 
         ShareToken::retry_in(
@@ -460,7 +466,7 @@ impl ContactRepository<'_> {
             UniqueViolation::GalleryContactShareToken,
             next_token,
             async |tx, candidate| {
-                let outcome = sqlx::query(
+                sqlx::query(
                     "INSERT INTO gallery_contacts (gallery_id, contact_id, share_token)
                      SELECT $1, $2, $3
                      WHERE NOT EXISTS (SELECT 1 FROM galleries WHERE share_token = $3)
@@ -472,10 +478,8 @@ impl ContactRepository<'_> {
                 .execute(&mut **tx)
                 .await?;
 
-                if outcome.rows_affected() == 1
-                    || Self::has_link_in(tx, gallery_id, contact_id).await?
-                {
-                    return Ok(TokenAttempt::Done(contact_id));
+                if let Some(link_id) = Self::link_id_in(tx, gallery_id, contact_id).await? {
+                    return Ok(TokenAttempt::Done((contact_id, link_id)));
                 }
 
                 Ok(TokenAttempt::Collision)
@@ -746,15 +750,18 @@ mod tests {
         let token = ShareToken::generate();
         let secret = token.to_owned();
         let link = GalleryContactLink {
-            contact: Contact {
-                id: ContactId::generate(),
-                name: "Camille".parse().unwrap(),
-                email: "camille@example.test".parse().unwrap(),
-                phone: None,
-                notes: None,
-                galleries: Vec::new(),
-                created_at: serde_json::from_value(json!("2026-11-13T12:00:00Z")).unwrap(),
-                updated_at: serde_json::from_value(json!("2026-11-13T12:00:00Z")).unwrap(),
+            recipient: LinkedContact {
+                link_id: Uuid::new_v4(),
+                contact: Contact {
+                    id: ContactId::generate(),
+                    name: "Camille".parse().unwrap(),
+                    email: "camille@example.test".parse().unwrap(),
+                    phone: None,
+                    notes: None,
+                    galleries: Vec::new(),
+                    created_at: serde_json::from_value(json!("2026-11-13T12:00:00Z")).unwrap(),
+                    updated_at: serde_json::from_value(json!("2026-11-13T12:00:00Z")).unwrap(),
+                },
             },
             share_token: token,
         };
@@ -1051,7 +1058,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(found_link.share_token, link_a.share_token);
-        assert_eq!(found_link.contact.galleries, expected_galleries);
+        assert_eq!(found_link.recipient.contact.galleries, expected_galleries);
         assert_eq!(
             contacts
                 .find_gallery_link(mine, gallery_a.id, zoe.id)
@@ -1242,7 +1249,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            gallery_contacts.iter().map(|c| c.id).collect::<Vec<_>>(),
+            gallery_contacts
+                .iter()
+                .map(|c| c.contact.id)
+                .collect::<Vec<_>>(),
             vec![alice.id, bob.id]
         );
 
@@ -1499,7 +1509,7 @@ mod tests {
         let fallback_name: ContactName = "Invited".parse().unwrap();
 
         let mut tx = pool.begin().await.unwrap();
-        let contact_id = ContactRepository::upsert_and_link_in(
+        let (contact_id, _) = ContactRepository::upsert_and_link_in(
             &mut tx,
             workspace_id,
             gallery.id,

@@ -102,6 +102,8 @@ pub enum InvitationError {
     Expired,
     #[error("the gallery is no longer at the requested stage")]
     StageConflict,
+    #[error("a selected gallery contact or address has changed")]
+    RecipientChanged,
     #[error(transparent)]
     Database(#[from] DatabaseError),
 }
@@ -113,6 +115,8 @@ pub use pp_core::types::studio::{FocalCoordinate, FocalPoint};
 #[serde(deny_unknown_fields)]
 pub struct InvitationContact {
     pub email: Email,
+    /// Present for a prefilled gallery contact; an explicit new address has no association yet.
+    pub link_id: Option<Uuid>,
     #[serde(default)]
     pub name: Option<ContactName>,
 }
@@ -910,7 +914,7 @@ impl GalleryRepository<'_> {
         &self,
         workspace_id: WorkspaceId,
         id: GalleryId,
-    ) -> Result<Option<Gallery>, DatabaseError> {
+    ) -> Result<Option<Gallery>, InvitationError> {
         self.share_with(workspace_id, id, ShareToken::generate)
             .await
     }
@@ -920,25 +924,26 @@ impl GalleryRepository<'_> {
         workspace_id: WorkspaceId,
         id: GalleryId,
         next_token: impl FnMut() -> ShareToken,
-    ) -> Result<Option<Gallery>, DatabaseError> {
-        ShareToken::retry_on_collision(
-            UniqueViolation::GalleryShareToken,
-            next_token,
-            |candidate| async move {
-                if let Some(gallery) =
-                    Self::assign_share_token(self.pool, workspace_id, id, &candidate).await?
-                {
-                    return Ok(TokenAttempt::Done(Some(gallery)));
-                }
-
-                if !Self::exists_in_workspace(self.pool, workspace_id, id).await? {
-                    return Ok(TokenAttempt::Done(None));
-                }
-
-                Ok(TokenAttempt::Collision)
-            },
+    ) -> Result<Option<Gallery>, InvitationError> {
+        let mut tx = self.pool.begin().await.map_err(DatabaseError::from)?;
+        let archived: Option<bool> = sqlx::query_scalar(
+            "SELECT archived_at IS NOT NULL FROM galleries WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
         )
-        .await
+        .bind(id)
+        .bind(workspace_id)
+        .fetch_optional(&mut *tx)
+        .await.map_err(DatabaseError::from)?;
+
+        match archived {
+            None => return Ok(None),
+            Some(true) => return Err(InvitationError::Archived),
+            Some(false) => (),
+        }
+
+        let gallery = Self::share_in(&mut tx, workspace_id, id, next_token).await?;
+        tx.commit().await.map_err(DatabaseError::from)?;
+
+        Ok(gallery)
     }
 
     pub(crate) async fn share_in(
@@ -1026,26 +1031,48 @@ impl GalleryRepository<'_> {
         };
 
         for recipient in &batch.to {
-            let fallback = recipient
-                .name
-                .clone()
-                .unwrap_or_else(|| ContactName::from_email_local_part(&recipient.email));
-            let contact_id = ContactRepository::upsert_and_link_in(
-                &mut tx,
-                workspace_id,
-                gallery_id,
-                &recipient.email,
-                &fallback,
-                ShareToken::generate,
-            )
-            .await?;
+            let (contact_id, link_id) = if let Some(link_id) = recipient.link_id {
+                let contact_id = sqlx::query_scalar(
+                    "SELECT c.id FROM gallery_contacts gc JOIN contacts c ON c.id = gc.contact_id
+                     WHERE gc.link_id=$1 AND gc.gallery_id=$2 AND c.workspace_id=$3 AND c.email=$4
+                     FOR SHARE OF c, gc",
+                )
+                .bind(link_id)
+                .bind(gallery_id)
+                .bind(workspace_id)
+                .bind(&recipient.email)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(DatabaseError::from)?
+                .ok_or(InvitationError::RecipientChanged)?;
+
+                (contact_id, link_id)
+            } else {
+                let fallback = recipient
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| ContactName::from_email_local_part(&recipient.email));
+
+                ContactRepository::upsert_and_link_in(
+                    &mut tx,
+                    workspace_id,
+                    gallery_id,
+                    &recipient.email,
+                    &fallback,
+                    ShareToken::generate,
+                )
+                .await?
+            };
 
             JobRepository::enqueue_in(
                 &mut tx,
                 SendEmail {
                     workspace_id,
                     gallery_id,
-                    recipient: EmailRecipient::Contact { contact_id },
+                    recipient: EmailRecipient::Contact {
+                        contact_id,
+                        link_id: Some(link_id),
+                    },
                     stage,
                     subject: batch.subject.clone(),
                     message: batch.message.clone(),
@@ -1128,6 +1155,32 @@ impl GalleryRepository<'_> {
         )
         .bind(token)
         .fetch_optional(self.pool)
+        .await?)
+    }
+
+    /// Checks the stage, link and destination of a prepared invitation just before sending.
+    pub async fn invitation_is_current(
+        &self,
+        location: PhotoLocation,
+        stage: InvitationStage,
+        token: &ShareToken,
+        email: &Email,
+    ) -> Result<bool, DatabaseError> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS (SELECT FROM galleries g
+             WHERE g.id=$1 AND g.workspace_id=$2 AND g.archived_at IS NULL AND g.shared_at IS NOT NULL
+               AND (g.expires_at IS NULL OR g.expires_at >= (now() AT TIME ZONE 'UTC')::date)
+               AND (g.delivered_at IS NOT NULL) = $3
+               AND (g.share_token=$4 OR EXISTS (SELECT FROM gallery_contacts gc
+                    JOIN contacts c ON c.id=gc.contact_id AND c.workspace_id=g.workspace_id
+                    WHERE gc.gallery_id=g.id AND gc.share_token=$4 AND c.email=$5)))",
+        )
+        .bind(location.gallery_id)
+        .bind(location.workspace_id)
+        .bind(stage == InvitationStage::Finals)
+        .bind(token)
+        .bind(email)
+        .fetch_one(self.pool)
         .await?)
     }
 
@@ -2203,6 +2256,26 @@ mod tests {
             .collect();
 
         assert!(tokens.windows(2).all(|pair| pair[0] == pair[1]));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn archived_draft_is_not_shared_manually(pool: PgPool) {
+        let db = Database::new(pool.clone());
+        let galleries = db.repository::<GalleryRepository>();
+        let owner = workspace(&pool).await;
+        let id = galleries.create(owner).await.unwrap().id;
+        galleries.archive(owner, id).await.unwrap();
+
+        assert!(galleries.share(owner, id).await.is_err());
+        assert!(
+            galleries
+                .get(owner, id)
+                .await
+                .unwrap()
+                .unwrap()
+                .share_token
+                .is_none()
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -3643,14 +3716,17 @@ mod tests {
             vec![
                 InvitationContact {
                     email: "Camille@Example.test".parse().unwrap(),
+                    link_id: None,
                     name: None,
                 },
                 InvitationContact {
                     email: "claire.dupont@example.test".parse().unwrap(),
+                    link_id: None,
                     name: None,
                 },
                 InvitationContact {
                     email: "camille@example.test".parse().unwrap(),
+                    link_id: None,
                     name: Some("Ignored Duplicate".parse().unwrap()),
                 },
             ],
@@ -3758,10 +3834,24 @@ mod tests {
             recipients,
             vec![
                 EmailRecipient::Contact {
-                    contact_id: existing_contact.id
+                    contact_id: existing_contact.id,
+                    link_id: Some(
+                        linked
+                            .iter()
+                            .find(|c| c.contact.id == existing_contact.id)
+                            .unwrap()
+                            .link_id
+                    ),
                 },
                 EmailRecipient::Contact {
-                    contact_id: claire.id
+                    contact_id: claire.id,
+                    link_id: Some(
+                        linked
+                            .iter()
+                            .find(|c| c.contact.id == claire.id)
+                            .unwrap()
+                            .link_id
+                    ),
                 },
                 EmailRecipient::Bcc {
                     email: "planner@example.test".parse().unwrap()
@@ -3966,10 +4056,12 @@ mod tests {
             &[
                 InvitationContact {
                     email: "camille@example.test".parse().unwrap(),
+                    link_id: None,
                     name: Some("Camille".parse().unwrap()),
                 },
                 InvitationContact {
                     email: "hugo@example.test".parse().unwrap(),
+                    link_id: None,
                     name: None,
                 },
             ]

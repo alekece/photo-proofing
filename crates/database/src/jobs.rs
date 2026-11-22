@@ -20,7 +20,7 @@
 //!
 //! `renew`, `complete`, `fail` and [`abandon`](JobRepository::abandon) take the [`Job`] returned
 //! by `claim` and only act while that claim is still current (the job is `running` with the same
-//! `attempts`). A worker that lost its lease to another one therefore cannot overwrite the new
+//! claim generation). A worker that lost its lease to another one therefore cannot overwrite the new
 //! run's outcome; they report `false`/`None` so the caller can stop.
 //!
 //! Handlers must be idempotent: a job may run again after a crash or a lost lease, and nothing
@@ -122,8 +122,14 @@ impl JobKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EmailRecipient {
-    Contact { contact_id: ContactId },
-    Bcc { email: Email },
+    Contact {
+        contact_id: ContactId,
+        /// Missing only for legacy jobs whose original link could not be recovered.
+        link_id: Option<Uuid>,
+    },
+    Bcc {
+        email: Email,
+    },
 }
 
 /// Sends one gallery invitation email, resolving share tokens and access codes at send time.
@@ -235,6 +241,7 @@ pub enum JobState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
     pub id: JobId,
+    claim_generation: i64,
     kind: JobKind,
     body: Value,
     /// Including the current run, so the first run sees `1`.
@@ -267,6 +274,7 @@ impl FromRow<'_, PgRow> for Job {
 
         Ok(Self {
             id: row.try_get("id")?,
+            claim_generation: row.try_get("claim_generation")?,
             kind,
             body: row.try_get("body")?,
             attempts: count("attempts")?,
@@ -429,7 +437,7 @@ impl<'db> Repository<'db> for JobRepository<'db> {
 }
 
 impl JobRepository<'_> {
-    const COLUMNS: &'static str = "id, payload->>'kind' AS kind,
+    const COLUMNS: &'static str = "id, claim_generation, payload->>'kind' AS kind,
         COALESCE(payload->'payload', 'null'::jsonb) AS body, attempts, max_attempts";
     /// Photo targeted by a job, as text so a malformed payload cannot abort the statement.
     const PHOTO_ID: &'static str = "payload->'payload'->>'photo_id' AS photo_id";
@@ -537,7 +545,7 @@ impl JobRepository<'_> {
         transaction.commit().await?;
 
         Ok(sqlx::query_as(AssertSqlSafe(format!(
-            "UPDATE jobs SET state = 'running', attempts = attempts + 1,
+            "UPDATE jobs SET state = 'running', attempts = attempts + 1, claim_generation = claim_generation + 1,
                  locked_until = now() + $2 * interval '1 second'
              WHERE id = (
                  SELECT id FROM jobs
@@ -560,10 +568,10 @@ impl JobRepository<'_> {
     pub async fn renew(&self, job: &Job, lease: Duration) -> Result<bool, DatabaseError> {
         let done = sqlx::query(
             "UPDATE jobs SET locked_until = now() + $3 * interval '1 second'
-             WHERE id = $1 AND state = 'running' AND attempts = $2",
+             WHERE id = $1 AND state = 'running' AND claim_generation = $2",
         )
         .bind(job.id)
-        .bind(attempts_param(job))
+        .bind(job.claim_generation)
         .bind(lease.as_secs_f64())
         .execute(self.pool)
         .await?;
@@ -629,11 +637,11 @@ impl JobRepository<'_> {
         let mut transaction = self.pool.begin().await?;
         let run_still_owns_job: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM (
-                 SELECT 1 FROM jobs WHERE id = $1 AND state = 'running' AND attempts = $2
+                 SELECT 1 FROM jobs WHERE id = $1 AND state = 'running' AND claim_generation = $2
                  FOR UPDATE) owned)",
         )
         .bind(job.id)
-        .bind(attempts_param(job))
+        .bind(job.claim_generation)
         .fetch_one(&mut *transaction)
         .await?;
 
@@ -718,13 +726,13 @@ impl JobRepository<'_> {
                      THEN run_at ELSE now() + $4 * interval '1 second' END,
                  locked_until = NULL,
                  last_error = $3
-             WHERE id = $1 AND state = 'running' AND attempts = $2
+             WHERE id = $1 AND state = 'running' AND claim_generation = $2
              RETURNING state, {}, {}",
                 Self::PHOTO_ID,
                 Self::EXPORT_ID
             )))
             .bind(job.id)
-            .bind(attempts_param(job))
+            .bind(job.claim_generation)
             .bind(clean_error(error))
             .bind(backoff.delay(job.attempts).as_secs_f64())
             .fetch_optional(&mut *transaction)
@@ -755,12 +763,12 @@ impl JobRepository<'_> {
         let abandoned_export_id: Option<Option<String>> =
             sqlx::query_scalar(AssertSqlSafe(format!(
                 "UPDATE jobs SET state = 'failed', locked_until = NULL, last_error = $3
-             WHERE id = $1 AND state = 'running' AND attempts = $2
+             WHERE id = $1 AND state = 'running' AND claim_generation = $2
              RETURNING {}",
                 Self::EXPORT_ID
             )))
             .bind(job.id)
-            .bind(attempts_param(job))
+            .bind(job.claim_generation)
             .bind(clean_error(error))
             .fetch_optional(&mut *transaction)
             .await?;
@@ -810,12 +818,13 @@ impl JobRepository<'_> {
         executor: impl PgExecutor<'_>,
         job: &Job,
     ) -> Result<JobCompletion, DatabaseError> {
-        let done =
-            sqlx::query("DELETE FROM jobs WHERE id = $1 AND state = 'running' AND attempts = $2")
-                .bind(job.id)
-                .bind(attempts_param(job))
-                .execute(executor)
-                .await?;
+        let done = sqlx::query(
+            "DELETE FROM jobs WHERE id = $1 AND state = 'running' AND claim_generation = $2",
+        )
+        .bind(job.id)
+        .bind(job.claim_generation)
+        .execute(executor)
+        .await?;
 
         Ok(JobCompletion {
             current: done.rows_affected() == 1,
@@ -851,11 +860,6 @@ impl JobRepository<'_> {
 
         Ok(())
     }
-}
-
-/// `attempts` fits `i32` because it was read from an `integer` column.
-fn attempts_param(job: &Job) -> i32 {
-    i32::try_from(job.attempts).unwrap_or(i32::MAX)
 }
 
 /// PostgreSQL text cannot hold NUL, and an unbounded error would bloat the row.
@@ -1135,6 +1139,23 @@ mod tests {
         assert!(!jobs.renew(&first, LEASE).await.unwrap());
         assert!(!jobs.complete(&first).await.unwrap().is_current());
         assert!(jobs.complete(&second).await.unwrap().is_current());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn manual_retry_never_restores_a_previous_claim(pool: PgPool) {
+        let database = Database::new(pool);
+        let jobs = database.repository::<JobRepository>();
+        let id = enqueue(&database, 1).await;
+        let stale = jobs.claim(KINDS, Duration::ZERO).await.unwrap().unwrap();
+        assert!(jobs.claim(KINDS, LEASE).await.unwrap().is_none());
+        assert!(jobs.retry(id).await.unwrap());
+        let current = jobs.claim(KINDS, LEASE).await.unwrap().unwrap();
+
+        assert!(!jobs.renew(&stale, LEASE).await.unwrap());
+        assert_eq!(jobs.fail(&stale, "late", BACKOFF).await.unwrap(), None);
+        assert!(!jobs.abandon(&stale, "late").await.unwrap());
+        assert!(!jobs.complete(&stale).await.unwrap().is_current());
+        assert!(jobs.complete(&current).await.unwrap().is_current());
     }
 
     #[sqlx::test(migrations = "./migrations")]

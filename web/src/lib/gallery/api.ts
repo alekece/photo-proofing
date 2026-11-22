@@ -27,6 +27,7 @@ export type {
 
 export interface InvitationRecipientInput {
 	email: string;
+	link_id?: string;
 	name?: string | null;
 }
 

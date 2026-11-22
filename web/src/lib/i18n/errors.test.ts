@@ -36,7 +36,7 @@ describe('apiErrorMessage in English', () => {
 			'This gallery has expired. Update its Open until date in Settings first.'
 		);
 		expect(apiErrorMessage(400, 'too_many_recipients')).toBe(
-			'Too many recipients for a single send. Split the list into smaller batches.'
+			'Too many recipients. Remove a recipient or turn off your copy and try again.'
 		);
 		expect(apiErrorMessage(422, 'unknown')).toBe(apiErrorMessage(422));
 		expect(apiErrorMessage(409, 'constructor')).toBe(apiErrorMessage(409));
@@ -73,7 +73,7 @@ describe('apiErrorMessage in French', () => {
 			'Cette galerie est expirée. Mettez d’abord à jour la date Ouverte jusqu’au dans Réglages.'
 		);
 		expect(apiErrorMessage(400, 'too_many_recipients')).toBe(
-			'Trop de destinataires pour un seul envoi. Divisez la liste en plusieurs envois.'
+			'Trop de destinataires. Retirez un destinataire ou décochez l’envoi d’une copie et réessayez.'
 		);
 		expect(apiErrorMessage(418)).toBe('Une erreur s’est produite. Veuillez réessayer.');
 	});

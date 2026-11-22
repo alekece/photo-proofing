@@ -87,7 +87,10 @@ impl SendEmailHandler {
             ShareToken,
             Option<ContactId>,
         ) = match payload.recipient {
-            EmailRecipient::Contact { contact_id } => {
+            EmailRecipient::Contact {
+                contact_id,
+                link_id,
+            } => {
                 let Some(link) = self
                     .database
                     .repository::<ContactRepository>()
@@ -98,9 +101,13 @@ impl SendEmailHandler {
                     return Ok(());
                 };
 
+                if link_id != Some(link.recipient.link_id) {
+                    return Ok(());
+                }
+
                 (
-                    link.contact.email,
-                    Some(link.contact.name.as_str().to_owned()),
+                    link.recipient.contact.email,
+                    Some(link.recipient.contact.name.as_str().to_owned()),
                     link.share_token,
                     Some(contact_id),
                 )
@@ -191,7 +198,7 @@ impl SendEmailHandler {
             from_email: mailer.sender_email().clone(),
             from_name,
             reply_to,
-            to_email,
+            to_email: to_email.clone(),
             to_name,
             subject: payload.subject,
             studio_name: settings.studio_name,
@@ -210,6 +217,16 @@ impl SendEmailHandler {
         };
 
         let message = email.into_message().map_err(HandlerError::failed)?;
+
+        if !self
+            .database
+            .repository::<GalleryRepository>()
+            .invitation_is_current(shared.location, payload.stage, &share_token, &to_email)
+            .await
+            .map_err(HandlerError::failed)?
+        {
+            return Ok(());
+        }
 
         mailer.send(message).await.map_err(HandlerError::failed)?;
 
@@ -272,7 +289,7 @@ mod tests {
 
     async fn email_lines(pool: &PgPool) -> Vec<(Option<ContactId>, i32)> {
         sqlx::query_as(
-            "SELECT contact_id, count FROM activity_events WHERE kind = 'email' ORDER BY id",
+            "SELECT contact_id, count FROM activity_events WHERE kind = 'email' ORDER BY contact_id NULLS LAST",
         )
         .fetch_all(pool)
         .await
@@ -502,6 +519,7 @@ mod tests {
                 &InvitationBatch::new(
                     vec![InvitationContact {
                         email: "alice@example.test".parse::<Email>().unwrap(),
+                        link_id: None,
                         name: None,
                     }],
                     vec!["archive@example.test".parse::<Email>().unwrap()],
@@ -525,7 +543,7 @@ mod tests {
         let general_token = queued.gallery.share_token.unwrap();
         let alice_link = database
             .repository::<ContactRepository>()
-            .find_gallery_link(workspace_id, gallery.id, contacts[0].id)
+            .find_gallery_link(workspace_id, gallery.id, contacts[0].contact.id)
             .await
             .unwrap()
             .unwrap();
@@ -620,22 +638,36 @@ mod tests {
         assert!(decoded_bcc.contains("739104"));
         drop(sent);
 
-        let mut lines = email_lines(&pool).await;
-
-        lines.sort_by_key(|(contact_id, _)| contact_id.is_none());
-        assert_eq!(lines, vec![(Some(contacts[0].id), 1), (None, 1)]);
+        let lines = email_lines(&pool).await;
+        assert_eq!(lines, vec![(Some(contacts[0].contact.id), 1), (None, 1)]);
 
         // A delayed proofing job must not reach SMTP after the gallery moves to finals.
         let delayed = SendEmail {
             workspace_id,
             gallery_id: gallery.id,
             recipient: super::EmailRecipient::Contact {
-                contact_id: contacts[0].id,
+                contact_id: contacts[0].contact.id,
+                link_id: Some(contacts[0].link_id),
             },
             stage: super::InvitationStage::Proofing,
             subject: "Proofs".parse().unwrap(),
             message: "Choose your favorites".parse().unwrap(),
         };
+        let mut preparing = pool.begin().await.unwrap();
+        sqlx::query("LOCK TABLE accounts IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *preparing)
+            .await
+            .unwrap();
+        let sending = tokio::spawn(Arc::clone(&handler).run(delayed));
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            database
+                .repository::<TestRepository>()
+                .wait_for_a_lock_waiter(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         database
             .repository::<GalleryRepository>()
             .queue_invitations(
@@ -644,6 +676,7 @@ mod tests {
                 &InvitationBatch::new(
                     vec![InvitationContact {
                         email: "alice@example.test".parse::<Email>().unwrap(),
+                        link_id: None,
                         name: None,
                     }],
                     vec![],
@@ -659,7 +692,8 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        Arc::clone(&handler).run(delayed).await.unwrap();
+        preparing.commit().await.unwrap();
+        sending.await.unwrap().unwrap();
         assert_eq!(smtp_server.messages.lock().await.len(), 2);
         assert_eq!(email_lines(&pool).await, lines);
 
@@ -726,6 +760,7 @@ mod tests {
                 &InvitationBatch::new(
                     vec![InvitationContact {
                         email: "bob@example.test".parse::<Email>().unwrap(),
+                        link_id: None,
                         name: None,
                     }],
                     vec![],
@@ -784,7 +819,7 @@ mod tests {
             .unwrap();
         database
             .repository::<ContactRepository>()
-            .unlink_gallery(workspace_id, gallery.id, contacts[0].id)
+            .unlink_gallery(workspace_id, gallery.id, contacts[0].contact.id)
             .await
             .unwrap();
         Arc::clone(&handler).run(payload.clone()).await.unwrap();
@@ -793,9 +828,11 @@ mod tests {
         // 4. Re-link contact, then expire gallery -> clean no-op, zero emails sent
         database
             .repository::<ContactRepository>()
-            .link_gallery(workspace_id, gallery.id, contacts[0].id)
+            .link_gallery(workspace_id, gallery.id, contacts[0].contact.id)
             .await
             .unwrap();
+        Arc::clone(&handler).run(payload.clone()).await.unwrap();
+        assert!(smtp_server.messages.lock().await.is_empty());
         database
             .repository::<GalleryRepository>()
             .update(
