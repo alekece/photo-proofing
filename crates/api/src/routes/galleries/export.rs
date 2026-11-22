@@ -8,33 +8,106 @@
 //! events.
 
 use actix_web::{
-    HttpResponse, get, post,
-    web::{Bytes, Data, Path as WebPath, Query, ServiceConfig},
+    FromRequest, HttpMessage, HttpRequest, HttpResponse,
+    dev::Payload,
+    error::JsonPayloadError,
+    get,
+    http::StatusCode,
+    mime, post,
+    web::{Data, JsonBody, Path as WebPath, Query, ServiceConfig},
 };
+use futures_util::future::LocalBoxFuture;
 use pp_core::types::timestamp::Timestamp;
 use pp_database::{
     export::{Export, ExportId, ExportOptions, ExportRepository, ExportRequest},
     gallery::{GalleryId, GalleryRepository},
     photo::{PhotoId, PhotoKind},
 };
-use pp_storage::{ArchiveKey, StorageError};
+use pp_storage::ArchiveKey;
 use serde::{Deserialize, Serialize};
 
 use super::photos::PhotoSet;
 use crate::{
     api::ApiState,
-    error::{ErrorResponse, ExportStatusResponse},
+    error::{ErrorCode, ErrorResponse, ExportStatusResponse},
     extractors::identity::Authenticated,
     response::{Attachment, ResponseBuilderExt},
 };
+
+pub(crate) mod workspace;
 
 /// The name the browser saves the ZIP under, the same for every gallery.
 const DOWNLOAD_NAME: &str = "selection.zip";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ExportSelection {
+struct SelectionBody {
     photo_ids: Vec<PhotoId>,
+}
+
+type RequiredSelection = ExportSelection<Vec<PhotoId>>;
+type OptionalSelection = ExportSelection<Option<Vec<PhotoId>>>;
+
+trait SelectionMode: From<Vec<PhotoId>> {
+    const EMPTY_BODY: Option<Self>;
+}
+
+impl SelectionMode for Vec<PhotoId> {
+    const EMPTY_BODY: Option<Self> = None;
+}
+
+impl SelectionMode for Option<Vec<PhotoId>> {
+    const EMPTY_BODY: Option<Self> = Some(None);
+}
+
+/// Reads a bounded JSON subset. The optional mode accepts only a truly empty body as no subset.
+struct ExportSelection<T, const MIN: usize = 1, const MAX: usize = 1000>(T);
+
+impl<T: SelectionMode + 'static, const MIN: usize, const MAX: usize> FromRequest
+    for ExportSelection<T, MIN, MAX>
+{
+    type Error = ErrorResponse;
+    type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
+
+    fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let allow_empty = T::EMPTY_BODY.is_some();
+        let is_json = !allow_empty
+            || request.mime_type().ok().flatten().is_some_and(|mime| {
+                mime.subtype() == mime::JSON || mime.suffix() == Some(mime::JSON)
+            });
+        let body =
+            JsonBody::<SelectionBody>::new(request, payload, None, !allow_empty).limit(64 * 1024);
+
+        Box::pin(async move {
+            let SelectionBody { photo_ids } = match body.await {
+                Ok(selection) if is_json => selection,
+                // EOF before the first byte, not whitespace or a truncated JSON document.
+                Err(JsonPayloadError::Deserialize(error))
+                    if error.is_eof() && error.line() == 1 && error.column() == 0 =>
+                {
+                    return T::EMPTY_BODY
+                        .map(Self)
+                        .ok_or_else(ErrorResponse::bad_request);
+                }
+                Err(error) if !allow_empty => return Err(error.into()),
+                _ => return Err(ErrorResponse::bad_request()),
+            };
+
+            if !(MIN..=MAX).contains(&photo_ids.len()) {
+                if allow_empty {
+                    return Err(ErrorResponse::bad_request());
+                }
+
+                return Err(ErrorResponse::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    ErrorCode::InvalidRequestBody,
+                )
+                .with_context(format!("expected between {MIN} and {MAX} photo IDs")));
+            }
+
+            Ok(Self(T::from(photo_ids)))
+        })
+    }
 }
 
 /// An export as the photographer's UI receives it.
@@ -70,24 +143,9 @@ async fn request_export(
     Authenticated(identity): Authenticated,
     id: WebPath<GalleryId>,
     set: Query<PhotoSet>,
-    body: Bytes,
+    ExportSelection(selection): OptionalSelection,
 ) -> Result<HttpResponse, ErrorResponse> {
     let gallery_id = id.into_inner();
-    let selection = if body.is_empty() {
-        None
-    } else {
-        if body.len() > 64 * 1024 {
-            return Err(ErrorResponse::bad_request());
-        }
-
-        let selection: ExportSelection =
-            serde_json::from_slice(&body).map_err(|_| ErrorResponse::bad_request())?;
-        if selection.photo_ids.is_empty() || selection.photo_ids.len() > 1000 {
-            return Err(ErrorResponse::bad_request());
-        }
-
-        Some(selection)
-    };
     let outcome = state
         .database()
         .repository_with::<ExportRepository>(ExportOptions {
@@ -100,38 +158,49 @@ async fn request_export(
             state.export_max_size(),
             state.export_retention(),
             PhotoKind::from(*set),
-            selection
-                .as_ref()
-                .map(|selection| selection.photo_ids.as_slice()),
+            selection.as_deref(),
         )
         .await?;
 
-    match outcome {
-        ExportRequest::Created { export, replaced } => {
-            for previous in replaced {
-                let key = ArchiveKey {
-                    workspace: identity.workspace_id,
-                    gallery: gallery_id,
-                    export: previous,
-                };
+    if let ExportRequest::Created { replaced, .. } = &outcome {
+        for previous_export in replaced {
+            let key = ArchiveKey {
+                workspace: identity.workspace_id,
+                gallery: gallery_id,
+                export: *previous_export,
+            };
 
-                if let Err(error) = state.storage().remove_archive(&key).await {
-                    tracing::warn!(%error, "replaced selection ZIP could not be removed");
-                }
+            if let Err(error) = state.storage().remove_archive(&key).await {
+                tracing::warn!(%error, "replaced selection ZIP could not be removed");
             }
-
-            Ok(HttpResponse::Accepted()
-                .no_store()
-                .json(ExportResponse::from(export)))
         }
-        ExportRequest::Reused(export) => Ok(HttpResponse::Ok()
-            .no_store()
-            .json(ExportResponse::from(export))),
-        ExportRequest::InProgress(_) => Err(ErrorResponse::zip_in_progress()),
-        ExportRequest::InvalidSelection => Err(ErrorResponse::bad_request()),
-        ExportRequest::EmptySelection => Err(ErrorResponse::empty_selection()),
-        ExportRequest::TooLarge => Err(ErrorResponse::selection_too_large()),
-        ExportRequest::MissingGallery => Err(ErrorResponse::not_found()),
+    }
+
+    ExportResponse::requested(outcome)
+}
+
+impl ExportResponse {
+    fn requested(outcome: ExportRequest) -> Result<HttpResponse, ErrorResponse> {
+        match outcome {
+            ExportRequest::Created { export, .. } => {
+                Ok(HttpResponse::Accepted().no_store().json(Self::from(export)))
+            }
+            ExportRequest::Reused(export) => Ok(HttpResponse::Ok()
+                .no_store()
+                .json(ExportResponse::from(export))),
+            ExportRequest::InProgress(_) => Err(ErrorResponse::zip_in_progress()),
+            ExportRequest::InvalidSelection => Err(ErrorResponse::bad_request()),
+            ExportRequest::EmptySelection => Err(ErrorResponse::empty_selection()),
+            ExportRequest::TooLarge => Err(ErrorResponse::selection_too_large()),
+            ExportRequest::MissingGallery => Err(ErrorResponse::not_found()),
+        }
+    }
+
+    fn latest(export: Option<Export>) -> HttpResponse {
+        match export {
+            Some(export) => HttpResponse::Ok().no_store().json(Self::from(export)),
+            None => HttpResponse::NoContent().no_store().finish(),
+        }
     }
 }
 
@@ -168,12 +237,7 @@ async fn show_export(
         return Err(ErrorResponse::not_found());
     }
 
-    Ok(match export {
-        Some(export) => HttpResponse::Ok()
-            .no_store()
-            .json(ExportResponse::from(export)),
-        None => HttpResponse::NoContent().no_store().finish(),
-    })
+    Ok(ExportResponse::latest(export))
 }
 
 #[get("/{id}/export/{export_id}/download")]
@@ -205,18 +269,15 @@ async fn download_export(
         gallery: gallery_id,
         export: export_id,
     };
-    let file = match state.storage().read_archive(&key).await {
-        Ok(file) => file,
-        Err(StorageError::NotFound) => return Err(ErrorResponse::not_found()),
-        Err(error) => return Err(error.into()),
-    };
-    Attachment::zip(DOWNLOAD_NAME, file).await
+    Attachment::read_zip(state.storage(), &key, DOWNLOAD_NAME).await
 }
 
 #[cfg(test)]
 mod tests {
+    use actix_http::encoding::Encoder;
     use actix_web::{
-        http::{Method, StatusCode},
+        body,
+        http::{Method, StatusCode, header::ContentEncoding},
         test,
     };
     use pp_core::{config::PhotoDir, types::generate::Generate};
@@ -646,8 +707,13 @@ mod tests {
         let gallery_id = create_gallery(&app, &cookie).await;
         let first = favorite(&pool, &gallery_id, "a.jpg").await;
         favorite(&pool, &gallery_id, "b.jpg").await;
-        let request =
-            post(&gallery_id, &cookie).set_json(serde_json::json!({"photo_ids": [first]}));
+        let payload = serde_json::json!({"photo_ids": [first]}).to_string();
+        let mut response = HttpResponse::Ok().finish();
+        let compressed = Encoder::response(ContentEncoding::Gzip, response.head_mut(), payload);
+        let request = post(&gallery_id, &cookie)
+            .insert_header(("Content-Type", "application/json"))
+            .insert_header(("Content-Encoding", "gzip"))
+            .set_payload(body::to_bytes(compressed).await.unwrap());
         let (status, export) = call(&app, request).await;
 
         assert_eq!(status, StatusCode::ACCEPTED);
@@ -670,6 +736,21 @@ mod tests {
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
         let first = favorite(&pool, &gallery_id, "a.jpg").await;
+
+        for (content_type, payload) in [
+            ("application/json", "{".to_owned()),
+            ("application/json", "\n ".to_owned()),
+            (
+                "text/plain",
+                serde_json::json!({"photo_ids": [first]}).to_string(),
+            ),
+        ] {
+            let request = post(&gallery_id, &cookie)
+                .insert_header(("Content-Type", content_type))
+                .set_payload(payload);
+
+            assert_eq!(call(&app, request).await.0, StatusCode::BAD_REQUEST);
+        }
 
         for ids in [vec![], vec![first, first], vec![PhotoId::generate()]] {
             let (status, _) = call(

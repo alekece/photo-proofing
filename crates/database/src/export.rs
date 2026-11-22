@@ -43,6 +43,8 @@ impl Generate for ExportId {
 /// Who an export is for. Each kind is replaced, expired and kept apart from the other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportKind {
+    /// A private batch from the workspace Photos library.
+    WorkspaceSelection,
     /// The photographer's ZIP of the client's favorites, short-lived.
     Selection,
     /// The photographer's ZIP of ready finals, short-lived and independent of client delivery.
@@ -54,6 +56,7 @@ pub enum ExportKind {
 impl ExportKind {
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
+            Self::WorkspaceSelection => "workspace_selection",
             Self::Selection => "selection",
             Self::FinalSelection => "final_selection",
             Self::Delivery => "delivery",
@@ -177,6 +180,7 @@ pub struct Delivery {
 /// A photo of the snapshot, in archive order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExportPhoto {
+    pub gallery_id: GalleryId,
     pub id: PhotoId,
     pub original_name: String,
 }
@@ -231,6 +235,10 @@ impl<'db> Repository<'db> for ExportRepository<'db> {
 
 impl ExportRepository<'_> {
     const COLUMNS: &'static str = "id, status, photo_count, created_at";
+    const ALL_SOURCES_READY: &'static str = "NOT EXISTS (
+        SELECT FROM export_photos s WHERE s.export_id = exports.id AND NOT EXISTS (
+            SELECT FROM photos p WHERE p.id = s.photo_id
+              AND p.workspace_id = exports.workspace_id AND p.status = 'ready'))";
     const EXPORT_JOBS: &'static str = "payload->>'kind' = 'zip_export'
         AND payload->'payload'->>'export_id'";
 
@@ -525,13 +533,15 @@ impl ExportRepository<'_> {
         let names: Vec<&str> = photos.iter().map(|(_, name, _)| name.as_str()).collect();
 
         sqlx::query(
-            "INSERT INTO export_photos (export_id, photo_id, original_name, position)
-             SELECT $1, photo_id, original_name, position::integer
-             FROM unnest($2::uuid[], $3::text[]) WITH ORDINALITY AS t(photo_id, original_name, position)",
+            "INSERT INTO export_photos (export_id, photo_id, original_name, position, source_gallery_id)
+             SELECT $1, t.photo_id, t.original_name, position::integer, p.gallery_id
+             FROM unnest($2::uuid[], $3::text[]) WITH ORDINALITY AS t(photo_id, original_name, position)
+             LEFT JOIN photos p ON p.id = t.photo_id AND p.workspace_id = $4",
         )
         .bind(id)
         .bind(&ids)
         .bind(&names)
+        .bind(workspace_id)
         .execute(&mut **transaction)
         .await?;
         JobRepository::enqueue_in(
@@ -616,6 +626,146 @@ impl ExportRepository<'_> {
         .await?)
     }
 
+    /// Queues exactly the selected ready originals, independent of gallery and photo kind.
+    pub async fn request_workspace(
+        &self,
+        workspace_id: WorkspaceId,
+        selected: &[PhotoId],
+        max_size: NonZeroU64,
+        retention: Duration,
+    ) -> Result<ExportRequest, DatabaseError> {
+        let mut transaction = self.pool.begin().await?;
+
+        sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR NO KEY UPDATE")
+            .bind(workspace_id)
+            .execute(&mut *transaction)
+            .await?;
+
+        let preparing = sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {} FROM exports WHERE workspace_id = $1 AND kind = 'workspace_selection'
+             AND status ->> 'kind' = 'preparing'",
+            Self::COLUMNS
+        )))
+        .bind(workspace_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+
+        if let Some(export) = preparing {
+            return Ok(ExportRequest::InProgress(export));
+        }
+
+        let rows: Vec<(GalleryId, PhotoId, String, i64)> = sqlx::query_as(
+            "SELECT gallery_id, id, original_name, size FROM photos
+             WHERE workspace_id = $1 AND status = 'ready' AND id = ANY($2)
+             ORDER BY created_at, id FOR SHARE",
+        )
+        .bind(workspace_id)
+        .bind(selected)
+        .fetch_all(&mut *transaction)
+        .await?;
+
+        if rows.len() < 2 || rows.len() != selected.len() {
+            return Ok(ExportRequest::InvalidSelection);
+        }
+
+        let size = rows.iter().try_fold(0_u64, |sum, row| {
+            sum.checked_add(u64::try_from(row.3).ok()?)
+        });
+
+        if size.is_none_or(|size| size > max_size.get()) {
+            return Ok(ExportRequest::TooLarge);
+        }
+
+        let ready = sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {} FROM exports WHERE workspace_id = $1 AND kind = 'workspace_selection'
+               AND NOT superseded AND status ->> 'kind' = 'ready'
+               AND finished_at > now() - $2 * interval '1 second'
+               AND photo_count = cardinality($3::uuid[])
+               AND NOT EXISTS (SELECT FROM export_photos s WHERE s.export_id = exports.id
+                               AND NOT (s.photo_id = ANY($3))) FOR SHARE",
+            Self::COLUMNS
+        )))
+        .bind(workspace_id)
+        .bind(retention.as_secs_f64())
+        .bind(selected)
+        .fetch_optional(&mut *transaction)
+        .await?;
+
+        if let Some(export) = ready {
+            return Ok(ExportRequest::Reused(export));
+        }
+
+        sqlx::query(
+            "UPDATE exports SET superseded = true WHERE workspace_id = $1
+                     AND kind = 'workspace_selection' AND NOT superseded",
+        )
+        .bind(workspace_id)
+        .execute(&mut *transaction)
+        .await?;
+
+        // The archive needs one directory; its entries keep their own source galleries.
+        let gallery_id = rows[0].0;
+        let photos: Vec<_> = rows
+            .into_iter()
+            .map(|(_, id, name, size)| (id, name, size))
+            .collect();
+        let export = self
+            .insert_in(
+                &mut transaction,
+                (workspace_id, gallery_id),
+                ExportKind::WorkspaceSelection,
+                &photos,
+            )
+            .await?;
+
+        transaction.commit().await?;
+
+        Ok(ExportRequest::Created {
+            export,
+            replaced: Vec::new(),
+        })
+    }
+
+    /// Reads the requested private Photos batch while it belongs to this workspace and is unexpired.
+    pub async fn workspace_export(
+        &self,
+        workspace_id: WorkspaceId,
+        id: ExportId,
+        retention: Duration,
+    ) -> Result<Option<Export>, DatabaseError> {
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {} FROM exports WHERE workspace_id = $1 AND id = $3 AND kind = 'workspace_selection'
+             AND NOT superseded AND COALESCE(finished_at, created_at) > now() - $2 * interval '1 second'
+             AND (status ->> 'kind' <> 'ready' OR {})",
+            Self::COLUMNS, Self::ALL_SOURCES_READY
+        )))
+        .bind(workspace_id)
+        .bind(retention.as_secs_f64())
+        .bind(id)
+        .fetch_optional(self.pool)
+        .await?)
+    }
+
+    /// Locates a complete, unexpired private Photos batch belonging to the caller.
+    pub async fn workspace_archive(
+        &self,
+        workspace_id: WorkspaceId,
+        id: ExportId,
+        retention: Duration,
+    ) -> Result<Option<GalleryId>, DatabaseError> {
+        Ok(sqlx::query_scalar(AssertSqlSafe(format!(
+            "SELECT gallery_id FROM exports WHERE id = $1 AND workspace_id = $2
+            AND kind = 'workspace_selection' AND NOT superseded AND status ->> 'kind' = 'ready'
+            AND finished_at > now() - $3 * interval '1 second' AND {}",
+            Self::ALL_SOURCES_READY
+        )))
+        .bind(id)
+        .bind(workspace_id)
+        .bind(retention.as_secs_f64())
+        .fetch_optional(self.pool)
+        .await?)
+    }
+
     /// The snapshot of an export still being prepared; `None` once it finished or was deleted.
     pub async fn plan(&self, id: ExportId) -> Result<Option<ExportPlan>, DatabaseError> {
         let export: Option<(WorkspaceId, GalleryId)> = sqlx::query_as(
@@ -628,15 +778,20 @@ impl ExportRepository<'_> {
         let Some((workspace_id, gallery_id)) = export else {
             return Ok(None);
         };
-        let photos = sqlx::query_as::<_, (PhotoId, String)>(
-            "SELECT photo_id, original_name FROM export_photos
+        let photos = sqlx::query_as::<_, (PhotoId, String, GalleryId)>(
+            "SELECT photo_id, original_name, COALESCE(source_gallery_id, $2) FROM export_photos
              WHERE export_id = $1 ORDER BY position",
         )
         .bind(id)
+        .bind(gallery_id)
         .fetch_all(self.pool)
         .await?
         .into_iter()
-        .map(|(id, original_name)| ExportPhoto { id, original_name })
+        .map(|(id, original_name, gallery_id)| ExportPhoto {
+            id,
+            original_name,
+            gallery_id,
+        })
         .collect();
 
         Ok(Some(ExportPlan {
@@ -788,8 +943,8 @@ impl ExportRepository<'_> {
         let mut transaction = self.pool.begin().await?;
         let expired: Vec<ExpiredExport> = sqlx::query_as(
             "SELECT id, workspace_id, gallery_id FROM exports
-             WHERE kind IN ('selection', 'final_selection')
-               AND COALESCE(finished_at, created_at) <= now() - $1 * interval '1 second'
+             WHERE kind IN ('selection', 'final_selection', 'workspace_selection')
+               AND (superseded OR COALESCE(finished_at, created_at) <= now() - $1 * interval '1 second')
              ORDER BY id FOR UPDATE",
         )
         .bind(retention.as_secs_f64())
