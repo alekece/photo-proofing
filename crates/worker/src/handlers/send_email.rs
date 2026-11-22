@@ -136,6 +136,7 @@ impl SendEmailHandler {
 
         if shared.location.workspace_id != payload.workspace_id
             || shared.location.gallery_id != payload.gallery_id
+            || shared.gallery.delivered != (payload.stage == InvitationStage::Finals)
         {
             return Ok(());
         }
@@ -624,12 +625,17 @@ mod tests {
         lines.sort_by_key(|(contact_id, _)| contact_id.is_none());
         assert_eq!(lines, vec![(Some(contacts[0].id), 1), (None, 1)]);
 
-        // Delivering the gallery switches the invitation stage to Finals and counts ready finals (1).
-        database
-            .repository::<GalleryRepository>()
-            .deliver(workspace_id, gallery.id)
-            .await
-            .unwrap();
+        // A delayed proofing job must not reach SMTP after the gallery moves to finals.
+        let delayed = SendEmail {
+            workspace_id,
+            gallery_id: gallery.id,
+            recipient: super::EmailRecipient::Contact {
+                contact_id: contacts[0].id,
+            },
+            stage: super::InvitationStage::Proofing,
+            subject: "Proofs".parse().unwrap(),
+            message: "Choose your favorites".parse().unwrap(),
+        };
         database
             .repository::<GalleryRepository>()
             .queue_invitations(
@@ -645,12 +651,17 @@ mod tests {
                     "Your finished photos are ready."
                         .parse::<EmailMessage>()
                         .unwrap(),
-                ),
+                )
+                .for_stage(super::InvitationStage::Finals),
                 JobOptions::default(),
             )
             .await
             .unwrap()
             .unwrap();
+
+        Arc::clone(&handler).run(delayed).await.unwrap();
+        assert_eq!(smtp_server.messages.lock().await.len(), 2);
+        assert_eq!(email_lines(&pool).await, lines);
 
         let finals_job = database
             .repository::<JobRepository>()
