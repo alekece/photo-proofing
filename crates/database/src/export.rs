@@ -235,6 +235,10 @@ impl<'db> Repository<'db> for ExportRepository<'db> {
 
 impl ExportRepository<'_> {
     const COLUMNS: &'static str = "id, status, photo_count, created_at";
+    const ALL_SOURCES_READY: &'static str = "NOT EXISTS (
+        SELECT FROM export_photos s WHERE s.export_id = exports.id AND NOT EXISTS (
+            SELECT FROM photos p WHERE p.id = s.photo_id
+              AND p.workspace_id = exports.workspace_id AND p.status = 'ready'))";
     const EXPORT_JOBS: &'static str = "payload->>'kind' = 'zip_export'
         AND payload->'payload'->>'export_id'";
 
@@ -700,8 +704,9 @@ impl ExportRepository<'_> {
     ) -> Result<Option<Export>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM exports WHERE workspace_id = $1 AND id = $3 AND kind = 'workspace_selection'
-             AND COALESCE(finished_at, created_at) > now() - $2 * interval '1 second'",
-            Self::COLUMNS
+             AND COALESCE(finished_at, created_at) > now() - $2 * interval '1 second'
+             AND (status ->> 'kind' <> 'ready' OR {})",
+            Self::COLUMNS, Self::ALL_SOURCES_READY
         )))
         .bind(workspace_id)
         .bind(retention.as_secs_f64())
@@ -717,12 +722,17 @@ impl ExportRepository<'_> {
         id: ExportId,
         retention: Duration,
     ) -> Result<Option<GalleryId>, DatabaseError> {
-        Ok(sqlx::query_scalar("SELECT gallery_id FROM exports WHERE id = $1 AND workspace_id = $2
+        Ok(sqlx::query_scalar(AssertSqlSafe(format!(
+            "SELECT gallery_id FROM exports WHERE id = $1 AND workspace_id = $2
             AND kind = 'workspace_selection' AND status ->> 'kind' = 'ready'
-            AND finished_at > now() - $3 * interval '1 second'
-            AND NOT EXISTS (SELECT FROM export_photos s WHERE s.export_id = exports.id
-              AND NOT EXISTS (SELECT FROM photos p WHERE p.id = s.photo_id AND p.workspace_id = $2 AND p.status = 'ready'))")
-            .bind(id).bind(workspace_id).bind(retention.as_secs_f64()).fetch_optional(self.pool).await?)
+            AND finished_at > now() - $3 * interval '1 second' AND {}",
+            Self::ALL_SOURCES_READY
+        )))
+        .bind(id)
+        .bind(workspace_id)
+        .bind(retention.as_secs_f64())
+        .fetch_optional(self.pool)
+        .await?)
     }
 
     /// The snapshot of an export still being prepared; `None` once it finished or was deleted.

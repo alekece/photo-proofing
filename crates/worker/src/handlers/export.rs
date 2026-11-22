@@ -399,12 +399,50 @@ mod tests {
             .unwrap();
         assert!(
             repository
+                .workspace_export(workspace, export.id, DAY)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            repository
                 .workspace_archive_gallery(workspace, export.id, DAY)
                 .await
                 .unwrap()
                 .is_none()
         );
         assert_eq!(repository.expire(Duration::ZERO).await.unwrap().len(), 1);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn removing_a_preparing_workspace_archive_notifies_the_requester(pool: PgPool) {
+        let fixture = Fixture::new(pool.clone()).await;
+        let ids = [
+            fixture.favorite("a.jpg", true).await,
+            fixture.favorite("b.jpg", true).await,
+        ];
+        let workspace = fixture.location.workspace_id;
+        let result = fixture
+            .database
+            .repository::<ExportRepository>()
+            .request_workspace(workspace, &ids, NonZeroU64::new(10).unwrap())
+            .await
+            .unwrap();
+        assert!(matches!(result, ExportRequest::Created { .. }));
+        let mut listener = sqlx::postgres::PgListener::connect_with(&pool)
+            .await
+            .unwrap();
+        listener.listen("export_events").await.unwrap();
+        sqlx::query("DELETE FROM exports WHERE gallery_id = $1")
+            .bind(fixture.location.gallery_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let event = tokio::time::timeout(Duration::from_secs(2), listener.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(event.payload().contains(&workspace.0.to_string()));
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

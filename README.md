@@ -195,6 +195,10 @@ Upgrade the API, worker and web together, and reopen any sharing dialogs. Older 
 invitations do not identify their original link: any left in the queue are recorded as
 failed and cannot be retried against a possibly different link. Blind copies are unaffected.
 
+For workspace photo ZIPs (`0047`), stop the old workers before the new API accepts
+requests. Older workers cannot read originals from multiple galleries in one job.
+Allow disk space for all ZIPs retained until expiry, not just the one being prepared.
+
 Deployment tooling remains in this repository, but real hostnames, addresses,
 volume mappings, account details, secret-manager identifiers and certificates
 must remain outside Git. This also applies to CI fixtures, documentation, PR/issue
