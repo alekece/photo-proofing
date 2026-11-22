@@ -16,8 +16,9 @@ const sample: Contact = {
 
 describe('gallery contacts API', () => {
 	it('lists, links, and unlinks contacts on a gallery', async () => {
-		const listFetch = vi.fn(async () => Response.json([sample]));
-		expect(await listGalleryContacts('g 1', listFetch)).toEqual([sample]);
+		const linked = { ...sample, link_id: 'link-a' };
+		const listFetch = vi.fn(async () => Response.json([linked]));
+		expect(await listGalleryContacts('g 1', listFetch)).toEqual([linked]);
 		expect(listFetch).toHaveBeenCalledWith(
 			'/api/v1/galleries/g%201/contacts',
 			expect.objectContaining({ method: 'GET', credentials: 'same-origin' })

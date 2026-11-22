@@ -1,7 +1,9 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { LiveEvents } from '#lib/events.js';
+import { ApiError } from '#lib/http.js';
 import {
 	listActivity,
+	retryEmail,
 	type ActivityEvent,
 	type ActivityFilters,
 	type ActivityPage,
@@ -29,6 +31,7 @@ export class ActivityFeed {
 	loading = $state(false);
 	paging = $state<'idle' | 'loading' | 'failed'>('idle');
 	loaded = $state(false);
+	readonly retrying = new SvelteSet<string>();
 	failed = $state(false);
 	filters = $state<ActivityFilters>({});
 	sort = $state<ActivitySort>('newest');
@@ -47,6 +50,25 @@ export class ActivityFeed {
 	constructor({ galleryId, fetcher = fetch }: { galleryId?: string; fetcher?: typeof fetch } = {}) {
 		this.#galleryId = galleryId;
 		this.#fetcher = fetcher;
+	}
+
+	async retry(event: ActivityEvent): Promise<void> {
+		if (!event.can_retry || this.retrying.has(event.id)) return;
+		this.retrying.add(event.id);
+		try {
+			try {
+				await retryEmail(event, this.#fetcher);
+			} catch (error) {
+				if (!(error instanceof ApiError && error.status === 404)) throw error;
+				// The gallery may have expired while its Activity tab was open.
+			}
+			this.events = this.events.map((row) =>
+				row.id === event.id ? { ...row, can_retry: false } : row
+			);
+			await this.refresh();
+		} finally {
+			this.retrying.delete(event.id);
+		}
 	}
 
 	#fetch(cursor?: string, sort = this.sort): Promise<ActivityPage> {

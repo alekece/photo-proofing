@@ -13,6 +13,7 @@ const CODES: Record<string, () => string> = {
 	gallery_archived: m.api_error_gallery_archived,
 	gallery_expired: m.api_error_gallery_expired,
 	too_many_recipients: m.api_error_too_many_recipients,
+	invitation_recipient_changed: m.api_error_invitation_recipient_changed,
 	gallery_delivered: m.api_error_gallery_delivered,
 	contact_email_taken: m.api_error_contact_email_taken,
 	contact_email_changed: m.api_error_contact_email_changed,

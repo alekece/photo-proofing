@@ -94,6 +94,7 @@ describe('deleteGallery', () => {
 
 describe('sendGalleryInvitations', () => {
 	const payload = {
+		stage: 'proofing' as const,
 		to: [{ email: 'camille@example.com', name: 'Camille' }],
 		bcc: ['archive@example.com'],
 		subject: 'Your gallery is ready',

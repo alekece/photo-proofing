@@ -32,13 +32,15 @@
 		readGallery,
 		restoreGallery,
 		shareGallery,
+		sendGalleryInvitations,
 		updateGallery,
+		type Gallery,
 		type GalleryChanges
 	} from '#lib/gallery/api.js';
 	import { goingToRetry } from '#lib/gallery/focus.js';
 	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
-	import { TITLE_MAX } from '#lib/gallery/format.js';
-	import type { ShareAttempt } from '#lib/gallery/types.js';
+	import { defaultInvitationSubject, TITLE_MAX } from '#lib/gallery/format.js';
+	import type { InvitationDraft, ShareAttempt } from '#lib/gallery/types.js';
 	import { ApiError } from '#lib/http.js';
 	import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
 	import type { PageData } from './$types';
@@ -76,6 +78,8 @@
 	let expectedAccessCode = $state<string | null | 'invalid' | undefined>();
 	let accessCodeRevision = 0;
 	let directShareAttempt: ShareAttempt | undefined;
+	let contactsRevision = $state(0);
+	let uncertain = false;
 	let inflight = $state(0);
 	// Attempted values of fields whose last save failed; cleared per field on that field's success.
 	let failed = $state<GalleryChanges>({});
@@ -267,6 +271,17 @@
 		if (accessCodeIntent() !== previous) accessCodeRevision++;
 	}
 
+	async function settleSaves() {
+		flush();
+
+		while (pendingSaves.size > 0) {
+			const outcomes = await Promise.all([...pendingSaves]);
+			if (!isCurrent() || outcomes.includes(false)) return false;
+		}
+
+		return isCurrent();
+	}
+
 	function beginShareAttempt(): ShareAttempt {
 		const code = accessCodeIntent();
 		const revision = accessCodeRevision;
@@ -280,15 +295,7 @@
 		return {
 			isReady,
 			async prepare() {
-				if (!valid()) return false;
-				flush();
-
-				while (pendingSaves.size > 0) {
-					const outcomes = await Promise.all([...pendingSaves]);
-					if (!valid() || outcomes.includes(false)) return false;
-				}
-
-				return isReady();
+				return valid() && (await settleSaves()) && isReady();
 			}
 		};
 	}
@@ -305,26 +312,81 @@
 	}
 
 	/** Creates the client link; awaits any pending setting saves first so access codes lock safely. */
-	async function share() {
-		const attempt = directShareAttempt;
-		if (!attempt || !(await attempt.prepare()) || !attempt.isReady()) {
-			throw new Error(m.gallery_share_failed());
-		}
+	function applyStage(updated: Gallery) {
+		shareToken = updated.share_token;
+		saved = {
+			...saved,
+			share_token: updated.share_token,
+			access_code: updated.access_code,
+			states: updated.states,
+			updated_at: updated.updated_at
+		};
+	}
+
+	async function confirmStage(email: InvitationDraft | undefined) {
+		const sharing = publishing === 'share';
+		const failure = sharing ? m.gallery_share_failed() : m.gallery_deliver_failed();
+		const success = sharing ? m.publish_shared_title() : m.publish_delivered_title();
+		const reconcile = async () => {
+			const fresh = await readGallery(galleryId);
+			if (!isCurrent()) return true;
+			applyStage(fresh);
+			uncertain = false;
+			if (sharing ? !!fresh.share_token : fresh.states.includes('delivered')) {
+				contactsRevision++;
+				toasts.success(success);
+				return true;
+			}
+			return false;
+		};
+
+		if (uncertain && (await reconcile())) return;
+		if (
+			!isCurrent() ||
+			(sharing
+				? !directShareAttempt ||
+					!(await directShareAttempt.prepare()) ||
+					!directShareAttempt.isReady() ||
+					hasFailures
+				: !(await settleSaves()) || !canDeliver() || hasFailures)
+		)
+			throw new Error(failure);
+		if (email && saved.states.includes('expired')) throw new Error(m.api_error_gallery_expired());
+		if (email && !data.settings?.emailEnabled) throw new Error(m.share_smtp_unavailable_title());
 
 		try {
-			const shared = await shareGallery(galleryId);
+			const queued = email
+				? await sendGalleryInvitations(galleryId, {
+						...email,
+						subject: email.subject ?? defaultInvitationSubject(email.stage, saved.title)
+					})
+				: null;
+			const updated = queued
+				? queued.gallery
+				: await (sharing ? shareGallery(galleryId) : deliverGallery(galleryId));
 			if (!isCurrent()) return;
-
-			shareToken = shared.share_token;
-			saved = {
-				...saved,
-				share_token: shared.share_token,
-				access_code: shared.access_code,
-				states: shared.states,
-				updated_at: shared.updated_at
-			};
+			applyStage(updated);
+			if (queued) contactsRevision++;
+			toasts.success(
+				queued
+					? `${success}. ${m.share_invitations_queued({ count: queued.queued_count })}`
+					: success
+			);
 		} catch (error) {
-			await failAction(error, m.gallery_share_failed());
+			if (
+				error instanceof ApiError &&
+				(error.code === 'too_many_recipients' || error.code === 'invitation_recipient_changed')
+			) {
+				throw error;
+			}
+			if (
+				isCurrent() &&
+				(!(error instanceof ApiError) || error.status >= 500 || error.status === 409)
+			) {
+				uncertain = true;
+				if (await reconcile().catch(() => false)) return;
+			}
+			await failAction(error, failure);
 		}
 	}
 	/** Sends the photographer to sign in on a 401; otherwise rethrows with a retryable message. */
@@ -334,19 +396,6 @@
 		}
 
 		throw new Error(message, { cause: error });
-	}
-	async function deliver(): Promise<void> {
-		if (!isCurrent() || !canDeliver()) throw new Error(m.gallery_deliver_failed());
-		flush();
-
-		try {
-			const delivered = await deliverGallery(galleryId);
-			if (!isCurrent()) return;
-
-			saved = { ...saved, states: delivered.states, updated_at: delivered.updated_at };
-		} catch (error) {
-			await failAction(error, m.gallery_deliver_failed());
-		}
 	}
 	function canDeliver() {
 		return (
@@ -417,7 +466,7 @@
 	{shareToken}
 	origin={page.url.origin}
 	settings={data.settings ?? DEFAULT_SETTINGS}
-	uploading={queue?.inFlight(galleryId) ?? 0}
+	{contactsRevision}
 	bind:heroId={saved.hero_id}
 	bind:heroRevision
 	{focalReady}
@@ -428,29 +477,6 @@
 	{cancel}
 	onbeforepreview={flush}
 	onshare={openDirectShare}
-	onstartsend={() => {
-		const attempt = beginShareAttempt();
-		return {
-			isReady: attempt.isReady,
-			async prepare() {
-				const ok = await attempt.prepare();
-				if (isCurrent() && !ok) toasts.error(m.gallery_share_failed());
-				return ok;
-			}
-		};
-	}}
-	oninvitationsent={({ gallery: updated }) => {
-		if (!isCurrent() || updated.id !== galleryId) return;
-
-		shareToken = updated.share_token;
-		saved = {
-			...saved,
-			share_token: updated.share_token,
-			access_code: updated.access_code,
-			states: updated.states,
-			updated_at: updated.updated_at
-		};
-	}}
 	onpublish={() => {
 		if (canDeliver()) publishing = 'deliver';
 	}}
@@ -512,11 +538,14 @@
 {#if publishing}
 	<PublishDialog
 		kind={publishing}
+		gallery={saved}
+		settings={data.settings ?? DEFAULT_SETTINGS}
+		{heroRevision}
 		{galleryId}
 		title={saved.title ?? m.gallery_untitled()}
 		expiresAt={saved.expires_at}
 		uploading={queue?.inFlight(galleryId, publishing === 'deliver' ? 'finals' : 'photos') ?? 0}
-		onconfirm={publishing === 'share' ? share : deliver}
+		onconfirm={confirmStage}
 		onclose={() => {
 			directShareAttempt = undefined;
 			publishing = null;

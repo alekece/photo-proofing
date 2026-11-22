@@ -80,6 +80,31 @@ afterEach(() => {
 describe('ActivityTimeline', () => {
 	useLocale('en');
 
+	it.each([true, false])(
+		'requeues just the failed recipient without resetting the feed (workspace: %s)',
+		async (showGallery) => {
+			const failed = line('failed', { kind: 'email_failed', contact: null, can_retry: true });
+			const kept = line('other');
+			const fetcher = vi.fn(async (_url: string, init?: RequestInit) =>
+				init?.method === 'POST' ? new Response(null, { status: 204 }) : page([], null)
+			);
+			const feed = new ActivityFeed({
+				galleryId: showGallery ? undefined : 'g1',
+				fetcher: fetcher as typeof fetch
+			});
+			feed.events = [failed, kept];
+			feed.loaded = true;
+			render(ActivityTimeline, { feed, showGallery });
+			await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+			expect(
+				fetcher.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url]) => url)
+			).toEqual(['/api/v1/galleries/g1/timeline/failed/retry']);
+			expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+			expect(feed.events.map((e) => e.id)).toContain('other');
+			expect(screen.getByText('An invitation could not be sent.')).toBeTruthy();
+		}
+	);
+
 	it('words each kind, names the client and links the gallery', () => {
 		render(ActivityTimeline, {
 			feed: feedWith([

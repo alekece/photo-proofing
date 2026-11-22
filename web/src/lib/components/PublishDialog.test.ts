@@ -19,7 +19,9 @@ describe('PublishDialog photo set', () => {
 			onclose: () => {}
 		});
 
-		expect(await screen.findByRole('dialog', { name: 'Publish with no photos?' })).toBeTruthy();
+		expect(
+			await screen.findByRole('dialog', { name: 'Deliver with no final photos?' })
+		).toBeTruthy();
 	});
 
 	it.each([
@@ -65,34 +67,15 @@ describe('PublishDialog dismissal', () => {
 		expect(onclose).toHaveBeenCalled();
 	});
 
-	it('ends on Done without offering the link to copy', async () => {
-		render(PublishDialog, { ...props, onclose: () => {} });
+	it('returns to the originating screen without offering the link to copy', async () => {
+		const onclose = vi.fn();
+		render(PublishDialog, { ...props, onclose });
 
 		await userEvent.click(await screen.findByRole('button', { name: 'Share' }));
-		await screen.findByRole('button', { name: 'Done' });
+		expect(onclose).toHaveBeenCalledOnce();
 
 		expect(screen.queryByRole('textbox')).toBeNull();
 		expect(screen.queryByRole('button', { name: /copy/i })).toBeNull();
-	});
-
-	it('closes the success dialog with Done or the corner Close', async () => {
-		const first = vi.fn();
-		const view = render(PublishDialog, { ...props, onclose: first });
-
-		await userEvent.click(await screen.findByRole('button', { name: 'Share' }));
-		await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
-
-		expect(first).toHaveBeenCalled();
-
-		view.unmount();
-
-		const second = vi.fn();
-		render(PublishDialog, { ...props, onclose: second });
-
-		await userEvent.click(await screen.findByRole('button', { name: 'Share' }));
-		await userEvent.click(await screen.findByRole('button', { name: 'Close' }));
-
-		expect(second).toHaveBeenCalled();
 	});
 });
 
@@ -109,8 +92,8 @@ describe('PublishDialog in French', () => {
 			onclose: () => {}
 		});
 
-		expect(await screen.findByRole('dialog', { name: 'Publier 1 photo ?' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Publier' })).toBeTruthy();
+		expect(await screen.findByRole('dialog', { name: 'Livrer 1 photo retouchée ?' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Livrer' })).toBeTruthy();
 		expect(screen.queryByText(/Publish/)).toBeNull();
 	});
 });

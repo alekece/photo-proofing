@@ -9,7 +9,7 @@ use pp_database::{
     auth::AuthRepository,
     contact::{ContactId, ContactRepository},
     gallery::{GalleryRepository, ShareToken},
-    jobs::{EmailRecipient, SendEmail},
+    jobs::{EmailRecipient, Job, SendEmail},
     photo::{PhotoId, PhotoKind, PhotoLocation, PhotoRepository, Watermarked},
     settings::SettingsRepository,
 };
@@ -76,7 +76,7 @@ impl SendEmailHandler {
         }
     }
 
-    pub async fn run(self: Arc<Self>, payload: SendEmail) -> Result<(), HandlerError> {
+    pub async fn run(self: Arc<Self>, job: Job, payload: SendEmail) -> Result<(), HandlerError> {
         let Some(mailer) = &self.mailer else {
             return Err(HandlerError::failed(SendEmailError::SmtpNotConfigured));
         };
@@ -87,7 +87,11 @@ impl SendEmailHandler {
             ShareToken,
             Option<ContactId>,
         ) = match payload.recipient {
-            EmailRecipient::Contact { contact_id } => {
+            EmailRecipient::Contact {
+                contact_id,
+                link_id,
+                email,
+            } => {
                 let Some(link) = self
                     .database
                     .repository::<ContactRepository>()
@@ -98,9 +102,13 @@ impl SendEmailHandler {
                     return Ok(());
                 };
 
+                if link_id != link.recipient.link_id || email != link.recipient.contact.email {
+                    return Ok(());
+                }
+
                 (
-                    link.contact.email,
-                    Some(link.contact.name.as_str().to_owned()),
+                    email,
+                    Some(link.recipient.contact.name.as_str().to_owned()),
                     link.share_token,
                     Some(contact_id),
                 )
@@ -136,6 +144,7 @@ impl SendEmailHandler {
 
         if shared.location.workspace_id != payload.workspace_id
             || shared.location.gallery_id != payload.gallery_id
+            || shared.gallery.delivered != (payload.stage == InvitationStage::Finals)
         {
             return Ok(());
         }
@@ -190,7 +199,7 @@ impl SendEmailHandler {
             from_email: mailer.sender_email().clone(),
             from_name,
             reply_to,
-            to_email,
+            to_email: to_email.clone(),
             to_name,
             subject: payload.subject,
             studio_name: settings.studio_name,
@@ -209,6 +218,22 @@ impl SendEmailHandler {
         };
 
         let message = email.into_message().map_err(HandlerError::failed)?;
+
+        if !self
+            .database
+            .repository::<GalleryRepository>()
+            .invitation_is_current(
+                &job,
+                shared.location,
+                payload.stage,
+                &share_token,
+                &to_email,
+            )
+            .await
+            .map_err(HandlerError::failed)?
+        {
+            return Ok(());
+        }
 
         mailer.send(message).await.map_err(HandlerError::failed)?;
 
@@ -271,7 +296,7 @@ mod tests {
 
     async fn email_lines(pool: &PgPool) -> Vec<(Option<ContactId>, i32)> {
         sqlx::query_as(
-            "SELECT contact_id, count FROM activity_events WHERE kind = 'email' ORDER BY id",
+            "SELECT contact_id, count FROM activity_events WHERE kind = 'email' ORDER BY contact_id NULLS LAST",
         )
         .fetch_all(pool)
         .await
@@ -501,6 +526,7 @@ mod tests {
                 &InvitationBatch::new(
                     vec![InvitationContact {
                         email: "alice@example.test".parse::<Email>().unwrap(),
+                        link_id: None,
                         name: None,
                     }],
                     vec!["archive@example.test".parse::<Email>().unwrap()],
@@ -524,7 +550,7 @@ mod tests {
         let general_token = queued.gallery.share_token.unwrap();
         let alice_link = database
             .repository::<ContactRepository>()
-            .find_gallery_link(workspace_id, gallery.id, contacts[0].id)
+            .find_gallery_link(workspace_id, gallery.id, contacts[0].contact.id)
             .await
             .unwrap()
             .unwrap();
@@ -558,7 +584,10 @@ mod tests {
                 .unwrap()
                 .unwrap();
             let payload: SendEmail = job.payload().unwrap();
-            Arc::clone(&handler).run(payload).await.unwrap();
+            Arc::clone(&handler)
+                .run(job.clone(), payload)
+                .await
+                .unwrap();
             let completion = finalizer.finalize(&job, ()).await.unwrap();
             assert!(completion.is_current());
         }
@@ -619,17 +648,46 @@ mod tests {
         assert!(decoded_bcc.contains("739104"));
         drop(sent);
 
-        let mut lines = email_lines(&pool).await;
+        let lines = email_lines(&pool).await;
+        assert_eq!(lines, vec![(Some(contacts[0].contact.id), 1), (None, 1)]);
 
-        lines.sort_by_key(|(contact_id, _)| contact_id.is_none());
-        assert_eq!(lines, vec![(Some(contacts[0].id), 1), (None, 1)]);
-
-        // Delivering the gallery switches the invitation stage to Finals and counts ready finals (1).
-        database
-            .repository::<GalleryRepository>()
-            .deliver(workspace_id, gallery.id)
+        // A delayed proofing job must not reach SMTP after the gallery moves to finals.
+        let delayed = SendEmail {
+            workspace_id,
+            gallery_id: gallery.id,
+            recipient: super::EmailRecipient::Contact {
+                contact_id: contacts[0].contact.id,
+                link_id: contacts[0].link_id,
+                email: contacts[0].contact.email.clone(),
+            },
+            stage: super::InvitationStage::Proofing,
+            subject: "Proofs".parse().unwrap(),
+            message: "Choose your favorites".parse().unwrap(),
+        };
+        let jobs = database.repository::<JobRepository>();
+        jobs.enqueue(delayed.clone(), JobOptions::default().max_attempts)
             .await
             .unwrap();
+        let delayed_job = jobs
+            .claim(&[JobKind::SendEmail], Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap();
+        let mut preparing = pool.begin().await.unwrap();
+        sqlx::query("LOCK TABLE accounts IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *preparing)
+            .await
+            .unwrap();
+        let sending = tokio::spawn(Arc::clone(&handler).run(delayed_job.clone(), delayed));
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            database
+                .repository::<TestRepository>()
+                .wait_for_a_lock_waiter(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         database
             .repository::<GalleryRepository>()
             .queue_invitations(
@@ -638,6 +696,7 @@ mod tests {
                 &InvitationBatch::new(
                     vec![InvitationContact {
                         email: "alice@example.test".parse::<Email>().unwrap(),
+                        link_id: None,
                         name: None,
                     }],
                     vec![],
@@ -645,12 +704,19 @@ mod tests {
                     "Your finished photos are ready."
                         .parse::<EmailMessage>()
                         .unwrap(),
-                ),
+                )
+                .for_stage(super::InvitationStage::Finals),
                 JobOptions::default(),
             )
             .await
             .unwrap()
             .unwrap();
+
+        preparing.commit().await.unwrap();
+        sending.await.unwrap().unwrap();
+        assert_eq!(smtp_server.messages.lock().await.len(), 2);
+        assert_eq!(email_lines(&pool).await, lines);
+        assert!(jobs.complete(&delayed_job).await.unwrap().is_current());
 
         let finals_job = database
             .repository::<JobRepository>()
@@ -659,7 +725,10 @@ mod tests {
             .unwrap()
             .unwrap();
         let finals_payload: SendEmail = finals_job.payload().unwrap();
-        Arc::clone(&handler).run(finals_payload).await.unwrap();
+        Arc::clone(&handler)
+            .run(finals_job.clone(), finals_payload)
+            .await
+            .unwrap();
         let completion = finalizer.finalize(&finals_job, ()).await.unwrap();
         assert!(completion.is_current());
 
@@ -715,6 +784,7 @@ mod tests {
                 &InvitationBatch::new(
                     vec![InvitationContact {
                         email: "bob@example.test".parse::<Email>().unwrap(),
+                        link_id: None,
                         name: None,
                     }],
                     vec![],
@@ -743,7 +813,7 @@ mod tests {
             None,
             ActivityOptions::default(),
         ));
-        assert!(no_smtp.run(payload.clone()).await.is_err());
+        assert!(no_smtp.run(job.clone(), payload.clone()).await.is_err());
 
         let mailer = SmtpMailer::new(&SmtpSettings {
             host: "127.0.0.1".to_owned(),
@@ -764,27 +834,84 @@ mod tests {
             ActivityOptions::default(),
         ));
 
-        // 2. Unlinked contact -> clean no-op, zero emails sent
+        let jobs = database.repository::<JobRepository>();
+        let mut preparing = pool.begin().await.unwrap();
+        sqlx::query("LOCK TABLE accounts IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *preparing)
+            .await
+            .unwrap();
+        let sending = tokio::spawn(Arc::clone(&handler).run(job.clone(), payload.clone()));
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            database
+                .repository::<TestRepository>()
+                .wait_for_a_lock_waiter(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        jobs.abandon(&job, "expired claim").await.unwrap();
+        assert!(jobs.retry(job.id).await.unwrap());
+        let job = jobs
+            .claim(&[JobKind::SendEmail], Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(job.attempts, 1);
+        preparing.commit().await.unwrap();
+        sending.await.unwrap().unwrap();
+        assert!(
+            smtp_server.messages.lock().await.is_empty(),
+            "a superseded claim must not send"
+        );
+
         let contacts = database
             .repository::<ContactRepository>()
             .list_for_gallery(workspace_id, gallery.id)
             .await
             .unwrap()
             .unwrap();
-        database
-            .repository::<ContactRepository>()
-            .unlink_gallery(workspace_id, gallery.id, contacts[0].id)
+        let contact = contacts[0].contact.id;
+        sqlx::query("UPDATE contacts SET email='replacement@example.test' WHERE id=$1")
+            .bind(contact)
+            .execute(&pool)
             .await
             .unwrap();
-        Arc::clone(&handler).run(payload.clone()).await.unwrap();
+        Arc::clone(&handler)
+            .run(job.clone(), payload.clone())
+            .await
+            .unwrap();
+        assert!(
+            smtp_server.messages.lock().await.is_empty(),
+            "a new mailbox was not confirmed"
+        );
+        sqlx::query("UPDATE contacts SET email='bob@example.test' WHERE id=$1")
+            .bind(contact)
+            .execute(&pool)
+            .await
+            .unwrap();
+        database
+            .repository::<ContactRepository>()
+            .unlink_gallery(workspace_id, gallery.id, contacts[0].contact.id)
+            .await
+            .unwrap();
+        Arc::clone(&handler)
+            .run(job.clone(), payload.clone())
+            .await
+            .unwrap();
         assert!(smtp_server.messages.lock().await.is_empty());
 
         // 4. Re-link contact, then expire gallery -> clean no-op, zero emails sent
         database
             .repository::<ContactRepository>()
-            .link_gallery(workspace_id, gallery.id, contacts[0].id)
+            .link_gallery(workspace_id, gallery.id, contacts[0].contact.id)
             .await
             .unwrap();
+        Arc::clone(&handler)
+            .run(job.clone(), payload.clone())
+            .await
+            .unwrap();
+        assert!(smtp_server.messages.lock().await.is_empty());
         database
             .repository::<GalleryRepository>()
             .update(
@@ -799,7 +926,7 @@ mod tests {
             )
             .await
             .unwrap();
-        Arc::clone(&handler).run(payload).await.unwrap();
+        Arc::clone(&handler).run(job, payload).await.unwrap();
         assert!(smtp_server.messages.lock().await.is_empty());
         assert!(email_lines(&pool).await.is_empty());
     }

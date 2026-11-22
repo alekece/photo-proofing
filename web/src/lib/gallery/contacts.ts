@@ -1,14 +1,18 @@
-import { contactListSchema, contactSchema, type Contact } from '#lib/contacts/api.js';
+import * as v from 'valibot';
+import { contactSchema, type Contact } from '#lib/contacts/api.js';
 import { requestEmpty, requestJson } from '#lib/http.js';
+
+const linkedContactSchema = v.object({ ...contactSchema.entries, link_id: v.string() });
+export type LinkedContact = v.InferOutput<typeof linkedContactSchema>;
 
 export function listGalleryContacts(
 	galleryId: string,
 	fetcher: typeof fetch = fetch
-): Promise<Contact[]> {
+): Promise<LinkedContact[]> {
 	return requestJson(
 		`/api/v1/galleries/${encodeURIComponent(galleryId)}/contacts`,
 		{ method: 'GET' },
-		contactListSchema,
+		v.array(linkedContactSchema),
 		fetcher
 	);
 }

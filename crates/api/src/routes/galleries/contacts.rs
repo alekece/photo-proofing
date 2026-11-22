@@ -62,7 +62,7 @@ async fn link_contact(
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
-    Ok(HttpResponse::Ok().no_store().json(linked.contact))
+    Ok(HttpResponse::Ok().no_store().json(linked.recipient))
 }
 
 #[delete("/{id}/contacts/{contact_id}")]

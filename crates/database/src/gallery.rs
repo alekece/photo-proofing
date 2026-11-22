@@ -31,7 +31,7 @@ use crate::{
     auth::WorkspaceId,
     contact::{ContactName, ContactNameExt, ContactRepository},
     error::{DatabaseError, UniqueViolation},
-    jobs::{EmailRecipient, InvitationStage, JobOptions, JobRepository, SendEmail},
+    jobs::{EmailRecipient, InvitationStage, Job, JobOptions, JobRepository, SendEmail},
     patch::Present,
     photo::{PhotoId, PhotoLocation},
 };
@@ -100,6 +100,10 @@ pub enum InvitationError {
     Archived,
     #[error("expired galleries cannot send invitations")]
     Expired,
+    #[error("the gallery is no longer at the requested stage")]
+    StageConflict,
+    #[error("a selected gallery contact or address has changed")]
+    RecipientChanged,
     #[error(transparent)]
     Database(#[from] DatabaseError),
 }
@@ -111,6 +115,8 @@ pub use pp_core::types::studio::{FocalCoordinate, FocalPoint};
 #[serde(deny_unknown_fields)]
 pub struct InvitationContact {
     pub email: Email,
+    /// Present for a prefilled gallery contact; an explicit new address has no association yet.
+    pub link_id: Option<Uuid>,
     #[serde(default)]
     pub name: Option<ContactName>,
 }
@@ -118,6 +124,9 @@ pub struct InvitationContact {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InvitationBatchWire {
+    stage: Option<InvitationStage>,
+    #[serde(default)]
+    copy_self: bool,
     #[serde(default)]
     to: Vec<InvitationContact>,
     #[serde(default)]
@@ -133,6 +142,8 @@ struct InvitationBatchWire {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(from = "InvitationBatchWire")]
 pub struct InvitationBatch {
+    pub stage: InvitationStage,
+    pub copy_self: bool,
     to: Vec<InvitationContact>,
     bcc: Vec<Email>,
     pub subject: EmailSubject,
@@ -155,6 +166,8 @@ impl InvitationBatch {
         bcc.retain(|email| seen.insert(email.clone()));
 
         Self {
+            stage: InvitationStage::Proofing,
+            copy_self: false,
             to,
             bcc,
             subject,
@@ -181,11 +194,28 @@ impl InvitationBatch {
     pub fn recipient_count(&self) -> usize {
         self.to.len() + self.bcc.len()
     }
+
+    /// Includes a private copy unless this address already has a message in the batch.
+    pub fn include_copy(&mut self, email: Email) {
+        if !self.to.iter().any(|contact| contact.email == email) && !self.bcc.contains(&email) {
+            self.bcc.push(email);
+        }
+    }
+
+    #[must_use]
+    pub fn for_stage(mut self, stage: InvitationStage) -> Self {
+        self.stage = stage;
+        self
+    }
 }
 
 impl From<InvitationBatchWire> for InvitationBatch {
     fn from(wire: InvitationBatchWire) -> Self {
-        Self::new(wire.to, wire.bcc, wire.subject, wire.message)
+        Self {
+            stage: wire.stage.unwrap_or(InvitationStage::Proofing),
+            copy_self: wire.copy_self,
+            ..Self::new(wire.to, wire.bcc, wire.subject, wire.message)
+        }
     }
 }
 
@@ -274,6 +304,12 @@ pub enum Delivery {
     /// The gallery is not shared yet, or is archived.
     NotDeliverable,
     NotFound,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DeliveryIntent {
+    Manual,
+    Announce,
 }
 
 /// Where a gallery stands. Exactly one of `Draft`, `Shared` and `Delivered` always applies;
@@ -708,11 +744,26 @@ impl GalleryRepository<'_> {
         id: GalleryId,
     ) -> Result<Delivery, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
+        let delivery =
+            Self::deliver_in(&mut transaction, workspace_id, id, DeliveryIntent::Manual).await?;
 
+        if matches!(delivery, Delivery::Delivered(_)) {
+            transaction.commit().await?;
+        }
+
+        Ok(delivery)
+    }
+
+    async fn deliver_in(
+        transaction: &mut Transaction<'_, Postgres>,
+        workspace_id: WorkspaceId,
+        id: GalleryId,
+        intent: DeliveryIntent,
+    ) -> Result<Delivery, DatabaseError> {
         // Exclude settings saves and upload/retry admission, not activity's FK check.
         sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR NO KEY UPDATE")
             .bind(workspace_id)
-            .fetch_optional(&mut *transaction)
+            .fetch_optional(&mut **transaction)
             .await?;
 
         let stage: Option<(bool, bool)> = sqlx::query_as(
@@ -721,9 +772,12 @@ impl GalleryRepository<'_> {
         )
         .bind(id)
         .bind(workspace_id)
-        .fetch_optional(&mut *transaction)
+        .fetch_optional(&mut **transaction)
         .await?;
         let first_delivery = match stage {
+            Some((true, false)) if intent == DeliveryIntent::Announce => {
+                return Ok(Delivery::NotDeliverable);
+            }
             Some((true, first_delivery)) => first_delivery,
             Some((false, _)) => return Ok(Delivery::NotDeliverable),
             None => return Ok(Delivery::NotFound),
@@ -736,12 +790,12 @@ impl GalleryRepository<'_> {
             )
             .bind(workspace_id)
             .bind(id)
-            .fetch_all(&mut *transaction)
+            .fetch_all(&mut **transaction)
             .await?;
 
             if !photos.is_empty() {
                 // Like deletion, lock jobs before the gallery and photos so publication may finish.
-                JobRepository::delete_photo_jobs_in(&mut transaction, &photos).await?;
+                JobRepository::delete_photo_jobs_in(transaction, &photos).await?;
             }
         }
 
@@ -753,13 +807,12 @@ impl GalleryRepository<'_> {
         )))
         .bind(id)
         .bind(workspace_id)
-        .fetch_optional(&mut *transaction)
+        .fetch_optional(&mut **transaction)
         .await?;
 
         let Some(gallery) = delivered else {
             // An archive or delete may have won after checking eligibility. Do not lose jobs.
-            let exists = Self::exists_in_workspace(&mut *transaction, workspace_id, id).await?;
-            transaction.rollback().await?;
+            let exists = Self::exists_in_workspace(&mut **transaction, workspace_id, id).await?;
 
             return Ok(if exists {
                 Delivery::NotDeliverable
@@ -776,11 +829,9 @@ impl GalleryRepository<'_> {
             )
             .bind(workspace_id)
             .bind(id)
-            .execute(&mut *transaction)
+            .execute(&mut **transaction)
             .await?;
         }
-
-        transaction.commit().await?;
 
         Ok(Delivery::Delivered(Box::new(gallery)))
     }
@@ -863,7 +914,7 @@ impl GalleryRepository<'_> {
         &self,
         workspace_id: WorkspaceId,
         id: GalleryId,
-    ) -> Result<Option<Gallery>, DatabaseError> {
+    ) -> Result<Option<Gallery>, InvitationError> {
         self.share_with(workspace_id, id, ShareToken::generate)
             .await
     }
@@ -873,25 +924,26 @@ impl GalleryRepository<'_> {
         workspace_id: WorkspaceId,
         id: GalleryId,
         next_token: impl FnMut() -> ShareToken,
-    ) -> Result<Option<Gallery>, DatabaseError> {
-        ShareToken::retry_on_collision(
-            UniqueViolation::GalleryShareToken,
-            next_token,
-            |candidate| async move {
-                if let Some(gallery) =
-                    Self::assign_share_token(self.pool, workspace_id, id, &candidate).await?
-                {
-                    return Ok(TokenAttempt::Done(Some(gallery)));
-                }
-
-                if !Self::exists_in_workspace(self.pool, workspace_id, id).await? {
-                    return Ok(TokenAttempt::Done(None));
-                }
-
-                Ok(TokenAttempt::Collision)
-            },
+    ) -> Result<Option<Gallery>, InvitationError> {
+        let mut tx = self.pool.begin().await.map_err(DatabaseError::from)?;
+        let archived: Option<bool> = sqlx::query_scalar(
+            "SELECT archived_at IS NOT NULL FROM galleries WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
         )
-        .await
+        .bind(id)
+        .bind(workspace_id)
+        .fetch_optional(&mut *tx)
+        .await.map_err(DatabaseError::from)?;
+
+        match archived {
+            None => return Ok(None),
+            Some(true) => return Err(InvitationError::Archived),
+            Some(false) => (),
+        }
+
+        let gallery = Self::share_in(&mut tx, workspace_id, id, next_token).await?;
+        tx.commit().await.map_err(DatabaseError::from)?;
+
+        Ok(gallery)
     }
 
     pub(crate) async fn share_in(
@@ -921,13 +973,8 @@ impl GalleryRepository<'_> {
         .await
     }
 
-    /// Atomically publishes a draft gallery if needed, upserts and links primary `To` contacts,
-    /// deduplicates recipients across `To` and `BCC` (`To` wins), and enqueues one
-    /// [`SendEmail`] job per unique recipient.
-    ///
-    /// Returns `Ok(None)` when `gallery_id` does not exist in `workspace_id`, or
-    /// [`InvitationError::Archived`] / [`InvitationError::Expired`] without modifying the
-    /// gallery or enqueuing jobs.
+    /// Shares a draft or delivers a shared gallery, links primary contacts, and queues one email
+    /// per recipient in one transaction. A completed stage cannot be announced again.
     pub async fn queue_invitations(
         &self,
         workspace_id: WorkspaceId,
@@ -936,80 +983,97 @@ impl GalleryRepository<'_> {
         job_options: JobOptions,
     ) -> Result<Option<QueuedInvitations>, InvitationError> {
         let mut tx = self.pool.begin().await.map_err(DatabaseError::from)?;
-        let state_row = sqlx::query(
-            "SELECT archived_at IS NOT NULL AS archived,
-                    (expires_at IS NOT NULL AND expires_at < (now() AT TIME ZONE 'UTC')::date) AS expired,
-                    delivered_at IS NOT NULL AS delivered
-             FROM galleries
-             WHERE id = $1 AND workspace_id = $2
-             FOR UPDATE",
-        )
-        .bind(gallery_id)
-        .bind(workspace_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(DatabaseError::from)?;
+        let stage = batch.stage;
+        let gallery = match stage {
+            InvitationStage::Proofing => {
+                let state: Option<(bool, bool, bool)> = sqlx::query_as(
+                    "SELECT archived_at IS NOT NULL,
+                            COALESCE(expires_at < (now() AT TIME ZONE 'UTC')::date, false),
+                            shared_at IS NOT NULL
+                     FROM galleries WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
+                )
+                .bind(gallery_id)
+                .bind(workspace_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(DatabaseError::from)?;
 
-        let Some(state_row) = state_row else {
-            tx.rollback().await.map_err(DatabaseError::from)?;
+                match state {
+                    None => return Ok(None),
+                    Some((true, _, _)) => return Err(InvitationError::Archived),
+                    Some((_, true, _)) => return Err(InvitationError::Expired),
+                    Some((_, _, true)) => return Err(InvitationError::StageConflict),
+                    Some((false, false, false)) => (),
+                }
 
-            return Ok(None);
-        };
+                let Some(gallery) =
+                    Self::share_in(&mut tx, workspace_id, gallery_id, ShareToken::generate).await?
+                else {
+                    return Ok(None);
+                };
 
-        let archived: bool = state_row.try_get("archived").map_err(DatabaseError::from)?;
-
-        if archived {
-            tx.rollback().await.map_err(DatabaseError::from)?;
-
-            return Err(InvitationError::Archived);
-        }
-
-        let expired: bool = state_row.try_get("expired").map_err(DatabaseError::from)?;
-
-        if expired {
-            tx.rollback().await.map_err(DatabaseError::from)?;
-
-            return Err(InvitationError::Expired);
-        }
-
-        let delivered: bool = state_row
-            .try_get("delivered")
-            .map_err(DatabaseError::from)?;
-        let stage = if delivered {
-            InvitationStage::Finals
-        } else {
-            InvitationStage::Proofing
-        };
-
-        let Some(gallery) =
-            Self::share_in(&mut tx, workspace_id, gallery_id, ShareToken::generate).await?
-        else {
-            tx.rollback().await.map_err(DatabaseError::from)?;
-
-            return Ok(None);
+                gallery
+            }
+            InvitationStage::Finals => {
+                match Self::deliver_in(&mut tx, workspace_id, gallery_id, DeliveryIntent::Announce)
+                    .await?
+                {
+                    Delivery::Delivered(gallery)
+                        if gallery.states.contains(&GalleryState::Expired) =>
+                    {
+                        return Err(InvitationError::Expired);
+                    }
+                    Delivery::Delivered(gallery) => *gallery,
+                    Delivery::NotFound => return Ok(None),
+                    Delivery::NotDeliverable => return Err(InvitationError::StageConflict),
+                }
+            }
         };
 
         for recipient in &batch.to {
-            let fallback = recipient
-                .name
-                .clone()
-                .unwrap_or_else(|| ContactName::from_email_local_part(&recipient.email));
-            let contact_id = ContactRepository::upsert_and_link_in(
-                &mut tx,
-                workspace_id,
-                gallery_id,
-                &recipient.email,
-                &fallback,
-                ShareToken::generate,
-            )
-            .await?;
+            let (contact_id, link_id) = if let Some(link_id) = recipient.link_id {
+                let contact_id = sqlx::query_scalar(
+                    "SELECT c.id FROM gallery_contacts gc JOIN contacts c ON c.id = gc.contact_id
+                     WHERE gc.link_id=$1 AND gc.gallery_id=$2 AND c.workspace_id=$3 AND c.email=$4
+                     FOR SHARE OF c, gc",
+                )
+                .bind(link_id)
+                .bind(gallery_id)
+                .bind(workspace_id)
+                .bind(&recipient.email)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(DatabaseError::from)?
+                .ok_or(InvitationError::RecipientChanged)?;
+
+                (contact_id, link_id)
+            } else {
+                let fallback = recipient
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| ContactName::from_email_local_part(&recipient.email));
+
+                ContactRepository::upsert_and_link_in(
+                    &mut tx,
+                    workspace_id,
+                    gallery_id,
+                    &recipient.email,
+                    &fallback,
+                    ShareToken::generate,
+                )
+                .await?
+            };
 
             JobRepository::enqueue_in(
                 &mut tx,
                 SendEmail {
                     workspace_id,
                     gallery_id,
-                    recipient: EmailRecipient::Contact { contact_id },
+                    recipient: EmailRecipient::Contact {
+                        contact_id,
+                        link_id,
+                        email: recipient.email.clone(),
+                    },
                     stage,
                     subject: batch.subject.clone(),
                     message: batch.message.clone(),
@@ -1092,6 +1156,36 @@ impl GalleryRepository<'_> {
         )
         .bind(token)
         .fetch_optional(self.pool)
+        .await?)
+    }
+
+    /// Checks the claim, stage, link and destination of a prepared invitation just before sending.
+    pub async fn invitation_is_current(
+        &self,
+        job: &Job,
+        location: PhotoLocation,
+        stage: InvitationStage,
+        token: &ShareToken,
+        email: &Email,
+    ) -> Result<bool, DatabaseError> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS (SELECT FROM galleries g
+             WHERE g.id=$1 AND g.workspace_id=$2 AND g.archived_at IS NULL AND g.shared_at IS NOT NULL
+               AND EXISTS (SELECT FROM jobs WHERE id=$6 AND claim_generation=$7 AND state='running')
+               AND (g.expires_at IS NULL OR g.expires_at >= (now() AT TIME ZONE 'UTC')::date)
+               AND (g.delivered_at IS NOT NULL) = $3
+               AND (g.share_token=$4 OR EXISTS (SELECT FROM gallery_contacts gc
+                    JOIN contacts c ON c.id=gc.contact_id AND c.workspace_id=g.workspace_id
+                    WHERE gc.gallery_id=g.id AND gc.share_token=$4 AND c.email=$5)))",
+        )
+        .bind(location.gallery_id)
+        .bind(location.workspace_id)
+        .bind(stage == InvitationStage::Finals)
+        .bind(token)
+        .bind(email)
+        .bind(job.id)
+        .bind(job.claim_generation)
+        .fetch_one(self.pool)
         .await?)
     }
 
@@ -2167,6 +2261,26 @@ mod tests {
             .collect();
 
         assert!(tokens.windows(2).all(|pair| pair[0] == pair[1]));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn archived_draft_is_not_shared_manually(pool: PgPool) {
+        let db = Database::new(pool.clone());
+        let galleries = db.repository::<GalleryRepository>();
+        let owner = workspace(&pool).await;
+        let id = galleries.create(owner).await.unwrap().id;
+        galleries.archive(owner, id).await.unwrap();
+
+        assert!(galleries.share(owner, id).await.is_err());
+        assert!(
+            galleries
+                .get(owner, id)
+                .await
+                .unwrap()
+                .unwrap()
+                .share_token
+                .is_none()
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -3607,14 +3721,17 @@ mod tests {
             vec![
                 InvitationContact {
                     email: "Camille@Example.test".parse().unwrap(),
+                    link_id: None,
                     name: None,
                 },
                 InvitationContact {
                     email: "claire.dupont@example.test".parse().unwrap(),
+                    link_id: None,
                     name: None,
                 },
                 InvitationContact {
                     email: "camille@example.test".parse().unwrap(),
+                    link_id: None,
                     name: Some("Ignored Duplicate".parse().unwrap()),
                 },
             ],
@@ -3722,10 +3839,22 @@ mod tests {
             recipients,
             vec![
                 EmailRecipient::Contact {
-                    contact_id: existing_contact.id
+                    contact_id: existing_contact.id,
+                    email: existing_contact.email.clone(),
+                    link_id: linked
+                        .iter()
+                        .find(|c| c.contact.id == existing_contact.id)
+                        .unwrap()
+                        .link_id,
                 },
                 EmailRecipient::Contact {
-                    contact_id: claire.id
+                    contact_id: claire.id,
+                    email: claire.email.clone(),
+                    link_id: linked
+                        .iter()
+                        .find(|c| c.contact.id == claire.id)
+                        .unwrap()
+                        .link_id,
                 },
                 EmailRecipient::Bcc {
                     email: "planner@example.test".parse().unwrap()
@@ -3733,24 +3862,55 @@ mod tests {
             ]
         );
 
-        // Delivered gallery queues `InvitationStage::Finals`.
-        galleries.deliver(workspace, draft.id).await.unwrap();
-        let finals_queued = galleries
-            .queue_invitations(
-                workspace,
-                draft.id,
-                &InvitationBatch::new(
-                    vec![],
-                    vec!["family@example.test".parse().unwrap()],
-                    "Final photos".parse().unwrap(),
-                    "Enjoy!".parse().unwrap(),
-                ),
-                JobOptions::default(),
+        let finals = InvitationBatch {
+            stage: InvitationStage::Finals,
+            ..InvitationBatch::new(
+                vec![],
+                vec!["family@example.test".parse().unwrap()],
+                "Final photos".parse().unwrap(),
+                "Enjoy!".parse().unwrap(),
             )
+        };
+        let announce =
+            || galleries.queue_invitations(workspace, draft.id, &finals, JobOptions::default());
+
+        sqlx::query(
+            "ALTER TABLE jobs ADD CONSTRAINT reject_mail CHECK (payload->>'kind' <> 'send_email')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(matches!(
+            announce().await,
+            Err(InvitationError::Database(_))
+        ));
+        assert!(
+            galleries
+                .get(workspace, draft.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .states
+                .contains(&GalleryState::Shared)
+        );
+        sqlx::query("ALTER TABLE jobs DROP CONSTRAINT reject_mail")
+            .execute(&pool)
             .await
-            .unwrap()
             .unwrap();
+
+        let (first, second) = tokio::join!(announce(), announce());
+        let finals_queued = match (first, second) {
+            (Ok(Some(queued)), Err(InvitationError::StageConflict))
+            | (Err(InvitationError::StageConflict), Ok(Some(queued))) => queued,
+            _ => panic!("exactly one delivery must succeed"),
+        };
         assert_eq!(finals_queued.queued_count, 1);
+        assert!(
+            finals_queued
+                .gallery
+                .states
+                .contains(&GalleryState::Delivered)
+        );
 
         let finals_job = jobs
             .claim(&[JobKind::SendEmail], Duration::from_secs(30))
@@ -3899,10 +4059,12 @@ mod tests {
             &[
                 InvitationContact {
                     email: "camille@example.test".parse().unwrap(),
+                    link_id: None,
                     name: Some("Camille".parse().unwrap()),
                 },
                 InvitationContact {
                     email: "hugo@example.test".parse().unwrap(),
+                    link_id: None,
                     name: None,
                 },
             ]

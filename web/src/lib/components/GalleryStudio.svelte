@@ -1,14 +1,6 @@
 <script module lang="ts">
 	export type StudioSection =
-		| 'photos'
-		| 'favorites'
-		| 'comments'
-		| 'final'
-		| 'activity'
-		| 'design'
-		| 'share'
-		| 'contacts'
-		| 'settings';
+		'photos' | 'favorites' | 'comments' | 'final' | 'activity' | 'design' | 'contacts' | 'settings';
 </script>
 
 <script lang="ts">
@@ -21,12 +13,11 @@
 		Image as ImageIcon,
 		MessageSquare,
 		Palette,
-		Send,
 		SlidersHorizontal,
 		Star,
 		Users
 	} from '@lucide/svelte';
-	import { tick, type Component, type Snippet } from 'svelte';
+	import type { Component, Snippet } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import CommentsPanel from '#lib/components/CommentsPanel.svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
@@ -36,16 +27,13 @@
 	import GalleryContactsPanel from '#lib/components/GalleryContactsPanel.svelte';
 	import GalleryDesignPanel from '#lib/components/GalleryDesignPanel.svelte';
 	import GallerySettingsPanel from '#lib/components/GallerySettingsPanel.svelte';
-	import GallerySharePanel from '#lib/components/GallerySharePanel.svelte';
 	import PhotosPanel from '#lib/components/PhotosPanel.svelte';
 	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
-	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
-	import type { FocalPoint, Gallery, GalleryChanges, QueuedInvitations } from '#lib/gallery/api.js';
+	import type { FocalPoint, Gallery, GalleryChanges } from '#lib/gallery/api.js';
 	import { getGalleryGridReturn } from '#lib/gallery/dashboardNavigation.svelte.js';
 	import { formatDateTime, formatLongDate, galleryStatus } from '#lib/gallery/format.js';
 	import { previewUrl } from '#lib/gallery/photos.js';
 	import { DEFAULT_FOCAL_POINT } from '#lib/gallery/schemas.js';
-	import type { ShareAttempt } from '#lib/gallery/types.js';
 	import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
 
 	type NavItem = {
@@ -63,7 +51,7 @@
 		shareToken,
 		origin,
 		settings = DEFAULT_SETTINGS,
-		uploading = 0,
+		contactsRevision = 0,
 		heroId = $bindable(),
 		heroRevision = $bindable(),
 		focalReady = true,
@@ -79,15 +67,13 @@
 		onarchive,
 		onrestore,
 		ondelete,
-		onstartsend,
-		oninvitationsent,
 		requestedPhoto
 	}: {
 		gallery: Gallery;
 		shareToken: string | null;
 		origin: string;
 		settings?: WorkspaceSettings;
-		uploading?: number;
+		contactsRevision?: number;
 		heroId?: string | null;
 		heroRevision?: number;
 		focalReady?: boolean;
@@ -103,8 +89,6 @@
 		onarchive: () => void;
 		onrestore: () => void;
 		ondelete: () => void;
-		onstartsend?: () => ShareAttempt;
-		oninvitationsent?: (result: QueuedInvitations) => void;
 		requestedPhoto?: { id: string; kind: 'proof' | 'final' };
 	} = $props();
 
@@ -116,15 +100,11 @@
 	$effect(() => {
 		if (requestedId) section = requestedKind === 'final' ? 'final' : 'photos';
 	});
-	let previousSection = $state<StudioSection>('photos');
 	let photoCount = $state<number | null>(null);
 	let favoriteCount = $state<number | null>(null);
 	let commentCount = $state<number | null>(null);
 	let finalCount = $state<number | null>(null);
 	let contactCount = $state<number | null>(null);
-	let shareOpened = $state(false);
-	let contactsPanelRevision = $state(0);
-	let shareContactsRevision = $state(0);
 
 	// Saving replaces the parent gallery object; equal IDs must not reset loaded panels.
 	const id = $derived(gallery.id);
@@ -147,54 +127,10 @@
 	}
 	const shared = $derived(shareToken !== null);
 	const archived = $derived(status === 'archived');
-	const previewAccessCode = $derived(
-		shared
-			? (gallery.access_code ?? null)
-			: expectedAccessCode !== undefined && expectedAccessCode !== 'invalid'
-				? expectedAccessCode
-				: (gallery.access_code ?? null)
-	);
-
-	$effect(() => {
-		if (section === 'share') {
-			shareOpened = true;
-		}
-	});
-
-	$effect(() => {
-		if (archived && section === 'share') {
-			section = 'photos';
-		}
-	});
-
 	function selectSection(target: StudioSection) {
 		if (allItems.find((item) => item.id === target)?.disabled) return;
 
-		if (target === 'share') {
-			if (expectedAccessCode === 'invalid') {
-				toasts.error(m.settings_access_code_invalid());
-
-				return;
-			}
-
-			if (section !== 'share') {
-				previousSection = section;
-			}
-		}
-
 		section = target;
-	}
-
-	function leaveShare() {
-		const target =
-			previousSection !== 'share' && !allItems.find((item) => item.id === previousSection)?.disabled
-				? previousSection
-				: 'photos';
-
-		section = target;
-		void tick().then(() => {
-			if (section === target) document.getElementById(`tab-${target}`)?.focus();
-		});
 	}
 
 	const day = $derived(gallery.shoot_date ? formatLongDate(gallery.shoot_date) : null);
@@ -240,13 +176,6 @@
 			disabled: !shared,
 			title: shared ? undefined : m.tab_after_sharing()
 		},
-		{
-			id: 'share',
-			label: m.tab_share(),
-			icon: Send,
-			disabled: archived,
-			title: archived ? m.tab_share_archived() : undefined
-		},
 		{ id: 'contacts', label: m.contacts_title(), icon: Users, count: contactCount },
 		{ id: 'settings', label: m.tab_settings(), icon: SlidersHorizontal }
 	]);
@@ -291,7 +220,6 @@
 		type="button"
 		role="tab"
 		id={`tab-${item.id}`}
-		data-share-trigger={item.id === 'share' ? true : undefined}
 		aria-selected={active}
 		aria-controls={`panel-${item.id}`}
 		disabled={item.disabled ?? false}
@@ -395,9 +323,9 @@
 			{favoriteCount}
 			action={headerActions.get(section)}
 			onupload={() => selectSection('photos')}
-			onshare={() => selectSection('share')}
+			{onshare}
 			oncollect={() => selectSection('favorites')}
-			ondelivery={() => selectSection('share')}
+			ondelivery={onpublish}
 			onrestore={section === 'settings' ? undefined : onrestore}
 		/>
 	</div>
@@ -515,36 +443,6 @@
 				onheader={(action) => headerActions.set('design', action)}
 			/>
 		</div>
-		<div role="tabpanel" id="panel-share" aria-labelledby="tab-share" hidden={section !== 'share'}>
-			{#if shareOpened}
-				<GallerySharePanel
-					gallery={{ ...gallery, share_token: shareToken }}
-					active={section === 'share'}
-					{settings}
-					{coverId}
-					{heroRevision}
-					focalPoint={liveFocalPoint}
-					{photoCount}
-					{finalCount}
-					{uploading}
-					accessCode={previewAccessCode}
-					contactsRevision={shareContactsRevision}
-					{onstartsend}
-					oncancel={leaveShare}
-					{onpublish}
-					onheader={(action) =>
-						action ? headerActions.set('share', action) : headerActions.delete('share')}
-					onopensettings={() => selectSection('settings')}
-					onsent={(result) => {
-						oninvitationsent?.(result);
-						contactsPanelRevision += 1;
-						shareContactsRevision += 1;
-						toasts.success(m.share_invitations_queued({ count: result.queued_count }));
-						leaveShare();
-					}}
-				/>
-			{/if}
-		</div>
 		<div
 			role="tabpanel"
 			id="panel-contacts"
@@ -553,12 +451,9 @@
 		>
 			<GalleryContactsPanel
 				galleryId={id}
-				revision={contactsPanelRevision}
+				revision={contactsRevision}
 				onheader={(action) => headerActions.set('contacts', action)}
 				oncount={(n) => {
-					if (contactCount !== null && contactCount !== n) {
-						shareContactsRevision += 1;
-					}
 					contactCount = n;
 				}}
 			/>

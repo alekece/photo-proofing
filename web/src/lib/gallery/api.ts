@@ -27,10 +27,13 @@ export type {
 
 export interface InvitationRecipientInput {
 	email: string;
+	link_id?: string;
 	name?: string | null;
 }
 
 export interface SendInvitationsInput {
+	stage: 'proofing' | 'finals';
+	copy_self?: boolean;
 	to: InvitationRecipientInput[];
 	bcc?: string[];
 	subject: string;

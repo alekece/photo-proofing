@@ -7,7 +7,10 @@ use actix_web::{
     web::{Data, JsonBody, Path, ServiceConfig},
 };
 use futures_util::future::LocalBoxFuture;
-use pp_database::gallery::{GalleryId, GalleryRepository, InvitationBatch};
+use pp_database::{
+    auth::AuthRepository,
+    gallery::{GalleryId, GalleryRepository, InvitationBatch},
+};
 use serde::Deserialize;
 
 use crate::{
@@ -46,12 +49,23 @@ async fn send_invitations(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
     id: Path<GalleryId>,
-    SendInvitationsRequest(batch): SendInvitationsRequest,
+    SendInvitationsRequest(mut batch): SendInvitationsRequest,
 ) -> Result<HttpResponse, ErrorResponse> {
     let smtp = state.smtp().ok_or_else(ErrorResponse::email_unavailable)?;
 
     if batch.is_empty() {
         return Err(ErrorResponse::bad_request().with_context("at least one recipient is required"));
+    }
+
+    if batch.copy_self {
+        let email = state
+            .database()
+            .repository::<AuthRepository>()
+            .account_email(identity.workspace_id)
+            .await?
+            .ok_or_else(ErrorResponse::unavailable)?;
+
+        batch.include_copy(email);
     }
 
     if batch.recipient_count() > smtp.max_recipients_per_send.get() {
@@ -166,6 +180,77 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
+    async fn prefilled_recipient_requires_the_original_link_and_address(pool: PgPool) {
+        let (state, _directory) = app_state(pool).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state.with_smtp(Some(smtp_settings(10)))))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let (_, gallery) = call(
+            &app,
+            authed(test::TestRequest::post(), "/api/v1/galleries", &cookie),
+        )
+        .await;
+        let (_, contact) = call(
+            &app,
+            authed(test::TestRequest::post(), "/api/v1/contacts", &cookie)
+                .set_json(json!({"name":"Alice", "email":"alice@example.test"})),
+        )
+        .await;
+        let gallery_uri = format!("/api/v1/galleries/{}", gallery["id"].as_str().unwrap());
+        let contacts_uri = format!("{gallery_uri}/contacts");
+        let link_uri = format!("{contacts_uri}/{}", contact["id"].as_str().unwrap());
+        call(&app, authed(test::TestRequest::put(), &link_uri, &cookie)).await;
+        let (_, linked) = call(
+            &app,
+            authed(test::TestRequest::get(), &contacts_uri, &cookie),
+        )
+        .await;
+        let original = linked[0]["link_id"]
+            .as_str()
+            .expect("non-secret link identity");
+        let invitations = format!("{gallery_uri}/invitations");
+        let send = |email: &str, link_id: &str| {
+            authed(test::TestRequest::post(), &invitations, &cookie).set_json(json!({
+                "to": [{"email": email, "link_id": link_id}],
+                "subject": "Gallery",
+                "message": "Welcome"
+            }))
+        };
+
+        let (status, error) = call(&app, send("old@example.test", original)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(error["code"], "invitation_recipient_changed");
+        call(
+            &app,
+            authed(test::TestRequest::delete(), &link_uri, &cookie),
+        )
+        .await;
+        let (status, _) = call(&app, send("alice@example.test", original)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        call(&app, authed(test::TestRequest::put(), &link_uri, &cookie)).await;
+        let (status, _) = call(&app, send("alice@example.test", original)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let (_, draft) = call(
+            &app,
+            authed(test::TestRequest::get(), &gallery_uri, &cookie),
+        )
+        .await;
+        assert!(draft["share_token"].is_null());
+        let (_, linked) = call(
+            &app,
+            authed(test::TestRequest::get(), &contacts_uri, &cookie),
+        )
+        .await;
+        let replacement = linked[0]["link_id"].as_str().unwrap();
+        let (status, _) = call(&app, send("alice@example.test", replacement)).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
     async fn invitations_share_draft_link_contacts_deduplicate_and_enforce_caps_and_states(
         pool: PgPool,
     ) {
@@ -243,6 +328,7 @@ mod tests {
             authed(test::TestRequest::post(), &uri, &cookie).set_json(json!({
                 "to": [],
                 "bcc": [],
+                "copy_self": true,
                 "subject": "Ready",
                 "message": "Hi"
             })),
@@ -259,7 +345,8 @@ mod tests {
                     {"email": "a@example.test"},
                     {"email": "b@example.test"}
                 ],
-                "bcc": ["c@example.test", "d@example.test"],
+                "bcc": ["c@example.test"],
+                "copy_self": true,
                 "subject": "Ready",
                 "message": "Hi"
             })),
@@ -345,6 +432,30 @@ mod tests {
             let _ = jobs.complete(&job).await.unwrap();
         }
         assert_eq!(count, 3);
+
+        let announce = |stage: &str| {
+            authed(test::TestRequest::post(), &uri, &cookie).set_json(json!({
+                "to": [{"email":"camille@example.test"}],
+                "subject": "Ready",
+                "message": "Hello",
+                "stage": stage,
+                "copy_self": true
+            }))
+        };
+        let (stale, _) = call(&app, announce("proofing")).await;
+        let (status, delivery) = call(&app, announce("finals")).await;
+        let (repeated, _) = call(&app, announce("finals")).await;
+
+        assert_eq!(stale, StatusCode::CONFLICT);
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            delivery["gallery"]["states"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("delivered"))
+        );
+        assert_eq!(delivery["queued_count"], 2);
+        assert_eq!(repeated, StatusCode::CONFLICT);
 
         // Expired gallery -> 409 gallery_expired.
         sqlx::query(
@@ -441,7 +552,9 @@ mod tests {
                     {"email": "a@example.test", "name": "Alpha"},
                     {"email": "A@Example.test", "name": "Duplicate"}
                 ],
-                "bcc": ["b@example.test", "a@example.test"],
+                "bcc": ["PERSON@example.test", "a@example.test"],
+                "stage": "proofing",
+                "copy_self": true,
                 "subject": "Ready",
                 "message": "Hi"
             })),
