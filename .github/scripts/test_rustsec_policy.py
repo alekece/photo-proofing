@@ -1,6 +1,8 @@
 import unittest
 
-from rustsec_policy import classify_ignore, read_findings, removed_ignores, untracked_advisories
+from rustsec_policy import (
+    classify_ignore, focused_updates, read_findings, removed_ignores, untracked_advisories, upgrade_targets,
+)
 
 
 BEFORE = {
@@ -23,6 +25,30 @@ def summary(errors):
 
 
 class RustSecScanTest(unittest.TestCase):
+    def test_only_affected_package_and_immediate_parents_are_upgrade_targets(self):
+        record = advisory(FRESH)
+        record["fields"]["graphs"] = [{
+            "Krate": {"name": "affected", "version": "1.2.3"},
+            "parents": [{
+                "Krate": {"name": "direct", "version": "2.3.4"},
+                "parents": [{"Krate": {"name": "ancestor", "version": "3.4.5"}}],
+            }],
+        }]
+        self.assertEqual(upgrade_targets(FRESH, [record]), {("affected", "1.2.3"), ("direct", "2.3.4")})
+        self.assertEqual(upgrade_targets(TRACKED, [record]), set())
+
+    def test_only_newer_registry_versions_can_be_reproduced(self):
+        source = "registry+https://github.com/rust-lang/crates.io-index"
+        def lock(*entries):
+            return {"package": [{"name": name, "version": version, "source": registry}
+                                for name, version, registry in entries]}
+
+        before = lock(("affected", "1.2.9", source), ("unrelated", "1.0.0", source))
+        after = lock(("affected", "1.2.10", source), ("affected", "1.2.8", source),
+                     ("affected", "1.3.0", "git+https://example.invalid"), ("unrelated", "2.0.0", source))
+        self.assertEqual(focused_updates(before, after, {("affected", "1.2.9")}),
+                         [("affected", "1.2.9", "1.2.10")])
+
     def test_complete_scans_keep_warnings_and_deduplicate(self):
         self.assertEqual(read_findings([summary(0)], 0), [])
         self.assertEqual(

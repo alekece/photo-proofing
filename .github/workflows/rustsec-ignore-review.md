@@ -56,7 +56,7 @@ jobs:
             const sha = head.trim();
             assert.equal(sha, context.sha, 'Scanner checkout does not match the workflow commit');
             const { stdout } = await exec.getExecOutput('python3', ['-I', helper, 'weekly'], { silent: true });
-            const findings = JSON.parse(stdout);
+            const { findings, upgrade_targets } = JSON.parse(stdout);
             const ids = Object.keys(findings);
             const openItems = ids.length ? await github.paginate(github.rest.issues.listForRepo, {
               ...context.repo, state: 'open', labels: 'rustsec', per_page: 100,
@@ -65,7 +65,7 @@ jobs:
               silent: true, input: Buffer.from(JSON.stringify([ids, openItems])),
             });
             const candidateIds = JSON.parse(filtered.stdout);
-            const report = { sha, findings, candidate_ids: candidateIds, kind: 'ignore-review' };
+            const report = { sha, findings, upgrade_targets, candidate_ids: candidateIds, kind: 'ignore-review' };
             const reportDirectory = path.join(process.env.RUNNER_TEMP, 'rustsec-scan');
             fs.mkdirSync(reportDirectory);
             fs.writeFileSync(path.join(reportDirectory, 'report.json'), JSON.stringify(report));
@@ -87,7 +87,7 @@ jobs:
     needs: [agent, detection]
     if: needs.detection.result == 'success'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     permissions:
       contents: read
       issues: read
@@ -116,6 +116,11 @@ jobs:
         if: contains(needs.agent.outputs.output_types, 'create_pull_request')
         with:
           tool: cargo-deny@0.18.9
+      - name: Install Rust build libraries for dependency updates
+        if: contains(needs.agent.outputs.output_types, 'create_pull_request')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvips-dev pkg-config
       - name: Verify the exact proposed changes
         id: verify
         if: contains(needs.agent.outputs.output_types, 'create_pull_request')
@@ -217,6 +222,10 @@ safe-outputs:
             'Publisher did not receive the verified PR proposal');
           const { data } = await github.rest.git.getRef({ ...context.repo, ref: 'heads/main' });
           assert.equal(data.object.sha, context.sha, 'Main moved after scanning; retry from current main');
+          const { stdout } = await exec.getExecOutput('git', ['rev-parse', 'HEAD'], { silent: true });
+          assert.equal(stdout.trim(), context.sha, 'Publisher checkout does not match the scan');
+          // gh-aw falls back to local main if its shallow ancestry check cannot prove the patch base.
+          await exec.exec('git', ['checkout', '-B', 'main', context.sha]);
   create-pull-request:
     title-prefix: "[RustSec] "
     labels: [agent, rustsec]
@@ -224,12 +233,13 @@ safe-outputs:
     reviewers: [alekece]
     base-branch: main
     patch-format: am
+    signed-commits: false
     github-token-for-extra-empty-commit: app
     fallback-as-issue: false
     stacked: false
     max: 1
-    max-patch-files: 8
-    allowed-files: [deny.toml, Cargo.toml, Cargo.lock, "crates/*/Cargo.toml"]
+    max-patch-files: 2
+    allowed-files: [deny.toml, Cargo.lock]
 ---
 
 # Review existing RustSec ignores
@@ -238,6 +248,6 @@ Read `/tmp/gh-aw/agent/rustsec-scan/report.json`. Work only on its `candidate_id
 
 Open a ready-for-review PR for a verified obsolete ignore even if no dependency update is needed. Remove only the obsolete entries and any explanation that no longer applies. Parse the original and proposed policies with `tomllib`; the proposed policy must equal the original minus those exact entries. Never add an ignore or edit unrelated policy.
 
-For an `affected` ignore, try a focused update to the affected dependency or its direct parent. Do not change source code or perform a replacement migration. Before publishing either kind of PR, rerun locked default and all-feature advisory scans with the proposed policy, showing the removed IDs are absent, all other exceptions remain, no new findings appeared, and no scanner or registry check failed. Run the locked dependency policy checks. For an update, also run locked workspace compilation and the relevant Rust tests. A failed or incomplete check is not evidence that an exception can be removed. Include only the exact removed IDs in the PR title; describe validation in the body. Put the complete proposal in a single commit based on the scanned revision.
+For an `affected` ignore, use `upgrade_targets` to try a lockfile-only `cargo update -p crate@old --precise new` for the affected crate or one direct parent. Submit at most one targeted update; let Cargo resolve any required transitive changes. Do not edit manifests or source code; if those changes are needed, use the maintainer-decision route. Before publishing either kind of PR, rerun locked default and all-feature advisory scans with the proposed policy, showing the removed IDs are absent, all other exceptions remain, no new findings appeared, and no scanner or registry check failed. Run the locked dependency policy checks. For an update, also run locked workspace compilation and the relevant Rust tests. A failed or incomplete check is not evidence that an exception can be removed. Include only the exact removed IDs in the PR title; describe validation in the body. Put the complete proposal in a single commit based on the scanned revision.
 
 Use `publish_rustsec_issue` at most once if an affected ignore still needs a maintainer decision and there is new evidence for a concrete alternative. Never publish both a PR and issue for the same advisory. If there is no verified or actionable work, use `noop`. Never push directly, merge, or enable auto-merge.

@@ -84,6 +84,16 @@ def classify_ignore(id, default_probe, all_features_probe):
     return "affected" if id in findings else "obsolete"
 
 
+def upgrade_targets(id, records):
+    return {
+        (node["Krate"]["name"], node["Krate"]["version"])
+        for record in records
+        if record["type"] == "diagnostic" and (record["fields"].get("advisory") or {}).get("id") == id
+        for root in record["fields"].get("graphs", [])
+        for node in [root, *root.get("parents", [])]
+    }
+
+
 def ignore_probes(source):
     policy = tomllib.loads(source)
     lines = source.splitlines(keepends=True)
@@ -116,13 +126,18 @@ def ignore_probes(source):
 
 def review_ignores():
     findings = {}
+    targets = {}
     with tempfile.TemporaryDirectory(prefix="rustsec-probes-", dir=os.environ.get("RUNNER_TEMP")) as directory:
         for id, source in ignore_probes(Path("deny.toml").read_text()):
             config = Path(directory) / f"{id}.toml"
             config.write_text(source)
-            findings[id] = classify_ignore(id, probe(config=config), probe(["--all-features"], config))
+            default = probe(config=config)
+            all_features = probe(["--all-features"], config)
+            findings[id] = classify_ignore(id, default, all_features)
+            if findings[id] == "affected":
+                targets[id] = sorted(upgrade_targets(id, default[0] + all_features[0]))
 
-    return findings
+    return {"findings": findings, "upgrade_targets": targets}
 
 
 def removed_ignores(before, after, candidates, dependencies_changed):
@@ -153,10 +168,8 @@ def verify_policy(base, report):
     changes = set()
     for metadata, path in zip(fields[::2], fields[1::2]):
         old_mode, new_mode, _, _, status = metadata.split()
-        if (old_mode, new_mode, status) != (":100644", "100644", "M") or not re.fullmatch(
-            r"deny\.toml|Cargo\.lock|Cargo\.toml|crates/[^/]+/Cargo\.toml", path
-        ):
-            raise ValueError("Patch must only modify existing regular policy or Cargo files")
+        if (old_mode, new_mode, status) != (":100644", "100644", "M") or path not in {"deny.toml", "Cargo.lock"}:
+            raise ValueError("Patch must only modify existing deny.toml and Cargo.lock files")
         changes.add(path)
 
     if "deny.toml" not in changes:
@@ -166,6 +179,49 @@ def verify_policy(base, report):
     after = tomllib.loads(Path("deny.toml").read_text())
     candidates = {advisory: report["findings"][advisory] for advisory in report["candidate_ids"]}
     return removed_ignores(before, after, candidates, bool(changes - {"deny.toml"}))
+
+
+def focused_updates(before, after, targets):
+    registry = "registry+https://github.com/rust-lang/crates.io-index"
+
+    def versions(lock):
+        return {(package["name"], package["version"]) for package in lock["package"]
+                if package.get("source") == registry and re.fullmatch(r"[a-zA-Z0-9_-]+", package["name"])
+                and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", package["version"])}
+
+    original, proposed = versions(before), versions(after)
+    return sorted(
+        (name, old, new)
+        for name, old in (original - proposed) & targets
+        for new_name, new in proposed - original
+        if name == new_name and tuple(map(int, new.split("."))) > tuple(map(int, old.split(".")))
+    )
+
+
+def verify_upgrade(base, targets):
+    original = tomllib.loads(subprocess.check_output(["git", "show", f"{base}:Cargo.lock"], text=True))
+    proposed = tomllib.loads(Path("Cargo.lock").read_text())
+    updates = focused_updates(original, proposed, targets)
+    if not updates:
+        raise ValueError("Expected an upgrade of the affected crate or one of its direct parents")
+
+    with tempfile.TemporaryDirectory(prefix="rustsec-base-", dir=os.environ.get("RUNNER_TEMP")) as directory:
+        subprocess.run(["git", "worktree", "add", "--detach", directory, base], check=True, stdout=sys.stderr)
+        try:
+            lockfile = Path(directory) / "Cargo.lock"
+            original_text = lockfile.read_text()
+            for name, old, new in updates:
+                lockfile.write_text(original_text)
+                result = subprocess.run(
+                    ["cargo", "update", "-p", f"{name}@{old}", "--precise", new],
+                    cwd=directory, stdout=sys.stderr, check=False,
+                )
+                if result.returncode == 0 and tomllib.loads(lockfile.read_text()) == proposed:
+                    return
+        finally:
+            subprocess.run(["git", "worktree", "remove", "--force", directory], check=True, stdout=sys.stderr)
+
+    raise ValueError("The proposed lockfile could not be reproduced with a targeted cargo update")
 
 
 def verify_proposal(base, report_path, patch_path):
@@ -188,6 +244,11 @@ def verify_proposal(base, report_path, patch_path):
         raise ValueError("Expected exactly one commit on the scanned revision")
 
     removed = verify_policy(base, report)
+    affected = [id for id in removed if report["findings"][id] == "affected"]
+    if affected:
+        targets = set.intersection(*(set(map(tuple, report["upgrade_targets"][id])) for id in affected))
+        verify_upgrade(base, targets)
+
     for mode, before in zip(modes, baseline):
         after = set(read_findings(*probe(mode)))
         if after.intersection(removed) or after - before:
@@ -198,6 +259,9 @@ def verify_proposal(base, report_path, patch_path):
         check=True,
         stdout=sys.stderr,
     )
+    if affected:
+        subprocess.run(["cargo", "check", "--locked", "--workspace", "--all-targets"], check=True, stdout=sys.stderr)
+
     return removed
 
 
