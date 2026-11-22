@@ -37,7 +37,7 @@
 </script>
 
 <script lang="ts">
-	import { Download, Heart, LoaderCircle, RotateCw, X } from '@lucide/svelte';
+	import { Download, Heart, RotateCw, X } from '@lucide/svelte';
 	import SelectionDisc from './SelectionDisc.svelte';
 	import { formatDateTime } from '#lib/gallery/format.js';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
@@ -52,9 +52,7 @@
 		thumbnailUrl,
 		cleanReady = false,
 		selected = false,
-		onremove,
-		ondownload,
-		downloadBusy = false,
+		oncancelUpload,
 		caption,
 		onretry,
 		onopen,
@@ -73,12 +71,8 @@
 		thumbnailUrl?: string;
 		cleanReady?: boolean;
 		selected?: boolean;
-		/** Deletes the photo; a read-only tile, like a favorite, has none. */
-		onremove?: () => void;
-		/** Downloads this photo; shown on hover and always on touch screens. */
-		ondownload?: () => void;
-		/** A download is being checked; show progress and prevent another click. */
-		downloadBusy?: boolean;
+		/** Cancels a local upload queue item, not a photo in the collection. */
+		oncancelUpload?: () => void;
 		/** When the client favorited or downloaded the photo, shown over its bottom-left corner. */
 		caption?: { kind: 'favorited' | 'downloaded'; at: string };
 		onretry?: () => void;
@@ -263,38 +257,16 @@
 				/>
 				{#if rippling && selected}<ClickRipple onend={() => (rippling = false)} />{/if}
 			</span>
-		{:else if !selectingCollection}
-			{#if onremove}
-				<button
-					type="button"
-					class={[
-						'absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground',
-						failed ? 'opacity-100' : reveal
-					]}
-					aria-label={m.tile_remove({ name })}
-					onclick={onremove}><X size={14} aria-hidden="true" /></button
-				>
-			{/if}
-			{#if status === 'ready' && ondownload}
-				<button
-					type="button"
-					class="absolute right-1.5 bottom-1.5 grid size-8 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground {reveal}"
-					aria-label={m.tile_download({ name })}
-					aria-busy={downloadBusy}
-					disabled={downloadBusy}
-					onclick={ondownload}
-				>
-					{#if downloadBusy}
-						<LoaderCircle
-							size={16}
-							class="animate-spin motion-reduce:animate-none"
-							aria-hidden="true"
-						/>
-					{:else}
-						<Download size={16} aria-hidden="true" />
-					{/if}
-				</button>
-			{/if}
+		{:else if !selectingCollection && oncancelUpload}
+			<button
+				type="button"
+				class={[
+					'absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground',
+					failed ? 'opacity-100' : reveal
+				]}
+				aria-label={m.tile_remove({ name })}
+				onclick={oncancelUpload}><X size={14} aria-hidden="true" /></button
+			>
 		{/if}
 		{#if (persistentSelect || collectionSelect) && onselect}
 			<SelectionDisc

@@ -457,7 +457,6 @@
 	"tile_retry": "Retry {name}",
 	"tile_select": "Select {name}",
 	"tile_remove": "Remove {name}",
-	"tile_download": "Download {name}",
 	"tile_favorited_at": "Favorited {date}",
 	"tile_downloaded_at": "Downloaded {date}",
 	"finals_requested_count": "Photos requested for download: {count} of {total}",
@@ -501,7 +500,6 @@
 		}
 	],
 	"photos_load_failed": "Couldn’t load the photos. Please reload the page.",
-	"photos_delete_failed": "Couldn’t delete {name}. Please try again.",
 	"photos_retry_failed": "Couldn’t retry {name}. Please try again.",
 	"photos_deleted": [
 		{
@@ -523,10 +521,6 @@
 	"photos_choose_finals": "Choose finished photos to upload",
 	"photos_drop": "Drop the shoot here",
 	"photos_drop_finals": "Drop the finished photos here",
-	"photos_delete_one": "Delete {name}?",
-	"photos_delete_one_body": "The photo and its previews are removed for good, wherever it is in processing.",
-	"photos_delete_one_body_finals": "The finished photo and its previews are removed from the draft, wherever it is in processing.",
-	"photos_delete_one_favorite": "This photo is one of the client’s favorites. It leaves their selection too.",
 	"photos_delete_many": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -555,7 +549,7 @@
 	"owner_zip_no_longer_available": "The requested ZIP is no longer available.",
 	"favorites_zip_failed": "Couldn’t prepare the ZIP. Please try again.",
 	"favorites_downloading": "Downloading…",
-	"favorites_download_count": "Download {count}",
+	"favorites_download_count": "Download selected ({count})",
 	"favorites_download_all": "Download all",
 	"favorites_try_again": "Use Download to try again.",
 	"finals_zip_ready_only": "Only ready finals can be downloaded. Deselect any that aren’t ready.",

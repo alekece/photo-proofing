@@ -13,7 +13,6 @@
 		type TileState
 	} from '#lib/components/PhotoTile.svelte';
 	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
-	import ViewerButton from '#lib/components/ViewerButton.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
@@ -26,7 +25,6 @@
 	import { selectionHotkeysAllowed } from '#lib/gallery/select-mode.svelte.js';
 	import {
 		BULK_DELETE_LIMIT,
-		deletePhoto,
 		deletePhotos,
 		listPhotos,
 		previewUrl,
@@ -81,7 +79,6 @@
 	let photos = $state<Photo[]>([]);
 	let loaded = $state(false);
 	let alert = $state('');
-	let confirming = $state<Photo | null>(null);
 	let viewing = $state(false);
 	let viewIndex = $state(0);
 	let dragging = $state(false);
@@ -326,33 +323,6 @@
 		event.currentTarget.value = '';
 	}
 
-	async function remove(photo: Photo) {
-		const index = photos.findIndex(({ id }) => id === photo.id);
-
-		if (index === -1) return;
-
-		photos.splice(index, 1);
-		alert = '';
-		void focusAfterRemoving(index);
-
-		try {
-			await deletePhoto(galleryId, photo.id, fetch, set);
-		} catch (cause) {
-			if (cause instanceof ApiError && cause.status === 401) {
-				await signedOut();
-
-				return;
-			}
-
-			if (!(cause instanceof ApiError && cause.status === 404)) {
-				alert = m.photos_delete_failed({ name: photo.original_name });
-			}
-		}
-
-		// The list says what is left, whether the photo is gone or was put back.
-		refresh();
-	}
-
 	/** Once the tile at `position` is gone, focuses the one now there, else the previous, else Upload. */
 	async function focusAfterRemoving(position: number) {
 		await tick();
@@ -407,12 +377,7 @@
 
 	function canUseSelectionKeys(target?: EventTarget | null) {
 		return (
-			active &&
-			selecting &&
-			!confirming &&
-			!confirmingSelection &&
-			!viewing &&
-			selectionHotkeysAllowed(target)
+			active && selecting && !confirmingSelection && !viewing && selectionHotkeysAllowed(target)
 		);
 	}
 
@@ -606,7 +571,6 @@
 							? thumbnailUrl(galleryId, photo.id, set, photo.revision)
 							: undefined}
 						selected={selected.has(photo.id)}
-						onremove={() => (confirming = photo)}
 						onretry={() => retry(photo)}
 						onopen={() => open(photo)}
 						collectionSelect={selecting ? 'active' : 'idle'}
@@ -621,7 +585,7 @@
 						ratio={3 / 2}
 						state={QUEUE_STATES[item.state]}
 						error={item.error}
-						onremove={() => {
+						oncancelUpload={() => {
 							queue.cancel(item.key);
 							void focusAfterRemoving(photos.length + position);
 						}}
@@ -637,32 +601,6 @@
 		</EmptyState>
 	{/if}
 </section>
-
-{#if confirming}
-	{@const photo = confirming}
-	<ConfirmDialog
-		title={m.photos_delete_one({ name: photo.original_name })}
-		confirmLabel={m.action_delete()}
-		cancelLabel={m.common_cancel()}
-		destructive
-		onclose={() => (confirming = null)}
-		onconfirm={() => remove(photo)}
-	>
-		{#snippet visual()}
-			<PhotoStack {galleryId} {set} photoIds={[photo.id]} />
-		{/snippet}
-		{#snippet description()}
-			<p class="text-sm text-muted-foreground">
-				{finals ? m.photos_delete_one_body_finals() : m.photos_delete_one_body()}
-			</p>
-			{#if !finals && photo.favorited_at}
-				<p class="text-sm font-bold text-warning">
-					{m.photos_delete_one_favorite()}
-				</p>
-			{/if}
-		{/snippet}
-	</ConfirmDialog>
-{/if}
 
 {#if confirmingSelection}
 	{@const confirmed = deletingSelection ?? selection}
@@ -708,7 +646,6 @@
 	{/if}
 {/snippet}
 {#if viewing && proofs[viewIndex]}
-	{@const current = (id: string) => photos.find((photo) => photo.id === id)}
 	<PhotoViewer
 		{proofs}
 		bind:index={viewIndex}
@@ -716,23 +653,9 @@
 		commentCount={(id) => comments?.count(id) ?? 0}
 		onclose={() => (viewing = false)}
 		onretry={(id) => {
-			const photo = current(id);
+			const photo = photos.find((photo) => photo.id === id);
 
 			if (photo) void retry(photo);
 		}}
-	>
-		{#snippet trailing(proof)}
-			{@const photo = current(proof.id)}
-			{#if photo}
-				<ViewerButton
-					tone="warn"
-					aria-label={m.action_delete()}
-					onclick={() => (confirming = photo)}
-				>
-					<Trash2 size={18} aria-hidden="true" />
-					<span class="max-[700px]:hidden">{m.action_delete()}</span>
-				</ViewerButton>
-			{/if}
-		{/snippet}
-	</PhotoViewer>
+	/>
 {/if}

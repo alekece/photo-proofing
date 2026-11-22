@@ -460,7 +460,6 @@
 	"tile_retry": "Réessayer {name}",
 	"tile_select": "Sélectionner {name}",
 	"tile_remove": "Retirer {name}",
-	"tile_download": "Télécharger {name}",
 	"tile_favorited_at": "Sélectionnée le {date}",
 	"tile_downloaded_at": "Téléchargée le {date}",
 	"finals_requested_count": "Photos demandées en téléchargement : {count} sur {total}",
@@ -504,7 +503,6 @@
 		}
 	],
 	"photos_load_failed": "Impossible de charger les photos. Rechargez la page.",
-	"photos_delete_failed": "Impossible de supprimer {name}. Réessayez.",
 	"photos_retry_failed": "Impossible de relancer {name}. Réessayez.",
 	"photos_deleted": [
 		{
@@ -535,10 +533,6 @@
 	"photos_choose_finals": "Choisir les photos retouchées à importer",
 	"photos_drop": "Déposez la séance ici",
 	"photos_drop_finals": "Déposez les photos retouchées ici",
-	"photos_delete_one": "Supprimer {name} ?",
-	"photos_delete_one_body": "La photo et ses aperçus sont supprimés définitivement, où qu’elle en soit dans le traitement.",
-	"photos_delete_one_body_finals": "La photo retouchée et ses aperçus sont retirés du brouillon, où qu’elle en soit dans le traitement.",
-	"photos_delete_one_favorite": "Cette photo fait partie des favoris du client. Elle quitte aussi sa sélection.",
 	"photos_delete_many": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -567,7 +561,7 @@
 	"owner_zip_no_longer_available": "Le ZIP demandé n’est plus disponible.",
 	"favorites_zip_failed": "Impossible de préparer le ZIP. Réessayez.",
 	"favorites_downloading": "Téléchargement…",
-	"favorites_download_count": "Télécharger {count}",
+	"favorites_download_count": "Télécharger la sélection ({count})",
 	"favorites_download_all": "Tout télécharger",
 	"favorites_try_again": "Utilisez Télécharger pour réessayer.",
 	"finals_zip_ready_only": "Seules les photos retouchées prêtes peuvent être téléchargées. Désélectionnez celles qui ne sont pas prêtes.",

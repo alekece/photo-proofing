@@ -75,12 +75,7 @@ const zip = (status: Zip['status']['kind'], id = 'e1', code = 'export_failed'): 
 	created_at: '2026-11-07T10:00:00Z'
 });
 
-function setup(
-	initial: Photo[],
-	ondownload?: (photos: Photo[]) => void,
-	existing: Zip | null = null,
-	rejection: Response | null = null
-) {
+function setup(initial: Photo[], existing: Zip | null = null, rejection: Response | null = null) {
 	let server = initial;
 	let latest = existing;
 	const exportHandlers = new Set<(event: { gallery_id: string }) => void>();
@@ -111,13 +106,13 @@ function setup(
 			return latest ? new Response(JSON.stringify(latest)) : new Response(null, { status: 204 });
 		})
 	);
-	const rendered = render(Harness, { props: { events, ondownload } });
+	const rendered = render(Harness, { props: { events } });
 
 	return {
 		rerender: rendered.rerender,
 		container: rendered.container,
 		switchGallery(id: string) {
-			return rendered.rerender({ events, ondownload, galleryId: id });
+			return rendered.rerender({ events, galleryId: id });
 		},
 		finish(next: Zip) {
 			latest = next;
@@ -133,26 +128,23 @@ function setup(
 afterEach(() => vi.unstubAllGlobals());
 
 describe('FavoritesPanel', () => {
-	it('downloads the individual original from the viewer', async () => {
+	it('offers no individual download on a favorite tile or in its viewer', async () => {
 		setup([photo('p1', true)]);
 		const user = userEvent.setup();
-		await user.click(await screen.findByRole('button', { name: 'Open p1.jpg' }));
-		await user.click(
-			within(screen.getByRole('dialog')).getByRole('button', { name: 'Download p1.jpg' })
-		);
-		expect(startDownload).toHaveBeenCalledWith('/api/v1/galleries/g1/photos/p1/download');
+		const open = await screen.findByRole('button', { name: 'Open p1.jpg' });
+		expect(
+			within(screen.getByRole('listitem')).queryByRole('button', { name: /download/i })
+		).toBeNull();
+		await user.click(open);
+		expect(
+			within(screen.getByRole('dialog')).queryByRole('button', { name: /download/i })
+		).toBeNull();
 	});
 
 	it('uses a plain empty state for the read-only collection', async () => {
 		setup([]);
 		const heading = await screen.findByText('No favorites yet');
 		expect(heading.parentElement?.className).not.toContain('repeating-linear-gradient');
-	});
-
-	it('reports rejected individual downloads instead of leaving an unhandled promise', async () => {
-		setup([photo('p1', true)], () => Promise.reject(new Error('Download failed')));
-		await userEvent.click(await screen.findByRole('button', { name: 'Download p1.jpg' }));
-		expect((await screen.findByRole('alert')).textContent).toContain('Couldn’t download');
 	});
 
 	it('lists only favorites', async () => {
@@ -225,22 +217,13 @@ describe('FavoritesPanel', () => {
 		expect(screen.queryByRole('button', { name: /^Select/ })).toBeNull();
 	});
 
-	it('downloads an individual original without needing a supplied callback', async () => {
-		setup([photo('p1', true)]);
-
-		await screen.findByAltText('p1.jpg');
-
-		await userEvent.setup().click(screen.getByRole('button', { name: 'Download p1.jpg' }));
-		expect(startDownload).toHaveBeenCalledWith('/api/v1/galleries/g1/photos/p1/download');
-	});
-
 	it('exports exactly the favorites selected in select mode', async () => {
 		const { finish } = setup([photo('p1', true), photo('p2', true), photo('p3', true)]);
 		const user = userEvent.setup();
 		await screen.findByAltText('p1.jpg');
 		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
 		await user.click(screen.getByRole('button', { name: 'Select p3.jpg' }));
-		await user.click(screen.getByRole('button', { name: 'Download 2' }));
+		await user.click(screen.getByRole('button', { name: 'Download selected (2)' }));
 		const request = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'POST');
 		expect(JSON.parse(String(request?.[1]?.body))).toEqual({ photo_ids: ['p1', 'p3'] });
 		finish(zip('ready'));
@@ -252,7 +235,7 @@ describe('FavoritesPanel', () => {
 		const user = userEvent.setup();
 		await screen.findByAltText('p1.jpg');
 		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
-		await user.click(screen.getByRole('button', { name: 'Download 1' }));
+		await user.click(screen.getByRole('button', { name: 'Download selected (1)' }));
 		for (const button of await screen.findAllByRole('button', { name: /Downloading/ })) {
 			expect(button).toHaveProperty('disabled', true);
 		}
@@ -265,60 +248,11 @@ describe('FavoritesPanel', () => {
 		);
 	});
 
-	it('shows a disabled busy control while an individual download is being checked', async () => {
-		let finish!: () => void;
-		setup([photo('p1', true)], () => new Promise<void>((resolve) => (finish = resolve)));
+	it('requests all favorites without a body even with a subset checked', async () => {
 		const user = userEvent.setup();
-		await user.click(await screen.findByRole('button', { name: 'Download p1.jpg' }));
-		expect(screen.getByRole('button', { name: 'Download p1.jpg' })).toHaveProperty(
-			'disabled',
-			true
-		);
-		expect(screen.getByRole('button', { name: 'Download p1.jpg' }).getAttribute('aria-busy')).toBe(
-			'true'
-		);
-		finish();
-		await waitFor(() =>
-			expect(screen.getByRole('button', { name: 'Download p1.jpg' })).toHaveProperty(
-				'disabled',
-				false
-			)
-		);
-	});
+		const { finish } = setup([photo('p1', true), photo('p2', true)]);
 
-	it('uses the individual callback for tiles and ZIP export for select mode', async () => {
-		const ondownload = vi.fn();
-		const user = userEvent.setup();
-
-		const { finish } = setup([photo('p1', true), photo('p2', true)], ondownload);
-		await screen.findByAltText('p1.jpg');
-		await user.click(screen.getByRole('button', { name: 'Download p2.jpg' }));
-
-		expect(ondownload).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'p2' })]);
-
-		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
-		await user.click(screen.getByRole('button', { name: 'Select all' }));
-
-		expect(screen.getByText('2 selected')).toBeTruthy();
-
-		await user.click(screen.getByRole('button', { name: 'Download 2' }));
-
-		expect(ondownload).toHaveBeenCalledTimes(1);
-		const request = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'POST');
-		expect(JSON.parse(String(request?.[1]?.body))).toEqual({ photo_ids: ['p1', 'p2'] });
-		finish(zip('ready'));
-		await waitFor(() => expect(startDownload).toHaveBeenCalled());
-
-		await user.keyboard('{Escape}');
-
-		expect(screen.queryByText('2 selected')).toBeNull();
-	});
-
-	it('requests all favorites without a body outside select mode, then downloads once ready', async () => {
-		const user = userEvent.setup();
-		const { finish } = setup([photo('p1', true)]);
-
-		await screen.findByAltText('p1.jpg');
+		await user.click(await screen.findByRole('button', { name: 'Select p1.jpg' }));
 		const download = screen.getByRole('button', { name: 'Download all' });
 		expect(within(screen.getByRole('banner')).getByRole('button')).toBe(download);
 		await user.click(download);
@@ -346,7 +280,7 @@ describe('FavoritesPanel', () => {
 	});
 
 	it('has no separate Download ZIP button for a ready ZIP', async () => {
-		setup([photo('p1', true)], undefined, zip('ready'));
+		setup([photo('p1', true)], zip('ready'));
 
 		await screen.findByAltText('p1.jpg');
 
@@ -356,7 +290,7 @@ describe('FavoritesPanel', () => {
 	});
 
 	it.each([true, false])(
-		'offers only the contextual batch download (studio header: %s)',
+		'keeps Download all alongside the subset action (studio header: %s)',
 		async (withHeader) => {
 			const { rerender } = setup([photo('p1', true), photo('p2', true)]);
 			await rerender({ withHeader });
@@ -371,11 +305,11 @@ describe('FavoritesPanel', () => {
 			const bar = document.querySelector<HTMLElement>('[data-slot="select-actions"]')!;
 
 			expect(within(bar).getByRole('button', { name: 'Select all' })).toBeTruthy();
-			expect(within(bar).getByRole('button', { name: 'Download 1' })).toHaveProperty(
+			expect(within(bar).getByRole('button', { name: 'Download selected (1)' })).toHaveProperty(
 				'disabled',
 				false
 			);
-			expect(screen.queryByRole('button', { name: 'Download all' })).toBeNull();
+			expect(screen.getByRole('button', { name: 'Download all' })).toBeTruthy();
 			expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
 			expect(bar.dataset.rail).toBe('gallery');
 
@@ -384,7 +318,7 @@ describe('FavoritesPanel', () => {
 			expect(within(bar).getByText('2 selected')).toBeTruthy();
 			await user.click(within(bar).getByRole('button', { name: 'Unselect all' }));
 			expect(within(bar).getByText('0 selected')).toBeTruthy();
-			expect(within(bar).getByRole('button', { name: 'Download 0' })).toHaveProperty(
+			expect(within(bar).getByRole('button', { name: 'Download selected (0)' })).toHaveProperty(
 				'disabled',
 				true
 			);
@@ -428,7 +362,7 @@ describe('FavoritesPanel', () => {
 		await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
 		await user.click(screen.getByRole('button', { name: 'Select all' }));
 
-		expect(screen.getByRole('button', { name: 'Download 2' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Download selected (2)' })).toBeTruthy();
 
 		await user.click(screen.getByRole('button', { name: 'Unselect all' }));
 
@@ -441,18 +375,14 @@ describe('FavoritesPanel', () => {
 	});
 
 	it('shows why a ZIP failed and allows another try', async () => {
-		setup([photo('p1', true)], undefined, zip('failed', 'e1', 'storage_full'));
+		setup([photo('p1', true)], zip('failed', 'e1', 'storage_full'));
 
 		expect((await screen.findByRole('alert')).textContent).toContain('storage is full');
 		expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty('disabled', false);
 	});
 
-	it('keeps an individual Favorites download error visible when retrying ZIP status', async () => {
-		let rejectDownload!: (error: Error) => void;
-		setup(
-			[photo('p1', true)],
-			() => new Promise<void>((_resolve, reject) => (rejectDownload = reject))
-		);
+	it('retries ZIP status without starting another export', async () => {
+		setup([photo('p1', true)]);
 		const originalFetch = fetch;
 		let status = 'initial';
 		const calls = vi.fn<typeof fetch>(async (url, init) => {
@@ -466,14 +396,9 @@ describe('FavoritesPanel', () => {
 		});
 		vi.stubGlobal('fetch', calls);
 		const user = userEvent.setup();
-		await user.click(await screen.findByRole('button', { name: 'Download p1.jpg' }));
 		await user.click(await screen.findByRole('button', { name: 'Download all' }));
 		const retry = await screen.findByRole('button', { name: 'Retry ZIP status' });
-		await act(() => rejectDownload(new Error('Download failed')));
-		expect(screen.getAllByRole('alert').map((alert) => alert.textContent)).toEqual([
-			expect.stringContaining('Couldn’t check the ZIP'),
-			expect.stringContaining('Couldn’t download the photo')
-		]);
+		expect(screen.getByRole('alert').textContent).toContain('Couldn’t check the ZIP');
 
 		calls.mockClear();
 		status = 'ready';
@@ -486,7 +411,7 @@ describe('FavoritesPanel', () => {
 		expect(calls.mock.calls).toEqual([
 			['/api/v1/galleries/g1/export', expect.objectContaining({ method: 'GET' })]
 		]);
-		expect(screen.getByRole('alert').textContent).toContain('Couldn’t download the photo');
+		expect(screen.queryByRole('alert')).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Retry ZIP status' })).toBeNull();
 	});
 
@@ -495,7 +420,6 @@ describe('FavoritesPanel', () => {
 
 		setup(
 			[photo('p1', true)],
-			undefined,
 			null,
 			new Response(JSON.stringify({ code: 'selection_too_large' }), { status: 413 })
 		);
