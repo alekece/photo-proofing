@@ -155,7 +155,8 @@ describe('GallerySharePanel', () => {
 		});
 		await screen.findByText('Camille Laurent');
 		await view.rerender({ gallery: { ...baseGallery, title: 'Updated title' } });
-		await vi.waitFor(() => expect(view.component.draft()?.subject).toContain('Updated title'));
+		await userEvent.click(screen.getByRole('button', { name: 'Customize' }));
+		expect((screen.getByLabelText('Subject') as HTMLInputElement).value).toContain('Updated title');
 	});
 
 	it('distinguishes a failed lookup from an empty list and keeps manual confirmation explicit', async () => {

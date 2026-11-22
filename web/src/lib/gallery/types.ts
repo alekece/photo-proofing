@@ -1,3 +1,8 @@
+import type { SendInvitationsInput } from './api.js';
+
+/** A missing subject uses the gallery's saved title after pending edits settle. */
+export type InvitationDraft = Omit<SendInvitationsInput, 'subject'> & { subject?: string };
+
 export interface Proof {
 	id: string;
 	alt: string;

@@ -4,6 +4,17 @@ import { getLocale } from '#lib/paraglide/runtime.js';
 /** Longest gallery title the API accepts, in characters. */
 export const TITLE_MAX = 255;
 
+export function defaultInvitationSubject(
+	stage: 'proofing' | 'finals',
+	galleryTitle: string | null
+) {
+	const title = galleryTitle?.trim() || m.gallery_untitled();
+
+	return stage === 'finals'
+		? m.share_default_subject_finals({ title })
+		: m.share_default_subject_proofing({ title });
+}
+
 const CALENDAR_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function parseDateInput(iso: string): { date: Date; calendar: boolean } {

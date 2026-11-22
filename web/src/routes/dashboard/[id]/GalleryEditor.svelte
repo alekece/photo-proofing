@@ -35,13 +35,12 @@
 		sendGalleryInvitations,
 		updateGallery,
 		type Gallery,
-		type SendInvitationsInput,
 		type GalleryChanges
 	} from '#lib/gallery/api.js';
 	import { goingToRetry } from '#lib/gallery/focus.js';
 	import { getNotifications } from '#lib/gallery/notifications.svelte.js';
-	import { TITLE_MAX } from '#lib/gallery/format.js';
-	import type { ShareAttempt } from '#lib/gallery/types.js';
+	import { defaultInvitationSubject, TITLE_MAX } from '#lib/gallery/format.js';
+	import type { InvitationDraft, ShareAttempt } from '#lib/gallery/types.js';
 	import { ApiError } from '#lib/http.js';
 	import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
 	import type { PageData } from './$types';
@@ -324,7 +323,7 @@
 		};
 	}
 
-	async function confirmStage(readEmail: () => SendInvitationsInput | undefined) {
+	async function confirmStage(email: InvitationDraft | undefined) {
 		const sharing = publishing === 'share';
 		const failure = sharing ? m.gallery_share_failed() : m.gallery_deliver_failed();
 		const success = sharing ? m.publish_shared_title() : m.publish_delivered_title();
@@ -352,12 +351,19 @@
 				: !(await settleSaves()) || !canDeliver() || hasFailures)
 		)
 			throw new Error(failure);
-		const email = readEmail();
+		if (email && saved.states.includes('expired')) throw new Error(m.api_error_gallery_expired());
+		if (email && !data.settings?.emailEnabled) throw new Error(m.share_smtp_unavailable_title());
 
 		try {
-			const queued = email ? await sendGalleryInvitations(galleryId, email) : null;
-			const updated =
-				queued?.gallery ?? (await (sharing ? shareGallery(galleryId) : deliverGallery(galleryId)));
+			const queued = email
+				? await sendGalleryInvitations(galleryId, {
+						...email,
+						subject: email.subject ?? defaultInvitationSubject(email.stage, saved.title)
+					})
+				: null;
+			const updated = queued
+				? queued.gallery
+				: await (sharing ? shareGallery(galleryId) : deliverGallery(galleryId));
 			if (!isCurrent()) return;
 			applyStage(updated);
 			if (queued) contactsRevision++;

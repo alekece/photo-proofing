@@ -4,7 +4,8 @@
 	import { onMount } from 'svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
 	import GallerySharePanel from '#lib/components/GallerySharePanel.svelte';
-	import type { Gallery, SendInvitationsInput } from '#lib/gallery/api.js';
+	import type { Gallery } from '#lib/gallery/api.js';
+	import type { InvitationDraft } from '#lib/gallery/types.js';
 	import type { WorkspaceSettings } from '#lib/settings/settings.js';
 	import { previewUrl } from '#lib/gallery/photos.js';
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
@@ -28,7 +29,7 @@
 		gallery?: Gallery;
 		settings?: WorkspaceSettings;
 		heroRevision?: number;
-		onconfirm: (readEmail: () => SendInvitationsInput | undefined) => Promise<void>;
+		onconfirm: (email: InvitationDraft | undefined) => Promise<void>;
 		onclose: () => void;
 	};
 
@@ -95,7 +96,7 @@
 	confirmLabel={sharing ? m.action_share() : m.action_deliver()}
 	busy={photos === null || blocked}
 	{expanded}
-	onconfirm={() => onconfirm(() => editor?.draft())}
+	onconfirm={() => onconfirm(editor?.draft())}
 	{onclose}
 >
 	{#snippet visual(done)}

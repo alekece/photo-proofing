@@ -18,6 +18,8 @@ The dialog opens compact. **Send an email** is checked by default when mail is c
 
 Unchecking **Send an email** returns the dialog to its compact state without losing edits or setting a preference for future actions. Confirming with email unchecked changes the stage only: no contact creation or mail jobs, even with recipients selected.
 
+The click fixes the email choice, recipients, blind copies and message. Only an untouched default subject follows a pending gallery title save. If a pending save makes a requested email ineligible, keep the dialog open without sharing or delivering.
+
 With no recipients, leave the checkbox unchecked and disabled, not the stage button. The label beside it is simply **“No recipient”** (**« Aucun destinataire »** in French). The photographer can still add a recipient in the dialog. With SMTP unavailable, show the corresponding reason instead. Do not mistake a pending or failed contact lookup for a known empty list. An explicit opt-out is never undone by editing the recipients.
 
 The general link and, when configured, the access code are copied **separately** in **Gallery settings → Privacy & protection**, not in the dialog, its success message or the studio header. Copying never changes the stage or sends anything. Email recipients still receive personal links for To and the general link for BCC; attribution and access rules are unchanged.

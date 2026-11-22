@@ -77,9 +77,9 @@ async function pickDay(label: string, months: number, day: string, scope = docum
 	);
 }
 
-const open = (over: Partial<Gallery> = {}) =>
+const open = (over: Partial<Gallery> = {}, settings?: typeof DEFAULT_SETTINGS) =>
 	render(GalleryPage, {
-		props: { data: { gallery: { ...base, ...over }, idleTimeoutMs: 2592000000 } as never }
+		props: { data: { gallery: { ...base, ...over }, settings, idleTimeoutMs: 2592000000 } as never }
 	});
 // Echoes the patch back like the API does; renew calls (auth API) just succeed.
 const stubApi = (status = 200) => {
@@ -1098,55 +1098,131 @@ describe('gallery page', () => {
 			expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/share'))).toHaveLength(0);
 		});
 
-		it('uses the saved title when confirmation waits for a pending title change', async () => {
+		it.each([
+			{ custom: false, expected: 'Portraits — Your proofing gallery is ready' },
+			{ custom: true, expected: 'Wedding — Your proofing gallery is ready' }
+		])(
+			'only updates an untouched subject after a pending title save (custom: $custom)',
+			async ({ custom, expected }) => {
+				const save = Promise.withResolvers<Response>();
+				let subject: string | undefined;
+				vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+					if (init?.method === 'PATCH') return save.promise;
+					if (url.endsWith('/invitations')) {
+						subject = JSON.parse(String(init?.body)).subject;
+						return Response.json({
+							gallery: { ...base, share_token: 'T'.repeat(22), states: ['shared'] },
+							queued_count: 1
+						});
+					}
+					return Response.json([]);
+				});
+				const user = userEvent.setup();
+				open(base, { ...DEFAULT_SETTINGS, emailEnabled: true });
+				const title = screen.getByLabelText('Gallery title');
+				await user.clear(title);
+				await user.type(title, 'Portraits');
+				await user.click(screen.getByRole('button', { name: 'Go to Share' }));
+				await user.click(await screen.findByRole('button', { name: 'Add a recipient' }));
+				await user.type(screen.getByLabelText('To'), 'bob@example.test{Enter}');
+				if (custom) {
+					await user.click(screen.getByRole('button', { name: 'Customize' }));
+					const input = screen.getByLabelText('Subject');
+					await user.clear(input);
+					await user.type(input, expected);
+				}
+				await user.click(screen.getByRole('button', { name: 'Share' }));
+				expect(subject).toBeUndefined();
+				save.resolve(Response.json({ ...base, title: 'Portraits' }));
+				await waitFor(() => expect(subject).toBe(expected));
+			}
+		);
+
+		const contact = {
+			id: 'c1',
+			link_id: 'link-a',
+			name: 'Alice',
+			email: 'alice@example.test',
+			phone: null,
+			notes: null,
+			galleries: [],
+			created_at: base.created_at,
+			updated_at: base.updated_at
+		};
+
+		it('does not deliver silently when a pending save expires the gallery after email confirmation', async () => {
 			const save = Promise.withResolvers<Response>();
-			let subject: string | undefined;
+			const gallery: Gallery = { ...base, share_token: 'B'.repeat(22), states: ['shared'] };
+			const transitions: string[] = [];
 			vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
 				if (init?.method === 'PATCH') return save.promise;
-				if (url.endsWith('/invitations')) {
-					subject = JSON.parse(String(init?.body)).subject;
-					return Response.json({
-						gallery: { ...base, share_token: 'T'.repeat(22), states: ['shared'] },
-						queued_count: 1
-					});
+				if (url.endsWith('/contacts')) return Response.json([contact]);
+				if (url.endsWith('/deliver') || url.endsWith('/invitations')) {
+					transitions.push(url);
+					return Response.json({ ...gallery, states: ['delivered', 'expired'] });
 				}
 				return Response.json([]);
 			});
 			const user = userEvent.setup();
-			render(GalleryPage, {
-				props: {
-					data: {
-						gallery: base,
-						settings: { ...DEFAULT_SETTINGS, emailEnabled: true },
-						idleTimeoutMs: 2592000000
-					} as never
+			open(gallery, { ...DEFAULT_SETTINGS, emailEnabled: true });
+			await user.click(screen.getByRole('tab', { name: 'Settings' }));
+			await pickDay('Open until', -1, '1');
+			await user.click(screen.getByRole('button', { name: 'Go to Deliver final photos' }));
+			const dialog = within(screen.getByRole('dialog'));
+			await dialog.findByText('Alice');
+			expect(
+				(dialog.getByRole('checkbox', { name: 'Send an email' }) as HTMLInputElement).checked
+			).toBe(true);
+			await user.click(dialog.getByRole('button', { name: 'Deliver' }));
+			save.resolve(
+				Response.json({ ...gallery, expires_at: '2020-01-01', states: ['shared', 'expired'] })
+			);
+			expect((await dialog.findByRole('alert')).textContent).toMatch(/expired/i);
+			expect(transitions).toEqual([]);
+		});
+
+		it('shares without email when a pending expiry extension enables recipients after confirmation', async () => {
+			const expiry = Promise.withResolvers<Response>();
+			const title = Promise.withResolvers<Response>();
+			const shared = { ...base, share_token: 'B'.repeat(22), states: ['shared'] };
+			const transitions: string[] = [];
+			vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+				if (init?.method === 'PATCH') {
+					return 'expires_at' in JSON.parse(String(init.body)) ? expiry.promise : title.promise;
 				}
+				if (url.endsWith('/contacts')) return Response.json([contact]);
+				if (url.endsWith('/share') || url.endsWith('/invitations')) {
+					transitions.push(url);
+					return Response.json(
+						url.endsWith('/share') ? shared : { gallery: shared, queued_count: 1 }
+					);
+				}
+				return Response.json([]);
 			});
-			const title = screen.getByLabelText('Gallery title');
-			await user.clear(title);
-			await user.type(title, 'Portraits');
+			const user = userEvent.setup();
+			open(
+				{ expires_at: '2020-01-01', states: ['draft', 'expired'] },
+				{ ...DEFAULT_SETTINGS, emailEnabled: true }
+			);
+			await user.click(screen.getByRole('tab', { name: 'Settings' }));
+			await user.click(screen.getByLabelText('Open until'));
+			await user.click(screen.getByRole('button', { name: 'Clear' }));
+			await user.type(screen.getByLabelText('Gallery title'), ' II');
 			await user.click(screen.getByRole('button', { name: 'Go to Share' }));
-			await user.click(await screen.findByRole('button', { name: 'Add a recipient' }));
-			await user.type(screen.getByLabelText('To'), 'bob@example.test{Enter}');
-			await user.click(screen.getByRole('button', { name: 'Share' }));
-			expect(subject).toBeUndefined();
-			save.resolve(Response.json({ ...base, title: 'Portraits' }));
-			await waitFor(() => expect(subject).toContain('Portraits'));
+			const dialog = within(screen.getByRole('dialog'));
+			expect(
+				(dialog.getByRole('checkbox', { name: 'Send an email' }) as HTMLInputElement).checked
+			).toBe(false);
+			await user.click(dialog.getByRole('button', { name: 'Share' }));
+			expiry.resolve(Response.json(base));
+			await dialog.findByText('Alice');
+			title.resolve(Response.json({ ...base, title: 'Wedding II' }));
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+			expect(transitions).toEqual(['/api/v1/galleries/g1/share']);
 		});
 
 		it('keeps the edited envelope when reconciliation finds the same draft', async () => {
 			const submissions: unknown[] = [];
-			const contact = {
-				id: 'c1',
-				link_id: 'link-a',
-				name: 'Alice',
-				email: 'alice@example.test',
-				phone: null,
-				notes: null,
-				galleries: [],
-				created_at: base.created_at,
-				updated_at: base.updated_at
-			};
 			vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
 				if (url.endsWith('/invitations')) {
 					submissions.push(JSON.parse(String(init?.body)));

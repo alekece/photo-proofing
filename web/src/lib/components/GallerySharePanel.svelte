@@ -2,11 +2,8 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { Search, Users, X } from '@lucide/svelte';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
-	import type {
-		Gallery,
-		InvitationRecipientInput,
-		SendInvitationsInput
-	} from '#lib/gallery/api.js';
+	import type { Gallery, InvitationRecipientInput } from '#lib/gallery/api.js';
+	import type { InvitationDraft } from '#lib/gallery/types.js';
 	import { previewUrl } from '#lib/gallery/photos.js';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
 	import StudioSignature from '#lib/components/StudioSignature.svelte';
@@ -18,7 +15,7 @@
 	import { listContacts, type Contact } from '#lib/contacts/api.js';
 	import { contactInitials, sortContacts } from '#lib/contacts/format.js';
 	import { listGalleryContacts } from '#lib/gallery/contacts.js';
-	import { formatLongDate } from '#lib/gallery/format.js';
+	import { defaultInvitationSubject, formatLongDate } from '#lib/gallery/format.js';
 	import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
 
 	const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
@@ -70,11 +67,6 @@
 
 	const displayTitle = $derived(gallery.title?.trim() || m.gallery_untitled());
 
-	const defaultSubject = $derived(
-		delivered
-			? m.share_default_subject_finals({ title: displayTitle })
-			: m.share_default_subject_proofing({ title: displayTitle })
-	);
 	const defaultMessage = $derived(
 		delivered ? m.share_default_message_finals() : m.share_default_message_proofing()
 	);
@@ -88,7 +80,7 @@
 	let bccError = $state('');
 
 	let customSubject = $state<string>();
-	const subject = $derived(customSubject ?? defaultSubject);
+	const subject = $derived(customSubject ?? defaultInvitationSubject(stage, gallery.title));
 	// svelte-ignore state_referenced_locally
 	let message = $state<string>(defaultMessage);
 	const galleryId = $derived(gallery.id);
@@ -142,7 +134,7 @@
 		if (!checked) expanded = false;
 	});
 
-	export function draft(): SendInvitationsInput | undefined {
+	export function draft(): InvitationDraft | undefined {
 		if (blocked) throw new Error(m.contacts_load_failed());
 		if (!optedOut && adding && toDraft.trim() && !commitToDraft())
 			throw new Error(m.share_invalid_email());
@@ -155,7 +147,7 @@
 			copy_self: copySelf,
 			to: [...toRecipients],
 			bcc: [...bccRecipients],
-			subject: subject.trim(),
+			subject: customSubject?.trim(),
 			message: message.trim()
 		};
 	}
