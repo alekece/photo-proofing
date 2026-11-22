@@ -15,6 +15,8 @@ function readFindings(records, exitCode) {
 
     if (type !== 'diagnostic') continue;
 
+    assert(fields?.code !== 'index-failure', 'cargo-deny could not check the registry index');
+
     if (fields?.severity === 'error') {
       assert(fields.advisory, 'cargo-deny reported a non-advisory error');
       errors++;
@@ -33,8 +35,10 @@ function readFindings(records, exitCode) {
   return [...findings].sort();
 }
 
-function selectCandidates(records, exitCode, openTitles) {
-  const tracked = new Set(openTitles.flatMap((title) => title.match(/\bRUSTSEC-\d{4}-\d{4}\b/g) ?? []));
+function selectCandidates(records, exitCode, openItems) {
+  const tracked = new Set(openItems
+    .filter(({ labels }) => labels.some(({ name }) => name === 'rustsec'))
+    .flatMap(({ title }) => title.match(/\bRUSTSEC-\d{4}-\d{4}\b/g) ?? []));
   return readFindings(records, exitCode).filter((id) => !tracked.has(id));
 }
 
