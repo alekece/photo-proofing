@@ -53,8 +53,9 @@
 			<span
 				style:color={textColor}
 				class="text-[calc(0.62em*var(--signature-scale))] font-semibold tracking-[0.22em] whitespace-nowrap uppercase not-italic"
-				>{name}</span
 			>
+				{name}
+			</span>
 		{/if}
 	</div>
 {/if}

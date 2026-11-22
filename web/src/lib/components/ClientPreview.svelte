@@ -135,9 +135,9 @@
 					class="flex flex-wrap items-center justify-between gap-2.5 border-b border-[#3b322b] bg-foreground px-4 py-2.5 text-sm font-medium text-[#efe6da]"
 				>
 					<span class="flex items-center gap-2 font-semibold">
-						<Eye size={18} aria-hidden="true" /><span class="max-[700px]:hidden"
-							>{m.action_preview()}</span
-						>
+						<Eye size={18} aria-hidden="true" /><span class="max-[700px]:hidden">
+							{m.action_preview()}
+						</span>
 					</span>
 					{@render toggle()}
 					<button
@@ -170,9 +170,9 @@
 						class="grid grid-cols-[1fr_auto_1fr] items-center gap-3.5 border-b border-[#3b322b] bg-foreground px-4 py-2.5 text-sm font-medium text-[#efe6da] max-[700px]:grid-cols-[auto_1fr_auto] max-[700px]:gap-2 max-[700px]:px-2.5 max-[700px]:py-2"
 					>
 						<span class="flex items-center gap-2 font-semibold">
-							<Eye size={18} aria-hidden="true" /><span class="max-[700px]:hidden"
-								>{m.action_preview()}</span
-							>
+							<Eye size={18} aria-hidden="true" /><span class="max-[700px]:hidden">
+								{m.action_preview()}
+							</span>
 						</span>
 						{@render toggle()}
 						<button

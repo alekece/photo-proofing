@@ -193,9 +193,9 @@
 		<Button variant="outline" onclick={() => void load(galleryId)}>{m.action_retry()}</Button>
 	{:else if loaded && favorites.length === 0}
 		<EmptyState variant="plain">
-			<span class="grid size-14 place-items-center rounded-full bg-background"
-				><Heart size={26} aria-hidden="true" /></span
-			>
+			<span class="grid size-14 place-items-center rounded-full bg-background">
+				<Heart size={26} aria-hidden="true" />
+			</span>
 			<h3>{m.favorites_empty()}</h3>
 			<p class="text-sm">{m.favorites_empty_body()}</p>
 		</EmptyState>

@@ -47,9 +47,9 @@
 								<MarkLogo logo={settings.logo} class="size-6" />
 							{/if}
 							{#if signature === 'name' || signature === 'both'}Aa{/if}
-							{#if signature === 'none'}<span class="font-sans text-sm not-italic"
-									>{m.signature_none()}</span
-								>{/if}
+							{#if signature === 'none'}<span class="font-sans text-sm not-italic">
+									{m.signature_none()}
+								</span>{/if}
 						</span>
 						{#if settings.signature === signature}<Check
 								class="absolute top-0.5 right-0.5 size-3"

@@ -52,10 +52,11 @@
 					</div>
 					<span
 						class="w-[calc(var(--h)*1.5)] overflow-hidden font-mono text-[9px] leading-none font-semibold tracking-[0.14em] whitespace-nowrap text-[#d9792e] opacity-80"
-						>▸&nbsp;{frame.number}&nbsp;&nbsp;&nbsp;{frame.number}A{frame.print
-							? '\u00a0\u00a0\u00a0PHOTOPROOFING 400'
-							: ''}</span
 					>
+						▸&nbsp;{frame.number}&nbsp;&nbsp;&nbsp;{frame.number}A{frame.print
+							? '\u00a0\u00a0\u00a0PHOTOPROOFING 400'
+							: ''}
+					</span>
 				</div>
 			{/each}
 		{/each}

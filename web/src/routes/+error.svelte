@@ -57,7 +57,9 @@
 		<a
 			href={exit.href}
 			data-sveltekit-reload={retryStudio || undefined}
-			class={buttonVariants({ variant: 'outline' })}>{exit.label}</a
+			class={buttonVariants({ variant: 'outline' })}
 		>
+			{exit.label}
+		</a>
 	{/if}
 </PageShell>

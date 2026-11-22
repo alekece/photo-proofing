@@ -635,9 +635,9 @@
 								? 'border-foreground bg-foreground text-panel'
 								: 'border-border bg-background text-foreground hover:border-border-strong'}"
 						>
-							<span aria-hidden="true" style:font-family={fontFamily} class="text-2xl leading-none"
-								>Aa</span
-							>
+							<span aria-hidden="true" style:font-family={fontFamily} class="text-2xl leading-none">
+								Aa
+							</span>
 							<span style:font-family={fontFamily} class="truncate text-sm">{item.label}</span>
 						</button>
 					{/each}

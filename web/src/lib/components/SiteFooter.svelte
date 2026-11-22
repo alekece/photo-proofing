@@ -36,9 +36,9 @@
 		{/if}
 		<span class={cn(compact && 'sm:hidden')}>
 			{#if version}
-				<span class="font-mono" title={version}
-					>{m.footer_build({ version: displayVersion(version) })}</span
-				>
+				<span class="font-mono" title={version}>
+					{m.footer_build({ version: displayVersion(version) })}
+				</span>
 			{:else}
 				{m.footer_development_build()}
 			{/if}

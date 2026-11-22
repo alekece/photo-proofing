@@ -439,12 +439,12 @@
 		<h3 class={heading}>{m.settings_actions()}</h3>
 		<div class={row}>
 			<div class="grid gap-0.5">
-				<span class="font-medium text-foreground"
-					>{archived ? m.action_restore() : m.action_archive()}</span
-				>
-				<span class="text-xs text-muted-foreground"
-					>{archived ? m.settings_restore_hint() : m.settings_archive_hint()}</span
-				>
+				<span class="font-medium text-foreground">
+					{archived ? m.action_restore() : m.action_archive()}
+				</span>
+				<span class="text-xs text-muted-foreground">
+					{archived ? m.settings_restore_hint() : m.settings_archive_hint()}
+				</span>
 			</div>
 			{#if archived}
 				<Button variant="outline" size="sm" class="min-h-9! shrink-0 bg-white!" onclick={onrestore}>

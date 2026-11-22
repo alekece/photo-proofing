@@ -517,8 +517,10 @@
 					data-retry
 					class="min-h-7! px-2.5! text-xs"
 					onmousedown={(event) => event.preventDefault()}
-					onclick={retry}>{m.action_retry()}</Button
+					onclick={retry}
 				>
+					{m.action_retry()}
+				</Button>
 			{/if}
 		</div>
 	{/snippet}

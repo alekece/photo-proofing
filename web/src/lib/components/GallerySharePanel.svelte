@@ -323,9 +323,9 @@
 		<p role="status">{m.contacts_load_failed()}</p>
 		<div class="flex flex-wrap gap-2">
 			<Button size="sm" variant="outline" onclick={() => lookup++}>{m.action_retry()}</Button>
-			{#if !optedOut}<Button size="sm" variant="ghost" onclick={() => (optedOut = true)}
-					>{m.stage_without_email()}</Button
-				>{/if}
+			{#if !optedOut}<Button size="sm" variant="ghost" onclick={() => (optedOut = true)}>
+					{m.stage_without_email()}
+				</Button>{/if}
 		</div>
 	{:else if !editing}
 		{#if !effectiveRecipientCount}<p class="text-sm text-muted-foreground">
@@ -335,9 +335,9 @@
 				{[...toRecipients.map((r) => r.name || r.email), ...bccRecipients].join(', ')}
 			</p>{/if}
 		{#if !effectiveRecipientCount && !adding}
-			<Button size="sm" variant="ghost" class="justify-self-start" onclick={() => (adding = true)}
-				>{m.stage_add_recipient()}</Button
-			>
+			<Button size="sm" variant="ghost" class="justify-self-start" onclick={() => (adding = true)}>
+				{m.stage_add_recipient()}
+			</Button>
 		{/if}
 	{/if}
 
@@ -502,9 +502,9 @@
 						/>
 					</div>
 					<div class="grid gap-2">
-						<Label for={messageInputId} class="text-sm font-semibold"
-							>{m.share_message_label()}</Label
-						>
+						<Label for={messageInputId} class="text-sm font-semibold">
+							{m.share_message_label()}
+						</Label>
 						<textarea
 							id={messageInputId}
 							rows={5}
@@ -518,9 +518,9 @@
 							class="w-full min-w-0 resize-y rounded-control border border-border-strong bg-input px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:border-foreground focus:outline-1 focus:outline-focus disabled:cursor-not-allowed disabled:opacity-50"
 						></textarea>
 					</div>
-					<label class="flex items-center gap-2 text-sm"
-						><Checkbox bind:checked={copySelf} disabled={sending} />{m.stage_copy_self()}</label
-					>
+					<label class="flex items-center gap-2 text-sm">
+						<Checkbox bind:checked={copySelf} disabled={sending} />{m.stage_copy_self()}
+					</label>
 				{/if}
 			</section>
 

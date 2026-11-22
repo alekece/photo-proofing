@@ -239,8 +239,10 @@
 						: 'bg-danger/15 font-extrabold text-danger'
 					: active
 						? 'text-background/80'
-						: 'text-muted-foreground'}">{item.count}</em
+						: 'text-muted-foreground'}"
 			>
+				{item.count}
+			</em>
 		{/if}
 	</button>
 {/snippet}
@@ -339,8 +341,9 @@
 			<span
 				aria-hidden="true"
 				class="hidden px-2.5 pb-1 text-[0.65625rem] font-semibold tracking-[0.09em] text-muted-foreground uppercase md:block"
-				>{m.studio_group_collection()}</span
 			>
+				{m.studio_group_collection()}
+			</span>
 			{#each collectionItems as item (item.id)}
 				{@render tabButton(item)}
 			{/each}
@@ -352,8 +355,9 @@
 			<span
 				aria-hidden="true"
 				class="hidden px-2.5 pb-1 text-[0.65625rem] font-semibold tracking-[0.09em] text-muted-foreground uppercase md:block"
-				>{m.studio_group_studio()}</span
 			>
+				{m.studio_group_studio()}
+			</span>
 			{#each studioItems as item (item.id)}
 				{@render tabButton(item)}
 			{/each}

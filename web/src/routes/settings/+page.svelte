@@ -165,8 +165,10 @@
 					variant="ghost"
 					aria-label={m.studio_logo_remove()}
 					class="absolute -top-2 -right-2 size-8 min-h-0 rounded-full bg-foreground p-0 text-inverse opacity-0 transition-opacity group-hover/logo:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-					onclick={removeLogo}><X size={13} aria-hidden="true" /></Button
+					onclick={removeLogo}
 				>
+					<X size={13} aria-hidden="true" />
+				</Button>
 			</div>
 		{:else}
 			<label
@@ -254,21 +256,23 @@
 								{@render studio()}
 							</section>
 							<section class="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
-								<label class="grid gap-1"
-									>{m.studio_display_mode()}
-									<Select bind:value={draft.studioMode}
-										><option value="full_image">{m.studio_full_image()}</option><option
-											value="print">{m.studio_print()}</option
-										></Select
-									>
+								<label class="grid gap-1">
+									{m.studio_display_mode()}
+									<Select bind:value={draft.studioMode}>
+										<option value="full_image">{m.studio_full_image()}</option><option
+											value="print"
+										>
+											{m.studio_print()}
+										</option>
+									</Select>
 								</label>
-								<label class="grid gap-1"
-									>{m.studio_display_palette()}
-									<Select bind:value={draft.studioPalette}
-										><option value="warm">{m.studio_warm()}</option><option value="neutral"
-											>{m.studio_neutral()}</option
-										></Select
-									>
+								<label class="grid gap-1">
+									{m.studio_display_palette()}
+									<Select bind:value={draft.studioPalette}>
+										<option value="warm">{m.studio_warm()}</option><option value="neutral">
+											{m.studio_neutral()}
+										</option>
+									</Select>
 								</label>
 							</section>
 							<section class="grid gap-2 border-t border-border pt-4">

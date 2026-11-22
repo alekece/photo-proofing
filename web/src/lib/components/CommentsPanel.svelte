@@ -98,9 +98,9 @@
 
 {#if loaded && !failed && !comments.error && commented.length === 0}
 	<EmptyState variant="plain">
-		<span class="grid size-14 place-items-center rounded-full bg-background"
-			><MessageSquare size={26} aria-hidden="true" /></span
-		>
+		<span class="grid size-14 place-items-center rounded-full bg-background">
+			<MessageSquare size={26} aria-hidden="true" />
+		</span>
 		<h3>{m.comments_tab_empty()}</h3>
 		<p class="text-sm">{m.comments_tab_empty_body()}</p>
 	</EmptyState>
@@ -126,10 +126,10 @@
 					/>
 					<span class="grid min-w-0 flex-1 gap-0.5">
 						<strong class="truncate text-sm">{photo.original_name}</strong>
-						<span class="truncate text-sm text-muted-foreground"
-							>{comments.latestBody(photo.id) ??
-								m.notification_comments({ count: comments.count(photo.id) })}</span
-						>
+						<span class="truncate text-sm text-muted-foreground">
+							{comments.latestBody(photo.id) ??
+								m.notification_comments({ count: comments.count(photo.id) })}
+						</span>
 					</span>
 					<ChevronDown
 						size={16}

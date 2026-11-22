@@ -90,8 +90,10 @@
 					variant="outline"
 					type="button"
 					disabled={pending}
-					onclick={() => void save(null, close)}>{m.restore_no_expiry()}</Button
+					onclick={() => void save(null, close)}
 				>
+					{m.restore_no_expiry()}
+				</Button>
 				<Button type="submit" disabled={pending || !day}>{m.restore_set_date()}</Button>
 			</div>
 		</form>

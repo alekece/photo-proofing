@@ -159,7 +159,9 @@
 				variant="outline"
 				aria-expanded={expanded}
 				disabled={pending || !editor?.canCustomize()}
-				onclick={() => editor?.toggleCustomization()}>{m.stage_customize()}</Button
-			>{/if}
+				onclick={() => editor?.toggleCustomization()}
+			>
+				{m.stage_customize()}
+			</Button>{/if}
 	{/snippet}
 </ConfirmDialog>

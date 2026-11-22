@@ -15,8 +15,10 @@
 			class="min-h-9!"
 			disabled={zip.refreshing}
 			aria-busy={zip.refreshing}
-			onclick={() => void zip.retryStatus()}>{m.owner_zip_retry_status()}</Button
+			onclick={() => void zip.retryStatus()}
 		>
+			{m.owner_zip_retry_status()}
+		</Button>
 	</div>
 {:else if zip.error}
 	<p role="alert" class="text-right text-sm text-danger">

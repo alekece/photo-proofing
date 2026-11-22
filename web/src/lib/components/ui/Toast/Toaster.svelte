@@ -43,8 +43,10 @@
 					onclick={() => {
 						toast.retry?.();
 						toasts.dismiss(toast.id);
-					}}>{m.toast_retry()}</button
+					}}
 				>
+					{m.toast_retry()}
+				</button>
 			{/if}
 			<button
 				type="button"

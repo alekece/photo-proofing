@@ -519,20 +519,22 @@
 					class="min-h-9! gap-1.5 group-data-[rail=gallery]/select-actions:max-xl:px-2.5"
 					disabled={selection.length === 0}
 					onclick={() => (confirmingSelection = true)}
-					><Trash2 size={16} aria-hidden="true" /><span
-						class="group-data-[rail=gallery]/select-actions:max-xl:sr-only"
-						>{m.action_delete()}</span
-					></Button
 				>
+					<Trash2 size={16} aria-hidden="true" /><span
+						class="group-data-[rail=gallery]/select-actions:max-xl:sr-only"
+					>
+						{m.action_delete()}
+					</span>
+				</Button>
 			{/snippet}
 		</SelectActions>
 	{/if}
 
 	{#if alert}
 		<p role="alert" class="text-sm text-danger">{alert}</p>
-		{#if alert === m.photos_load_failed()}<Button variant="outline" onclick={refresh}
-				>{m.action_retry()}</Button
-			>{/if}
+		{#if alert === m.photos_load_failed()}<Button variant="outline" onclick={refresh}>
+				{m.action_retry()}
+			</Button>{/if}
 	{/if}
 	<p role="status" aria-live="polite" class="sr-only">
 		{[announcement?.text, summary].filter(Boolean).join('. ')}

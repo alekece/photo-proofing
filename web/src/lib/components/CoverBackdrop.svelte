@@ -36,8 +36,9 @@
 			: centered
 				? 'right-1/2 translate-x-1/2 -translate-y-[62%] text-[clamp(9.375rem,24vw,20.625rem)] text-panel/[0.07] italic'
 				: 'right-[4%] -translate-y-1/2 text-[clamp(9.375rem,24vw,20.625rem)] text-panel/[0.07] italic'}"
-		>{initials}</span
 	>
+		{initials}
+	</span>
 	{#if edge && !compact}
 		<span
 			class="absolute truncate font-mono text-[0.5625rem] tracking-[0.2em] text-[#d9792e]/80 uppercase sm:text-[0.625rem] {centered

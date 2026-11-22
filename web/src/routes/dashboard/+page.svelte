@@ -339,9 +339,9 @@
 				? undefined
 				: m.dashboard_total_galleries({ count: visible.length })}
 		/>
-		<Button class="justify-self-start sm:justify-self-auto" onclick={() => (dialogOpen = true)}
-			>{m.dashboard_new_gallery()}</Button
-		>
+		<Button class="justify-self-start sm:justify-self-auto" onclick={() => (dialogOpen = true)}>
+			{m.dashboard_new_gallery()}
+		</Button>
 	</div>
 
 	{#if data.galleries !== null}
@@ -420,9 +420,9 @@
 							{m.dashboard_check_spelling()}
 						{/if}
 					</p>
-					<Button variant="outline" class="mt-3.5" onclick={clearAll}
-						>{m.dashboard_clear_filters()}</Button
-					>
+					<Button variant="outline" class="mt-3.5" onclick={clearAll}>
+						{m.dashboard_clear_filters()}
+					</Button>
 				</li>
 			{/each}
 			{#if visible.length > 0}
@@ -443,8 +443,9 @@
 						</span>
 						<strong
 							class="px-2 font-serif text-[1.0625rem] leading-[1.2] font-normal text-foreground italic sm:text-[1.375rem]"
-							>{m.dashboard_next_client_line1()} <br />{m.dashboard_next_client_line2()}</strong
 						>
+							{m.dashboard_next_client_line1()} <br />{m.dashboard_next_client_line2()}
+						</strong>
 					</button>
 				</li>
 			{/if}

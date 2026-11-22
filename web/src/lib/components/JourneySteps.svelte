@@ -37,16 +37,20 @@
 		<strong
 			class="text-[0.8125rem] leading-[1.15] {step.done || index === current
 				? 'font-semibold text-foreground'
-				: 'font-medium text-muted-foreground'}">{step.label}</strong
+				: 'font-medium text-muted-foreground'}"
 		>
+			{step.label}
+		</strong>
 		{#if step.done}<span class="sr-only">{m.step_done()}</span>{/if}
 		{#if step.fact}
 			<span
 				class="hidden text-[0.6875rem] leading-[1.2] @min-[41rem]:block {step.accent
 					? 'font-extrabold text-danger'
 					: 'text-muted-foreground'}"
-				data-slot="step-fact">{step.fact}</span
+				data-slot="step-fact"
 			>
+				{step.fact}
+			</span>
 		{/if}
 	</span>
 {/snippet}

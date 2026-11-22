@@ -305,9 +305,9 @@
 
 	{#if loadFailed}
 		<p role="alert" class="px-3.5 sm:px-0">{m.photos_load_failed()}</p>
-		<Button variant="outline" class="w-fit" onclick={() => location.reload()}
-			>{m.action_retry()}</Button
-		>
+		<Button variant="outline" class="w-fit" onclick={() => location.reload()}>
+			{m.action_retry()}
+		</Button>
 	{:else if photos.length === 0}
 		<EmptyState variant="plain" class="rounded-card py-14">
 			<Images size={28} aria-hidden="true" class="text-muted-foreground" />
@@ -374,24 +374,26 @@
 				disabled={selection.length === 0 || downloadBusy || zip.busy}
 				aria-busy={downloadBusy || zip.busy}
 				onclick={() => void downloadSelected()}
-				>{#if zip.busy || downloadBusy}<LoaderCircle
+			>
+				{#if zip.busy || downloadBusy}<LoaderCircle
 						size={16}
 						class="animate-spin motion-reduce:animate-none"
 						aria-hidden="true"
-					/>{:else}<Download size={16} aria-hidden="true" />{/if}<span class="max-sm:sr-only"
-					>{zip.busy || downloadBusy ? m.favorites_downloading() : m.action_download()}</span
-				></Button
-			>
+					/>{:else}<Download size={16} aria-hidden="true" />{/if}<span class="max-sm:sr-only">
+					{zip.busy || downloadBusy ? m.favorites_downloading() : m.action_download()}
+				</span>
+			</Button>
 			<Button
 				variant="destructive"
 				size="sm"
 				class="min-h-9! gap-1.5"
 				disabled={selection.length === 0}
 				onclick={() => (deleteConfirmOpen = true)}
-				><Trash2 size={16} aria-hidden="true" /><span class="max-sm:sr-only"
-					>{m.action_delete()}</span
-				></Button
 			>
+				<Trash2 size={16} aria-hidden="true" /><span class="max-sm:sr-only">
+					{m.action_delete()}
+				</span>
+			</Button>
 		{/snippet}
 	</SelectActions>
 {/if}

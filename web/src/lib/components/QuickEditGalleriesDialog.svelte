@@ -222,9 +222,9 @@
 							</div>{/if}
 
 						<div class="grid min-w-0 gap-1">
-							{#if rows.length === 1}<label for="{id}-name-{index}" class="text-sm font-medium"
-									>{m.new_gallery_field()}</label
-								>{/if}
+							{#if rows.length === 1}<label for="{id}-name-{index}" class="text-sm font-medium">
+									{m.new_gallery_field()}
+								</label>{/if}
 							{#if index === 0}
 								<Input
 									bind:ref={firstInput}
@@ -250,8 +250,9 @@
 							<label
 								for="{id}-date-{index}"
 								class={rows.length === 1 ? 'text-sm font-medium' : 'sr-only'}
-								>{m.shoot_date_label()}</label
 							>
+								{m.shoot_date_label()}
+							</label>
 							<DatePicker
 								disabled={saving}
 								id="{id}-date-{index}"

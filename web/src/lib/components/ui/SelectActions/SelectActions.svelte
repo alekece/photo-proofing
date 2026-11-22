@@ -91,11 +91,13 @@
 		class="min-h-9! px-2.5!"
 		aria-label={m.selection_exit()}
 		{disabled}
-		onclick={onexit}><X size={18} aria-hidden="true" /></Button
+		onclick={onexit}
 	>
-	<strong class="text-sm font-semibold whitespace-nowrap sm:mr-6"
-		>{m.notification_selected({ count })}</strong
-	>
+		<X size={18} aria-hidden="true" />
+	</Button>
+	<strong class="text-sm font-semibold whitespace-nowrap sm:mr-6">
+		{m.notification_selected({ count })}
+	</strong>
 	<div
 		class={[
 			'flex flex-wrap items-center justify-center gap-2 max-sm:gap-1',
@@ -122,9 +124,9 @@
 					class="group-data-[rail=gallery]/select-actions:max-xl:inline sm:hidden"
 				/>
 			{/if}
-			<span class="group-data-[rail=gallery]/select-actions:max-xl:sr-only max-sm:sr-only"
-				>{all ? m.action_unselect_all() : m.action_select_all()}</span
-			>
+			<span class="group-data-[rail=gallery]/select-actions:max-xl:sr-only max-sm:sr-only">
+				{all ? m.action_unselect_all() : m.action_select_all()}
+			</span>
 		</Button>
 		{@render actions?.()}
 	</div>
