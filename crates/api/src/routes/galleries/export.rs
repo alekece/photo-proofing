@@ -8,9 +8,13 @@
 //! events.
 
 use actix_web::{
-    HttpResponse, get, post,
-    web::{Bytes, Data, Path as WebPath, Query, ServiceConfig},
+    FromRequest, HttpMessage, HttpRequest, HttpResponse,
+    dev::Payload,
+    error::JsonPayloadError,
+    get, mime, post,
+    web::{Data, JsonBody, Path as WebPath, Query, ServiceConfig},
 };
+use futures_util::future::LocalBoxFuture;
 use pp_core::types::timestamp::Timestamp;
 use pp_database::{
     export::{Export, ExportId, ExportOptions, ExportRepository, ExportRequest},
@@ -33,26 +37,58 @@ pub(crate) mod workspace;
 /// The name the browser saves the ZIP under, the same for every gallery.
 const DOWNLOAD_NAME: &str = "selection.zip";
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ExportSelection {
-    #[serde(deserialize_with = "ExportSelection::deserialize_photo_ids")]
     photo_ids: Vec<PhotoId>,
 }
 
 impl ExportSelection {
     const JSON_LIMIT: usize = 64 * 1024;
+}
 
-    fn deserialize_photo_ids<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Vec<PhotoId>, D::Error> {
-        let photo_ids = Vec::deserialize(deserializer)?;
+impl<'de> Deserialize<'de> for ExportSelection {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct SelectionBody {
+            photo_ids: Vec<PhotoId>,
+        }
+
+        let SelectionBody { photo_ids } = SelectionBody::deserialize(deserializer)?;
 
         if !(1..=1000).contains(&photo_ids.len()) {
             return Err(D::Error::custom("expected between 1 and 1000 photo IDs"));
         }
 
-        Ok(photo_ids)
+        Ok(Self { photo_ids })
+    }
+}
+
+/// Only an empty body requests the whole gallery set; invalid subsets must not do so.
+struct GallerySelection(Option<ExportSelection>);
+
+impl FromRequest for GallerySelection {
+    type Error = ErrorResponse;
+    type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
+
+    fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let is_json =
+            request.mime_type().ok().flatten().is_some_and(|mime| {
+                mime.subtype() == mime::JSON || mime.suffix() == Some(mime::JSON)
+            });
+        let body = JsonBody::new(request, payload, None, false).limit(ExportSelection::JSON_LIMIT);
+
+        Box::pin(async move {
+            match body.await {
+                Ok(selection) if is_json => Ok(Self(Some(selection))),
+                // EOF before the first byte, not whitespace or a truncated JSON document.
+                Err(JsonPayloadError::Deserialize(error))
+                    if error.is_eof() && error.line() == 1 && error.column() == 0 =>
+                {
+                    Ok(Self(None))
+                }
+                _ => Err(ErrorResponse::bad_request()),
+            }
+        })
     }
 }
 
@@ -89,19 +125,9 @@ async fn request_export(
     Authenticated(identity): Authenticated,
     id: WebPath<GalleryId>,
     set: Query<PhotoSet>,
-    body: Bytes,
+    GallerySelection(selection): GallerySelection,
 ) -> Result<HttpResponse, ErrorResponse> {
     let gallery_id = id.into_inner();
-    let selection = if body.is_empty() {
-        None
-    } else if body.len() > ExportSelection::JSON_LIMIT {
-        return Err(ErrorResponse::bad_request());
-    } else {
-        Some(
-            serde_json::from_slice::<ExportSelection>(&body)
-                .map_err(|_| ErrorResponse::bad_request())?,
-        )
-    };
     let outcome = state
         .database()
         .repository_with::<ExportRepository>(ExportOptions {
@@ -232,8 +258,10 @@ async fn download_export(
 
 #[cfg(test)]
 mod tests {
+    use actix_http::encoding::Encoder;
     use actix_web::{
-        http::{Method, StatusCode},
+        body,
+        http::{Method, StatusCode, header::ContentEncoding},
         test,
     };
     use pp_core::{config::PhotoDir, types::generate::Generate};
@@ -663,8 +691,13 @@ mod tests {
         let gallery_id = create_gallery(&app, &cookie).await;
         let first = favorite(&pool, &gallery_id, "a.jpg").await;
         favorite(&pool, &gallery_id, "b.jpg").await;
-        let request =
-            post(&gallery_id, &cookie).set_json(serde_json::json!({"photo_ids": [first]}));
+        let payload = serde_json::json!({"photo_ids": [first]}).to_string();
+        let mut response = HttpResponse::Ok().finish();
+        let compressed = Encoder::response(ContentEncoding::Gzip, response.head_mut(), payload);
+        let request = post(&gallery_id, &cookie)
+            .insert_header(("Content-Type", "application/json"))
+            .insert_header(("Content-Encoding", "gzip"))
+            .set_payload(body::to_bytes(compressed).await.unwrap());
         let (status, export) = call(&app, request).await;
 
         assert_eq!(status, StatusCode::ACCEPTED);
@@ -687,6 +720,21 @@ mod tests {
         let cookie = sign_up(&app).await;
         let gallery_id = create_gallery(&app, &cookie).await;
         let first = favorite(&pool, &gallery_id, "a.jpg").await;
+
+        for (content_type, payload) in [
+            ("application/json", "{".to_owned()),
+            ("application/json", "\n ".to_owned()),
+            (
+                "text/plain",
+                serde_json::json!({"photo_ids": [first]}).to_string(),
+            ),
+        ] {
+            let request = post(&gallery_id, &cookie)
+                .insert_header(("Content-Type", content_type))
+                .set_payload(payload);
+
+            assert_eq!(call(&app, request).await.0, StatusCode::BAD_REQUEST);
+        }
 
         for ids in [vec![], vec![first, first], vec![PhotoId::generate()]] {
             let (status, _) = call(
