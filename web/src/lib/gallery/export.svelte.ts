@@ -5,9 +5,9 @@ import { m } from '#lib/paraglide/messages.js';
 import { exportUrl, latestExport, requestExport, startDownload, type Export } from './export';
 import type { PhotoSet } from './photos';
 
-type Session = { id: string; load: number; awaited?: string };
+type Session = { id: string | null; load: number; awaited?: string };
 
-/** One preparation slot for a gallery's owner ZIPs, without adopting results from a prior gallery. */
+/** Tracks a private gallery or workspace ZIP and downloads only an explicitly requested result. */
 export class OwnerExport {
 	#session?: Session;
 	#latest = $state.raw<Export | null>(null);
@@ -32,7 +32,7 @@ export class OwnerExport {
 	}
 
 	constructor(
-		readonly galleryId: () => string,
+		readonly galleryId: () => string | null,
 		readonly set: PhotoSet,
 		readonly enabled: () => boolean = () => true
 	) {
@@ -49,7 +49,7 @@ export class OwnerExport {
 			this.#session = session;
 			const refresh = () => void this.#refresh(session);
 			const offExport = events.onExport(({ gallery_id }) => {
-				if (gallery_id === session.id) refresh();
+				if (session.id === null || gallery_id === session.id) refresh();
 			});
 			const offResync = events.onResync(refresh);
 			refresh();
@@ -79,10 +79,17 @@ export class OwnerExport {
 	}
 
 	async #refresh(session: Session) {
+		if (session.id === null && !session.awaited) return;
+
 		const load = ++session.load;
 		this.#refreshing = true;
 		try {
-			const latest = await latestExport(session.id, fetch, this.set);
+			const latest = await latestExport(
+				session.id,
+				fetch,
+				this.set,
+				session.id === null ? session.awaited : undefined
+			);
 			if (!this.#current(session) || load !== session.load) return;
 			this.#statusError = null;
 			this.#adopt(session, latest);

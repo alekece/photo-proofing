@@ -23,7 +23,9 @@ A photo with prepared clean images can be starred as the gallery hero, used on t
 The [workspace visual refresh](docs/designs/2026-11-21-workspace-visual-refresh-design.md)
 keeps search, sort, filters and scroll when returning from a gallery. The private
 Photos library searches by gallery name and opens a viewer over its filtered
-grid; downloads and deletions stay in the selection bar. Studio has an inline
+grid; downloads and deletions stay in the selection bar. One checked photo
+downloads directly. For two or more, the studio prepares one ZIP of the checked
+originals, even across galleries, and starts the download when ready. Studio has an inline
 Comments tab. In [Settings](docs/designs/ui/screens/settings.md), General holds
 the studio identity, language and proof quality. The cover signature can
 override the cover color for the studio name without recoloring the logo or
@@ -192,6 +194,12 @@ the old API and let the old worker finish outstanding invitations before stoppin
 Upgrade the API, worker and web together, and reopen any sharing dialogs. Older personal
 invitations do not identify their original link: any left in the queue are recorded as
 failed and cannot be retried against a possibly different link. Blind copies are unaffected.
+
+For workspace photo ZIPs (`0047`), stop the old workers before the new API accepts
+requests. Older workers cannot read originals from multiple galleries in one job.
+Photos reuses a ready ZIP for the same selection until expiry (15 minutes by default).
+A different selection replaces it. The worker removes replaced and expired files on
+its regular maintenance pass (every 5 minutes by default).
 
 Deployment tooling remains in this repository, but real hostnames, addresses,
 volume mappings, account details, secret-manager identifiers and certificates
