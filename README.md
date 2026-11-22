@@ -197,7 +197,9 @@ failed and cannot be retried against a possibly different link. Blind copies are
 
 For workspace photo ZIPs (`0047`), stop the old workers before the new API accepts
 requests. Older workers cannot read originals from multiple galleries in one job.
-Allow disk space for all ZIPs retained until expiry, not just the one being prepared.
+Photos reuses a ready ZIP for the same selection until expiry (15 minutes by default).
+A different selection replaces it. The worker removes replaced and expired files on
+its regular maintenance pass (every 5 minutes by default).
 
 Deployment tooling remains in this repository, but real hostnames, addresses,
 volume mappings, account details, secret-manager identifiers and certificates

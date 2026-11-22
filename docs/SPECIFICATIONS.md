@@ -45,6 +45,8 @@ The photographer maintains a workspace-wide contact directory (`/contacts`) reac
 
 In All Photos, downloading one checked photo returns the original directly. Downloading several prepares one private ZIP of exactly the checked originals, even across galleries and photo types. The download starts when the complete ZIP is ready; preparation errors never produce individual downloads or a partial archive.
 
+Requesting the same set again reuses its ready ZIP until expiry, regardless of selection order. A different valid selection replaces the previous ZIP. Once expired, the next request builds a fresh ZIP. The worker removes expired and replaced archives during regular maintenance.
+
 ### FR-02a
 
 **Languages.** The product is available in English and French, covering the photographer app, every client page and the unavailable page, including dates. The photographer chooses the workspace language in Settings → General, and it saves immediately. Clients always see the workspace language. New workspaces start in English; the first-run sign-in page follows the browser language, falling back to English. Photographers' own content (gallery titles, studio name) is not translated.

@@ -1,5 +1,6 @@
 -- Older single-gallery snapshots already identify the source through their export.
 ALTER TABLE export_photos ADD COLUMN source_gallery_id uuid;
+ALTER TABLE exports ADD COLUMN superseded boolean NOT NULL DEFAULT false;
 
 ALTER TABLE exports
     DROP CONSTRAINT exports_kind_known,

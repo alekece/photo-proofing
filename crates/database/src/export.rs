@@ -632,6 +632,7 @@ impl ExportRepository<'_> {
         workspace_id: WorkspaceId,
         selected: &[PhotoId],
         max_size: NonZeroU64,
+        retention: Duration,
     ) -> Result<ExportRequest, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
         sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR NO KEY UPDATE")
@@ -673,6 +674,33 @@ impl ExportRepository<'_> {
             return Ok(ExportRequest::TooLarge);
         }
 
+        let ready = sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {} FROM exports WHERE workspace_id = $1 AND kind = 'workspace_selection'
+               AND NOT superseded AND status ->> 'kind' = 'ready'
+               AND finished_at > now() - $2 * interval '1 second'
+               AND photo_count = cardinality($3::uuid[])
+               AND NOT EXISTS (SELECT FROM export_photos s WHERE s.export_id = exports.id
+                               AND NOT (s.photo_id = ANY($3))) FOR SHARE",
+            Self::COLUMNS
+        )))
+        .bind(workspace_id)
+        .bind(retention.as_secs_f64())
+        .bind(selected)
+        .fetch_optional(&mut *transaction)
+        .await?;
+
+        if let Some(export) = ready {
+            return Ok(ExportRequest::Reused(export));
+        }
+
+        sqlx::query(
+            "UPDATE exports SET superseded = true WHERE workspace_id = $1
+                     AND kind = 'workspace_selection' AND NOT superseded",
+        )
+        .bind(workspace_id)
+        .execute(&mut *transaction)
+        .await?;
+
         // The archive needs one directory; its entries keep their own source galleries.
         let gallery_id = rows[0].0;
         let photos: Vec<_> = rows
@@ -704,7 +732,7 @@ impl ExportRepository<'_> {
     ) -> Result<Option<Export>, DatabaseError> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {} FROM exports WHERE workspace_id = $1 AND id = $3 AND kind = 'workspace_selection'
-             AND COALESCE(finished_at, created_at) > now() - $2 * interval '1 second'
+             AND NOT superseded AND COALESCE(finished_at, created_at) > now() - $2 * interval '1 second'
              AND (status ->> 'kind' <> 'ready' OR {})",
             Self::COLUMNS, Self::ALL_SOURCES_READY
         )))
@@ -724,7 +752,7 @@ impl ExportRepository<'_> {
     ) -> Result<Option<GalleryId>, DatabaseError> {
         Ok(sqlx::query_scalar(AssertSqlSafe(format!(
             "SELECT gallery_id FROM exports WHERE id = $1 AND workspace_id = $2
-            AND kind = 'workspace_selection' AND status ->> 'kind' = 'ready'
+            AND kind = 'workspace_selection' AND NOT superseded AND status ->> 'kind' = 'ready'
             AND finished_at > now() - $3 * interval '1 second' AND {}",
             Self::ALL_SOURCES_READY
         )))
@@ -913,7 +941,7 @@ impl ExportRepository<'_> {
         let expired: Vec<ExpiredExport> = sqlx::query_as(
             "SELECT id, workspace_id, gallery_id FROM exports
              WHERE kind IN ('selection', 'final_selection', 'workspace_selection')
-               AND COALESCE(finished_at, created_at) <= now() - $1 * interval '1 second'
+               AND (superseded OR COALESCE(finished_at, created_at) <= now() - $1 * interval '1 second')
              ORDER BY id FOR UPDATE",
         )
         .bind(retention.as_secs_f64())

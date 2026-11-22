@@ -104,6 +104,7 @@ async fn request_workspace(
             identity.workspace_id,
             &selection.photo_ids,
             state.export_max_size(),
+            state.export_retention(),
         )
         .await?;
 

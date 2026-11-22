@@ -334,13 +334,13 @@ mod tests {
         let limit = NonZeroU64::new(10).unwrap();
         assert_eq!(
             repository
-                .request_workspace(workspace, &ids, small_limit)
+                .request_workspace(workspace, &ids, small_limit, DAY)
                 .await
                 .unwrap(),
             ExportRequest::TooLarge
         );
         let ExportRequest::Created { export, .. } = repository
-            .request_workspace(workspace, &ids, limit)
+            .request_workspace(workspace, &ids, limit, DAY)
             .await
             .unwrap()
         else {
@@ -365,6 +365,10 @@ mod tests {
             export: export.id,
         };
         assert!(fixture.storage.read_archive(&key).await.is_ok());
+        assert!(matches!(
+            repository.request_workspace(workspace, &[final_photo, proof], limit, DAY).await.unwrap(),
+            ExportRequest::Reused(existing) if existing.id == export.id
+        ));
         let foreign = fixture
             .database
             .repository::<TestRepository>()
@@ -411,7 +415,15 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        assert_eq!(repository.expire(Duration::ZERO).await.unwrap().len(), 1);
+        let third = fixture.favorite("third.jpg", true).await;
+        let changed = repository
+            .request_workspace(workspace, &[proof, third], limit, DAY)
+            .await
+            .unwrap();
+        assert!(matches!(changed, ExportRequest::Created { .. }));
+        let removed = repository.expire(DAY).await.unwrap();
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].id, export.id);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -425,7 +437,7 @@ mod tests {
         let result = fixture
             .database
             .repository::<ExportRepository>()
-            .request_workspace(workspace, &ids, NonZeroU64::new(10).unwrap())
+            .request_workspace(workspace, &ids, NonZeroU64::new(10).unwrap(), DAY)
             .await
             .unwrap();
         assert!(matches!(result, ExportRequest::Created { .. }));
