@@ -75,7 +75,6 @@
 [data-studio-palette] {
 	--studio-hover: #f1ece6;
 	--studio-choice: #efe3da;
-	--studio-active: #e4d7c6;
 	--studio-danger: #b94a40;
 	--studio-danger-hover: #8b352d;
 }
@@ -88,7 +87,6 @@
 	--border-strong: #cac8c0;
 	--studio-hover: #f1f1ef;
 	--studio-choice: #ededeb;
-	--studio-active: #e5e3db;
 }
 [data-studio-mode]
 	[data-slot='select-actions']
