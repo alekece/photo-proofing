@@ -37,6 +37,22 @@ struct ExportSelection {
     photo_ids: Vec<PhotoId>,
 }
 
+impl ExportSelection {
+    fn parse(body: &[u8]) -> Result<Self, ErrorResponse> {
+        if body.len() > 64 * 1024 {
+            return Err(ErrorResponse::bad_request());
+        }
+
+        let selection: Self =
+            serde_json::from_slice(body).map_err(|_| ErrorResponse::bad_request())?;
+
+        if selection.photo_ids.is_empty() || selection.photo_ids.len() > 1000 {
+            return Err(ErrorResponse::bad_request());
+        }
+
+        Ok(selection)
+    }
+}
 /// An export as the photographer's UI receives it.
 #[derive(Debug, Serialize)]
 struct ExportResponse {
@@ -64,6 +80,80 @@ pub fn configure(cfg: &mut ServiceConfig) {
         .service(download_export);
 }
 
+/// Registers the signed-in photographer's multi-gallery ZIP under the Photos scope.
+pub(crate) fn configure_workspace(cfg: &mut ServiceConfig) {
+    cfg.service(request_workspace)
+        .service(show_workspace)
+        .service(download_workspace);
+}
+
+#[post("/export")]
+async fn request_workspace(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    body: Bytes,
+) -> Result<HttpResponse, ErrorResponse> {
+    let selection = ExportSelection::parse(&body)?;
+    let outcome = state
+        .database()
+        .repository_with::<ExportRepository>(ExportOptions {
+            job: state.job_options(),
+            ..Default::default()
+        })
+        .request_workspace(
+            identity.workspace_id,
+            &selection.photo_ids,
+            state.export_max_size(),
+        )
+        .await?;
+
+    ExportResponse::requested(outcome)
+}
+
+#[get("/export/{export_id}")]
+async fn show_workspace(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    id: WebPath<ExportId>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let export = state
+        .database()
+        .repository::<ExportRepository>()
+        .workspace_export(
+            identity.workspace_id,
+            id.into_inner(),
+            state.export_retention(),
+        )
+        .await?;
+
+    Ok(ExportResponse::latest(export))
+}
+
+#[get("/export/{export_id}/download")]
+async fn download_workspace(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    id: WebPath<ExportId>,
+) -> Result<Attachment, ErrorResponse> {
+    let export = id.into_inner();
+    let gallery = state
+        .database()
+        .repository::<ExportRepository>()
+        .workspace_archive_gallery(identity.workspace_id, export, state.export_retention())
+        .await?
+        .ok_or_else(ErrorResponse::not_found)?;
+
+    ExportResponse::attachment(
+        &state,
+        ArchiveKey {
+            workspace: identity.workspace_id,
+            gallery,
+            export,
+        },
+    )
+    .await
+}
+
 #[post("/{id}/export")]
 async fn request_export(
     state: Data<ApiState>,
@@ -76,17 +166,7 @@ async fn request_export(
     let selection = if body.is_empty() {
         None
     } else {
-        if body.len() > 64 * 1024 {
-            return Err(ErrorResponse::bad_request());
-        }
-
-        let selection: ExportSelection =
-            serde_json::from_slice(&body).map_err(|_| ErrorResponse::bad_request())?;
-        if selection.photo_ids.is_empty() || selection.photo_ids.len() > 1000 {
-            return Err(ErrorResponse::bad_request());
-        }
-
-        Some(selection)
+        Some(ExportSelection::parse(&body)?)
     };
     let outcome = state
         .database()
@@ -106,32 +186,55 @@ async fn request_export(
         )
         .await?;
 
-    match outcome {
-        ExportRequest::Created { export, replaced } => {
-            for previous in replaced {
-                let key = ArchiveKey {
-                    workspace: identity.workspace_id,
-                    gallery: gallery_id,
-                    export: previous,
-                };
+    if let ExportRequest::Created { replaced, .. } = &outcome {
+        for previous in replaced {
+            let key = ArchiveKey {
+                workspace: identity.workspace_id,
+                gallery: gallery_id,
+                export: *previous,
+            };
 
-                if let Err(error) = state.storage().remove_archive(&key).await {
-                    tracing::warn!(%error, "replaced selection ZIP could not be removed");
-                }
+            if let Err(error) = state.storage().remove_archive(&key).await {
+                tracing::warn!(%error, "replaced selection ZIP could not be removed");
             }
-
-            Ok(HttpResponse::Accepted()
-                .no_store()
-                .json(ExportResponse::from(export)))
         }
-        ExportRequest::Reused(export) => Ok(HttpResponse::Ok()
-            .no_store()
-            .json(ExportResponse::from(export))),
-        ExportRequest::InProgress(_) => Err(ErrorResponse::zip_in_progress()),
-        ExportRequest::InvalidSelection => Err(ErrorResponse::bad_request()),
-        ExportRequest::EmptySelection => Err(ErrorResponse::empty_selection()),
-        ExportRequest::TooLarge => Err(ErrorResponse::selection_too_large()),
-        ExportRequest::MissingGallery => Err(ErrorResponse::not_found()),
+    }
+
+    ExportResponse::requested(outcome)
+}
+
+impl ExportResponse {
+    fn requested(outcome: ExportRequest) -> Result<HttpResponse, ErrorResponse> {
+        match outcome {
+            ExportRequest::Created { export, .. } => {
+                Ok(HttpResponse::Accepted().no_store().json(Self::from(export)))
+            }
+            ExportRequest::Reused(export) => Ok(HttpResponse::Ok()
+                .no_store()
+                .json(ExportResponse::from(export))),
+            ExportRequest::InProgress(_) => Err(ErrorResponse::zip_in_progress()),
+            ExportRequest::InvalidSelection => Err(ErrorResponse::bad_request()),
+            ExportRequest::EmptySelection => Err(ErrorResponse::empty_selection()),
+            ExportRequest::TooLarge => Err(ErrorResponse::selection_too_large()),
+            ExportRequest::MissingGallery => Err(ErrorResponse::not_found()),
+        }
+    }
+
+    fn latest(export: Option<Export>) -> HttpResponse {
+        match export {
+            Some(export) => HttpResponse::Ok().no_store().json(Self::from(export)),
+            None => HttpResponse::NoContent().no_store().finish(),
+        }
+    }
+
+    async fn attachment(state: &ApiState, key: ArchiveKey) -> Result<Attachment, ErrorResponse> {
+        let file = match state.storage().read_archive(&key).await {
+            Ok(file) => file,
+            Err(StorageError::NotFound) => return Err(ErrorResponse::not_found()),
+            Err(error) => return Err(error.into()),
+        };
+
+        Attachment::zip(DOWNLOAD_NAME, file).await
     }
 }
 
@@ -168,12 +271,7 @@ async fn show_export(
         return Err(ErrorResponse::not_found());
     }
 
-    Ok(match export {
-        Some(export) => HttpResponse::Ok()
-            .no_store()
-            .json(ExportResponse::from(export)),
-        None => HttpResponse::NoContent().no_store().finish(),
-    })
+    Ok(ExportResponse::latest(export))
 }
 
 #[get("/{id}/export/{export_id}/download")]
@@ -205,12 +303,7 @@ async fn download_export(
         gallery: gallery_id,
         export: export_id,
     };
-    let file = match state.storage().read_archive(&key).await {
-        Ok(file) => file,
-        Err(StorageError::NotFound) => return Err(ErrorResponse::not_found()),
-        Err(error) => return Err(error.into()),
-    };
-    Attachment::zip(DOWNLOAD_NAME, file).await
+    ExportResponse::attachment(&state, key).await
 }
 
 #[cfg(test)]

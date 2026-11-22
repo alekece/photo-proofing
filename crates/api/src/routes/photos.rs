@@ -16,7 +16,11 @@ use crate::{
 
 /// Registers the workspace photo index route.
 pub fn configure(cfg: &mut ServiceConfig) {
-    cfg.service(web::scope("/photos").service(list_photos));
+    cfg.service(
+        web::scope("/photos")
+            .service(list_photos)
+            .configure(super::galleries::export::configure_workspace),
+    );
 }
 
 #[get("")]
@@ -112,6 +116,92 @@ mod tests {
             .unwrap();
 
         id
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn workspace_zip_snapshots_the_exact_mixed_selection(pool: PgPool) {
+        let database = Database::new(pool.clone());
+        let (state, _directory) = app_state(pool.clone()).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let (_, g1) = call(&app, post_gallery(&cookie)).await;
+        let (_, g2) = call(&app, post_gallery(&cookie)).await;
+        let (workspace_id, gallery_id) = gallery_of(&pool, &g1).await;
+        let first = PhotoLocation {
+            workspace_id,
+            gallery_id,
+        };
+        let (_, gallery_id) = gallery_of(&pool, &g2).await;
+        let second = PhotoLocation {
+            workspace_id,
+            gallery_id,
+        };
+        let proof = photo_in(&database, first, PhotoKind::Proof, PhotoStatus::Ready, 10).await;
+        let final_photo =
+            photo_in(&database, second, PhotoKind::Final, PhotoStatus::Ready, 20).await;
+        let request = |ids: &[PhotoId]| {
+            test::TestRequest::post()
+                .uri("/api/v1/photos/export")
+                .cookie(cookie.clone())
+                .insert_header(("Origin", ORIGIN))
+                .set_json(serde_json::json!({"photo_ids": ids}))
+        };
+
+        let foreign = other_workspace(&pool).await;
+        let foreign_gallery = database
+            .repository::<GalleryRepository>()
+            .create(foreign)
+            .await
+            .unwrap();
+        let foreign_photo = photo_in(
+            &database,
+            PhotoLocation {
+                workspace_id: foreign,
+                gallery_id: foreign_gallery.id,
+            },
+            PhotoKind::Proof,
+            PhotoStatus::Ready,
+            30,
+        )
+        .await;
+        assert_eq!(
+            call(&app, request(&[proof, foreign_photo])).await.0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            call(&app, request(&[proof, proof])).await.0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            call(&app, request(&[proof, PhotoId::from(Uuid::new_v4())]))
+                .await
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+        let (status, export) = call(&app, request(&[proof, final_photo])).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(export["photo_count"], 2);
+        assert_eq!(
+            call(&app, request(&[proof, final_photo])).await.0,
+            StatusCode::CONFLICT
+        );
+        let (status, latest) = call(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!(
+                    "/api/v1/photos/export/{}",
+                    export["id"].as_str().unwrap()
+                ))
+                .cookie(cookie),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(latest["id"], export["id"]);
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
