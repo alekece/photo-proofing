@@ -14,13 +14,13 @@ function setup(count = 1, total = 3, rail: 'dashboard' | 'gallery' = 'dashboard'
 const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
 
 describe('SelectActions', () => {
-	it('uses the Neutral Warm Paper surface with enter motion', () => {
+	it('shows the Neutral Warm Paper surface without enter motion', () => {
 		const { container } = setup(1);
 		const bar = container.querySelector('[data-slot="select-actions"]') as HTMLElement;
 
 		expect(bar.className).toContain('bg-panel');
 		expect(bar.className).not.toContain('bg-white');
-		expect(bar.className).toContain('animate-selection-in');
+		expect(bar.className).not.toContain('animate-selection-in');
 	});
 
 	it('shows the count and exits from the icon button', async () => {
@@ -75,10 +75,8 @@ describe('SelectActions', () => {
 		expect(bar.className).toMatch(/\bfixed\b/);
 		expect(bar.className).toMatch(/\bbottom-/);
 		expect(bar.className).not.toMatch(/\bsticky\b/);
-		expect(bar.className).toMatch(/sm:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\)\]/);
-		expect(bar.className).toMatch(
-			/sm:max-w-\[calc\(100vw-clamp\(15rem,16vw,17\.5rem\)-1\.25rem\)\]/
-		);
+		expect(bar.className).toContain('sm:left-[calc(50%+var(--gallery-rail-width)/2)]');
+		expect(bar.className).toContain('sm:max-w-[calc(100vw-var(--gallery-rail-width)-1.25rem)]');
 		// Must not also carry the gallery rail's md-breakpoint offset.
 		expect(bar.className).not.toMatch(/md:left-/);
 	});
@@ -89,15 +87,8 @@ describe('SelectActions', () => {
 
 		expect(bar.className).toMatch(/\bfixed\b/);
 		expect(bar.className).toMatch(/\bbottom-/);
-		expect(bar.className).toMatch(/sm:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\)\]/);
-		expect(bar.className).toMatch(
-			/sm:max-w-\[calc\(100vw-clamp\(15rem,16vw,17\.5rem\)-1\.25rem\)\]/
-		);
-		expect(bar.className).toMatch(
-			/md:left-\[calc\(50%\+clamp\(7\.5rem,8vw,8\.75rem\)\+var\(--gallery-rail-width\)\/2\)\]/
-		);
-		expect(bar.className).toContain(
-			'md:max-w-[calc(100vw-clamp(15rem,16vw,17.5rem)-var(--gallery-rail-width)-1.5rem)]'
-		);
+		expect(bar.className).toContain('sm:left-[calc(50%+var(--gallery-rail-width)/2)]');
+		expect(bar.className).toContain('md:left-[calc(50%+var(--gallery-rail-width))]');
+		expect(bar.className).toContain('md:max-w-[calc(100vw-2*var(--gallery-rail-width)-1.5rem)]');
 	});
 });

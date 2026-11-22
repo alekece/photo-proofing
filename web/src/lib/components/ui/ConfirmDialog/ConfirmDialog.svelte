@@ -26,6 +26,7 @@
 		visual?: Snippet<[boolean]>;
 		description?: Snippet;
 		content?: Snippet<[boolean]>;
+		secondaryAction?: Snippet<[boolean]>;
 		expanded?: boolean;
 		/** Shown once the action has succeeded; replaces the question. */
 		result?: { title: string; body: Snippet<[() => void]> };
@@ -43,6 +44,7 @@
 		visual,
 		description,
 		content,
+		secondaryAction,
 		expanded = false,
 		result
 	}: Props = $props();
@@ -113,8 +115,9 @@
 						/>
 					{:else}<p role="alert" class="text-sm text-danger sm:col-span-2">{error}</p>{/if}
 				{/if}
-				<div class="flex gap-2.5 sm:col-span-2 sm:justify-end max-sm:[&>*]:flex-1">
+				<div class="flex flex-wrap gap-2.5 sm:col-span-2 sm:justify-end max-sm:[&>*]:flex-1">
 					<Button variant="outline" disabled={pending} onclick={close}>{cancelLabel}</Button>
+					{@render secondaryAction?.(pending)}
 					{#if pendingDelayMs !== undefined}
 						<ActionButton
 							{pendingDelayMs}

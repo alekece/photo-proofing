@@ -3,6 +3,7 @@
 	import { getLocale } from '#lib/paraglide/runtime.js';
 	import { onMount } from 'svelte';
 	import ConfirmDialog from '#lib/components/ui/ConfirmDialog/ConfirmDialog.svelte';
+	import Button from '#lib/components/ui/Button/Button.svelte';
 	import GallerySharePanel from '#lib/components/GallerySharePanel.svelte';
 	import type { Gallery } from '#lib/gallery/api.js';
 	import type { InvitationDraft } from '#lib/gallery/types.js';
@@ -120,15 +121,13 @@
 		{#if photos === null}
 			<p class="text-sm text-muted-foreground" role="status">{m.publish_checking()}</p>
 		{:else}
-			<p class="text-sm text-muted-foreground">
-				{#if kind === 'share'}
-					{shareText}
-				{:else}
-					{title.includes('&')
-						? m.publish_deliver_text_many({ title })
-						: m.publish_deliver_text({ title })}
-				{/if}
-			</p>
+			{#if sharing || (!empty && !checkFailed)}<p class="text-sm text-muted-foreground">
+					{#if kind === 'share'}
+						{shareText}
+					{:else}
+						{m.publish_deliver_text()}
+					{/if}
+				</p>{/if}
 			{#if empty && !checkFailed}
 				<p class="text-sm font-bold text-warning">
 					{sharing ? m.publish_empty_share() : m.publish_empty_deliver()}
@@ -154,5 +153,13 @@
 				bind:expanded
 				bind:blocked
 			/>{/if}
+	{/snippet}
+	{#snippet secondaryAction(pending)}
+		{#if gallery}<Button
+				variant="outline"
+				aria-expanded={expanded}
+				disabled={pending || !editor?.canCustomize()}
+				onclick={() => editor?.toggleCustomization()}>{m.stage_customize()}</Button
+			>{/if}
 	{/snippet}
 </ConfirmDialog>

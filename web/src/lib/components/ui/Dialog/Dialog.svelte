@@ -17,7 +17,7 @@
 		modal?: boolean;
 		/** Holds Escape and native cancellation back while a confirmed action runs. */
 		dismissible?: boolean;
-		/** A short entrance from the focused opener, reversed on dismissal only. */
+		/** Reverse the entrance on dismissal, but not after submitting a form. */
 		formMotion?: boolean;
 		children: Snippet<[dismiss: () => void, complete: () => void]>;
 	};
@@ -43,33 +43,21 @@
 
 	onMount(() => {
 		const opener = document.activeElement;
-		const source =
-			opener instanceof HTMLElement && opener !== document.body
-				? opener.getBoundingClientRect()
-				: null;
 
 		// jsdom and very old browsers lack showModal; fall back to a plain open dialog.
 		if (modal && typeof dialog.showModal === 'function') dialog.showModal();
 		else if (!modal && typeof dialog.show === 'function') dialog.show();
 		else dialog.setAttribute('open', '');
 
-		if (
-			formMotion &&
-			source &&
-			modal &&
-			!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-		) {
-			const target = dialog.getBoundingClientRect();
-			const x = source.x + (source.width - target.width) / 2 - target.x;
-			const y = source.y + (source.height - target.height) / 2 - target.y;
-			const clamp = (distance: number) => Math.max(-60, Math.min(60, distance));
-
+		if (modal && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
 			motion = dialog.animate?.(
 				[
-					{ opacity: 0.3, transform: `translate(${clamp(x)}px, ${clamp(y)}px) scale(.96)` },
+					{ opacity: 0.3, transform: 'scale(.975)' },
+					{ opacity: 1, transform: 'scale(1.012)', offset: 0.6 },
+					{ opacity: 1, transform: 'scale(1.012)', offset: 0.7 },
 					{ opacity: 1, transform: 'none' }
 				],
-				{ duration: 150, easing: 'ease-out', fill: 'both' }
+				{ duration: 250, easing: 'cubic-bezier(0.2, 0, 0, 1)', fill: 'both' }
 			);
 		}
 
@@ -89,7 +77,7 @@
 
 	function dismiss() {
 		if (dismissing) return;
-		if (!motion || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+		if (!formMotion || !motion || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
 			close();
 
 			return;
@@ -125,7 +113,7 @@
 		if (!dismissible) event.preventDefault();
 		else {
 			oncancel?.(event);
-			if (motion && !event.defaultPrevented) {
+			if (formMotion && motion && !event.defaultPrevented) {
 				event.preventDefault();
 				dismiss();
 			}

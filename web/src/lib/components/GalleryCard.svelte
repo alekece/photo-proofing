@@ -93,8 +93,8 @@
 				></span>
 			{/if}
 		</div>
-		<div class="gallery-caption grid gap-1.5 bg-panel px-3 py-2.5 sm:px-4 sm:py-4">
-			<div class="flex items-center gap-2">
+		<div class="gallery-caption relative grid gap-1.5 bg-panel px-3 py-2.5 sm:px-4 sm:py-4">
+			<div class="gallery-status flex items-center gap-2">
 				<StatusChip {status} dot class="w-fit border-0 bg-panel px-2 text-foreground" />
 				{#if gallery.access_code || closed}
 					<span class="inline-flex items-center gap-1.5">
@@ -165,6 +165,20 @@
 </li>
 
 <style>
+	:global([data-studio-mode='print']) .gallery-caption {
+		border: 1px solid var(--border);
+		border-top: 0;
+	}
+	:global([data-studio-mode='print']) .gallery-status {
+		position: absolute;
+		bottom: calc(100% + 0.5rem);
+		left: 0.75rem;
+		background: var(--panel);
+		border-radius: var(--radius-control);
+	}
+	:global([data-studio-mode='print']) .gallery-caption > [role='img'] {
+		bottom: calc(100% + 0.5rem);
+	}
 	:global([data-studio-mode='full_image']) .gallery-caption {
 		position: absolute;
 		inset: auto 0 0;

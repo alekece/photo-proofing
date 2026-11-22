@@ -44,9 +44,9 @@
 
 	const RAIL_CLEARANCE_CLASS = {
 		dashboard:
-			'sm:left-[calc(50%+clamp(7.5rem,8vw,8.75rem))] sm:max-w-[calc(100vw-clamp(15rem,16vw,17.5rem)-1.25rem)]',
+			'sm:left-[calc(50%+var(--gallery-rail-width)/2)] sm:max-w-[calc(100vw-var(--gallery-rail-width)-1.25rem)]',
 		gallery:
-			'sm:left-[calc(50%+clamp(7.5rem,8vw,8.75rem))] sm:max-w-[calc(100vw-clamp(15rem,16vw,17.5rem)-1.25rem)] md:left-[calc(50%+clamp(7.5rem,8vw,8.75rem)+var(--gallery-rail-width)/2)] md:max-w-[calc(100vw-clamp(15rem,16vw,17.5rem)-var(--gallery-rail-width)-1.5rem)]'
+			'sm:left-[calc(50%+var(--gallery-rail-width)/2)] sm:max-w-[calc(100vw-var(--gallery-rail-width)-1.25rem)] md:left-[calc(50%+var(--gallery-rail-width))] md:max-w-[calc(100vw-2*var(--gallery-rail-width)-1.5rem)]'
 	} as const;
 
 	function leaveDuration() {
@@ -79,7 +79,7 @@
 	data-rail={rail}
 	out:fly={{ y: 8, duration: leaveDuration() }}
 	class={[
-		'group/select-actions fixed bottom-4 left-1/2 z-20 flex w-max max-w-[calc(100vw-1.25rem)] -translate-x-1/2 animate-selection-in flex-wrap items-center justify-center gap-2 rounded-[1.5rem] border border-border bg-panel px-2 py-1.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.35)] max-sm:gap-1 max-sm:p-1 sm:bottom-6',
+		'group/select-actions fixed bottom-4 left-1/2 z-20 flex w-max max-w-[calc(100vw-1.25rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-control border border-border bg-panel px-2 py-1.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.35)] max-sm:gap-1 max-sm:p-1 sm:bottom-6',
 		RAIL_CLEARANCE_CLASS[rail],
 		rail === 'gallery' &&
 			'max-xl:w-max max-xl:flex-wrap max-xl:justify-center max-xl:gap-1 max-xl:px-1'

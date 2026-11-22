@@ -93,6 +93,7 @@ describe('PublishDialog in French', () => {
 		});
 
 		expect(await screen.findByRole('dialog', { name: 'Livrer 1 photo retouchée ?' })).toBeTruthy();
+		expect(screen.getAllByText(/Camille & Hugo/)).toHaveLength(1);
 		expect(screen.getByRole('button', { name: 'Livrer' })).toBeTruthy();
 		expect(screen.queryByText(/Publish/)).toBeNull();
 	});

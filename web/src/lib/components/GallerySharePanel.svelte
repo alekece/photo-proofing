@@ -128,6 +128,15 @@
 	);
 	const checked = $derived(available && !optedOut);
 	const editing = $derived(expanded && checked);
+	export function canCustomize() {
+		return checked && !sending;
+	}
+	export function toggleCustomization() {
+		if (!canCustomize()) return;
+
+		expanded = !editing;
+		adding = false;
+	}
 	const shootDateText = $derived(gallery.shoot_date ? formatLongDate(gallery.shoot_date) : null);
 	$effect(() => {
 		blocked = emailEnabled && !optedOut && contactsState !== 'ready';
@@ -296,16 +305,6 @@
 				}}
 			/>{m.stage_send_email()}
 		</label>
-		<Button
-			size="sm"
-			variant="outline"
-			aria-expanded={editing}
-			disabled={!checked || sending}
-			onclick={() => {
-				expanded = !editing;
-				adding = false;
-			}}>{m.stage_customize()}</Button
-		>
 	</div>
 	{#if !emailEnabled}
 		<p class="text-sm text-muted-foreground">
