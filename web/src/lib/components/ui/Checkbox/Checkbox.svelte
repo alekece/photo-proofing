@@ -16,7 +16,10 @@
 <input
 	bind:this={ref}
 	data-slot={dataSlot}
-	class={cn(className)}
+	class={cn(
+		'size-5 shrink-0 cursor-pointer accent-foreground focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50',
+		className
+	)}
 	type="checkbox"
 	bind:checked
 	{...restProps}

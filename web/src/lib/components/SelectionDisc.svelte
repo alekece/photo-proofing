@@ -27,9 +27,9 @@
 		: 'opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100'}"
 >
 	<span
-		class="relative grid size-[26px] place-items-center rounded-full {selected
-			? 'bg-white text-foreground'
-			: 'bg-black/35 text-white'}"
+		class="relative grid size-[26px] place-items-center rounded-full text-white {selected
+			? 'bg-dark/85'
+			: 'bg-black/35'}"
 	>
 		<svg
 			aria-hidden="true"

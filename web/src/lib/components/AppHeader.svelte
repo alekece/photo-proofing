@@ -51,7 +51,7 @@
 <header
 	class={cn(
 		'relative z-30 flex flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-border px-3.5 py-2.5 text-foreground sm:gap-4 sm:px-8 sm:py-3.5',
-		'sm:fixed sm:inset-y-0 sm:left-0 sm:w-(--gallery-rail-width) sm:flex-col sm:flex-nowrap sm:items-stretch sm:justify-start sm:gap-2 sm:border-r sm:border-b-0 sm:px-3 sm:py-5'
+		'sm:fixed sm:inset-y-0 sm:left-0 sm:w-(--gallery-rail-width) sm:flex-col sm:flex-nowrap sm:items-stretch sm:justify-start sm:gap-2 sm:border-r sm:border-b-0 sm:bg-(--studio-rail) sm:px-3 sm:py-5'
 	)}
 >
 	<div class="flex min-w-0 items-center gap-1 sm:shrink-0">
@@ -75,7 +75,7 @@
 		aria-label={m.nav_sections()}
 		class={cn(
 			'order-last flex w-full flex-wrap items-center gap-1 border-t border-border/60 pt-2',
-			'sm:order-none sm:mt-3 sm:min-h-0 sm:flex-col sm:flex-nowrap sm:items-stretch sm:gap-1 sm:overflow-y-auto sm:border-t-0 sm:pt-0 [&>a]:shrink-0'
+			'sm:order-none sm:mt-3 sm:min-h-0 sm:flex-col sm:flex-nowrap sm:items-stretch sm:gap-1 sm:overflow-y-auto sm:border-t-0 sm:pt-0 [&>a]:shrink-0 sm:[&>a]:rounded-control sm:[&>a[aria-current=page]]:bg-(--studio-choice) sm:[&>a[aria-current=page]]:text-foreground sm:[&>a[aria-current=page]]:shadow-[inset_2px_0_currentColor]'
 		)}
 	>
 		<a href={galleriesHref} aria-current={galleriesActive ? 'page' : undefined} class={pill}
