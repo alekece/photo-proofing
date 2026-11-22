@@ -22,7 +22,7 @@ describe('Select', () => {
 
 		expect(screen.getAllByRole('option')).toHaveLength(1);
 		expect(select.getAttribute('aria-invalid')).toBe('true');
-		expect(select.className).toContain('rounded-full');
+		expect(select.className).toContain('cn-input');
 		expect(select.className).toContain('text-lg');
 		expect(select.className).not.toContain('text-sm');
 		expect((await axe(container)).violations).toEqual([]);

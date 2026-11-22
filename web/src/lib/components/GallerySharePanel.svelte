@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { Search, Users, X } from '@lucide/svelte';
+	import { tick } from 'svelte';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
 	import type { Gallery, InvitationRecipientInput } from '#lib/gallery/api.js';
 	import type { InvitationDraft } from '#lib/gallery/types.js';
@@ -128,6 +129,19 @@
 	);
 	const checked = $derived(available && !optedOut);
 	const editing = $derived(expanded && checked);
+	export function canCustomize() {
+		return checked && !sending;
+	}
+	export async function toggleCustomization() {
+		if (!canCustomize()) return;
+
+		expanded = !editing;
+		adding = false;
+		if (expanded) {
+			await tick();
+			document.getElementById(toInputId)?.focus();
+		}
+	}
 	const shootDateText = $derived(gallery.shoot_date ? formatLongDate(gallery.shoot_date) : null);
 	$effect(() => {
 		blocked = emailEnabled && !optedOut && contactsState !== 'ready';
@@ -296,16 +310,6 @@
 				}}
 			/>{m.stage_send_email()}
 		</label>
-		<Button
-			size="sm"
-			variant="outline"
-			aria-expanded={editing}
-			disabled={!checked || sending}
-			onclick={() => {
-				expanded = !editing;
-				adding = false;
-			}}>{m.stage_customize()}</Button
-		>
 	</div>
 	{#if !emailEnabled}
 		<p class="text-sm text-muted-foreground">

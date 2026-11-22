@@ -47,7 +47,7 @@
 	let bulkBusy = $state(false);
 
 	const gridClass =
-		'workspace-inset grid grid-cols-2 gap-2.5 sm:grid-cols-[repeat(auto-fill,minmax(230px,1fr))] sm:gap-5';
+		'workspace-inset grid grid-cols-2 gap-2.5 sm:grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] sm:gap-5';
 
 	let dialogOpen = $state(false);
 	let quickEditOpen = $state(false);

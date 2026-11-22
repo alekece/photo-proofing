@@ -397,8 +397,7 @@
 	"publish_delivered_title": "Les photos retouchées sont livrées",
 	"publish_share_text": "Cela crée un lien privé. Toute personne qui l’a peut voir les épreuves et choisir ses favoris.",
 	"publish_share_text_until": "Cela crée un lien privé. Toute personne qui l’a peut voir les épreuves et choisir ses favoris jusqu’au {until}.",
-	"publish_deliver_text": "{title} les retrouve au même lien et peut les télécharger. Les favoris sont désormais verrouillés.",
-	"publish_deliver_text_many": "{title} les retrouvent au même lien et peuvent les télécharger. Les favoris sont désormais verrouillés.",
+	"publish_deliver_text": "Le client retrouvera les photos retouchées sur le même lien.",
 	"publish_uploading": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],

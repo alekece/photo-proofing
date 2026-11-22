@@ -82,7 +82,8 @@ describe('GallerySharePanel', () => {
 		});
 
 		await screen.findByText('Camille Laurent');
-		await user.click(screen.getByRole('button', { name: 'Customize' }));
+		await view.component.toggleCustomization();
+		expect(document.activeElement).toBe(screen.getByLabelText('To'));
 		await vi.waitFor(() =>
 			expect(screen.getByRole('button', { name: 'Remove camille@example.com' })).toBeTruthy()
 		);
@@ -155,8 +156,10 @@ describe('GallerySharePanel', () => {
 		});
 		await screen.findByText('Camille Laurent');
 		await view.rerender({ gallery: { ...baseGallery, title: 'Updated title' } });
-		await userEvent.click(screen.getByRole('button', { name: 'Customize' }));
-		expect((screen.getByLabelText('Subject') as HTMLInputElement).value).toContain('Updated title');
+		view.component.toggleCustomization();
+		expect(((await screen.findByLabelText('Subject')) as HTMLInputElement).value).toContain(
+			'Updated title'
+		);
 	});
 
 	it('distinguishes a failed lookup from an empty list and keeps manual confirmation explicit', async () => {

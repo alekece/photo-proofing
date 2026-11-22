@@ -394,10 +394,10 @@
 			bind:clientHeight={resultsHeight}
 			aria-label={m.contacts_list_label()}
 			aria-hidden={matching.length === 0}
-			class="grid gap-2"
+			class="grid divide-y divide-border border-y border-border"
 		>
 			{#each matching as item (item.id)}
-				<li class="min-w-0 rounded-card border border-border bg-panel" out:removal={item.id}>
+				<li class="min-w-0" out:removal={item.id}>
 					<div class="group/contact flex flex-wrap items-center gap-2 p-2.5 sm:gap-3">
 						<label class="relative grid h-9 w-7 shrink-0 cursor-pointer place-items-center">
 							<Checkbox

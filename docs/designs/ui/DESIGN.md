@@ -90,9 +90,9 @@ respects `prefers-reduced-motion`: one-shot animations become instant, loops sto
 | Element | Trigger | What moves | Duration and easing | Reduced motion | Clip |
 |---|---|---|---|---|---|
 | Menus, dropdowns, notifications | Open | Drop 4 px and fade in | 150–180 ms, ease-out | Instant | — |
-| Dialogs | Open | Scale from 96 % and fade | 220 ms, `cubic-bezier(.22,1,.36,1)` | Instant | [gallery/confirm-motion](screens/gallery/confirm-motion.gif) |
+| Dialogs | Open | Grow from 97.5 %, briefly hold at 101.2 %, then settle | 250 ms, Material standard easing `cubic-bezier(.2,0,0,1)` | Instant | — |
 | Inline panels | Open / close | Expand or collapse height and fade | 180–220 ms, ease-out / ease-in | Instant | — |
-| Floating bars | Enter / leave | Rise 8 px and fade | 180 ms, ease-out | Instant | — |
+| Selection bars | Enter / leave | Appear in place; slide down and fade on exit | Instant entrance, 180 ms exit | Instant | — |
 | List rows | Delete / remove | Shrink height and fade | 280 ms, ease-in | Instant | — |
 | Action states | Idle / saving / confirmed / reset | Crossfade label, icon and progress | 150–300 ms; Save confirmation 1.6 s | Instant state change | — |
 | Share done | Confirm Share | Photo stack flies out, green check pops, tick draws | 700 ms fly, 450 ms pop after 600 ms, 350 ms draw after 1 s | Instant check | [gallery/confirm-motion](screens/gallery/confirm-motion.gif) |
