@@ -29,6 +29,11 @@
       "repo": "pnpm/action-setup",
       "version": "v4",
       "sha": "b906affcce14559ad1aafd4ab0e942779e9f58b1"
+    },
+    "taiki-e/install-action@v2": {
+      "repo": "taiki-e/install-action",
+      "version": "v2",
+      "sha": "fe3acb53a98b62c772db35de75ce0e4595e7ca8c"
     }
   }
 }
