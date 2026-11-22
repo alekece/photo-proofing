@@ -200,6 +200,11 @@ mod tests {
                 .insert_header(("Content-Type", content_type))
                 .set_payload(payload)
         };
+        let (status, error) = call(&app, raw_request("application/json", String::new())).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(error["code"], "bad_request");
+
         let (status, error) = call(
             &app,
             raw_request("application/json", r#"{"photo_ids":[]} {}"#.into()),

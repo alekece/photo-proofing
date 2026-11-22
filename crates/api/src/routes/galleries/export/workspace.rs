@@ -7,7 +7,7 @@ use actix_web::{
 use pp_database::export::{ExportId, ExportOptions, ExportRepository};
 use pp_storage::ArchiveKey;
 
-use super::{DOWNLOAD_NAME, ExportResponse, ExportSelection};
+use super::{DOWNLOAD_NAME, ExportResponse, ExportSelection, RequiredSelection};
 use crate::{
     api::ApiState, error::ErrorResponse, extractors::identity::Authenticated, response::Attachment,
 };
@@ -26,7 +26,7 @@ pub fn configure(cfg: &mut ServiceConfig) {
 async fn request_workspace(
     state: Data<ApiState>,
     Authenticated(identity): Authenticated,
-    selection: ExportSelection,
+    ExportSelection(photo_ids): RequiredSelection,
 ) -> Result<HttpResponse, ErrorResponse> {
     let outcome = state
         .database()
@@ -36,7 +36,7 @@ async fn request_workspace(
         })
         .request_workspace(
             identity.workspace_id,
-            &selection.photo_ids,
+            &photo_ids,
             state.export_max_size(),
             state.export_retention(),
         )

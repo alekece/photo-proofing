@@ -39,72 +39,73 @@ pub(crate) mod workspace;
 /// The name the browser saves the ZIP under, the same for every gallery.
 const DOWNLOAD_NAME: &str = "selection.zip";
 
-/// A required JSON subset for a workspace export.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ExportSelection {
+struct SelectionBody {
     photo_ids: Vec<PhotoId>,
 }
 
-impl ExportSelection {
-    const JSON_LIMIT: usize = 64 * 1024;
+type RequiredSelection = ExportSelection<Vec<PhotoId>>;
+type OptionalSelection = ExportSelection<Option<Vec<PhotoId>>>;
 
-    fn has_valid_count(&self) -> bool {
-        (1..=1000).contains(&self.photo_ids.len())
-    }
+trait SelectionMode: From<Vec<PhotoId>> {
+    const EMPTY_BODY: Option<Self>;
 }
 
-impl FromRequest for ExportSelection {
+impl SelectionMode for Vec<PhotoId> {
+    const EMPTY_BODY: Option<Self> = None;
+}
+
+impl SelectionMode for Option<Vec<PhotoId>> {
+    const EMPTY_BODY: Option<Self> = Some(None);
+}
+
+/// Reads a bounded JSON subset. The optional mode accepts only a truly empty body as no subset.
+struct ExportSelection<T, const MIN: usize = 1, const MAX: usize = 1000>(T);
+
+impl<T: SelectionMode + 'static, const MIN: usize, const MAX: usize> FromRequest
+    for ExportSelection<T, MIN, MAX>
+{
     type Error = ErrorResponse;
     type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
 
     fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
-        let body = JsonBody::<Self>::new(request, payload, None, true).limit(Self::JSON_LIMIT);
-
-        Box::pin(async move {
-            let selection = body.await?;
-
-            if !selection.has_valid_count() {
-                return Err(ErrorResponse::new(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    ErrorCode::InvalidRequestBody,
-                )
-                .with_context("expected between 1 and 1000 photo IDs"));
-            }
-
-            Ok(selection)
-        })
-    }
-}
-
-/// Only an empty body requests the whole gallery set; invalid subsets must not do so.
-struct GallerySelection(Option<ExportSelection>);
-
-impl FromRequest for GallerySelection {
-    type Error = ErrorResponse;
-    type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
-
-    fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
-        let is_json =
-            request.mime_type().ok().flatten().is_some_and(|mime| {
+        let allow_empty = T::EMPTY_BODY.is_some();
+        let is_json = !allow_empty
+            || request.mime_type().ok().flatten().is_some_and(|mime| {
                 mime.subtype() == mime::JSON || mime.suffix() == Some(mime::JSON)
             });
-        let body = JsonBody::<ExportSelection>::new(request, payload, None, false)
-            .limit(ExportSelection::JSON_LIMIT);
+        let body =
+            JsonBody::<SelectionBody>::new(request, payload, None, !allow_empty).limit(64 * 1024);
 
         Box::pin(async move {
-            match body.await {
-                Ok(selection) if is_json && selection.has_valid_count() => {
-                    Ok(Self(Some(selection)))
-                }
+            let SelectionBody { photo_ids } = match body.await {
+                Ok(selection) if is_json => selection,
                 // EOF before the first byte, not whitespace or a truncated JSON document.
                 Err(JsonPayloadError::Deserialize(error))
                     if error.is_eof() && error.line() == 1 && error.column() == 0 =>
                 {
-                    Ok(Self(None))
+                    return T::EMPTY_BODY
+                        .map(Self)
+                        .ok_or_else(ErrorResponse::bad_request);
                 }
-                _ => Err(ErrorResponse::bad_request()),
+                Err(error) if !allow_empty => return Err(error.into()),
+                _ => return Err(ErrorResponse::bad_request()),
+            };
+
+            if !(MIN..=MAX).contains(&photo_ids.len()) {
+                if allow_empty {
+                    return Err(ErrorResponse::bad_request());
+                }
+
+                return Err(ErrorResponse::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    ErrorCode::InvalidRequestBody,
+                )
+                .with_context(format!("expected between {MIN} and {MAX} photo IDs")));
             }
+
+            Ok(Self(T::from(photo_ids)))
         })
     }
 }
@@ -142,7 +143,7 @@ async fn request_export(
     Authenticated(identity): Authenticated,
     id: WebPath<GalleryId>,
     set: Query<PhotoSet>,
-    GallerySelection(selection): GallerySelection,
+    ExportSelection(selection): OptionalSelection,
 ) -> Result<HttpResponse, ErrorResponse> {
     let gallery_id = id.into_inner();
     let outcome = state
@@ -157,9 +158,7 @@ async fn request_export(
             state.export_max_size(),
             state.export_retention(),
             PhotoKind::from(*set),
-            selection
-                .as_ref()
-                .map(|selection| selection.photo_ids.as_slice()),
+            selection.as_deref(),
         )
         .await?;
 
