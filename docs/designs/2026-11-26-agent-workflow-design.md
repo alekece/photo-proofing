@@ -74,7 +74,7 @@ The security section is short and the risk levels are shared, so a second file w
 - Workflows `pick-issues.yml`, `implement-issue.md` with its lock file, and `daily-repo-status.md` with its lock file.
 - The "Automation is opt-in" section of `AGENTS.md`.
 - `agent` from the label lists of the rustsec workflows, which keep their `rustsec` label.
-- The superseded designs `2026-11-01-agent-issue-pipeline-design.md` and `2026-10-31-daily-issue-implementation-design.md` get a one-line note that this design replaces them.
+- The superseded designs `2026-11-01-agent-issue-pipeline-design.md` and `2026-10-31-daily-issue-implementation-design.md` get a one-line note that this design replaces them. `2026-11-12-review-and-risk-merge-design.md` is superseded in part (auto-merge and the merge-by-risk rules).
 
 Stay as they are: `agentic-workflows` in `.github/skills/` (specific to GitHub), `copilot-setup-steps.yml` and the rustsec workflows. `gh aw compile` deletes `agentics-maintenance.yml` and the unused pins in `.github/aw/actions-lock.json` on its own, because no remaining workflow uses expiring outputs; that is accepted.
 
