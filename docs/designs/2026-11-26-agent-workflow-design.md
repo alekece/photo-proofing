@@ -16,7 +16,7 @@ No issue yet: the maintainer asked to start from this design.
 ## Non-goals
 
 - No agents per language or area (Rust, Svelte). The nested `AGENTS.md` files already load by directory.
-- No change to the delivery workflow itself (brainstorm, design, plan, implement, review, PR, merge), to the `REVIEW.md` rules, or to the risk levels.
+- No change to the delivery workflow itself (brainstorm, design, plan, implement, review, PR, merge), to the `REVIEW.md` rules, or to the risk levels. The one exception is when checks run (see Checks).
 - No Codex (`.codex/agents/*.toml`) or Claude (`.claude/agents/*.md`) agent files yet. Add them when those tools are used for review.
 
 ## Approaches
@@ -48,6 +48,14 @@ The symlink is one file with two paths, not synchronization tooling.
 ### `REVIEW.md` stays one file
 
 The security section is short and the risk levels are shared, so a second file would mostly hold links. Each agent file names the sections it reads: the code reviewer reads the learned rules, "Check strictly", "Findings" and "Risk levels"; the security reviewer reads "Security review", "Findings" and "Risk levels". This is the assistant's recommendation; the maintainer may prefer a separate security file.
+
+### Checks
+
+- While implementing a plan task: run only the tests for the new or changed behavior, with the smallest command that covers them. No format, lint or full test run.
+- Once, after the last task (start of `review-change`): format, lint and the whole test suite for the changed area, to catch regressions.
+- After fixing blocking findings: rerun the checks the fix could affect, and the full set again before the PR.
+
+`AGENTS.md` "Testing and Verification" states this rule once; `review-change` and the plan tasks follow it.
 
 ### Labels
 
