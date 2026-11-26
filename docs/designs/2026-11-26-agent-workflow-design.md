@@ -52,7 +52,7 @@ The security section is short and the risk levels are shared, so a second file w
 ### Labels
 
 - `agent` is removed, since only automation read it. The label is deleted from GitHub after merge.
-- `needs-attention`: only when the maintainer must act, for example an incomplete issue or a blocked PR. It now applies to issues and PRs. The agent's latest comment states what is needed, and the label is removed once done.
+- `needs-attention`: only when the maintainer must act, for example an incomplete issue, or a PR that waits for a human decision. It is never added to a PR just because it is open or awaiting review. The agent's latest comment states what is needed, and the label is removed once done.
 - `blocked`: unchanged, an external blocker such as a dependency or another PR.
 
 ### Removals
