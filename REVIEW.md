@@ -1,6 +1,6 @@
 # Review Guide
 
-Fresh code and security reviewers read this file before reviewing a change (see the [delivery workflow](AGENTS.md#superpowers-delivery-workflow)). It holds what `AGENTS.md` does not: rules learned from the maintainer's past reviews, the security review, and how risky a change is. `AGENTS.md` and its nested files still hold the development conventions; this file links to them instead of copying them.
+Fresh reviewers read this file before reviewing a change (see the [delivery workflow](AGENTS.md#superpowers-delivery-workflow)): the [`code-reviewer`](.github/agents/code-reviewer.md) reads the rules learned from review, "Check strictly", "Findings" and "Risk levels", and the [`security-reviewer`](.github/agents/security-reviewer.md) reads "Security review", "Findings" and "Risk levels". It holds what `AGENTS.md` does not: rules learned from the maintainer's past reviews, the security review, and how risky a change is. `AGENTS.md` and its nested files still hold the development conventions; this file links to them instead of copying them.
 
 ## Rules learned from review
 

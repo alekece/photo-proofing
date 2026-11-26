@@ -1,6 +1,6 @@
 # Agent issue pipeline
 
-Issue: #125. Supersedes the removed `daily-issue-selection` / `implement-issue` workflows.
+Status: superseded by [the agent workflow design](2026-11-26-agent-workflow-design.md). Issue: #125. Supersedes the removed `daily-issue-selection` / `implement-issue` workflows.
 
 ## Goal
 

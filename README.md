@@ -40,7 +40,7 @@ In the photographer's Favorites tab, **Download all** in the header always expor
 - [ADR 0001 — Technology baseline](docs/adr/0001-technology-baseline.md): established choices and tradeoffs.
 - [ADR 0003 — Private photo storage](docs/adr/0003-photo-storage.md): photo directory layout and atomic writes.
 - [ADR 0004 — Styleable component libraries](docs/adr/0004-styleable-component-libraries.md): prefer well-known libraries such as shadcn-svelte over hand-built components.
-- [Agent guidance](AGENTS.md): shared development and documentation rules, with [Rust](crates/AGENTS.md) and [frontend](web/AGENTS.md) guidance.
+- [Agent guidance](AGENTS.md): shared development and documentation rules, with [Rust](crates/AGENTS.md) and [frontend](web/AGENTS.md) guidance, the workflow [skills](.agents/skills/) and the [reviewer agents](.github/agents/).
 - [Approved design records](docs/designs/): designs retained with the repository.
 
 ## Prerequisites
@@ -341,7 +341,7 @@ The required `Rust dependencies` check covers licenses, bans (including duplicat
 
 The [weekly RustSec ignore review](.github/workflows/rustsec-ignore-review.md) checks each exception on `main` against the default and all-feature dependency graphs. It can propose a ready-for-review PR to remove an obsolete ignore without a dependency bump, or propose a focused upgrade when it resolves a still-applicable advisory. It never auto-merges.
 
-Follow the [shared Superpowers workflow](AGENTS.md#superpowers-delivery-workflow): brainstorm a bounded outcome, approve the written design, plan, implement in an isolated worktree, verify, have fresh code and security reviewers check the change against [REVIEW.md](REVIEW.md), and open a PR that states its risk level. Brainstorming may start without an issue; link an outcome-focused issue before implementation planning. Name branches `<type>/<issue>-slug` with a git-cliff commit type, such as `feat/61-development-workflow`. PRs are squash-merged: medium- and high-risk PRs after explicit approval, low-risk PRs automatically once the auto-merge mode in [AGENTS.md](AGENTS.md#superpowers-delivery-workflow) is `enabled`.
+Follow the [shared Superpowers workflow](AGENTS.md#superpowers-delivery-workflow): brainstorm a bounded outcome, approve the written design, plan, implement in an isolated worktree, verify, have fresh code and security reviewers check the change against [REVIEW.md](REVIEW.md), and open a PR that states its risk level. Brainstorming may start without an issue; link an outcome-focused issue before implementation planning. Name branches `<type>/<issue>-slug` with a git-cliff commit type, such as `feat/61-development-workflow`. PRs are squash-merged: medium- and high-risk PRs after explicit approval, low-risk PRs automatically once the auto-merge mode in the [`deliver-pr` skill](.agents/skills/deliver-pr/SKILL.md) is `enabled`. The procedures live in skills under [`.agents/skills/`](.agents/skills/) and the reviewers in [`.github/agents/`](.github/agents/).
 
 Keep requirements, release acceptance, significant decisions, and implementation details in their respective documents, following [AGENTS.md](AGENTS.md#documentation-and-development-workflow). Preserve committed approved designs. Implementation plans stay untracked in `docs/plans/`; keep lasting decisions in permanent records or the PR. Product requirements and release scope changes require approval.
 

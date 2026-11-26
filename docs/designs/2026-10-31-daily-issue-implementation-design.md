@@ -1,6 +1,6 @@
 # Daily autonomous issue implementation (gh-aw)
 
-Status: approved. Issue: #105.
+Status: superseded by [the agent workflow design](2026-11-26-agent-workflow-design.md). Issue: #105.
 
 ## Intent
 
