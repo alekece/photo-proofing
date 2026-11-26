@@ -228,7 +228,7 @@ safe-outputs:
           await exec.exec('git', ['checkout', '-B', 'main', context.sha]);
   create-pull-request:
     title-prefix: "[RustSec] "
-    labels: [agent, rustsec]
+    labels: [rustsec]
     draft: false
     reviewers: [alekece]
     base-branch: main
