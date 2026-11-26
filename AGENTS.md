@@ -5,7 +5,7 @@ This file is the shared repository policy for Codex, GitHub Copilot coding agent
 - [`crates/AGENTS.md`](crates/AGENTS.md): Rust principles and `cargo` commands.
 - [`web/AGENTS.md`](web/AGENTS.md): SvelteKit frontend commands and conventions.
 
-[`REVIEW.md`](REVIEW.md) holds the review rules learned from past PRs, the security review and the risk levels used to decide how a PR is merged.
+[`REVIEW.md`](REVIEW.md) holds the review rules learned from past PRs, the security review and the risk levels that set how deep a PR's review goes.
 
 Never put secrets in logs, spans, or commits, in any language.
 Keep real deployment hostnames, addresses, volume mappings, account details,
@@ -44,7 +44,7 @@ values and reserved domains.
 4. Use Superpowers writing-plans to create an implementation plan from the approved design, referencing the design and issue.
 5. Implement only the approved specification, following the plan, in an isolated worktree. Name the branch `<type>/<issue>-slug`, where `<type>` is a git-cliff commit type (`feat`, `fix`, `docs`, ...), for example `feat/61-development-workflow`. Default to implementation in the current session. Per-task review is optional and must stay quick: one fast, lightweight-model pass on that task's diff for obvious bugs, with no security audit and no refactor pass. The thorough review of step 6 runs once, after the last task. If worktree creation fails, resolve the blocker rather than implementing in the main checkout.
 6. After all plan tasks are implemented, use the `review-change` skill: run the checks, get independent reviews from the `code-reviewer` and `security-reviewer` agents (they read [`REVIEW.md`](REVIEW.md) and state the risk level), fix blocking findings, then do one refactor pass. Skip it only if the user explicitly opts out. Never substitute author self-review for a fresh reviewer.
-7. Use the `deliver-pr` skill to open the PR with its **Review and risk** section and to merge it according to its risk level, always with a squash merge and never with a local merge.
+7. Use the `deliver-pr` skill to open the PR with its **Review and risk** section. Never merge a PR yourself: the user merges it, or tells you explicitly to, always with a squash merge and never with a local merge.
 
 These repository rules take precedence over skill defaults, including those that allow implementation without isolation or local merge delivery and those that store designs and plans under `docs/superpowers/`. Do not add issue templates or custom commands without a concrete need and approval.
 
