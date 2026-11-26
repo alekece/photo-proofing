@@ -60,7 +60,7 @@ class RustSecScanTest(unittest.TestCase):
         open_items = [
             {"title": TRACKED, "labels": [{"name": "rustsec"}]},
             {"title": FRESH + "0", "labels": [{"name": "rustsec"}]},
-            {"title": FRESH, "labels": [{"name": "agent"}]},
+            {"title": FRESH, "labels": [{"name": "bug"}]},
         ]
         self.assertEqual(untracked_advisories([FRESH, TRACKED], open_items), [FRESH])
 

@@ -40,7 +40,7 @@ In the photographer's Favorites tab, **Download all** in the header always expor
 - [ADR 0001 — Technology baseline](docs/adr/0001-technology-baseline.md): established choices and tradeoffs.
 - [ADR 0003 — Private photo storage](docs/adr/0003-photo-storage.md): photo directory layout and atomic writes.
 - [ADR 0004 — Styleable component libraries](docs/adr/0004-styleable-component-libraries.md): prefer well-known libraries such as shadcn-svelte over hand-built components.
-- [Agent guidance](AGENTS.md): shared development and documentation rules, with [Rust](crates/AGENTS.md) and [frontend](web/AGENTS.md) guidance.
+- [Agent guidance](AGENTS.md): shared development and documentation rules, with [Rust](crates/AGENTS.md) and [frontend](web/AGENTS.md) guidance, the workflow [skills](.agents/skills/) and the [reviewer agents](.github/agents/).
 - [Approved design records](docs/designs/): designs retained with the repository.
 
 ## Prerequisites
@@ -341,18 +341,18 @@ The required `Rust dependencies` check covers licenses, bans (including duplicat
 
 The [weekly RustSec ignore review](.github/workflows/rustsec-ignore-review.md) checks each exception on `main` against the default and all-feature dependency graphs. It can propose a ready-for-review PR to remove an obsolete ignore without a dependency bump, or propose a focused upgrade when it resolves a still-applicable advisory. It never auto-merges.
 
-Follow the [shared Superpowers workflow](AGENTS.md#superpowers-delivery-workflow): brainstorm a bounded outcome, approve the written design, plan, implement in an isolated worktree, verify, have fresh code and security reviewers check the change against [REVIEW.md](REVIEW.md), and open a PR that states its risk level. Brainstorming may start without an issue; link an outcome-focused issue before implementation planning. Name branches `<type>/<issue>-slug` with a git-cliff commit type, such as `feat/61-development-workflow`. PRs are squash-merged: medium- and high-risk PRs after explicit approval, low-risk PRs automatically once the auto-merge mode in [AGENTS.md](AGENTS.md#superpowers-delivery-workflow) is `enabled`.
+Follow the [shared Superpowers workflow](AGENTS.md#superpowers-delivery-workflow): brainstorm a bounded outcome, approve the written design, plan, implement in an isolated worktree, verify, have fresh code and security reviewers check the change against [REVIEW.md](REVIEW.md), and open a PR that states its risk level. Brainstorming may start without an issue; link an outcome-focused issue before implementation planning. Name branches `<type>/<issue>-slug` with a git-cliff commit type, such as `feat/61-development-workflow`. PRs are squash-merged by the maintainer, or by an agent only when the maintainer explicitly asks. The procedures live in skills under [`.agents/skills/`](.agents/skills/) and the reviewers in [`.github/agents/`](.github/agents/).
 
 Keep requirements, release acceptance, significant decisions, and implementation details in their respective documents, following [AGENTS.md](AGENTS.md#documentation-and-development-workflow). Preserve committed approved designs. Implementation plans stay untracked in `docs/plans/`; keep lasting decisions in permanent records or the PR. Product requirements and release scope changes require approval.
 
 ### Repository settings
 
-GitHub enforces green, up-to-date CI and resolved conversations; it does not know a PR's risk level, which the agents apply by following [AGENTS.md](AGENTS.md#superpowers-delivery-workflow). A maintainer configures these by hand:
+GitHub enforces green, up-to-date CI and resolved conversations. The PR's risk level only sets review depth, following [AGENTS.md](AGENTS.md#superpowers-delivery-workflow). A maintainer configures these by hand:
 
 - **Ruleset** `Protect main` (Settings → Rules → Rulesets): active, targets the default branch, empty bypass list.
   - Require a pull request before merging, with 0 required approvals (agents push with the maintainer's account, which cannot approve its own PRs).
-  - Require status checks to pass, and require branches to be up to date before merging. Required checks: `Detect changes`, `Deployment checks`, `Rust format`, `Rust clippy`, `Rust dependencies`, `Rust tests`, `Web format`, `Web lint and check`, `Web dependencies`, `Web tests`, `Web build`. CI skips jobs a PR does not affect, and a skipped job counts as passed. The image builds are not required: their matrix check names differ when skipped, and `docker/` changes are high risk, so they never auto-merge.
-  - Require conversation resolution before merging, so an unresolved inline review comment stops auto-merge. A plain PR comment does not.
+  - Require status checks to pass, and require branches to be up to date before merging. Required checks: `Detect changes`, `Deployment checks`, `Rust format`, `Rust clippy`, `Rust dependencies`, `Rust tests`, `Web format`, `Web lint and check`, `Web dependencies`, `Web tests`, `Web build`. CI skips jobs a PR does not affect, and a skipped job counts as passed. The image builds are not required: their matrix check names differ when skipped.
+  - Require conversation resolution before merging, so an unresolved inline review comment blocks the merge. A plain PR comment does not.
   - Block force pushes and restrict deletions.
-- **General → Pull Requests**: allow auto-merge.
+- **General → Pull Requests**: leave auto-merge off; agents never merge.
 - **Code security**: enable CodeQL default setup and secret scanning.

@@ -1,5 +1,7 @@
 # Review knowledge, security review and risk-based merging
 
+Status: superseded in part by [the agent workflow design](2026-11-26-agent-workflow-design.md): agents never merge, and the auto-merge mode and merge-by-risk rules are removed. The risk levels now only set review depth.
+
 Issue: [#336](https://github.com/alekece/photo-proofing/issues/336)
 
 ## Intent

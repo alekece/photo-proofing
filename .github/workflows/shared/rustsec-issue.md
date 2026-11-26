@@ -59,7 +59,7 @@ safe-outputs:
                 ...context.repo, state: 'open', sort: 'due_on', direction: 'asc', per_page: 1,
               });
               assert(milestone, 'No open milestone for the RustSec issue');
-              const labels = ['agent', 'bug', 'needs-attention', 'rustsec'];
+              const labels = ['bug', 'needs-attention', 'rustsec'];
               if (milestone.title === 'MVP') labels.push('mvp');
               const result = await createIssue({
                 title: `[RustSec] ${advisory}: actionable remediation`,

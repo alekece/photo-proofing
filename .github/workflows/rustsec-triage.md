@@ -119,7 +119,7 @@ safe-outputs:
       run: test "$DETECTOR_VERDICT" = success
   create-pull-request:
     title-prefix: "[RustSec] "
-    labels: [agent, rustsec]
+    labels: [rustsec]
     draft: false
     reviewers: [alekece]
     base-branch: main
