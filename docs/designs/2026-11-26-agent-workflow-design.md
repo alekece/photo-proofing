@@ -11,7 +11,7 @@ No issue yet: the maintainer asked to start from this design.
 - `AGENTS.md` keeps only rules that apply to every task, plus one-line pointers to skills.
 - Each procedure becomes a skill, loaded only when its step is reached.
 - Review is done by two fresh reviewer agents that did not write the code.
-- The same files work in Copilot, Codex and Claude Code, with no copies to keep in sync.
+- The same files work in Copilot and Codex today, and can reach Claude Code later, with no copies to keep in sync.
 
 ## Non-goals
 
@@ -21,17 +21,15 @@ No issue yet: the maintainer asked to start from this design.
 
 ## Approaches
 
-No single skills folder is read by all three tools: Claude Code reads `.claude/skills/`, Codex reads `.agents/skills/`, and Copilot reads `.github/skills/`, `.claude/skills/` and `.agents/skills/`.
+No single skills folder is read by all three tools. Claude Code reads `.claude/skills/`, Codex reads `.agents/skills/`, and Copilot reads `.github/skills/`, `.claude/skills/` and `.agents/skills/`.
 
-- **A. `.agents/skills/` as the source, with a `.claude/skills` symlink.** One set of files, read by all three tools. Chosen by the maintainer.
+- **A. `.agents/skills/` as the only folder.** One set of files, read by Codex and Copilot. Claude Code is not covered yet: a `.claude/skills` symlink to it is a one-line addition when that tool is used. Chosen by the maintainer, who skips the symlink for now.
 - B. `.claude/skills/` only. Codex would not see the skills.
 - C. Copies in both folders. Works everywhere but the copies drift.
 
-The symlink is one file with two paths, not synchronization tooling.
-
 ## Design
 
-### Skills (`.agents/skills/`, `.claude/skills` symlinked to it)
+### Skills (`.agents/skills/`)
 
 - `create-issue`: rewritten. Used when the maintainer asks to file an issue during or after brainstorming. Sets one type label (`bug`, `enhancement`, `documentation`) and the earliest open milestone (`gh api repos/{owner}/{repo}/milestones`: MVP, then v1, and so on). Issues in the MVP milestone also get `mvp`, except report issues. The body states the outcome, acceptance criteria and constraints, never a task list, and links the design when one exists. It adds `needs-attention` only when the maintainer must act.
 - `review-change`: delivery step 6. Runs the checks, starts `code-reviewer` and `security-reviewer` in parallel, applies the three-round limit on blocking findings, then the refactor pass, and records the result.
@@ -83,4 +81,4 @@ High: the change touches `AGENTS.md`, `REVIEW.md`, `.github/` and workflows. It 
 
 ## Left to the builder
 
-Skill and agent wording, the exact outline left in `AGENTS.md`, and committing the symlink as a relative link.
+Skill and agent wording, and the exact outline left in `AGENTS.md`.
