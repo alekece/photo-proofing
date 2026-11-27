@@ -5,6 +5,7 @@
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import CloseButton from '#lib/components/ui/CloseButton/CloseButton.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
+	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import Popover from '#lib/components/ui/Popover/Popover.svelte';
 	import { previewUrl } from '#lib/gallery/photos.js';
 	import {
@@ -33,8 +34,8 @@
 
 		deleting = true;
 		try {
-			await center.deleteAll();
-			open = false;
+			if (await center.deleteAll()) open = false;
+			else toasts.error(m.notifications_delete_failed());
 		} finally {
 			deleting = false;
 		}

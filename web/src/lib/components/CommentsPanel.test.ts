@@ -90,6 +90,20 @@ describe('CommentsPanel', () => {
 		);
 	});
 
+	it('opens the same thread again for a new request once it was closed', async () => {
+		const user = userEvent.setup();
+		stub([{ photo_id: 'p2', count: 2 }]);
+		const { rerender } = render(Harness, { props: { events, openThread: { photoId: 'p2' } } });
+		const button = await screen.findByRole('button', { name: /p2\.jpg/ });
+
+		await waitFor(() => expect(button.getAttribute('aria-expanded')).toBe('true'));
+		await user.click(button);
+		expect(button.getAttribute('aria-expanded')).toBe('false');
+		await rerender({ events, openThread: { photoId: 'p2' } });
+
+		await waitFor(() => expect(button.getAttribute('aria-expanded')).toBe('true'));
+	});
+
 	it('keeps unsent replies on their own row when switching threads', async () => {
 		const user = userEvent.setup();
 		stub([

@@ -27,7 +27,7 @@
 		SlidersHorizontal,
 		Users
 	} from '@lucide/svelte';
-	import type { Component, Snippet } from 'svelte';
+	import { untrack, type Component, type Snippet } from 'svelte';
 	import CommentsPanel from '#lib/components/CommentsPanel.svelte';
 	import CoverBackdrop from '#lib/components/CoverBackdrop.svelte';
 	import GalleryActivityPanel from '#lib/components/GalleryActivityPanel.svelte';
@@ -114,13 +114,15 @@
 	} = $props();
 
 	let section = $state<StudioSection>('photos');
+	let chosenThread = $state<{ photoId: string }>();
 	const requestedId = $derived(requestedPhoto?.id);
 	const requestedKind = $derived(requestedPhoto?.kind);
 	$effect(() => {
 		void requestKey;
+		chosenThread = undefined;
 
 		if (requestedId) section = requestedKind === 'final' ? 'final' : 'photos';
-		else if (requestedSection) selectSection(requestedSection);
+		else if (requestedSection) untrack(() => selectSection(requestedSection));
 	});
 	// A new object per request lets the same thread open again after it was closed.
 	const linkedThread = $derived.by(() => {
@@ -128,7 +130,6 @@
 
 		return requestedThread ? { photoId: requestedThread } : undefined;
 	});
-	let chosenThread = $state<{ photoId: string }>();
 	const openThread = $derived(chosenThread ?? linkedThread);
 
 	function openDestination(place: { section?: string; thread?: string }) {

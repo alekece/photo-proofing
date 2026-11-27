@@ -95,8 +95,9 @@ export class NotificationCenter {
 		await this.#post('/read');
 	}
 
-	async deleteAll(): Promise<void> {
-		await this.#delete();
+	/** Whether the server deleted them; the list is refetched either way. */
+	async deleteAll(): Promise<boolean> {
+		return this.#delete();
 	}
 
 	/** Loads the list and keeps it current; returns what stops that. */
@@ -111,13 +112,16 @@ export class NotificationCenter {
 		return () => stops.forEach((stop) => stop());
 	}
 
-	async #delete() {
-		await this.#fetcher('/api/v1/notifications', {
+	async #delete(): Promise<boolean> {
+		const response = await this.#fetcher('/api/v1/notifications', {
 			method: 'DELETE',
 			credentials: 'same-origin',
 			keepalive: true
 		}).catch(() => null);
+
 		await this.refresh();
+
+		return response?.ok === true;
 	}
 
 	async #post(path: string) {

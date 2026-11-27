@@ -15,14 +15,20 @@
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
-			"match": { "countPlural=one": "{count} comment", "countPlural=*": "{count} comments" }
+			"match": {
+				"countPlural=one": "{count} comment",
+				"countPlural=*": "{count} comments"
+			}
 		}
 	],
 	"notification_comments": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
-			"match": { "countPlural=one": "{count} new comment", "countPlural=*": "{count} new comments" }
+			"match": {
+				"countPlural=one": "{count} new comment",
+				"countPlural=*": "{count} new comments"
+			}
 		}
 	],
 	"comments_loading": "Loading comments…",
@@ -171,7 +177,6 @@
 			}
 		}
 	],
-	"summary_archived": "{items} · archived",
 	"summary_downloaded": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -182,18 +187,6 @@
 			}
 		}
 	],
-	"summary_all_downloaded": "{finals} · all downloaded",
-	"summary_some_downloaded": [
-		{
-			"declarations": ["input count", "local countPlural = count: plural"],
-			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "{finals} · {count} downloaded",
-				"countPlural=*": "{finals} · {count} downloaded"
-			}
-		}
-	],
-	"summary_no_photos": "No photos yet",
 	"summary_selected": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -258,6 +251,7 @@
 	],
 	"notifications_mark_all_read": "Mark all as read",
 	"notifications_delete_all": "Delete all",
+	"notifications_delete_failed": "Could not delete the notifications. Try again.",
 	"notifications_none": "Nothing new",
 	"notifications_none_body": "Client opens, selections, downloads and comments will appear here.",
 	"expiry_open_until": "Open until",
@@ -313,26 +307,12 @@
 		}
 	],
 	"dashboard_check_spelling": "Check the spelling, or try part of the client’s name.",
-	"dashboard_clear_filters": "Clear search and status",
-	"dashboard_next_client_line1": "Who’s in front of",
-	"dashboard_next_client_line2": "your lens next?",
-	"dashboard_total_galleries": [
-		{
-			"declarations": ["input count", "local countPlural = count: plural"],
-			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "{count} gallery",
-				"countPlural=*": "{count} galleries"
-			}
-		}
-	],
 	"dashboard_empty": "No galleries in focus.",
 	"dashboard_empty_body": "Create a gallery and it will show up here.",
 	"action_preview": "Preview",
 	"action_restore": "Restore",
 	"action_share": "Share",
 	"action_deliver": "Deliver",
-	"stage_send_email": "Send an email",
 	"stage_customize": "Customize",
 	"stage_copy_self": "Send me a copy",
 	"stage_without_email": "Continue without email",
@@ -413,7 +393,6 @@
 	"publish_delivered_title": "Final photos delivered",
 	"publish_share_text": "A private link will be created: your client can view the photos and pick favorites.",
 	"publish_share_text_until": "A private link will be created: your client can view the photos and pick favorites until {until}.",
-	"publish_deliver_text": "The client will find the finished photos at the same link.",
 	"publish_uploading": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -477,7 +456,6 @@
 	"tile_remove": "Remove {name}",
 	"tile_favorited_at": "Favorited {date}",
 	"tile_downloaded_at": "Downloaded {date}",
-	"finals_requested_count": "Photos requested for download: {count} of {total}",
 	"cover_remove": "Remove",
 	"design_cover": "Cover",
 	"design_select_cover": "Select cover",
@@ -723,7 +701,6 @@
 	"contacts_title": "Contacts",
 	"contacts_new": "New contact",
 	"contacts_new_heading": "New contact",
-	"contacts_edit": "Edit",
 	"contacts_edit_label": "Edit {name}",
 	"contacts_create": "Create contact",
 	"contacts_creating": "Creating…",
@@ -778,21 +755,14 @@
 	"gallery_contacts_manage": "Manage contacts",
 	"gallery_contacts_dialog_title": "Link a contact",
 	"gallery_contacts_link_named": "Link {name}",
-	"gallery_contacts_link_action": "Link",
-	"gallery_contacts_linked_state": "Linked",
 	"gallery_contacts_unlinked_state": "Not linked",
 	"gallery_contacts_link_selected": "Link selected ({count})",
 	"gallery_contacts_unlink_selected": "Unlink selected ({count})",
 	"gallery_contacts_create_and_link": "Create & link",
-	"gallery_contacts_new_inline": "Create a new contact",
-	"gallery_contacts_choose_existing": "Choose an existing contact",
-	"gallery_contacts_unlink": "Unlink",
 	"gallery_contacts_linked_toast": "Contact linked",
 	"gallery_contacts_unlinked_toast": "Contact unlinked",
 	"gallery_contacts_empty": "No contacts yet.",
 	"gallery_contacts_empty_body": "Create a contact here, then link it to this gallery.",
-	"gallery_contacts_all_linked": "Every contact in your directory is already linked to this gallery.",
-	"gallery_contacts_open_directory": "Manage directory",
 	"gallery_contacts_load_failed": "Couldn’t load contacts.",
 	"gallery_contacts_link_failed": "Couldn’t link this contact. Please try again.",
 	"gallery_contacts_unlink_failed": "Couldn’t unlink this contact. Please try again.",
@@ -829,7 +799,6 @@
 	"share_smtp_unavailable_title": "Email sending isn’t configured",
 	"share_smtp_unavailable_body": "Configure [smtp] on this server to send email invitations, or share the client link directly from Settings.",
 	"share_open_settings": "Open Settings",
-	"share_expired_title": "This gallery has expired",
 	"share_expired_body": "Update Open until in Settings → General before sending invitations.",
 	"share_envelope_label": "Invitation envelope",
 	"share_already_shared": "This gallery was already shared: sending another email could duplicate it.",
@@ -865,14 +834,12 @@
 	"share_warn_body": "Your client will receive the email right away and see the gallery before every proof is ready.",
 	"share_send_anyway": "Send anyway",
 	"activity_title": "Activity",
-	"activity_filters": "Filters",
 	"activity_sort_newest": "Newest first",
 	"activity_sort_oldest": "Oldest first",
 	"activity_search_workspace": "Search by gallery or visitor",
 	"activity_search_visitor": "Search by visitor",
 	"activity_search_no_matches": "No activity matches this search.",
 	"activity_search_updated": "Activity search results updated.",
-	"activity_all_visitors": "All visitors",
 	"activity_anonymous": "Anonymous client",
 	"activity_filter_date": "Date",
 	"activity_range_any": "Any time",

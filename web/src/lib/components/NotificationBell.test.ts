@@ -194,6 +194,27 @@ describe('NotificationBell', () => {
 		expect(screen.getByText('Nothing new')).toBeTruthy();
 	});
 
+	it('keeps the menu open and says so when the notifications could not be deleted', async () => {
+		const user = userEvent.setup();
+		const fetcher = vi.fn(async (_url: string, init?: RequestInit) =>
+			init?.method === 'DELETE'
+				? new Response(null, { status: 500 })
+				: Response.json({ notifications: [row()], unread: 1 })
+		);
+		const center = new NotificationCenter(fetcher as unknown as typeof fetch);
+		await center.refresh();
+		render(NotificationBell, { center });
+
+		await user.click(screen.getByRole('button', { name: /Notifications/ }));
+		await user.click(screen.getByRole('button', { name: 'Delete all' }));
+
+		await waitFor(() =>
+			expect(fetcher.mock.calls.some(([, i]) => i?.method === 'DELETE')).toBe(true)
+		);
+		expect(screen.getByRole('button', { name: 'Delete all' })).toBeTruthy();
+		expect(screen.getByText('Wedding')).toBeTruthy();
+	});
+
 	it('shows the simple empty state when there are no notifications', async () => {
 		const { center } = setup([]);
 		render(NotificationBell, { center });

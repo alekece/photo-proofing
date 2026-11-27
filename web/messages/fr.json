@@ -15,7 +15,10 @@
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
-			"match": { "countPlural=one": "{count} commentaire", "countPlural=*": "{count} commentaires" }
+			"match": {
+				"countPlural=one": "{count} commentaire",
+				"countPlural=*": "{count} commentaires"
+			}
 		}
 	],
 	"notification_comments": [
@@ -174,7 +177,6 @@
 			}
 		}
 	],
-	"summary_archived": "{items} · archivée",
 	"summary_downloaded": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -185,18 +187,6 @@
 			}
 		}
 	],
-	"summary_all_downloaded": "{finals} · toutes téléchargées",
-	"summary_some_downloaded": [
-		{
-			"declarations": ["input count", "local countPlural = count: plural"],
-			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "{finals} · {count} téléchargée",
-				"countPlural=*": "{finals} · {count} téléchargées"
-			}
-		}
-	],
-	"summary_no_photos": "Pas encore de photos",
 	"summary_selected": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -261,6 +251,7 @@
 	],
 	"notifications_mark_all_read": "Tout marquer comme lu",
 	"notifications_delete_all": "Tout supprimer",
+	"notifications_delete_failed": "Impossible de supprimer les notifications. Réessaie.",
 	"notifications_none": "Rien de nouveau",
 	"notifications_none_body": "Les ouvertures, sélections, téléchargements et commentaires de vos clients apparaîtront ici.",
 	"expiry_open_until": "Ouverte jusqu’au",
@@ -316,26 +307,12 @@
 		}
 	],
 	"dashboard_check_spelling": "Vérifiez l’orthographe ou essayez une partie du nom du client.",
-	"dashboard_clear_filters": "Effacer la recherche et les statuts",
-	"dashboard_next_client_line1": "Qui sera devant",
-	"dashboard_next_client_line2": "votre objectif ?",
-	"dashboard_total_galleries": [
-		{
-			"declarations": ["input count", "local countPlural = count: plural"],
-			"selectors": ["countPlural"],
-			"match": {
-				"countPlural=one": "{count} galerie",
-				"countPlural=*": "{count} galeries"
-			}
-		}
-	],
 	"dashboard_empty": "Aucune galerie à l’horizon.",
 	"dashboard_empty_body": "Créez une galerie et elle apparaîtra ici.",
 	"action_preview": "Aperçu",
 	"action_restore": "Restaurer",
 	"action_share": "Partager",
 	"action_deliver": "Livrer",
-	"stage_send_email": "Envoyer un e-mail",
 	"stage_customize": "Personnaliser",
 	"stage_copy_self": "M’envoyer une copie",
 	"stage_without_email": "Continuer sans e-mail",
@@ -416,7 +393,6 @@
 	"publish_delivered_title": "Les photos retouchées sont livrées",
 	"publish_share_text": "Un lien privé sera créé : votre client pourra voir les photos et choisir ses favoris.",
 	"publish_share_text_until": "Un lien privé sera créé : votre client pourra voir les photos et choisir ses favoris jusqu’au {until}.",
-	"publish_deliver_text": "Le client retrouvera les photos retouchées sur le même lien.",
 	"publish_uploading": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -480,7 +456,6 @@
 	"tile_remove": "Retirer {name}",
 	"tile_favorited_at": "Sélectionnée le {date}",
 	"tile_downloaded_at": "Téléchargée le {date}",
-	"finals_requested_count": "Photos demandées en téléchargement : {count} sur {total}",
 	"cover_remove": "Retirer",
 	"design_cover": "Couverture",
 	"design_select_cover": "Choisir une couverture",
@@ -735,7 +710,6 @@
 	"contacts_title": "Contacts",
 	"contacts_new": "Nouveau contact",
 	"contacts_new_heading": "Nouveau contact",
-	"contacts_edit": "Modifier",
 	"contacts_edit_label": "Modifier {name}",
 	"contacts_create": "Créer le contact",
 	"contacts_creating": "Création…",
@@ -790,21 +764,14 @@
 	"gallery_contacts_manage": "Gérer les contacts",
 	"gallery_contacts_dialog_title": "Associer un contact",
 	"gallery_contacts_link_named": "Associer {name}",
-	"gallery_contacts_link_action": "Associer",
-	"gallery_contacts_linked_state": "Associé",
 	"gallery_contacts_unlinked_state": "Non associé",
 	"gallery_contacts_link_selected": "Associer la sélection ({count})",
 	"gallery_contacts_unlink_selected": "Dissocier la sélection ({count})",
 	"gallery_contacts_create_and_link": "Créer et associer",
-	"gallery_contacts_new_inline": "Créer un nouveau contact",
-	"gallery_contacts_choose_existing": "Choisir un contact existant",
-	"gallery_contacts_unlink": "Dissocier",
 	"gallery_contacts_linked_toast": "Contact associé",
 	"gallery_contacts_unlinked_toast": "Contact dissocié",
 	"gallery_contacts_empty": "Aucun contact pour le moment.",
 	"gallery_contacts_empty_body": "Créez un contact ici, puis associez-le à cette galerie.",
-	"gallery_contacts_all_linked": "Tous les contacts de votre répertoire sont déjà associés à cette galerie.",
-	"gallery_contacts_open_directory": "Gérer le répertoire",
 	"gallery_contacts_load_failed": "Impossible de charger les contacts.",
 	"gallery_contacts_link_failed": "Impossible d’associer ce contact. Réessayez.",
 	"gallery_contacts_unlink_failed": "Impossible de dissocier ce contact. Réessayez.",
@@ -841,7 +808,6 @@
 	"share_smtp_unavailable_title": "Envoi d’e-mails non configuré",
 	"share_smtp_unavailable_body": "Configurez [smtp] sur ce serveur pour envoyer des invitations par e-mail, ou activez directement le lien client depuis Réglages.",
 	"share_open_settings": "Ouvrir les réglages",
-	"share_expired_title": "Cette galerie est expirée",
 	"share_expired_body": "Mettez à jour Ouverte jusqu’au dans Réglages → Général avant d’envoyer des invitations.",
 	"share_envelope_label": "Enveloppe de l’invitation",
 	"share_already_shared": "Cette galerie a déjà été partagée : un nouvel e-mail pourrait faire doublon.",
@@ -877,14 +843,12 @@
 	"share_publish_hint": "Publiez les photos retouchées au même lien client. Aucune invitation ne sera envoyée.",
 	"share_send_anyway": "Envoyer quand même",
 	"activity_title": "Activité",
-	"activity_filters": "Filtres",
 	"activity_sort_newest": "Plus récentes",
 	"activity_sort_oldest": "Plus anciennes",
 	"activity_search_workspace": "Rechercher une galerie ou un visiteur",
 	"activity_search_visitor": "Rechercher un visiteur",
 	"activity_search_no_matches": "Aucune activité ne correspond à cette recherche.",
 	"activity_search_updated": "Résultats de la recherche mis à jour.",
-	"activity_all_visitors": "Tous les visiteurs",
 	"activity_anonymous": "Client anonyme",
 	"activity_filter_date": "Date",
 	"activity_range_any": "Toute la période",
