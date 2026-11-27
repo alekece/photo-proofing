@@ -1,31 +1,22 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import ChoiceCards from '#lib/components/ui/ChoiceCards/ChoiceCards.svelte';
 	import { QUALITIES, type Quality } from '#lib/settings/settings.js';
 
-	let { value = $bindable() }: { value: Quality } = $props();
+	let { value = $bindable(), describedBy }: { value: Quality; describedBy?: string } = $props();
 
 	const LABELS: Record<Quality, { name: () => string; detail: () => string }> = {
 		low: { name: m.quality_low, detail: m.quality_low_detail },
 		medium: { name: m.quality_medium, detail: m.quality_medium_detail },
 		high: { name: m.quality_high, detail: m.quality_high_detail }
 	};
+	const options = $derived(
+		QUALITIES.map((quality) => ({
+			value: quality,
+			label: LABELS[quality].name(),
+			detail: LABELS[quality].detail()
+		}))
+	);
 </script>
 
-<div
-	role="radiogroup"
-	aria-label={m.quality_label()}
-	class="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-[1.125rem]"
->
-	{#each QUALITIES as quality (quality)}
-		<button
-			type="button"
-			role="radio"
-			aria-checked={value === quality}
-			class="grid cursor-pointer gap-1 rounded-card border control-choice px-4 py-3 text-left"
-			onclick={() => (value = quality)}
-		>
-			<span class="font-semibold">{LABELS[quality].name()}</span>
-			<span class="text-sm opacity-75">{LABELS[quality].detail()}</span>
-		</button>
-	{/each}
-</div>
+<ChoiceCards bind:value label={m.quality_label()} {describedBy} {options} />

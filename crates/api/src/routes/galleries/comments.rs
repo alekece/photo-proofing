@@ -66,7 +66,7 @@ async fn thread(
     let comments = state
         .database()
         .repository::<CommentRepository>()
-        .thread(access.location, path.photo_id, access.author)
+        .thread(access.location, path.photo_id, access.author, access.client)
         .await?
         .ok_or_else(ErrorResponse::not_found)?;
 
@@ -113,7 +113,13 @@ async fn edit(
     let comment = state
         .database()
         .repository::<CommentRepository>()
-        .edit(access.location, path.comment_id, access.author, &input.body)
+        .edit(
+            access.location,
+            path.comment_id,
+            access.author,
+            access.client,
+            &input.body,
+        )
         .await?;
     let comment = ErrorResponse::applied_comment(comment)?;
 
@@ -131,7 +137,12 @@ async fn remove(
     let change = state
         .database()
         .repository::<CommentRepository>()
-        .delete(access.location, path.comment_id, access.author)
+        .delete(
+            access.location,
+            path.comment_id,
+            access.author,
+            access.client,
+        )
         .await?;
 
     ErrorResponse::applied_comment(change)?;
@@ -229,6 +240,7 @@ mod tests {
 
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(comment["author"], "client");
+        assert!(comment.get("contact").is_none());
         let response = test::call_service(&app, request("GET", &path, None).to_request()).await;
 
         assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
@@ -239,10 +251,24 @@ mod tests {
         let thread: Value = test::read_body_json(response).await;
 
         assert_eq!(thread[0], comment);
+        assert_eq!(thread[0]["editable"], true);
         let (_, counts) = call(&app, request("GET", &format!("{base}/comments"), None)).await;
 
         assert_eq!(counts[0]["count"], 1);
         assert!(counts[0].get("latest_body").is_none());
+
+        let (_, owner_thread) = call(
+            &app,
+            request(
+                "GET",
+                &format!("/api/v1/galleries/{gallery_id}/photos/{photo}/comments"),
+                Some(&cookie),
+            ),
+        )
+        .await;
+
+        assert!(owner_thread[0].get("contact").is_none());
+        assert_eq!(owner_thread[0]["editable"], false);
 
         let (status, owner_counts) = call(
             &app,
@@ -274,7 +300,7 @@ mod tests {
         let cookie = sign_up(&app).await;
 
         call(&app, request("POST", "/api/v1/galleries", Some(&cookie))).await;
-        let (gallery_id, _general_token, photo) = gallery(&pool).await;
+        let (gallery_id, general_token, photo) = gallery(&pool).await;
         let (_, created_contact) = call(
             &app,
             request("POST", "/api/v1/contacts", Some(&cookie))
@@ -301,13 +327,85 @@ mod tests {
         .await
         .unwrap();
         let path = format!("/api/v1/galleries/shared/{personal_token}/photos/{photo}/comments");
-        let (status, _) = call(
+        let (status, comment) = call(
             &app,
             request("POST", &path, None).set_json(json!({"body": "Lovely"})),
         )
         .await;
 
         assert_eq!(status, StatusCode::CREATED);
+        assert!(comment.get("contact").is_none());
+        assert_eq!(comment["editable"], true);
+
+        let (_, client_thread) = call(&app, request("GET", &path, None)).await;
+        assert!(client_thread[0].get("contact").is_none());
+        assert_eq!(client_thread[0]["editable"], true);
+
+        let (_, owner_thread) = call(
+            &app,
+            request(
+                "GET",
+                &format!("/api/v1/galleries/{gallery_id}/photos/{photo}/comments"),
+                Some(&cookie),
+            ),
+        )
+        .await;
+
+        assert_eq!(owner_thread[0]["contact"]["id"], contact_id);
+        assert_eq!(owner_thread[0]["contact"]["name"], "Claire");
+        assert_eq!(owner_thread[0]["editable"], false);
+
+        let comment_id = comment["id"].as_str().unwrap();
+        let general_base = format!("/api/v1/galleries/shared/{general_token}");
+        let (general_status, general_thread) = call(
+            &app,
+            request(
+                "GET",
+                &format!("{general_base}/photos/{photo}/comments"),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(general_status, StatusCode::OK, "{general_thread}");
+        assert_eq!(general_thread[0]["editable"], false);
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(
+            call(
+                &app,
+                request(
+                    "PATCH",
+                    &format!("{general_base}/comments/{comment_id}"),
+                    None,
+                )
+                .set_json(json!({"body":"Impersonated"})),
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(
+            call(
+                &app,
+                request(
+                    "DELETE",
+                    &format!("{general_base}/comments/{comment_id}"),
+                    None,
+                ),
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+
+        let stored_contact: Option<Uuid> =
+            sqlx::query_scalar("SELECT contact_id FROM photo_comments WHERE id = $1")
+                .bind(comment["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert_eq!(stored_contact, Some(Uuid::parse_str(&contact_id).unwrap()));
 
         let recorded: (Option<Uuid>, i32) = sqlx::query_as(
             "SELECT contact_id, count FROM activity_events
@@ -319,6 +417,43 @@ mod tests {
         .unwrap();
 
         assert_eq!(recorded, (Some(Uuid::parse_str(&contact_id).unwrap()), 1));
+
+        assert_eq!(
+            call(
+                &app,
+                request(
+                    "DELETE",
+                    &format!("/api/v1/contacts/{contact_id}"),
+                    Some(&cookie),
+                ),
+            )
+            .await
+            .0,
+            StatusCode::NO_CONTENT
+        );
+        let stored_identity: (Option<Uuid>, String) = sqlx::query_as(
+            "SELECT contact_id, contact_origin FROM photo_comments WHERE id = $1::uuid",
+        )
+        .bind(comment_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(stored_identity, (None, "contact".to_owned()));
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(
+            call(
+                &app,
+                request(
+                    "PATCH",
+                    &format!("{general_base}/comments/{comment_id}"),
+                    None,
+                )
+                .set_json(json!({"body":"Still not the general client"})),
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
     }
 
     #[sqlx::test(migrations = "../database/migrations")]

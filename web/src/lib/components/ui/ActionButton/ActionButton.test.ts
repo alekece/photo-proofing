@@ -36,8 +36,53 @@ describe('ActionButton', () => {
 		expect(screen.getByRole('button', { name: 'Delete' })).toBe(button);
 		expect(button.querySelector('svg.animate-spin')).toBeTruthy();
 		resolve(false);
-		await vi.advanceTimersByTimeAsync(0);
+		await vi.advanceTimersByTimeAsync(99);
+		expect(button.getAttribute('aria-busy')).toBe('true');
+		await vi.advanceTimersByTimeAsync(1);
+		expect(button.getAttribute('aria-busy')).toBeNull();
 		expect(screen.getByRole('button', { name: 'Delete' })).toBe(button);
+	});
+
+	it.each([undefined, 250, 0])(
+		'holds an immediately resolved action for the configured minimum %s',
+		async (minPendingMs) => {
+			vi.useFakeTimers();
+			const onaction = vi.fn(async () => true);
+			const onsettled = vi.fn();
+			render(ActionButton, { labels: deleteLabels, minPendingMs, onaction, onsettled });
+			const button = screen.getByRole('button', { name: 'Delete' });
+
+			await fireEvent.click(button);
+			expect(onaction).toHaveBeenCalledOnce();
+			const duration = minPendingMs ?? 100;
+
+			if (duration > 0) {
+				expect(button.getAttribute('aria-busy')).toBe('true');
+				await vi.advanceTimersByTimeAsync(duration - 1);
+				await fireEvent.click(button);
+				expect(onaction).toHaveBeenCalledOnce();
+				expect(onsettled).not.toHaveBeenCalled();
+				await vi.advanceTimersByTimeAsync(1);
+			}
+
+			expect(onsettled).toHaveBeenCalledOnce();
+			expect(button.getAttribute('aria-busy')).toBeNull();
+		}
+	);
+
+	it('does not delay completion further once the spinner has met its minimum', async () => {
+		vi.useFakeTimers();
+		const result = Promise.withResolvers<boolean>();
+		const onsettled = vi.fn();
+		render(ActionButton, { labels: deleteLabels, onaction: () => result.promise, onsettled });
+		const button = screen.getByRole('button', { name: 'Delete' });
+
+		await fireEvent.click(button);
+		await vi.advanceTimersByTimeAsync(101);
+		expect(button.getAttribute('aria-busy')).toBe('true');
+		result.resolve(true);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(onsettled).toHaveBeenCalledOnce();
 	});
 
 	it('keeps focus and runs only after the confirmation window', async () => {
@@ -94,6 +139,9 @@ describe('ActionButton', () => {
 		);
 
 		resolve(true);
+		await vi.advanceTimersByTimeAsync(99);
+		expect(screen.getByRole('button', { name: 'Saving' })).toBeTruthy();
+		await vi.advanceTimersByTimeAsync(1);
 		await vi.advanceTimersByTimeAsync(1599);
 		expect(screen.getByRole('button', { name: 'Saved' })).toBeTruthy();
 		expect(onsettled).not.toHaveBeenCalled();
@@ -106,7 +154,7 @@ describe('ActionButton', () => {
 		const user = userEvent.setup();
 		const onaction = vi.fn(async () => false);
 
-		render(ActionButton, { labels: saveLabels, onaction });
+		render(ActionButton, { labels: saveLabels, minPendingMs: 0, onaction });
 		await user.click(screen.getByRole('button', { name: 'Save' }));
 		await user.click(screen.getByRole('button', { name: 'Save' }));
 

@@ -20,6 +20,13 @@
 	]);
 	const workspaceActive = $derived(workspaceRoutes.has(page.route.id ?? ''));
 	const settings = $derived((page.data?.settings as WorkspaceSettings | null) ?? DEFAULT_SETTINGS);
+	const previewCounts =
+		import.meta.env.DEV && import.meta.env.VITE_WORKSPACE_PREVIEW_COUNTS
+			? (JSON.parse(import.meta.env.VITE_WORKSPACE_PREVIEW_COUNTS) as Record<
+					'galleries' | 'photos' | 'contacts',
+					number
+				>)
+			: undefined;
 </script>
 
 <svelte:head>
@@ -33,7 +40,9 @@
 			data-studio-palette={settings.studioPalette}
 			class="flex flex-1 flex-col bg-background text-foreground"
 		>
-			<WorkspaceLayout studioName={settings.studioName}>{@render children()}</WorkspaceLayout>
+			<WorkspaceLayout studioName={settings.studioName} counts={previewCounts}>
+				{@render children()}
+			</WorkspaceLayout>
 			<Toaster studio />
 		</div>
 	{:else}

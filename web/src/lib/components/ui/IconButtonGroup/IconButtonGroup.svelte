@@ -24,10 +24,10 @@
 			aria-pressed={value === id}
 			title={itemLabel}
 			{disabled}
-			class="grid h-[2.125rem] w-10 place-items-center rounded-lg border transition-colors {value ===
+			class="grid h-[2.125rem] w-10 place-items-center rounded-lg border transition-colors sm:enabled:cursor-pointer {value ===
 			id
 				? 'border-foreground bg-foreground text-inverse'
-				: 'border-border bg-white text-muted-foreground hover:border-[#cdbda9] hover:text-foreground'} disabled:cursor-not-allowed disabled:opacity-50"
+				: 'border-border bg-white text-muted-foreground hover:border-border-strong hover:text-foreground'} disabled:cursor-not-allowed disabled:opacity-50"
 			onclick={() => {
 				value = id;
 				onchange?.(id);

@@ -34,9 +34,9 @@ export class SelectMode {
 		for (const id of ids) this.ids.add(id);
 	}
 
-	/** Empties the selection and stays in select mode. */
+	/** Empties the selection and leaves select mode. */
 	unselectAll() {
-		this.ids.clear();
+		this.leave();
 	}
 
 	enter() {

@@ -4,21 +4,22 @@ import { axe } from 'vitest-axe';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
 import type { Contact } from '#lib/contacts/api.js';
+import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import GalleryContactsPanel from './GalleryContactsPanel.svelte';
 
-const camille = {
+const camille: Contact & { link_id: string } = {
 	link_id: 'link-a',
 	id: 'c1',
 	name: 'Camille & Hugo',
 	email: 'camille@example.test',
 	phone: '+33 6 12 34 56 78',
-	notes: null,
+	notes: 'Prefers a warmer edit.',
 	galleries: [{ id: 'g1', title: 'Wedding' }],
 	created_at: '2026-11-13T10:00:00Z',
 	updated_at: '2026-11-13T10:00:00Z'
 };
 
-const zoe = {
+const zoe: Contact & { link_id: string } = {
 	link_id: 'link-b',
 	id: 'c2',
 	name: 'Zoé Laurent',
@@ -30,203 +31,137 @@ const zoe = {
 	updated_at: '2026-11-13T10:00:00Z'
 };
 
-/** Resolves on demand, so a test can control exactly when a fetch "arrives". */
 function deferred<T>() {
 	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((res) => {
-		resolve = res;
+	const promise = new Promise<T>((resolvePromise) => {
+		resolve = resolvePromise;
 	});
 
 	return { promise, resolve };
 }
 
+function fixture(directory: Contact[], linkedIds: string[] = []) {
+	const contacts = directory.map((contact) => ({ ...contact }));
+	const linked = new Set(linkedIds);
+	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+		const association = String(url).match(/\/galleries\/g1\/contacts\/([^/]+)$/);
+		if (String(url) === '/api/v1/contacts' && (!init || init.method === 'GET')) {
+			return Response.json(contacts);
+		}
+		if (String(url) === '/api/v1/galleries/g1/contacts') {
+			return Response.json(
+				contacts
+					.filter(({ id }) => linked.has(id))
+					.map((contact) => ({ ...contact, link_id: `link-${contact.id}` }))
+			);
+		}
+		if (association && init?.method === 'PUT') {
+			linked.add(association[1]);
+			return Response.json(contacts.find(({ id }) => id === association[1]));
+		}
+		if (association && init?.method === 'DELETE') {
+			linked.delete(association[1]);
+			return new Response(null, { status: 204 });
+		}
+
+		return new Response(null, { status: 404 });
+	});
+
+	vi.stubGlobal('fetch', fetcher);
+
+	return { fetcher, contacts, linked };
+}
+
 afterEach(() => {
 	vi.unstubAllGlobals();
-	vi.useRealTimers();
+	toasts.items = [];
 });
 
 describe('GalleryContactsPanel', () => {
-	it.each([
-		{ contacts: [], visibleText: 'No contacts linked yet.' },
-		{ contacts: [camille], visibleText: 'Camille & Hugo' }
-	])('offers one contacts entry with $visibleText', async ({ contacts, visibleText }) => {
+	it('applies the associations toggled in Manage contacts only when Done is clicked', async () => {
 		const user = userEvent.setup();
-		vi.stubGlobal(
-			'fetch',
-			vi
-				.fn()
-				.mockResolvedValueOnce(Response.json(contacts))
-				.mockResolvedValueOnce(Response.json([camille]))
-		);
-		render(GalleryContactsPanel, { galleryId: 'g1' });
-
-		await screen.findByText(visibleText);
-		const manage = screen.getByRole('button', { name: 'Manage contacts' });
-		expect(screen.queryByRole('button', { name: '+ Link contact' })).toBeNull();
-		expect(screen.queryByRole('link', { name: 'Manage directory' })).toBeNull();
-		await user.click(manage);
-		const dialog = await screen.findByRole('dialog');
-		expect(
-			within(dialog).getByRole('link', { name: 'Manage directory' }).getAttribute('href')
-		).toBe('/contacts');
-		await user.click(within(dialog).getByRole('button', { name: 'Close' }));
-		await waitFor(() => expect(document.activeElement).toBe(manage));
-	});
-
-	it('links an existing contact, briefly shows Linked, then settles to Unlink without closing the dialog', async () => {
-		vi.useFakeTimers();
-		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 		const oncount = vi.fn();
-		const zoeLinked: Contact = { ...zoe, galleries: [{ id: 'g1', title: 'Wedding' }] };
-
-		const fetcher = vi
-			.fn()
-			// Initial listGalleryContacts('g1')
-			.mockResolvedValueOnce(new Response(JSON.stringify([camille]), { status: 200 }))
-			// Open dialog -> listContacts()
-			.mockResolvedValueOnce(new Response(JSON.stringify([camille, zoe]), { status: 200 }))
-			// PUT linkGalleryContact('g1', 'c2')
-			.mockResolvedValueOnce(new Response(JSON.stringify(zoeLinked), { status: 200 }));
-		vi.stubGlobal('fetch', fetcher);
-
+		const { fetcher } = fixture([camille, zoe], ['c1']);
+		const writes = () =>
+			fetcher.mock.calls.filter(([, init]) => init?.method === 'PUT' || init?.method === 'DELETE');
 		render(GalleryContactsPanel, { galleryId: 'g1', oncount });
 
+		expect(screen.queryByRole('heading', { name: 'Contacts', level: 2 })).toBeNull();
 		expect(await screen.findByText('Camille & Hugo')).toBeTruthy();
-		expect(oncount).toHaveBeenLastCalledWith(1);
+		expect(screen.queryByText('Zoé Laurent')).toBeNull();
 
 		await user.click(screen.getByRole('button', { name: 'Manage contacts' }));
-		const dialog = await screen.findByRole('dialog');
+		const dialog = within(screen.getByRole('dialog', { name: 'Link a contact' }));
+		const camilleSwitch = dialog.getByRole('switch', { name: 'Link Camille & Hugo' });
+		const zoeSwitch = dialog.getByRole('switch', { name: 'Link Zoé Laurent' });
+		expect(camilleSwitch.getAttribute('aria-checked')).toBe('true');
+		expect(zoeSwitch.getAttribute('aria-checked')).toBe('false');
 
-		// The merged directory shows both the already-linked and the unlinked contact.
-		const camilleRow = within(dialog).getByText('Camille & Hugo').closest('li');
-		const zoeRow = within(dialog).getByText('Zoé Laurent').closest('li') as HTMLElement;
-		expect(camilleRow).toBeTruthy();
-		expect(zoeRow).toBeTruthy();
-		expect(within(camilleRow as HTMLElement).getByRole('button', { name: 'Unlink' })).toBeTruthy();
+		await user.click(zoeSwitch);
+		await user.click(camilleSwitch);
+		expect(zoeSwitch.getAttribute('aria-checked')).toBe('true');
+		expect(camilleSwitch.getAttribute('aria-checked')).toBe('false');
+		expect(writes()).toHaveLength(0);
 
-		fireEvent.click(within(zoeRow).getByRole('button', { name: 'Link' }));
-		// Flush the pending fetch's microtask without advancing fake time.
-		await vi.advanceTimersByTimeAsync(0);
-
-		// Immediately after the request resolves, the row shows a transient "Linked" confirmation...
-		expect(within(zoeRow).getByRole('button', { name: 'Linked' })).toBeTruthy();
+		await user.click(camilleSwitch);
+		await user.click(dialog.getByRole('button', { name: 'Done' }));
+		await waitFor(() =>
+			expect(fetcher).toHaveBeenCalledWith(
+				'/api/v1/galleries/g1/contacts/c2',
+				expect.objectContaining({ method: 'PUT' })
+			)
+		);
+		expect(writes()).toHaveLength(1);
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(await screen.findByText('Zoé Laurent')).toBeTruthy();
 		expect(oncount).toHaveBeenLastCalledWith(2);
-
-		// ...for 600ms, after which it settles to Unlink in the same position, the dialog untouched.
-		await vi.advanceTimersByTimeAsync(599);
-		expect(within(zoeRow).getByRole('button', { name: 'Linked' })).toBeTruthy();
-		await vi.advanceTimersByTimeAsync(1);
-		expect(within(zoeRow).getByRole('button', { name: 'Unlink' })).toBeTruthy();
-		expect(screen.getByRole('dialog')).toBeTruthy();
 	});
 
-	it('unlinks a contact from the always-visible list without deleting it, allowing immediate undo', async () => {
+	it('discards the toggled associations when Manage contacts is cancelled', async () => {
 		const user = userEvent.setup();
-		const oncount = vi.fn();
-		const fetcher = vi
-			.fn()
-			.mockResolvedValueOnce(new Response(JSON.stringify([camille]), { status: 200 }))
-			// DELETE unlinkGalleryContact('g1', 'c1')
-			.mockResolvedValueOnce(new Response(null, { status: 204 }));
-		vi.stubGlobal('fetch', fetcher);
-
-		render(GalleryContactsPanel, { galleryId: 'g1', oncount });
-
-		expect(await screen.findByText('Camille & Hugo')).toBeTruthy();
-
-		const unlinkButton = screen.getByRole('button', { name: 'Unlink' });
-		await user.click(unlinkButton);
-		await waitFor(() => expect(oncount).toHaveBeenLastCalledWith(0));
-		expect(screen.queryByText('Camille & Hugo')).toBeNull();
-	});
-
-	it('undoes Linked immediately and keeps an in-flight unlink guarded after the feedback timer expires', async () => {
-		vi.useFakeTimers();
-		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-		const slowLink = deferred<Response>();
-		const slowUnlink = deferred<Response>();
-		const fetcher = vi
-			.fn()
-			.mockResolvedValueOnce(Response.json([camille]))
-			.mockResolvedValueOnce(Response.json([camille, zoe]))
-			.mockReturnValueOnce(slowLink.promise)
-			.mockReturnValueOnce(slowUnlink.promise);
-		vi.stubGlobal('fetch', fetcher);
+		const { fetcher } = fixture([camille, zoe], ['c1']);
 		render(GalleryContactsPanel, { galleryId: 'g1' });
 
 		await screen.findByText('Camille & Hugo');
 		await user.click(screen.getByRole('button', { name: 'Manage contacts' }));
-		const dialog = await screen.findByRole('dialog');
-		const row = within(dialog).getByText('Zoé Laurent').closest('li') as HTMLElement;
+		const dialog = within(screen.getByRole('dialog', { name: 'Link a contact' }));
+		await user.click(dialog.getByRole('switch', { name: 'Link Zoé Laurent' }));
+		await user.click(dialog.getByRole('button', { name: 'Cancel' }));
 
-		await user.click(within(row).getByRole('button', { name: 'Link' }));
-		expect((within(row).getByRole('button', { name: 'Link' }) as HTMLButtonElement).disabled).toBe(
-			true
-		);
-		slowLink.resolve(Response.json(zoe));
-		await vi.advanceTimersByTimeAsync(0);
-
-		await user.click(within(row).getByRole('button', { name: 'Linked' }));
-		expect(fetcher).toHaveBeenLastCalledWith(
-			'/api/v1/galleries/g1/contacts/c2',
-			expect.objectContaining({ method: 'DELETE' })
-		);
-		const unlink = within(row).getByRole('button', { name: 'Unlink' }) as HTMLButtonElement;
-		expect(unlink.disabled).toBe(true);
-		await vi.advanceTimersByTimeAsync(600);
-		expect(unlink.disabled).toBe(true);
-		await user.click(unlink);
-		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1);
-
-		slowUnlink.resolve(new Response(null, { status: 204 }));
-		await vi.advanceTimersByTimeAsync(0);
-		expect((within(row).getByRole('button', { name: 'Link' }) as HTMLButtonElement).disabled).toBe(
-			false
-		);
-		expect(screen.getByRole('dialog')).toBe(dialog);
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(
+			fetcher.mock.calls.filter(([, init]) => init?.method === 'PUT' || init?.method === 'DELETE')
+		).toHaveLength(0);
+		expect(screen.queryByText('Zoé Laurent')).toBeNull();
 	});
 
-	it('creates a new contact inline and links it without closing the dialog', async () => {
+	it('searches the linked contacts and unlinks the selection, removing it from the list', async () => {
 		const user = userEvent.setup();
 		const oncount = vi.fn();
-		const created: Contact = {
-			id: 'c3',
-			name: 'Léo Martin',
-			email: 'leo@example.test',
-			phone: null,
-			notes: null,
-			galleries: [],
-			created_at: '2026-11-13T10:00:00Z',
-			updated_at: '2026-11-13T10:00:00Z'
-		};
-		const linked: Contact = { ...created, galleries: [{ id: 'g1', title: 'Wedding' }] };
-
-		const fetcher = vi
-			.fn()
-			.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
-			.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
-			.mockResolvedValueOnce(new Response(JSON.stringify(created), { status: 201 }))
-			.mockResolvedValueOnce(new Response(JSON.stringify(linked), { status: 200 }));
-		vi.stubGlobal('fetch', fetcher);
-
+		const { fetcher } = fixture([camille, zoe], ['c1', 'c2']);
 		render(GalleryContactsPanel, { galleryId: 'g1', oncount });
 
-		expect(await screen.findByText('No contacts linked yet.')).toBeTruthy();
-		await user.click(screen.getByRole('button', { name: 'Manage contacts' }));
+		await screen.findByText('Zoé Laurent');
+		const search = screen.getByRole('searchbox', { name: 'Search by name, email or phone' });
+		await user.type(search, 'ZOE');
+		expect(screen.queryByText('Camille & Hugo')).toBeNull();
+		expect(screen.getByText('Zoé Laurent')).toBeTruthy();
+		await user.clear(search);
+		await user.click(screen.getByRole('checkbox', { name: 'Select Camille & Hugo' }));
+		await user.click(screen.getByRole('button', { name: 'Unlink selected (1)' }));
+		await waitFor(() =>
+			expect(fetcher).toHaveBeenCalledWith(
+				'/api/v1/galleries/g1/contacts/c1',
+				expect.objectContaining({ method: 'DELETE' })
+			)
+		);
 
-		const dialog = await screen.findByRole('dialog');
-		await user.type(within(dialog).getByLabelText('Name'), 'Léo Martin');
-		await user.type(within(dialog).getByLabelText('Email'), 'leo@example.test');
-		await user.click(within(dialog).getByRole('button', { name: 'Create & link' }));
-
-		expect(await within(dialog).findByText('Léo Martin')).toBeTruthy();
+		await waitFor(() => expect(screen.queryByText('Camille & Hugo')).toBeNull());
+		expect(screen.getByText('Zoé Laurent')).toBeTruthy();
 		expect(oncount).toHaveBeenLastCalledWith(1);
-		// Still open: the dialog is a persistent panel, not a one-shot modal.
-		expect(screen.getByRole('dialog')).toBeTruthy();
-		expect(within(screen.getByRole('dialog')).getByText('Léo Martin')).toBeTruthy();
 	});
 
-	it('lets the user retry linking without duplicating the contact if inline link fails after creation', async () => {
+	it('creates a new contact and links it in one action without closing on association failure', async () => {
 		const user = userEvent.setup();
 		const created: Contact = {
 			id: 'c3',
@@ -238,95 +173,239 @@ describe('GalleryContactsPanel', () => {
 			created_at: '2026-11-13T10:00:00Z',
 			updated_at: '2026-11-13T10:00:00Z'
 		};
-		const linked: Contact = { ...created, galleries: [{ id: 'g1', title: 'Wedding' }] };
+		const directory: Contact[] = [];
+		const linked = new Set<string>();
+		let associationAttempts = 0;
+		const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url === '/api/v1/contacts' && (!init || init.method === 'GET')) {
+				return Response.json(directory);
+			}
+			if (url === '/api/v1/galleries/g1/contacts') return Response.json([]);
+			if (url === '/api/v1/contacts' && init?.method === 'POST') {
+				directory.push(created);
+				return Response.json(created, { status: 201 });
+			}
+			if (url === '/api/v1/contacts/c3' && init?.method === 'PATCH') {
+				const changes = JSON.parse(String(init.body));
+				Object.assign(created, changes);
+				return Response.json(created);
+			}
+			if (url === '/api/v1/galleries/g1/contacts/c3' && init?.method === 'PUT') {
+				associationAttempts++;
+				if (associationAttempts === 1) return Response.json({}, { status: 503 });
+				linked.add('c3');
+				return Response.json({ ...created, galleries: [{ id: 'g1', title: 'Wedding' }] });
+			}
 
-		const fetcher = vi
-			.fn()
-			.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
-			.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
-			.mockResolvedValueOnce(new Response(JSON.stringify(created), { status: 201 }))
-			.mockResolvedValueOnce(
-				new Response(JSON.stringify({ code: 'unavailable' }), {
-					status: 503,
-					headers: { 'Content-Type': 'application/json' }
-				})
-			)
-			.mockResolvedValueOnce(new Response(JSON.stringify(linked), { status: 200 }));
+			return new Response(null, { status: 404 });
+		});
 		vi.stubGlobal('fetch', fetcher);
-
 		render(GalleryContactsPanel, { galleryId: 'g1' });
 
-		expect(await screen.findByText('No contacts linked yet.')).toBeTruthy();
-		await user.click(screen.getByRole('button', { name: 'Manage contacts' }));
-
-		const dialog = await screen.findByRole('dialog');
-		await user.type(within(dialog).getByLabelText('Name'), 'Léo Martin');
-		await user.type(within(dialog).getByLabelText('Email'), 'leo@example.test');
+		await screen.findByText('No contacts yet.');
+		await user.click(screen.getByRole('button', { name: 'New contact' }));
+		const dialog = screen.getByRole('dialog', { name: 'New contact' });
+		await user.type(within(dialog).getByLabelText('Name'), created.name);
+		await user.type(within(dialog).getByLabelText('Email'), created.email);
 		await user.click(within(dialog).getByRole('button', { name: 'Create & link' }));
 
 		expect(await within(dialog).findByRole('alert')).toBeTruthy();
-		await user.click(within(dialog).getByRole('button', { name: 'Link' }));
-
-		expect(await within(dialog).findByText('Léo Martin')).toBeTruthy();
-		expect(
-			fetcher.mock.calls.filter(
-				([url, init]) => url === '/api/v1/contacts' && init?.method === 'POST'
-			)
-		).toHaveLength(1);
+		expect(fetcher.mock.calls.filter(([url]) => url === '/api/v1/contacts')).toHaveLength(2);
+		await waitFor(() =>
+			expect(within(dialog).getByRole('button', { name: 'Create & link' })).toBeTruthy()
+		);
+		const name = within(dialog).getByLabelText('Name');
+		await user.clear(name);
+		await user.type(name, 'Léo Martin-Rivage');
+		await user.click(within(dialog).getByRole('button', { name: 'Create & link' }));
+		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New contact' })).toBeNull());
+		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1);
+		expect(linked).toEqual(new Set(['c3']));
+		expect(screen.getByText('Léo Martin-Rivage')).toBeTruthy();
 	});
 
-	it('guards a row against a duplicate unlink request while an earlier one is still in flight', async () => {
+	it('keeps the create dialog non-dismissible while its contact is linking', async () => {
+		const user = userEvent.setup();
+		const linking = deferred<Response>();
+		const created: Contact = {
+			...zoe,
+			id: 'c3',
+			name: 'Léo Martin',
+			email: 'leo@example.test',
+			galleries: []
+		};
+		const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url === '/api/v1/contacts' && (!init || init.method === 'GET')) return Response.json([]);
+			if (url === '/api/v1/galleries/g1/contacts') return Response.json([]);
+			if (url === '/api/v1/contacts' && init?.method === 'POST') {
+				return Response.json(created, { status: 201 });
+			}
+			if (url === '/api/v1/galleries/g1/contacts/c3' && init?.method === 'PUT') {
+				return linking.promise;
+			}
+			return new Response(null, { status: 404 });
+		});
+		vi.stubGlobal('fetch', fetcher);
+		render(GalleryContactsPanel, { galleryId: 'g1' });
+
+		await screen.findByText('No contacts yet.');
+		await user.click(screen.getByRole('button', { name: 'New contact' }));
+		const dialog = screen.getByRole('dialog', { name: 'New contact' });
+		await user.type(within(dialog).getByLabelText('Name'), created.name);
+		await user.type(within(dialog).getByLabelText('Email'), created.email);
+		await user.click(within(dialog).getByRole('button', { name: 'Create & link' }));
+		await waitFor(() =>
+			expect(
+				fetcher.mock.calls.some(
+					([url, init]) => url === '/api/v1/galleries/g1/contacts/c3' && init?.method === 'PUT'
+				)
+			).toBe(true)
+		);
+		expect(
+			(within(dialog).getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled
+		).toBe(true);
+		linking.resolve(Response.json(created));
+		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New contact' })).toBeNull());
+	});
+
+	it('quick-edits several selected contacts and keeps them linked', async () => {
+		const user = userEvent.setup();
+		const directory = [camille, zoe];
+		const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url === '/api/v1/contacts' && (!init || init.method === 'GET')) {
+				return Response.json(directory);
+			}
+			if (url === '/api/v1/galleries/g1/contacts') {
+				return Response.json([
+					{ ...camille, link_id: 'link-a' },
+					{ ...zoe, link_id: 'link-b' }
+				]);
+			}
+			if (String(url).startsWith('/api/v1/contacts/') && init?.method === 'PATCH') {
+				const id = String(url).split('/').at(-1)!;
+				const contact = directory.find((item) => item.id === id)!;
+				const patch = JSON.parse(String(init.body));
+				Object.assign(contact, patch);
+				return Response.json(contact);
+			}
+
+			return new Response(null, { status: 404 });
+		});
+		vi.stubGlobal('fetch', fetcher);
+		render(GalleryContactsPanel, { galleryId: 'g1' });
+
+		await screen.findByText('Camille & Hugo');
+		await user.click(screen.getByRole('checkbox', { name: 'Select Camille & Hugo' }));
+		await user.click(screen.getByRole('checkbox', { name: 'Select Zoé Laurent' }));
+		await user.click(screen.getByRole('button', { name: 'Quick edit' }));
+		const dialog = screen.getByRole('dialog', { name: 'Quick edit contacts' });
+		const camilleRow = within(dialog).getByRole('group', { name: 'Camille & Hugo' });
+		const zoeRow = within(dialog).getByRole('group', { name: 'Zoé Laurent' });
+		await user.clear(within(camilleRow).getByLabelText('Notes'));
+		await user.type(within(camilleRow).getByLabelText('Notes'), 'Warm finish');
+		await user.type(within(zoeRow).getByLabelText('Notes'), 'Matte finish');
+		await user.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+
+		await waitFor(() =>
+			expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(2)
+		);
+		await waitFor(() =>
+			expect(screen.queryByRole('dialog', { name: 'Quick edit contacts' })).toBeNull()
+		);
+		expect(screen.getByText('Camille & Hugo')).toBeTruthy();
+		expect(screen.getByText('Zoé Laurent')).toBeTruthy();
+	});
+
+	it('retains failed bulk unlinks for a direct retry', async () => {
+		const user = userEvent.setup();
+		const linked = new Set(['c1', 'c2']);
+		let zRetry = false;
+		const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url === '/api/v1/contacts') return Response.json([camille, zoe]);
+			if (url === '/api/v1/galleries/g1/contacts') {
+				return Response.json(
+					[camille, zoe].filter(({ id }) => linked.has(id)).map((c) => ({ ...c, link_id: c.id }))
+				);
+			}
+			if (url.endsWith('/c1') && init?.method === 'DELETE') {
+				linked.delete('c1');
+				return new Response(null, { status: 204 });
+			}
+			if (url.endsWith('/c2') && init?.method === 'DELETE') {
+				if (!zRetry) {
+					zRetry = true;
+					return Response.json({}, { status: 503 });
+				}
+				linked.delete('c2');
+				return new Response(null, { status: 204 });
+			}
+
+			return new Response(null, { status: 404 });
+		});
+		vi.stubGlobal('fetch', fetcher);
+		render(GalleryContactsPanel, { galleryId: 'g1' });
+
+		await screen.findByText('Zoé Laurent');
+		await user.click(screen.getByRole('checkbox', { name: 'Select Camille & Hugo' }));
+		await user.click(screen.getByRole('checkbox', { name: 'Select Zoé Laurent' }));
+		await user.click(screen.getByRole('button', { name: 'Unlink selected (2)' }));
+
+		await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy());
+		expect(screen.queryByText('Camille & Hugo')).toBeNull();
+		await user.click(screen.getByRole('button', { name: 'Unlink selected (1)' }));
+		await waitFor(() => expect(linked.size).toBe(0));
+	});
+
+	it('guards an in-flight unlink against duplicate requests', async () => {
+		const slow = deferred<Response>();
+		const { fetcher } = fixture([camille], ['c1']);
+		fetcher.mockImplementation(async (url, init) => {
+			if (url === '/api/v1/contacts') return Response.json([camille]);
+			if (url === '/api/v1/galleries/g1/contacts') {
+				return Response.json([{ ...camille, link_id: 'link-a' }]);
+			}
+			if (String(url).endsWith('/contacts/c1') && init?.method === 'DELETE') return slow.promise;
+			return new Response(null, { status: 404 });
+		});
 		const user = userEvent.setup();
 		const oncount = vi.fn();
-		const slowUnlink = deferred<Response>();
-		const fetcher = vi
-			.fn()
-			.mockResolvedValueOnce(new Response(JSON.stringify([camille]), { status: 200 }))
-			// DELETE unlinkGalleryContact('g1', 'c1') -- stays pending until the test resolves it.
-			.mockReturnValueOnce(slowUnlink.promise)
-			// Open dialog -> listContacts()
-			.mockResolvedValueOnce(new Response(JSON.stringify([camille]), { status: 200 }));
-		vi.stubGlobal('fetch', fetcher);
-
 		render(GalleryContactsPanel, { galleryId: 'g1', oncount });
 
-		expect(await screen.findByText('Camille & Hugo')).toBeTruthy();
-		const unlinkButton = screen.getByRole('button', { name: 'Unlink' });
-		await user.click(unlinkButton);
+		await screen.findByText('Camille & Hugo');
+		await user.click(screen.getByRole('checkbox', { name: 'Select Camille & Hugo' }));
+		const unlink = screen.getByRole('button', { name: 'Unlink selected (1)' });
+		await user.click(unlink);
+		fireEvent.click(unlink);
+		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1);
+		slow.resolve(new Response(null, { status: 204 }));
 
-		// Open the dialog while the first unlink is still in flight and try to unlink the same row
-		// again: the shared per-contact guard must not fire a second request for it.
-		await user.click(screen.getByRole('button', { name: 'Manage contacts' }));
-		const dialog = await screen.findByRole('dialog');
-		const row = within(dialog).getByText('Camille & Hugo').closest('li') as HTMLElement;
-		await user.click(within(row).getByRole('button', { name: 'Unlink' }));
+		await waitFor(() => expect(screen.queryByText('Camille & Hugo')).toBeNull());
+		expect(oncount).toHaveBeenLastCalledWith(0);
+	});
 
-		const unlinkCalls = fetcher.mock.calls.filter(([, init]) => init?.method === 'DELETE');
-		expect(unlinkCalls).toHaveLength(1);
+	it('shows an empty gallery with one create action', async () => {
+		fixture([]);
+		const { container } = render(GalleryContactsPanel, { galleryId: 'g1' });
 
-		slowUnlink.resolve(new Response(null, { status: 204 }));
-		await waitFor(() => expect(oncount).toHaveBeenLastCalledWith(0));
-		// The directory dialog still lists Camille (it shows the whole directory), now as Link;
-		// the always-visible linked summary behind it no longer does.
-		await waitFor(() => expect(within(row).getByRole('button', { name: 'Link' })).toBeTruthy());
-		expect(await screen.findByText('No contacts linked yet.')).toBeTruthy();
+		expect(await screen.findByText('No contacts yet.')).toBeTruthy();
+		expect(screen.getAllByRole('button', { name: 'New contact' })).toHaveLength(1);
+		expect(screen.getByRole('button', { name: 'Manage contacts' })).toBeTruthy();
+		expect((await axe(container)).violations).toEqual([]);
 	});
 });
 
 describe('GalleryContactsPanel in French', () => {
 	useLocale('fr');
 
-	it('renders French labels and passes axe', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async () => new Response(JSON.stringify([camille]), { status: 200 }))
-		);
-
+	it('renders the linked contacts and the accessible actions', async () => {
+		fixture([camille], ['c1']);
 		const { container } = render(GalleryContactsPanel, { galleryId: 'g1' });
 
 		expect(await screen.findByText('Camille & Hugo')).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Nouveau contact' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Gérer les contacts' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Dissocier' })).toBeTruthy();
+		expect(screen.queryByText('Associé')).toBeNull();
 		expect((await axe(container)).violations).toEqual([]);
 	});
 });

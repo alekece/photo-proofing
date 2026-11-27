@@ -70,7 +70,7 @@ describe('root layout', () => {
 			state.page.route.id = routeId;
 			const { unmount } = render(Layout, { props: { children } as never });
 			const content = screen.getByText('content').parentElement;
-			expect(content?.className).toContain('sm:ml-(--gallery-rail-width)');
+			expect(content?.className).toContain('sm:ml-(--workspace-rail-width)');
 			expect(content?.closest('[data-studio-mode]')).toBeTruthy();
 
 			unmount();

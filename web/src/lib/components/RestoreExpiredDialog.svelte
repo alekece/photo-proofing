@@ -51,6 +51,7 @@
 
 <Dialog
 	{onclose}
+	dismissible={!pending}
 	labelledby="{id}-title"
 	class="mx-auto mt-6 mb-auto w-[min(26rem,calc(100vw-2rem))] overflow-visible rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl sm:my-auto"
 >
@@ -66,7 +67,7 @@
 			}}
 		>
 			<div class="grid gap-2">
-				<h2 id="{id}-title" class="text-xl">{m.restore_title()}</h2>
+				<h2 id="{id}-title" class="pr-10 text-xl">{m.restore_title()}</h2>
 				<p class="text-sm text-muted-foreground">
 					{m.restore_body({ date: formatShortDate(expiresAt) })}
 				</p>
@@ -85,7 +86,9 @@
 				{#if error}<p id="{id}-error" role="alert" class="text-sm text-danger">{error}</p>{/if}
 			</div>
 			<div class="flex flex-wrap justify-end gap-2">
-				<Button variant="ghost" type="button" onclick={close}>{m.restore_keep_expired()}</Button>
+				<Button variant="ghost" type="button" disabled={pending} onclick={close}>
+					{m.restore_keep_expired()}
+				</Button>
 				<Button
 					variant="outline"
 					type="button"

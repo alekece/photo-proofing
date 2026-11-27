@@ -37,12 +37,12 @@
 </script>
 
 <script lang="ts">
-	import { Download, Heart, RotateCw, X } from '@lucide/svelte';
+	import { WandSparkles, Download, Heart, RotateCw, X } from '@lucide/svelte';
 	import SelectionDisc from './SelectionDisc.svelte';
 	import { formatDateTime } from '#lib/gallery/format.js';
-	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
-	import ClickRipple from './ClickRipple.svelte';
 	import CommentBadge from './CommentBadge.svelte';
+	import Card from '#lib/components/ui/Card/Card.svelte';
+	import StatusChip from '#lib/components/ui/StatusChip/StatusChip.svelte';
 
 	let {
 		name,
@@ -58,9 +58,10 @@
 		onopen,
 		onselect,
 		commentCount = 0,
-		persistentSelect = false,
+		librarySelect,
 		collectionSelect,
-		source
+		source,
+		badge
 	}: {
 		name: string;
 		state: TileState;
@@ -81,15 +82,16 @@
 		onselect?: () => void;
 		commentCount?: number;
 		/**
-		 * Shows an always-present selection circle alongside `onopen`, instead of the two being
-		 * mutually exclusive: the tile opens on click, and the circle (not the tile) toggles
-		 * `selected`. Requires both `onopen` and `onselect`.
+		 * Shows a selection circle alongside `onopen`. Only the circle toggles selection;
+		 * the tile still opens the viewer when selection is active.
 		 */
-		persistentSelect?: boolean;
+		librarySelect?: 'idle' | 'active';
 		/** A hover/focus/touch circle; in active mode the tile body also toggles selection. */
 		collectionSelect?: 'idle' | 'active';
 		/** The owning gallery, shown on tiles in the workspace photo library. */
 		source?: string;
+		/** Optional icon badge named by this label, such as “Retouched photo”, shown only when supplied. */
+		badge?: string;
 	} = $props();
 
 	const failed = $derived(
@@ -98,7 +100,6 @@
 	const reveal =
 		'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100';
 	const busy = $derived(!failed && status !== 'ready');
-	const checkboxSelect = $derived(onselect && !persistentSelect && !collectionSelect);
 	const selectingCollection = $derived(collectionSelect === 'active' && !!onselect);
 	const showPhoto = $derived(status === 'ready' || (cleanReady && thumbnailUrl));
 
@@ -111,13 +112,12 @@
 		},
 		downloaded: {
 			icon: Download,
-			color: 'rounded-full bg-dark p-1 text-white size-6',
+			color: 'text-current',
 			fill: 'none',
 			label: m.tile_downloaded_at
 		}
 	};
 
-	let rippling = $state(false);
 	let loaded = $state(false);
 	const fade = $derived(loaded ? 'animate-tile-in' : 'opacity-0');
 
@@ -127,7 +127,6 @@
 	}
 
 	function select() {
-		rippling = !selected;
 		onselect?.();
 	}
 </script>
@@ -149,166 +148,231 @@
 	</button>
 {/snippet}
 
-<div class="relative isolate">
-	<svelte:element
-		this={checkboxSelect ? 'label' : 'div'}
+<div class="relative isolate" class:group={!!librarySelect}>
+	<div
+		data-slot="photo-tile-frame"
 		class={[
-			'group relative block overflow-hidden bg-placeholder-tile',
-			ratio === undefined && 'aspect-square',
-			checkboxSelect && 'cursor-pointer',
-			!collectionSelect && !persistentSelect && 'rounded-md'
+			'relative',
+			(librarySelect || collectionSelect) && 'transition-transform motion-reduce:transition-none',
+			(librarySelect || collectionSelect) && (selected ? 'scale-[0.975]' : 'scale-100')
 		]}
-		style:aspect-ratio={ratio}
 	>
-		<CommentBadge count={commentCount} />
-		{#if showPhoto && checkboxSelect}
-			<img
-				src={thumbnailUrl}
-				alt={name}
-				loading="lazy"
-				class="size-full object-cover transition-transform {fade} {selected
-					? 'scale-[0.96] rounded'
-					: ''}"
-				onload={() => (loaded = true)}
-				onerror={() => (loaded = true)}
-				{@attach seen}
-			/>
-		{:else if showPhoto}
-			<button
-				type="button"
-				class={['block size-full', selectingCollection ? 'cursor-pointer' : 'cursor-zoom-in']}
-				aria-label={selectingCollection ? name : m.tile_open({ name })}
-				onclick={selectingCollection ? select : onopen}
-			>
-				<img
-					src={thumbnailUrl}
-					alt={name}
-					loading="lazy"
-					class={[
-						'size-full object-cover',
-						fade,
-						collectionSelect && 'transition-transform',
-						(collectionSelect || persistentSelect) &&
-							selected &&
-							'scale-[0.975] motion-reduce:transition-none'
-					]}
-					onload={() => (loaded = true)}
-					onerror={() => (loaded = true)}
-					{@attach seen}
-				/>
-			</button>
-		{:else if status !== 'ready'}
-			<div
-				class={[
-					'absolute inset-0 flex flex-col items-center p-2 text-center',
-					STATUS_TEXT,
-					failed ? 'justify-center gap-1 bg-danger/10 text-danger' : 'text-placeholder-foreground',
-					busy &&
-						'animate-shimmer bg-[linear-gradient(100deg,transparent_30%,var(--color-placeholder-tile-strong)_50%,transparent_70%)] bg-[length:200%_100%] pb-5'
-				]}
-			>
-				{#if busy}
-					<span class="grid min-h-0 w-full flex-1 place-items-center">
-						<span class="max-w-full truncate font-normal" title={name}>{name}</span>
-					</span>
-				{:else}
-					<span class="sr-only">{name}</span>
-				{/if}
-				<span class="font-semibold">{LABELS[status]()}</span>
-				{#if failed && error && error !== LABELS[status]()}<span class="line-clamp-1">
-						{error}
-					</span>{/if}
-				{#if !checkboxSelect && !selectingCollection && onretry && (status === 'upload-failed' || status === 'process-failed')}
-					{@render retry('mt-0.5')}
-				{/if}
-			</div>
-			{#if busy}{@render progress()}{/if}
-			{#if selectingCollection}
+		<div
+			data-slot="photo-tile-media"
+			class={[
+				'group relative block overflow-hidden bg-placeholder-tile',
+				ratio === undefined && 'aspect-square',
+				!collectionSelect && !librarySelect && 'rounded-md'
+			]}
+			style:aspect-ratio={ratio}
+		>
+			<CommentBadge count={commentCount} />
+			{#if showPhoto}
 				<button
 					type="button"
-					class="absolute inset-0 w-full cursor-pointer focus-visible:outline-offset-[-3px]"
-					aria-label={name}
-					onclick={select}
-				></button>
+					class={[
+						'block size-full',
+						'cursor-pointer',
+						librarySelect && 'focus-visible:-outline-offset-2'
+					]}
+					aria-label={selectingCollection ? name : m.tile_open({ name })}
+					onclick={selectingCollection ? select : onopen}
+				>
+					<img
+						src={thumbnailUrl}
+						alt={name}
+						loading="lazy"
+						class={['size-full object-cover', fade, 'transition-transform']}
+						onload={() => (loaded = true)}
+						onerror={() => (loaded = true)}
+						{@attach seen}
+					/>
+				</button>
+			{:else if status !== 'ready'}
+				<div
+					class={[
+						'absolute inset-0 flex flex-col items-center p-2 text-center',
+						STATUS_TEXT,
+						failed
+							? 'justify-center gap-1 bg-danger/10 text-danger'
+							: 'text-placeholder-foreground',
+						busy &&
+							'animate-shimmer bg-[linear-gradient(100deg,transparent_30%,var(--color-placeholder-tile-strong)_50%,transparent_70%)] bg-[length:200%_100%] pb-5'
+					]}
+				>
+					{#if busy}
+						<span class="grid min-h-0 w-full flex-1 place-items-center">
+							<span class="max-w-full truncate font-normal" title={name}>{name}</span>
+						</span>
+					{:else}
+						<span class="sr-only">{name}</span>
+					{/if}
+					<span class="font-semibold">{LABELS[status]()}</span>
+					{#if failed && error && error !== LABELS[status]()}<span class="line-clamp-1">
+							{error}
+						</span>{/if}
+					{#if !selectingCollection && onretry && (status === 'upload-failed' || status === 'process-failed')}
+						{@render retry('mt-0.5')}
+					{/if}
+				</div>
+				{#if busy}{@render progress()}{/if}
+				{#if selectingCollection}
+					<button
+						type="button"
+						class="absolute inset-0 w-full cursor-pointer focus-visible:outline-offset-[-3px]"
+						aria-label={name}
+						onclick={select}
+					></button>
+				{/if}
 			{/if}
-		{/if}
 
-		{#if cleanReady && thumbnailUrl && status !== 'ready' && !checkboxSelect}
-			<div
-				class={[
-					'pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-1 bg-gradient-to-t from-black/60 to-transparent px-2 pt-8 text-center text-white',
-					STATUS_TEXT,
-					busy ? 'pb-5' : 'pb-2'
-				]}
-			>
-				<span>{LABELS[status]()}</span>
-				{#if failed && onretry && !selectingCollection}{@render retry('pointer-events-auto')}{/if}
-			</div>
-			{#if busy}{@render progress()}{/if}
-		{/if}
+			{#if cleanReady && thumbnailUrl && status !== 'ready'}
+				<Card
+					class={[
+						'pointer-events-none absolute inset-x-2 bottom-2 flex flex-col items-center gap-1 rounded-control px-2 py-2 text-center',
+						STATUS_TEXT,
+						busy ? 'pb-5' : 'pb-2'
+					]}
+					surface="glass"
+				>
+					<span>{LABELS[status]()}</span>
+					{#if failed && onretry && !selectingCollection}{@render retry('pointer-events-auto')}{/if}
+				</Card>
+				{#if busy}{@render progress()}{/if}
+			{/if}
 
-		{#if checkboxSelect}
-			<span class="absolute top-3 left-3 z-10 grid size-6 text-panel">
-				<Checkbox
-					class="size-6 cursor-pointer appearance-none rounded-full border-2 border-panel bg-foreground/25 bg-center bg-no-repeat shadow-[0_1px_4px_rgb(0_0_0/0.3)] transition-colors checked:bg-panel checked:bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23201a16%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%2F%3E%3C%2Fsvg%3E')] checked:bg-[length:70%]"
-					aria-label={m.tile_select({ name })}
-					checked={selected}
-					onchange={() => {
-						rippling = !selected;
-						onselect?.();
-					}}
+			{#if !selectingCollection && oncancelUpload}
+				<button
+					type="button"
+					class={[
+						'absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground',
+						failed ? 'opacity-100' : reveal
+					]}
+					aria-label={m.tile_remove({ name })}
+					onclick={oncancelUpload}
+				>
+					<X size={14} aria-hidden="true" />
+				</button>
+			{/if}
+			{#if collectionSelect && onselect}
+				<SelectionDisc
+					label={m.tile_select({ name })}
+					{selected}
+					visible={selectingCollection}
+					side="left"
+					onclick={select}
 				/>
-				{#if rippling && selected}<ClickRipple onend={() => (rippling = false)} />{/if}
-			</span>
-		{:else if !selectingCollection && oncancelUpload}
-			<button
-				type="button"
-				class={[
-					'absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full bg-panel/90 text-foreground',
-					failed ? 'opacity-100' : reveal
-				]}
-				aria-label={m.tile_remove({ name })}
-				onclick={oncancelUpload}
-			>
-				<X size={14} aria-hidden="true" />
-			</button>
-		{/if}
-		{#if (persistentSelect || collectionSelect) && onselect}
+			{/if}
+		</div>
+		<div data-slot="photo-tile-meta" class="photo-tile-meta pointer-events-none">
+			{#if badge}
+				<StatusChip
+					aria-label={badge}
+					title={badge}
+					dataSlot="photo-tile-badge"
+					workspace
+					class="pointer-events-auto w-fit"
+				>
+					<WandSparkles class="size-3.5" aria-hidden="true" />
+				</StatusChip>
+			{/if}
+			{#if source}
+				<Card
+					as="p"
+					surface="glass"
+					class="tile-caption media-caption truncate rounded-control media-caption-summary"
+				>
+					{source}
+				</Card>
+			{/if}
+
+			{#if caption && status === 'ready'}
+				{@const date = formatDateTime(caption.at)}
+				{@const look = captions[caption.kind]}
+				<Card
+					as="p"
+					surface="glass"
+					class="tile-caption media-caption grid-flow-col items-center justify-start rounded-control media-caption-summary"
+				>
+					<span class="sr-only">{look.label({ date })}</span>
+					<span
+						data-slot="tile-caption-icon"
+						class="grid size-4 shrink-0 place-items-center {look.color}"
+					>
+						<look.icon
+							size={16}
+							class="shrink-0 {look.color}"
+							fill={look.fill}
+							aria-hidden="true"
+						/>
+					</span>
+					<time datetime={caption.at} class="truncate" aria-hidden="true">{date}</time>
+				</Card>
+			{/if}
+		</div>
+		{#if librarySelect && onselect}
 			<SelectionDisc
 				label={m.tile_select({ name })}
 				{selected}
-				visible={persistentSelect || selectingCollection}
+				visible={librarySelect === 'active'}
+				side="left"
 				onclick={select}
 			/>
 		{/if}
-	</svelte:element>
-	{#if source}
-		<p
-			class="tile-caption pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/85 to-transparent px-2 pt-6 pb-1.5 text-xs font-semibold text-white"
-		>
-			{source}
-		</p>
-	{/if}
-
-	{#if caption && status === 'ready'}
-		{@const date = formatDateTime(caption.at)}
-		{@const look = captions[caption.kind]}
-		<p
-			class="tile-caption pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/85 to-transparent pt-6 pr-11 pb-1.5 pl-2 text-xs font-semibold text-white"
-		>
-			<span class="sr-only">{look.label({ date })}</span>
-			<look.icon size={16} class="shrink-0 {look.color}" fill={look.fill} aria-hidden="true" />
-			<time datetime={caption.at} class="truncate" aria-hidden="true">{date}</time>
-		</p>
-	{/if}
+	</div>
 </div>
 
 <style>
-	:global([data-studio-mode='print']) .tile-caption {
+	:global([data-studio-mode='print'] [data-slot='photo-tile-frame']) {
+		padding: 0.375rem;
+		background: var(--panel);
+	}
+	:global([data-studio-mode='full_image']) .photo-tile-meta {
+		position: absolute;
+		inset: auto 0.5rem 0.5rem;
+		display: grid;
+		gap: 0.5rem;
+	}
+	:global([data-studio-mode='print'] [data-slot='photo-tile-frame']) {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+	}
+	:global([data-studio-mode='print']) .photo-tile-meta {
+		display: contents;
+	}
+	:global([data-studio-mode='print'] [data-slot='photo-tile-media']) {
+		grid-area: 1 / 1;
+	}
+	:global([data-studio-mode='print'] [data-slot='photo-tile-badge']) {
+		z-index: 3;
+		grid-area: 1 / 1;
+		align-self: end;
+		justify-self: start;
+		margin: 0.5rem;
+	}
+	:global(
+		[data-studio-mode='print'] [data-slot='photo-tile-frame']:not(:has(.tile-caption))::after
+	) {
+		display: block;
+		height: 2rem;
+		content: '';
+	}
+	:global([data-studio-mode='print'] .tile-caption) {
 		position: static;
 		background: var(--panel);
+		border: 0;
 		color: var(--foreground);
-		padding: 0.5rem;
+		text-shadow: none;
+		box-shadow: none;
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+		border-radius: 0;
+		margin: 0;
+		padding: 0.75rem 0.125rem 0.25rem;
+	}
+	:global([data-studio-mode='print'] .tile-caption [data-slot='tile-caption-icon']) {
+		background: transparent;
+		color: var(--foreground);
 	}
 	.bar {
 		animation: loop 1.4s ease-in-out infinite;

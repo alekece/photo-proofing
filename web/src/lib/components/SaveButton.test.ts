@@ -23,21 +23,18 @@ describe('SaveButton', () => {
 		expect(screen.getByRole('status').textContent?.trim()).toBe('Saving…');
 	});
 
-	it.each(['saving', 'saved'] as const)(
-		'keeps its look but ignores clicks while %s',
-		async (status) => {
-			const onclick = vi.fn();
+	it('keeps its look but ignores clicks while saving', async () => {
+		const onclick = vi.fn();
 
-			render(SaveButton, { status, onclick });
-			const button = screen.getByRole('button');
+		render(SaveButton, { status: 'saving', onclick });
+		const button = screen.getByRole('button');
 
-			await userEvent.setup().click(button);
+		await userEvent.setup().click(button);
 
-			expect(button).toHaveProperty('disabled', false);
-			expect(button.getAttribute('aria-disabled')).toBe('true');
-			expect(onclick).not.toHaveBeenCalled();
-		}
-	);
+		expect(button).toHaveProperty('disabled', false);
+		expect(button.getAttribute('aria-disabled')).toBe('true');
+		expect(onclick).not.toHaveBeenCalled();
+	});
 
 	it('fades its labels in place instead of sliding them', () => {
 		const { container } = render(SaveButton, { status: 'saving', onclick: vi.fn() });
@@ -45,17 +42,8 @@ describe('SaveButton', () => {
 		expect(container.innerHTML).not.toMatch(/translate-y/);
 	});
 
-	it('confirms with a check and a ripple, and announces Saved', () => {
-		const { container } = render(SaveButton, { status: 'saved', onclick: vi.fn() });
-
-		expect(screen.getByRole('button', { name: 'Saved' })).toBeTruthy();
-		expect(screen.getByTestId('click-ripple')).toBeTruthy();
-		expect(container.querySelector('svg.text-ok-on-dark')).not.toBeNull();
-		expect(screen.getByRole('status').textContent?.trim()).toBe('Saved');
-	});
-
-	it('has no axe violations while saved', async () => {
-		const { container } = render(SaveButton, { status: 'saved', onclick: vi.fn() });
+	it('has no axe violations while saving', async () => {
+		const { container } = render(SaveButton, { status: 'saving', onclick: vi.fn() });
 
 		expect((await axe(container)).violations).toEqual([]);
 	});

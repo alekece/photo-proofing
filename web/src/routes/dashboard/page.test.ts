@@ -42,6 +42,8 @@ const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 	watermark_enabled: false,
 	hero_id: null,
 	share_token: null,
+	shared_at: null,
+	delivered_at: null,
 	last_opened_at: null,
 	shoot_date: null,
 	states: ['draft'],
@@ -95,7 +97,7 @@ describe('dashboard', () => {
 
 		rows.push(row('g2'));
 		onNotification.mock.calls[0][0]({ gallery_id: 'g2' });
-		const second = within(screen.getByRole('link', { name: /Portraits/ }));
+		const second = within(screen.getByRole('link', { name: /Portraits/ }).closest('li')!);
 		expect((await second.findByRole('img', { name: 'Unread activity' })).className).toContain(
 			'motion-safe:animate-'
 		);
@@ -170,11 +172,12 @@ describe('dashboard', () => {
 		render(Dashboard, { props: props([gallery(), gallery({ id: 'g2', title: 'Portraits' })]) });
 		const user = userEvent.setup();
 
-		await user.click(screen.getByRole('button', { name: /Who’s in front of your lens next/ }));
+		expect(screen.queryByRole('button', { name: /Who’s in front of your lens next/ })).toBeNull();
+		await user.click(screen.getByRole('button', { name: 'New gallery' }));
 		expect(screen.getByRole('dialog', { name: 'New gallery' })).toBeTruthy();
 	});
 
-	it('counts only galleries that match the filters and search', async () => {
+	it('filters galleries by search without adding a result count to the toolbar', async () => {
 		render(Dashboard, {
 			props: props([
 				gallery({ id: 'a', photo_count: 32 }),
@@ -183,17 +186,21 @@ describe('dashboard', () => {
 			])
 		});
 
-		expect(screen.getByText('3 galleries')).toBeTruthy();
+		expect(screen.queryByText('3 galleries')).toBeNull();
 		await userEvent.type(screen.getByRole('searchbox', { name: 'Search galleries' }), 'port');
-		expect(screen.getByText('1 gallery')).toBeTruthy();
+		expect(screen.getByRole('link', { name: /Portraits/ })).toBeTruthy();
+		expect(screen.queryByRole('link', { name: /Wedding/ })).toBeNull();
+		expect(screen.queryByText('1 gallery')).toBeNull();
+		await userEvent.clear(screen.getByRole('searchbox', { name: 'Search galleries' }));
+		expect(screen.queryAllByRole('link', { name: /Wedding/ })).toHaveLength(2);
 	});
 
-	it('shows loading placeholders while the sort change loads', async () => {
+	it('keeps the existing galleries visible while the sort change loads', async () => {
 		state.navigating.to = { route: { id: '/dashboard' } };
 		const { container } = render(Dashboard, { props: props([gallery()]) });
 		expect(screen.getByRole('status').textContent).toBe('Loading galleries…');
-		expect(screen.queryByRole('heading', { name: 'Wedding' })).toBeNull();
-		expect(container.querySelectorAll('.pp-breathe')).toHaveLength(4);
+		const grid = screen.getByRole('list', { busy: true });
+		expect(grid.contains(screen.getByRole('heading', { name: 'Wedding' }))).toBe(true);
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
@@ -222,7 +229,7 @@ describe('dashboard', () => {
 		vi.stubGlobal('fetch', fetcher);
 		render(Dashboard, { props: props([]) });
 		expect(screen.queryByRole('dialog')).toBeNull();
-		await userEvent.setup().click(screen.getByRole('button', { name: '+ New gallery' }));
+		await userEvent.setup().click(screen.getByRole('button', { name: 'New gallery' }));
 		expect(screen.getByRole('dialog', { name: 'New gallery' })).toBeTruthy();
 		expect(fetcher.mock.calls.filter(([url]) => url === '/api/v1/galleries')).toHaveLength(0);
 		await userEvent.setup().click(screen.getByRole('button', { name: 'Cancel' }));
@@ -235,7 +242,7 @@ describe('dashboard', () => {
 		vi.stubGlobal('fetch', fetcher);
 		const user = userEvent.setup();
 		render(Dashboard, { props: props([]) });
-		await user.click(screen.getByRole('button', { name: '+ New gallery' }));
+		await user.click(screen.getByRole('button', { name: 'New gallery' }));
 		await user.type(screen.getByLabelText('Title'), 'Martin wedding');
 		await user.click(screen.getByRole('button', { name: 'Create' }));
 		const busy = screen.getByRole('button', { name: 'Creating…' }) as HTMLButtonElement;
@@ -256,7 +263,7 @@ describe('dashboard', () => {
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 500 })));
 		const user = userEvent.setup();
 		render(Dashboard, { props: props([]) });
-		await user.click(screen.getByRole('button', { name: '+ New gallery' }));
+		await user.click(screen.getByRole('button', { name: 'New gallery' }));
 		await user.type(screen.getByLabelText('Title'), 'Martin wedding');
 		await user.click(screen.getByRole('button', { name: 'Create' }));
 		expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t create/);
@@ -310,7 +317,7 @@ describe('dashboard', () => {
 			await user.click(screen.getByRole('menuitemradio', { name }));
 		};
 
-		it('keeps expired galleries in the expired filter even though their cards show lifecycle', async () => {
+		it('shows expired galleries as Expired on their cards and in the expired filter', async () => {
 			render(Dashboard, {
 				props: props([
 					gallery({ id: 'a', title: 'One', states: ['shared'] }),
@@ -323,8 +330,12 @@ describe('dashboard', () => {
 				])
 			});
 
-			expect(within(screen.getByRole('link', { name: /One/ })).getByText('Shared')).toBeTruthy();
-			expect(within(screen.getByRole('link', { name: /Two/ })).getByText('Shared')).toBeTruthy();
+			expect(
+				within(screen.getByRole('link', { name: /One/ }).closest('li')!).getByText('Shared')
+			).toBeTruthy();
+			expect(
+				within(screen.getByRole('link', { name: /Two/ }).closest('li')!).getByText('Expired')
+			).toBeTruthy();
 			await choose(userEvent.setup(), /Expired/);
 			expect(screen.getByRole('link', { name: /Two/ })).toBeTruthy();
 			expect(screen.queryByRole('link', { name: /One/ })).toBeNull();
@@ -339,13 +350,14 @@ describe('dashboard', () => {
 				])
 			});
 
-			expect(screen.getByText('2 galleries')).toBeTruthy();
+			expect(screen.getByRole('link', { name: /Live/ })).toBeTruthy();
+			expect(screen.getByRole('link', { name: /Old/ })).toBeTruthy();
 			await choose(user, /Archived/);
-			expect(screen.getByText('1 gallery')).toBeTruthy();
+			expect(screen.queryByRole('link', { name: /Live/ })).toBeNull();
 			expect(screen.getByRole('link', { name: /Old/ })).toBeTruthy();
 		});
 
-		it('tells which statuses hide matches and clears search and status together', async () => {
+		it('shows empty results without reset buttons and can return to all statuses', async () => {
 			const user = userEvent.setup();
 			render(Dashboard, {
 				props: props([gallery({ title: 'Old', states: ['delivered', 'archived'] })])
@@ -355,11 +367,8 @@ describe('dashboard', () => {
 			expect(
 				screen.getByRole('heading', { name: 'No galleries with these statuses' })
 			).toBeTruthy();
-			await user.type(screen.getByRole('searchbox', { name: 'Search galleries' }), 'zzz');
-			await user.click(screen.getByRole('button', { name: 'Clear search and status' }));
-			expect(
-				(screen.getByRole('searchbox', { name: 'Search galleries' }) as HTMLInputElement).value
-			).toBe('');
+			expect(screen.queryByRole('button', { name: /clear.*(status|filters)|reset/i })).toBeNull();
+			await choose(user, /All statuses/);
 			expect(screen.getByRole('heading', { name: 'Old' })).toBeTruthy();
 		});
 
@@ -421,7 +430,7 @@ describe('dashboard', () => {
 			);
 			// Clears the clamped workspace rail, not the gallery studio rail.
 			const bar = document.querySelector<HTMLElement>('[data-slot="select-actions"]')!;
-			expect(bar.className).toContain('sm:left-[calc(50%+var(--gallery-rail-width)/2)]');
+			expect(bar.className).toContain('sm:left-[calc(50%+var(--workspace-rail-width)/2)]');
 			expect(bar.className).not.toMatch(/md:left-/);
 
 			await user.click(screen.getByRole('button', { name: 'Select all' }));
@@ -429,10 +438,34 @@ describe('dashboard', () => {
 			expect(screen.getByRole('button', { name: 'Unselect all' })).toBeTruthy();
 
 			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
-			expect(screen.getByText('0 selected')).toBeTruthy();
+			expect(screen.queryByRole('button', { name: 'Select all' })).toBeNull();
 
-			await user.keyboard('{Escape}');
-			expect(screen.queryByText(/selected/)).toBeNull();
+			await user.click(screen.getByRole('button', { name: 'Select Portraits' }));
+			await user.click(screen.getByRole('button', { name: 'Select Portraits' }));
+			expect(screen.queryByRole('button', { name: 'Select all' })).toBeNull();
+		});
+
+		it('keeps favorite changes in bulk selection instead of on each cover', async () => {
+			const stored = new Map<string, GalleryOverview>([
+				['g1', gallery({ id: 'g1', title: 'Wedding' })]
+			]);
+			const fetcher = stubPatchAndDeleteFetch(stored);
+			const user = userEvent.setup();
+			render(Dashboard, { props: props([...stored.values()]) });
+
+			expect(screen.queryByRole('button', { name: /gallery to top/ })).toBeNull();
+			await user.click(screen.getByRole('button', { name: 'Select Wedding' }));
+			await user.click(screen.getByRole('button', { name: 'Favorite' }));
+
+			await waitFor(() =>
+				expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1)
+			);
+			expect(fetcher).toHaveBeenCalledWith(
+				'/api/v1/galleries/g1',
+				expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ favorite: true }) })
+			);
+			expect(screen.getByText('1 selected')).toBeTruthy();
+			expect(screen.getByRole('img', { name: 'Favorited gallery' })).toBeTruthy();
 		});
 
 		it('saves a favorite immediately without reordering or requiring Apply', async () => {
@@ -481,7 +514,7 @@ describe('dashboard', () => {
 			const titleField = screen.getByDisplayValue('Portraits');
 			await user.clear(titleField);
 			await user.type(titleField, 'Editorial Portraits');
-			await user.click(screen.getByRole('button', { name: 'Save changes' }));
+			await user.click(screen.getByRole('button', { name: 'Save' }));
 
 			expect(cardTitles()).toEqual(['Wedding', 'Editorial Portraits']);
 			expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull();
@@ -505,7 +538,7 @@ describe('dashboard', () => {
 			const title = within(screen.getByRole('dialog')).getByDisplayValue('Wedding');
 			await user.clear(title);
 			await user.type(title, 'Ceramics');
-			await user.click(screen.getByRole('button', { name: 'Save changes' }));
+			await user.click(screen.getByRole('button', { name: 'Save' }));
 			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 			await user.clear(search);
 			await user.click(screen.getByRole('button', { name: 'Select Portrait' }));
@@ -541,7 +574,7 @@ describe('dashboard', () => {
 			const second = screen.getByDisplayValue('Portraits');
 			await user.type(first, ' updated');
 			await user.type(second, ' updated');
-			await user.click(screen.getByRole('button', { name: 'Save changes' }));
+			await user.click(screen.getByRole('button', { name: 'Save' }));
 
 			await waitFor(() =>
 				expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(2)
@@ -558,7 +591,7 @@ describe('dashboard', () => {
 			).toBe('false');
 			expect(screen.getByDisplayValue('Wedding updated')).toBeTruthy();
 			fail = false;
-			await user.click(screen.getByRole('button', { name: 'Save changes' }));
+			await user.click(screen.getByRole('button', { name: 'Save' }));
 			expect(cardTitles()).toEqual(['Wedding updated', 'Portraits updated']);
 			expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(3);
 		});
@@ -661,10 +694,12 @@ describe('dashboard in French', () => {
 		});
 
 		expect(screen.getByRole('heading', { level: 1, name: 'Galeries' })).toBeTruthy();
-		expect(screen.getByRole('searchbox', { name: 'Rechercher une galerie' })).toBeTruthy();
+		const search = screen.getByRole('searchbox', { name: 'Rechercher une galerie' });
 		expect(screen.getByRole('button', { name: /Modifiées récemment/ })).toBeTruthy();
-		expect(screen.getByText('2 galeries')).toBeTruthy();
 		expect(screen.queryByText(/Who’s in front/)).toBeNull();
+
+		await user.type(search, 'port');
+		expect(screen.queryByRole('link', { name: /Wedding/ })).toBeNull();
 
 		await user.click(screen.getByRole('button', { name: 'Sélectionner Portraits' }));
 		expect(screen.getByText('1 sélectionnée')).toBeTruthy();

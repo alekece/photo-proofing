@@ -18,7 +18,10 @@
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
 	import ArchiveGalleryDialog from '#lib/components/ArchiveGalleryDialog.svelte';
 	import DeleteGalleryDialog from '#lib/components/DeleteGalleryDialog.svelte';
-	import GalleryStudio from '#lib/components/GalleryStudio.svelte';
+	import GalleryStudio, {
+		STUDIO_SECTIONS,
+		type StudioSection
+	} from '#lib/components/GalleryStudio.svelte';
 	import RestoreExpiredDialog from '#lib/components/RestoreExpiredDialog.svelte';
 	import PublishDialog from '#lib/components/PublishDialog.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
@@ -57,6 +60,14 @@
 
 		return id ? { id, kind: kind as 'proof' | 'final' } : undefined;
 	});
+	const requestedSection = $derived.by(() => {
+		const section = page.url.searchParams.get('section');
+
+		return section && STUDIO_SECTIONS.includes(section as StudioSection)
+			? (section as StudioSection)
+			: undefined;
+	});
+	const requestedThread = $derived(page.url.searchParams.get('thread') ?? undefined);
 	const queue = getUploadQueue();
 	const notifications = getNotifications();
 
@@ -334,7 +345,7 @@
 			uncertain = false;
 			if (sharing ? !!fresh.share_token : fresh.states.includes('delivered')) {
 				contactsRevision++;
-				toasts.success(success);
+				if (!sharing) toasts.success(success);
 				return true;
 			}
 			return false;
@@ -367,11 +378,15 @@
 			if (!isCurrent()) return;
 			applyStage(updated);
 			if (queued) contactsRevision++;
-			toasts.success(
-				queued
-					? `${success}. ${m.share_invitations_queued({ count: queued.queued_count })}`
-					: success
-			);
+			if (!sharing) {
+				toasts.success(
+					queued
+						? `${success}. ${m.share_invitations_queued({ count: queued.queued_count })}`
+						: success
+				);
+			}
+
+			return { emailed: !!queued };
 		} catch (error) {
 			if (
 				error instanceof ApiError &&
@@ -462,6 +477,9 @@
 <svelte:head><title>{saved.title ?? m.gallery_untitled()} — PhotoProofing</title></svelte:head>
 <GalleryStudio
 	{requestedPhoto}
+	{requestedSection}
+	{requestedThread}
+	requestKey={page.url}
 	gallery={saved}
 	{shareToken}
 	origin={page.url.origin}
@@ -543,8 +561,8 @@
 		gallery={saved}
 		settings={data.settings ?? DEFAULT_SETTINGS}
 		{heroRevision}
+		origin={page.url.origin}
 		{galleryId}
-		title={saved.title ?? m.gallery_untitled()}
 		expiresAt={saved.expires_at}
 		uploading={queue?.inFlight(galleryId, publishing === 'deliver' ? 'finals' : 'photos') ?? 0}
 		onconfirm={confirmStage}

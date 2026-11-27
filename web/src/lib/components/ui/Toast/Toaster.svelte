@@ -50,7 +50,7 @@
 			{/if}
 			<button
 				type="button"
-				class="grid size-9 shrink-0 place-items-center rounded-full hover:bg-white/10"
+				class="relative grid size-9 shrink-0 place-items-center rounded-full [--icon-hover-color:rgb(255_255_255/0.1)] max-sm:hover:bg-white/10 sm:icon-action"
 				aria-label={m.toast_dismiss()}
 				onclick={() => (localError ? localError.dismiss() : toasts.dismiss(toast.id))}
 			>

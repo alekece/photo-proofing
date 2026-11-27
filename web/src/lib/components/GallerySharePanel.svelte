@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { Search, Users, X } from '@lucide/svelte';
-	import { tick } from 'svelte';
+	import { Plus, Search, Users, X } from '@lucide/svelte';
 	import Checkbox from '#lib/components/ui/Checkbox/Checkbox.svelte';
 	import type { Gallery, InvitationRecipientInput } from '#lib/gallery/api.js';
 	import type { InvitationDraft } from '#lib/gallery/types.js';
@@ -18,9 +17,6 @@
 	import { listGalleryContacts } from '#lib/gallery/contacts.js';
 	import { defaultInvitationSubject, formatLongDate } from '#lib/gallery/format.js';
 	import { DEFAULT_SETTINGS, type WorkspaceSettings } from '#lib/settings/settings.js';
-
-	const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
-	const NAMED_EMAIL_RE = /^([^<>]+?)\s*<\s*([^\s@<>]+@[^\s@<>]+\.[^\s@<>]+)\s*>$/;
 
 	let {
 		gallery,
@@ -53,7 +49,6 @@
 	let contactsState = $state<'loading' | 'ready' | 'failed'>('loading');
 	let lookup = $state(0);
 	let optedOut = $state(false);
-	let adding = $state(false);
 	let copySelf = $state(false);
 	let pickerOpen = $state(false);
 	let pickerLoading = $state(false);
@@ -61,8 +56,6 @@
 	let directoryContacts = $state<Contact[]>([]);
 	const id = $props.id();
 	const pickerDialogId = `${id}-picker`;
-	const toInputId = `${id}-to`;
-	const bccInputId = `${id}-bcc`;
 	const subjectInputId = `${id}-subject`;
 	const messageInputId = `${id}-message`;
 
@@ -73,12 +66,6 @@
 	);
 
 	let toRecipients = $state<InvitationRecipientInput[]>([]);
-	let bccRecipients = $state<string[]>([]);
-	let toDraft = $state('');
-	let bccDraft = $state('');
-	let bccOpen = $state(false);
-	let toError = $state('');
-	let bccError = $state('');
 
 	let customSubject = $state<string>();
 	const subject = $derived(customSubject ?? defaultInvitationSubject(stage, gallery.title));
@@ -111,24 +98,21 @@
 	});
 
 	const toEmailSet = $derived(new Set(toRecipients.map((item) => item.email.toLowerCase())));
-	const bccEmailSet = $derived(new Set(bccRecipients.map((email) => email.toLowerCase())));
-	const effectiveRecipientCount = $derived.by(() => {
-		const draftTo = parseRecipientEntry(toDraft);
-		const draftBcc = parseRecipientEntry(bccDraft);
+	const effectiveRecipientCount = $derived(toRecipients.length);
 
-		return new Set<string>([
-			...toEmailSet,
-			...bccEmailSet,
-			...(draftTo ? [draftTo.email] : []),
-			...(draftBcc ? [draftBcc.email] : [])
-		]).size;
-	});
-
+	// Customizing stays open when the last recipient is removed; Share is held back until one is added.
 	const available = $derived(
-		emailEnabled && contactsState === 'ready' && effectiveRecipientCount > 0
+		emailEnabled && contactsState === 'ready' && (effectiveRecipientCount > 0 || expanded)
 	);
 	const checked = $derived(available && !optedOut);
 	const editing = $derived(expanded && checked);
+	/** Who the invitation goes to, for a summary line outside the customization form. */
+	export function recipientNames() {
+		return checked ? toRecipients.map((r) => r.name || r.email).join(', ') : '';
+	}
+	export function canEmail() {
+		return available;
+	}
 	export function canCustomize() {
 		return checked && !sending;
 	}
@@ -136,31 +120,26 @@
 		if (!canCustomize()) return;
 
 		expanded = !editing;
-		adding = false;
-		if (expanded) {
-			await tick();
-			document.getElementById(toInputId)?.focus();
-		}
 	}
 	const shootDateText = $derived(gallery.shoot_date ? formatLongDate(gallery.shoot_date) : null);
 	$effect(() => {
-		blocked = emailEnabled && !optedOut && contactsState !== 'ready';
+		blocked =
+			emailEnabled &&
+			!optedOut &&
+			(contactsState !== 'ready' || (expanded && toRecipients.length === 0));
 		if (!checked) expanded = false;
 	});
 
 	export function draft(): InvitationDraft | undefined {
 		if (blocked) throw new Error(m.contacts_load_failed());
-		if (!optedOut && adding && toDraft.trim() && !commitToDraft())
-			throw new Error(m.share_invalid_email());
 		if (!checked) return;
-		if (!commitToDraft() || !commitBccDraft()) throw new Error(m.share_invalid_email());
 		if (!subject.trim()) throw new Error(m.share_subject_required());
 		if (!message.trim()) throw new Error(m.share_message_required());
 		return {
 			stage,
 			copy_self: copySelf,
 			to: [...toRecipients],
-			bcc: [...bccRecipients],
+			bcc: [],
 			subject: customSubject?.trim(),
 			message: message.trim()
 		};
@@ -184,84 +163,8 @@
 		});
 	});
 
-	function parseRecipientEntry(raw: string): InvitationRecipientInput | null {
-		const trimmed = raw.trim();
-
-		if (!trimmed) return null;
-
-		const named = NAMED_EMAIL_RE.exec(trimmed);
-
-		if (named) {
-			const name = named[1]!.trim();
-			const email = named[2]!.trim().toLowerCase();
-
-			return { email, name: name || null };
-		}
-
-		if (EMAIL_RE.test(trimmed)) {
-			return { email: trimmed.toLowerCase(), name: null };
-		}
-
-		return null;
-	}
-
-	function commitToDraft(): boolean {
-		const raw = toDraft.trim();
-
-		if (!raw) {
-			toError = '';
-			return true;
-		}
-
-		const parsed = parseRecipientEntry(raw);
-
-		if (!parsed) {
-			toError = m.share_invalid_email();
-			return false;
-		}
-
-		toError = '';
-		toDraft = '';
-
-		if (!toEmailSet.has(parsed.email)) {
-			toRecipients = [...toRecipients, parsed];
-			bccRecipients = bccRecipients.filter((item) => item.toLowerCase() !== parsed.email);
-		}
-
-		return true;
-	}
-
-	function commitBccDraft(): boolean {
-		const raw = bccDraft.trim();
-
-		if (!raw) {
-			bccError = '';
-			return true;
-		}
-
-		const parsed = parseRecipientEntry(raw);
-
-		if (!parsed) {
-			bccError = m.share_invalid_email();
-			return false;
-		}
-
-		bccError = '';
-		bccDraft = '';
-
-		if (!toEmailSet.has(parsed.email) && !bccEmailSet.has(parsed.email)) {
-			bccRecipients = [...bccRecipients, parsed.email];
-		}
-
-		return true;
-	}
-
 	function removeTo(email: string) {
 		toRecipients = toRecipients.filter((item) => item.email !== email);
-	}
-
-	function removeBcc(email: string) {
-		bccRecipients = bccRecipients.filter((item) => item !== email);
 	}
 
 	function openContactsPicker() {
@@ -286,7 +189,6 @@
 
 		if (!toEmailSet.has(normalized)) {
 			toRecipients = [...toRecipients, { email: normalized, name: contact.name }];
-			bccRecipients = bccRecipients.filter((item) => item.toLowerCase() !== normalized);
 		}
 
 		if (availableContacts.length <= 1) {
@@ -296,30 +198,9 @@
 </script>
 
 <div class="@container mx-auto grid w-full max-w-[72rem] gap-4">
-	<div class="flex flex-wrap items-center justify-between gap-2">
-		<label class="flex items-center gap-2 font-semibold">
-			<Checkbox
-				{checked}
-				disabled={!available || sending}
-				onchange={(e) => {
-					optedOut = !e.currentTarget.checked;
-					if (optedOut) {
-						expanded = false;
-						adding = false;
-					}
-				}}
-			/>{m.stage_send_email()}
-		</label>
-	</div>
-	{#if !emailEnabled}
-		<p class="text-sm text-muted-foreground">
-			{gallery.states.includes('expired')
-				? m.share_expired_title()
-				: m.share_smtp_unavailable_title()}
-		</p>
-	{:else if contactsState === 'loading'}
+	{#if emailEnabled && contactsState === 'loading'}
 		<p role="status">{m.dialog_working()}</p>
-	{:else if contactsState === 'failed'}
+	{:else if emailEnabled && contactsState === 'failed'}
 		<p role="status">{m.contacts_load_failed()}</p>
 		<div class="flex flex-wrap gap-2">
 			<Button size="sm" variant="outline" onclick={() => lookup++}>{m.action_retry()}</Button>
@@ -327,21 +208,9 @@
 					{m.stage_without_email()}
 				</Button>{/if}
 		</div>
-	{:else if !editing}
-		{#if !effectiveRecipientCount}<p class="text-sm text-muted-foreground">
-				{m.stage_no_recipient()}
-			</p>
-		{:else if checked}<p class="text-sm wrap-anywhere">
-				{[...toRecipients.map((r) => r.name || r.email), ...bccRecipients].join(', ')}
-			</p>{/if}
-		{#if !effectiveRecipientCount && !adding}
-			<Button size="sm" variant="ghost" class="justify-self-start" onclick={() => (adding = true)}>
-				{m.stage_add_recipient()}
-			</Button>
-		{/if}
 	{/if}
 
-	{#if editing || adding}
+	{#if editing}
 		<div
 			class="grid overflow-hidden rounded-dialog border border-border shadow-xs @min-[44rem]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
 		>
@@ -349,142 +218,51 @@
 				aria-label={m.share_envelope_label()}
 				class="grid min-w-0 content-start gap-4 bg-panel p-4 sm:p-5"
 			>
-				{#if editing}<h2 class="text-xl">{m.share_envelope_label()}</h2>{/if}
-				<div class="grid gap-1.5">
-					<div class="grid gap-2">
-						<Label for={toInputId} class="text-sm font-semibold">
-							{m.share_to_label()}
-						</Label>
-						<div
-							class="flex min-w-0 flex-wrap items-center gap-1.5 rounded-control border border-border-strong bg-input p-1.5 focus-within:border-foreground"
-						>
-							{#each toRecipients as recipient (recipient.email)}
-								<span
-									class="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-white px-2.5 py-1 text-xs font-medium text-foreground"
+				<div class="grid gap-2">
+					<span class="text-sm font-semibold">{m.share_to_label()}</span>
+					<div
+						class="flex min-h-11 min-w-0 flex-wrap items-center gap-1.5 rounded-control border border-border-strong bg-input p-1.5"
+					>
+						{#each toRecipients as recipient (recipient.email)}
+							<span
+								class="inline-flex max-w-full items-center gap-1 pill border border-border bg-white text-xs font-medium text-foreground"
+							>
+								<span class="truncate">{recipient.name || recipient.email}</span>
+								<button
+									type="button"
+									disabled={!emailEnabled || sending}
+									aria-label={m.share_remove_recipient({ email: recipient.email })}
+									onclick={() => removeTo(recipient.email)}
+									class="relative rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-foreground disabled:pointer-events-none sm:icon-action"
 								>
-									<span class="truncate">
-										{recipient.name ? `${recipient.name} <${recipient.email}>` : recipient.email}
-									</span>
-									<button
-										type="button"
-										disabled={!emailEnabled || sending}
-										aria-label={m.share_remove_recipient({ email: recipient.email })}
-										onclick={() => removeTo(recipient.email)}
-										class="rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-foreground disabled:pointer-events-none"
-									>
-										<X size={13} aria-hidden="true" />
-									</button>
-								</span>
-							{/each}
-							<input
-								id={toInputId}
-								type="text"
-								disabled={!emailEnabled || sending}
-								placeholder={toRecipients.length === 0 ? m.share_to_placeholder() : ''}
-								bind:value={toDraft}
-								onkeydown={(event) => {
-									if (event.key === 'Enter' || event.key === ',') {
-										event.preventDefault();
-										commitToDraft();
-									} else if (
-										event.key === 'Backspace' &&
-										toDraft.length === 0 &&
-										toRecipients.length > 0
-									) {
-										removeTo(toRecipients[toRecipients.length - 1]!.email);
-									}
-								}}
-								onblur={() => {
-									commitToDraft();
-								}}
-								class="min-w-24 flex-1 bg-transparent px-1.5 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-							/>
-						</div>
-						<div class="flex flex-wrap items-center gap-1.5">
-							<Button
-								variant="outline"
-								size="sm"
-								class="min-h-8! bg-white! px-2.5! text-xs"
+									<X size={13} aria-hidden="true" />
+								</button>
+							</span>
+						{/each}
+						{#if toRecipients.length === 0}
+							<button
+								type="button"
 								disabled={!emailEnabled || sending}
 								onclick={openContactsPicker}
+								class="min-w-0 flex-1 cursor-pointer rounded-control px-1.5 py-1 text-left text-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-foreground disabled:pointer-events-none"
 							>
-								{m.share_add_contacts()}
-							</Button>
-							{#if editing && !bccOpen}
-								<Button
-									variant="ghost"
-									size="sm"
-									class="min-h-8! px-2! text-xs text-muted-foreground"
-									disabled={!emailEnabled || sending}
-									onclick={() => (bccOpen = true)}
-								>
-									{m.share_add_bcc()}
-								</Button>
-							{/if}
-						</div>
+								{m.share_to_empty()}
+							</button>
+						{/if}
+						<button
+							type="button"
+							disabled={!emailEnabled || sending}
+							aria-label={m.share_add_contacts()}
+							title={m.share_add_contacts()}
+							onclick={openContactsPicker}
+							class="icon-action relative ml-auto inline-flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors [--icon-hover-size:100%] hover:text-foreground focus-visible:outline-2 focus-visible:outline-foreground disabled:pointer-events-none disabled:opacity-50"
+						>
+							<Plus size={14} aria-hidden="true" />
+						</button>
 					</div>
-					{#if toError}
-						<p role="alert" class="text-xs text-danger">{toError}</p>
-					{/if}
 				</div>
 
 				{#if editing}
-					{#if bccOpen || bccRecipients.length > 0}
-						<div class="grid gap-1.5">
-							<div class="grid gap-2">
-								<Label for={bccInputId} class="text-sm font-semibold">
-									{m.share_bcc_label()}
-								</Label>
-								<div
-									class="flex min-w-0 flex-wrap items-center gap-1.5 rounded-control border border-border-strong bg-input p-1.5 focus-within:border-foreground"
-								>
-									{#each bccRecipients as email (email)}
-										<span
-											class="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-white px-2.5 py-1 text-xs font-medium text-foreground"
-										>
-											<span class="truncate">{email}</span>
-											<button
-												type="button"
-												disabled={!emailEnabled || sending}
-												aria-label={m.share_remove_recipient({ email })}
-												onclick={() => removeBcc(email)}
-												class="rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-foreground disabled:pointer-events-none"
-											>
-												<X size={13} aria-hidden="true" />
-											</button>
-										</span>
-									{/each}
-									<input
-										id={bccInputId}
-										type="text"
-										disabled={!emailEnabled || sending}
-										placeholder={bccRecipients.length === 0 ? m.share_bcc_placeholder() : ''}
-										bind:value={bccDraft}
-										onkeydown={(event) => {
-											if (event.key === 'Enter' || event.key === ',') {
-												event.preventDefault();
-												commitBccDraft();
-											} else if (
-												event.key === 'Backspace' &&
-												bccDraft.length === 0 &&
-												bccRecipients.length > 0
-											) {
-												removeBcc(bccRecipients[bccRecipients.length - 1]!);
-											}
-										}}
-										onblur={() => {
-											commitBccDraft();
-										}}
-										class="min-w-24 flex-1 bg-transparent px-1.5 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-									/>
-								</div>
-							</div>
-							{#if bccError}
-								<p role="alert" class="text-xs text-danger">{bccError}</p>
-							{/if}
-						</div>
-					{/if}
-
 					<div class="grid gap-2">
 						<Label for={subjectInputId} class="text-sm font-semibold">
 							{m.share_subject_label()}
@@ -613,77 +391,63 @@
 {#if pickerOpen}
 	<Dialog
 		onclose={() => (pickerOpen = false)}
+		focusClose
 		labelledby="{pickerDialogId}-title"
 		class="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-dialog border border-border bg-panel p-6 text-foreground shadow-xl"
 	>
-		{#snippet children(close)}
-			<div class="grid gap-4">
-				<div class="flex items-center justify-between gap-2">
-					<h2 id="{pickerDialogId}-title" class="text-xl">{m.share_picker_title()}</h2>
-					<Button
-						variant="ghost"
-						size="sm"
-						class="min-h-9! px-2.5!"
-						aria-label={m.action_close()}
-						onclick={close}
-					>
-						<X size={18} aria-hidden="true" />
-					</Button>
-				</div>
+		<div class="grid gap-4">
+			<h2 id="{pickerDialogId}-title" class="pr-10 text-xl">{m.share_picker_title()}</h2>
 
-				<div class="relative">
-					<Search
-						size={16}
-						aria-hidden="true"
-						class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
-					/>
-					<Input
-						type="search"
-						placeholder={m.contacts_search()}
-						aria-label={m.contacts_search()}
-						bind:value={pickerQuery}
-						class="bg-white pl-9"
-					/>
-				</div>
-
-				{#if pickerLoading}
-					<p class="py-6 text-center text-sm text-muted-foreground">{m.dialog_working()}</p>
-				{:else if availableContacts.length === 0}
-					<div
-						class="grid justify-items-center gap-2 py-6 text-center text-sm text-muted-foreground"
-					>
-						<Users size={22} aria-hidden="true" />
-						<p>
-							{pickerQuery.trim()
-								? m.contacts_no_match({ query: pickerQuery.trim() })
-								: m.share_picker_empty()}
-						</p>
-					</div>
-				{:else}
-					<div class="grid max-h-64 gap-1.5 overflow-y-auto pr-1">
-						{#each availableContacts as contact (contact.id)}
-							<button
-								type="button"
-								onclick={() => pickContact(contact)}
-								class="flex w-full items-center gap-3 rounded-xl border border-border bg-white px-3 py-2.5 text-left transition-colors hover:border-foreground focus-visible:outline-2 focus-visible:outline-foreground"
-							>
-								<span
-									aria-hidden="true"
-									class="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#efe8dc] text-xs font-semibold text-foreground"
-								>
-									{contactInitials(contact.name)}
-								</span>
-								<span class="min-w-0 flex-1">
-									<span class="block truncate text-sm font-semibold text-foreground">
-										{contact.name}
-									</span>
-									<span class="block truncate text-xs text-muted-foreground">{contact.email}</span>
-								</span>
-							</button>
-						{/each}
-					</div>
-				{/if}
+			<div class="relative">
+				<Search
+					size={16}
+					aria-hidden="true"
+					class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
+				/>
+				<Input
+					type="search"
+					placeholder={m.contacts_search()}
+					aria-label={m.contacts_search()}
+					bind:value={pickerQuery}
+					class="bg-white pl-9"
+				/>
 			</div>
-		{/snippet}
+
+			{#if pickerLoading}
+				<p class="py-6 text-center text-sm text-muted-foreground">{m.dialog_working()}</p>
+			{:else if availableContacts.length === 0}
+				<div class="grid justify-items-center gap-2 py-6 text-center text-sm text-muted-foreground">
+					<Users size={22} aria-hidden="true" />
+					<p>
+						{pickerQuery.trim()
+							? m.contacts_no_match({ query: pickerQuery.trim() })
+							: m.share_picker_empty()}
+					</p>
+				</div>
+			{:else}
+				<div class="grid max-h-64 gap-1.5 overflow-y-auto pr-1">
+					{#each availableContacts as contact (contact.id)}
+						<button
+							type="button"
+							onclick={() => pickContact(contact)}
+							class="flex w-full items-center gap-3 rounded-xl border border-border bg-white px-3 py-2.5 text-left transition-colors hover:border-foreground focus-visible:outline-2 focus-visible:outline-foreground"
+						>
+							<span
+								aria-hidden="true"
+								class="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#efe8dc] text-xs font-semibold text-foreground"
+							>
+								{contactInitials(contact.name)}
+							</span>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate text-sm font-semibold text-foreground">
+									{contact.name}
+								</span>
+								<span class="block truncate text-xs text-muted-foreground">{contact.email}</span>
+							</span>
+						</button>
+					{/each}
+				</div>
+			{/if}
+		</div>
 	</Dialog>
 {/if}

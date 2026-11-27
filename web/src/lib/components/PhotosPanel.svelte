@@ -133,7 +133,6 @@
 	const queued = $derived(queue.forGallery(galleryId, set));
 	// Photos deleted meanwhile drop out, so the confirmed count is what is sent.
 	const selection = $derived(photos.filter(({ id }) => selected.has(id)));
-	const requestedCount = $derived(photos.filter((photo) => photo.downloaded_at).length);
 	// Every photo, so one still processing or failed shows its state in the viewer.
 	const proofs = $derived<Proof[]>(
 		photos.map((photo) => ({
@@ -368,6 +367,7 @@
 	function toggle(id: string) {
 		selecting = true;
 		if (!selected.delete(id)) selected.add(id);
+		if (selected.size === 0) selecting = false;
 	}
 
 	/** Selects the server photos shown now; later arrivals stay unselected. */
@@ -474,11 +474,6 @@
 	ondragleave={() => (dragging = false)}
 	{ondrop}
 >
-	{#if finals && loaded && !alert && photos.length}
-		<p class="text-sm text-muted-foreground">
-			{m.finals_requested_count({ count: requestedCount, total: photos.length })}
-		</p>
-	{/if}
 	{#if !onheader || updatingWatermarks}
 		<WorkspaceToolbar>
 			{#snippet actions()}
@@ -508,7 +503,7 @@
 			total={photos.length}
 			rail="gallery"
 			onselectall={selectAll}
-			onunselectall={() => selected.clear()}
+			onunselectall={() => void finishSelecting()}
 			onexit={() => void finishSelecting()}
 			canEscape={canUseSelectionKeys}
 		>
@@ -597,10 +592,22 @@
 			{/each}
 		</ul>
 	{:else if loaded}
-		<EmptyState>
-			<ImagePlus size={32} aria-hidden="true" />
-			<h3>{finals ? m.photos_drop_finals() : m.photos_drop()}</h3>
-		</EmptyState>
+		<EmptyState
+			icon={ImagePlus}
+			title={finals ? m.photos_drop_finals() : m.photos_drop()}
+			description={m.photos_drop_body()}
+			role="button"
+			tabindex={0}
+			aria-label={finals ? m.photos_choose_finals() : m.photos_choose()}
+			class="cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+			onclick={() => picker?.click()}
+			onkeydown={(event) => {
+				if (event.key !== 'Enter' && event.key !== ' ') return;
+
+				event.preventDefault();
+				picker?.click();
+			}}
+		/>
 	{/if}
 </section>
 

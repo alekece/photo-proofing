@@ -7,16 +7,32 @@
 		galleryId,
 		photoIds,
 		set = 'photos',
-		done = false
-	}: { galleryId: string; photoIds: string[]; set?: PhotoSet; done?: boolean } = $props();
+		done = false,
+		polaroid = false
+	}: {
+		galleryId: string;
+		photoIds: string[];
+		set?: PhotoSet;
+		done?: boolean;
+		/** Up to six photos piled as white-framed prints instead of three fanned thumbnails. */
+		polaroid?: boolean;
+	} = $props();
 
 	const TILTS = ['-rotate-6', 'rotate-3', 'rotate-0'];
-	let shown = $derived(photoIds.slice(0, 3));
+	const PRINT_POSES = [
+		'-rotate-12 -translate-x-3 -translate-y-1',
+		'rotate-9 translate-x-3 -translate-y-2',
+		'-rotate-6 -translate-x-2 translate-y-2',
+		'rotate-12 translate-x-3 translate-y-1.5',
+		'-rotate-3 -translate-x-1 -translate-y-0.5',
+		'rotate-3 translate-x-1 translate-y-0.5'
+	];
+	let shown = $derived(photoIds.slice(0, polaroid ? 6 : 3));
 </script>
 
 <div
 	data-slot="photo-stack"
-	class={['relative grid size-24 flex-none place-items-center', done && 'justify-self-center']}
+	class="relative grid size-24 flex-none place-items-center justify-self-center"
 	aria-hidden="true"
 >
 	<div class="contents" class:fly={done}>
@@ -24,9 +40,9 @@
 			<img
 				src={thumbnailUrl(galleryId, id, set)}
 				alt=""
-				class="absolute size-[5.25rem] rounded-control border-2 border-panel object-cover shadow-md {TILTS[
-					index
-				]}"
+				class={polaroid
+					? `absolute size-[4.25rem] border-x-[3px] border-t-[3px] border-b-4 border-white bg-white object-cover shadow-md ${PRINT_POSES[index]}`
+					: `absolute size-[5.25rem] rounded-control border-2 border-panel object-cover shadow-md ${TILTS[index]}`}
 			/>
 		{:else}
 			<span class="size-24 rounded-control border-2 border-dashed border-border-strong"></span>
@@ -44,12 +60,12 @@
 
 <style>
 	.fly > :global(*) {
-		animation: fly-out 240ms var(--ease-pop) forwards;
+		animation: fly-out 220ms ease-in forwards;
 	}
 	@keyframes fly-out {
 		to {
 			opacity: 0;
-			transform: translateY(-3rem) rotate(8deg);
+			scale: 0.85;
 		}
 	}
 	.pop {

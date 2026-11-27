@@ -8,7 +8,7 @@
 	import type { Gallery } from '#lib/gallery/api.js';
 	import type { InvitationDraft } from '#lib/gallery/types.js';
 	import type { WorkspaceSettings } from '#lib/settings/settings.js';
-	import { previewUrl } from '#lib/gallery/photos.js';
+	import ShareLink from '#lib/components/ShareLink.svelte';
 	import PhotoStack from '#lib/components/ui/PhotoStack/PhotoStack.svelte';
 	import { formatLongDate } from '#lib/gallery/format.js';
 	import { listPhotos, summarizePhotoReadiness, type Photo } from '#lib/gallery/photos.js';
@@ -20,8 +20,6 @@
 	type Props = {
 		kind: 'share' | 'deliver';
 		galleryId: string;
-		/** Who the delivered photos are for; Deliver names them. */
-		title: string;
 		/** ISO date the link works until; only Share mentions it. */
 		expiresAt?: string | null;
 		/** Files of this gallery still on their way to becoming photos. */
@@ -30,20 +28,23 @@
 		gallery?: Gallery;
 		settings?: WorkspaceSettings;
 		heroRevision?: number;
-		onconfirm: (email: InvitationDraft | undefined) => Promise<void>;
+		/** Origin of the client link shown once the gallery is shared. */
+		origin?: string;
+		/** Resolves with what happened when the stage was applied, or nothing when it was only reconciled. */
+		onconfirm: (email: InvitationDraft | undefined) => Promise<{ emailed: boolean } | void>;
 		onclose: () => void;
 	};
 
 	let {
 		kind,
 		galleryId,
-		title,
 		expiresAt = null,
 		uploading: uploadingFiles = 0,
 		load = listPhotos,
 		gallery,
 		settings,
 		heroRevision,
+		origin = globalThis.location?.origin ?? '',
 		onconfirm,
 		onclose
 	}: Props = $props();
@@ -53,6 +54,8 @@
 	let expanded = $state(false);
 	let blocked = $state(false);
 	let editor = $state<GallerySharePanel>();
+	let outcome = $state<{ emailed: boolean }>();
+	const emailed = $derived(outcome?.emailed ?? false);
 
 	const readiness = $derived(photos ? summarizePhotoReadiness(photos, uploadingFiles) : null);
 	let ready = $derived(readiness?.ready ?? []);
@@ -82,6 +85,15 @@
 	});
 </script>
 
+{#snippet sharedBody()}
+	{#if emailed}
+		<p class="text-sm text-muted-foreground">{m.share_sent_note()}</p>
+	{:else if gallery?.share_token}
+		<p class="text-sm text-muted-foreground">{m.share_link_note()}</p>
+		<ShareLink token={gallery.share_token} {origin} />
+	{/if}
+{/snippet}
+
 <ConfirmDialog
 	title={!photos || checkFailed
 		? sharing
@@ -97,37 +109,29 @@
 	confirmLabel={sharing ? m.action_share() : m.action_deliver()}
 	busy={photos === null || blocked}
 	{expanded}
-	onconfirm={() => onconfirm(editor?.draft())}
+	onconfirm={async () => {
+		const draft = editor?.draft();
+
+		outcome = (await onconfirm(draft)) ?? undefined;
+	}}
+	result={sharing && outcome && gallery?.share_token
+		? { title: m.publish_shared_title(), body: sharedBody }
+		: undefined}
 	{onclose}
 >
 	{#snippet visual(done)}
-		{#if gallery?.hero_id}<img
-				class="h-24 w-24 rounded-card object-cover"
-				alt=""
-				src={previewUrl(galleryId, gallery.hero_id, 'photos', heroRevision)}
-				style:object-position="{gallery.focal_point.x}% {gallery.focal_point.y}%"
-			/>
-		{:else}
-			<PhotoStack
-				{galleryId}
-				photoIds={ready.map(({ id }) => id)}
-				set={kind === 'deliver' ? 'finals' : 'photos'}
-				{done}
-			/>
-		{/if}
+		<PhotoStack
+			{galleryId}
+			photoIds={ready.map(({ id }) => id)}
+			set={sharing ? 'photos' : 'finals'}
+			polaroid
+			{done}
+		/>
 	{/snippet}
 	{#snippet description()}
-		<p class="text-sm font-semibold wrap-anywhere">{title}</p>
 		{#if photos === null}
 			<p class="text-sm text-muted-foreground" role="status">{m.publish_checking()}</p>
 		{:else}
-			{#if sharing || (!empty && !checkFailed)}<p class="text-sm text-muted-foreground">
-					{#if kind === 'share'}
-						{shareText}
-					{:else}
-						{m.publish_deliver_text()}
-					{/if}
-				</p>{/if}
 			{#if empty && !checkFailed}
 				<p class="text-sm font-bold text-warning">
 					{sharing ? m.publish_empty_share() : m.publish_empty_deliver()}
@@ -138,6 +142,18 @@
 			{/if}
 			{#if checkFailed}
 				<p class="text-sm font-bold text-warning">{m.publish_check_failed()}</p>
+			{/if}
+			{#if !expanded}
+				{#if editor?.recipientNames()}
+					{#if sharing && gallery?.share_token}
+						<p class="text-sm font-semibold text-terracotta">{m.share_already_shared()}</p>
+					{/if}
+					<p class="text-sm wrap-anywhere text-foreground">
+						{m.share_will_email({ names: editor.recipientNames() })}
+					</p>
+				{:else if sharing}
+					<p class="text-sm text-foreground">{shareText}</p>
+				{/if}
 			{/if}
 		{/if}
 	{/snippet}
@@ -155,7 +171,7 @@
 			/>{/if}
 	{/snippet}
 	{#snippet secondaryAction(pending)}
-		{#if gallery}<Button
+		{#if gallery && editor?.canEmail() && !expanded}<Button
 				variant="outline"
 				aria-expanded={expanded}
 				disabled={pending || !editor?.canCustomize()}

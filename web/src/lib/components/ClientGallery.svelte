@@ -178,6 +178,7 @@
 {#if proofs.length === 0 && !delivered && !cover && !showCoverWhenEmpty}
 	<svelte:element
 		this={rootTag}
+		inert={preview}
 		data-heading-font={headingFont}
 		style:--gallery-heading-font={headingFontFamily}
 		class="@container flex flex-1 flex-col items-center overflow-hidden bg-[radial-gradient(120%_70%_at_50%_0,#2e241d,#16120f_60%)] pt-[34px] pb-10 text-center text-[#f4efe8]"
@@ -220,6 +221,7 @@
 {:else if proofs.length === 0 && delivered && !showCoverWhenEmpty}
 	<svelte:element
 		this={rootTag}
+		inert={preview}
 		data-heading-font={headingFont}
 		style:--gallery-heading-font={headingFontFamily}
 		class="@container flex flex-1 flex-col bg-background"
@@ -281,6 +283,7 @@
 {:else}
 	<svelte:element
 		this={rootTag}
+		inert={preview}
 		data-heading-font={headingFont}
 		style:--gallery-heading-font={headingFontFamily}
 		class="@container bg-background"

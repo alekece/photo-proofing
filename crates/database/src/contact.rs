@@ -25,7 +25,7 @@ use crate::{
 
 pub const MAX_NAME_CHARS: usize = 120;
 pub const MAX_PHONE_CHARS: usize = 40;
-pub const MAX_NOTES_CHARS: usize = 2000;
+pub const MAX_NOTES_CHARS: usize = 500;
 
 #[derive(Debug, Error)]
 pub enum ContactError {
@@ -107,6 +107,7 @@ pub struct Contact {
     pub email: Email,
     pub phone: Option<ContactPhone>,
     pub notes: Option<ContactNotes>,
+    /// Linked galleries, most recently associated first.
     #[sqlx(json)]
     pub galleries: Vec<LinkedGallery>,
     pub created_at: Timestamp,
@@ -220,7 +221,7 @@ impl ContactRepository<'_> {
                 COALESCE(
                     (SELECT jsonb_agg(
                                 jsonb_build_object('id', g.id, 'title', g.title)
-                                ORDER BY lower(g.title) NULLS LAST, g.id
+                                ORDER BY gc.created_at DESC, g.id
                             )
                      FROM gallery_contacts AS gc
                      JOIN galleries AS g ON g.id = gc.gallery_id
@@ -984,8 +985,6 @@ mod tests {
         assert_ne!(other_zoe.id, zoe.id);
         assert_eq!(contacts.get(other, zoe.id).await.unwrap(), None);
 
-        // Link Camille to two titled galleries plus one untitled gallery (`NULLS LAST`) and verify
-        // `list`, `find_gallery_link`, and `update` all return the same sorted `galleries` list.
         let gallery_b = galleries.create(mine).await.unwrap();
         let gallery_a = galleries.create(mine).await.unwrap();
         let gallery_untitled = galleries.create(mine).await.unwrap();
@@ -1029,18 +1028,34 @@ mod tests {
             .unwrap()
             .unwrap();
 
+        sqlx::query(
+            "UPDATE gallery_contacts
+             SET created_at = CASE gallery_id
+                 WHEN $2 THEN '2026-01-03T00:00:00Z'::timestamptz
+                 WHEN $3 THEN '2026-01-02T00:00:00Z'::timestamptz
+                 ELSE '2026-01-01T00:00:00Z'::timestamptz
+             END
+             WHERE contact_id = $1",
+        )
+        .bind(camille.id)
+        .bind(gallery_untitled.id)
+        .bind(gallery_b.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
         let expected_galleries = vec![
             LinkedGallery {
-                id: gallery_a.id,
-                title: Some("engagement".to_owned()),
+                id: gallery_untitled.id,
+                title: None,
             },
             LinkedGallery {
                 id: gallery_b.id,
                 title: Some("Wedding Day".to_owned()),
             },
             LinkedGallery {
-                id: gallery_untitled.id,
-                title: None,
+                id: gallery_a.id,
+                title: Some("engagement".to_owned()),
             },
         ];
 

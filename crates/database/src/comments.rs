@@ -11,7 +11,8 @@ use uuid::Uuid;
 
 use crate::{
     Repository,
-    activity::{ActivityKind, ActivityOptions, ActivityRecorder},
+    activity::{ActivityKind, ActivityOptions, ActivityRecorder, Client},
+    contact::{ContactId, ContactName},
     error::DatabaseError,
     photo::{PhotoId, PhotoLocation},
 };
@@ -19,6 +20,9 @@ use crate::{
 pub const MAX_BODY_CHARS: usize = 500;
 
 pub type CommentBody = BoundedText<1, MAX_BODY_CHARS>;
+
+/// How much of the latest client comment an Activity line quotes.
+const ACTIVITY_PREVIEW_CHARS: usize = 140;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(transparent)]
@@ -33,7 +37,55 @@ pub enum CommentAuthor {
     Photographer,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, FromRow)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[sqlx(type_name = "text", rename_all = "snake_case")]
+enum CommentOrigin {
+    General,
+    Contact,
+    Photographer,
+}
+
+/// Non-secret contact identity included only in photographer comment reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CommentContact {
+    pub id: ContactId,
+    pub name: ContactName,
+}
+
+#[derive(Debug, FromRow)]
+struct StoredComment {
+    id: CommentId,
+    photo_id: PhotoId,
+    author: CommentAuthor,
+    body: Option<String>,
+    created_at: Timestamp,
+    edited_at: Option<Timestamp>,
+    deleted_at: Option<Timestamp>,
+    contact_id: Option<ContactId>,
+    contact_name: Option<ContactName>,
+    editable: bool,
+}
+
+impl From<StoredComment> for Comment {
+    fn from(comment: StoredComment) -> Self {
+        Self {
+            id: comment.id,
+            photo_id: comment.photo_id,
+            author: comment.author,
+            body: comment.body,
+            created_at: comment.created_at,
+            edited_at: comment.edited_at,
+            deleted_at: comment.deleted_at,
+            editable: comment.editable,
+            contact: comment
+                .contact_id
+                .zip(comment.contact_name)
+                .map(|(id, name)| CommentContact { id, name }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Comment {
     pub id: CommentId,
     pub photo_id: PhotoId,
@@ -42,6 +94,11 @@ pub struct Comment {
     pub created_at: Timestamp,
     pub edited_at: Option<Timestamp>,
     pub deleted_at: Option<Timestamp>,
+    /// The current viewer may mutate this comment.
+    pub editable: bool,
+    /// Present for an owner read of a personal-link client comment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contact: Option<CommentContact>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -81,6 +138,7 @@ impl CommentRepository<'_> {
         location: PhotoLocation,
         photo: PhotoId,
         viewer: CommentAuthor,
+        client: Option<Client>,
     ) -> Result<Option<Vec<Comment>>, DatabaseError> {
         let found: bool = sqlx::query_scalar(
             "SELECT EXISTS(
@@ -99,22 +157,36 @@ impl CommentRepository<'_> {
             return Ok(None);
         }
 
-        let comments = sqlx::query_as(
-            "SELECT id, photo_id, author,
-                    CASE WHEN deleted_at IS NOT NULL AND $4 = 'client' THEN NULL ELSE body END AS body,
-                    created_at, edited_at, deleted_at
-             FROM photo_comments
-             WHERE workspace_id = $1 AND gallery_id = $2 AND photo_id = $3
-             ORDER BY created_at, id",
+        let comments: Vec<StoredComment> = sqlx::query_as(
+            "SELECT comment.id, comment.photo_id, comment.author,
+                    CASE WHEN comment.deleted_at IS NOT NULL AND $4 = 'client'
+                         THEN NULL ELSE comment.body END AS body,
+                    comment.created_at, comment.edited_at, comment.deleted_at,
+                    CASE WHEN $4 = 'photographer' THEN contact.id END AS contact_id,
+                    CASE WHEN $4 = 'photographer' THEN contact.name END AS contact_name,
+                    CASE
+                        WHEN $4 = 'photographer' THEN comment.author = 'photographer'
+                        WHEN $5 IS NULL THEN comment.contact_origin = 'general'
+                        ELSE comment.contact_origin = 'contact'
+                             AND coalesce(comment.contact_id = $5, false)
+                    END AS editable
+             FROM photo_comments AS comment
+             LEFT JOIN contacts AS contact
+               ON contact.id = comment.contact_id
+              AND contact.workspace_id = comment.workspace_id
+             WHERE comment.workspace_id = $1 AND comment.gallery_id = $2
+               AND comment.photo_id = $3
+             ORDER BY comment.created_at, comment.id",
         )
         .bind(location.workspace_id)
         .bind(location.gallery_id)
         .bind(photo)
         .bind(viewer)
+        .bind(client.and_then(|client| client.contact_id))
         .fetch_all(self.pool)
         .await?;
 
-        Ok(Some(comments))
+        Ok(Some(comments.into_iter().map(Comment::from).collect()))
     }
 
     pub async fn counts(
@@ -206,33 +278,54 @@ impl CommentRepository<'_> {
             }
         }
 
-        let comment = sqlx::query_as(
-            "INSERT INTO photo_comments (workspace_id, gallery_id, photo_id, author, body)
-             VALUES ($1, $2, $3, $4, $5)
-             RETURNING id, photo_id, author, body, created_at, edited_at, deleted_at",
+        let (contact_id, origin) = match author {
+            CommentAuthor::Photographer => (None, CommentOrigin::Photographer),
+            CommentAuthor::Client => match self.options.client.and_then(|client| client.contact_id)
+            {
+                Some(contact_id) => (Some(contact_id), CommentOrigin::Contact),
+                None => (None, CommentOrigin::General),
+            },
+        };
+        let comment: StoredComment = sqlx::query_as(
+            "INSERT INTO photo_comments
+                 (workspace_id, gallery_id, photo_id, author, body, contact_id, contact_origin)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING id, photo_id, author, body, created_at, edited_at, deleted_at,
+                       NULL::uuid AS contact_id, NULL::text AS contact_name, TRUE AS editable",
         )
         .bind(location.workspace_id)
         .bind(location.gallery_id)
         .bind(photo)
         .bind(author)
         .bind(body)
+        .bind(contact_id)
+        .bind(origin)
         .fetch_one(&mut *tx)
         .await?;
 
         if author == CommentAuthor::Client {
+            let preview = body
+                .as_str()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .chars()
+                .take(ACTIVITY_PREVIEW_CHARS)
+                .collect::<String>();
+
             tx.record_activity(
                 &self.options,
                 location,
                 ActivityKind::Comment,
                 &[photo],
-                None,
+                Some(&preview),
             )
             .await?;
         }
 
         tx.commit().await?;
 
-        Ok(CommentChange::Applied(comment))
+        Ok(CommentChange::Applied(comment.into()))
     }
 
     /// Finds the photo of comment `id` in this gallery, if `author` wrote it.
@@ -241,15 +334,22 @@ impl CommentRepository<'_> {
         location: PhotoLocation,
         id: CommentId,
         author: CommentAuthor,
+        client: Option<Client>,
     ) -> Result<Option<PhotoId>, DatabaseError> {
         let photo = sqlx::query_scalar(
             "SELECT photo_id FROM photo_comments
-             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4",
+             WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4
+               AND (
+                   $4 = 'photographer'
+                   OR contact_origin = 'general' AND $5 IS NULL
+                   OR contact_origin = 'contact' AND contact_id = $5
+               )",
         )
         .bind(location.workspace_id)
         .bind(location.gallery_id)
         .bind(id)
         .bind(author)
+        .bind(client.and_then(|client| client.contact_id))
         .fetch_optional(self.pool)
         .await?;
 
@@ -261,9 +361,10 @@ impl CommentRepository<'_> {
         location: PhotoLocation,
         id: CommentId,
         author: CommentAuthor,
+        client: Option<Client>,
         body: &CommentBody,
     ) -> Result<CommentChange<Comment>, DatabaseError> {
-        let Some(photo) = self.photo_of(location, id, author).await? else {
+        let Some(photo) = self.photo_of(location, id, author, client).await? else {
             return Ok(CommentChange::NotFound);
         };
 
@@ -275,23 +376,32 @@ impl CommentRepository<'_> {
             _ => return Ok(CommentChange::NotFound),
         }
 
-        let comment = sqlx::query_as(
+        let comment: Option<StoredComment> = sqlx::query_as(
             "UPDATE photo_comments SET body = $5, edited_at = now()
              WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4
                AND deleted_at IS NULL
-             RETURNING id, photo_id, author, body, created_at, edited_at, deleted_at",
+               AND (
+                   $4 = 'photographer'
+                   OR contact_origin = 'general' AND $6 IS NULL
+                   OR contact_origin = 'contact' AND contact_id = $6
+               )
+             RETURNING id, photo_id, author, body, created_at, edited_at, deleted_at,
+                       NULL::uuid AS contact_id, NULL::text AS contact_name, TRUE AS editable",
         )
         .bind(location.workspace_id)
         .bind(location.gallery_id)
         .bind(id)
         .bind(author)
         .bind(body)
+        .bind(client.and_then(|client| client.contact_id))
         .fetch_optional(&mut *tx)
         .await?;
 
         tx.commit().await?;
 
-        Ok(comment.map_or(CommentChange::NotFound, CommentChange::Applied))
+        Ok(comment.map_or(CommentChange::NotFound, |comment| {
+            CommentChange::Applied(comment.into())
+        }))
     }
 
     pub async fn delete(
@@ -299,8 +409,9 @@ impl CommentRepository<'_> {
         location: PhotoLocation,
         id: CommentId,
         author: CommentAuthor,
+        client: Option<Client>,
     ) -> Result<CommentChange<()>, DatabaseError> {
-        let Some(photo) = self.photo_of(location, id, author).await? else {
+        let Some(photo) = self.photo_of(location, id, author, client).await? else {
             return Ok(CommentChange::NotFound);
         };
 
@@ -317,11 +428,20 @@ impl CommentRepository<'_> {
         let query = match author {
             CommentAuthor::Client => {
                 "UPDATE photo_comments SET deleted_at = coalesce(deleted_at, now())
-                 WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4"
+                 WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4
+                   AND (
+                       contact_origin = 'general' AND $5 IS NULL
+                       OR contact_origin = 'contact' AND contact_id = $5
+                   )"
             }
             CommentAuthor::Photographer => {
                 "DELETE FROM photo_comments
-                 WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4"
+                 WHERE workspace_id = $1 AND gallery_id = $2 AND id = $3 AND author = $4
+                   AND (
+                       $4 = 'photographer'
+                       OR contact_origin = 'general' AND $5 IS NULL
+                       OR contact_origin = 'contact' AND contact_id = $5
+                   )"
             }
         };
         let changed = sqlx::query(query)
@@ -329,6 +449,7 @@ impl CommentRepository<'_> {
             .bind(location.gallery_id)
             .bind(id)
             .bind(author)
+            .bind(client.and_then(|client| client.contact_id))
             .execute(&mut *tx)
             .await?;
 
@@ -346,7 +467,7 @@ impl CommentRepository<'_> {
 mod tests {
     use std::num::NonZeroU16;
 
-    use sqlx::PgPool;
+    use sqlx::{AssertSqlSafe, PgPool};
     use uuid::Uuid;
 
     use super::*;
@@ -364,6 +485,8 @@ mod tests {
         proof: PhotoId,
         final_photo: PhotoId,
     }
+
+    const CLIENT: Option<Client> = Some(Client { contact_id: None });
 
     impl Fixture {
         async fn new(pool: &PgPool) -> Self {
@@ -410,6 +533,10 @@ mod tests {
         }
 
         async fn add(&self, author: CommentAuthor) -> Comment {
+            self.add_text(author, "Nice").await
+        }
+
+        async fn add_text(&self, author: CommentAuthor, text: &str) -> Comment {
             let options = ActivityOptions::default().client(Some(Client { contact_id: None }));
             let CommentChange::Applied(comment) = self
                 .database
@@ -418,7 +545,7 @@ mod tests {
                     self.location,
                     self.proof,
                     author,
-                    &"Nice".to_owned().try_into().unwrap(),
+                    &text.to_owned().try_into().unwrap(),
                     NonZeroU16::new(100).unwrap(),
                 )
                 .await
@@ -451,6 +578,103 @@ mod tests {
         );
     }
 
+    #[sqlx::test(migrations = false)]
+    async fn comment_contact_migration_preserves_legacy_comments(pool: PgPool) {
+        for migration in crate::MIGRATOR.iter().take_while(|m| m.version < 50) {
+            sqlx::raw_sql(AssertSqlSafe(migration.sql.as_ref()))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let fixture = Fixture::new(&pool).await;
+        let comment_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO photo_comments
+                 (id, workspace_id, gallery_id, photo_id, author, body)
+             VALUES ($1, $2, $3, $4, 'client', 'Legacy')",
+        )
+        .bind(comment_id)
+        .bind(fixture.location.workspace_id)
+        .bind(fixture.location.gallery_id)
+        .bind(fixture.proof)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!("../migrations/0050_comment_contact.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let legacy: (String, Option<Uuid>, String) = sqlx::query_as(
+            "SELECT body, contact_id, contact_origin FROM photo_comments WHERE id = $1",
+        )
+        .bind(comment_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(legacy, ("Legacy".to_owned(), None, "general".to_owned()));
+
+        let contact_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO contacts(id, workspace_id, name, email)
+             VALUES ($1, $2, 'Claire', 'claire@example.test')",
+        )
+        .bind(contact_id)
+        .bind(fixture.location.workspace_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE photo_comments SET contact_id = $1, contact_origin = 'contact' WHERE id = $2",
+        )
+        .bind(contact_id)
+        .bind(comment_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("DELETE FROM contacts WHERE id = $1")
+            .bind(contact_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            sqlx::query_as::<_, (Option<Uuid>, String)>(
+                "SELECT contact_id, contact_origin FROM photo_comments WHERE id = $1",
+            )
+            .bind(comment_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            (None, "contact".to_owned())
+        );
+
+        let invalid_contact_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO contacts(id, workspace_id, name, email)
+             VALUES ($1, $2, 'Alex', 'alex@example.test')",
+        )
+        .bind(invalid_contact_id)
+        .bind(fixture.location.workspace_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let invalid = sqlx::query(
+            "INSERT INTO photo_comments
+                 (workspace_id, gallery_id, photo_id, author, body, contact_id, contact_origin)
+             VALUES ($1, $2, $3, 'photographer', 'Wrong', $4, 'contact')",
+        )
+        .bind(fixture.location.workspace_id)
+        .bind(fixture.location.gallery_id)
+        .bind(fixture.proof)
+        .bind(invalid_contact_id)
+        .execute(&pool)
+        .await;
+        assert!(invalid.is_err());
+    }
+
     #[sqlx::test(migrations = "./migrations")]
     async fn a_client_comment_appears_in_the_thread_and_counts(pool: PgPool) {
         let f = Fixture::new(&pool).await;
@@ -461,7 +685,7 @@ mod tests {
         assert_eq!(comment.author, CommentAuthor::Client);
         assert!(comment.edited_at.is_none());
         assert_eq!(
-            repo.thread(f.location, f.proof, CommentAuthor::Client)
+            repo.thread(f.location, f.proof, CommentAuthor::Client, CLIENT)
                 .await
                 .unwrap()
                 .unwrap(),
@@ -491,6 +715,7 @@ mod tests {
                 f.location,
                 second.id,
                 CommentAuthor::Photographer,
+                None,
                 &"Warmer, then?".to_owned().try_into().unwrap(),
             )
             .await
@@ -519,7 +744,7 @@ mod tests {
         assert_eq!(client[0].latest_body, None);
 
         assert_eq!(
-            repo.delete(f.location, second.id, CommentAuthor::Photographer)
+            repo.delete(f.location, second.id, CommentAuthor::Photographer, None)
                 .await
                 .unwrap(),
             CommentChange::Applied(())
@@ -553,7 +778,7 @@ mod tests {
                 CommentChange::NotFound
             );
             assert!(
-                repo.thread(f.location, photo, CommentAuthor::Client)
+                repo.thread(f.location, photo, CommentAuthor::Client, CLIENT)
                     .await
                     .unwrap()
                     .is_none()
@@ -586,13 +811,13 @@ mod tests {
             CommentChange::Delivered
         );
         assert_eq!(
-            repo.edit(f.location, comment.id, CommentAuthor::Client, &body)
+            repo.edit(f.location, comment.id, CommentAuthor::Client, CLIENT, &body)
                 .await
                 .unwrap(),
             CommentChange::Delivered
         );
         assert_eq!(
-            repo.delete(f.location, comment.id, CommentAuthor::Client)
+            repo.delete(f.location, comment.id, CommentAuthor::Client, CLIENT)
                 .await
                 .unwrap(),
             CommentChange::Delivered
@@ -613,11 +838,34 @@ mod tests {
             (photographer.id, CommentAuthor::Client),
         ] {
             assert_eq!(
-                repo.edit(f.location, comment, author, &body).await.unwrap(),
+                repo.edit(
+                    f.location,
+                    comment,
+                    author,
+                    if author == CommentAuthor::Client {
+                        CLIENT
+                    } else {
+                        None
+                    },
+                    &body,
+                )
+                .await
+                .unwrap(),
                 CommentChange::NotFound
             );
             assert_eq!(
-                repo.delete(f.location, comment, author).await.unwrap(),
+                repo.delete(
+                    f.location,
+                    comment,
+                    author,
+                    if author == CommentAuthor::Client {
+                        CLIENT
+                    } else {
+                        None
+                    },
+                )
+                .await
+                .unwrap(),
                 CommentChange::NotFound
             );
         }
@@ -625,20 +873,26 @@ mod tests {
         let other = Fixture::new(&pool).await;
 
         assert_eq!(
-            repo.edit(other.location, client.id, CommentAuthor::Client, &body)
-                .await
-                .unwrap(),
+            repo.edit(
+                other.location,
+                client.id,
+                CommentAuthor::Client,
+                CLIENT,
+                &body,
+            )
+            .await
+            .unwrap(),
             CommentChange::NotFound
         );
         assert_eq!(
-            repo.delete(other.location, client.id, CommentAuthor::Client)
+            repo.delete(other.location, client.id, CommentAuthor::Client, CLIENT)
                 .await
                 .unwrap(),
             CommentChange::NotFound
         );
 
         let CommentChange::Applied(edited) = repo
-            .edit(f.location, client.id, CommentAuthor::Client, &body)
+            .edit(f.location, client.id, CommentAuthor::Client, CLIENT, &body)
             .await
             .unwrap()
         else {
@@ -656,7 +910,7 @@ mod tests {
 
         for _ in 0..2 {
             assert_eq!(
-                repo.delete(f.location, comment.id, CommentAuthor::Client)
+                repo.delete(f.location, comment.id, CommentAuthor::Client, CLIENT)
                     .await
                     .unwrap(),
                 CommentChange::Applied(())
@@ -664,7 +918,7 @@ mod tests {
         }
 
         let client = repo
-            .thread(f.location, f.proof, CommentAuthor::Client)
+            .thread(f.location, f.proof, CommentAuthor::Client, CLIENT)
             .await
             .unwrap()
             .unwrap();
@@ -672,7 +926,7 @@ mod tests {
         assert_eq!(client[0].body, None);
         assert!(client[0].deleted_at.is_some());
         assert_eq!(
-            repo.thread(f.location, f.proof, CommentAuthor::Photographer)
+            repo.thread(f.location, f.proof, CommentAuthor::Photographer, None)
                 .await
                 .unwrap()
                 .unwrap()[0]
@@ -691,6 +945,7 @@ mod tests {
                 f.location,
                 comment.id,
                 CommentAuthor::Client,
+                CLIENT,
                 &"edited".to_owned().try_into().unwrap()
             )
             .await
@@ -706,13 +961,13 @@ mod tests {
         let repo = f.database.repository::<CommentRepository>();
 
         assert_eq!(
-            repo.delete(f.location, comment.id, CommentAuthor::Photographer)
+            repo.delete(f.location, comment.id, CommentAuthor::Photographer, None)
                 .await
                 .unwrap(),
             CommentChange::Applied(())
         );
         assert_eq!(
-            repo.delete(f.location, comment.id, CommentAuthor::Photographer)
+            repo.delete(f.location, comment.id, CommentAuthor::Photographer, None)
                 .await
                 .unwrap(),
             CommentChange::NotFound
@@ -720,11 +975,20 @@ mod tests {
 
         for viewer in [CommentAuthor::Client, CommentAuthor::Photographer] {
             assert!(
-                repo.thread(f.location, f.proof, viewer)
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .is_empty()
+                repo.thread(
+                    f.location,
+                    f.proof,
+                    viewer,
+                    if viewer == CommentAuthor::Client {
+                        CLIENT
+                    } else {
+                        None
+                    },
+                )
+                .await
+                .unwrap()
+                .unwrap()
+                .is_empty()
             );
         }
     }
@@ -758,7 +1022,7 @@ mod tests {
         let comment = f.add(CommentAuthor::Client).await;
 
         assert_eq!(
-            repo.delete(f.location, comment.id, CommentAuthor::Client)
+            repo.delete(f.location, comment.id, CommentAuthor::Client, CLIENT)
                 .await
                 .unwrap(),
             CommentChange::Applied(())
@@ -824,6 +1088,7 @@ mod tests {
                 f.location,
                 comment.id,
                 CommentAuthor::Client,
+                CLIENT,
                 &"edited".to_owned().try_into().unwrap(),
             )
             .await
@@ -831,7 +1096,7 @@ mod tests {
             CommentChange::Applied(_)
         ));
         assert_eq!(
-            repo.delete(f.location, comment.id, CommentAuthor::Client)
+            repo.delete(f.location, comment.id, CommentAuthor::Client, CLIENT)
                 .await
                 .unwrap(),
             CommentChange::Applied(())
@@ -868,5 +1133,81 @@ mod tests {
         .unwrap();
 
         assert_eq!(lines, [(ActivityKind::Comment, 1)]);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn the_activity_line_quotes_the_latest_client_comment(pool: PgPool) {
+        let f = Fixture::new(&pool).await;
+        let long = format!("  First\n{}  ", "é".repeat(300));
+        let quote = || async {
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT detail FROM activity_events WHERE gallery_id = $1",
+            )
+            .bind(f.location.gallery_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        };
+
+        f.add_text(CommentAuthor::Client, &long).await;
+
+        let first = quote().await.unwrap();
+
+        assert!(first.starts_with("First é"));
+        assert_eq!(first.chars().count(), ACTIVITY_PREVIEW_CHARS);
+
+        f.add_text(CommentAuthor::Client, "Warmer, please").await;
+
+        assert_eq!(quote().await.as_deref(), Some("Warmer, please"));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn the_activity_line_points_at_the_photo_of_the_latest_comment(pool: PgPool) {
+        let f = Fixture::new(&pool).await;
+        let photos = || async {
+            sqlx::query_scalar::<_, Vec<PhotoId>>(
+                "SELECT photo_ids FROM activity_events WHERE gallery_id = $1",
+            )
+            .bind(f.location.gallery_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        };
+
+        f.add_text(CommentAuthor::Client, "On the first photo")
+            .await;
+
+        assert_eq!(photos().await, [f.proof]);
+
+        let options = ActivityOptions::default().client(Some(Client { contact_id: None }));
+        let other = PhotoId::from(Uuid::new_v4());
+
+        sqlx::query(
+            "INSERT INTO photos
+                 (id, workspace_id, gallery_id, original_name, size, width, height,
+                  kind, status, clean_ready)
+             VALUES ($1, $2, $3, 'b.jpg', 1, 1, 1, 'proof'::photo_kind, 'ready', true)",
+        )
+        .bind(other)
+        .bind(f.location.workspace_id)
+        .bind(f.location.gallery_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let change = f
+            .database
+            .repository_with::<CommentRepository>(options)
+            .add(
+                f.location,
+                other,
+                CommentAuthor::Client,
+                &"On the second".to_owned().try_into().unwrap(),
+                NonZeroU16::new(100).unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert!(matches!(change, CommentChange::Applied(_)));
+        assert_eq!(photos().await, [other]);
     }
 }

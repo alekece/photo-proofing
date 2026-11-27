@@ -187,6 +187,31 @@ impl NotificationRepository<'_> {
         Ok(())
     }
 
+    /// Deletes one notification, read or not; false when the workspace has no such notification.
+    pub async fn delete(
+        &self,
+        workspace_id: WorkspaceId,
+        id: NotificationId,
+    ) -> Result<bool, DatabaseError> {
+        let deleted = sqlx::query("DELETE FROM notifications WHERE id = $1 AND workspace_id = $2")
+            .bind(id)
+            .bind(workspace_id)
+            .execute(self.pool)
+            .await?;
+
+        Ok(deleted.rows_affected() == 1)
+    }
+
+    /// Deletes every notification of the workspace, read or not.
+    pub async fn delete_all(&self, workspace_id: WorkspaceId) -> Result<(), DatabaseError> {
+        sqlx::query("DELETE FROM notifications WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .execute(self.pool)
+            .await?;
+
+        Ok(())
+    }
+
     /// Deletes notifications read longer ago than `retention`.
     pub async fn expire(&self, retention: Duration) -> Result<u64, DatabaseError> {
         let removed = sqlx::query(
@@ -513,6 +538,64 @@ mod tests {
             .unwrap();
 
         assert_eq!(fixture.list().await.unread, 0);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn deleting_notifications_is_scoped_and_announced(pool: PgPool) {
+        use crate::listener::Notification as Heard;
+
+        let fixture = Fixture::new(pool).await;
+        let other = fixture
+            .database
+            .repository::<TestRepository>()
+            .create_workspace()
+            .await
+            .unwrap();
+        let photo = fixture.photo("proof").await;
+
+        fixture.favorite(photo, true).await;
+
+        let id = fixture.list().await.notifications[0].id;
+        let mut listener = fixture.database.listen().await.unwrap();
+
+        assert!(!fixture.notifications().delete(other, id).await.unwrap());
+        assert_eq!(fixture.list().await.notifications.len(), 1);
+
+        fixture.notifications().delete_all(other).await.unwrap();
+
+        assert_eq!(fixture.list().await.notifications.len(), 1);
+        assert!(
+            fixture
+                .notifications()
+                .delete(fixture.workspace_id, id)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            Fixture::heard(&mut listener).await,
+            Heard::Notification(NotificationEvent {
+                workspace_id: fixture.workspace_id,
+                gallery_id: fixture.gallery_id,
+            })
+        );
+        assert!(fixture.list().await.notifications.is_empty());
+        assert!(
+            !fixture
+                .notifications()
+                .delete(fixture.workspace_id, id)
+                .await
+                .unwrap()
+        );
+
+        fixture.favorite(photo, false).await;
+        fixture.favorite(photo, true).await;
+        fixture
+            .notifications()
+            .delete_all(fixture.workspace_id)
+            .await
+            .unwrap();
+
+        assert!(fixture.list().await.notifications.is_empty());
     }
 
     #[sqlx::test(migrations = "./migrations")]

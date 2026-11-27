@@ -11,16 +11,63 @@ const comment = {
 	body: 'Nice',
 	created_at: '2026-11-10T09:00:00Z',
 	edited_at: null,
-	deleted_at: null
+	deleted_at: null,
+	editable: true
 };
 
 describe('CommentThread', () => {
+	it('names a personal-link client only in the photographer thread', async () => {
+		const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+			Response.json([
+				{
+					...comment,
+					editable: false,
+					contact: { id: 'contact-1', name: 'Claire Martin' }
+				},
+				{
+					...comment,
+					id: 'c2',
+					editable: false,
+					body: 'Anonymous note'
+				}
+			])
+		);
+		render(CommentThread, {
+			client: new CommentsClient('/base', fetcher),
+			photoId: 'p1',
+			viewer: 'photographer'
+		});
+
+		expect(await screen.findByText('Claire Martin')).toBeTruthy();
+		expect(screen.getByText('Client')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+	});
+
+	it('trusts the server-owned editable flag for another client comment', async () => {
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(Response.json([{ ...comment, editable: false }]));
+		render(CommentThread, {
+			client: new CommentsClient('/base', fetcher),
+			photoId: 'p1',
+			viewer: 'client'
+		});
+
+		await screen.findByText('Nice');
+		expect(screen.getByText('Client')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+	});
+
 	it('loads plain text, only offers own controls and sends a new comment', async () => {
 		const user = userEvent.setup();
 		const fetcher = vi
 			.fn<typeof fetch>()
 			.mockResolvedValueOnce(
-				Response.json([comment, { ...comment, id: 'c2', author: 'photographer', body: 'Thanks' }])
+				Response.json([
+					comment,
+					{ ...comment, id: 'c2', author: 'photographer', body: 'Thanks', editable: false }
+				])
 			)
 			.mockResolvedValueOnce(Response.json({ ...comment, id: 'c3', body: 'Beautiful' }));
 		const onchange = vi.fn();
@@ -48,6 +95,7 @@ describe('CommentThread', () => {
 					{
 						...comment,
 						body: viewer === 'client' ? null : 'Nice',
+						editable: viewer === 'client',
 						deleted_at: comment.created_at
 					}
 				])
@@ -59,6 +107,7 @@ describe('CommentThread', () => {
 			});
 			const text = await screen.findByText(viewer === 'client' ? 'Comment deleted' : 'Nice');
 			if (viewer === 'photographer') expect(text.classList.contains('line-through')).toBe(true);
+			expect(screen.queryByText('deleted') !== null).toBe(viewer === 'photographer');
 			expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
 		}
 	);

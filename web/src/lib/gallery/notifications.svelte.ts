@@ -95,6 +95,11 @@ export class NotificationCenter {
 		await this.#post('/read');
 	}
 
+	/** Whether the server deleted them; the list is refetched either way. */
+	async deleteAll(): Promise<boolean> {
+		return this.#delete();
+	}
+
 	/** Loads the list and keeps it current; returns what stops that. */
 	start(events: LiveEvents): () => void {
 		const stops = [
@@ -105,6 +110,18 @@ export class NotificationCenter {
 		void this.refresh();
 
 		return () => stops.forEach((stop) => stop());
+	}
+
+	async #delete(): Promise<boolean> {
+		const response = await this.#fetcher('/api/v1/notifications', {
+			method: 'DELETE',
+			credentials: 'same-origin',
+			keepalive: true
+		}).catch(() => null);
+
+		await this.refresh();
+
+		return response?.ok === true;
 	}
 
 	async #post(path: string) {

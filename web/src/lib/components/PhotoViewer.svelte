@@ -9,10 +9,9 @@
 		MessageSquare,
 		MessageSquareOff,
 		Pause,
-		Play,
-		X
+		Play
 	} from '@lucide/svelte';
-	import { onMount, type Snippet } from 'svelte';
+	import type { Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import { cn } from '#lib/utils.js';
@@ -70,7 +69,6 @@
 	const pill =
 		'inline-flex h-[52px] cursor-pointer items-center gap-2.5 rounded-full pr-[22px] pl-[18px] text-[0.9375rem] font-semibold transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus';
 
-	let closeButton: HTMLButtonElement;
 	let commentsButton = $state<HTMLButtonElement>();
 	const proof = $derived(proofs[index]);
 	const status = $derived(proof.status ?? 'ready');
@@ -81,6 +79,12 @@
 	// The photographer reads feedback while reviewing, so the thread starts open; the client's starts closed.
 	// svelte-ignore state_referenced_locally
 	let threadOpen = $state(!client && !!thread);
+	// The name sits on the middle of the photo's column, which is narrower while the thread is open.
+	const titlePosition = $derived(
+		threadOpen
+			? 'absolute left-1/2 max-w-[calc(100%-34.5rem)] -translate-x-1/2 min-[701px]:left-[calc((100%-360px)/2)]'
+			: 'absolute left-1/2 max-w-[calc(100%-24rem)] -translate-x-1/2'
+	);
 	// svelte-ignore state_referenced_locally
 	let playing = $state(client && autoplay && proofs.length > 1);
 
@@ -140,8 +144,6 @@
 
 		return () => clearTimeout(timer);
 	});
-
-	onMount(() => closeButton.focus());
 
 	function onkeydown(event: KeyboardEvent & { currentTarget: HTMLDialogElement }) {
 		const dialog = event.currentTarget;
@@ -244,9 +246,13 @@
 		}
 	}}
 	label={m.viewer_label()}
+	closeLabel={m.viewer_close()}
+	fade
+	closeClass="text-[#efe6da] [--icon-hover-color:color-mix(in_oklab,currentColor_14%,transparent)]"
+	focusClose
 	aria-modal="true"
 	class={cn(
-		'proof-viewer m-0 h-dvh max-h-dvh w-screen max-w-screen animate-photo-in overflow-hidden border-0 bg-dark p-0 text-[0.875rem] font-medium text-[#efe6da] open:grid',
+		'proof-viewer m-0 h-dvh max-h-dvh w-screen max-w-screen overflow-hidden border-0 bg-dark p-0 text-[0.875rem] font-medium text-[#efe6da] open:grid',
 		!client && 'client-surface',
 		client
 			? 'grid-rows-[60px_1fr_44px] max-[700px]:grid-rows-[56px_1fr_104px]'
@@ -256,199 +262,190 @@
 			'comments-open max-[700px]:grid-rows-[56px_minmax(0,1fr)_minmax(0,45dvh)_104px] min-[701px]:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]'
 	)}
 >
-	{#snippet children(close)}
-		<div
-			class="col-span-full flex min-w-0 items-center gap-3.5 px-5 max-[700px]:gap-2 max-[700px]:px-3"
-		>
-			{#if client}
-				<span class="truncate font-serif text-[1.1875rem] text-panel max-[700px]:hidden">
-					{title}
-				</span>
-			{:else}
-				<span class="truncate font-mono text-[0.8125rem] text-[#a8998a]">{proof.alt}</span>
-			{/if}
-			<span aria-live="polite" class="whitespace-nowrap text-[#a8998a] tabular-nums">
-				{m.viewer_position({ position: index + 1, total: proofs.length })}
+	<div
+		class="relative col-span-full flex min-w-0 items-center gap-3.5 pr-16 pl-5 max-[700px]:gap-2 max-[700px]:pl-3"
+	>
+		<span aria-live="polite" class="whitespace-nowrap text-[#a8998a] tabular-nums">
+			{m.viewer_position({ position: index + 1, total: proofs.length })}
+		</span>
+		{#if client}
+			<span
+				class="{titlePosition} truncate font-serif text-[1.1875rem] text-panel max-[700px]:hidden"
+			>
+				{title}
 			</span>
-			<span class="flex-1"></span>
-			{#if client && proofs.length > 1}
-				<button
-					type="button"
-					onclick={toggleSlideshow}
-					aria-label={playing ? m.viewer_pause_slideshow() : m.viewer_play_slideshow()}
-					class={cn(
-						'inline-grid size-10 cursor-pointer place-items-center rounded-full transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus',
-						playing ? 'bg-panel text-foreground' : 'bg-white/8 text-[#efe6da] hover:bg-white/14'
-					)}
-				>
-					{#if playing}
-						<Pause size={18} aria-hidden="true" />
+		{:else}
+			<span
+				class="{titlePosition} truncate font-mono text-[0.8125rem] text-[#a8998a] max-[700px]:hidden"
+			>
+				{proof.alt}
+			</span>
+		{/if}
+		<span class="flex-1"></span>
+		{#if client && proofs.length > 1}
+			<button
+				type="button"
+				onclick={toggleSlideshow}
+				aria-label={playing ? m.viewer_pause_slideshow() : m.viewer_play_slideshow()}
+				class={cn(
+					'inline-grid size-10 cursor-pointer place-items-center rounded-full transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus',
+					playing ? 'bg-panel text-foreground' : 'bg-white/8 text-[#efe6da] hover:bg-white/14'
+				)}
+			>
+				{#if playing}
+					<Pause size={18} aria-hidden="true" />
+				{:else}
+					<Play size={18} aria-hidden="true" />
+				{/if}
+			</button>
+		{/if}
+		{#if client && wide.current && status === 'ready' && (onselect || readonly) && !proof.downloadUrl}
+			{@render heartPill(false)}
+		{/if}
+		{#if client && wide.current && status === 'ready' && proof.downloadUrl}
+			<a
+				href={proof.downloadUrl}
+				download
+				class="inline-flex h-10 items-center gap-2 rounded-full bg-panel px-3.5 text-[0.84375rem] font-semibold whitespace-nowrap text-foreground focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
+			>
+				<Download size={17} aria-hidden="true" />{m.action_download()}
+			</a>
+		{/if}
+		{#if thread}
+			{@const count = commentCount?.(proof.id) ?? 0}
+			<button
+				type="button"
+				bind:this={commentsButton}
+				aria-label={m.comments_title()}
+				aria-expanded={threadOpen}
+				onclick={() => {
+					if (!threadOpen) playing = false;
+					threadOpen = !threadOpen;
+				}}
+				aria-pressed={threadOpen}
+				class={cn(
+					'inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus',
+					threadOpen ? 'bg-panel text-foreground' : 'bg-white/8 text-panel hover:bg-white/14'
+				)}
+			>
+				<span class="relative mr-2 inline-grid">
+					{#if threadOpen}
+						<MessageSquareOff size={18} aria-hidden="true" />
 					{:else}
-						<Play size={18} aria-hidden="true" />
+						<MessageSquare size={18} aria-hidden="true" />
 					{/if}
-				</button>
-			{/if}
-			{#if client && wide.current && status === 'ready' && (onselect || readonly) && !proof.downloadUrl}
-				{@render heartPill(false)}
-			{/if}
-			{#if client && wide.current && status === 'ready' && proof.downloadUrl}
+					{#if count > 0}
+						<span
+							class="absolute -top-2 -right-2.5 grid h-4 min-w-4 place-items-center rounded-full bg-[#e4573b] px-1 text-[0.6875rem] leading-none font-semibold text-white tabular-nums"
+						>
+							{count}
+						</span>
+					{/if}
+				</span>
+				<span class="max-[700px]:hidden">
+					{threadOpen ? m.comments_hide() : m.comments_title()}
+				</span>
+			</button>
+		{/if}
+	</div>
+	<div
+		role="presentation"
+		class={cn(
+			'photo-stage relative flex min-h-0 items-center justify-center overflow-hidden px-[84px] max-[700px]:px-0',
+			mobileNavigation && '[touch-action:pan-y_pinch-zoom]'
+		)}
+		onpointerdown={startSwipe}
+		onpointerup={finishSwipe}
+		onpointercancel={() => (swipe = undefined)}
+		onlostpointercapture={() => (swipe = undefined)}
+	>
+		{#if status === 'ready'}
+			{#key proof.id}
+				<span class="relative flex animate-photo-in">
+					<img
+						src={proof.previewUrl}
+						alt={proof.alt}
+						class={cn(
+							'block max-h-[calc(100dvh-124px)] max-w-[calc(100vw-168px)] rounded-[2px] object-contain shadow-[0_30px_80px_rgb(0_0_0/0.5)] max-[700px]:max-h-[calc(100dvh-160px)] max-[700px]:max-w-screen max-[700px]:rounded-none max-[700px]:shadow-none',
+							threadOpen &&
+								'max-[700px]:max-h-[calc(55dvh-160px)] min-[701px]:max-w-[calc(100vw-528px)]'
+						)}
+					/>
+					{#if !client && readonly && isSelected(proof.id)}
+						<span role="img" aria-label={m.viewer_marked()} class="{overlay} bg-panel text-danger">
+							<Heart size={20} aria-hidden="true" fill="currentColor" />
+						</span>
+					{/if}
+				</span>
+			{/key}
+		{:else if status === 'processing'}
+			<p role="status" class="flex items-center gap-3 font-serif text-lg text-[#a8998a] italic">
+				<LoaderCircle size={20} class="animate-spin-slow" aria-hidden="true" />
+				{m.viewer_processing()}
+			</p>
+		{:else}
+			<div
+				class="grid aspect-3/2 w-[min(560px,100%)] place-items-center rounded-md border border-dashed border-[#5a4d43] bg-[#241e1a] text-center text-[#a8998a]"
+			>
+				<div>
+					<p role="alert" class="mb-3 text-[0.9375rem] font-semibold text-warning-on-dark">
+						{m.viewer_failed()}
+					</p>
+					{#if onretry}
+						<ViewerButton onclick={() => onretry(proof.id)}>{m.viewer_try_again()}</ViewerButton>
+					{/if}
+				</div>
+			</div>
+		{/if}
+		<button
+			type="button"
+			class={cn(
+				arrow,
+				'left-5',
+				showMobileArrows ? 'max-[700px]:left-2 max-[700px]:bg-dark/55' : 'max-[700px]:hidden'
+			)}
+			aria-disabled={index === 0}
+			onclick={() => step(index - 1)}
+			aria-label={m.viewer_previous()}
+		>
+			<ChevronLeft size={22} aria-hidden="true" />
+		</button>
+		<button
+			type="button"
+			class={cn(
+				arrow,
+				'right-5',
+				showMobileArrows ? 'max-[700px]:right-2 max-[700px]:bg-dark/55' : 'max-[700px]:hidden'
+			)}
+			aria-disabled={index === proofs.length - 1}
+			onclick={() => step(index + 1)}
+			aria-label={m.viewer_next()}
+		>
+			<ChevronRight size={22} aria-hidden="true" />
+		</button>
+	</div>
+	{#if threadOpen && thread}
+		<aside
+			class="min-h-0 overflow-hidden border-panel/20 bg-dark py-4 pr-6 pl-8 max-[700px]:row-start-3 max-[700px]:border-t min-[701px]:col-start-2 min-[701px]:row-span-2 min-[701px]:row-start-2"
+		>
+			{@render thread(proof)}
+		</aside>
+	{/if}
+	<div class="viewer-footer flex items-center justify-center gap-3">
+		{#if client && !wide.current && status === 'ready'}
+			{#if proof.downloadUrl}
 				<a
 					href={proof.downloadUrl}
 					download
-					class="inline-flex h-10 items-center gap-2 rounded-full bg-panel px-3.5 text-[0.84375rem] font-semibold whitespace-nowrap text-foreground focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
+					class="{pill} bg-panel pr-[22px] pl-[22px] text-foreground"
 				>
-					<Download size={17} aria-hidden="true" />{m.action_download()}
+					<Download size={20} aria-hidden="true" />{m.action_download()}
 				</a>
+			{:else if onselect || readonly}
+				{@render heartPill(true)}
 			{/if}
-			{#if thread}
-				{@const count = commentCount?.(proof.id) ?? 0}
-				<button
-					type="button"
-					bind:this={commentsButton}
-					aria-label={m.comments_title()}
-					aria-expanded={threadOpen}
-					onclick={() => {
-						if (!threadOpen) playing = false;
-						threadOpen = !threadOpen;
-					}}
-					aria-pressed={threadOpen}
-					class={cn(
-						'inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus',
-						threadOpen ? 'bg-panel text-foreground' : 'bg-white/8 text-panel hover:bg-white/14'
-					)}
-				>
-					<span class="relative mr-2 inline-grid">
-						{#if threadOpen}
-							<MessageSquareOff size={18} aria-hidden="true" />
-						{:else}
-							<MessageSquare size={18} aria-hidden="true" />
-						{/if}
-						{#if count > 0}
-							<span
-								class="absolute -top-2 -right-2.5 grid h-4 min-w-4 place-items-center rounded-full bg-[#e4573b] px-1 text-[0.6875rem] leading-none font-semibold text-white tabular-nums"
-							>
-								{count}
-							</span>
-						{/if}
-					</span>
-					<span class="max-[700px]:hidden">
-						{threadOpen ? m.comments_hide() : m.comments_title()}
-					</span>
-				</button>
-			{/if}
-			<button
-				type="button"
-				bind:this={closeButton}
-				onclick={close}
-				aria-label={m.viewer_close()}
-				class="inline-grid size-10 cursor-pointer place-items-center rounded-full bg-white/8 text-[#efe6da] transition-colors hover:bg-white/14 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
-			>
-				<X size={20} aria-hidden="true" />
-			</button>
-		</div>
-		<div
-			role="presentation"
-			class={cn(
-				'photo-stage relative flex min-h-0 items-center justify-center overflow-hidden px-[84px] max-[700px]:px-0',
-				mobileNavigation && '[touch-action:pan-y_pinch-zoom]'
-			)}
-			onpointerdown={startSwipe}
-			onpointerup={finishSwipe}
-			onpointercancel={() => (swipe = undefined)}
-			onlostpointercapture={() => (swipe = undefined)}
-		>
-			{#if status === 'ready'}
-				{#key proof.id}
-					<span class="relative flex animate-photo-in">
-						<img
-							src={proof.previewUrl}
-							alt={proof.alt}
-							class={cn(
-								'block max-h-[calc(100dvh-124px)] max-w-[calc(100vw-168px)] rounded-[2px] object-contain shadow-[0_30px_80px_rgb(0_0_0/0.5)] max-[700px]:max-h-[calc(100dvh-160px)] max-[700px]:max-w-screen max-[700px]:rounded-none max-[700px]:shadow-none',
-								threadOpen &&
-									'max-[700px]:max-h-[calc(55dvh-160px)] min-[701px]:max-w-[calc(100vw-528px)]'
-							)}
-						/>
-						{#if !client && readonly && isSelected(proof.id)}
-							<span
-								role="img"
-								aria-label={m.viewer_marked()}
-								class="{overlay} bg-panel text-danger"
-							>
-								<Heart size={20} aria-hidden="true" fill="currentColor" />
-							</span>
-						{/if}
-					</span>
-				{/key}
-			{:else if status === 'processing'}
-				<p role="status" class="flex items-center gap-3 font-serif text-lg text-[#a8998a] italic">
-					<LoaderCircle size={20} class="animate-spin-slow" aria-hidden="true" />
-					{m.viewer_processing()}
-				</p>
-			{:else}
-				<div
-					class="grid aspect-3/2 w-[min(560px,100%)] place-items-center rounded-md border border-dashed border-[#5a4d43] bg-[#241e1a] text-center text-[#a8998a]"
-				>
-					<div>
-						<p role="alert" class="mb-3 text-[0.9375rem] font-semibold text-warning-on-dark">
-							{m.viewer_failed()}
-						</p>
-						{#if onretry}
-							<ViewerButton onclick={() => onretry(proof.id)}>{m.viewer_try_again()}</ViewerButton>
-						{/if}
-					</div>
-				</div>
-			{/if}
-			<button
-				type="button"
-				class={cn(
-					arrow,
-					'left-5',
-					showMobileArrows ? 'max-[700px]:left-2 max-[700px]:bg-dark/55' : 'max-[700px]:hidden'
-				)}
-				aria-disabled={index === 0}
-				onclick={() => step(index - 1)}
-				aria-label={m.viewer_previous()}
-			>
-				<ChevronLeft size={22} aria-hidden="true" />
-			</button>
-			<button
-				type="button"
-				class={cn(
-					arrow,
-					'right-5',
-					showMobileArrows ? 'max-[700px]:right-2 max-[700px]:bg-dark/55' : 'max-[700px]:hidden'
-				)}
-				aria-disabled={index === proofs.length - 1}
-				onclick={() => step(index + 1)}
-				aria-label={m.viewer_next()}
-			>
-				<ChevronRight size={22} aria-hidden="true" />
-			</button>
-		</div>
-		{#if threadOpen && thread}
-			<aside
-				class="min-h-0 overflow-hidden border-panel/20 bg-dark py-4 pr-6 pl-8 max-[700px]:row-start-3 max-[700px]:border-t min-[701px]:col-start-2 min-[701px]:row-span-2 min-[701px]:row-start-2"
-			>
-				{@render thread(proof)}
-			</aside>
 		{/if}
-		<div class="viewer-footer flex items-center justify-center gap-3">
-			{#if client && !wide.current && status === 'ready'}
-				{#if proof.downloadUrl}
-					<a
-						href={proof.downloadUrl}
-						download
-						class="{pill} bg-panel pr-[22px] pl-[22px] text-foreground"
-					>
-						<Download size={20} aria-hidden="true" />{m.action_download()}
-					</a>
-				{:else if onselect || readonly}
-					{@render heartPill(true)}
-				{/if}
-			{/if}
-		</div>
-	{/snippet}
+	</div>
 </Dialog>
 
 <style>

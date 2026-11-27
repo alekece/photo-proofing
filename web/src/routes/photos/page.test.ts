@@ -72,7 +72,7 @@ describe('/photos page', () => {
 		expect(screen.getByRole('alert').textContent).toMatch(/Couldn.t load the photos/);
 	});
 
-	it('lists both types across galleries without a filename or kind badge', () => {
+	it('lists both types and badges only retouched photos', () => {
 		open([
 			photo({ id: 'p1', gallery_title: 'Wedding', kind: 'proof' }),
 			photo({ id: 'p2', gallery_id: 'g2', gallery_title: 'Portraits', kind: 'final' })
@@ -81,7 +81,8 @@ describe('/photos page', () => {
 
 		expect(within(list).getByText('Wedding')).toBeTruthy();
 		expect(within(list).getByText('Portraits')).toBeTruthy();
-		expect(within(list).queryByText(/^(Proof|Final|DSC_1234.jpg)$/)).toBeNull();
+		expect(within(list).queryByText(/^(Proof|DSC_1234.jpg)$/)).toBeNull();
+		expect(within(list).getAllByRole('img', { name: 'Retouched photo' })).toHaveLength(1);
 	});
 
 	it('searches by gallery title only', async () => {
@@ -97,6 +98,7 @@ describe('/photos page', () => {
 		expect(document.activeElement).toBe(search);
 		expect(within(list()).queryByText('Wedding')).toBeNull();
 		expect(within(list()).getByText('Portraits')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Reset' })).toBeNull();
 
 		for (const match of ['abc1', 'dsc_1234']) {
 			await user.clear(search);
@@ -110,32 +112,30 @@ describe('/photos page', () => {
 		await user.click(screen.getByRole('button', { name: 'Clear search and filters' }));
 		expect(within(list()).getByText('Wedding')).toBeTruthy();
 		expect(within(list()).getByText('Portraits')).toBeTruthy();
-		await user.type(search, 'missing');
-		await user.click(screen.getByRole('button', { name: 'Reset' }));
 		expect(screen.getByRole('searchbox', { name: 'Search by gallery' })).toBe(search);
 		expect(search).toHaveProperty('value', '');
 	});
 
-	it('combines directly available gallery and type filters', async () => {
+	it('combines accent-insensitive gallery search with the photo type filter', async () => {
 		const user = userEvent.setup();
 		open([
 			photo({ id: 'p1', gallery_id: 'g1', gallery_title: 'Wedding', kind: 'proof' }),
-			photo({ id: 'p2', gallery_id: 'g2', gallery_title: 'Portraits', kind: 'final' }),
-			photo({ id: 'p3', gallery_id: 'g2', gallery_title: 'Portraits', kind: 'proof' }),
+			photo({ id: 'p2', gallery_id: 'g2', gallery_title: 'Élodie', kind: 'final' }),
+			photo({ id: 'p3', gallery_id: 'g2', gallery_title: 'Élodie', kind: 'proof' }),
 			photo({ id: 'p4', gallery_id: 'g1', gallery_title: 'Wedding', kind: 'final' })
 		]);
 		const list = () => screen.getByRole('list', { name: 'Photos' });
 
-		await user.click(screen.getByRole('button', { name: /^Gallery:/ }));
-		await user.click(screen.getByRole('menuitemradio', { name: 'Portraits' }));
+		await user.type(screen.getByRole('searchbox', { name: 'Search by gallery' }), 'ELO');
 		expect(within(list()).queryByText('Wedding')).toBeNull();
-		expect(within(list()).getAllByText('Portraits')).toHaveLength(2);
+		expect(within(list()).getAllByText('Élodie')).toHaveLength(2);
+		expect(screen.queryByRole('button', { name: /^Gallery:/ })).toBeNull();
 
 		await user.click(screen.getByRole('button', { name: /^Type:/ }));
-		await user.click(screen.getByRole('menuitemradio', { name: 'Final' }));
-		expect(screen.getByText('1 photo')).toBeTruthy();
+		await user.click(screen.getByRole('menuitemradio', { name: 'Retouched' }));
 		expect(within(list()).queryByText('Wedding')).toBeNull();
-		expect(within(list()).getByText('Portraits')).toBeTruthy();
+		expect(within(list()).getAllByText('Élodie')).toHaveLength(1);
+		expect(screen.queryByText('1 photo')).toBeNull();
 	});
 
 	it('sorts newest or oldest by taken date', async () => {
@@ -196,9 +196,19 @@ describe('/photos page', () => {
 		await user.click(screen.getByRole('button', { name: 'Select all' }));
 		expect(screen.getByText('2 selected')).toBeTruthy();
 		await user.click(screen.getByRole('button', { name: 'Unselect all' }));
-		expect(screen.getByText('0 selected')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Unselect all' })).toBeNull();
+		expect(screen.queryByText(/selected/)).toBeNull();
+	});
 
-		await user.keyboard('{Escape}');
+	it('closes the selection bar when the last photo is deselected', async () => {
+		const user = userEvent.setup();
+		open([photo()]);
+		const circle = screen.getByRole('button', { name: /^Select / });
+
+		await user.click(circle);
+		expect(screen.getByText('1 selected')).toBeTruthy();
+		await user.click(circle);
+		expect(circle.getAttribute('aria-pressed')).toBe('false');
 		expect(screen.queryByText(/selected/)).toBeNull();
 	});
 

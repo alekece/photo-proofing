@@ -14,11 +14,14 @@
 		confirmationDuration?: number;
 		/** Delay visual feedback, not dispatch; a slow write shows only the wheel. */
 		pendingDelayMs?: number;
+		/** Minimum time the visible spinner stays on screen, in milliseconds. Defaults to 100. */
+		minPendingMs?: number;
 		onsettled?: () => void;
 		disabled?: boolean;
 		form?: string;
 		variant?: ButtonVariant;
 		icon?: Snippet;
+		/** Shows only the icon until the `lg` breakpoint, where the label fits beside it. */
 		compactOnMobile?: boolean;
 		class?: string;
 		idleLabel?: string;
@@ -37,6 +40,7 @@
 		confirmation,
 		confirmationDuration = 1600,
 		pendingDelayMs,
+		minPendingMs = 100,
 		onsettled,
 		disabled = false,
 		form,
@@ -53,7 +57,7 @@
 	let disposed = false;
 	let showPending = $state(false);
 	const busy = $derived(phase === 'pending' || phase === 'confirmed');
-	const labelClass = $derived(compactOnMobile && icon ? 'sr-only sm:not-sr-only' : undefined);
+	const labelClass = $derived(compactOnMobile && icon ? 'sr-only lg:not-sr-only' : undefined);
 	const label = $derived(
 		phase === 'armed'
 			? (confirmation?.cancelAccessibleLabel ?? confirmation?.cancelLabel)
@@ -82,7 +86,13 @@
 
 		phase = 'pending';
 		showPending = !pendingDelayMs;
-		if (pendingDelayMs) timer = setTimeout(() => (showPending = true), pendingDelayMs);
+		let pendingSince = showPending ? Date.now() : undefined;
+		if (pendingDelayMs) {
+			timer = setTimeout(() => {
+				pendingSince = Date.now();
+				showPending = true;
+			}, pendingDelayMs);
+		}
 		let succeeded = false;
 
 		try {
@@ -94,6 +104,12 @@
 		if (disposed) return;
 		clearTimeout(timer);
 
+		const remaining = pendingSince === undefined ? 0 : minPendingMs - (Date.now() - pendingSince);
+		if (remaining > 0) timer = setTimeout(() => settle(succeeded), remaining);
+		else settle(succeeded);
+	}
+
+	function settle(succeeded: boolean): void {
 		if (!succeeded || !labels.succeeded) {
 			reset();
 			if (succeeded) onsettled?.();
@@ -137,12 +153,10 @@
 		aria-disabled={busy || undefined}
 		aria-busy={phase === 'pending' || undefined}
 		aria-describedby={phase === 'armed' ? warningId : undefined}
-		class="relative inline-grid overflow-hidden aria-disabled:cursor-default {pendingDelayMs ===
-		undefined
-			? ''
-			: '[&>span]:transition-none'} {compactOnMobile && icon
-			? 'max-sm:min-w-11 max-sm:px-0 max-sm:[&>span[aria-hidden]]:grid-cols-1 max-sm:[&>span[aria-hidden]]:gap-0 max-sm:[&>span[aria-hidden]>span:last-child]:hidden'
-			: ''} {className ?? ''}"
+		class="relative inline-grid overflow-hidden aria-disabled:cursor-default {phase === 'pending' ||
+		pendingDelayMs !== undefined
+			? '[&>span]:transition-none'
+			: ''} {compactOnMobile && icon ? 'max-lg:min-w-0 max-lg:px-2.5' : ''} {className ?? ''}"
 		onclick={(event) => {
 			if (busy) event.preventDefault();
 			else if (!form) activate();

@@ -29,6 +29,8 @@ const gallery = {
 	watermark_enabled: false,
 	hero_id: null,
 	share_token: null,
+	shared_at: null,
+	delivered_at: null,
 	last_opened_at: null,
 	shoot_date: null,
 	states: ['draft'],

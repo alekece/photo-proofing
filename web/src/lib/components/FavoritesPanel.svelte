@@ -3,7 +3,6 @@
 	import { CommentsClient } from '#lib/gallery/comments.js';
 	import { PhotoComments } from '#lib/gallery/photoComments.svelte.js';
 	import CommentThread from './CommentThread.svelte';
-	import OwnerZipError from './OwnerZipError.svelte';
 	import { Download, Heart, LoaderCircle } from '@lucide/svelte';
 	import { tick, untrack, type Snippet } from 'svelte';
 	import PhotoTile, { COLLECTION_GRID_CLASSES } from '#lib/components/PhotoTile.svelte';
@@ -17,23 +16,33 @@
 	import { listPhotos, previewUrl, thumbnailUrl, type Photo } from '#lib/gallery/photos.js';
 	import { selectionHotkeysAllowed, SelectMode } from '#lib/gallery/select-mode.svelte.js';
 	import type { Proof } from '#lib/gallery/types.js';
+	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 
 	let {
 		galleryId,
 		oncount,
 		onheader,
+		onfavorites,
+		onfulldownload,
 		active = true
 	}: {
 		galleryId: string;
 		/** How many favorites the client has picked, for the tab. */
 		oncount?: (count: number | null) => void;
 		onheader?: (action: Snippet) => void;
+		onfavorites?: (ids: string[] | null) => void;
+		onfulldownload?: (ids: string[]) => void;
 		active?: boolean;
 	} = $props();
 
 	const events = getLiveEvents();
 	const loadedGalleryId = $derived(galleryId);
-	const zip = new OwnerExport(() => loadedGalleryId, 'photos');
+	const zip = new OwnerExport(
+		() => loadedGalleryId,
+		'photos',
+		() => true,
+		false
+	);
 	const comments = $derived(
 		new PhotoComments(new CommentsClient(`/api/v1/galleries/${encodeURIComponent(galleryId)}`))
 	);
@@ -62,10 +71,14 @@
 			favorites = photos
 				.filter(({ favorited_at }) => favorited_at)
 				.sort((a, b) => Date.parse(b.favorited_at!) - Date.parse(a.favorited_at!));
+			onfavorites?.(favorites.map(({ id }) => id));
 			if (viewIndex < 0) viewedId = null;
 			failed = false;
 		} catch {
-			if (current === loads) failed = true;
+			if (current === loads) {
+				failed = true;
+				onfavorites?.(null);
+			}
 		} finally {
 			if (current === loads) loaded = true;
 		}
@@ -75,6 +88,7 @@
 		const id = loadedGalleryId;
 
 		favorites = [];
+		untrack(() => onfavorites?.(null));
 		untrack(() => mode.leave());
 		loaded = false;
 		viewedId = null;
@@ -114,6 +128,19 @@
 		oncount?.(loaded && !failed ? favorites.length : null);
 	});
 
+	let notifiedExportError: string | null = null;
+	$effect(() => {
+		const error = zip.error ?? zip.statusError;
+		if (!error) {
+			notifiedExportError = null;
+			return;
+		}
+		if (error === notifiedExportError) return;
+
+		notifiedExportError = error;
+		toasts.error(error);
+	});
+
 	// Photos that stop being favorites leave a selection with them.
 	$effect(() => {
 		for (const id of [...mode.ids]) {
@@ -126,10 +153,18 @@
 		await tick();
 		if (active) (downloadAll?.matches(':disabled') ? panel : (downloadAll ?? panel))?.focus();
 	}
+
+	function requestDownload(all: boolean) {
+		const ids = all
+			? favorites.map(({ id }) => id)
+			: favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id);
+
+		void zip.request(all ? undefined : ids, all ? () => onfulldownload?.(ids) : undefined);
+	}
 </script>
 
 {#snippet headerDownload()}
-	{#if favorites.length > 0}{@render downloadButton(true)}{/if}
+	{@render downloadButton(true)}
 {/snippet}
 
 {#snippet downloadButton(all = false)}
@@ -142,12 +177,9 @@
 		}
 		size="sm"
 		class="min-h-9! gap-1.5 group-data-[rail=gallery]/select-actions:max-xl:px-2.5"
-		disabled={zip.busy || (!all && mode.count === 0)}
+		disabled={zip.busy || (all ? favorites.length === 0 : mode.count === 0)}
 		aria-busy={zip.busy}
-		onclick={() =>
-			void zip.request(
-				all ? undefined : favorites.filter(({ id }) => mode.has(id)).map(({ id }) => id)
-			)}
+		onclick={() => requestDownload(all)}
 	>
 		{#if zip.busy}
 			<LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -167,7 +199,7 @@
 	tabindex="-1"
 	bind:this={panel}
 >
-	{#if !onheader && favorites.length > 0}
+	{#if !onheader}
 		<WorkspaceToolbar>
 			{#snippet actions()}{@render downloadButton(true)}{/snippet}
 		</WorkspaceToolbar>
@@ -178,7 +210,7 @@
 			total={favorites.length}
 			rail="gallery"
 			onselectall={() => mode.selectAll(favorites.map(({ id }) => id))}
-			onunselectall={() => mode.unselectAll()}
+			onunselectall={() => void finishSelecting()}
 			onexit={() => void finishSelecting()}
 			canEscape={() => active && mode.active && viewedId === null && selectionHotkeysAllowed()}
 		>
@@ -186,19 +218,16 @@
 		</SelectActions>
 	{/if}
 
-	<OwnerZipError {zip} />
-
 	{#if failed}
 		<p role="alert" class="text-sm text-danger">{m.favorites_load_failed()}</p>
 		<Button variant="outline" onclick={() => void load(galleryId)}>{m.action_retry()}</Button>
 	{:else if loaded && favorites.length === 0}
-		<EmptyState variant="plain">
-			<span class="grid size-14 place-items-center rounded-full bg-background">
-				<Heart size={26} aria-hidden="true" />
-			</span>
-			<h3>{m.favorites_empty()}</h3>
-			<p class="text-sm">{m.favorites_empty_body()}</p>
-		</EmptyState>
+		<EmptyState
+			variant="plain"
+			icon={Heart}
+			title={m.favorites_empty()}
+			description={m.favorites_empty_body()}
+		/>
 	{:else}
 		<ul aria-label={m.tab_favorites()} class={COLLECTION_GRID_CLASSES}>
 			{#each favorites as photo (photo.id)}
@@ -214,6 +243,7 @@
 						onselect={() => {
 							mode.enter();
 							mode.toggle(photo.id);
+							if (mode.count === 0) mode.leave();
 						}}
 						onopen={() => (viewedId = photo.id)}
 					/>

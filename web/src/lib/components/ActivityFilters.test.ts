@@ -6,17 +6,11 @@ import { ActivityFeed } from '#lib/activityLog/activityFeed.svelte.js';
 import { useLocale } from '#lib/i18n/testing.js';
 import ActivityFilters from './ActivityFilters.svelte';
 
-const galleries = [
-	{ id: 'g1', title: 'Wedding' },
-	{ id: 'g2', title: null }
-];
-const contacts = [{ id: 'c1', name: 'Alice' }];
-
-function setup(props: { galleries?: typeof galleries } = { galleries }) {
+function setup() {
 	const feed = new ActivityFeed({ fetcher: vi.fn() as unknown as typeof fetch });
 	const load = vi.spyOn(feed, 'load').mockResolvedValue();
 
-	render(ActivityFilters, { feed, contacts, ...props });
+	render(ActivityFilters, { feed, searchLabel: 'Search by visitor' });
 
 	return { feed, load };
 }
@@ -24,48 +18,37 @@ function setup(props: { galleries?: typeof galleries } = { galleries }) {
 describe('ActivityFilters', () => {
 	useLocale('en');
 
-	it('applies a gallery, visitor and date choice and reloads', async () => {
+	it('applies a date choice and reloads', async () => {
 		const { feed, load } = setup();
 		const user = userEvent.setup();
 
-		await user.click(screen.getByRole('button', { name: 'Filters' }));
-		await user.selectOptions(screen.getByRole('combobox', { name: 'Gallery' }), 'g1');
-		await user.selectOptions(screen.getByRole('combobox', { name: 'Visitor' }), 'anonymous');
-		await user.selectOptions(screen.getByRole('combobox', { name: 'Date' }), '7d');
+		await user.click(screen.getByRole('button', { name: 'Date' }));
+		await user.click(screen.getByRole('menuitemradio', { name: 'Last 7 days' }));
 
-		expect(feed.filters).toEqual({ gallery: 'g1', contact: 'anonymous', range: '7d' });
-		expect(load).toHaveBeenCalledTimes(3);
-		expect(screen.getByRole('option', { name: 'Untitled gallery' })).toBeTruthy();
-		expect(screen.getByRole('option', { name: 'Anonymous client' })).toBeTruthy();
+		expect(feed.filters).toEqual({ range: '7d' });
+		expect(load).toHaveBeenCalledOnce();
 	});
 
-	it('picks a kind and resets filters independently of sort', async () => {
+	it('clears a filter from its own menu without changing sort or showing a toolbar reset', async () => {
 		const { feed } = setup();
 		const user = userEvent.setup();
 
-		await user.click(screen.getByRole('button', { name: 'Filters' }));
-		await user.selectOptions(screen.getByRole('combobox', { name: 'Type' }), 'open');
+		await user.click(screen.getByRole('button', { name: 'Type' }));
+		await user.click(screen.getByRole('menuitemradio', { name: 'Views' }));
 		expect(feed.filters.kind).toBe('open');
-		expect(screen.getByRole('button', { name: 'Filters: Views' }).textContent).toContain('1');
+		expect(screen.queryByRole('button', { name: 'Reset' })).toBeNull();
 
 		await user.click(screen.getByRole('button', { name: 'Sort by: Newest first' }));
 		await user.click(screen.getByRole('menuitemradio', { name: 'Oldest first' }));
-		await user.click(screen.getByRole('button', { name: 'Reset' }));
+		await user.click(screen.getByRole('button', { name: 'Type: Views' }));
+		await user.click(screen.getByRole('menuitemradio', { name: 'All' }));
 		expect(feed.filters.kind).toBeUndefined();
 		expect(feed.sort).toBe('oldest');
 	});
 
-	it('leaves the gallery choice out of a gallery-scoped feed', async () => {
-		setup({});
-
-		await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
-		expect(screen.queryByRole('combobox', { name: 'Gallery' })).toBeNull();
-		expect(screen.getByRole('combobox', { name: 'Visitor' })).toBeTruthy();
-	});
-
 	it('has no axe violations', async () => {
 		const feed = new ActivityFeed({ fetcher: vi.fn() as unknown as typeof fetch });
-		const { container } = render(ActivityFilters, { feed, galleries, contacts });
+		const { container } = render(ActivityFilters, { feed, searchLabel: 'Search by visitor' });
 
 		expect((await axe(container)).violations).toEqual([]);
 	});

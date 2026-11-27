@@ -45,6 +45,9 @@
 	--color-viewer-focus: #8ab4f8;
 	--color-autofocus: #ff9a2e;
 	--color-golden-hour: #f7e3c4;
+	--color-terracotta: #9d4f3b;
+	--color-terracotta-border: #c57b62;
+	--color-terracotta-soft: #f3d7c9;
 	--color-hero: #c8961e;
 	--color-placeholder-sheet: oklch(97% 0.001 106.424);
 	--color-placeholder-tile: oklch(92.3% 0.003 48.717);
@@ -69,8 +72,37 @@
 	--danger: #b5381f;
 	--info: #6b7f8e;
 	--gallery-heading-font: Georgia, serif;
-	--gallery-rail-width: clamp(13.25rem, 16vw, 17.5rem);
+	--rail-expanded-width: clamp(13.25rem, 16vw, 17.5rem);
+	--rail-collapsed-width: 4.25rem;
+	--workspace-rail-width: var(--rail-expanded-width);
 }
+/*
+ * The workspace rail starts collapsed under 64rem unless the photographer chose otherwise;
+ * `data-workspace-rail` holds an explicit choice. The secondary rails never collapse.
+ */
+@media (min-width: 40rem) {
+	html[data-workspace-rail='collapsed'] {
+		--workspace-rail-width: var(--rail-collapsed-width);
+	}
+}
+@media (min-width: 40rem) and (max-width: 63.99rem) {
+	html:not([data-workspace-rail]) {
+		--workspace-rail-width: var(--rail-collapsed-width);
+	}
+}
+@custom-variant workspace-collapsed {
+	@media (min-width: 40rem) {
+		:where(html[data-workspace-rail='collapsed']) & {
+			@slot;
+		}
+	}
+	@media (min-width: 40rem) and (max-width: 63.99rem) {
+		:where(html:not([data-workspace-rail])) & {
+			@slot;
+		}
+	}
+}
+
 [data-studio-palette] {
 	--studio-rail: #eee5d9;
 	--studio-hover: #f1ece6;
@@ -89,6 +121,25 @@
 	--studio-hover: #f1f1ef;
 	--studio-choice: #ededeb;
 }
+
+.glass-on-image {
+	color: #fff;
+	background: rgb(22 18 15 / 0.56);
+	border: 1px solid rgb(255 255 255 / 0.22);
+	box-shadow:
+		0 1px 0 rgb(255 255 255 / 0.1) inset,
+		0 5px 16px rgb(22 18 15 / 0.14);
+	text-shadow: 0 1px 2px rgb(22 18 15 / 0.36);
+	backdrop-filter: blur(10px) saturate(115%);
+	-webkit-backdrop-filter: blur(10px) saturate(115%);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+	.glass-on-image {
+		background: rgb(22 18 15 / 0.9);
+	}
+}
+
 [data-studio-mode]
 	[data-slot='select-actions']
 	:is(.cn-button-variant-outline, .cn-button-variant-ghost):enabled:hover {
@@ -111,16 +162,62 @@
 	@apply px-3.5 sm:px-8;
 }
 
+@utility media-caption {
+	@apply grid min-w-0 gap-1.5 px-3 py-2.5 sm:px-4 sm:py-4;
+}
+
+@utility media-caption-title {
+	@apply min-w-0 truncate font-serif text-lg leading-tight sm:text-2xl;
+}
+
+@utility media-caption-summary {
+	@apply text-xs sm:text-sm;
+}
+
+@utility pill {
+	@apply rounded-full px-2.5 py-1;
+}
+
+@utility icon-action {
+	isolation: isolate;
+
+	&:enabled:not([aria-disabled='true'], [data-disabled]) {
+		cursor: pointer;
+
+		&::before {
+			@apply pointer-events-none absolute top-1/2 left-1/2 -z-10 -translate-1/2 transition-colors motion-reduce:transition-none;
+			width: var(--icon-hover-size, 100%);
+			height: var(--icon-hover-size, 100%);
+			border-radius: 50%;
+			content: '';
+		}
+
+		@media (hover: hover) {
+			&:hover::before {
+				background-color: var(
+					--icon-hover-color,
+					var(--studio-hover, color-mix(in oklab, currentColor 10%, transparent))
+				);
+			}
+		}
+	}
+}
+
+@utility overflow-count {
+	@apply relative grid min-h-11 min-w-11 cursor-pointer place-items-center rounded-full px-2 text-xs font-medium text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus max-sm:hover:bg-border/60 sm:font-normal;
+	--icon-hover-size: 2rem;
+}
+
 @utility menu-choice {
 	@apply flex items-center gap-2 rounded-full bg-transparent px-3 py-1.5 text-sm font-medium whitespace-nowrap text-foreground transition-colors motion-reduce:transition-none;
 
 	&:where(:hover:not(:disabled)) {
-		background: var(--color-border);
+		background: var(--border);
 	}
 
 	&:is([aria-current='page'], [aria-selected='true']) {
-		background: var(--color-foreground);
-		color: var(--color-background);
+		background: var(--foreground);
+		color: var(--background);
 		font-weight: 600;
 	}
 }
@@ -129,12 +226,12 @@
 	@apply border-border-strong bg-input text-foreground transition-colors;
 
 	&:where(:hover:not(:disabled, :has(> input:disabled))) {
-		background: var(--color-background);
+		background: var(--background);
 	}
 
 	&:is([aria-pressed='true'], [aria-checked='true'], :has(> input:checked)) {
-		background: var(--color-foreground);
-		border-color: var(--color-foreground);
+		background: var(--foreground);
+		border-color: var(--foreground);
 		color: var(--color-inverse);
 	}
 }
@@ -190,6 +287,13 @@
 	}
 	.cn-button:hover:not(:disabled):not([aria-disabled='true']) {
 		filter: brightness(0.93);
+	}
+	:is(.cn-button-variant-outline, .cn-button-variant-ghost):hover:not(
+			:disabled,
+			[aria-disabled='true']
+		) {
+		background: color-mix(in oklab, currentColor 9%, transparent);
+		filter: none;
 	}
 	.cn-input {
 		min-height: 2.75rem;

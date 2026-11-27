@@ -44,19 +44,19 @@
 
 	const RAIL_CLEARANCE_CLASS = {
 		dashboard:
-			'sm:left-[calc(50%+var(--gallery-rail-width)/2)] sm:max-w-[calc(100vw-var(--gallery-rail-width)-1.25rem)]',
+			'sm:left-[calc(50%+var(--workspace-rail-width)/2)] sm:max-w-[calc(100vw-var(--workspace-rail-width)-1.25rem)]',
 		gallery:
-			'sm:left-[calc(50%+var(--gallery-rail-width)/2)] sm:max-w-[calc(100vw-var(--gallery-rail-width)-1.25rem)] md:left-[calc(50%+var(--gallery-rail-width))] md:max-w-[calc(100vw-2*var(--gallery-rail-width)-1.5rem)]'
+			'sm:left-[calc(50%+var(--workspace-rail-width)/2)] sm:max-w-[calc(100vw-var(--workspace-rail-width)-1.25rem)] md:left-[calc(50%+(var(--workspace-rail-width)+var(--rail-expanded-width))/2)] md:max-w-[calc(100vw-var(--workspace-rail-width)-var(--rail-expanded-width)-1.5rem)]'
 	} as const;
 
-	function leaveDuration() {
+	function motionDuration() {
 		return typeof HTMLElement === 'undefined' ||
 			typeof HTMLElement.prototype.animate !== 'function' ||
 			(typeof window !== 'undefined' &&
 				typeof window.matchMedia === 'function' &&
 				window.matchMedia('(prefers-reduced-motion: reduce)').matches)
 			? 0
-			: 180;
+			: 240;
 	}
 
 	function toggle() {
@@ -77,18 +77,19 @@
 <div
 	data-slot="select-actions"
 	data-rail={rail}
-	out:fly={{ y: 8, duration: leaveDuration() }}
+	transition:fly={{ y: '175%', duration: motionDuration() }}
 	class={[
-		'group/select-actions fixed bottom-4 left-1/2 z-20 flex w-max max-w-[calc(100vw-1.25rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-control border border-border bg-panel px-2 py-1.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.35)] max-sm:gap-1 max-sm:p-1 sm:bottom-6',
+		'group/select-actions fixed bottom-4 left-1/2 z-20 flex w-max max-w-[calc(100vw-1.25rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-3xl border border-border bg-panel px-2 py-1.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.35)] max-sm:gap-1 max-sm:p-1 sm:bottom-6',
 		RAIL_CLEARANCE_CLASS[rail],
 		rail === 'gallery' &&
-			'max-xl:w-max max-xl:flex-wrap max-xl:justify-center max-xl:gap-1 max-xl:px-1'
+			'max-xl:w-max max-xl:flex-wrap max-xl:justify-center max-xl:gap-1 max-xl:px-1',
+		rail === 'dashboard' && 'max-lg:gap-1 max-lg:px-1'
 	]}
 >
 	<Button
 		variant="ghost"
 		size="sm"
-		class="min-h-9! px-2.5!"
+		class="min-h-9! px-2.5! sm:enabled:cursor-pointer"
 		aria-label={m.selection_exit()}
 		{disabled}
 		onclick={onexit}
@@ -101,13 +102,14 @@
 	<div
 		class={[
 			'flex flex-wrap items-center justify-center gap-2 max-sm:gap-1',
-			rail === 'gallery' && 'max-xl:ml-0 max-xl:gap-1'
+			rail === 'gallery' && 'max-xl:ml-0 max-xl:gap-1',
+			rail === 'dashboard' && 'max-lg:gap-1'
 		]}
 	>
 		<Button
 			variant="outline"
 			size="sm"
-			class="min-h-9! gap-1.5 px-3! group-data-[rail=gallery]/select-actions:max-xl:px-2.5! max-sm:border-transparent! max-sm:px-2.5!"
+			class="min-h-9! gap-1.5 px-3! group-data-[rail=gallery]/select-actions:max-xl:px-2.5! group-data-[rail=dashboard]/select-actions:max-lg:px-2.5!"
 			disabled={disabled || total === 0}
 			onclick={toggle}
 		>
@@ -115,16 +117,18 @@
 				<ListX
 					size={16}
 					aria-hidden="true"
-					class="group-data-[rail=gallery]/select-actions:max-xl:inline sm:hidden"
+					class="group-data-[rail=gallery]/select-actions:max-xl:inline group-data-[rail=dashboard]/select-actions:max-lg:inline sm:hidden"
 				/>
 			{:else}
 				<CheckCheck
 					size={16}
 					aria-hidden="true"
-					class="group-data-[rail=gallery]/select-actions:max-xl:inline sm:hidden"
+					class="group-data-[rail=gallery]/select-actions:max-xl:inline group-data-[rail=dashboard]/select-actions:max-lg:inline sm:hidden"
 				/>
 			{/if}
-			<span class="group-data-[rail=gallery]/select-actions:max-xl:sr-only max-sm:sr-only">
+			<span
+				class="group-data-[rail=gallery]/select-actions:max-xl:sr-only group-data-[rail=dashboard]/select-actions:max-lg:sr-only"
+			>
 				{all ? m.action_unselect_all() : m.action_select_all()}
 			</span>
 		</Button>

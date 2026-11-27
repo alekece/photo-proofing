@@ -5,13 +5,17 @@
 //! - `POST /galleries/{gallery_id}/read` marks the gallery's notification read, as opening the
 //!   gallery does; it answers 204 even when there was nothing to read.
 //! - `POST /read` marks every unread notification of the workspace read.
+//! - `DELETE /{id}` deletes one notification, read or not; another workspace's or an unknown id
+//!   is a 404. Later activity on its gallery opens a new unread notification.
+//! - `DELETE /` deletes every notification of the workspace. The activity log is not touched.
 //!
 //! Read state belongs to the workspace, so every signed-in browser sees it. Changes arrive on the
-//! event stream as `notification` events. Like every state-changing route, the `POST`s must carry
+//! event stream as `notification` events. Like every state-changing route, the `POST`s and
+//! `DELETE`s must carry
 //! the configured `Origin`.
 
 use actix_web::{
-    HttpResponse, get, post,
+    HttpResponse, delete, get, post,
     web::{self, Data, Path, ServiceConfig},
 };
 use pp_database::{
@@ -31,7 +35,9 @@ pub fn configure(cfg: &mut ServiceConfig) {
             .service(list_notifications)
             .service(read_all)
             .service(read_gallery)
-            .service(read_one),
+            .service(read_one)
+            .service(delete_all)
+            .service(delete_one),
     );
 }
 
@@ -88,6 +94,39 @@ async fn read_one(
         .database()
         .repository::<NotificationRepository>()
         .mark_read(identity.workspace_id, id.into_inner())
+        .await?;
+
+    if !found {
+        return Err(ErrorResponse::not_found());
+    }
+
+    Ok(HttpResponse::NoContent().finish())
+}
+
+#[delete("")]
+async fn delete_all(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+) -> Result<HttpResponse, ErrorResponse> {
+    state
+        .database()
+        .repository::<NotificationRepository>()
+        .delete_all(identity.workspace_id)
+        .await?;
+
+    Ok(HttpResponse::NoContent().finish())
+}
+
+#[delete("/{id}")]
+async fn delete_one(
+    state: Data<ApiState>,
+    Authenticated(identity): Authenticated,
+    id: Path<NotificationId>,
+) -> Result<HttpResponse, ErrorResponse> {
+    let found = state
+        .database()
+        .repository::<NotificationRepository>()
+        .delete(identity.workspace_id, id.into_inner())
         .await?;
 
     if !found {
@@ -316,6 +355,71 @@ mod tests {
             request(
                 test::TestRequest::post(),
                 "/api/v1/notifications/read",
+                &cookie,
+            ),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn notifications_are_deleted_one_or_all(pool: PgPool) {
+        let (state, _directory) = app_state(pool.clone()).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let (_, gallery) = call(
+            &app,
+            request(test::TestRequest::post(), "/api/v1/galleries", &cookie),
+        )
+        .await;
+        let location = location_of(&pool, &gallery).await;
+
+        favorite_a_ready_photo(&pool, location).await;
+
+        let (_, list) = call(
+            &app,
+            request(test::TestRequest::get(), "/api/v1/notifications", &cookie),
+        )
+        .await;
+        let id = list["notifications"][0]["id"].as_str().unwrap().to_owned();
+        let uri = format!("/api/v1/notifications/{id}");
+
+        let (status, _) = call(
+            &app,
+            test::TestRequest::delete().uri(&uri).cookie(cookie.clone()),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, _) = call(&app, request(test::TestRequest::delete(), &uri, &cookie)).await;
+
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let (_, list) = call(
+            &app,
+            request(test::TestRequest::get(), "/api/v1/notifications", &cookie),
+        )
+        .await;
+
+        assert_eq!(list["unread"], 0);
+        assert!(list["notifications"].as_array().unwrap().is_empty());
+
+        let (status, _) = call(&app, request(test::TestRequest::delete(), &uri, &cookie)).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = call(
+            &app,
+            request(
+                test::TestRequest::delete(),
+                "/api/v1/notifications",
                 &cookie,
             ),
         )

@@ -222,9 +222,8 @@ describe('PhotosPanel', () => {
 			expect(screen.getByRole('button', { name: 'Upload' })).toBe(upload);
 			expect(upload.closest('[data-slot="workspace-toolbar"]')).toBeTruthy();
 			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
-			expect(screen.getByText('0 selected', { selector: ':not(.sr-only)' })).toBeTruthy();
-			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
-			await user.click(screen.getByRole('button', { name: 'Exit selection' }));
+			expect(screen.queryByText('0 selected', { selector: ':not(.sr-only)' })).toBeNull();
+			expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
 			await user.click(screen.getByRole('button', { name: 'Open p1.jpg' }));
 			expect(screen.getByRole('dialog')).toBeTruthy();
 		}
@@ -265,7 +264,8 @@ describe('PhotosPanel', () => {
 							body: threadLoads === 1 ? 'Nice' : 'New message',
 							created_at: '2026-11-10T09:00:00Z',
 							edited_at: null,
-							deleted_at: null
+							deleted_at: null,
+							editable: false
 						}
 					]);
 				}
@@ -762,7 +762,7 @@ describe('PhotosPanel', () => {
 		setup(undefined, 'p1');
 		const open = await screen.findByRole('button', { name: 'Open p2.jpg' });
 		expect(screen.queryByRole('button', { name: 'Set as cover' })).toBeNull();
-		expect(screen.queryByRole('button', { name: 'Remove cover' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
 
 		await user.click(open);
 		const viewer = screen.getByRole('dialog', { name: /proof viewer/i });
@@ -823,7 +823,6 @@ describe('PhotosPanel', () => {
 
 		async function enter(user: ReturnType<typeof userEvent.setup>) {
 			await user.click(await screen.findByRole('button', { name: 'Select p1.jpg' }));
-			await user.click(screen.getByRole('button', { name: 'Select p1.jpg' }));
 		}
 
 		it('enters and leaves select mode', async () => {
@@ -842,8 +841,6 @@ describe('PhotosPanel', () => {
 			expect(screen.queryByRole('button', { name: 'Retry p2.jpg' })).toBeNull();
 			expect(screen.getByRole('button', { name: 'Remove a.jpg' })).toBeTruthy();
 
-			await user.click(circle('p1.jpg')!);
-
 			expect(screen.queryByRole('dialog')).toBeNull();
 			expect(counter()).toBe('1 selected');
 
@@ -855,16 +852,13 @@ describe('PhotosPanel', () => {
 
 			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
 
-			expect(counter()).toBe('0 selected');
-
-			await user.click(screen.getByRole('button', { name: 'Exit selection' }));
-
+			expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
 			expect(circle('p1.jpg')?.getAttribute('aria-pressed')).toBe('false');
 			await waitFor(() => expect(document.activeElement).toBe(uploadButton()));
 
 			await enter(user);
 
-			expect(counter()).toBe('0 selected');
+			expect(counter()).toBe('1 selected');
 
 			await user.click(circle('p2.jpg')!);
 			await user.keyboard('{Escape}');
@@ -907,7 +901,6 @@ describe('PhotosPanel', () => {
 			const click = vi.spyOn(HTMLInputElement.prototype, 'click');
 
 			await enter(user);
-			await user.click(screen.getByRole('button', { name: 'Select all' }));
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 
 			expect(click).not.toHaveBeenCalled();
@@ -921,18 +914,13 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(circle('p1.jpg')!);
 			await user.click(screen.getByRole('button', { name: 'Select all' }));
 
 			expect(counter()).toBe('2 selected');
 
 			await user.click(screen.getByRole('button', { name: 'Unselect all' }));
 
-			expect(counter()).toBe('0 selected');
-			expect(screen.getByRole('button', { name: 'Delete' })).toHaveProperty('disabled', true);
-
-			await user.click(screen.getByRole('button', { name: 'Exit selection' }));
-
+			expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
 			expect(circle('p1.jpg')?.getAttribute('aria-pressed')).toBe('false');
 			expect(screen.getByRole('button', { name: 'Upload' })).toBeTruthy();
 		});
@@ -977,10 +965,8 @@ describe('PhotosPanel', () => {
 			await enter(user);
 
 			expect((screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(
-				true
+				false
 			);
-
-			await user.click(circle('p1.jpg')!);
 			await user.click(circle('p3.jpg')!);
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 
@@ -1024,7 +1010,6 @@ describe('PhotosPanel', () => {
 			const { emit } = setup();
 
 			await enter(user);
-			await user.click(circle('p1.jpg')!);
 			await confirmDeletion(user);
 			await waitFor(() => expect(announced()).toContain('1 photo deleted'));
 
@@ -1184,7 +1169,6 @@ describe('PhotosPanel', () => {
 
 			setup();
 			await enter(user);
-			await user.click(circle('p1.jpg')!);
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 			await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 
@@ -1218,7 +1202,6 @@ describe('PhotosPanel', () => {
 
 			setup();
 			await enter(user);
-			await user.click(circle('p1.jpg')!);
 			await user.click(field);
 			await user.keyboard('{Control>}a{/Control}');
 			await user.keyboard('{Escape}');
@@ -1234,7 +1217,6 @@ describe('PhotosPanel', () => {
 
 			setup();
 			await enter(user);
-			await user.click(circle('p1.jpg')!);
 			await user.click(screen.getByRole('button', { name: 'Delete' }));
 			// jsdom lacks showModal, which moves focus into the dialog.
 			within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }).focus();
@@ -1250,7 +1232,6 @@ describe('PhotosPanel', () => {
 			const user = userEvent.setup();
 
 			await enter(user);
-			await user.click(circle('p1.jpg')!);
 
 			expect((await axe(view.container)).violations).toEqual([]);
 		});
@@ -1288,6 +1269,7 @@ describe('PhotosPanel', () => {
 			const open = await screen.findByRole('button', { name: 'Open f1.jpg' });
 			queue.add('g1', [jpeg('queued.jpg')], 'finals');
 			await waitFor(() => expect(pending).toHaveLength(1));
+			expect(screen.queryByText(/Photos requested for download:/)).toBeNull();
 			const finals = within(screen.getByRole('list'));
 			expect(finals.getAllByRole('listitem')).toHaveLength(3);
 			expect(screen.queryByText('Drop the finished photos here')).toBeNull();

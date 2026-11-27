@@ -70,6 +70,8 @@ const baseGalleryEntries = {
 	/** The private client link's token once shared; the link never changes afterwards. */
 	share_token: v.nullable(v.string()),
 	/** When a client last opened the shared gallery; `null` until the first open. */
+	shared_at: v.nullable(v.string()),
+	delivered_at: v.nullable(v.string()),
 	last_opened_at: v.nullable(v.string()),
 	/** The calendar day of the shoot (`YYYY-MM-DD`); `null` when not set. */
 	shoot_date: v.nullable(calendarDateSchema),
@@ -214,7 +216,16 @@ export const commentSchema = v.object({
 	body: v.nullable(v.string()),
 	created_at: v.string(),
 	edited_at: v.nullable(v.string()),
-	deleted_at: v.nullable(v.string())
+	deleted_at: v.nullable(v.string()),
+	editable: v.boolean(),
+	contact: v.optional(
+		v.nullable(
+			v.object({
+				id: v.string(),
+				name: v.string()
+			})
+		)
+	)
 });
 export const commentsSchema = v.array(commentSchema);
 export const commentCountsSchema = v.array(

@@ -1,5 +1,6 @@
 import * as v from 'valibot';
 import { requestJson } from '#lib/http.js';
+import { locales, type Locale } from '#lib/paraglide/runtime.js';
 import { rgbHexSchema } from './color.js';
 
 export const MARKS = ['name', 'logo', 'both'] as const;
@@ -21,6 +22,7 @@ export type Quality = (typeof QUALITIES)[number];
 
 /** Workspace settings shared by every gallery. */
 export type WorkspaceSettings = {
+	language: Locale;
 	studioMode: (typeof MODES)[number];
 	studioPalette: (typeof PALETTES)[number];
 	studioName: string;
@@ -46,6 +48,7 @@ export type WorkspaceSettings = {
 };
 
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
+	language: 'en',
 	studioMode: 'full_image',
 	studioPalette: 'warm',
 	studioName: '',
@@ -85,6 +88,7 @@ export function qualityChanged(a: WorkspaceSettings, b: WorkspaceSettings) {
 export function settingsChanged(a: WorkspaceSettings, b: WorkspaceSettings) {
 	return (
 		watermarkChanged(a, b) ||
+		a.language !== b.language ||
 		a.studioMode !== b.studioMode ||
 		a.studioPalette !== b.studioPalette ||
 		qualityChanged(a, b) ||
@@ -109,6 +113,7 @@ export function normalizeWatermarkHex(value: string): string | null {
 }
 
 const settingsResponseSchema = v.object({
+	language: v.optional(v.picklist(locales), DEFAULT_SETTINGS.language),
 	studio_mode: v.optional(v.picklist(MODES), 'full_image'),
 	studio_palette: v.optional(v.picklist(PALETTES), 'warm'),
 	studio_name: v.string(),
@@ -134,6 +139,7 @@ function toWorkspaceSettings(
 	logoUrl: string
 ): WorkspaceSettings {
 	return {
+		language: settings.language,
 		studioName: settings.studio_name,
 		studioMode: settings.studio_mode,
 		studioPalette: settings.studio_palette,
@@ -207,6 +213,7 @@ export class SettingsApi {
 			{
 				method: 'PUT',
 				body: JSON.stringify({
+					...(settings.language !== saved.language ? { language: settings.language } : {}),
 					...(changedDisplay
 						? { studio_mode: settings.studioMode, studio_palette: settings.studioPalette }
 						: {}),

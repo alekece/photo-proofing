@@ -35,7 +35,6 @@
 	let photos = $derived<WorkspacePhoto[]>(data.photos ?? []);
 	let query = $state('');
 	let resultsHeight = $state(0);
-	let galleryFilter = $state('all');
 	let typeFilter = $state<'all' | 'proof' | 'final'>('all');
 	let sortOrder = $state<'newest' | 'oldest'>('newest');
 	const sorts = $derived([
@@ -43,7 +42,6 @@
 		{ value: 'oldest', label: m.photos_sort_oldest() }
 	] as const);
 	const selectedIds = new SvelteSet<string>();
-	let selectionMode = $state(false);
 	let deleteConfirmOpen = $state(false);
 	let downloadBusy = $state(false);
 	const zip = new OwnerExport(() => null, 'photos');
@@ -56,32 +54,23 @@
 		return entry.gallery_title ?? m.gallery_untitled();
 	}
 
-	const galleryOptions = $derived.by(() => {
-		const byId = new SvelteMap<string, string>();
+	function foldName(value: string) {
+		return value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+	}
 
-		for (const entry of photos) byId.set(entry.gallery_id, galleryLabel(entry));
-
-		return [
-			{ value: 'all', label: m.photos_filter_gallery_all() },
-			...[...byId.entries()]
-				.sort((a, b) => a[1].localeCompare(b[1]))
-				.map(([value, label]) => ({ value, label }))
-		];
-	});
 	const types = $derived([
 		{ value: 'all', label: m.photos_filter_type_all() },
 		{ value: 'proof', label: m.photos_kind_proof() },
 		{ value: 'final', label: m.photos_kind_final() }
 	] as const);
 	const matching = $derived.by(() => {
-		const needle = query.trim().toLowerCase();
+		const needle = foldName(query.trim());
 
 		return photos.filter((entry) => {
-			if (galleryFilter !== 'all' && entry.gallery_id !== galleryFilter) return false;
 			if (typeFilter !== 'all' && entry.kind !== typeFilter) return false;
 			if (needle === '') return true;
 
-			return galleryLabel(entry).toLowerCase().includes(needle);
+			return foldName(galleryLabel(entry)).includes(needle);
 		});
 	});
 
@@ -94,6 +83,7 @@
 	);
 
 	const selection = $derived(visible.filter((entry) => selectedIds.has(entry.id)));
+	const selectionMode = $derived(selection.length > 0);
 	const viewerPhotos = $derived<Proof[]>(
 		viewerIndex === null
 			? []
@@ -122,17 +112,10 @@
 	});
 
 	function toggleSelect(id: string) {
-		selectionMode = true;
-
 		if (!selectedIds.delete(id)) selectedIds.add(id);
 	}
 
 	function clearSelection() {
-		selectedIds.clear();
-		selectionMode = false;
-	}
-
-	function clearSelectedOnly() {
 		selectedIds.clear();
 	}
 
@@ -151,7 +134,6 @@
 
 	function clearFilters() {
 		query = '';
-		galleryFilter = 'all';
 		typeFilter = 'all';
 	}
 
@@ -233,7 +215,6 @@
 		}
 
 		deleteConfirmOpen = false;
-		if (selectedIds.size === 0) selectionMode = false;
 	}
 
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
@@ -246,11 +227,8 @@
 <svelte:head><title>{m.photos_head()} — PhotoProofing</title></svelte:head>
 <svelte:window onkeydown={handleWindowKeydown} />
 <main class="flex flex-1 flex-col workspace-inset pt-4 pb-24 sm:pt-6">
-	<div class="mb-4 sm:mb-6">
-		<WorkspaceHeading
-			title={m.photos_head()}
-			count={loadFailed ? undefined : m.summary_photos({ count: visible.length })}
-		/>
+	<div class="max-sm:mb-4">
+		<WorkspaceHeading title={m.photos_head()} />
 	</div>
 
 	{#if !loadFailed}
@@ -264,21 +242,8 @@
 				oninput: (value) => (query = value)
 			}}
 			resultsHeight={visible.length ? resultsHeight : 0}
-			onclear={query.trim() || galleryFilter !== 'all' || typeFilter !== 'all'
-				? clearFilters
-				: undefined}
 		>
 			{#snippet filters()}
-				<ToolbarMenu
-					label={m.photos_filter_gallery()}
-					summary={galleryOptions.find((o) => o.value === galleryFilter)?.label ??
-						m.photos_filter_gallery_all()}
-					icon={Images}
-					value={galleryFilter}
-					options={galleryOptions}
-					disabled={none}
-					onchange={(v) => (galleryFilter = v)}
-				/>
 				<ToolbarMenu
 					label={m.photos_filter_type()}
 					summary={types.find((o) => o.value === typeFilter)!.label}
@@ -327,7 +292,7 @@
 						name={`${galleryLabel(entry)} — ${entry.original_name}`}
 						state="ready"
 						cleanReady
-						persistentSelect
+						librarySelect={selectionMode ? 'active' : 'idle'}
 						ratio={entry.width / entry.height}
 						thumbnailUrl={thumbnailUrl(
 							entry.gallery_id,
@@ -339,6 +304,7 @@
 						onopen={() => (viewerIndex = index)}
 						onselect={() => toggleSelect(entry.id)}
 						source={galleryLabel(entry)}
+						badge={entry.kind === 'final' ? m.photos_final_badge() : undefined}
 					/>
 				</li>
 			{/each}
@@ -363,14 +329,14 @@
 		onselectall={() => {
 			for (const entry of visible) selectedIds.add(entry.id);
 		}}
-		onunselectall={clearSelectedOnly}
+		onunselectall={clearSelection}
 		onexit={clearSelection}
 	>
 		{#snippet actions()}
 			<Button
 				variant="outline"
 				size="sm"
-				class="min-h-9! gap-1.5"
+				class="min-h-9! gap-1.5 group-data-[rail=dashboard]/select-actions:max-lg:px-2.5!"
 				disabled={selection.length === 0 || downloadBusy || zip.busy}
 				aria-busy={downloadBusy || zip.busy}
 				onclick={() => void downloadSelected()}
@@ -379,18 +345,22 @@
 						size={16}
 						class="animate-spin motion-reduce:animate-none"
 						aria-hidden="true"
-					/>{:else}<Download size={16} aria-hidden="true" />{/if}<span class="max-sm:sr-only">
+					/>{:else}<Download size={16} aria-hidden="true" />{/if}<span
+					class="group-data-[rail=dashboard]/select-actions:max-lg:sr-only"
+				>
 					{zip.busy || downloadBusy ? m.favorites_downloading() : m.action_download()}
 				</span>
 			</Button>
 			<Button
 				variant="destructive"
 				size="sm"
-				class="min-h-9! gap-1.5"
+				class="min-h-9! gap-1.5 group-data-[rail=dashboard]/select-actions:max-lg:px-2.5!"
 				disabled={selection.length === 0}
 				onclick={() => (deleteConfirmOpen = true)}
 			>
-				<Trash2 size={16} aria-hidden="true" /><span class="max-sm:sr-only">
+				<Trash2 size={16} aria-hidden="true" /><span
+					class="group-data-[rail=dashboard]/select-actions:max-lg:sr-only"
+				>
 					{m.action_delete()}
 				</span>
 			</Button>

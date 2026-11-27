@@ -1,25 +1,29 @@
+<script module lang="ts">
+	/** The tab, and for a comment the photo whose thread, that an Activity line leads to. */
+	export type Destination = { section?: string; thread?: string };
+</script>
+
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { fade } from 'svelte/transition';
 	import { m } from '#lib/paraglide/messages.js';
 	import {
 		Activity,
-		ChevronDown,
 		Download,
 		Eye,
 		Heart,
 		HeartOff,
 		LoaderCircle,
 		Mail,
-		MessageSquare
+		MessageSquare,
+		RotateCw
 	} from '@lucide/svelte';
 	import type { ActivityFeed } from '#lib/activityLog/activityFeed.svelte.js';
 	import type { ActivityEvent, ActivityKind } from '#lib/activityLog/api.js';
 	import { dayHeading } from '#lib/activityLog/format.js';
 	import Button from '#lib/components/ui/Button/Button.svelte';
-	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import EmptyState from '#lib/components/ui/EmptyState/EmptyState.svelte';
-	import { timeAgo } from '#lib/gallery/notifications.svelte.js';
+	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
+	import Popover from '#lib/components/ui/Popover/Popover.svelte';
 	import { thumbnailUrl } from '#lib/gallery/photos.js';
 
 	let {
@@ -27,7 +31,8 @@
 		filtered = false,
 		showGallery = true,
 		resultsHeight = $bindable(0),
-		onclear
+		onclear,
+		onopen
 	}: {
 		feed: ActivityFeed;
 		/** Whether filters are narrowing the list, which changes what an empty list means. */
@@ -36,6 +41,8 @@
 		showGallery?: boolean;
 		resultsHeight?: number;
 		onclear?: () => void;
+		/** Takes a line's destination over from its link, for a page that is already showing the gallery. */
+		onopen?: (place: Destination) => void;
 	} = $props();
 
 	const icons: Record<ActivityKind, typeof Eye> = {
@@ -49,9 +56,8 @@
 	};
 	// Translation chooses where the escaped actor goes, including after the verb.
 	const actorMarker = '\uE000';
-	const instanceId = $props.id();
 	let photoLimit = $state(10);
-	let expandedIds = $state(new Set<string>());
+	let openPhotoEvent = $state<string>();
 	let timeline = $state<HTMLDivElement>();
 	let sentinel = $state<HTMLDivElement>();
 
@@ -67,19 +73,10 @@
 	});
 
 	$effect(() => {
-		const displayed = new Set(feed.events.map(({ id }) => id));
-		const kept = [...expandedIds].filter((id) => displayed.has(id));
-
-		if (kept.length !== expandedIds.size) expandedIds = new Set(kept);
+		if (openPhotoEvent && !feed.events.some(({ id }) => id === openPhotoEvent)) {
+			openPhotoEvent = undefined;
+		}
 	});
-
-	function togglePhotos(id: string) {
-		expandedIds = new Set(
-			expandedIds.has(id)
-				? [...expandedIds].filter((expanded) => expanded !== id)
-				: [...expandedIds, id]
-		);
-	}
 
 	$effect(() => {
 		const target = sentinel;
@@ -152,6 +149,44 @@
 		}
 	}
 
+	/** Where a line leads: the tab of the gallery that holds what it describes. */
+	function destination(event: ActivityEvent): Destination | null {
+		switch (event.kind) {
+			case 'favorite':
+			case 'unfavorite':
+				return { section: 'favorites' };
+			case 'comment':
+				return { section: 'comments', thread: event.photo_ids[0] };
+			case 'download':
+				return { section: 'final' };
+			case 'email':
+				return { section: 'contacts' };
+			case 'email_failed':
+				return null;
+			case 'open':
+				return showGallery ? {} : null;
+		}
+	}
+
+	function hrefOf(event: ActivityEvent, place: Destination): string {
+		const query = [
+			place.section && `section=${encodeURIComponent(place.section)}`,
+			place.thread && `thread=${encodeURIComponent(place.thread)}`
+		].filter(Boolean);
+		const search = query.length > 0 ? `?${query.join('&')}` : '';
+
+		return `/dashboard/${encodeURIComponent(event.gallery_id)}${search}`;
+	}
+
+	/** Opens the destination in place when the page can, as the same address would not navigate. */
+	function follow(click: MouseEvent, place: Destination) {
+		if (!onopen || click.defaultPrevented || click.button !== 0) return;
+		if (click.metaKey || click.ctrlKey || click.shiftKey || click.altKey) return;
+
+		click.preventDefault();
+		onopen(place);
+	}
+
 	const days = $derived.by(() => {
 		const groups: { heading: string; events: ActivityEvent[] }[] = [];
 
@@ -166,6 +201,12 @@
 		return groups;
 	});
 </script>
+
+<p aria-live="polite" aria-atomic="true" class="sr-only">
+	{#if feed.loaded && feed.filters.q && !feed.loading && !feed.failed}
+		{feed.events.length === 0 ? m.activity_search_no_matches() : m.activity_search_updated()}
+	{/if}
+</p>
 
 {#if feed.failed}
 	<div
@@ -186,26 +227,23 @@
 		</p>
 	{/if}
 {:else if feed.events.length === 0}
-	<EmptyState variant="plain">
-		<Activity size={28} aria-hidden="true" class="text-muted-foreground" />
-		<h3>{filtered ? m.activity_empty_filtered() : m.activity_empty_title()}</h3>
+	<EmptyState
+		variant="plain"
+		icon={Activity}
+		title={filtered ? m.activity_empty_filtered() : m.activity_empty_title()}
+		description={filtered ? undefined : m.activity_empty_body()}
+	>
 		{#if filtered && onclear}
 			<Button variant="outline" onclick={onclear}>{m.filter_reset()}</Button>
-		{:else if !filtered}
-			<p class="max-w-[32ch]">{m.activity_empty_body()}</p>
 		{/if}
 	</EmptyState>
 {:else}
-	{#snippet thumbnail(event: ActivityEvent, photoId: string, size: string, reveal = false)}
+	{#snippet thumbnail(event: ActivityEvent, photoId: string)}
 		<img
 			src={thumbnailUrl(event.gallery_id, photoId)}
 			alt={m.activity_photo_alt()}
 			loading="lazy"
-			class="{size} rounded-md border border-border object-cover"
-			transition:fade={{
-				duration:
-					reveal && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 180 : 0
-			}}
+			class="size-14 shrink-0 rounded-md border border-border object-cover"
 		/>
 	{/snippet}
 
@@ -219,72 +257,131 @@
 						{@const actor = event.contact?.name ?? m.activity_anonymous()}
 						{@const [before, after] = wording(event, actorMarker).split(actorMarker)}
 						{@const isSelection = event.kind === 'favorite' || event.kind === 'unfavorite'}
-						{@const photos = isSelection ? [...new Set(event.photo_ids)] : event.photo_ids}
-						{@const isExpanded = expandedIds.has(event.id)}
-						{@const photoGridId = `${instanceId}-photos-${event.id}`}
-						<li class="grid gap-2 rounded-xl border border-border bg-panel px-4 py-3">
+						{@const photos =
+							isSelection || event.kind === 'comment'
+								? [...new Set(event.photo_ids)]
+								: event.photo_ids}
+						{@const place = destination(event)}
+						{@const href = place ? hrefOf(event, place) : null}
+						<li
+							class="relative grid gap-2 rounded-xl border border-border bg-panel px-4 py-3 transition-colors motion-reduce:transition-none {href
+								? 'hover:border-border-strong'
+								: ''}"
+						>
 							<div
-								class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-x-2 sm:gap-x-3"
+								class="grid items-baseline gap-x-2 sm:gap-x-3 {showGallery
+									? 'grid-cols-[auto_minmax(0,1fr)_fit-content(40%)]'
+									: 'grid-cols-[auto_minmax(0,1fr)]'}"
 							>
 								<Icon
 									size={16}
-									class="relative top-0.5 self-start text-foreground"
+									class="relative top-0.5 self-start {event.kind === 'favorite'
+										? 'text-danger'
+										: 'text-foreground'}"
 									fill={event.kind === 'favorite' ? 'currentColor' : 'none'}
 									aria-hidden="true"
 								/>
 								<p class="text-[0.9375rem] wrap-anywhere">
-									{before}{#if after !== undefined}<strong>{actor}</strong>{after}{/if}
-									{#if showGallery}
+									{#if href}
 										<a
-											href="/dashboard/{encodeURIComponent(event.gallery_id)}"
-											class="ml-1 inline-block max-w-full truncate rounded-full border border-border bg-background px-2 py-0.5 align-middle text-xs font-medium text-foreground hover:bg-border/60"
+											{href}
+											onclick={(click) => place && follow(click, place)}
+											class="after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:outline-focus"
 										>
-											{event.gallery_title ?? m.gallery_untitled()}
+											{before}{#if after !== undefined}<strong>{actor}</strong>{after}{/if}
 										</a>
+									{:else}
+										{before}{#if after !== undefined}<strong>{actor}</strong>{after}{/if}
+									{/if}
+									{#if event.kind === 'email_failed' && event.can_retry}
+										<Button
+											size="sm"
+											variant="ghost"
+											class="relative z-10 ml-1 size-7 min-h-7! min-w-7! px-0 align-middle text-muted-foreground hover:text-foreground"
+											aria-label={m.action_retry()}
+											title={m.action_retry()}
+											disabled={feed.retrying.has(event.id)}
+											onclick={() =>
+												feed.retry(event).catch(() => toasts.error(m.activity_retry_failed()))}
+										>
+											{#if feed.retrying.has(event.id)}
+												<LoaderCircle
+													size={15}
+													class="animate-spin motion-reduce:animate-none"
+													aria-hidden="true"
+												/>
+											{:else}
+												<RotateCw size={15} aria-hidden="true" />
+											{/if}
+										</Button>
 									{/if}
 								</p>
-								<time datetime={event.last_at} class="text-right text-xs text-muted-foreground">
-									{timeAgo(event.last_at)}
-								</time>
+								{#if showGallery}
+									<a
+										href="/dashboard/{encodeURIComponent(event.gallery_id)}"
+										class="relative z-10 min-w-0 truncate pill border border-border bg-background text-xs font-medium text-foreground hover:bg-border/60"
+									>
+										{event.gallery_title ?? m.gallery_untitled()}
+									</a>
+								{/if}
 							</div>
-							{#if event.kind === 'email_failed' && event.can_retry}
-								<Button
-									size="sm"
-									variant="outline"
-									class="justify-self-start"
-									disabled={feed.retrying.has(event.id)}
-									onclick={() =>
-										feed.retry(event).catch(() => toasts.error(m.activity_retry_failed()))}
-								>
-									{m.action_retry()}
-								</Button>
+							{#if event.kind === 'comment' && photos.length > 0}
+								<div class="flex items-center gap-3">
+									{@render thumbnail(event, photos[0])}
+									{#if event.detail}
+										<p class="min-w-0 text-sm wrap-anywhere text-muted-foreground italic">
+											«&nbsp;{event.detail}&nbsp;»
+										</p>
+									{/if}
+								</div>
+							{:else if event.kind === 'comment' && event.detail}
+								<p class="text-sm wrap-anywhere text-muted-foreground italic">
+									«&nbsp;{event.detail}&nbsp;»
+								</p>
 							{/if}
 							{#if isSelection && photos.length > 0}
-								{#if photos.length > photoLimit}
-									<Button
-										variant="ghost"
-										class="w-11 justify-self-start p-0"
-										aria-label={isExpanded ? m.activity_hide_photos() : m.activity_show_photos()}
-										aria-expanded={isExpanded}
-										aria-controls={photoGridId}
-										onclick={() => togglePhotos(event.id)}
-									>
-										<ChevronDown
-											size={18}
-											aria-hidden="true"
-											class={isExpanded ? 'rotate-180' : ''}
-										/>
-									</Button>
-								{/if}
-								<div id={photoGridId} class="flex flex-wrap gap-1.5">
-									{#each photos.slice(0, isExpanded ? undefined : photoLimit) as photoId, index (photoId)}
-										{@render thumbnail(event, photoId, 'size-14 shrink-0', index >= photoLimit)}
+								<div class="relative flex w-fit max-w-full flex-wrap items-center gap-1.5">
+									{#each photos.slice(0, photoLimit) as photoId (photoId)}
+										{@render thumbnail(event, photoId)}
 									{/each}
+									{#if photos.length > photoLimit}
+										{@const remaining = photos.slice(photoLimit)}
+										{@const label = m.activity_more_photos({ count: remaining.length })}
+										<Popover
+											bind:open={
+												() => openPhotoEvent === event.id,
+												(open) => {
+													if (open) openPhotoEvent = event.id;
+													else if (openPhotoEvent === event.id) openPhotoEvent = undefined;
+												}
+											}
+											align="end"
+											placement="auto"
+											{label}
+											aria-haspopup={false}
+											class="overflow-count z-10 max-sm:size-11 max-sm:p-0 sm:icon-action"
+											rootClass="static shrink-0"
+											panelClass="w-72 min-w-0 max-w-full p-2 motion-reduce:animate-none"
+										>
+											{#snippet trigger()}+{remaining.length}{/snippet}
+											<!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users must be able to scroll the photo grid.) -->
+											<div
+												role="region"
+												aria-label={label}
+												tabindex="0"
+												class="flex max-h-[min(16rem,var(--popover-space,50dvh))] flex-wrap gap-1.5 overflow-auto rounded-sm focus-visible:outline-2 focus-visible:outline-focus"
+											>
+												{#each remaining as photoId (photoId)}
+													{@render thumbnail(event, photoId)}
+												{/each}
+											</div>
+										</Popover>
+									{/if}
 								</div>
-							{:else if photos.length > 0}
+							{:else if event.kind !== 'comment' && photos.length > 0}
 								<div class="flex gap-1.5">
 									{#each photos as photoId, index (`${photoId}:${index}`)}
-										{@render thumbnail(event, photoId, 'size-14')}
+										{@render thumbnail(event, photoId)}
 									{/each}
 								</div>
 							{/if}

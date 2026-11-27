@@ -81,9 +81,12 @@
 >
 	{#snippet children(close)}
 		<form onsubmit={submit} class="grid gap-4" aria-busy={creating}>
-			<h2 id="new-gallery-title" class="text-xl">{m.new_gallery_title()}</h2>
+			<h2 id="new-gallery-title" class="pr-10 text-xl">{m.new_gallery_title()}</h2>
 			<div class="grid gap-2">
-				<Label for="new-gallery-field" class="font-normal">{m.new_gallery_field()}</Label>
+				<div class="flex items-center gap-1">
+					<Label for="new-gallery-field" class="font-normal">{m.new_gallery_field()}</Label>
+					<span aria-hidden="true" class="text-danger">*</span>
+				</div>
 				<Input
 					bind:ref={field}
 					id="new-gallery-field"
@@ -91,6 +94,7 @@
 					placeholder={m.new_gallery_placeholder()}
 					aria-describedby={error ? 'new-gallery-error' : undefined}
 					aria-invalid={error ? true : undefined}
+					aria-required="true"
 					disabled={creating}
 				/>
 				{#if error}

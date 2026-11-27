@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -32,7 +32,7 @@ describe('AppHeader', () => {
 		const links = nav.querySelectorAll('a');
 		const names = [...links].map((link) => link.textContent?.trim());
 
-		expect(names).toEqual(['Galleries', 'Photos', 'Contacts', 'Activity', 'Settings']);
+		expect(names).toEqual(['Galleries', 'Photos', 'Contacts', 'Activity']);
 
 		const galleries = screen.getByRole('link', { name: 'Galleries' });
 		const allPhotos = screen.getByRole('link', { name: 'Photos' });
@@ -57,6 +57,15 @@ describe('AppHeader', () => {
 			'page'
 		);
 		expect(screen.getByRole('link', { name: 'Galleries' }).getAttribute('aria-current')).toBeNull();
+	});
+
+	it('shows each available workspace total on its navigation link, including zero', () => {
+		render(AppHeader, { counts: { galleries: 12, photos: 34, contacts: 0 } });
+
+		expect(screen.getByRole('link', { name: 'Galleries 12' })).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Photos 34' })).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Contacts 0' })).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Activity' })).toBeTruthy();
 	});
 
 	it('marks Contacts as active when viewing /contacts', () => {
@@ -85,13 +94,16 @@ describe('AppHeader', () => {
 		expect(screen.getByRole('button', { name: 'Account menu' })).toBeTruthy();
 	});
 
-	it('keeps Settings below Activity in the persistent rail', () => {
+	it('keeps Settings with the account actions, apart from the main sections', () => {
 		render(AppHeader);
 
 		const nav = screen.getByRole('navigation', { name: 'Main sections' });
-		const links = [...nav.querySelectorAll('a')].map((link) => link.textContent?.trim());
+		const settings = screen.getByRole('link', { name: 'Settings' });
 
-		expect(links).toEqual(['Galleries', 'Photos', 'Contacts', 'Activity', 'Settings']);
+		expect(nav.contains(settings)).toBe(false);
+		expect(
+			settings.parentElement?.contains(screen.getByRole('button', { name: 'Account menu' }))
+		).toBe(false);
 	});
 
 	it('uses the clamped desktop rail and compact phone navigation', () => {
@@ -100,25 +112,30 @@ describe('AppHeader', () => {
 		const header = screen.getByRole('banner');
 		const nav = screen.getByRole('navigation', { name: 'Main sections' });
 
-		expect(header.className).toContain('sm:w-(--gallery-rail-width)');
+		expect(header.className).toContain('sm:w-(--workspace-rail-width)');
 		expect(nav.className).toContain('flex-wrap');
 		expect(nav.className).toContain('sm:flex-col');
 	});
 
-	it('shows a loaded studio name and signs out from the bottom identity', async () => {
-		const onsignout = vi.fn();
-		render(AppHeader, { onsignout, studioName: 'Atelier Lumiere' });
-
-		expect(screen.getByText('Atelier Lumiere')).toBeTruthy();
+	it('collapses and expands the workspace rail from the brand row', async () => {
+		render(AppHeader);
 
 		const user = userEvent.setup();
-		await user.click(screen.getByRole('button', { name: 'Account menu' }));
-		await user.click(screen.getByRole('button', { name: 'Sign out' }));
+		const toggle = screen.getByRole('button', { name: 'Collapse the menu' });
 
-		expect(onsignout).toHaveBeenCalledOnce();
+		expect(toggle.getAttribute('aria-expanded')).toBe('true');
+		expect(
+			screen.getByRole('link', { name: 'PhotoProofing' }).parentElement?.contains(toggle)
+		).toBe(true);
+
+		await user.click(toggle);
+
+		expect(
+			screen.getByRole('button', { name: 'Expand the menu' }).getAttribute('aria-expanded')
+		).toBe('false');
 	});
 
-	it('places the account menu safely on phones and above the identity on desktop', async () => {
+	it('places the account menu safely on phones', async () => {
 		render(AppHeader);
 		const user = userEvent.setup();
 
@@ -128,7 +145,7 @@ describe('AppHeader', () => {
 		expect(panel?.className).toContain('fixed');
 		expect(panel?.className).toContain('right-3');
 		expect(panel?.className).toContain('left-3');
-		expect(panel?.className).toContain('sm:bottom-full');
+		expect(panel?.className).toContain('sm:left-full');
 	});
 
 	it('calls onsignout when Sign out is pressed from the account menu', async () => {
@@ -137,9 +154,9 @@ describe('AppHeader', () => {
 
 		const user = userEvent.setup();
 
-		expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull();
-		await user.click(screen.getByRole('button', { name: 'Account menu' }));
-		await user.click(screen.getByRole('button', { name: 'Sign out' }));
+		const account = screen.getByRole('button', { name: 'Account menu' });
+		await user.click(account);
+		await user.click(within(account.parentElement!).getByRole('button', { name: 'Sign out' }));
 
 		expect(onsignout).toHaveBeenCalledOnce();
 	});

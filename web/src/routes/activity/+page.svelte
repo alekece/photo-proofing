@@ -40,9 +40,9 @@
 
 <main class="flex flex-1 flex-col workspace-inset pt-4 pb-12 sm:pt-6">
 	<div class="mb-4 sm:mb-6">
-		<WorkspaceHeading title={m.activity_title()} subtitle={m.activity_subtitle()} />
+		<WorkspaceHeading title={m.activity_title()} />
 	</div>
 
-	<ActivityFilters {feed} galleries={data.galleries} contacts={data.contacts} {resultsHeight} />
+	<ActivityFilters {feed} searchLabel={m.activity_search_workspace()} {resultsHeight} />
 	<ActivityTimeline {feed} {filtered} bind:resultsHeight onclear={() => feed.clearFilters()} />
 </main>

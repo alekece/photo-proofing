@@ -15,9 +15,7 @@ import Harness from './ActivityPageHarness.test.svelte';
 
 const data = {
 	identity: { account_id: 'a', workspace_id: 'w' },
-	idleTimeoutMs: 2592000000,
-	galleries: [{ id: 'g1', title: 'Wedding' }],
-	contacts: [{ id: 'c1', name: 'Alice' }]
+	idleTimeoutMs: 2592000000
 };
 
 const line = (id: string, over = {}) => ({
@@ -69,23 +67,37 @@ afterEach(() => vi.unstubAllGlobals());
 describe('activity page', () => {
 	useLocale('en');
 
-	it('shows the activity feed and the filter choices', async () => {
-		open(vi.fn(async () => Response.json({ events: [line('a')], next: null })));
+	it('shows the activity feed and searches without resetting the date filter', async () => {
+		const fetcher = vi.fn(async () => Response.json({ events: [line('a')], next: null }));
+		open(fetcher);
 
 		const row = await screen.findByRole('listitem');
 		const sentence = row.querySelector('p')!;
 
 		expect(sentence.querySelector('strong')?.textContent).toBe('Alice');
-		expect(within(sentence).getByRole('link', { name: 'Wedding' }).getAttribute('href')).toBe(
+		expect(within(row).getByRole('link', { name: 'Wedding' }).getAttribute('href')).toBe(
 			'/dashboard/g1'
 		);
-		expect(sentence.textContent?.trim()).toMatch(/^Alice left a comment\s+Wedding$/);
+		expect(sentence.textContent?.trim()).toBe('Alice left a comment');
 		expect(screen.getByRole('heading', { level: 1, name: 'Activity' })).toBeTruthy();
-		await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
-		expect(screen.getByRole('option', { name: 'Wedding' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Gallery' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Visitor' })).toBeNull();
+		const user = userEvent.setup();
+		await user.click(screen.getByRole('button', { name: 'Date' }));
+		await user.click(screen.getByRole('menuitemradio', { name: 'Last 7 days' }));
+		const search = screen.getByRole('searchbox', { name: 'Search by gallery or visitor' });
+		await user.type(search, 'Alice');
+		await waitFor(() =>
+			expect(fetcher).toHaveBeenLastCalledWith(
+				expect.stringMatching(/\/timeline\?(?:range=7d&q=Alice|q=Alice&range=7d)$/),
+				expect.anything()
+			)
+		);
+		await user.clear(search);
+		expect(fetcher).toHaveBeenLastCalledWith('/api/v1/timeline?range=7d', expect.anything());
 	});
 
-	it('keeps expansion with its line across a live day change and filtered replacement', async () => {
+	it('keeps the photo panel on its activity when a live update moves it to another day', async () => {
 		const photo_ids = Array.from({ length: 12 }, (_, i) => `p${i}`);
 		const favorite = line('favorite', {
 			kind: 'favorite',
@@ -105,33 +117,39 @@ describe('activity page', () => {
 					events: [updated, line('a-new', { kind: 'open', last_at: updated.last_at })],
 					next: null
 				})
-			)
-			.mockResolvedValueOnce(
-				Response.json({ events: [updated, { ...favorite, id: 'other' }], next: null })
 			);
 		const { notify } = open(fetcher);
 
-		await userEvent.click(await screen.findByRole('button', { name: 'Show more photos' }));
+		await userEvent.click(await screen.findByRole('button', { name: '2 more photos' }));
 		notify('g1');
 
-		const expanded = () => screen.getByRole('button', { name: 'Show fewer photos' }).closest('li')!;
 		await waitFor(() =>
 			expect(
 				screen.getAllByRole('listitem').map((row) => row.querySelector('p')?.textContent?.trim())
-			).toEqual([
-				expect.stringMatching(/^Alice favorited 13 photos\s+Wedding$/),
-				expect.stringMatching(/^Alice opened the gallery\s+Wedding$/),
-				expect.stringMatching(/^Alice left a comment\s+Wedding$/)
-			])
+			).toEqual(['Alice favorited 13 photos', 'Alice opened the gallery', 'Alice left a comment'])
 		);
-		expect(within(expanded()).getAllByRole('img')).toHaveLength(12);
+		const panel = screen.getByRole('region', { name: '2 more photos' });
+		expect(within(panel).getAllByRole('img')).toHaveLength(2);
+		expect(panel.closest('li')?.textContent).toContain('Alice favorited 13 photos');
+	});
 
-		await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
-		const favorites = screen.getByRole('option', { name: 'Favorites' });
-		await userEvent.selectOptions(favorites.closest('select')!, favorites);
-		const collapsed = await screen.findByRole('button', { name: 'Show more photos' });
-		expect(within(collapsed.closest('li')!).getAllByRole('img')).toHaveLength(10);
-		expect(within(expanded()).getAllByRole('img')).toHaveLength(12);
+	it('announces an early search with no matches without moving focus', async () => {
+		const initial = Promise.withResolvers<Response>();
+		open(
+			vi.fn<typeof fetch>(async (url) =>
+				String(url).includes('?q=') ? Response.json({ events: [], next: null }) : initial.promise
+			)
+		);
+		const announcement = document.querySelector('[aria-live="polite"][aria-atomic="true"]');
+		expect(announcement).not.toBeNull();
+		const search = screen.getByRole('searchbox', { name: 'Search by gallery or visitor' });
+		await userEvent.type(search, 'no match');
+
+		await waitFor(() =>
+			expect(announcement?.textContent?.trim()).toBe('No activity matches this search.')
+		);
+		initial.resolve(Response.json({ events: [line('a')], next: null }));
+		expect(document.activeElement).toBe(search);
 	});
 
 	it('changes sort from the existing menu without reusing the failed outgoing cursor', async () => {
@@ -164,9 +182,8 @@ describe('activity page', () => {
 
 		await screen.findByRole('listitem');
 		expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/timeline');
-		await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
-		const favorites = screen.getByRole('option', { name: 'Favorites' });
-		await userEvent.selectOptions(favorites.closest('select')!, favorites);
+		await userEvent.click(screen.getByRole('button', { name: 'Type' }));
+		await userEvent.click(screen.getByRole('menuitemradio', { name: 'Favorites' }));
 		await waitFor(() => expect(intersections).toHaveLength(1));
 		intersections[0]!();
 		await screen.findByRole('button', { name: 'Retry' });

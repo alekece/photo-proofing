@@ -174,32 +174,34 @@
 	labelledby="{id}-title"
 	class="mx-auto mt-6 mb-auto {rows.length === 1
 		? 'w-[min(30.625rem,calc(100vw-1.5rem))]'
-		: 'w-[min(38rem,calc(100vw-1.5rem))]'} {rows.length > 4
-		? 'max-h-[calc(100dvh-2rem)] overflow-y-auto'
-		: 'overflow-visible'} rounded-dialog border border-border bg-background p-5 text-foreground shadow-xl sm:my-auto sm:p-6"
+		: 'w-[min(38rem,calc(100vw-1.5rem))]'} max-h-[calc(100dvh-2rem)] overflow-hidden rounded-dialog border border-border bg-background text-foreground shadow-xl sm:my-auto"
 >
-	{#snippet children(close)}
+	{#snippet header()}
+		<div class="grid gap-1 border-b border-border pb-3">
+			<h2 id="{id}-title" class="pr-10 text-2xl leading-tight sm:text-3xl">
+				{m.quick_edit_title()}
+			</h2>
+			{#if rows.length > 1}<p class="text-sm text-muted-foreground">
+					{m.quick_edit_subtitle({ count: rows.length })}
+				</p>{/if}
+		</div>
+	{/snippet}
+
+	{#snippet content()}
 		<form
 			id="{id}-form"
 			onsubmit={(event) => {
 				event.preventDefault();
 				saveButton.activate();
 			}}
-			class="grid gap-4"
+			class="grid min-h-0 gap-4"
 			aria-busy={saving}
 		>
-			<div class="grid gap-1 border-b border-border pb-3">
-				<h2 id="{id}-title" class="text-2xl leading-tight sm:text-3xl">{m.quick_edit_title()}</h2>
-				{#if rows.length > 1}<p class="text-sm text-muted-foreground">
-						{m.quick_edit_subtitle({ count: rows.length })}
-					</p>{/if}
-			</div>
-
 			{#if error}
 				<Toaster studio localError={{ message: error, dismiss: () => (error = '') }} />
 			{/if}
 
-			<div class="grid gap-2.5">
+			<div data-slot="quick-edit-rows" class="grid min-h-0 gap-2.5 overflow-y-auto pr-1">
 				{#each rows as row, index (row.id)}
 					<div
 						class="grid items-end gap-2.5 {rows.length === 1
@@ -268,23 +270,25 @@
 					</div>
 				{/each}
 			</div>
-
-			<div class="flex flex-wrap justify-end gap-2 pt-1">
-				<Button variant="outline" type="button" disabled={saving} onclick={close}>
-					{m.common_cancel()}
-				</Button>
-				<ActionButton
-					bind:this={saveButton}
-					form="{id}-form"
-					pendingDelayMs={150}
-					disabled={saving || invalid || !edits.length}
-					labels={{ idle: m.quick_edit_save(), pending: m.quick_edit_saving() }}
-					onaction={() => submit(close)}
-				/>
-			</div>
-			{#if invalid}<p role="alert" class="text-sm text-danger">
-					{m.new_gallery_title_too_long({ max: TITLE_MAX })}
-				</p>{/if}
 		</form>
+	{/snippet}
+
+	{#snippet actions(dismiss, close)}
+		<div class="flex flex-wrap justify-end gap-2 border-t border-border pt-3">
+			<Button variant="outline" type="button" disabled={saving} onclick={dismiss}>
+				{m.common_cancel()}
+			</Button>
+			<ActionButton
+				bind:this={saveButton}
+				form="{id}-form"
+				pendingDelayMs={150}
+				disabled={saving || invalid || !edits.length}
+				labels={{ idle: m.quick_edit_save(), pending: m.quick_edit_saving() }}
+				onaction={() => submit(close)}
+			/>
+		</div>
+		{#if invalid}<p role="alert" class="text-sm text-danger">
+				{m.new_gallery_title_too_long({ max: TITLE_MAX })}
+			</p>{/if}
 	{/snippet}
 </Dialog>

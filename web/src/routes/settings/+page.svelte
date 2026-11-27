@@ -2,11 +2,8 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { afterNavigate, invalidateAll } from '$app/navigation';
-	import { Undo2, Upload, X } from '@lucide/svelte';
+	import { SlidersHorizontal, Signature, Stamp, Upload, X } from '@lucide/svelte';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
-	import { getStudioNamePreview } from '#lib/components/WorkspaceLayout.svelte';
-	import ButtonFace from '#lib/components/ButtonFace.svelte';
-	import ClickRipple from '#lib/components/ClickRipple.svelte';
 	import LanguagePicker from '#lib/components/LanguagePicker.svelte';
 	import ProofQualityPicker from '#lib/components/ProofQualityPicker.svelte';
 	import SignatureEditor from '#lib/components/SignatureEditor.svelte';
@@ -14,11 +11,12 @@
 	import WatermarkEditor from '#lib/components/WatermarkEditor.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import Input from '#lib/components/ui/Input/Input.svelte';
-	import Select from '#lib/components/ui/Select/Select.svelte';
+	import ChoiceCards from '#lib/components/ui/ChoiceCards/ChoiceCards.svelte';
 	import Tabs from '#lib/components/ui/Tabs/Tabs.svelte';
 	import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 	import WorkspaceHeading from '#lib/components/ui/WorkspaceHeading/WorkspaceHeading.svelte';
 	import { ApiError } from '#lib/http.js';
+	import { setLocale } from '#lib/paraglide/runtime.js';
 	import {
 		LOGO_TYPES,
 		SettingsApi,
@@ -28,9 +26,6 @@
 	} from '#lib/settings/settings.js';
 	import type { PageData } from './$types';
 
-	const REVERTED_MS = 1400;
-	const SAVED_MS = 1600;
-
 	let { data }: { data: PageData } = $props();
 	const api = new SettingsApi();
 	// svelte-ignore state_referenced_locally
@@ -38,70 +33,43 @@
 	// svelte-ignore state_referenced_locally
 	let draft = $state<WorkspaceSettings>({ ...data.settings });
 	let hexEdit = $state<string | null>(null);
+	let signatureHexEdit = $state<string | null>(null);
 	let section = $state('general');
-	let changingLanguage = $state(false);
+	let savingLanguage = $state(false);
 	let headerHeight = $state(0);
 	const sections = [
-		{ id: 'general', label: m.settings_general() },
-		{ id: 'watermark', label: m.watermark_label() },
-		{ id: 'signature', label: m.signature_label() }
+		{ id: 'general', label: m.settings_general(), icon: SlidersHorizontal },
+		{ id: 'watermark', label: m.watermark_label(), icon: Stamp },
+		{ id: 'signature', label: m.signature_label(), icon: Signature }
 	];
 	let dirty = $derived(settingsChanged(draft, saved));
-	let invalidHex = $derived(hexEdit !== null && normalizeWatermarkHex(hexEdit) === null);
-	let hasEdits = $derived(dirty || hexEdit !== null);
-	let feedback = $state<'reverted' | null>(null);
+	let invalidWatermarkHex = $derived(hexEdit !== null && normalizeWatermarkHex(hexEdit) === null);
+	let invalidSignatureHex = $derived(
+		signatureHexEdit !== null && normalizeWatermarkHex(signatureHexEdit) === null
+	);
+	let invalidHex = $derived(invalidWatermarkHex || invalidSignatureHex);
+	let hasEdits = $derived(dirty || hexEdit !== null || signatureHexEdit !== null);
+	let feedback = $state<'saved' | 'reverted' | null>(null);
 	let status = $state<SaveStatus>('idle');
-	// A new edit ends the confirmation early so Save is offered again at once.
-	let shown = $derived<SaveStatus>(status === 'saved' && hasEdits ? 'idle' : status);
-	// Like Saved, Reverted gives way as soon as there is something to cancel again.
-	let reverted = $derived(feedback === 'reverted' && !hasEdits);
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	let savedTimer: ReturnType<typeof setTimeout> | undefined;
 	let activity = $derived(createSessionActivity(data.idleTimeoutMs));
-	const previewStudioName = getStudioNamePreview();
-
-	$effect(() => {
-		previewStudioName?.(draft.studioName);
-
-		return () => previewStudioName?.(undefined);
-	});
 
 	afterNavigate(() => {
 		void activity();
 	});
-	onMount(() => {
-		const stop = listenForActivity(() => activity());
-
-		return () => {
-			stop();
-			clearTimeout(timer);
-			clearTimeout(savedTimer);
-		};
-	});
-
-	function show(kind: 'reverted', ms: number) {
-		feedback = kind;
-		clearTimeout(timer);
-		timer = setTimeout(() => (feedback = null), ms);
-	}
-
-	function confirmSaved() {
-		status = 'saved';
-		clearTimeout(savedTimer);
-		savedTimer = setTimeout(() => (status = 'idle'), SAVED_MS);
-	}
+	onMount(() => listenForActivity(() => activity()));
 
 	async function save() {
-		if (!dirty || invalidHex || shown !== 'idle') return;
+		if (!dirty || invalidHex || status !== 'idle') return;
 
 		status = 'saving';
-		clearTimeout(timer);
-		clearTimeout(savedTimer);
+		savingLanguage = draft.language !== saved.language;
 		feedback = null;
 		try {
 			const submitted = { ...draft };
 			const submittedHex = hexEdit;
-			const displayChanged =
+			const submittedSignatureHex = signatureHexEdit;
+			const workspaceChanged =
+				saved.studioName !== submitted.studioName ||
 				saved.studioMode !== submitted.studioMode ||
 				saved.studioPalette !== submitted.studioPalette;
 
@@ -110,15 +78,22 @@
 				if (draft[key] === submitted[key]) draft = { ...draft, [key]: saved[key] };
 			}
 			if (hexEdit === submittedHex) hexEdit = null;
-			if (displayChanged) await invalidateAll();
-			confirmSaved();
+			if (signatureHexEdit === submittedSignatureHex) signatureHexEdit = null;
+			if (savingLanguage) {
+				setLocale(saved.language);
+			} else if (workspaceChanged) {
+				await invalidateAll();
+			}
+			feedback = 'saved';
 		} catch (error) {
 			if (error instanceof ApiError && (error.status === 422 || error.status === 413)) {
 				toasts.error(error.message);
 			} else {
 				toasts.error(m.studio_save_failed(), () => void save());
 			}
+		} finally {
 			status = 'idle';
+			savingLanguage = false;
 		}
 	}
 
@@ -127,7 +102,8 @@
 
 		draft = { ...saved };
 		hexEdit = null;
-		show('reverted', REVERTED_MS);
+		signatureHexEdit = null;
+		feedback = 'reverted';
 	}
 
 	function pickLogo(event: Event) {
@@ -151,7 +127,7 @@
 	}
 
 	const action =
-		'relative inline-grid h-11 min-h-0 px-3 sm:px-[1.375rem] max-sm:flex-1 font-semibold! tracking-normal! transition-[background-color,opacity] duration-300 disabled:opacity-35';
+		'text-sm font-semibold! tracking-normal! transition-[background-color,opacity] duration-300 disabled:opacity-35';
 </script>
 
 {#snippet studio()}
@@ -189,55 +165,49 @@
 	</div>
 {/snippet}
 
-<svelte:head><title>{m.header_settings()} — PhotoProofing</title></svelte:head>
-<main class="min-w-0 flex-1 pb-12">
+{#snippet settingsHeader()}
 	<div
 		bind:offsetHeight={headerHeight}
-		class="sticky top-[env(safe-area-inset-top)] z-20 border-b border-border bg-background workspace-inset py-2 sm:py-3"
+		class="sticky top-[env(safe-area-inset-top)] z-20 bg-background workspace-inset py-2.5 sm:py-3 md:col-start-2 md:row-start-1"
 	>
 		<div class="flex flex-wrap items-center justify-between gap-2">
 			<WorkspaceHeading title={m.header_settings()} />
-			<div class="flex grow gap-2 sm:grow-0">
+			<div class="ml-auto flex gap-2">
 				<Button
 					variant="outline"
-					disabled={!reverted && (!hasEdits || status === 'saving')}
-					aria-disabled={reverted || undefined}
+					size="sm"
+					disabled={!hasEdits || status === 'saving'}
 					onclick={cancel}
-					class="{action} border-[1.5px]! border-border! bg-input! aria-disabled:cursor-default {reverted
-						? 'border-[#d8cab7]! bg-[#efe7dc]!'
-						: ''}"
+					class="{action} border-[1.5px]! border-border! bg-input!"
 				>
-					<ButtonFace shown={!reverted}>{m.common_cancel()}</ButtonFace>
-					<ButtonFace shown={reverted}>
-						{#snippet icon()}
-							<span class="relative inline-grid">
-								<Undo2 size={16} strokeWidth={2.4} aria-hidden="true" />
-								{#if reverted}<ClickRipple />{/if}
-							</span>
-						{/snippet}
-						{m.studio_reverted()}
-					</ButtonFace>
+					{m.common_cancel()}
 				</Button>
 				<SaveButton
-					status={shown}
-					disabled={shown === 'idle' && (!dirty || invalidHex)}
+					{status}
+					disabled={status === 'idle' && (!dirty || invalidHex)}
 					onclick={save}
 					class={action}
 				/>
 			</div>
 		</div>
-		{#if invalidHex && section !== 'watermark'}
+		{#if invalidHex && !(section === 'watermark' && invalidWatermarkHex) && !(section === 'signature' && invalidSignatureHex)}
 			<p aria-live="polite" class="mt-2 text-sm text-danger">
-				{m.watermark_color_invalid()}
+				{m.settings_color_invalid_section({
+					section: invalidWatermarkHex ? m.watermark_label() : m.signature_label()
+				})}
 			</p>
 		{/if}
 	</div>
+{/snippet}
+
+<svelte:head><title>{m.header_settings()} — PhotoProofing</title></svelte:head>
+<main class="settings-page flex min-w-0 flex-1 flex-col">
 	<span role="status" class="sr-only">
-		{feedback === 'reverted' ? m.studio_reverted() : ''}
+		{feedback === 'reverted' ? m.studio_reverted() : feedback === 'saved' ? m.studio_saved() : ''}
 	</span>
 
 	<div
-		class="workspace-inset pt-4 sm:pt-6 [&_:focus-visible]:scroll-mt-[calc(var(--settings-header-height)_+_env(safe-area-inset-top)_+_0.25rem)]"
+		class="flex min-w-0 flex-1 flex-col [&_:focus-visible]:scroll-mt-[calc(var(--settings-header-height)_+_env(safe-area-inset-top)_+_0.25rem)]"
 		style:--settings-header-height="{headerHeight}px"
 	>
 		<Tabs
@@ -245,59 +215,78 @@
 			items={sections}
 			label={m.studio_sections()}
 			sidebar
-			listClass="min-w-0 overflow-x-auto whitespace-nowrap [&>button]:shrink-0 [&>button]:focus-visible:outline-offset-[-2px]"
+			listClass="md:sticky md:top-0 md:h-dvh md:self-start"
+			header={settingsHeader}
 		>
 			{#snippet panel(active)}
-				<fieldset disabled={changingLanguage} class="grid min-w-0 gap-4">
+				<fieldset disabled={savingLanguage} class="grid min-w-0 gap-4">
 					{#if active === 'general'}
 						<div class="grid max-w-[48rem] min-w-0 gap-5">
 							<section class="grid gap-2">
 								<h2 class="text-xl">{m.studio_group_studio()}</h2>
 								{@render studio()}
 							</section>
-							<section class="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
-								<label class="grid gap-1">
-									{m.studio_display_mode()}
-									<Select bind:value={draft.studioMode}>
-										<option value="full_image">{m.studio_full_image()}</option><option
-											value="print"
-										>
-											{m.studio_print()}
-										</option>
-									</Select>
-								</label>
-								<label class="grid gap-1">
-									{m.studio_display_palette()}
-									<Select bind:value={draft.studioPalette}>
-										<option value="warm">{m.studio_warm()}</option><option value="neutral">
-											{m.studio_neutral()}
-										</option>
-									</Select>
-								</label>
+							<section class="grid gap-2 border-t border-border pt-4">
+								<h2 class="text-xl">{m.studio_display_mode()}</h2>
+								<p id="settings-photo-presentation-hint" class="mb-2 text-sm text-muted-foreground">
+									{m.studio_display_mode_hint()}
+								</p>
+								<ChoiceCards
+									describedBy="settings-photo-presentation-hint"
+									label={m.studio_display_mode()}
+									bind:value={draft.studioMode}
+									options={[
+										{ value: 'full_image', label: m.studio_full_image() },
+										{ value: 'print', label: m.studio_print() }
+									]}
+								/>
+							</section>
+							<section class="grid gap-2 border-t border-border pt-4">
+								<h2 class="text-xl">{m.studio_display_palette()}</h2>
+								<p id="settings-studio-palette-hint" class="mb-2 text-sm text-muted-foreground">
+									{m.studio_display_palette_hint()}
+								</p>
+								<ChoiceCards
+									describedBy="settings-studio-palette-hint"
+									label={m.studio_display_palette()}
+									bind:value={draft.studioPalette}
+									options={[
+										{ value: 'warm', label: m.studio_warm() },
+										{ value: 'neutral', label: m.studio_neutral() }
+									]}
+								/>
 							</section>
 							<section class="grid gap-2 border-t border-border pt-4">
 								<h2 class="text-xl">{m.settings_language()}</h2>
-								<LanguagePicker
-									disabled={hasEdits || status === 'saving'}
-									bind:saving={changingLanguage}
-								/>
-								{#if hasEdits}
-									<p class="text-sm text-muted-foreground">{m.settings_language_pending()}</p>
-								{/if}
+								<p id="settings-language-hint" class="mb-2 text-sm text-muted-foreground">
+									{m.settings_language_hint()}
+								</p>
+								<LanguagePicker bind:value={draft.language} describedBy="settings-language-hint" />
 							</section>
 							<section class="grid gap-2 border-t border-border pt-4">
 								<h2 class="text-xl">{m.quality_label()}</h2>
-								<p class="text-muted-foreground">{m.quality_hint()}</p>
-								<ProofQualityPicker bind:value={draft.proofQuality} />
+								<p id="settings-quality-hint" class="mb-2 text-sm text-muted-foreground">
+									{m.quality_hint()}
+								</p>
+								<ProofQualityPicker
+									bind:value={draft.proofQuality}
+									describedBy="settings-quality-hint"
+								/>
 							</section>
 						</div>
 					{:else if active === 'watermark'}
 						<WatermarkEditor bind:settings={draft} bind:hexEdit />
 					{:else}
-						<SignatureEditor bind:settings={draft} />
+						<SignatureEditor bind:settings={draft} bind:hexEdit={signatureHexEdit} />
 					{/if}
 				</fieldset>
 			{/snippet}
 		</Tabs>
 	</div>
 </main>
+
+<style>
+	:global(html:has(.settings-page)) {
+		scrollbar-gutter: stable;
+	}
+</style>
