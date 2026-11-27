@@ -1,26 +1,24 @@
-<script lang="ts" module>
-	import { getContext } from 'svelte';
-
-	const studioNameKey = Symbol('workspace studio name');
-
-	export function getStudioNamePreview() {
-		return getContext<((name: string | undefined) => void) | undefined>(studioNameKey);
-	}
-</script>
-
 <script lang="ts">
 	import { afterNavigate, goto, snapshot } from '$app/navigation';
 	import { page } from '$app/state';
-	import { onMount, setContext, type Snippet } from 'svelte';
+	import { onMount, type ComponentProps, type Snippet } from 'svelte';
 	import { authRequest } from '#lib/auth.js';
 	import { createLiveEvents, setLiveEvents } from '#lib/events.js';
 	import { setGalleryGridReturn } from '#lib/gallery/dashboardNavigation.svelte.js';
 	import { NotificationCenter, setNotifications } from '#lib/gallery/notifications.svelte.js';
 	import { m } from '#lib/paraglide/messages.js';
+	import { rails } from '#lib/rails.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 
-	let { children, studioName }: { children: Snippet; studioName?: string } = $props();
-	let previewName = $state<string>();
+	let {
+		children,
+		studioName,
+		counts
+	}: {
+		children: Snippet;
+		studioName?: string;
+		counts?: ComponentProps<typeof AppHeader>['counts'];
+	} = $props();
 	let signingOut = $state(false);
 	let signOutError = $state('');
 
@@ -29,14 +27,15 @@
 	const gridReturn = setGalleryGridReturn();
 	setLiveEvents(events);
 	setNotifications(notifications);
-	setContext(studioNameKey, (name: string | undefined) => (previewName = name));
 
 	onMount(() => {
 		const stop = notifications.start(events);
+		const stopRails = rails.start();
 		events.start();
 
 		return () => {
 			stop();
+			stopRails();
 			events.close();
 		};
 	});
@@ -79,8 +78,10 @@
 	}
 </script>
 
-<AppHeader onsignout={logout} studioName={previewName ?? studioName} />
-<div class="flex min-w-0 flex-1 flex-col sm:ml-(--gallery-rail-width)">
+<AppHeader onsignout={logout} {studioName} {counts} />
+<div
+	class="flex min-w-0 flex-1 flex-col motion-reduce:transition-none sm:ml-(--workspace-rail-width) sm:transition-[margin-left] sm:duration-200 sm:ease-out"
+>
 	{#if signOutError}
 		<p role="alert" class="workspace-inset py-2 text-sm text-danger">{signOutError}</p>
 	{/if}

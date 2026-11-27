@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onDestroy, type Snippet } from 'svelte';
-	import { Check, Eye, ImagePlus, Maximize2, X } from '@lucide/svelte';
+	import { Check, Eye, ImagePlus, Maximize2, Trash2 } from '@lucide/svelte';
 	import ClientGallery from '#lib/components/ClientGallery.svelte';
 	import ClientPreview from '#lib/components/ClientPreview.svelte';
 	import PreviewFrame from '#lib/components/PreviewFrame.svelte';
@@ -232,7 +232,8 @@
 	const sectionCard = 'grid gap-3 rounded-[0.875rem] border border-border bg-panel p-4 sm:p-5';
 	const sectionHeading =
 		'font-sans! text-[0.6875rem] leading-none font-semibold! tracking-[0.08em] text-muted-foreground uppercase';
-	const pillGroup = 'inline-flex rounded-full border border-border bg-background p-[3px]';
+	const pillGroup =
+		'inline-flex shrink-0 whitespace-nowrap rounded-full border border-border bg-background p-[3px]';
 	const pillButton =
 		'cursor-pointer rounded-full px-3 py-1 text-xs font-medium text-muted-foreground transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-foreground aria-pressed:text-panel';
 
@@ -481,7 +482,6 @@
 
 {#snippet previewAction()}
 	<Button
-		variant="outline"
 		size="sm"
 		onclick={() => {
 			onbeforepreview?.();
@@ -494,20 +494,21 @@
 {/snippet}
 
 <div class="grid gap-4">
-	<div class="flex flex-wrap items-center justify-between gap-2">
-		<h2 class="text-2xl leading-tight">{m.tab_design()}</h2>
-		{#if !onheader}{@render previewAction()}{/if}
-	</div>
+	{#if !onheader}
+		<div class="flex flex-wrap justify-end gap-2">
+			{@render previewAction()}
+		</div>
+	{/if}
 
 	<div
 		data-slot="design-split"
-		class="grid items-start gap-5 lg:grid-cols-[minmax(20rem,1fr)_minmax(0,2fr)]"
+		class="grid w-full min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-5 lg:grid-cols-[minmax(20rem,1fr)_minmax(0,2fr)]"
 	>
-		<div class="grid gap-4">
+		<div class="grid min-w-0 gap-4">
 			<Card as="section" class="gap-4 {sectionCard}">
-				<h3 class={sectionHeading}>
+				<h2 class={sectionHeading}>
 					{m.design_cover()}
-				</h3>
+				</h2>
 
 				<button
 					data-slot="design-cover-image"
@@ -578,19 +579,22 @@
 				</span>
 				<div
 					data-slot="design-cover-actions"
-					class="flex items-stretch gap-2 [&>button]:min-w-0 [&>button]:shrink [&>button]:px-2 [&>button]:whitespace-normal"
+					class="w-full items-stretch gap-2 [&>button]:min-w-0 [&>button]:px-2 [&>button]:whitespace-normal {hasCover
+						? 'grid grid-cols-2'
+						: 'flex'}"
 				>
-					<Button variant="outline" size="sm" onclick={() => (pickingCover = true)}>
+					<Button variant="outline" size="sm" class="w-full" onclick={() => (pickingCover = true)}>
 						<ImagePlus size={15} aria-hidden="true" />
 						{hasCover ? m.design_change_cover() : m.design_select_cover()}
 					</Button>
 					{#if hasCover}
 						<Button
-							variant="outline"
+							variant="destructive"
 							size="sm"
-							class="border-danger text-danger hover:bg-danger/5"
+							class="w-full"
 							onclick={() => void chooseCover(null)}
 						>
+							<Trash2 size={15} aria-hidden="true" />
 							{m.cover_remove()}
 						</Button>
 					{/if}
@@ -598,9 +602,9 @@
 			</Card>
 
 			<Card as="section" class={sectionCard}>
-				<h3 class={sectionHeading}>
+				<h2 class={sectionHeading}>
 					{m.design_cover_style()}
-				</h3>
+				</h2>
 				<div role="group" aria-label={m.design_cover_style()} class="grid grid-cols-2 gap-2">
 					{#each coverTemplates as item (item.id)}
 						{@const selected = design.cover_layout === item.id}
@@ -620,9 +624,9 @@
 			</Card>
 
 			<Card as="section" class={sectionCard}>
-				<h3 class={sectionHeading}>
+				<h2 class={sectionHeading}>
 					{m.design_typography()}
-				</h3>
+				</h2>
 				<div role="group" aria-label={m.design_heading_font()} class="grid grid-cols-2 gap-2">
 					{#each headingFonts as item (item.id)}
 						{@const selected = design.heading_font === item.id}
@@ -645,11 +649,11 @@
 			</Card>
 
 			<Card as="section" class={sectionCard}>
-				<h3 class={sectionHeading}>
+				<h2 class={sectionHeading}>
 					{m.design_grid_and_spacing()}
-				</h3>
-				<div class="flex flex-wrap items-center justify-between gap-2.5 text-sm">
-					<span class="text-foreground">{m.settings_layout()}</span>
+				</h2>
+				<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 text-sm">
+					<span class="min-w-0 text-foreground">{m.settings_layout()}</span>
 					<IconButtonGroup
 						value={design.layout}
 						items={layouts}
@@ -657,8 +661,8 @@
 						onchange={(value) => void setDesignField('layout', value as GalleryLayout)}
 					/>
 				</div>
-				<div class="flex flex-wrap items-center justify-between gap-2.5 text-sm">
-					<span class="text-foreground">{m.design_grid_density()}</span>
+				<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 text-sm">
+					<span class="min-w-0 text-foreground">{m.design_grid_density()}</span>
 					<div role="group" aria-label={m.design_grid_density()} class={pillGroup}>
 						{#each gridDensities as item (item.id)}
 							<button
@@ -672,8 +676,8 @@
 						{/each}
 					</div>
 				</div>
-				<div class="flex flex-wrap items-center justify-between gap-2.5 text-sm">
-					<span class="text-foreground">{m.design_grid_spacing()}</span>
+				<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 text-sm">
+					<span class="min-w-0 text-foreground">{m.design_grid_spacing()}</span>
 					<div role="group" aria-label={m.design_grid_spacing()} class={pillGroup}>
 						{#each gridSpacings as item (item.id)}
 							<button
@@ -692,9 +696,9 @@
 
 		<section
 			aria-label={m.preview_label()}
-			class="hidden min-w-0 flex-col overflow-hidden rounded-[0.875rem] border border-border bg-[#1d1815] shadow-[0_18px_40px_-24px_rgb(43_36_32/0.45)] lg:flex"
+			class="flex w-full min-w-0 flex-col overflow-hidden rounded-[0.875rem] border border-border bg-[#1d1815] shadow-[0_18px_40px_-24px_rgb(43_36_32/0.45)]"
 		>
-			<PreviewFrame stageClass="flex-1" scrollable={false}>
+			<PreviewFrame stageClass="w-full" scrollable={false}>
 				{#snippet header()}
 					<div
 						class="flex flex-wrap items-center justify-between gap-2.5 border-b border-[#3b322b] bg-foreground px-4 py-2.5 text-sm font-medium text-[#efe6da]"
@@ -739,62 +743,51 @@
 {#if pickingCover}
 	<Dialog
 		onclose={() => (pickingCover = false)}
+		focusClose
 		label={m.design_cover_picker_title()}
 		aria-modal="true"
 		class="m-auto w-[min(42rem,calc(100vw-1.5rem))] rounded-[1.125rem] border border-border bg-panel p-5 text-foreground shadow-xl sm:p-6"
 	>
-		{#snippet children(close)}
-			<div class="mb-4 flex items-center justify-between gap-3">
-				<h3 class="font-serif text-xl leading-tight">{m.design_cover_picker_title()}</h3>
-				<button
-					type="button"
-					aria-label={m.action_close()}
-					onclick={close}
-					class="inline-flex size-8 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-foreground hover:bg-border/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-				>
-					<X size={16} aria-hidden="true" />
-				</button>
-			</div>
+		<h3 class="mb-4 pr-10 font-serif text-xl leading-tight">{m.design_cover_picker_title()}</h3>
 
-			{#if photosLoadFailed && readyPhotos.length === 0}
-				<p role="alert" class="py-10 text-center text-sm text-danger">
-					{m.design_preview_load_failed()}
-				</p>
-			{:else if readyPhotos.length === 0}
-				<p class="py-10 text-center text-sm text-muted-foreground">
-					{m.design_cover_picker_empty()}
-				</p>
-			{:else}
-				<div class="grid max-h-[60dvh] grid-cols-2 gap-2.5 overflow-y-auto p-0.5 sm:grid-cols-3">
-					{#each readyPhotos as photo (photo.id)}
-						{@const selected = localHeroId === photo.id}
-						<button
-							type="button"
-							aria-label={m.design_cover_pick_photo({ name: photo.original_name })}
-							aria-pressed={selected}
-							onclick={() => void chooseCover(photo.id)}
-							class="group relative aspect-[3/2] cursor-pointer overflow-hidden rounded-[0.625rem] border-2 bg-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus {selected
-								? 'border-foreground ring-2 ring-foreground/25'
-								: 'border-transparent hover:border-border-strong'}"
-						>
-							<img
-								src={thumbnailUrl(gallery.id, photo.id, 'photos', photo.revision)}
-								alt=""
-								loading="lazy"
-								class="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
-							/>
-							{#if selected}
-								<span
-									aria-hidden="true"
-									class="absolute top-2 right-2 inline-flex size-6 items-center justify-center rounded-full bg-foreground text-panel shadow"
-								>
-									<Check size={14} />
-								</span>
-							{/if}
-						</button>
-					{/each}
-				</div>
-			{/if}
-		{/snippet}
+		{#if photosLoadFailed && readyPhotos.length === 0}
+			<p role="alert" class="py-10 text-center text-sm text-danger">
+				{m.design_preview_load_failed()}
+			</p>
+		{:else if readyPhotos.length === 0}
+			<p class="py-10 text-center text-sm text-muted-foreground">
+				{m.design_cover_picker_empty()}
+			</p>
+		{:else}
+			<div class="grid max-h-[60dvh] grid-cols-2 gap-2.5 overflow-y-auto p-0.5 sm:grid-cols-3">
+				{#each readyPhotos as photo (photo.id)}
+					{@const selected = localHeroId === photo.id}
+					<button
+						type="button"
+						aria-label={m.design_cover_pick_photo({ name: photo.original_name })}
+						aria-pressed={selected}
+						onclick={() => void chooseCover(photo.id)}
+						class="group relative aspect-[3/2] cursor-pointer overflow-hidden rounded-[0.625rem] border-2 bg-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus {selected
+							? 'border-foreground ring-2 ring-foreground/25'
+							: 'border-transparent hover:border-border-strong'}"
+					>
+						<img
+							src={thumbnailUrl(gallery.id, photo.id, 'photos', photo.revision)}
+							alt=""
+							loading="lazy"
+							class="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+						/>
+						{#if selected}
+							<span
+								aria-hidden="true"
+								class="absolute top-2 right-2 inline-flex size-6 items-center justify-center rounded-full bg-foreground text-panel shadow"
+							>
+								<Check size={14} />
+							</span>
+						{/if}
+					</button>
+				{/each}
+			</div>
+		{/if}
 	</Dialog>
 {/if}

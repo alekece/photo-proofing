@@ -68,10 +68,12 @@ No hero: a warm neutral placeholder instead of the photo. Clicking the card open
 
 ## Notifications
 
-The bell opens a panel: one row per gallery with unread activity (thumbnail, title, what
-happened, how long ago) and a **Mark all as read** link (disabled when nothing is unread).
-Clicking a row opens the gallery and marks it read. Opening the panel marks nothing. Empty:
-"Nothing new."
+The bell opens a compact panel of recent activity, including read notifications. Each row has a
+thumbnail, gallery title, activity summary and relative time; unread rows have a dot and a bolder
+title. Opening the panel marks nothing. Clicking a row opens the gallery and marks its activity
+read. **Mark all as read** clears the dots and bell count without closing the panel or removing
+rows, and is disabled when nothing is unread. The close button is in the top-right corner.
+Empty: "Nothing new."
 
 ## Account menu
 

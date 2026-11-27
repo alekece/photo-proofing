@@ -96,7 +96,7 @@
 	const heading =
 		'mb-2.5 font-sans! text-[0.6875rem] leading-none font-semibold! tracking-[0.08em] text-muted-foreground uppercase';
 	const row =
-		'flex flex-wrap items-center justify-between gap-2.5 border-t border-[#ece3d6] py-3 text-sm last:pb-0 [h3+&]:border-t-0 [h3+&]:pt-0.5';
+		'flex flex-wrap items-center justify-between gap-2.5 border-t border-[#ece3d6] py-3 text-sm last:pb-0 [h2+&]:border-t-0 [h2+&]:pt-0.5';
 
 	async function commit(changes: GalleryChanges, revert: () => void) {
 		if (!(await onsave(changes))) revert();
@@ -260,11 +260,9 @@
 	}
 </script>
 
-<div class="grid max-w-3xl gap-4">
-	<h2 class="text-2xl leading-tight">{m.tab_settings()}</h2>
-
+<div data-slot="gallery-settings" class="grid w-full gap-4">
 	<Card as="section" class={card}>
-		<h3 class={heading}>{m.settings_general()}</h3>
+		<h2 class={heading}>{m.settings_general()}</h2>
 		<div class={row}>
 			<Label for="shoot-date" class="shrink-0 text-foreground">{m.shoot_date_label()}</Label>
 			<DatePicker
@@ -315,7 +313,7 @@
 	</Card>
 
 	<Card as="section" class={card}>
-		<h3 class={heading}>{m.settings_privacy_protection()}</h3>
+		<h2 class={heading}>{m.settings_privacy_protection()}</h2>
 		<div class={row}>
 			<span class="text-foreground">{m.copy_link_label()}</span>
 			{#if shareToken}
@@ -324,7 +322,6 @@
 				</div>
 			{:else}
 				<div class="flex flex-wrap items-center gap-2.5">
-					<span class="text-sm text-muted-foreground">{m.settings_not_shared()}</span>
 					<Button
 						data-share-trigger
 						variant="outline"
@@ -353,18 +350,20 @@
 				</div>
 			{:else}
 				<div class={cn(row, 'flex-nowrap')}>
-					<Label for="access-code-switch" class="text-foreground">{m.settings_access_code()}</Label>
-					<div class="flex items-center gap-2">
-						<span id={codeLockedReasonId} class="text-end text-xs text-muted-foreground">
+					<div class="grid min-w-0 gap-1">
+						<Label for="access-code-switch" class="text-foreground">
+							{m.settings_access_code()}
+						</Label>
+						<span id={codeLockedReasonId} class="text-xs text-muted-foreground">
 							{m.settings_access_code_none_locked()}
 						</span>
-						<Switch
-							id="access-code-switch"
-							checked={false}
-							aria-describedby={codeLockedReasonId}
-							disabled
-						/>
 					</div>
+					<Switch
+						id="access-code-switch"
+						checked={false}
+						aria-describedby={codeLockedReasonId}
+						disabled
+					/>
 				</div>
 			{/if}
 		{:else}
@@ -412,11 +411,7 @@
 							class="min-h-9! shrink-0 bg-white!"
 							onclick={regenerateAccessCode}
 						>
-							<RotateCw
-								size={15}
-								aria-hidden="true"
-								class="mr-1.5"
-							/>{m.settings_access_code_generate()}
+							<RotateCw size={15} aria-hidden="true" />{m.settings_access_code_generate()}
 						</Button>
 						<CopyButton
 							value={accessCodeDraft}
@@ -436,7 +431,7 @@
 	</Card>
 
 	<Card as="section" class={card}>
-		<h3 class={heading}>{m.settings_actions()}</h3>
+		<h2 class={heading}>{m.settings_actions()}</h2>
 		<div class={row}>
 			<div class="grid gap-0.5">
 				<span class="font-medium text-foreground">

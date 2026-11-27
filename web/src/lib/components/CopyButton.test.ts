@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import CopyButton from './CopyButton.svelte';
 
 const clipboard = (writeText: unknown) =>
@@ -13,28 +14,39 @@ const clipboard = (writeText: unknown) =>
 afterEach(() => {
 	clipboard(undefined);
 	vi.useRealTimers();
+	for (const toast of [...toasts.items]) toasts.dismiss(toast.id);
 });
 
 describe('CopyButton', () => {
-	it('copies value, announces Copied, and resets to Copy after 3 seconds', async () => {
+	it('copies value, announces Copied, and resets to Copy after about a second', async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		clipboard(writeText);
 
 		render(CopyButton, { value: '042819' });
+		const initial = screen.getByRole('button', { name: 'Copy' });
+		expect(initial.className).toContain('w-28');
+		expect(initial.querySelector('svg')).toBeTruthy();
 
-		await user.click(screen.getByRole('button', { name: 'Copy' }));
+		await user.click(initial);
 
 		expect(writeText).toHaveBeenCalledWith('042819');
-		const button = await screen.findByRole('button', { name: 'Copied' });
+		const button = screen.getByRole('button', { name: 'Copied' });
+		expect(button.className).toContain('w-28');
+		expect(button.className).toContain('justify-center');
+		expect(button.textContent?.trim()).toBe('');
+		expect(
+			button.querySelector('[data-testid="click-ripple"]')?.closest('.text-ok-on-dark')
+		).toBeTruthy();
 		expect(button.querySelector('[data-testid="click-ripple"]')).toBeTruthy();
+		expect(toasts.items).toEqual([]);
 
 		const status = screen.getByRole('status');
 		expect(status.textContent).toBe('Copied');
 		expect(status.classList.contains('sr-only')).toBe(true);
 
-		await vi.advanceTimersByTimeAsync(3000);
+		await vi.advanceTimersByTimeAsync(1000);
 		expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy();
 		expect(screen.getByRole('status').textContent).toBe('');
 	});
@@ -45,7 +57,8 @@ describe('CopyButton', () => {
 
 		const view = render(CopyButton, { value: '042819' });
 		await user.click(screen.getByRole('button', { name: 'Copy' }));
-		expect(await screen.findByRole('button', { name: 'Copied' })).toBeTruthy();
+		const copied = await screen.findByRole('button', { name: 'Copied' });
+		expect(copied.textContent?.trim()).toBe('');
 
 		await view.rerender({ value: '918273' });
 		expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy();

@@ -13,7 +13,6 @@ describe('PublishDialog photo set', () => {
 		render(PublishDialog, {
 			kind: 'deliver',
 			galleryId: 'g1',
-			title: 'Wedding',
 			load,
 			onconfirm: async () => {},
 			onclose: () => {}
@@ -34,7 +33,6 @@ describe('PublishDialog photo set', () => {
 		const { baseElement } = render(PublishDialog, {
 			kind,
 			galleryId: 'g1',
-			title: 'Wedding',
 			load,
 			onconfirm: async () => {},
 			onclose: () => {}
@@ -52,7 +50,6 @@ describe('PublishDialog dismissal', () => {
 	const props = {
 		kind: 'share',
 		galleryId: 'g1',
-		title: 'Wedding',
 		load: async () => [{ id: 'p1', status: 'ready' } as Photo],
 		onconfirm: async () => {}
 	} as const;
@@ -86,14 +83,13 @@ describe('PublishDialog in French', () => {
 		render(PublishDialog, {
 			kind: 'deliver',
 			galleryId: 'g1',
-			title: 'Camille & Hugo',
 			load: async () => [{ id: 'p1', status: 'ready' } as Photo],
 			onconfirm: async () => {},
 			onclose: () => {}
 		});
 
 		expect(await screen.findByRole('dialog', { name: 'Livrer 1 photo retouchée ?' })).toBeTruthy();
-		expect(screen.getAllByText(/Camille & Hugo/)).toHaveLength(1);
+		expect(screen.queryByText(/Camille & Hugo/)).toBeNull();
 		expect(screen.getByRole('button', { name: 'Livrer' })).toBeTruthy();
 		expect(screen.queryByText(/Publish/)).toBeNull();
 	});

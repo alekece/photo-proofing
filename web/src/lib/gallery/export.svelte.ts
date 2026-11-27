@@ -5,7 +5,8 @@ import { m } from '#lib/paraglide/messages.js';
 import { exportUrl, latestExport, requestExport, startDownload, type Export } from './export';
 import type { PhotoSet } from './photos';
 
-type Session = { id: string | null; load: number; awaited?: string };
+type AwaitedExport = { id: string; onready?: () => void };
+type Session = { id: string | null; load: number; awaited?: AwaitedExport };
 
 /** Tracks a private gallery or workspace ZIP and downloads only an explicitly requested result. */
 export class OwnerExport {
@@ -16,7 +17,7 @@ export class OwnerExport {
 	#requestError = $state<string | null>(null);
 	#statusError = $state<string | null>(null);
 	get busy() {
-		return this.#requesting || this.#latest?.status.kind === 'preparing';
+		return this.#requesting || (this.#latest?.status.kind === 'preparing' && !this.#statusError);
 	}
 	get refreshing() {
 		return this.#refreshing;
@@ -34,7 +35,8 @@ export class OwnerExport {
 	constructor(
 		readonly galleryId: () => string | null,
 		readonly set: PhotoSet,
-		readonly enabled: () => boolean = () => true
+		readonly enabled: () => boolean = () => true,
+		readonly checkExisting = true
 	) {
 		const events = getLiveEvents();
 		$effect(() => {
@@ -45,14 +47,17 @@ export class OwnerExport {
 			this.#statusError = null;
 			if (!this.enabled()) return;
 
-			const session = { id: this.galleryId(), load: 0 };
+			const session: Session = { id: this.galleryId(), load: 0 };
 			this.#session = session;
-			const refresh = () => void this.#refresh(session);
+			const refresh = () => {
+				if (!this.checkExisting && !session.awaited) return;
+				void this.#refresh(session);
+			};
 			const offExport = events.onExport(({ gallery_id }) => {
 				if (session.id === null || gallery_id === session.id) refresh();
 			});
 			const offResync = events.onResync(refresh);
-			refresh();
+			if (this.checkExisting) refresh();
 			return () => {
 				this.#session = undefined;
 				offExport();
@@ -68,13 +73,14 @@ export class OwnerExport {
 	#adopt(session: Session, latest: Export | null) {
 		this.#latest = latest;
 		const awaited = session.awaited;
-		if (!awaited || (latest?.id === awaited && latest.status.kind === 'preparing')) return;
+		if (!awaited || (latest?.id === awaited.id && latest.status.kind === 'preparing')) return;
 
 		session.awaited = undefined;
-		if (latest?.id !== awaited) {
+		if (latest?.id !== awaited.id) {
 			this.#requestError = m.owner_zip_no_longer_available();
 		} else if (latest.status.kind === 'ready') {
 			startDownload(exportUrl(session.id, latest.id, this.set));
+			awaited.onready?.();
 		}
 	}
 
@@ -88,7 +94,7 @@ export class OwnerExport {
 				session.id,
 				fetch,
 				this.set,
-				session.id === null ? session.awaited : undefined
+				session.id === null ? session.awaited?.id : undefined
 			);
 			if (!this.#current(session) || load !== session.load) return;
 			this.#statusError = null;
@@ -107,7 +113,7 @@ export class OwnerExport {
 		return this.#refresh(session);
 	}
 
-	async request(photoIds?: string[]): Promise<void> {
+	async request(photoIds?: string[], onready?: () => void): Promise<void> {
 		const session = this.#session;
 		if (!session || !this.#current(session) || this.busy) return;
 		this.#requesting = true;
@@ -119,7 +125,7 @@ export class OwnerExport {
 			if (!this.#current(session)) return;
 			session.load++;
 			this.#refreshing = false;
-			session.awaited = created.id;
+			session.awaited = { id: created.id, onready };
 			this.#adopt(session, created);
 			// A completion event can race the POST response, so check the authoritative status.
 			if (created.status.kind === 'preparing') await this.#refresh(session);

@@ -96,9 +96,10 @@ impl ActivityKind {
 /// A no-op when `options.client` is `None`. Otherwise the call extends the line of the same
 /// gallery, contact and kind whose `last_at` is still inside `options.window`, or opens a new
 /// one: `count` grows by [`ActivityKind::delta`], and `detail`, when given, replaces the line's.
-/// Favorite and unfavorite lines keep distinct photo IDs in first-seen order; other lines keep
-/// only the first four thumbnail IDs. A transaction-scoped advisory lock on the gallery, contact
-/// and kind orders concurrent calls on the same line, so none are lost and the window is never split.
+/// Favorite and unfavorite lines keep distinct photo IDs in first-seen order, a comment line keeps
+/// the photo of its latest comment, and other lines keep only the first four thumbnail IDs. A
+/// transaction-scoped advisory lock on the gallery, contact and kind orders concurrent calls on the
+/// same line, so none are lost and the window is never split.
 pub(crate) trait ActivityRecorder {
     async fn record_activity(
         &mut self,
@@ -148,7 +149,8 @@ impl ActivityRecorder for PgConnection {
                          FROM unnest(photo_ids || $2::uuid[]) WITH ORDINALITY AS photos(id, position)
                          GROUP BY id
                          ORDER BY min(position)
-                     ) ELSE (photo_ids || $2::uuid[])[1:4] END,
+                     ) WHEN kind = 'comment' THEN $2::uuid[]
+                     ELSE (photo_ids || $2::uuid[])[1:4] END,
                      detail = coalesce($3, detail),
                      last_at = now()
              WHERE workspace_id = $4
@@ -310,9 +312,16 @@ pub enum ActivityOrder {
     Oldest,
 }
 
+/// Which displayed names participate in a timeline search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActivitySearch<'a> {
+    Visitors(&'a str),
+    GalleriesAndVisitors(&'a str),
+}
+
 /// What [`ActivityRepository::list`] lists; every filter that is `None` lets all lines through.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ActivityQuery {
+pub struct ActivityQuery<'a> {
     pub gallery: Option<GalleryId>,
     pub contact: Option<ContactFilter>,
     pub kind: Option<ActivityKind>,
@@ -320,6 +329,7 @@ pub struct ActivityQuery {
     pub cursor: Option<ActivityCursor>,
     pub sort: ActivityOrder,
     pub include_archived: bool,
+    pub search: Option<ActivitySearch<'a>>,
 }
 
 /// The contact a line is attributed to.
@@ -478,7 +488,7 @@ impl ActivityRepository<'_> {
     pub async fn list(
         &self,
         workspace_id: WorkspaceId,
-        query: ActivityQuery,
+        query: ActivityQuery<'_>,
     ) -> Result<ActivityPage, DatabaseError> {
         let contact = match query.contact {
             Some(ContactFilter::Contact(id)) => Some(id),
@@ -486,6 +496,23 @@ impl ActivityRepository<'_> {
         };
         let anonymous = query.contact == Some(ContactFilter::Anonymous);
         let limit = i64::try_from(PAGE_SIZE + 1).unwrap_or(i64::MAX);
+        let (search, search_gallery) = match query.search {
+            Some(ActivitySearch::Visitors(q)) => (Some(q), false),
+            Some(ActivitySearch::GalleriesAndVisitors(q)) => (Some(q), true),
+            None => (None, false),
+        };
+        let (search_join, search_filter) = if search.is_some() {
+            (
+                "CROSS JOIN (SELECT lower(unaccent($11::text)) AS needle) search",
+                "AND (($12 AND strpos(lower(unaccent(g.title)), search.needle) > 0)
+                    OR strpos(lower(unaccent(c.name)), search.needle) > 0
+                    OR (e.contact_id IS NULL AND (
+                        strpos('anonymous client', search.needle) > 0
+                        OR strpos('client anonyme', search.needle) > 0)))",
+            )
+        } else {
+            ("", "")
+        };
 
         let (after_cursor, direction) = match query.sort {
             ActivityOrder::Newest => ("<", "DESC"),
@@ -504,6 +531,7 @@ impl ActivityRepository<'_> {
              FROM activity_events e
              JOIN galleries g ON g.id = e.gallery_id
              LEFT JOIN contacts c ON c.id = e.contact_id
+             {search_join}
              WHERE e.workspace_id = $1
                AND ($2::uuid IS NULL OR e.gallery_id = $2)
                AND ($3::uuid IS NULL OR e.contact_id = $3)
@@ -512,11 +540,12 @@ impl ActivityRepository<'_> {
                AND ($6::float8 IS NULL OR e.last_at >= now() - make_interval(secs => $6))
                AND ($7::timestamptz IS NULL OR (e.last_at, e.id) {after_cursor} ($7, $8::uuid))
                AND ($9 OR g.archived_at IS NULL)
+             {search_filter}
              ORDER BY e.last_at {direction}, e.id {direction}
              LIMIT $10",
         );
-        // Only fixed operators and keywords from ActivityOrder are interpolated.
-        let mut events: Vec<ActivityEvent> = sqlx::query_as(AssertSqlSafe(statement))
+        // Interpolations are static SQL fragments; search text is always bound.
+        let statement = sqlx::query_as(AssertSqlSafe(statement))
             .bind(workspace_id)
             .bind(query.gallery)
             .bind(contact)
@@ -526,9 +555,12 @@ impl ActivityRepository<'_> {
             .bind(query.cursor.map(|cursor| cursor.last_at))
             .bind(query.cursor.map(|cursor| cursor.id))
             .bind(query.include_archived)
-            .bind(limit)
-            .fetch_all(self.pool)
-            .await?;
+            .bind(limit);
+        let statement = match search {
+            Some(search) => statement.bind(search).bind(search_gallery),
+            None => statement,
+        };
+        let mut events: Vec<ActivityEvent> = statement.fetch_all(self.pool).await?;
         let has_more = events.len() > PAGE_SIZE;
 
         events.truncate(PAGE_SIZE);
@@ -1236,7 +1268,7 @@ mod tests {
             .unwrap();
         }
 
-        async fn list(&self, query: ActivityQuery) -> ActivityPage {
+        async fn list(&self, query: ActivityQuery<'_>) -> ActivityPage {
             ActivityRepository::open(&self.pool, ActivityOptions::default())
                 .list(self.location.workspace_id, query)
                 .await

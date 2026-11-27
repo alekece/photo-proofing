@@ -157,8 +157,6 @@ export function galleryExpiryDescription(iso: string | null, now: Date = new Dat
 	return m.summary_expired_days_ago({ days });
 }
 
-const plain = (text: string): SummaryPart[] => [{ text, over: false }];
-
 /**
  * The one line on a gallery card, as runs so the selection can be highlighted.
  */
@@ -170,31 +168,28 @@ export function gallerySummary(gallery: {
 	final_count: number;
 	downloaded_count: number;
 }): SummaryPart[] {
-	const status = galleryLifecycle(gallery.states);
-	const photos = m.summary_photos({ count: gallery.photo_count });
-	const finalsText = m.summary_finals({ count: gallery.final_count });
-
-	if (status === 'archived') {
-		return plain(m.summary_archived({ items: gallery.final_count > 0 ? finalsText : photos }));
-	}
-	if (status === 'delivered') {
-		const { final_count: finals, downloaded_count: downloaded } = gallery;
-
-		if (finals === 0) return plain(m.summary_finals_delivered());
-
-		return plain(
-			downloaded === finals
-				? m.summary_all_downloaded({ finals: finalsText })
-				: m.summary_some_downloaded({ finals: finalsText, count: downloaded })
+	const parts: SummaryPart[] = [
+		{ text: m.summary_photos({ count: gallery.photo_count }), over: false }
+	];
+	const count = gallery.favorite_count;
+	if (count > 0) {
+		const over = gallery.included_photos !== null && count > gallery.included_photos;
+		parts.push(
+			{ text: ', ', over: false },
+			{ text: String(count), over },
+			{ text: m.summary_selected({ count }), over: false }
 		);
 	}
-	if (status === 'draft') {
-		return plain(gallery.photo_count === 0 ? m.summary_no_photos() : photos);
+
+	if (gallery.final_count > 0) {
+		parts.push(
+			{ text: ', ', over: false },
+			{ text: m.summary_finals({ count: gallery.final_count }), over: false },
+			{ text: ', ', over: false },
+			{ text: String(gallery.downloaded_count), over: false },
+			{ text: m.summary_downloaded({ count: gallery.downloaded_count }), over: false }
+		);
 	}
 
-	const over = gallery.included_photos !== null && gallery.favorite_count > gallery.included_photos;
-	return [
-		{ text: String(gallery.favorite_count), over },
-		{ text: m.summary_selected({ count: gallery.favorite_count }), over: false }
-	];
+	return parts;
 }

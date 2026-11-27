@@ -95,6 +95,10 @@ export class NotificationCenter {
 		await this.#post('/read');
 	}
 
+	async deleteAll(): Promise<void> {
+		await this.#delete();
+	}
+
 	/** Loads the list and keeps it current; returns what stops that. */
 	start(events: LiveEvents): () => void {
 		const stops = [
@@ -105,6 +109,15 @@ export class NotificationCenter {
 		void this.refresh();
 
 		return () => stops.forEach((stop) => stop());
+	}
+
+	async #delete() {
+		await this.#fetcher('/api/v1/notifications', {
+			method: 'DELETE',
+			credentials: 'same-origin',
+			keepalive: true
+		}).catch(() => null);
+		await this.refresh();
 	}
 
 	async #post(path: string) {

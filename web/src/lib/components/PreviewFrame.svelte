@@ -58,9 +58,11 @@
 
 {@render header(toggle)}
 <div
+	tabindex="-1"
 	class={cn(
 		'client-surface',
 		stageClass,
+		'w-full',
 		mode === 'phone'
 			? 'grid place-items-center overflow-hidden bg-[radial-gradient(circle_at_50%_40%,#3a302a,#1d1815_70%)] p-4 sm:p-6'
 			: cn('bg-background', scrollable && 'overflow-auto')
@@ -75,6 +77,7 @@
 		)}
 	>
 		<div
+			tabindex="-1"
 			class={cn(
 				'relative bg-background text-foreground',
 				mode === 'phone' && 'translate-z-0 rounded-[30px]',

@@ -73,7 +73,8 @@ describe('ClientGallery', () => {
 						body: 'Nice',
 						created_at: '2026-11-10T09:00:00Z',
 						edited_at: null,
-						deleted_at: null
+						deleted_at: null,
+						editable: true
 					});
 				return Response.json([]);
 			}
@@ -93,16 +94,13 @@ describe('ClientGallery', () => {
 		);
 	});
 
-	it.each([{ preview: true }, { gallery: { ...gallery, delivered: true } }])(
-		'does not request comments in preview or after delivery',
-		async (props) => {
-			const user = userEvent.setup();
-			show(props);
-			await user.click(screen.getByRole('button', { name: /open proof 1/i }));
-			expect(screen.queryByRole('button', { name: 'Comments' })).toBeNull();
-			expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/comments'))).toBe(false);
-		}
-	);
+	it('does not request comments after delivery', async () => {
+		const user = userEvent.setup();
+		show({ gallery: { ...gallery, delivered: true } });
+		await user.click(screen.getByRole('button', { name: /open proof 1/i }));
+		expect(screen.queryByRole('button', { name: 'Comments' })).toBeNull();
+		expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/comments'))).toBe(false);
+	});
 
 	it('wraps a long unbroken title with a utility class, not an inline style', () => {
 		const title = 'x'.repeat(200);
@@ -361,16 +359,15 @@ describe('ClientGallery', () => {
 		expect(screen.queryByRole('contentinfo')).toBeNull();
 	});
 
-	it('shows the selection but cannot change it in preview mode', () => {
-		show({ preview: true, favorites: ['p1'] });
+	it('renders the full visual selection inert in preview mode', () => {
+		const { container } = show({ preview: true, favorites: ['p1'] });
+		const root = container.querySelector<HTMLElement>('[data-heading-font]');
+		const previewButtons = [...(root?.querySelectorAll('button') ?? [])];
 
-		expect(count()).toBe('1');
-		const hearts = screen.getAllByRole('button', { name: /^favorite proof/i });
-		expect(hearts).toHaveLength(3);
-		for (const heart of hearts) expect((heart as HTMLButtonElement).disabled).toBe(true);
-		expect(
-			screen.getByRole('button', { name: 'Favorite proof 1' }).getAttribute('aria-pressed')
-		).toBe('true');
+		expect(root?.hasAttribute('inert')).toBe(true);
+		expect(previewButtons.length).toBeGreaterThan(0);
+		expect(previewButtons.every((button) => button.closest('[inert]') === root)).toBe(true);
+		expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/comments'))).toBe(false);
 	});
 
 	it('uses the clean cover separately from the client proofs', () => {
@@ -570,12 +567,10 @@ describe('ClientGallery in French', () => {
 		expect(screen.getByRole('button', { name: 'Voir la galerie' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Favoris 0 sur 2' })).toBeTruthy();
 		expect(screen.getByText('sur 2')).toBeTruthy();
-		expect(screen.getAllByRole('button', { name: /^Mettre l’épreuve 1 en favori/ })).toBeTruthy();
+		expect(screen.getAllByRole('button', { name: /^Mettre la photo 1 en favori/ })).toBeTruthy();
 		expect(screen.queryByText('View the gallery')).toBeNull();
 
-		await userEvent
-			.setup()
-			.click(screen.getByRole('button', { name: /^Ouvrir l’épreuve 1 sur 3/ }));
+		await userEvent.setup().click(screen.getByRole('button', { name: /^Ouvrir la photo 1 sur 3/ }));
 
 		expect(screen.getByRole('button', { name: 'Fermer la visionneuse' })).toBeTruthy();
 		expect(screen.getByText('1 sur 3')).toBeTruthy();

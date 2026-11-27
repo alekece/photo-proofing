@@ -23,16 +23,22 @@
 	let input = $state<HTMLInputElement | null>(null);
 </script>
 
-<div class={cn('flex flex-wrap gap-x-2 gap-y-2.5', className)}>
+<div class={cn('relative flex flex-wrap gap-y-2', className)}>
 	<Input
 		bind:ref={input}
 		readonly
 		value={link}
 		aria-label={label}
 		class={cn(
-			'bg-muted/40 min-h-0 min-w-0 flex-1 cursor-default truncate rounded-lg border-border px-2.5 py-[0.5625rem] font-mono text-sm text-muted-foreground focus-visible:outline-none',
+			'bg-muted/40 min-h-0 min-w-0 flex-1 cursor-default truncate rounded-lg border-border py-[0.5625rem] pr-11 pl-2.5 font-mono text-sm text-muted-foreground focus-visible:outline-none',
 			inputClass
 		)}
 	/>
-	<CopyButton value={link} fallbackInput={input} class={buttonClass} {statusClass} />
+	<CopyButton
+		icon
+		value={link}
+		fallbackInput={input}
+		class={cn('absolute top-[1.125rem] right-1.5 -translate-y-1/2', buttonClass)}
+		{statusClass}
+	/>
 </div>

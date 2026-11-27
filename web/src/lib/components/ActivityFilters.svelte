@@ -2,61 +2,46 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { ArrowUpDown, ListFilter } from '@lucide/svelte';
 	import type { ActivityFeed } from '#lib/activityLog/activityFeed.svelte.js';
-	import type { ActivityFilters, ActivityKind, ActivityRange } from '#lib/activityLog/api.js';
-	import Select from '#lib/components/ui/Select/Select.svelte';
+	import type { ActivityKind, ActivityRange } from '#lib/activityLog/api.js';
 	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
 
 	let {
 		feed,
-		galleries,
-		contacts,
+		searchLabel,
 		resultsHeight = 0
 	}: {
 		feed: ActivityFeed;
-		/** The gallery choice; left out for a gallery's own feed. */
-		galleries?: { id: string; title: string | null }[];
-		contacts: { id: string; name: string }[];
+		searchLabel: string;
 		resultsHeight?: number;
 	} = $props();
 
-	const kinds = $derived<{ kind: ActivityKind | ''; label: string }[]>([
-		{ kind: '', label: m.activity_type_all() },
-		{ kind: 'favorite', label: m.activity_type_favorites() },
-		{ kind: 'comment', label: m.activity_type_comments() },
-		{ kind: 'download', label: m.activity_type_downloads() },
-		{ kind: 'open', label: m.activity_type_views() },
-		{ kind: 'email', label: m.activity_type_emails() },
-		{ kind: 'email_failed', label: m.activity_type_failed_emails() }
+	const kinds = $derived<{ value: ActivityKind | ''; label: string }[]>([
+		{ value: '', label: m.activity_type_all() },
+		{ value: 'favorite', label: m.activity_type_favorites() },
+		{ value: 'comment', label: m.activity_type_comments() },
+		{ value: 'download', label: m.activity_type_downloads() },
+		{ value: 'open', label: m.activity_type_views() },
+		{ value: 'email', label: m.activity_type_emails() },
+		{ value: 'email_failed', label: m.activity_type_failed_emails() }
 	]);
 	const sorts = $derived([
 		{ value: 'newest', label: m.activity_sort_newest() },
 		{ value: 'oldest', label: m.activity_sort_oldest() }
 	] as const);
-	const ranges = $derived<{ range: ActivityRange | ''; label: string }[]>([
-		{ range: '', label: m.activity_range_any() },
-		{ range: 'today', label: m.activity_range_today() },
-		{ range: '7d', label: m.activity_range_7d() },
-		{ range: '30d', label: m.activity_range_30d() }
+	const ranges = $derived<{ value: ActivityRange | ''; label: string }[]>([
+		{ value: '', label: m.activity_range_any() },
+		{ value: 'today', label: m.activity_range_today() },
+		{ value: '7d', label: m.activity_range_7d() },
+		{ value: '30d', label: m.activity_range_30d() }
 	]);
 
-	const activeCount = $derived(Object.keys(feed.filters).length);
-	const summary = $derived(
-		[
-			feed.filters.gallery
-				? (galleries?.find(({ id }) => id === feed.filters.gallery)?.title ?? m.gallery_untitled())
-				: undefined,
-			feed.filters.contact === 'anonymous'
-				? m.activity_anonymous()
-				: contacts.find(({ id }) => id === feed.filters.contact)?.name,
-			ranges.find(({ range }) => range === feed.filters.range)?.label,
-			kinds.find(({ kind }) => kind === feed.filters.kind)?.label
-		]
-			.filter(Boolean)
-			.join(', ') || m.activity_filters()
-	);
+	const choices = $derived([
+		{ key: 'range', label: m.activity_filter_date(), options: ranges },
+		{ key: 'kind', label: m.activity_filter_type(), options: kinds }
+	] as const);
 
-	function choose(key: keyof ActivityFilters, value: string) {
+	function choose(key: 'range' | 'kind', value: string) {
 		const next = { ...feed.filters };
 
 		if (value) Object.assign(next, { [key]: value });
@@ -70,66 +55,21 @@
 <WorkspaceToolbar
 	class="mb-5"
 	resultsHeight={feed.loading ? 0 : resultsHeight}
-	onclear={activeCount ? () => feed.clearFilters() : undefined}
+	search={{ label: searchLabel, value: feed.search, oninput: (value) => feed.setSearch(value) }}
 >
 	{#snippet filters()}
-		<ToolbarMenu label={m.activity_filters()} {summary} {activeCount} icon={ListFilter}>
-			<div class="grid gap-3 p-2 text-sm">
-				{#if galleries}
-					<label class="grid gap-1">
-						{m.activity_filter_gallery()}
-						<Select
-							class="w-full min-w-0"
-							value={feed.filters.gallery ?? ''}
-							onchange={(event) => choose('gallery', event.currentTarget.value)}
-						>
-							<option value="">{m.activity_all_galleries()}</option>
-							{#each galleries as gallery (gallery.id)}
-								<option value={gallery.id}>{gallery.title ?? m.gallery_untitled()}</option>
-							{/each}
-						</Select>
-					</label>
-				{/if}
-				<label class="grid gap-1">
-					{m.activity_filter_visitor()}
-					<Select
-						class="w-full min-w-0"
-						value={feed.filters.contact ?? ''}
-						onchange={(event) => choose('contact', event.currentTarget.value)}
-					>
-						<option value="">{m.activity_all_visitors()}</option>
-						<option value="anonymous">{m.activity_anonymous()}</option>
-						{#each contacts as contact (contact.id)}
-							<option value={contact.id}>{contact.name}</option>
-						{/each}
-					</Select>
-				</label>
-				<label class="grid gap-1">
-					{m.activity_filter_date()}
-					<Select
-						class="w-full min-w-0"
-						value={feed.filters.range ?? ''}
-						onchange={(event) => choose('range', event.currentTarget.value)}
-					>
-						{#each ranges as { range, label } (range)}
-							<option value={range}>{label}</option>
-						{/each}
-					</Select>
-				</label>
-				<label class="grid gap-1">
-					{m.activity_filter_type()}
-					<Select
-						class="w-full min-w-0"
-						value={feed.filters.kind ?? ''}
-						onchange={(event) => choose('kind', event.currentTarget.value)}
-					>
-						{#each kinds as { kind, label } (kind)}
-							<option value={kind}>{label}</option>
-						{/each}
-					</Select>
-				</label>
-			</div>
-		</ToolbarMenu>
+		{#each choices as { key, label, options } (key)}
+			<ToolbarMenu
+				{label}
+				summary={(feed.filters[key] &&
+					options.find((option) => option.value === feed.filters[key])?.label) ||
+					label}
+				icon={ListFilter}
+				value={feed.filters[key] ?? ''}
+				{options}
+				onchange={(value) => choose(key, value)}
+			/>
+		{/each}
 	{/snippet}
 	{#snippet sort()}
 		<ToolbarMenu

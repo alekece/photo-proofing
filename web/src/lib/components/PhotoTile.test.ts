@@ -24,7 +24,11 @@ it('keeps the collection circle and active tile body separately operable by keyb
 	expect(onselect).toHaveBeenCalledTimes(2);
 	expect(onopen).not.toHaveBeenCalled();
 
-	await view.rerender({ ...props, collectionSelect: undefined, persistentSelect: true });
+	await view.rerender({ ...props, collectionSelect: undefined, librarySelect: 'active' });
+	const openFrame = screen
+		.getByRole('button', { name: 'Open a.jpg' })
+		.closest('[data-slot="photo-tile-frame"]');
+	expect(openFrame?.contains(screen.getByRole('button', { name: 'Select a.jpg' }))).toBe(true);
 	await user.click(screen.getByRole('button', { name: 'Open a.jpg' }));
 	expect(onopen).toHaveBeenCalledOnce();
 	expect(onselect).toHaveBeenCalledTimes(2);
@@ -76,30 +80,6 @@ describe('PhotoTile states', () => {
 		expect(oncancelUpload).toHaveBeenCalledOnce();
 	});
 
-	it('ripples the select circle only when a photo becomes selected', async () => {
-		const user = userEvent.setup();
-		const onselect = vi.fn();
-		const view = render(PhotoTile, { ...base, onselect });
-		const circle = screen.getByRole('checkbox', { name: /select a\.jpg/i });
-
-		await user.click(circle);
-		await view.rerender({ ...base, onselect, selected: true });
-
-		expect(screen.getAllByTestId('click-ripple')).toHaveLength(1);
-		expect(circle.parentElement?.contains(screen.getByTestId('click-ripple'))).toBe(true);
-	});
-
-	it('offers no Retry on a failed tile in select mode', () => {
-		render(PhotoTile, {
-			name: 'a.jpg',
-			state: 'upload-failed',
-			onretry: () => {},
-			onselect: () => {}
-		});
-
-		expect(screen.queryByRole('button', { name: 'Retry a.jpg' })).toBeNull();
-	});
-
 	it('opens and offers a persistent select circle at the same time', async () => {
 		const onopen = vi.fn();
 		const onselect = vi.fn();
@@ -109,7 +89,7 @@ describe('PhotoTile states', () => {
 			...base,
 			onopen,
 			onselect,
-			persistentSelect: true,
+			librarySelect: 'idle',
 			source: 'Wedding'
 		});
 
@@ -129,7 +109,7 @@ describe('PhotoTile states', () => {
 			...base,
 			onopen: () => {},
 			onselect: () => {},
-			persistentSelect: true
+			librarySelect: 'idle'
 		});
 		const circle = screen.getByRole('button', { name: /select a\.jpg/i });
 
@@ -139,7 +119,7 @@ describe('PhotoTile states', () => {
 			...base,
 			onopen: () => {},
 			onselect: () => {},
-			persistentSelect: true,
+			librarySelect: 'active',
 			selected: true
 		});
 
@@ -164,10 +144,22 @@ describe('PhotoTile states', () => {
 		});
 
 		expect(screen.getByText(/^Downloaded Nov 9, 2026/)).toBeTruthy();
+		const downloaded = screen.getByText(/^Downloaded Nov 9, 2026/).closest('p')!;
+		expect(downloaded.className).toContain('glass-on-image');
+		expect(downloaded.dataset.surface).toBe('glass');
+		expect(downloaded.querySelector('[data-slot="tile-caption-icon"]')?.className).toContain(
+			'size-4'
+		);
 
 		await view.rerender({ ...base, caption: { kind: 'favorited', at: '2026-11-09T12:00:00Z' } });
 
 		expect(screen.getByText(/^Favorited Nov 9, 2026/)).toBeTruthy();
+		const favorited = screen.getByText(/^Favorited Nov 9, 2026/).closest('p')!;
+		expect(favorited.className).toContain('glass-on-image');
+		expect(favorited.dataset.surface).toBe('glass');
+		expect(favorited.querySelector('[data-slot="tile-caption-icon"]')?.className).toContain(
+			'size-4'
+		);
 	});
 
 	it('shows no date until the photo is ready', () => {
@@ -257,7 +249,7 @@ describe('PhotoTile loading polish', () => {
 
 	it.each([
 		['favorited', 'text-danger'],
-		['downloaded', 'bg-dark']
+		['downloaded', 'text-current']
 	] as const)('draws the %s caption icon with its own contrast treatment', (kind, color) => {
 		const { container } = render(PhotoTile, {
 			...base,

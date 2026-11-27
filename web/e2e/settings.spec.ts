@@ -27,12 +27,12 @@ test('saves real watermark and signature settings and keeps the editor usable on
 	await page.goto('/settings');
 	await mounted;
 	await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
-	const mode = page.locator('select:has(option[value="print"])');
-	const palette = page.locator('select:has(option[value="neutral"])');
-	const nextMode = (await mode.inputValue()) === 'print' ? 'full_image' : 'print';
-	const nextPalette = (await palette.inputValue()) === 'neutral' ? 'warm' : 'neutral';
-	await mode.selectOption(nextMode);
-	await palette.selectOption(nextPalette);
+	const mode = page.getByRole('radiogroup', { name: 'Photo presentation' });
+	const palette = page.getByRole('radiogroup', { name: 'Theme' });
+	const nextMode = (await mode.locator('[value="print"]').isChecked()) ? 'full_image' : 'print';
+	const nextPalette = (await palette.locator('[value="neutral"]').isChecked()) ? 'warm' : 'neutral';
+	await mode.locator(`[value="${nextMode}"]`).check();
+	await palette.locator(`[value="${nextPalette}"]`).check();
 	await page.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(page.locator('[data-studio-mode]')).toHaveAttribute('data-studio-mode', nextMode);
 	const remounted = page.waitForRequest(
@@ -40,8 +40,8 @@ test('saves real watermark and signature settings and keeps the editor usable on
 	);
 	await page.reload();
 	await remounted;
-	await expect(mode).toHaveValue(nextMode);
-	await expect(palette).toHaveValue(nextPalette);
+	await expect(mode.locator(`[value="${nextMode}"]`)).toBeChecked();
+	await expect(palette.locator(`[value="${nextPalette}"]`)).toBeChecked();
 	await expect(page.locator('[data-studio-palette]')).toHaveAttribute(
 		'data-studio-palette',
 		nextPalette
@@ -75,7 +75,7 @@ test('saves real watermark and signature settings and keeps the editor usable on
 	const preview = page.getByRole('img', { name: 'Preview of a proof with the watermark' });
 	const both = page.getByRole('button', { name: 'Name and logo' });
 	const hex = page.getByLabel('Hex color');
-	const opacity = page.getByRole('slider', { name: 'Watermark opacity' });
+	const opacity = page.getByRole('slider', { name: 'Opacity', exact: true });
 	await signature.click();
 	await page.getByRole('button', { name: 'Both', exact: true }).click();
 	await page.getByLabel('Text color', { exact: true }).fill('#F6CCB4');
@@ -84,7 +84,7 @@ test('saves real watermark and signature settings and keeps the editor usable on
 	await hex.fill('#A12B3C');
 	await opacity.fill('50');
 	await page.getByRole('button', { name: 'Save', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Saved', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
 	await page.reload();
 	await expect(async () => {
 		if ((await signature.getAttribute('aria-selected')) === 'false') await signature.click();

@@ -21,6 +21,8 @@ const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 	watermark_enabled: false,
 	hero_id: null,
 	share_token: null,
+	shared_at: null,
+	delivered_at: null,
 	last_opened_at: null,
 	shoot_date: null,
 	states: ['shared'],
@@ -34,13 +36,23 @@ const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 });
 
 describe('GalleryCard', () => {
-	it('links to the gallery with its title, one status chip and its summary line', async () => {
+	it('keeps title and summary in the caption while status stays above it', async () => {
 		const { container } = render(GalleryCard, { gallery: gallery(), query: '' });
 		const link = screen.getByRole('link', { name: /Martin Wedding/ });
+		const caption = container.querySelector<HTMLElement>('[data-slot="gallery-card-caption"]')!;
+		const status = container.querySelector<HTMLElement>('[data-slot="gallery-card-status"]')!;
 
 		expect(link.getAttribute('href')).toBe('/dashboard/g1');
-		expect(within(link).getByText('Shared')).toBeTruthy();
-		expect(within(link).getByText('12 selected')).toBeTruthy();
+		expect(link.contains(container.querySelector('[data-slot="gallery-card-image"]'))).toBe(true);
+		expect(link.contains(caption)).toBe(true);
+		expect(within(caption).getByRole('heading', { name: 'Martin Wedding' })).toBeTruthy();
+		expect(within(caption).getByText('32 photos, 12 selected')).toBeTruthy();
+		expect(within(caption).queryByText('Shared')).toBeNull();
+		expect(caption.contains(status)).toBe(false);
+		expect(within(status).getByText('Shared')).toBeTruthy();
+		expect(caption.className).toContain('glass-on-image');
+		expect(caption.dataset.slot).toBe('gallery-card-caption');
+		expect(caption.dataset.surface).toBe('glass');
 		// The grid supplies the list; the page test checks the whole.
 		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
 			[]
@@ -60,15 +72,24 @@ describe('GalleryCard', () => {
 		expect(container.querySelector('b')).toBeNull();
 	});
 
-	it('shows the lifecycle separately from closed access', () => {
+	it('shows Expired in place of the lifecycle status', () => {
 		render(GalleryCard, {
-			gallery: gallery({ states: ['delivered', 'expired'], expires_at: '2026-01-01' }),
+			gallery: gallery({
+				states: ['delivered', 'expired'],
+				expires_at: '2026-01-01',
+				access_code: '042819',
+				favorite: true
+			}),
 			query: ''
 		});
 
-		expect(screen.getByText('Delivered')).toBeTruthy();
-		expect(screen.getByRole('img', { name: 'Closed to clients' })).toBeTruthy();
-		expect(screen.queryByText('Expired')).toBeNull();
+		const status = screen.getByText('Expired');
+		const statusRow = status.parentElement!;
+		expect(
+			within(statusRow).getByRole('img', { name: 'Protected by an access code' })
+		).toBeTruthy();
+		expect(within(statusRow).getByRole('img', { name: 'Favorited gallery' })).toBeTruthy();
+		expect(screen.queryByText('Delivered')).toBeNull();
 	});
 
 	it('uses the hero photo with its focal point, else the striped cover', () => {
@@ -104,14 +125,13 @@ describe('GalleryCard', () => {
 		expect(screen.getAllByRole('img', { name: 'Unread activity' })).toHaveLength(1);
 	});
 
-	it('shows inline Lock when access_code is set and EyeOff when Expired or Archived with zero axe violations', async () => {
+	it('shows inline Lock when access_code is set and Expired replaces the lifecycle status with zero axe violations', async () => {
 		const { container, rerender } = render(GalleryCard, {
 			gallery: gallery({ access_code: '042819' }),
 			query: ''
 		});
 
 		expect(screen.getByRole('img', { name: 'Protected by an access code' })).toBeTruthy();
-		expect(screen.queryByRole('img', { name: 'Closed to clients' })).toBeNull();
 		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
 			[]
 		);
@@ -125,14 +145,15 @@ describe('GalleryCard', () => {
 			query: ''
 		});
 		expect(screen.getByRole('img', { name: 'Protected by an access code' })).toBeTruthy();
-		expect(screen.getByRole('img', { name: 'Closed to clients' })).toBeTruthy();
+		expect(screen.getByText('Expired')).toBeTruthy();
+		expect(screen.queryByText('Shared')).toBeNull();
 
 		await rerender({
 			gallery: gallery({ access_code: null, states: ['shared', 'archived'] }),
 			query: ''
 		});
 		expect(screen.queryByRole('img', { name: 'Protected by an access code' })).toBeNull();
-		expect(screen.getByRole('img', { name: 'Closed to clients' })).toBeTruthy();
+		expect(screen.getByText('Archived')).toBeTruthy();
 		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
 			[]
 		);
@@ -150,6 +171,9 @@ describe('GalleryCard', () => {
 		});
 
 		expect(screen.getByRole('img', { name: 'Favorited gallery' })).toBeTruthy();
+		expect(
+			(screen.getByRole('img', { name: 'Favorited gallery' }) as HTMLElement).dataset.slot
+		).toBe('gallery-favorite');
 
 		const selectBtn = screen.getByRole('button', { name: 'Select Martin Wedding' });
 		const link = screen.getByRole('link', { name: /Martin Wedding/ });
@@ -167,6 +191,23 @@ describe('GalleryCard', () => {
 			onselect
 		});
 		expect(selectBtn.getAttribute('aria-pressed')).toBe('true');
+		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
+			[]
+		);
+	});
+
+	it('shows favorite state as a permanent yellow indicator, never as an individual action', async () => {
+		const { container, rerender } = render(GalleryCard, {
+			gallery: gallery({ favorite: false })
+		});
+
+		expect(screen.queryByRole('button', { name: /gallery to top/ })).toBeNull();
+		expect(screen.queryByRole('img', { name: 'Favorited gallery' })).toBeNull();
+
+		await rerender({ gallery: gallery({ favorite: true }) });
+		const favorited = screen.getByRole('img', { name: 'Favorited gallery' });
+		expect(favorited.querySelector('svg')?.getAttribute('class')).toContain('text-hero');
+		expect(favorited.querySelector('svg')?.getAttribute('fill')).toBe('currentColor');
 		expect((await axe(container, { rules: { listitem: { enabled: false } } })).violations).toEqual(
 			[]
 		);

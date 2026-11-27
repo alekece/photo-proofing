@@ -108,6 +108,26 @@ describe('Restore expired dialog', () => {
 		expect(onclose).toHaveBeenCalledOnce();
 	});
 
+	it('blocks dismissal while saving a new expiry', async () => {
+		const save = Promise.withResolvers<boolean>();
+		const { onclose } = open(vi.fn(() => save.promise));
+		const user = userEvent.setup();
+		await user.click(screen.getByRole('button', { name: 'No expiry' }));
+
+		const close = screen.getByRole('button', { name: 'Close' });
+		const cancel = screen.getByRole('button', { name: 'Keep expired' });
+		expect(close).toHaveProperty('disabled', true);
+		expect(cancel).toHaveProperty('disabled', true);
+		await user.click(close);
+		await user.click(cancel);
+		screen.getByLabelText('Open until').focus();
+		await user.keyboard('{Escape}');
+		expect(onclose).not.toHaveBeenCalled();
+
+		save.resolve(true);
+		await vi.waitFor(() => expect(onclose).toHaveBeenCalledOnce());
+	});
+
 	it('lets the user pick a relative preset and submit it via Set date', async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		vi.setSystemTime(new Date(2026, 5, 1, 12, 0, 0));

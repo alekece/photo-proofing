@@ -95,6 +95,7 @@ describe('ActivityTimeline', () => {
 			feed.events = [failed, kept];
 			feed.loaded = true;
 			render(ActivityTimeline, { feed, showGallery });
+			expect(screen.queryByRole('link', { name: /invitation could not be sent/ })).toBeNull();
 			await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
 			expect(
 				fetcher.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url]) => url)
@@ -124,15 +125,16 @@ describe('ActivityTimeline', () => {
 		});
 
 		const rows = screen.getAllByRole('listitem');
+		expect(rows[0]?.querySelector('svg')?.getAttribute('class')).toContain('text-danger');
 		const paragraphs = rows.map((row) => row.querySelector('p'));
 		expect(paragraphs.map((p) => p?.textContent?.trim().replace(/\s+/g, ' '))).toEqual([
-			'Alice favorited 3 photos Wedding',
-			'Anonymous client un-picked a photo Wedding',
-			'Alice left 2 comments Wedding',
-			'Alice downloaded 4 photos Wedding',
-			'Alice downloaded the ZIP Wedding',
-			'Alice opened the gallery Wedding',
-			'Invitation email sent to <b>Alice</b> Wedding'
+			'Alice favorited 3 photos',
+			'Anonymous client un-picked a photo',
+			'Alice left 2 comments',
+			'Alice downloaded 4 photos',
+			'Alice downloaded the ZIP',
+			'Alice opened the gallery',
+			'Invitation email sent to <b>Alice</b>'
 		]);
 		expect(paragraphs.map((p) => p?.querySelector('strong')?.textContent)).toEqual([
 			'Alice',
@@ -144,7 +146,12 @@ describe('ActivityTimeline', () => {
 			'<b>Alice</b>'
 		]);
 		expect(paragraphs[6]?.querySelector('b')).toBeNull();
-		for (const row of rows) {
+		for (const [index, row] of rows.entries()) {
+			const gallery = within(row).getByRole('link', { name: 'Wedding' });
+			expect(paragraphs[index]?.compareDocumentPosition(gallery)).toBe(
+				Node.DOCUMENT_POSITION_FOLLOWING
+			);
+			expect(row.querySelector('time')).toBeNull();
 			expect(row.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
 			expect(
 				within(row).queryByRole('img', { name: /favorite|open|comment|download|email/i })
@@ -153,6 +160,50 @@ describe('ActivityTimeline', () => {
 		expect(screen.getAllByRole('link', { name: 'Wedding' })[0]?.getAttribute('href')).toBe(
 			'/dashboard/g1'
 		);
+	});
+
+	it('leads each line to the tab and thread that hold what it describes', () => {
+		render(ActivityTimeline, {
+			feed: feedWith([
+				line('a'),
+				line('b', {
+					kind: 'comment',
+					count: 2,
+					photo_ids: ['p9', 'p9', 'p3'],
+					detail: 'Warmer, please'
+				}),
+				line('c', { kind: 'download', count: 2 }),
+				line('d', { kind: 'email', photo_ids: [] }),
+				line('e', { kind: 'open', count: 1, photo_ids: [] })
+			])
+		});
+
+		const rows = screen.getAllByRole('listitem');
+		const hrefs = rows.map((row) =>
+			within(row)
+				.getAllByRole('link')
+				.map((link) => link.getAttribute('href'))
+		);
+
+		expect(hrefs).toEqual([
+			['/dashboard/g1?section=favorites', '/dashboard/g1'],
+			['/dashboard/g1?section=comments&thread=p9', '/dashboard/g1'],
+			['/dashboard/g1?section=final', '/dashboard/g1'],
+			['/dashboard/g1?section=contacts', '/dashboard/g1'],
+			['/dashboard/g1', '/dashboard/g1']
+		]);
+		expect(within(rows[1]!).getByText(/Warmer, please/)).toBeTruthy();
+		expect(within(rows[1]!).getAllByRole('img')).toHaveLength(1);
+		expect(within(rows[0]!).queryByText(/Warmer, please/)).toBeNull();
+	});
+
+	it('leaves an open line unlinked inside a gallery’s own feed', () => {
+		render(ActivityTimeline, {
+			feed: feedWith([line('a', { kind: 'open', count: 1, photo_ids: [] })]),
+			showGallery: false
+		});
+
+		expect(screen.queryByRole('link')).toBeNull();
 	});
 
 	it('shows the photos of a line as thumbnails', () => {
@@ -185,8 +236,7 @@ describe('ActivityTimeline', () => {
 		const [first, second, exact, download] = screen
 			.getAllByRole('listitem')
 			.map((row) => within(row));
-		const toggle = first!.getByRole('button', { name: 'Show more photos' });
-		const target = toggle.getAttribute('aria-controls')!;
+		const toggle = first!.getByRole('button', { name: `${12 - limit} more photos` });
 		const user = userEvent.setup();
 
 		expect(first!.getAllByRole('img')).toHaveLength(limit);
@@ -195,20 +245,25 @@ describe('ActivityTimeline', () => {
 		expect(exact!.queryByRole('button')).toBeNull();
 		expect(download!.getAllByRole('img')).toHaveLength(4);
 		expect(download!.queryByRole('button')).toBeNull();
-		expect(screen.queryByRole('link')).toBeNull();
-		expect(toggle.textContent?.trim()).toBe('');
+		expect(screen.queryByRole('link', { name: 'Wedding' })).toBeNull();
+		expect(toggle.textContent?.trim()).toBe(`+${12 - limit}`);
 		expect(toggle.getAttribute('aria-expanded')).toBe('false');
-		expect(document.getElementById(target)).not.toBeNull();
+		expect(first!.queryByRole('region')).toBeNull();
 
 		toggle.focus();
 		await user.keyboard('{Enter}');
-		expect(first!.getByRole('button', { name: 'Show fewer photos' })).toBe(toggle);
-		expect(first!.getAllByRole('img')).toHaveLength(12);
+		const panel = first!.getByRole('region', { name: `${12 - limit} more photos` });
+		expect(
+			within(panel)
+				.getAllByRole('img')
+				.map((img) => img.getAttribute('src'))
+		).toEqual(photos.slice(limit).map((id) => `/api/v1/galleries/g1/photos/${id}/thumbnail`));
 		expect(second!.getAllByRole('img')).toHaveLength(limit);
 		expect(toggle.getAttribute('aria-expanded')).toBe('true');
-		expect(toggle.getAttribute('aria-controls')).toBe(target);
 
-		await user.keyboard(' ');
+		await user.tab();
+		expect(document.activeElement).toBe(panel);
+		await user.keyboard('{Escape}');
 		expect(first!.getAllByRole('img')).toHaveLength(limit);
 		expect(document.activeElement).toBe(toggle);
 	});
@@ -226,16 +281,15 @@ describe('ActivityTimeline', () => {
 		});
 		const user = userEvent.setup();
 		await user.tab();
-		const toggle = screen.getByRole('button', { name: 'Show more photos' });
+		expect(document.activeElement?.tagName).toBe('A');
+		await user.tab();
+		const toggle = screen.getByRole('button', { name: '54 more photos' });
 		expect(document.activeElement).toBe(toggle);
 
 		await user.keyboard('{Enter}');
-		const images = screen.getAllByRole('img', { name: 'Photo' });
-		expect(images).toHaveLength(60);
+		const panel = screen.getByRole('region', { name: '54 more photos' });
+		expect(within(panel).getAllByRole('img')).toHaveLength(54);
 		expect(document.activeElement).toBe(toggle);
-		expect(toggle.compareDocumentPosition(images[6]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
-		);
 
 		await user.keyboard(' ');
 		expect(screen.getAllByRole('img')).toHaveLength(6);
@@ -426,7 +480,7 @@ describe('ActivityTimeline in French', () => {
 
 		const paragraph = screen.getByRole('listitem').querySelector('p');
 		expect(paragraph?.textContent?.trim().replace(/\s+/g, ' ')).toBe(
-			'Client anonyme a mis 3 photos en favori Wedding'
+			'Client anonyme a mis 3 photos en favori'
 		);
 		expect(paragraph?.querySelector('strong')?.textContent).toBe('Client anonyme');
 		expect(screen.getByRole('heading', { level: 3, name: 'Aujourd’hui' })).toBeTruthy();

@@ -25,6 +25,8 @@ describe('gallery editing integration', () => {
 			watermark_enabled: false,
 			hero_id: null,
 			share_token: 'token',
+			shared_at: null,
+			delivered_at: null,
 			last_opened_at: null,
 			shoot_date: null,
 			states: ['shared'],

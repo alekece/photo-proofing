@@ -10,6 +10,7 @@ vi.mock('#lib/gallery/export.js', async (original) => ({
 import { startDownload } from '#lib/gallery/export.js';
 import type { FavoritesEvent, LiveEvents } from '#lib/events.js';
 import type { Photo } from '#lib/gallery/photos.js';
+import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import Harness from './FavoritesPanelHarness.test.svelte';
 
 it('opens the photographer thread from a favorite photo', async () => {
@@ -37,7 +38,8 @@ it('opens the photographer thread from a favorite photo', async () => {
 						body: 'Favorite note',
 						created_at: '2026-11-10T09:00:00Z',
 						edited_at: null,
-						deleted_at: null
+						deleted_at: null,
+						editable: false
 					}
 				]);
 			if (url.endsWith('/comments')) return Response.json([]);
@@ -75,7 +77,15 @@ const zip = (status: Zip['status']['kind'], id = 'e1', code = 'export_failed'): 
 	created_at: '2026-11-07T10:00:00Z'
 });
 
-function setup(initial: Photo[], existing: Zip | null = null, rejection: Response | null = null) {
+function setup(
+	initial: Photo[],
+	existing: Zip | null = null,
+	rejection: Response | null = null,
+	callbacks: {
+		onfavorites?: (ids: string[] | null) => void;
+		onfulldownload?: (ids: string[]) => void;
+	} = {}
+) {
 	let server = initial;
 	let latest = existing;
 	const exportHandlers = new Set<(event: { gallery_id: string }) => void>();
@@ -106,13 +116,16 @@ function setup(initial: Photo[], existing: Zip | null = null, rejection: Respons
 			return latest ? new Response(JSON.stringify(latest)) : new Response(null, { status: 204 });
 		})
 	);
-	const rendered = render(Harness, { props: { events } });
+	const props = { events, ...callbacks };
+	const rendered = render(Harness, { props });
 
 	return {
-		rerender: rendered.rerender,
+		rerender(next: Parameters<typeof rendered.rerender>[0]) {
+			return rendered.rerender({ ...props, ...next });
+		},
 		container: rendered.container,
 		switchGallery(id: string) {
-			return rendered.rerender({ events, galleryId: id });
+			return rendered.rerender({ ...props, galleryId: id });
 		},
 		finish(next: Zip) {
 			latest = next;
@@ -125,7 +138,10 @@ function setup(initial: Photo[], existing: Zip | null = null, rejection: Respons
 	};
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+	vi.unstubAllGlobals();
+	toasts.items = [];
+});
 
 describe('FavoritesPanel', () => {
 	it('offers no individual download on a favorite tile or in its viewer', async () => {
@@ -279,6 +295,39 @@ describe('FavoritesPanel', () => {
 		expect(screen.queryByText('Download started.')).toBeNull();
 	});
 
+	it('reports the exact favorite set captured for a successful full download', async () => {
+		const onfavorites = vi.fn();
+		const onfulldownload = vi.fn();
+		const { finish, change } = setup([photo('p1', true), photo('p2', true)], null, null, {
+			onfavorites,
+			onfulldownload
+		});
+		await screen.findByAltText('p2.jpg');
+		expect(onfavorites).toHaveBeenLastCalledWith(['p1', 'p2']);
+
+		await userEvent.click(screen.getByRole('button', { name: 'Download all' }));
+		change([photo('p3', true)]);
+		await screen.findByAltText('p3.jpg');
+		finish(zip('ready'));
+
+		await waitFor(() => expect(onfulldownload).toHaveBeenCalledExactlyOnceWith(['p1', 'p2']));
+		expect(onfavorites).toHaveBeenLastCalledWith(['p3']);
+	});
+
+	it('does not report a subset download as a full favorites download', async () => {
+		const onfulldownload = vi.fn();
+		const { finish } = setup([photo('p1', true), photo('p2', true)], null, null, {
+			onfulldownload
+		});
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole('button', { name: 'Select p1.jpg' }));
+		await user.click(screen.getByRole('button', { name: 'Download selected (1)' }));
+		finish(zip('ready'));
+
+		await waitFor(() => expect(startDownload).toHaveBeenCalled());
+		expect(onfulldownload).not.toHaveBeenCalled();
+	});
+
 	it('has no separate Download ZIP button for a ready ZIP', async () => {
 		setup([photo('p1', true)], zip('ready'));
 
@@ -287,6 +336,35 @@ describe('FavoritesPanel', () => {
 		expect(screen.queryByRole('link', { name: /Download ZIP/ })).toBeNull();
 		expect(screen.getByRole('button', { name: 'Download all' })).toBeTruthy();
 		expect(startDownload).not.toHaveBeenCalled();
+	});
+
+	it('does not check an old ZIP when the Favorites panel opens', async () => {
+		setup([photo('p1', true)], zip('ready'));
+
+		await screen.findByAltText('p1.jpg');
+
+		const exportReads = vi
+			.mocked(fetch)
+			.mock.calls.filter(
+				([url, init]) => String(url).endsWith('/export') && (init?.method ?? 'GET') === 'GET'
+			);
+		expect(exportReads).toEqual([]);
+	});
+
+	it('repeats the explicit download request for the same selection and reuses the returned ZIP', async () => {
+		const { finish } = setup([photo('p1', true), photo('p2', true)]);
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByRole('button', { name: 'Download all' }));
+		finish(zip('ready'));
+		await waitFor(() => expect(startDownload).toHaveBeenCalledTimes(1));
+
+		await user.click(screen.getByRole('button', { name: 'Download all' }));
+		finish(zip('ready'));
+		await waitFor(() => expect(startDownload).toHaveBeenCalledTimes(2));
+		expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+			2
+		);
 	});
 
 	it.each([true, false])(
@@ -317,13 +395,6 @@ describe('FavoritesPanel', () => {
 			expect(screen.queryByRole('dialog')).toBeNull();
 			expect(within(bar).getByText('2 selected')).toBeTruthy();
 			await user.click(within(bar).getByRole('button', { name: 'Unselect all' }));
-			expect(within(bar).getByText('0 selected')).toBeTruthy();
-			expect(within(bar).getByRole('button', { name: 'Download selected (0)' })).toHaveProperty(
-				'disabled',
-				true
-			);
-			await user.keyboard('{Escape}');
-
 			expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
 			expect(screen.getByRole('button', { name: 'Select p1.jpg' })).toBeTruthy();
 			expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty(
@@ -365,54 +436,40 @@ describe('FavoritesPanel', () => {
 		expect(screen.getByRole('button', { name: 'Download selected (2)' })).toBeTruthy();
 
 		await user.click(screen.getByRole('button', { name: 'Unselect all' }));
-
-		expect(screen.getByText('0 selected')).toBeTruthy();
-
-		await user.click(screen.getByRole('button', { name: 'Exit selection' }));
-
+		expect(document.querySelector('[data-slot="select-actions"]')).toBeNull();
 		expect(screen.queryByText('0 selected')).toBeNull();
 		expect(screen.getByRole('button', { name: 'Select p1.jpg' })).toBeTruthy();
 	});
 
-	it('shows why a ZIP failed and allows another try', async () => {
-		setup([photo('p1', true)], zip('failed', 'e1', 'storage_full'));
-
-		expect((await screen.findByRole('alert')).textContent).toContain('storage is full');
-		expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty('disabled', false);
-	});
-
-	it('retries ZIP status without starting another export', async () => {
-		setup([photo('p1', true)]);
+	it('reports a status failure without a permanent ZIP panel and lets Download try again', async () => {
+		const onfulldownload = vi.fn();
+		setup([photo('p1', true)], null, null, { onfulldownload });
 		const originalFetch = fetch;
-		let status = 'initial';
+		let attempt = 0;
 		const calls = vi.fn<typeof fetch>(async (url, init) => {
 			if (String(url) !== '/api/v1/galleries/g1/export') return originalFetch(url, init);
 			if (init?.method === 'POST') {
-				status = 'unavailable';
-				return Response.json(zip('preparing', 'favorites-pending'), { status: 202 });
+				attempt++;
+				return attempt === 1
+					? Response.json(zip('preparing', 'favorites-pending'), { status: 202 })
+					: Response.json(zip('ready', 'favorites-pending'));
 			}
-			if (status === 'ready') return Response.json(zip('ready', 'favorites-pending'));
-			return new Response(null, { status: status === 'initial' ? 204 : 503 });
+			return new Response(null, { status: 503 });
 		});
 		vi.stubGlobal('fetch', calls);
 		const user = userEvent.setup();
 		await user.click(await screen.findByRole('button', { name: 'Download all' }));
-		const retry = await screen.findByRole('button', { name: 'Retry ZIP status' });
-		expect(screen.getByRole('alert').textContent).toContain('Couldn’t check the ZIP');
-
-		calls.mockClear();
-		status = 'ready';
-		await user.click(retry);
+		await waitFor(() => expect(toasts.items[0]?.message).toContain('Couldn’t check the ZIP'));
+		expect(onfulldownload).not.toHaveBeenCalled();
+		expect(screen.queryByRole('button', { name: 'Retry ZIP status' })).toBeNull();
+		expect(screen.queryByRole('alert')).toBeNull();
+		await user.click(screen.getByRole('button', { name: 'Download all' }));
 		await waitFor(() =>
 			expect(startDownload).toHaveBeenCalledExactlyOnceWith(
 				'/api/v1/galleries/g1/export/favorites-pending/download'
 			)
 		);
-		expect(calls.mock.calls).toEqual([
-			['/api/v1/galleries/g1/export', expect.objectContaining({ method: 'GET' })]
-		]);
-		expect(screen.queryByRole('alert')).toBeNull();
-		expect(screen.queryByRole('button', { name: 'Retry ZIP status' })).toBeNull();
+		expect(calls.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
 	});
 
 	it('shows the translated reason when the request is refused', async () => {
@@ -426,19 +483,21 @@ describe('FavoritesPanel', () => {
 		await screen.findByAltText('p1.jpg');
 		await user.click(screen.getByRole('button', { name: 'Download all' }));
 
-		expect((await screen.findByRole('alert')).textContent).toContain('too large');
+		await waitFor(() => expect(toasts.items[0]?.message).toContain('too large'));
+		expect(screen.queryByRole('alert')).toBeNull();
 	});
 
-	it('offers no download without favorites', async () => {
+	it('keeps Download all disabled without favorites', async () => {
 		setup([photo('p1', false)]);
 
 		await screen.findByText('No favorites yet');
 
-		expect(screen.queryByRole('button', { name: /^Download/ })).toBeNull();
+		expect(screen.getByRole('button', { name: /^Download/ }).hasAttribute('disabled')).toBe(true);
 	});
 
 	it.each([202, 500])('ignores an old gallery ZIP request completing with %i', async (status) => {
-		const { switchGallery } = setup([photo('p1', true)]);
+		const onfulldownload = vi.fn();
+		const { switchGallery } = setup([photo('p1', true)], null, null, { onfulldownload });
 		await screen.findByAltText('p1.jpg');
 		let finish!: (response: Response) => void;
 		vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
@@ -466,5 +525,6 @@ describe('FavoritesPanel', () => {
 		expect(screen.queryByRole('alert')).toBeNull();
 		expect(screen.getByRole('button', { name: 'Download all' })).toHaveProperty('disabled', false);
 		expect(startDownload).not.toHaveBeenCalled();
+		expect(onfulldownload).not.toHaveBeenCalled();
 	});
 });

@@ -40,6 +40,11 @@ function open(contacts: Contact[] | null) {
 	});
 }
 
+async function quickEdit(user: ReturnType<typeof userEvent.setup>) {
+	await user.click(screen.getByRole('checkbox', { name: 'Select Camille & Hugo' }));
+	await user.click(screen.getByRole('button', { name: 'Quick edit' }));
+}
+
 beforeEach(() => {
 	vi.stubGlobal('matchMedia', () => ({ matches: true }));
 });
@@ -152,31 +157,53 @@ describe('/contacts page', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('shows contact details and linked galleries without opening a row', async () => {
+	it('shows the latest gallery directly and reveals only the other galleries', async () => {
 		const user = userEvent.setup();
-		const camille = contact();
+		const camille = contact({ galleries: [{ id: 'g1', title: 'Summer Wedding' }] });
 		const zoe = contact({
 			id: 'c2',
 			name: 'Zoé Laurent',
 			email: 'zoe@studio.test',
 			phone: '0601020304',
 			notes: null,
-			galleries: []
+			galleries: [
+				{ id: 'g3', title: 'Family Portraits' },
+				{ id: 'g2', title: null }
+			]
 		});
 		const { container } = open([camille, zoe]);
 
 		const row = screen.getByText(camille.name).closest('li')!;
 		expect(within(row).getByText(camille.email)).toBeTruthy();
 		expect(within(row).getByText(camille.phone!)).toBeTruthy();
-		expect(within(row).getByText('Prefers matte paper')).toBeTruthy();
+		const note = within(row).getByText('Prefers matte paper');
+		const gallery = within(row).getByRole('link', { name: 'Summer Wedding' });
+		expect(within(row).getByText(camille.phone!).compareDocumentPosition(note)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		expect(note.compareDocumentPosition(gallery)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 		expect(screen.queryByLabelText('Name')).toBeNull();
 		expect(within(row).getByRole('link', { name: 'Summer Wedding' }).getAttribute('href')).toBe(
 			'/dashboard/g1'
 		);
-		expect(within(row).getByRole('link', { name: 'Untitled gallery' }).getAttribute('href')).toBe(
+		expect(within(row).queryByRole('button', { name: /galleries/i })).toBeNull();
+		const multi = screen.getByText(zoe.name).closest('li')!;
+		expect(within(multi).getByRole('link', { name: 'Family Portraits' })).toHaveProperty(
+			'pathname',
+			'/dashboard/g3'
+		);
+		const more = within(multi).getByRole('button', { name: '1 more gallery' });
+		expect(more.textContent?.trim()).toBe('+1');
+		await user.click(more);
+		const panel = within(multi).getByRole('list', { name: 'Linked galleries' });
+		expect(within(panel).getAllByRole('link')).toHaveLength(1);
+		expect(within(panel).getByRole('link', { name: 'Untitled gallery' })).toHaveProperty(
+			'pathname',
 			'/dashboard/g2'
 		);
-		expect(within(row).queryByRole('button', { name: /show details/i })).toBeNull();
+		await user.keyboard('{Escape}');
+		expect(document.activeElement).toBe(more);
+		expect(within(multi).queryByRole('link', { name: 'Untitled gallery' })).toBeNull();
 
 		const search = screen.getByRole('searchbox', { name: 'Search by name, email or phone' });
 		await user.type(search, '0601');
@@ -192,11 +219,6 @@ describe('/contacts page', () => {
 		expect(
 			within(screen.getByRole('list', { name: 'Workspace contacts' })).getByText('Camille & Hugo')
 		).toBeTruthy();
-
-		await user.type(search, 'no match');
-		await user.click(screen.getByRole('button', { name: 'Reset' }));
-		expect(search).toHaveProperty('value', '');
-		expect(screen.getByRole('list', { name: 'Workspace contacts' })).toBeTruthy();
 
 		expect((await axe(container)).violations).toEqual([]);
 	});
@@ -246,6 +268,7 @@ describe('/contacts page', () => {
 		const dialog = within(screen.getByRole('dialog', { name: 'New contact' }));
 		expect(document.activeElement).toBe(dialog.getByLabelText('Name'));
 		expect(dialog.getByLabelText('Name')).toHaveProperty('value', '');
+		expect(dialog.getByLabelText('Notes').tagName).toBe('TEXTAREA');
 		await user.click(dialog.getByRole('button', { name: 'Create contact' }));
 		expect(screen.getByRole('alert').textContent).toBe('Enter a name.');
 		await user.type(screen.getByLabelText('Name'), 'Unsaved');
@@ -293,7 +316,7 @@ describe('/contacts page', () => {
 		expect(await screen.findByText('A contact with this email already exists.')).toBeTruthy();
 		expect(screen.getByLabelText('Email')).toHaveProperty('value', 'leo@example.test');
 
-		await user.click(screen.getByRole('button', { name: 'Create contact' }));
+		await user.click(await screen.findByRole('button', { name: 'Create contact' }));
 		expect(
 			await within(screen.getByRole('list', { name: 'Workspace contacts' })).findByText(
 				'Léo Martin'
@@ -320,7 +343,7 @@ describe('/contacts page', () => {
 
 		open([camille]);
 
-		await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
+		await quickEdit(user);
 		const modal = screen.getByRole('dialog', { name: 'Edit Camille & Hugo' });
 		const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
 		await user.clear(nameInput);
@@ -343,8 +366,8 @@ describe('/contacts page', () => {
 
 	it('edits an existing contact and restores focus on cancel', async () => {
 		const user = userEvent.setup();
-		const initial = contact();
-		const updated = contact({ name: 'Camille Laurent', phone: null });
+		const initial = contact({ notes: 'First line\nSecond line' });
+		const updated = contact({ ...initial, name: 'Camille Laurent', phone: null });
 		const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const url = typeof input === 'string' ? input : input.toString();
 			if (url.includes('/auth/')) return new Response(null, { status: 204 });
@@ -355,11 +378,14 @@ describe('/contacts page', () => {
 
 		open([initial]);
 
-		await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
+		await quickEdit(user);
 		const modal = screen.getByRole('dialog', { name: 'Edit Camille & Hugo' });
 		const nameInput = within(modal).getByLabelText('Name') as HTMLInputElement;
 		const phoneInput = within(modal).getByLabelText('Phone') as HTMLInputElement;
 		expect(nameInput.value).toBe('Camille & Hugo');
+		const notes = within(modal).getByLabelText('Notes');
+		expect(notes.tagName).toBe('TEXTAREA');
+		expect(notes).toHaveProperty('value', 'First line\nSecond line');
 
 		await user.clear(nameInput);
 		await user.type(nameInput, 'Camille Laurent');
@@ -375,19 +401,66 @@ describe('/contacts page', () => {
 				body: JSON.stringify({ name: 'Camille Laurent', phone: null })
 			})
 		);
-		const edit = screen.getByRole('button', { name: 'Edit Camille Laurent' });
+		const edit = screen.getByRole('button', { name: 'Quick edit' });
 		await user.click(edit);
 		await user.keyboard('{Escape}');
 		expect(screen.queryByLabelText('Name')).toBeNull();
-		expect(document.activeElement).toBe(
-			screen.getByRole('button', { name: 'Edit Camille Laurent' })
-		);
+		expect(document.activeElement).toBe(edit);
+	});
+
+	it('quick-edits selected contacts independently and retries only failed rows', async () => {
+		const user = userEvent.setup();
+		const zoe = contact({ id: 'c2', name: 'Zoé Laurent', email: 'zoe@example.test' });
+		const camille = contact({ name: 'Camille Laurent' });
+		const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			if (init?.method !== 'PATCH') return new Response(null, { status: 204 });
+			if (String(input).endsWith('/c1')) return Response.json(camille);
+			if (String(init.body).includes('Retry note'))
+				return Response.json({ ...zoe, notes: 'Retry note' });
+			return new Response(null, { status: 500 });
+		});
+		vi.stubGlobal('fetch', fetcher);
+		open([contact(), zoe, contact({ id: 'c3', name: 'Lou Dune' })]);
+
+		expect(screen.queryByRole('button', { name: /Edit Camille/ })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Quick edit' })).toBeNull();
+		await user.click(screen.getByRole('checkbox', { name: 'Select Camille & Hugo' }));
+		await user.click(screen.getByRole('checkbox', { name: 'Select Zoé Laurent' }));
+		await user.click(screen.getByRole('checkbox', { name: 'Select Lou Dune' }));
+		await user.click(screen.getByRole('button', { name: 'Quick edit' }));
+		const modal = screen.getByRole('dialog', { name: 'Quick edit contacts' });
+		const row = (name: string) => within(within(modal).getByRole('group', { name }));
+		const name = row('Camille & Hugo').getByLabelText('Name');
+		const notes = row('Zoé Laurent').getByLabelText('Notes');
+		expect(notes.tagName).toBe('TEXTAREA');
+		expect(row('Lou Dune').getByLabelText('Name')).toHaveProperty('value', 'Lou Dune');
+		await user.clear(name);
+		await user.type(name, 'Camille Laurent');
+		await user.clear(notes);
+		await user.type(notes, 'New note');
+		await user.click(within(modal).getByRole('button', { name: 'Save changes' }));
+		expect(await row('Zoé Laurent').findByRole('alert')).toBeTruthy();
+		expect(notes).toHaveProperty('value', 'New note');
+
+		await user.clear(notes);
+		await user.type(notes, 'Retry note');
+		await user.click(await within(modal).findByRole('button', { name: 'Save changes' }));
+		await waitFor(() => expect(modal.isConnected).toBe(false));
+		expect(
+			fetcher.mock.calls
+				.filter(([, init]) => init?.method === 'PATCH')
+				.map(([url, init]) => [url, JSON.parse(String(init?.body))])
+		).toEqual([
+			['/api/v1/contacts/c1', { name: 'Camille Laurent' }],
+			['/api/v1/contacts/c2', { notes: 'New note' }],
+			['/api/v1/contacts/c2', { notes: 'Retry note' }]
+		]);
 	});
 
 	it('puts edit actions after fields in keyboard order', async () => {
 		const user = userEvent.setup();
 		open([contact()]);
-		await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
+		await quickEdit(user);
 		await user.type(screen.getByLabelText('Name'), ' Martin');
 		screen.getByLabelText('Notes').focus();
 		await user.tab();
@@ -405,7 +478,7 @@ describe('/contacts page', () => {
 		);
 		vi.stubGlobal('fetch', fetcher);
 		open([contact()]);
-		await user.click(screen.getByRole('button', { name: 'Edit Camille & Hugo' }));
+		await quickEdit(user);
 		const email = screen.getByLabelText('Email');
 		await user.clear(email);
 		await user.type(email, 'new@example.test');
@@ -435,7 +508,9 @@ describe('/contacts page in French', () => {
 
 		expect(screen.getByRole('heading', { level: 1, name: 'Contacts' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Nouveau contact' })).toBeTruthy();
-		await userEvent.setup().click(screen.getByRole('button', { name: 'Modifier Camille & Hugo' }));
+		const user = userEvent.setup();
+		await user.click(screen.getByRole('checkbox', { name: 'Sélectionner Camille & Hugo' }));
+		await user.click(screen.getByRole('button', { name: 'Modification rapide' }));
 		expect(screen.getByLabelText('Nom')).toBeTruthy();
 		expect(screen.getByLabelText('Téléphone')).toBeTruthy();
 		expect((await axe(container)).violations).toEqual([]);

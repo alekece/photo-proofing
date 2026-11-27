@@ -27,4 +27,21 @@ describe('Card', () => {
 		expect(card.className).toContain('rounded-dialog');
 		expect(card.className).not.toContain('rounded-card');
 	});
+
+	it('renders glass surfaces through one shared card mode', () => {
+		render(Card, {
+			as: 'p',
+			surface: 'glass',
+			class: 'px-2 py-1.5',
+			children
+		});
+
+		const card = screen.getByText('Body').parentElement as HTMLElement;
+
+		expect(card.tagName).toBe('P');
+		expect(card.dataset.slot).toBe('card');
+		expect(card.dataset.surface).toBe('glass');
+		expect(card.className).toContain('glass-on-image');
+		expect(card.className).not.toContain('bg-panel');
+	});
 });

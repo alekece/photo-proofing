@@ -148,10 +148,9 @@
 >
 	{#if !inline}<h2 class="font-serif text-xl">{m.comments_title()}</h2>{/if}
 	<div
-		class="min-h-0 flex-1 [scrollbar-width:none] overflow-y-auto overscroll-contain transition-opacity delay-150 duration-200 [&::-webkit-scrollbar]:hidden {loading &&
-		loaded
-			? 'opacity-50'
-			: ''}"
+		class="min-h-0 flex-1 [scrollbar-width:none] overflow-y-auto transition-opacity delay-150 duration-200 [&::-webkit-scrollbar]:hidden {inline
+			? ''
+			: 'overscroll-contain'} {loading && loaded ? 'opacity-50' : ''}"
 	>
 		{#if !loaded}<p role="status" class="text-sm {secondary}">{m.comments_loading()}</p>{/if}
 		{#if loaded && !loading && comments.length === 0}<p class="text-sm {secondary}">
@@ -159,14 +158,17 @@
 			</p>{/if}
 		<ol class="space-y-4">
 			{#each comments as comment (comment.id)}
-				{@const mine = comment.author === viewer}
-				{@const editable = mine && !comment.deleted_at}
+				{@const mine = comment.editable}
+				{@const editable = comment.editable && !comment.deleted_at}
 				{@const isEditing = editing === comment.id}
 				<li class="group flex flex-col gap-1 {mine ? 'items-end' : 'items-start'}">
 					<div class="flex min-h-7 w-[90%] items-center justify-between gap-2 text-xs {secondary}">
 						<span class="flex gap-x-2">
 							<time datetime={comment.created_at}>{formatDateTime(comment.created_at)}</time>
 							{#if comment.edited_at && !comment.deleted_at}<span>{m.comments_edited()}</span>{/if}
+							{#if comment.deleted_at && comment.body !== null}<span>
+									{m.comments_deleted_tag()}
+								</span>{/if}
 						</span>
 						{#if editable}
 							<div
@@ -244,17 +246,15 @@
 									bind:value={editDraft}
 									disabled={pending}
 									rows="1"
-									class="max-h-40 min-h-11 w-full resize-none [scrollbar-width:none] rounded-3xl border px-4 py-2.5 text-base leading-6 focus-visible:outline-none disabled:opacity-50 [&::-webkit-scrollbar]:hidden {inputClass}"
+									class="max-h-40 min-h-11 w-full resize-none [scrollbar-width:none] rounded-control border px-4 py-2.5 text-base leading-6 focus-visible:outline-none disabled:opacity-50 [&::-webkit-scrollbar]:hidden {inputClass}"
 								></textarea>
 							</form>
 						{:else}
 							<p
 								class="w-[90%] rounded-2xl px-3.5 py-2 wrap-anywhere whitespace-pre-wrap {mine
-									? 'rounded-br-md bg-[#d9ccbc] text-foreground'
-									: inline
-										? 'rounded-bl-md bg-background text-foreground'
-										: 'rounded-bl-md bg-white/10 text-[#efe6da]'} {comment.deleted_at
-									? 'italic opacity-65'
+									? `rounded-br-md text-foreground ${comment.deleted_at ? 'bg-[#d9d1c7]' : 'bg-[#e6dccf]'}`
+									: `rounded-bl-md text-[#efe6da] ${comment.deleted_at ? 'bg-[#5c534d]' : 'bg-foreground'}`} {comment.deleted_at
+									? 'italic'
 									: ''} {comment.deleted_at && comment.body !== null ? 'line-through' : ''}"
 							>
 								{comment.body ?? m.comments_deleted()}
@@ -265,7 +265,9 @@
 						{mine
 							? m.comments_you()
 							: comment.author === 'client'
-								? m.comments_client()
+								? viewer === 'photographer' && comment.contact
+									? comment.contact.name
+									: m.comments_client()
 								: m.comments_photographer()}
 					</strong>
 				</li>
@@ -293,14 +295,14 @@
 				disabled={pending || !loaded}
 				rows="1"
 				placeholder={viewer === 'client' ? m.comments_add() : m.comments_reply()}
-				class="max-h-40 min-h-11 min-w-0 flex-1 resize-none [scrollbar-width:none] rounded-3xl border px-4 py-2.5 text-base leading-6 focus-visible:outline-none disabled:opacity-50 [&::-webkit-scrollbar]:hidden {inputClass}"
+				class="max-h-40 min-h-11 min-w-0 flex-1 resize-none [scrollbar-width:none] rounded-control border px-4 py-2.5 text-base leading-6 focus-visible:outline-none disabled:opacity-50 [&::-webkit-scrollbar]:hidden {inputClass}"
 			></textarea>
 			<button
 				type="submit"
 				disabled={pending || !loaded || !valid}
 				aria-label={pending && !editing ? m.comments_saving() : m.comments_send()}
 				class="inline-grid size-11 shrink-0 cursor-pointer place-items-center rounded-full transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 disabled:cursor-default {inline
-					? 'bg-foreground text-inverse hover:bg-foreground/90 focus-visible:outline-focus disabled:bg-border disabled:text-muted-foreground'
+					? 'bg-foreground text-inverse hover:bg-[#5c534d] focus-visible:outline-focus disabled:bg-border disabled:text-muted-foreground'
 					: 'bg-panel text-foreground hover:bg-panel/90 focus-visible:outline-viewer-focus disabled:bg-white/10 disabled:text-panel/40 disabled:hover:bg-white/10'}"
 			>
 				{#if pending && !editing}

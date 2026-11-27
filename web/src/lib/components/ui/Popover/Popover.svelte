@@ -15,6 +15,7 @@
 		panelClass,
 		trigger,
 		children,
+		'aria-haspopup': ariaHasPopup = true,
 		'aria-describedby': ariaDescribedby
 	}: {
 		/** The button's id, so a `<label for>` names it. */
@@ -30,6 +31,7 @@
 		panelClass?: string;
 		trigger: Snippet;
 		children: Snippet<[{ close: () => void }]>;
+		'aria-haspopup'?: boolean;
 		'aria-describedby'?: string;
 	} = $props();
 
@@ -103,7 +105,7 @@
 		bind:this={button}
 		{id}
 		type="button"
-		aria-haspopup="true"
+		aria-haspopup={ariaHasPopup}
 		aria-expanded={open}
 		aria-label={label}
 		aria-describedby={ariaDescribedby}

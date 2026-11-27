@@ -29,7 +29,7 @@ describe('ShareLink', () => {
 		);
 	});
 
-	it('shows Copied with a check, then returns to Copy after 3 s; clicks restart the delay', async () => {
+	it('shows Copied with a check, then returns to Copy after about a second; clicks restart the delay', async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 		clipboard(vi.fn().mockResolvedValue(undefined));
@@ -39,12 +39,12 @@ describe('ShareLink', () => {
 		const button = await screen.findByRole('button', { name: 'Copied' });
 		expect(button.querySelector('svg')).toBeTruthy();
 
-		await vi.advanceTimersByTimeAsync(2000);
+		await vi.advanceTimersByTimeAsync(800);
 		await user.click(button);
-		await vi.advanceTimersByTimeAsync(2000);
+		await vi.advanceTimersByTimeAsync(800);
 		expect(screen.getByRole('button', { name: 'Copied' })).toBeTruthy();
 
-		await vi.advanceTimersByTimeAsync(1500);
+		await vi.advanceTimersByTimeAsync(600);
 		expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy();
 	});
 

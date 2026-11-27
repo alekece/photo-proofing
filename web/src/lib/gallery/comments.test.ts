@@ -9,7 +9,8 @@ export const comment = {
 	body: 'Nice',
 	created_at: '2026-11-10T09:00:00Z',
 	edited_at: null,
-	deleted_at: null
+	deleted_at: null,
+	editable: true
 };
 
 describe('CommentsClient', () => {

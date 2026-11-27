@@ -75,8 +75,8 @@ describe('SelectActions', () => {
 		expect(bar.className).toMatch(/\bfixed\b/);
 		expect(bar.className).toMatch(/\bbottom-/);
 		expect(bar.className).not.toMatch(/\bsticky\b/);
-		expect(bar.className).toContain('sm:left-[calc(50%+var(--gallery-rail-width)/2)]');
-		expect(bar.className).toContain('sm:max-w-[calc(100vw-var(--gallery-rail-width)-1.25rem)]');
+		expect(bar.className).toContain('sm:left-[calc(50%+var(--workspace-rail-width)/2)]');
+		expect(bar.className).toContain('sm:max-w-[calc(100vw-var(--workspace-rail-width)-1.25rem)]');
 		// Must not also carry the gallery rail's md-breakpoint offset.
 		expect(bar.className).not.toMatch(/md:left-/);
 	});
@@ -87,8 +87,12 @@ describe('SelectActions', () => {
 
 		expect(bar.className).toMatch(/\bfixed\b/);
 		expect(bar.className).toMatch(/\bbottom-/);
-		expect(bar.className).toContain('sm:left-[calc(50%+var(--gallery-rail-width)/2)]');
-		expect(bar.className).toContain('md:left-[calc(50%+var(--gallery-rail-width))]');
-		expect(bar.className).toContain('md:max-w-[calc(100vw-2*var(--gallery-rail-width)-1.5rem)]');
+		expect(bar.className).toContain('sm:left-[calc(50%+var(--workspace-rail-width)/2)]');
+		expect(bar.className).toContain(
+			'md:left-[calc(50%+(var(--workspace-rail-width)+var(--rail-expanded-width))/2)]'
+		);
+		expect(bar.className).toContain(
+			'md:max-w-[calc(100vw-var(--workspace-rail-width)-var(--rail-expanded-width)-1.5rem)]'
+		);
 	});
 });

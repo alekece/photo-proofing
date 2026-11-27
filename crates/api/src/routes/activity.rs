@@ -21,7 +21,7 @@ use actix_web::{
 use pp_database::{
     activity::{
         ActivityCursor, ActivityEventId, ActivityKind, ActivityOrder, ActivityQuery, ActivityRange,
-        ActivityRepository, ContactFilter,
+        ActivityRepository, ActivitySearch, ContactFilter,
     },
     gallery::{GalleryId, GalleryRepository},
 };
@@ -67,20 +67,27 @@ struct ActivityFilters {
     kind: Option<ActivityKind>,
     range: Option<ActivityRange>,
     cursor: Option<ActivityCursor>,
+    q: Option<String>,
     #[serde(default)]
     sort: ActivityOrder,
 }
 
 impl ActivityFilters {
-    fn into_query(self, gallery: Option<GalleryId>, include_archived: bool) -> ActivityQuery {
+    fn query(&self, scoped_gallery: Option<GalleryId>) -> ActivityQuery<'_> {
+        let search = self.q.as_deref().map(str::trim).filter(|q| !q.is_empty());
+
         ActivityQuery {
-            gallery,
+            gallery: scoped_gallery.or(self.gallery),
             contact: self.contact,
             kind: self.kind,
             range: self.range,
             cursor: self.cursor,
             sort: self.sort,
-            include_archived,
+            include_archived: scoped_gallery.is_some(),
+            search: search.map(|q| match scoped_gallery {
+                Some(_) => ActivitySearch::Visitors(q),
+                None => ActivitySearch::GalleriesAndVisitors(q),
+            }),
         }
     }
 }
@@ -91,12 +98,10 @@ async fn list_activity(
     Authenticated(identity): Authenticated,
     filters: Query<ActivityFilters>,
 ) -> Result<HttpResponse, ErrorResponse> {
-    let filters = filters.into_inner();
-    let gallery = filters.gallery;
     let page = state
         .database()
         .repository::<ActivityRepository>()
-        .list(identity.workspace_id, filters.into_query(gallery, false))
+        .list(identity.workspace_id, filters.query(None))
         .await?;
 
     Ok(HttpResponse::Ok().no_store().json(page))
@@ -121,10 +126,7 @@ async fn list_gallery_activity(
     let page = state
         .database()
         .repository::<ActivityRepository>()
-        .list(
-            identity.workspace_id,
-            filters.into_inner().into_query(Some(gallery_id), true),
-        )
+        .list(identity.workspace_id, filters.query(Some(gallery_id)))
         .await?;
 
     Ok(HttpResponse::Ok().no_store().json(page))
@@ -185,6 +187,103 @@ mod tests {
             .uri(uri)
             .cookie(cookie.clone())
             .insert_header(("Origin", ORIGIN))
+    }
+
+    #[sqlx::test(migrations = "../database/migrations")]
+    async fn name_search_matches_older_events_before_pagination(pool: PgPool) {
+        let (state, _directory) = app_state(pool.clone()).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(state))
+                .configure(configure_routes),
+        )
+        .await;
+        let cookie = sign_up(&app).await;
+        let create = || {
+            test::TestRequest::post()
+                .uri("/api/v1/galleries")
+                .cookie(cookie.clone())
+                .insert_header(("Origin", ORIGIN))
+        };
+        let (_, target) = call(&app, create()).await;
+        let (_, recent) = call(&app, create()).await;
+        let (workspace, target_id) = gallery_of(&pool, &target).await;
+        let (_, recent_id) = gallery_of(&pool, &recent).await;
+
+        sqlx::query("UPDATE galleries SET title = 'Été 100%' WHERE id = $1")
+            .bind(target_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        insert_line(&pool, (workspace, target_id), "open", 120).await;
+        sqlx::query(
+            "INSERT INTO activity_events (workspace_id, gallery_id, kind, count, last_at)
+             SELECT $1, $2, 'open', 1, now() - make_interval(mins => minute)
+             FROM generate_series(1, 100) AS minute",
+        )
+        .bind(workspace)
+        .bind(recent_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let (_, initial) = call(&app, get("/api/v1/timeline", &cookie)).await;
+        assert!(initial["next"].is_string());
+        assert!(
+            initial["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|event| event["gallery_id"] == recent["id"])
+        );
+
+        let (status, found) = call(
+            &app,
+            get(
+                "/api/v1/timeline?q=%20ETE%20100%25%20&kind=open&range=today",
+                &cookie,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(found["events"].as_array().unwrap().len(), 1);
+        assert_eq!(found["events"][0]["gallery_id"], target["id"]);
+
+        let (_, literal) = call(&app, get("/api/v1/timeline?q=E_E", &cookie)).await;
+        assert!(literal["events"].as_array().unwrap().is_empty());
+        let (_, blank) = call(&app, get("/api/v1/timeline?q=%20", &cookie)).await;
+        assert_eq!(blank, initial);
+        let (_, wrong_kind) = call(&app, get("/api/v1/timeline?q=ete&kind=comment", &cookie)).await;
+        assert!(wrong_kind["events"].as_array().unwrap().is_empty());
+
+        let local = format!("/api/v1/galleries/{}/timeline", target_id.0);
+        let (_, gallery_title) = call(&app, get(&format!("{local}?q=ete"), &cookie)).await;
+        assert!(gallery_title["events"].as_array().unwrap().is_empty());
+        let (_, anonymous) = call(&app, get(&format!("{local}?q=anonyme"), &cookie)).await;
+        assert_eq!(anonymous["events"].as_array().unwrap().len(), 1);
+
+        sqlx::query(
+            "WITH visitor AS (
+                INSERT INTO contacts (id, workspace_id, name, email)
+                VALUES (gen_random_uuid(), $1, 'Élodie', 'elodie@example.test')
+                RETURNING id
+             )
+             UPDATE activity_events SET contact_id = visitor.id
+             FROM visitor WHERE gallery_id = $2",
+        )
+        .bind(workspace)
+        .bind(target_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let (_, named) = call(&app, get(&format!("{local}?q=ELO"), &cookie)).await;
+        assert_eq!(named["events"][0]["contact"]["name"], "Élodie");
+        let (_, named) = call(&app, get("/api/v1/timeline?q=elo", &cookie)).await;
+        assert_eq!(named["events"].as_array().unwrap().len(), 1);
+        assert_eq!(named["events"][0]["gallery_id"], target["id"]);
+        let (_, anonymous) = call(&app, get(&format!("{local}?q=anonyme"), &cookie)).await;
+        assert!(anonymous["events"].as_array().unwrap().is_empty());
     }
 
     #[sqlx::test(migrations = "../database/migrations")]
@@ -489,12 +588,12 @@ mod tests {
         let (status, _) = call(
             &app,
             get(
-                &format!("/api/v1/galleries/{}/timeline", foreign.0),
+                &format!("/api/v1/galleries/{}/timeline?q=anonyme", foreign.0),
                 &cookie,
             ),
         )
         .await;
-        let (_, feed) = call(&app, get("/api/v1/timeline", &cookie)).await;
+        let (_, feed) = call(&app, get("/api/v1/timeline?q=anonyme", &cookie)).await;
 
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert!(feed["events"].as_array().unwrap().is_empty());

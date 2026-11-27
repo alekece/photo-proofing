@@ -24,8 +24,8 @@ function enableMotion(reduced = false, finished = Promise.resolve()) {
 }
 
 describe('Dialog', () => {
-	it('animates a form from its opener and reverses the motion only on cancel', async () => {
-		const { animate, reverse } = enableMotion();
+	it('animates a form from its opener and plays the leaving motion only on cancel', async () => {
+		const { animate } = enableMotion();
 		const onclose = vi.fn();
 		const user = userEvent.setup();
 		const { unmount } = render(DialogHarness, { onclose, opened: false, formMotion: true });
@@ -33,15 +33,14 @@ describe('Dialog', () => {
 		await user.click(screen.getByRole('button', { name: 'Open' }));
 		expect(animate).toHaveBeenCalledOnce();
 		await user.click(screen.getByRole('button', { name: 'Cancel' }));
-		expect(reverse).toHaveBeenCalledOnce();
+		expect(animate).toHaveBeenCalledTimes(2);
 		expect(onclose).toHaveBeenCalledOnce();
 		unmount();
 
 		render(DialogHarness, { onclose, opened: false, formMotion: true });
 		await user.click(screen.getByRole('button', { name: 'Open' }));
 		await user.click(screen.getByRole('button', { name: 'Save' }));
-		expect(animate).toHaveBeenCalledTimes(2);
-		expect(reverse).toHaveBeenCalledOnce();
+		expect(animate).toHaveBeenCalledTimes(3);
 		expect(onclose).toHaveBeenCalledTimes(2);
 	});
 
@@ -56,6 +55,31 @@ describe('Dialog', () => {
 		await user.keyboard('{Escape}');
 		expect(animate).not.toHaveBeenCalled();
 		expect(onclose).toHaveBeenCalledOnce();
+	});
+
+	it('dismisses through the shared close button and returns focus to the opener', async () => {
+		const { animate } = enableMotion();
+		const user = userEvent.setup();
+		const onclose = vi.fn();
+		render(DialogHarness, { onclose, opened: false, formMotion: true });
+
+		const opener = screen.getByRole('button', { name: 'Open' });
+		await user.click(opener);
+		await user.click(screen.getByRole('button', { name: 'Close' }));
+
+		expect(animate).toHaveBeenCalledTimes(2);
+		expect(onclose).toHaveBeenCalledOnce();
+		expect(document.activeElement).toBe(opener);
+	});
+
+	it('keeps the close button visible but disabled when dismissal is blocked', async () => {
+		const onclose = vi.fn();
+		render(DialogHarness, { onclose, dismissible: false });
+
+		const close = screen.getByRole('button', { name: 'Close' });
+		expect(close).toHaveProperty('disabled', true);
+		await userEvent.click(close);
+		expect(onclose).not.toHaveBeenCalled();
 	});
 
 	it('makes the form inert as soon as cancellation begins', async () => {
@@ -82,6 +106,22 @@ describe('Dialog', () => {
 		expect(dialog().hasAttribute('open')).toBe(true);
 		expect(screen.getByRole('dialog', { name: 'Example' })).toBeTruthy();
 		expect((await axe(container)).violations).toEqual([]);
+	});
+
+	it('provides fixed header/actions around one bounded scrollable content region', () => {
+		const { container } = render(DialogHarness, { onclose: () => {}, structured: true });
+		const layout = container.querySelector<HTMLElement>('[data-slot="dialog-layout"]');
+		const header = container.querySelector<HTMLElement>('[data-slot="dialog-header"]');
+		const content = container.querySelector<HTMLElement>('[data-slot="dialog-content"]');
+		const actions = container.querySelector<HTMLElement>('[data-slot="dialog-actions"]');
+
+		expect(layout?.className).toContain('grid');
+		expect(layout?.className).toContain('p-5');
+		expect(header?.textContent).toContain('Structured title');
+		expect(content?.className).toContain('overflow-y-auto');
+		expect(content?.className).toContain('min-h-0');
+		expect(actions?.textContent).toContain('Cancel');
+		expect(layout?.contains(content)).toBe(true);
 	});
 
 	it('calls onclose once on Escape', async () => {
@@ -138,6 +178,7 @@ describe('Dialog', () => {
 
 			expect(show).toHaveBeenCalledTimes(1);
 			expect(showModal).not.toHaveBeenCalled();
+			expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
 		} finally {
 			// @ts-expect-error jsdom has neither method; restore that
 			delete proto.showModal;

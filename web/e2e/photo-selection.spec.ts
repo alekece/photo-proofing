@@ -36,6 +36,7 @@ for (const touch of [false, true]) {
 			await activate(button('Select Coast-1.jpg'));
 			await activate(button('Delete'));
 			await activate(page.getByRole('dialog').getByRole('button', { name: 'Cancel' }));
+			await expect(page.getByRole('dialog')).toBeHidden();
 			await activate(button('Exit selection'));
 			await expect(button('Open Coast-1.jpg')).toBeVisible();
 			await activate(page.getByRole('tab', { name: /Favorites/ }));
@@ -44,6 +45,7 @@ for (const touch of [false, true]) {
 				0
 			);
 			await activate(button('Close viewer'));
+			await expect(page.getByRole('dialog')).toBeHidden();
 			await activate(button('Select Coast-1.jpg'));
 			const all = button('Download all');
 			await expect(all).toBeInViewport();
@@ -55,9 +57,9 @@ for (const touch of [false, true]) {
 			expect(JSON.parse(requests[1]!)).toEqual({ photo_ids: ['p1', 'p3'] });
 			await activate(button('Select Coast-1.jpg'));
 			await activate(button('Select Coast-3.jpg'));
-			await expect(button('Download selected (0)')).toBeDisabled();
+			await expect(button('Download selected (0)')).toHaveCount(0);
+			await expect(button('Exit selection')).toHaveCount(0);
 			await expect(all).toBeEnabled();
-			await activate(button('Exit selection'));
 			await expect(button('Open Coast-1.jpg')).toBeVisible();
 		});
 	});

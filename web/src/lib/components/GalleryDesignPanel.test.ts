@@ -22,6 +22,8 @@ const baseGallery: Gallery = {
 	watermark_enabled: false,
 	hero_id: null,
 	share_token: null,
+	shared_at: null,
+	delivered_at: null,
 	last_opened_at: null,
 	shoot_date: '2026-06-14',
 	states: ['draft'],
@@ -118,12 +120,15 @@ describe('GalleryDesignPanel', () => {
 		await waitFor(() => expect(screen.getAllByText('Studio Lune').length).toBeGreaterThan(0));
 		expect(fetcher.mock.calls.some(([url]) => String(url) === '/api/v1/settings')).toBe(false);
 
-		expect(screen.getByRole('heading', { name: 'Design' })).toBeTruthy();
+		expect(screen.queryByRole('heading', { name: 'Design' })).toBeNull();
 		expect(screen.getByRole('heading', { name: 'Cover' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Typography' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Photo Grid & Spacing' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Select cover' })).toBeTruthy();
-		expect(screen.queryByRole('button', { name: 'Remove cover' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'Open full preview' }).className).toContain(
+			'cn-button-variant-default'
+		);
 
 		for (const label of ['Full bleed', 'Split editorial', 'Framed paper', 'Minimal banner']) {
 			expect(screen.getByRole('button', { name: label })).toBeTruthy();
@@ -148,6 +153,11 @@ describe('GalleryDesignPanel', () => {
 		expect(pad.disabled).toBe(true);
 
 		const inline = screen.getByRole('region', { name: 'Client preview' });
+		const previewRoot = inline.querySelector<HTMLElement>('[data-heading-font]');
+		const previewButtons = [...(previewRoot?.querySelectorAll('button') ?? [])];
+		expect(previewRoot?.hasAttribute('inert')).toBe(true);
+		expect(previewButtons.length).toBeGreaterThan(0);
+		expect(previewButtons.every((button) => button.closest('[inert]') === previewRoot)).toBe(true);
 		expect(within(inline).queryByRole('group', { name: 'Preview size' })).toBeNull();
 		expect((await axe(container)).violations).toEqual([]);
 
@@ -163,26 +173,32 @@ describe('GalleryDesignPanel', () => {
 		expect(modal.querySelector('[data-frame="phone"]')).toBeTruthy();
 	});
 
-	it('uses one cover preview as the focal control and styles Remove cover destructively', async () => {
+	it('uses one cover preview as the focal control and keeps short destructive cover actions', async () => {
 		const { container } = setup({ hero_id: 'p1' });
 
 		await waitFor(() => expect(screen.getAllByText('Studio Lune').length).toBeGreaterThan(0));
 
 		const pad = screen.getByRole('button', { name: 'Cover focal point' });
 		const actions = container.querySelector('[data-slot="design-cover-actions"]');
-		const change = screen.getByRole('button', { name: 'Change cover' });
-		const remove = screen.getByRole('button', { name: 'Remove cover' });
+		const change = screen.getByRole('button', { name: 'Change' });
+		const remove = screen.getByRole('button', { name: 'Remove' });
 
 		expect(pad.className).toContain('aspect-[3/2]');
 		expect(pad.closest('section')?.querySelectorAll('img')).toHaveLength(1);
 		expect(actions?.contains(change)).toBe(true);
 		expect(actions?.contains(remove)).toBe(true);
-		expect(remove.className).toContain('border-danger');
-		expect(remove.className).toContain('text-danger');
+		expect(actions?.className).toContain('grid');
+		expect(actions?.className).toContain('grid-cols-2');
+		expect(actions?.className).toContain('w-full');
+		expect(change.className).toContain('w-full');
+		expect(remove.className).toContain('w-full');
+		expect(change.querySelector('svg')).toBeTruthy();
+		expect(remove.querySelector('svg')).toBeTruthy();
+		expect(remove.className).toContain('cn-button-variant-destructive');
 		expect(within(pad.closest('section')!).queryByText(/\d+%/)).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Reset' })).toBeNull();
 
-		const coverStyleHeading = screen.getByRole('heading', { name: 'Cover style' });
+		const coverStyleHeading = screen.getByRole('heading', { name: 'Style' });
 		expect(
 			pad.compareDocumentPosition(coverStyleHeading) & Node.DOCUMENT_POSITION_FOLLOWING
 		).toBeTruthy();
@@ -194,7 +210,7 @@ describe('GalleryDesignPanel', () => {
 		).toBeTruthy();
 	});
 
-	it('splits into a one-third controls / two-thirds preview layout at lg and omits the inline stage below it', async () => {
+	it('splits at lg and stacks the inline preview below controls on compact screens', async () => {
 		const { container } = setup();
 
 		await waitFor(() => expect(screen.getAllByText('Studio Lune').length).toBeGreaterThan(0));
@@ -204,8 +220,9 @@ describe('GalleryDesignPanel', () => {
 		expect(splitRoot!.className).toMatch(/lg:grid-cols-\[minmax\([^)]+\)_minmax\([^)]+\)\]/);
 
 		const previewStage = screen.getByRole('region', { name: 'Client preview' });
-		expect(previewStage.className).toContain('hidden');
-		expect(previewStage.className).toContain('lg:flex');
+		expect(previewStage.className).toContain('flex');
+		expect(previewStage.classList.contains('hidden')).toBe(false);
+		expect(previewStage.classList.contains('flex')).toBe(true);
 	});
 
 	it('opens a full-screen preview from "Open full preview" reflecting unsaved design edits', async () => {
@@ -236,6 +253,7 @@ describe('GalleryDesignPanel', () => {
 
 		await user.click(screen.getByRole('button', { name: 'Select cover' }));
 		const dialog = screen.getByRole('dialog', { name: 'Choose a cover photo' });
+		expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Close' }));
 		expect(within(dialog).getByRole('button', { name: 'Use Ceremony.jpg as cover' })).toBeTruthy();
 		expect(within(dialog).getByRole('button', { name: 'Use Dance.jpg as cover' })).toBeTruthy();
 		expect(within(dialog).queryByRole('button', { name: /p_wait/ })).toBeNull();
@@ -244,8 +262,8 @@ describe('GalleryDesignPanel', () => {
 
 		expect(onsave).toHaveBeenCalledWith({ hero_id: 'p1' });
 		expect(screen.queryByRole('dialog', { name: 'Choose a cover photo' })).toBeNull();
-		expect(screen.getByRole('button', { name: 'Change cover' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Remove cover' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Change' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();
 
 		const pad = screen.getByRole('button', { name: /Cover focal point/ }) as HTMLButtonElement;
 		expect(pad.disabled).toBe(false);
@@ -253,12 +271,12 @@ describe('GalleryDesignPanel', () => {
 			'/api/v1/galleries/g1/photos/p1/preview'
 		);
 		expect((pad.querySelector('img') as HTMLImageElement).style.objectPosition).toBe('70% 25%');
-		await user.click(screen.getByRole('button', { name: 'Change cover' }));
+		await user.click(screen.getByRole('button', { name: 'Change' }));
 		await user.click(screen.getByRole('button', { name: 'Use Dance.jpg as cover' }));
 		expect((pad.querySelector('img') as HTMLImageElement).style.objectPosition).toBe('70% 25%');
 		expect((await axe(container)).violations).toEqual([]);
 
-		await user.click(screen.getByRole('button', { name: 'Remove cover' }));
+		await user.click(screen.getByRole('button', { name: 'Remove' }));
 		expect(onsave).toHaveBeenCalledWith({ hero_id: null });
 		expect(screen.getByRole('button', { name: 'Select cover' })).toBeTruthy();
 		expect(pad.disabled).toBe(true);
@@ -384,10 +402,7 @@ describe('GalleryDesignPanel', () => {
 			expect(previewRoot?.style.getPropertyValue('--gallery-heading-font')).toBe(family);
 		}
 
-		// Studio Design heading itself never adopts --gallery-heading-font
-		expect(screen.getByRole('heading', { name: 'Design' }).className).not.toContain(
-			'font-[family-name:var(--gallery-heading-font)]'
-		);
+		expect(screen.queryByRole('heading', { name: 'Design' })).toBeNull();
 
 		onsave.mockResolvedValueOnce(false);
 		await user.click(within(fontGroup).getByRole('button', { name: 'Modern' }));
@@ -402,6 +417,7 @@ describe('GalleryDesignPanel', () => {
 
 		// Grid density updates the inline preview.
 		const densityGroup = screen.getByRole('group', { name: 'Grid density' });
+		expect(densityGroup.parentElement?.className).toContain('grid-cols-[minmax(0,1fr)_auto]');
 		await user.click(within(densityGroup).getByRole('button', { name: 'Large' }));
 		expect(onsave).toHaveBeenLastCalledWith({ grid_density: 'large' });
 		expect(screen.getByRole('list', { name: 'Proofs' }).getAttribute('data-density')).toBe('large');
@@ -620,8 +636,8 @@ describe('GalleryDesignPanel in French', () => {
 		expect(screen.getByRole('heading', { name: 'Couverture' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Typographie' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Grille photo et espacement' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Changer la couverture' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Retirer la couverture' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Changer' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Retirer' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Plein cadre' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Éditorial scindé' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Cadre papier' })).toBeTruthy();

@@ -22,7 +22,7 @@ vi.mock('#lib/components/GalleryContactsPanel.svelte', async () => ({
 
 import type { Gallery } from '#lib/gallery/api.js';
 import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
-import GalleryStudio from './GalleryStudio.svelte';
+import GalleryStudio, { type StudioSection } from './GalleryStudio.svelte';
 
 const base: Gallery = {
 	id: 'g1',
@@ -39,6 +39,8 @@ const base: Gallery = {
 	watermark_enabled: false,
 	hero_id: null,
 	share_token: null,
+	shared_at: null,
+	delivered_at: null,
 	last_opened_at: null,
 	shoot_date: null,
 	states: ['draft'],
@@ -48,12 +50,16 @@ const base: Gallery = {
 
 const heading = createRawSnippet(() => ({ render: () => '<h1>Camille &amp; Lucas</h1>' }));
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+	vi.unstubAllGlobals();
+	localStorage.clear();
+});
 
 function setup(
 	over: Partial<Gallery> = {},
 	shareToken: string | null = over.share_token ?? null,
-	requestedPhoto?: { id: string; kind: 'proof' | 'final' }
+	requestedPhoto?: { id: string; kind: 'proof' | 'final' },
+	requestedSection?: StudioSection
 ) {
 	const handlers = {
 		onsave: vi.fn().mockResolvedValue(true),
@@ -72,6 +78,7 @@ function setup(
 		shareToken,
 		origin: 'https://pp.test',
 		requestedPhoto,
+		requestedSection,
 		heading,
 		...handlers
 	});
@@ -80,6 +87,14 @@ function setup(
 }
 
 describe('GalleryStudio', () => {
+	it('opens the tab named by the link that brought the photographer here', () => {
+		setup({ share_token: 'tok', states: ['shared'] }, 'tok', undefined, 'comments');
+
+		expect(screen.getByRole('tab', { name: /Comments/ }).getAttribute('aria-selected')).toBe(
+			'true'
+		);
+	});
+
 	it.each(['proof', 'final'] as const)(
 		'selects the source %s panel for a requested photo',
 		(kind) => {
@@ -134,7 +149,7 @@ describe('GalleryStudio', () => {
 
 		await view.user.click(coverButton);
 		expect(screen.getByRole('tab', { name: 'Design' }).getAttribute('aria-selected')).toBe('true');
-		expect(screen.getByRole('heading', { name: 'Design' })).toBeTruthy();
+		expect(screen.queryByRole('heading', { name: 'Design' })).toBeNull();
 		expect(screen.getByRole('heading', { name: 'Typography' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Photo Grid & Spacing' })).toBeTruthy();
 
@@ -193,11 +208,35 @@ describe('GalleryStudio', () => {
 		expect((await axe(container)).violations).toEqual([]);
 	});
 
-	it('formats shoot_date at local noon and hides Last opened until the first visit', () => {
-		const unshared = setup({ shoot_date: '2026-06-14' });
+	it('keeps status and favorite together at the cover bottom-left and dates below the title', async () => {
+		const unshared = setup({ shoot_date: '2026-06-14', expires_at: '2026-06-30' });
+		const coverFrame = screen.getByRole('button', { name: 'Edit cover and design' })
+			.parentElement as HTMLElement;
+		const status = screen.getByText('Draft').closest('[data-slot="status-chip"]')!;
+		const controls = coverFrame.querySelector<HTMLElement>('[data-slot="gallery-cover-controls"]')!;
+		const pin = within(controls).getByRole('button', { name: 'Pin gallery to top' });
 
-		expect(unshared.container.textContent).toContain('Shot');
+		expect(unshared.container.textContent).toContain('Shot on');
 		expect(unshared.container.textContent).toContain('14 Jun 2026');
+		expect(unshared.container.textContent).toContain('Open until');
+		expect(unshared.container.textContent).toContain('30 Jun 2026');
+		expect(coverFrame.textContent).not.toContain('Shot');
+		expect(coverFrame.textContent).not.toContain('Open until');
+		expect(screen.getByRole('link', { name: 'Back to galleries' })).toBeTruthy();
+		expect(status.querySelector('[data-slot="status-chip-dot"]')).toBeNull();
+		expect(unshared.container.querySelector('[data-slot="gallery-identity"]')?.className).toContain(
+			'md:pb-5'
+		);
+		expect(screen.getByRole('tablist').className).toContain('md:pt-3');
+		expect(controls.className).toContain('bottom-2');
+		expect(controls.className).toContain('left-2');
+		expect(pin.className).toContain('text-hero');
+		expect(pin.querySelector('svg')?.getAttribute('fill')).toBe('none');
+		expect(controls.firstElementChild).toBe(status);
+		expect(status.nextElementSibling).toBe(pin);
+		expect(pin.dataset.slot).toBe('gallery-favorite');
+		await unshared.user.click(pin);
+		expect(pin.querySelector('[data-testid="click-ripple"]')).toBeTruthy();
 		expect(unshared.container.textContent).not.toContain('12 Jun 2026');
 		expect(screen.queryByText(/Last opened/)).toBeNull();
 		unshared.unmount();
@@ -291,7 +330,7 @@ describe('GalleryStudio', () => {
 		const view = setup({ share_token: null, states: ['draft'] });
 
 		await view.user.click(screen.getByRole('tab', { name: 'Design' }));
-		await view.user.click(screen.getByRole('button', { name: 'Go to Share' }));
+		await view.user.click(screen.getByRole('button', { name: 'Go to Share the gallery' }));
 
 		expect(screen.queryByRole('tab', { name: 'Share' })).toBeNull();
 		expect(view.onshare).toHaveBeenCalledOnce();
@@ -313,7 +352,7 @@ describe('GalleryStudio', () => {
 			ondelete: view.ondelete
 		});
 
-		expect(screen.queryByRole('button', { name: 'Go to Share' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Go to Share the gallery' })).toBeNull();
 		vi.unstubAllGlobals();
 	});
 
@@ -349,19 +388,67 @@ describe('GalleryStudio', () => {
 		}
 	});
 
-	it('keeps the journey in one header, even on a section without actions', async () => {
+	it('keeps the journey alone in the header and contextual actions inside each panel', async () => {
 		const view = setup({ share_token: 'tok', states: ['shared'] });
 		const header = view.container.querySelector<HTMLElement>(
 			'[data-slot="gallery-content-header"]'
 		)!;
 		const journey = within(header).getByRole('navigation', { name: 'Gallery progress' });
+		const actions = [
+			['Photos', 'Upload'],
+			['Favorites', 'Download all'],
+			['Design', 'Open full preview'],
+			['Contacts', 'New contact']
+		] as const;
 
-		await view.user.click(screen.getByRole('tab', { name: 'Design' }));
-		expect(within(header).getByRole('button', { name: 'Open full preview' })).toBeTruthy();
-		expect(screen.getAllByRole('button', { name: 'Open full preview' })).toHaveLength(1);
-		await view.user.click(screen.getByRole('tab', { name: 'Activity' }));
-		expect(within(header).getByRole('navigation', { name: 'Gallery progress' })).toBe(journey);
-		expect(within(header).queryByRole('button', { name: 'Open full preview' })).toBeNull();
+		for (const [tab, action] of actions) {
+			await view.user.click(screen.getByRole('tab', { name: new RegExp(`^${tab}`) }));
+			const panel = screen.getByRole('tabpanel');
+
+			expect(within(panel).getByRole('button', { name: action })).toBeTruthy();
+			expect(within(header).queryByRole('button', { name: action })).toBeNull();
+			expect(within(header).getByRole('navigation', { name: 'Gallery progress' })).toBe(journey);
+		}
+	});
+
+	it('advances after Download all, restores it on reload and invalidates changed favorites', async () => {
+		const shared: Partial<Gallery> = {
+			share_token: 'T'.repeat(22),
+			states: ['shared']
+		};
+		let view = setup(shared, shared.share_token);
+
+		expect(
+			screen.getByText('Download favorites', { selector: '[aria-current="step"] strong' })
+		).toBeTruthy();
+
+		await view.user.click(screen.getByRole('tab', { name: /^Favorites/ }));
+		await view.user.click(screen.getByRole('button', { name: 'Download all' }));
+		await vi.waitFor(() =>
+			expect(
+				screen.getByText('Import retouched photos', {
+					selector: '[aria-current="step"] strong'
+				})
+			).toBeTruthy()
+		);
+
+		view.unmount();
+		view = setup(shared, shared.share_token);
+		await vi.waitFor(() =>
+			expect(
+				screen.getByText('Import retouched photos', {
+					selector: '[aria-current="step"] strong'
+				})
+			).toBeTruthy()
+		);
+
+		await view.user.click(screen.getByRole('tab', { name: /^Favorites/ }));
+		await view.user.click(screen.getByRole('button', { name: 'Change client favorites' }));
+		await vi.waitFor(() =>
+			expect(
+				screen.getByText('Download favorites', { selector: '[aria-current="step"] strong' })
+			).toBeTruthy()
+		);
 	});
 
 	it('keeps the live cover preview in Design instead of Settings', async () => {
@@ -391,7 +478,8 @@ describe('GalleryStudio', () => {
 		const view = setup({ share_token: 'T'.repeat(22), states: ['shared'], hero_id: 'p1' });
 		const cover = screen.getByRole('button', { name: 'Edit cover and design' });
 		const pin = screen.getByRole('button', { name: 'Pin gallery to top' });
-		expect(pin.parentElement).toBe(cover.parentElement);
+		const controls = pin.closest<HTMLElement>('[data-slot="gallery-cover-controls"]')!;
+		expect(controls.parentElement).toBe(cover.parentElement);
 		expect(cover.parentElement?.textContent).toContain('Shared');
 		await view.user.click(pin);
 		expect(view.onsave).toHaveBeenCalledExactlyOnceWith({ favorite: true });

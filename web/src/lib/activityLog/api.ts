@@ -51,6 +51,7 @@ export function retryEmail(event: ActivityEvent, fetcher: typeof fetch = fetch):
 
 /** The filters the API takes; `contact` is a contact id or `anonymous`. */
 export interface ActivityFilters {
+	q?: string;
 	gallery?: string;
 	contact?: string;
 	kind?: ActivityKind;

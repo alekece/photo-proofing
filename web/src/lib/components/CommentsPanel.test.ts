@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -44,7 +44,8 @@ const stub = (
 						body: 'Brighter please',
 						created_at: '2026-11-10T09:00:00Z',
 						edited_at: null,
-						deleted_at: null
+						deleted_at: null,
+						editable: false
 					}
 				]);
 			if (url.endsWith('/photos/p1/comments')) return Response.json([]);
@@ -72,6 +73,21 @@ describe('CommentsPanel', () => {
 		expect(await within(thread).findByText('Brighter please')).toBeTruthy();
 		expect(screen.queryByRole('dialog')).toBeNull();
 		expect(oncount).toHaveBeenLastCalledWith(1);
+	});
+
+	it('opens the thread of the photo a link asked for', async () => {
+		stub([
+			{ photo_id: 'p1', count: 1 },
+			{ photo_id: 'p2', count: 2 }
+		]);
+		render(Harness, { props: { events, openThread: { photoId: 'p2' } } });
+
+		const second = await screen.findByRole('button', { name: /p2\.jpg/ });
+
+		await waitFor(() => expect(second.getAttribute('aria-expanded')).toBe('true'));
+		expect(screen.getByRole('button', { name: /p1\.jpg/ }).getAttribute('aria-expanded')).toBe(
+			'false'
+		);
 	});
 
 	it('keeps unsent replies on their own row when switching threads', async () => {

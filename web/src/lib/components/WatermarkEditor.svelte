@@ -9,8 +9,8 @@
 		type WorkspaceSettings
 	} from '#lib/settings/settings.js';
 	import Button from './ui/Button/Button.svelte';
-	import Input from './ui/Input/Input.svelte';
 	import MarkLogo from './MarkLogo.svelte';
+	import SettingsColorField from './SettingsColorField.svelte';
 	import SettingsEditor from './SettingsEditor.svelte';
 	import SizeSlider from './SizeSlider.svelte';
 	import WatermarkPreview from './WatermarkPreview.svelte';
@@ -24,7 +24,6 @@
 		hexEdit: string | null;
 	} = $props();
 
-	const errorId = $props.id();
 	const marks: { id: Mark; label: () => string }[] = [
 		{ id: 'name', label: m.common_name },
 		{ id: 'logo', label: m.common_logo },
@@ -34,7 +33,6 @@
 		{ id: 'repeat', label: m.watermark_repeat },
 		{ id: 'once', label: m.watermark_once }
 	];
-	const invalidHex = $derived(hexEdit !== null && normalizeWatermarkHex(hexEdit) === null);
 	const minOpacity = 5;
 	const rows = ['self-start', 'self-center', 'self-end'];
 	const columns = ['justify-self-start', 'justify-self-center', 'justify-self-end'];
@@ -43,29 +41,17 @@
 	);
 
 	function chooseMark(mark: Mark) {
-		if (mark === 'logo' && invalidHex) hexEdit = null;
+		if (mark === 'logo' && hexEdit !== null && normalizeWatermarkHex(hexEdit) === null) {
+			hexEdit = null;
+		}
 		settings.mark = mark;
-	}
-
-	function pickColor(value: string) {
-		const color = normalizeWatermarkHex(value);
-		if (color === null) return;
-		hexEdit = null;
-		settings.watermarkTextColor = color;
-	}
-
-	function typeHex(value: string) {
-		hexEdit = value;
-		const color = normalizeWatermarkHex(value);
-		if (color !== null) settings.watermarkTextColor = color;
 	}
 </script>
 
-<p class="text-sm text-muted-foreground">{m.watermark_enabled_per_gallery()}</p>
 <SettingsEditor label={m.watermark_preview()}>
 	{#snippet toolbar()}
 		<fieldset class="min-w-0">
-			<legend class="mb-2 text-sm font-semibold">{m.watermark_mark()}</legend>
+			<legend class="mb-1 text-sm font-semibold">{m.settings_mark()}</legend>
 			<div class="flex flex-wrap gap-1.5">
 				{#each marks as { id, label } (id)}
 					<Button
@@ -78,7 +64,7 @@
 						onclick={() => chooseMark(id)}
 					>
 						<span class={GLYPH} aria-hidden="true">
-							{#if id !== 'name'}<MarkLogo logo={settings.logo} class="size-5" />{/if}
+							{#if id !== 'name'}<MarkLogo logo={settings.logo} />{/if}
 							{#if id !== 'logo'}Aa{/if}
 						</span>
 					</Button>
@@ -86,7 +72,7 @@
 			</div>
 		</fieldset>
 		<fieldset class="min-w-0">
-			<legend class="mb-2 text-sm font-semibold">{m.watermark_pattern()}</legend>
+			<legend class="mb-1 text-sm font-semibold">{m.watermark_pattern()}</legend>
 			<div class="flex flex-wrap gap-1.5">
 				{#each patterns as { id, label } (id)}
 					<Button
@@ -120,46 +106,29 @@
 				{/each}
 			</div>
 		</fieldset>
-		<SizeSlider bind:value={settings.size} label={m.watermark_size()} />
-		<label class="grid min-w-0 gap-1 text-sm font-semibold">
-			{m.watermark_opacity()}
-			<input
-				type="range"
-				min={minOpacity}
-				max="100"
-				step="1"
-				aria-valuetext={opacity}
-				value={Math.max(minOpacity, settings.watermarkOpacity)}
-				oninput={(event) =>
-					(settings.watermarkOpacity = Math.max(minOpacity, event.currentTarget.valueAsNumber))}
-				class="h-11 w-24 accent-foreground"
-			/>
-		</label>
-		<fieldset disabled={settings.mark === 'logo'} class="min-w-0 disabled:opacity-45">
-			<legend class="mb-1 text-sm font-semibold">{m.watermark_text_color()}</legend>
-			<div class="flex items-center gap-2">
-				<Input
-					type="color"
-					value={settings.watermarkTextColor}
-					aria-label={m.watermark_text_color()}
-					oninput={(event) => pickColor(event.currentTarget.value)}
-					class="size-11 cursor-pointer p-1"
+		<div class="flex min-w-0 flex-wrap gap-2">
+			<SizeSlider bind:value={settings.size} label={m.settings_size()} />
+			<label class="grid min-w-0 gap-1 text-sm font-semibold">
+				{m.watermark_opacity()}
+				<input
+					type="range"
+					min={minOpacity}
+					max="100"
+					step="1"
+					aria-valuetext={opacity}
+					value={Math.max(minOpacity, settings.watermarkOpacity)}
+					oninput={(event) =>
+						(settings.watermarkOpacity = Math.max(minOpacity, event.currentTarget.valueAsNumber))}
+					class="h-11 w-24 accent-foreground"
 				/>
-				<Input
-					value={hexEdit ?? settings.watermarkTextColor}
-					aria-label={m.watermark_color_hex()}
-					aria-invalid={invalidHex || undefined}
-					aria-describedby={invalidHex ? errorId : undefined}
-					oninput={(event) => typeHex(event.currentTarget.value)}
-					autocomplete="off"
-					spellcheck={false}
-					class="w-24 px-2 font-mono"
-				/>
-			</div>
-			{#if invalidHex}<p id={errorId} class="mt-1 text-sm text-danger">
-					{m.watermark_color_invalid()}
-				</p>{/if}
-		</fieldset>
+			</label>
+		</div>
+		<SettingsColorField
+			color={settings.watermarkTextColor}
+			bind:hexEdit
+			disabled={settings.mark === 'logo'}
+			oncolor={(color) => (settings.watermarkTextColor = color)}
+		/>
 	{/snippet}
 	{#snippet preview()}<WatermarkPreview {settings} />{/snippet}
 	{#snippet overlay()}
@@ -172,7 +141,7 @@
 							variant="outline"
 							aria-label={m.watermark_position_cell({ cell: cell + 1 })}
 							aria-pressed={settings.position === cell}
-							class="pointer-events-auto size-11 min-h-0 control-choice p-0 {rows[
+							class="pointer-events-auto relative size-8 min-h-0 control-choice p-0 before:absolute before:-inset-2 {rows[
 								Math.floor(cell / 3)
 							]} {columns[cell % 3]}"
 							onclick={() => (settings.position = cell)}

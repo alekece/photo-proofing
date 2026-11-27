@@ -19,6 +19,8 @@ const galleries = Array.from({ length: 28 }, (_, i) => ({
 	watermark_enabled: false,
 	hero_id: i === 3 ? null : 'p1',
 	share_token: i === 0 ? null : 'synthetic-link-fixture',
+	shared_at: i === 0 ? null : now,
+	delivered_at: i === 6 ? now : null,
 	last_opened_at: null,
 	shoot_date: '2026-11-16',
 	states: [i === 0 ? 'draft' : i === 6 ? 'delivered' : 'shared'],
@@ -26,8 +28,8 @@ const galleries = Array.from({ length: 28 }, (_, i) => ({
 	updated_at: now,
 	photo_count: 7,
 	favorite_count: i % 8,
-	final_count: 0,
-	downloaded_count: 0
+	final_count: i === 6 ? 3 : 0,
+	downloaded_count: i === 6 ? 2 : 0
 }));
 const settings = {
 	studio_name: 'Studio Côte',
@@ -51,6 +53,14 @@ const photos = Array.from({ length: 7 }, (_, i) => ({
 	favorited_at: i < 4 ? now : null,
 	created_at: now
 }));
+const finalPhotos = Array.from({ length: 3 }, (_, i) => ({
+	...photos[i],
+	id: `p${i + 8}`,
+	original_name: `Coast-${i + 1}-retouched.jpg`,
+	favorited_at: null,
+	downloaded_at: i < 2 ? `2026-11-18T1${i + 1}:00:00Z` : null,
+	revision: 1
+}));
 const contact = {
 	id: 'synthetic-contact',
 	name: 'Camille Lune',
@@ -61,6 +71,59 @@ const contact = {
 	created_at: now,
 	updated_at: now
 };
+const contacts = [
+	contact,
+	{
+		...contact,
+		id: 'synthetic-contact-2',
+		name: 'Élise Brume',
+		email: 'elise@example.test',
+		phone: null,
+		notes: 'Prefers matte prints.',
+		galleries: []
+	},
+	{
+		...contact,
+		id: 'synthetic-contact-3',
+		name: 'Hugo Rivage',
+		email: 'hugo@example.test',
+		phone: '+1 202 555 0143',
+		notes: null,
+		galleries: [
+			{ id: 'gallery-3', title: 'Coast 03' },
+			{ id: 'gallery-4', title: 'Coast 04' }
+		]
+	},
+	{
+		...contact,
+		id: 'synthetic-contact-4',
+		name: 'Inès et Malo Sablé',
+		email: 'ines-malo@example.test',
+		phone: null,
+		notes: 'Prefer black and white portraits.',
+		galleries: []
+	},
+	{
+		...contact,
+		id: 'synthetic-contact-5',
+		name: 'Jade Vallon',
+		email: 'jade@example.test',
+		phone: null,
+		notes: 'Reply in the spring.',
+		galleries: [{ id: 'gallery-5', title: 'Coast 05' }]
+	},
+	{
+		...contact,
+		id: 'synthetic-contact-6',
+		name: 'Lou Dune',
+		email: 'lou@example.test',
+		phone: null,
+		notes: null,
+		galleries: []
+	}
+];
+const linkedContactIds = new Set([contact.id]);
+const activityNow = new Date(Date.now() - 3_600_000).toISOString();
 const activity = ['open', 'favorite', 'comment'].map((kind, i) => ({
 	id: `activity-${i}`,
 	kind,
@@ -68,20 +131,104 @@ const activity = ['open', 'favorite', 'comment'].map((kind, i) => ({
 	gallery_title: 'Coast 01',
 	contact: { id: contact.id, name: contact.name },
 	detail: null,
-	photo_ids: kind === 'favorite' ? photos.map(({ id }) => id) : [],
-	count: kind === 'favorite' ? photos.length : 1,
-	first_at: now,
-	last_at: now
+	photo_ids: kind === 'favorite' ? Array.from({ length: 12 }, (_, i) => `p${i + 1}`) : [],
+	count: kind === 'favorite' ? 12 : 1,
+	first_at: activityNow,
+	last_at: activityNow
 }));
+const historicalAt = new Date(Date.now() - 3 * 86_400_000).toISOString();
+activity.push({
+	...activity[0],
+	id: 'activity-history',
+	kind: 'download',
+	gallery_id: galleries[20].id,
+	gallery_title: galleries[20].title,
+	contact: { id: 'synthetic-visitor', name: 'Élise Brume' },
+	first_at: historicalAt,
+	last_at: historicalAt
+});
+
+function activityPage(path, params) {
+	const gallery = path.match(/\/galleries\/([^/]+)\/timeline$/)?.[1];
+	const fold = (text) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+	const query = fold(params.get('q')?.trim() ?? '');
+	const kind = params.get('kind');
+	const range = { today: 1, '7d': 7, '30d': 30 }[params.get('range')];
+	const oldestFirst = params.get('sort') === 'oldest';
+	const offset = Number(params.get('cursor') ?? 0);
+	const end = offset + 3;
+	const rows = activity
+		.filter((event) => {
+			if (gallery && event.gallery_id !== gallery) return false;
+			if (kind && event.kind !== kind) return false;
+			if (range && Date.parse(event.last_at) < Date.now() - range * 86_400_000) return false;
+
+			return (
+				!query ||
+				(!gallery && fold(event.gallery_title).includes(query)) ||
+				fold(event.contact.name).includes(query)
+			);
+		})
+		.sort((a, b) => {
+			const order = a.last_at.localeCompare(b.last_at) || a.id.localeCompare(b.id);
+
+			return oldestFirst ? order : -order;
+		});
+
+	return { events: rows.slice(offset, end), next: rows.length > end ? String(end) : null };
+}
 const comments = [
 	{
 		id: 'c1',
 		photo_id: 'p2',
 		author: 'client',
 		body: 'Would a warmer edit work here?',
-		created_at: now,
+		created_at: '2026-11-18T09:10:00Z',
 		edited_at: null,
-		deleted_at: null
+		deleted_at: null,
+		editable: false,
+		contact: { id: contact.id, name: contact.name }
+	},
+	{
+		id: 'c2',
+		photo_id: 'p2',
+		author: 'photographer',
+		body: 'I can soften the highlights and keep the natural skin tones.',
+		created_at: '2026-11-18T09:18:00Z',
+		edited_at: null,
+		deleted_at: null,
+		editable: true
+	},
+	{
+		id: 'c3',
+		photo_id: 'p2',
+		author: 'client',
+		body: 'Perfect — the second crop is the one we prefer.',
+		created_at: '2026-11-18T09:26:00Z',
+		edited_at: null,
+		deleted_at: null,
+		editable: false,
+		contact: { id: contact.id, name: contact.name }
+	},
+	{
+		id: 'c4',
+		photo_id: 'p2',
+		author: 'client',
+		body: 'Could you keep this version available in color?',
+		created_at: '2026-11-18T09:34:00Z',
+		edited_at: null,
+		deleted_at: null,
+		editable: false
+	},
+	{
+		id: 'c5',
+		photo_id: 'p2',
+		author: 'photographer',
+		body: 'Absolutely. I’ll include it in the final selection.',
+		created_at: '2026-11-18T09:41:00Z',
+		edited_at: '2026-11-18T09:43:00Z',
+		deleted_at: null,
+		editable: true
 	}
 ];
 const palette = [
@@ -92,7 +239,7 @@ const palette = [
 	['#b0c1c3', '#5f6a79']
 ];
 
-createServer((req, res) => {
+createServer(async (req, res) => {
 	const { pathname: path, searchParams } = new URL(req.url, 'http://localhost');
 	const json = (body, status = 200) =>
 		res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
@@ -103,6 +250,34 @@ createServer((req, res) => {
 		return;
 	}
 	if (path === '/api/v1/auth/renew') return res.writeHead(204).end();
+	if (path === '/api/v1/contacts' && req.method === 'POST') {
+		let body = '';
+		for await (const chunk of req) body += chunk;
+		const input = JSON.parse(body);
+		const created = {
+			id: `synthetic-contact-${Date.now()}`,
+			name: input.name,
+			email: input.email,
+			phone: input.phone ?? null,
+			notes: input.notes ?? null,
+			galleries: [],
+			created_at: now,
+			updated_at: now
+		};
+		contacts.push(created);
+		return json(created, 201);
+	}
+	const galleryContact = path.match(/^\/api\/v1\/galleries\/[^/]+\/contacts\/([^/]+)$/);
+	if (galleryContact && req.method === 'PUT') {
+		const item = contacts.find(({ id }) => id === galleryContact[1]);
+		if (!item) return json({}, 404);
+		linkedContactIds.add(item.id);
+		return json(item);
+	}
+	if (galleryContact && req.method === 'DELETE') {
+		if (!linkedContactIds.delete(galleryContact[1])) return res.writeHead(404).end();
+		return res.writeHead(204).end();
+	}
 	if (req.method !== 'GET') return json({}, 405);
 	if (path === '/api/v1/auth/status') {
 		return json({
@@ -126,17 +301,21 @@ createServer((req, res) => {
 		});
 	}
 	if (path.endsWith('/notifications')) return json({ notifications: [], unread: 0 });
-	if (path.endsWith('/timeline')) {
-		return json({ events: path === '/api/v1/timeline' ? activity : activity.slice(1), next: null });
-	}
-	if (path.endsWith('/contacts')) return json([contact]);
+	if (path.endsWith('/timeline')) return json(activityPage(path, searchParams));
+	if (path === '/api/v1/contacts') return json(contacts);
+	if (path.endsWith('/contacts'))
+		return json(
+			contacts
+				.filter(({ id }) => linkedContactIds.has(id))
+				.map((item, index) => ({ ...item, link_id: `synthetic-gallery-link-${index}` }))
+		);
 	if (path.endsWith('/limits'))
 		return json({ concurrency: 2, max_size: 10485760, max_pixels: 18000000 });
 	if (path.endsWith('/comments')) {
 		return json(
 			path.includes('/photos/')
 				? comments
-				: [{ photo_id: 'p2', count: 1, latest_body: comments[0].body }]
+				: [{ photo_id: 'p2', count: comments.length, latest_body: comments.at(-1).body }]
 		);
 	}
 	const gallery = galleries.find(({ id }) => path.endsWith(`/${id}`));
@@ -148,7 +327,14 @@ createServer((req, res) => {
 				...p,
 				gallery_id: i % 2 ? 'gallery-2' : 'gallery-1',
 				gallery_title: i % 2 ? 'Coast 02' : 'Coast 01',
-				kind: i % 2 ? 'final' : 'proof',
+				kind: 'proof',
+				revision: 1
+			})),
+			...finalPhotos.map((p) => ({
+				...p,
+				gallery_id: 'gallery-7',
+				gallery_title: 'Coast 07',
+				kind: 'final',
 				revision: 1
 			})),
 			...galleries.slice(2).map((g, i) => ({
@@ -161,7 +347,8 @@ createServer((req, res) => {
 			}))
 		]);
 	}
-	if (path.endsWith('/photos')) return json(searchParams.get('finals') === 'true' ? [] : photos);
+	if (path.endsWith('/photos'))
+		return json(searchParams.get('finals') === 'true' ? finalPhotos : photos);
 	if (/thumbnail|preview|\/cover$/.test(path)) {
 		const key =
 			Number(path.match(/gallery-(\d+)/)?.[1] ?? 2) + Number(path.match(/p(\d+)/)?.[1] ?? 1);

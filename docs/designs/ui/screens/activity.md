@@ -2,16 +2,18 @@
 
 What clients did, across every gallery. Route `/activity`, reached from the **Activity** pill in
 the top `AppHeader`. The same timeline backs the gallery studio's **Activity** tab, which is
-scoped to one gallery and has no Gallery filter. The tab is disabled until the gallery is shared
+scoped to one gallery. The tab is disabled until the gallery is shared
 (tooltip `"Available once the gallery is shared"`). Designs: [activity log](../../2026-11-17-activity-log-design.md)
 and [timeline polish](../../2026-11-19-activity-timeline-polish-design.md).
 
 ## Layout
 
 1. **Header:** `AppHeader` with **Activity** active, a Georgia heading **Activity**, and a short subtitle.
-2. **Filters:**
-   - **Gallery**, **Visitor** (linked contacts, plus **Anonymous client** for the general link) and
-     **Date** (**Any time**, **Last 24 hours**, **Last 7 days**, **Last 30 days**) selects.
+2. **Search and filters:**
+   - Search by gallery or visitor name (including **Anonymous client**) across the workspace, or by
+     visitor name within the current gallery. Partial names match regardless of case and accents.
+     Search applies before pagination and combines with the fixed filters and sort.
+   - **Date** offers **Any time**, **Last 24 hours**, **Last 7 days**, and **Last 30 days**.
    - **Type** pills with `aria-pressed`: **All**, **Favorites**, **Comments**, **Downloads**, **Views**, **Emails**.
    - Changing a filter reloads the first page. **Favorites** shows favorites only; removed favorites appear under **All**.
 3. **Timeline:** day sections headed **Today**, **Yesterday**, or a long date; newest first by

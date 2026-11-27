@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NotificationCenter } from '#lib/gallery/notifications.svelte.js';
+import { NotificationCenter, type Notification } from '#lib/gallery/notifications.svelte.js';
 import NotificationBell from './NotificationBell.svelte';
 import { useLocale } from '#lib/i18n/testing.js';
 
@@ -13,7 +13,7 @@ beforeEach(() => {
 	state.page.params.id = 'another';
 });
 
-const row = (over = {}) => ({
+const row = (over: Partial<Notification> = {}): Notification => ({
 	id: 'n1',
 	gallery_id: 'g1',
 	title: 'Wedding',
@@ -26,13 +26,25 @@ const row = (over = {}) => ({
 	...over
 });
 
-const setup = (rows: object[]) => {
+const setup = (rows: Notification[]) => {
 	let current = rows;
-	const fetcher = vi.fn(async (_url: string, init?: RequestInit) => {
-		if (init?.method === 'POST') current = [];
+	const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+		if (init?.method === 'DELETE') {
+			current =
+				url === '/api/v1/notifications' ? [] : current.filter((item) => !url.endsWith(item.id));
+		}
+		if (init?.method === 'POST') {
+			current = current.map((item) =>
+				url === '/api/v1/notifications/read' ||
+				url === `/api/v1/notifications/galleries/${item.gallery_id}/read`
+					? { ...item, read_at: item.updated_at }
+					: item
+			);
+		}
 
-		return new Response(JSON.stringify({ notifications: current, unread: current.length }), {
-			status: 200
+		return Response.json({
+			notifications: current,
+			unread: current.filter((item) => item.read_at === null).length
 		});
 	});
 	const center = new NotificationCenter(fetcher as unknown as typeof fetch);
@@ -95,8 +107,26 @@ describe('NotificationBell', () => {
 		window.addEventListener('click', (event) => event.preventDefault(), { once: true });
 		await userEvent.click(link);
 
-		expect(link.getAttribute('href')).toBe('/dashboard/g1');
+		expect(link.getAttribute('href')).toBe('/dashboard/g1?section=final');
 		expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toEqual([]);
+	});
+
+	it('opens the tab that holds what each kind of notification reports', async () => {
+		const { center } = setup([
+			row({ id: 'a', kind: 'selection' }),
+			row({ id: 'b', kind: 'comment', count: 1 }),
+			row({ id: 'c', kind: 'open', count: 1 })
+		]);
+		await center.refresh();
+		render(NotificationBell, { center });
+
+		await userEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+
+		expect(screen.getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
+			'/dashboard/g1?section=favorites',
+			'/dashboard/g1?section=comments',
+			'/dashboard/g1'
+		]);
 	});
 
 	it('marks an explicit visit to the already-open gallery read exactly once', async () => {
@@ -113,21 +143,65 @@ describe('NotificationBell', () => {
 		expect(
 			fetcher.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url]) => url)
 		).toEqual(['/api/v1/notifications/galleries/g1/read']);
-		expect(screen.getByRole('button', { name: 'Notifications' })).toBeTruthy();
+		await userEvent.click(screen.getByRole('button', { name: 'Notifications' }));
+
+		expect(screen.getByRole('link', { name: /Wedding/ })).toBeTruthy();
+		expect(screen.queryByText('Unread activity')).toBeNull();
 	});
 
-	it('marks everything read, and shows the empty state', async () => {
-		const { center } = setup([row()]);
+	it('shows read and unread activity, and keeps both visible after marking all read', async () => {
+		const { center, fetcher } = setup([
+			row(),
+			row({ id: 'n2', title: 'Portrait', read_at: '2026-01-01T10:00:00Z' })
+		]);
 		await center.refresh();
 		render(NotificationBell, { center });
 
-		await userEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+		await userEvent.click(screen.getByRole('button', { name: 'Notifications, 1 unread' }));
+		expect(screen.getByRole('link', { name: /Wedding.*Unread activity/ })).toBeTruthy();
+		expect(screen.getByRole('link', { name: /Portrait/ })).toBeTruthy();
 		await userEvent.click(screen.getByRole('button', { name: 'Mark all as read' }));
 
-		expect(screen.getByText("You're all caught up")).toBeTruthy();
+		expect(screen.getAllByRole('link')).toHaveLength(2);
+		expect(screen.queryByText('Unread activity')).toBeNull();
+		expect(screen.getByRole('button', { name: 'Notifications' })).toBeTruthy();
 		expect(
 			(screen.getByRole('button', { name: 'Mark all as read' }) as HTMLButtonElement).disabled
 		).toBe(true);
+		expect(
+			fetcher.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url]) => url)
+		).toEqual(['/api/v1/notifications/read']);
+	});
+
+	it('deletes every notification at once, then closes the menu', async () => {
+		const user = userEvent.setup();
+		const { center, fetcher } = setup([row(), row({ id: 'n2', title: 'Portraits' })]);
+		await center.refresh();
+		render(NotificationBell, { center });
+
+		await user.click(screen.getByRole('button', { name: /Notifications/ }));
+		await user.click(screen.getByRole('button', { name: 'Delete all' }));
+
+		expect(fetcher).toHaveBeenCalledWith(
+			'/api/v1/notifications',
+			expect.objectContaining({ method: 'DELETE' })
+		);
+		await waitFor(() => expect(screen.queryByText('Portraits')).toBeNull());
+		expect(screen.queryByRole('button', { name: 'Delete all' })).toBeNull();
+
+		await user.click(screen.getByRole('button', { name: /Notifications/ }));
+
+		expect(screen.getByText('Nothing new')).toBeTruthy();
+	});
+
+	it('shows the simple empty state when there are no notifications', async () => {
+		const { center } = setup([]);
+		render(NotificationBell, { center });
+
+		await userEvent.click(screen.getByRole('button', { name: 'Notifications' }));
+
+		expect(screen.getByText('Nothing new')).toBeTruthy();
+		expect(screen.queryByRole('link')).toBeNull();
 	});
 });
 

@@ -1,25 +1,28 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onDestroy } from 'svelte';
-	import { Check } from '@lucide/svelte';
+	import { Check, Copy } from '@lucide/svelte';
 	import ClickPop from '#lib/components/ClickPop.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import { cn } from '#lib/utils.js';
 
-	const COPIED_MS = 3000;
+	const COPIED_MS = 1000;
 
 	let {
 		value,
 		disabled = false,
 		fallbackInput = null,
 		class: className = 'min-w-28',
-		statusClass = 'text-xs'
+		statusClass = 'text-xs',
+		icon = false
 	}: {
 		value: string;
 		disabled?: boolean;
 		fallbackInput?: HTMLInputElement | null;
 		class?: string;
 		statusClass?: string;
+		/** A bare icon that turns into a check, for sitting inside a field. */
+		icon?: boolean;
 	} = $props();
 
 	let copied = $state(false);
@@ -59,19 +62,47 @@
 	}
 </script>
 
-<Button size="sm" class={cn('min-h-9! gap-1.5', className)} {disabled} onclick={copy}>
-	{#if copied}
-		<span class="text-ok-on-dark">
+{#if icon}
+	<button
+		type="button"
+		class={cn(
+			'icon-action relative inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus disabled:pointer-events-none disabled:opacity-50',
+			copied && 'text-ok',
+			className
+		)}
+		aria-label={copied ? m.copy_copied() : m.copy_copy()}
+		title={copied ? m.copy_copied() : m.copy_copy()}
+		{disabled}
+		onclick={copy}
+	>
+		{#if copied}
 			<ClickPop active={popping} onend={() => (popping = false)}>
 				<Check size={16} aria-hidden="true" />
 			</ClickPop>
-		</span>
-		{m.copy_copied()}
-	{:else}
-		{m.copy_copy()}
-	{/if}
-</Button>
-<!-- The button already shows "Copied"; only the announcement is hidden visually. -->
+		{:else}
+			<Copy size={16} aria-hidden="true" />
+		{/if}
+	</button>
+{:else}
+	<Button
+		size="sm"
+		class={cn('min-h-9! w-28 min-w-28 justify-center gap-1.5', className)}
+		aria-label={copied ? m.copy_copied() : m.copy_copy()}
+		{disabled}
+		onclick={copy}
+	>
+		{#if copied}
+			<span class="text-ok-on-dark">
+				<ClickPop active={popping} onend={() => (popping = false)}>
+					<Check size={16} aria-hidden="true" />
+				</ClickPop>
+			</span>
+		{:else}
+			<Copy size={16} aria-hidden="true" />
+			{m.copy_copy()}
+		{/if}
+	</Button>
+{/if}
 <p class={failed ? statusClass : 'sr-only'} role="status">
 	{copied ? m.copy_copied() : failed ? m.copy_failed() : ''}
 </p>

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { m } from '#lib/paraglide/messages.js';
 	import { cn } from '#lib/utils.js';
 	import { Search } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
@@ -9,7 +8,7 @@
 		filters,
 		sort,
 		actions,
-		onclear,
+		resultCount,
 		resultsHeight = 0,
 		class: className
 	}: {
@@ -22,7 +21,7 @@
 		filters?: Snippet;
 		sort?: Snippet;
 		actions?: Snippet;
-		onclear?: () => void;
+		resultCount?: string;
 		resultsHeight?: number;
 		class?: string;
 	} = $props();
@@ -36,13 +35,13 @@
 	data-slot="workspace-toolbar"
 	class={cn(
 		'flex flex-wrap items-center gap-2 bg-background py-1 has-[[aria-expanded=true]]:z-40',
-		viewportHeight > 0 && resultsHeight > viewportHeight ? 'sticky top-2 z-[6]' : 'relative',
+		viewportHeight > 0 && resultsHeight > viewportHeight ? 'sticky top-0 z-[6]' : 'relative',
 		className
 	)}
 >
 	{#if search}
 		<label
-			class="flex min-h-10 min-w-32 flex-1 items-center gap-2 rounded-control border border-transparent px-2 text-muted-foreground has-focus-visible:border-muted-foreground max-sm:basis-full"
+			class="flex min-h-10 min-w-32 flex-1 items-center gap-2 rounded-control border border-border bg-panel px-3 text-muted-foreground has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-focus max-sm:basis-full"
 		>
 			{#if !search.value}<Search size={16} aria-hidden="true" class="shrink-0" />{/if}
 			<input
@@ -65,15 +64,11 @@
 	>
 		{@render filters?.()}
 		{@render sort?.()}
-		{#if onclear}
-			<button
-				type="button"
-				class="min-h-9 shrink-0 cursor-pointer rounded-control px-2 text-sm text-danger hover:underline"
-				onclick={onclear}
-			>
-				{m.filter_reset()}
-			</button>
-		{/if}
 		{@render actions?.()}
+		{#if resultCount !== undefined}
+			<span role="status" class="px-2 text-sm text-muted-foreground tabular-nums">
+				{resultCount}
+			</span>
+		{/if}
 	</div>
 </div>

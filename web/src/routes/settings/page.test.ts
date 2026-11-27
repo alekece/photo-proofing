@@ -1,10 +1,20 @@
-import { act, fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useLocale } from '#lib/i18n/testing.js';
 
-vi.mock('$app/navigation', () => ({ goto: vi.fn(), afterNavigate: vi.fn() }));
+vi.mock('$app/navigation', () => ({
+	goto: vi.fn(),
+	afterNavigate: vi.fn(),
+	invalidateAll: vi.fn()
+}));
+const setLocale = vi.hoisted(() => vi.fn());
+vi.mock('#lib/paraglide/runtime.js', async (original) => {
+	const runtime = await original<typeof import('#lib/paraglide/runtime.js')>();
+
+	return { ...runtime, getLocale: () => runtime.getLocale(), setLocale };
+});
 import Page from './+page.svelte';
 import { toasts } from '#lib/components/ui/Toast/toasts.svelte.js';
 import { DEFAULT_SETTINGS } from '#lib/settings/settings.js';
@@ -36,6 +46,7 @@ function respond(body: unknown, status = 200) {
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.useRealTimers();
+	setLocale.mockClear();
 });
 
 function open(settings = data.settings) {
@@ -51,14 +62,16 @@ function proofPreview() {
 }
 
 describe('Settings page', () => {
-	it('enables save for a display change and disables it again after reverting', async () => {
+	it('keeps presentation and theme choices in the draft and resets both on cancel', async () => {
 		open();
 		const user = userEvent.setup();
-		const mode = screen.getByRole('combobox', { name: 'Photo presentation' });
 		const save = screen.getByRole('button', { name: 'Save' });
-		await user.selectOptions(mode, 'print');
+		await user.click(screen.getByRole('radio', { name: 'Print' }));
+		await user.click(screen.getByRole('radio', { name: 'Neutral board' }));
 		expect(save).toHaveProperty('disabled', false);
-		await user.selectOptions(mode, 'full_image');
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(screen.getByRole('radio', { name: 'Full image' })).toHaveProperty('checked', true);
+		expect(screen.getByRole('radio', { name: 'Warm board' })).toHaveProperty('checked', true);
 		expect(save).toHaveProperty('disabled', true);
 	});
 
@@ -83,22 +96,30 @@ describe('Settings page', () => {
 		expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
 	});
 
-	it('blocks edits until a pending language change succeeds or fails', async () => {
-		let finish!: (response: Response) => void;
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(() => new Promise<Response>((resolve) => (finish = resolve)))
+	it('keeps the language and watermark local until the same save', async () => {
+		const fetcher = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () =>
+			Response.json({ ...saved, language: 'fr', watermark_opacity: 67 })
 		);
+		vi.stubGlobal('fetch', fetcher);
 		open();
 		const user = userEvent.setup();
-		const studioName = screen.getByLabelText('Studio name');
 
 		await user.click(screen.getByRole('radio', { name: 'Français' }));
-		expect(studioName.matches(':disabled')).toBe(true);
-
-		finish(new Response(null, { status: 500 }));
-		await vi.waitFor(() => expect(studioName.matches(':disabled')).toBe(false));
-		expect(screen.getByRole('radio', { name: 'English', checked: true })).toBeTruthy();
+		await user.click(tab('Watermark'));
+		await fireEvent.input(screen.getByRole('slider', { name: 'Opacity' }), {
+			target: { value: '67' }
+		});
+		const writes = () => fetcher.mock.calls.filter(([, init]) => init?.method === 'PUT');
+		expect(writes()).toHaveLength(0);
+		expect(setLocale).not.toHaveBeenCalled();
+		await user.click(screen.getByRole('button', { name: 'Save' }));
+		expect(writes()).toHaveLength(1);
+		expect(writes()[0][0]).toBe('/api/v1/settings');
+		expect(JSON.parse(writes()[0][1]?.body as string)).toMatchObject({
+			language: 'fr',
+			watermark_opacity: 67
+		});
+		await vi.waitFor(() => expect(setLocale).toHaveBeenCalledExactlyOnceWith('fr'));
 	});
 
 	it('previews text color and floors new opacity adjustments without changing a saved zero', async () => {
@@ -107,7 +128,7 @@ describe('Settings page', () => {
 		await user.click(tab('Watermark'));
 		const color = container.querySelector<HTMLInputElement>('input[type=color]')!;
 		const hex = screen.getByLabelText('Hex color') as HTMLInputElement;
-		const opacity = screen.getByRole('slider', { name: 'Watermark opacity' });
+		const opacity = screen.getByRole('slider', { name: 'Opacity' });
 
 		expect(proofPreview().querySelector<HTMLElement>('[style*="opacity"]')?.style.opacity).toBe(
 			'0'
@@ -162,17 +183,21 @@ describe('Settings page', () => {
 		expect(hex.value).toBe('#A12B3C');
 	});
 
-	it('prevents a language change while settings have unsaved edits', async () => {
+	it('keeps the language and other edits after a failed save', async () => {
+		toasts.items = [];
+		respond({}, 500);
 		open();
 		const user = userEvent.setup();
 
-		expect(screen.queryByRole('link', { name: 'Back to galleries' })).toBeNull();
-		const french = screen.getByRole('radio', { name: 'Français' });
-		expect(french).toHaveProperty('disabled', false);
 		await user.type(screen.getByLabelText('Studio name'), 'Studio X');
-		expect(french).toHaveProperty('disabled', true);
-		await user.click(screen.getByRole('button', { name: 'Cancel' }));
-		expect(french).toHaveProperty('disabled', false);
+		await user.click(screen.getByRole('radio', { name: 'Français' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
+
+		await vi.waitFor(() => expect(toasts.items).toHaveLength(1));
+		expect(setLocale).not.toHaveBeenCalled();
+		expect(screen.getByRole('radio', { name: 'Français', checked: true })).toBeTruthy();
+		expect(screen.getByLabelText('Studio name')).toHaveProperty('value', 'Studio X');
+		expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', false);
 	});
 
 	it('shows Saving and prevents another submission while saving', async () => {
@@ -226,7 +251,7 @@ describe('Settings page', () => {
 		await user.click(screen.getByRole('button', { name: 'Save' }));
 		await user.type(name, ' II');
 		await user.click(tab('Watermark'));
-		await fireEvent.input(screen.getByRole('slider', { name: 'Watermark opacity' }), {
+		await fireEvent.input(screen.getByRole('slider', { name: 'Opacity' }), {
 			target: { value: '71' }
 		});
 		await fireEvent.input(screen.getByLabelText('Hex color'), { target: { value: '#a12' } });
@@ -237,13 +262,13 @@ describe('Settings page', () => {
 		await vi.waitFor(() =>
 			expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true)
 		);
-		expect(screen.getByText('Enter a six-digit hex color.')).toBeTruthy();
+		expect(screen.getByText('Enter a six-digit hex color in Watermark.')).toBeTruthy();
 		expect(screen.queryByRole('button', { name: 'Saved' })).toBeNull();
 		expect(screen.getByRole('button', { name: 'None' }).getAttribute('aria-pressed')).toBe('true');
 		await user.click(tab('General'));
 		expect(screen.getByLabelText('Studio name')).toHaveProperty('value', 'Studio X II');
 		await user.click(tab('Watermark'));
-		expect(screen.getByRole('slider', { name: 'Watermark opacity' })).toHaveProperty('value', '71');
+		expect(screen.getByRole('slider', { name: 'Opacity' })).toHaveProperty('value', '71');
 		const hex = screen.getByLabelText('Hex color');
 		expect(hex).toHaveProperty('value', '#a12');
 		await fireEvent.input(hex, { target: { value: '#a12b3c' } });
@@ -251,7 +276,7 @@ describe('Settings page', () => {
 		expect(fetcher.mock.calls.filter(([url]) => url === '/api/v1/settings')).toHaveLength(1);
 	});
 
-	it('saves and confirms on the button only, without any toast', async () => {
+	it('saves and returns to the idle action without a visible confirmation', async () => {
 		toasts.items = [];
 		const fetcher = respond(saved);
 		open();
@@ -265,8 +290,8 @@ describe('Settings page', () => {
 				screen.getAllByRole('status').some((live) => live.textContent?.trim() === 'Saved')
 			).toBe(true)
 		);
-		expect(screen.getByTestId('click-ripple')).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Saved' })).toHaveProperty('disabled', false);
+		expect(screen.queryByRole('button', { name: 'Saved' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true);
 		expect(toasts.items.map((toast) => toast.message)).not.toContain('Saved');
 		expect(fetcher).toHaveBeenCalledWith(
 			'/api/v1/settings',
@@ -285,27 +310,6 @@ describe('Settings page', () => {
 		expect(toasts.items).toEqual([]);
 	});
 
-	it('returns Saved and Reverted to the disabled idle actions after their brief confirmations', async () => {
-		vi.useFakeTimers();
-		respond(saved);
-		open();
-		const name = screen.getByLabelText('Studio name');
-		await fireEvent.input(name, { target: { value: 'Studio X' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-		await act(() => vi.advanceTimersByTimeAsync(0));
-		await act(() => vi.advanceTimersByTimeAsync(1599));
-		expect(screen.getByRole('button', { name: 'Saved' })).toBeTruthy();
-		await act(() => vi.advanceTimersByTimeAsync(1));
-		expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true);
-
-		await fireEvent.input(name, { target: { value: 'New draft' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-		await act(() => vi.advanceTimersByTimeAsync(1399));
-		expect(screen.getByRole('button', { name: 'Reverted' })).toBeTruthy();
-		await act(() => vi.advanceTimersByTimeAsync(1));
-		expect(screen.getByRole('button', { name: 'Cancel' })).toHaveProperty('disabled', true);
-	});
-
 	it('does not announce a regeneration for a signature-only change', async () => {
 		toasts.items = [];
 		respond({ ...saved, studio_name: '', signature: 'none' });
@@ -319,7 +323,7 @@ describe('Settings page', () => {
 		expect(toasts.items).toEqual([]);
 	});
 
-	it('saves a signature text color and can reset it to the inherited cover color', async () => {
+	it('saves a signature text color and inherits the cover color when the hex field is cleared', async () => {
 		const fetcher = vi.fn(async (_url: string, init?: RequestInit) => {
 			const body = JSON.parse(init?.body as string);
 
@@ -331,18 +335,34 @@ describe('Settings page', () => {
 
 		await user.click(tab('Cover signature'));
 		const color = screen.getByLabelText('Text color');
+		const hex = screen.getByLabelText('Hex color');
 		const name = screen.getByText('Studio X');
 		expect(name.style.color).toBe('');
-		await fireEvent.input(color, { target: { value: '#a12b3c' } });
+		await fireEvent.input(hex, { target: { value: '#a12b3c' } });
+		expect(color).toHaveProperty('value', '#a12b3c');
 		expect(name.style.color).toBe('rgb(161, 43, 60)');
+		await fireEvent.input(hex, { target: { value: '#abc' } });
+		expect(name.style.color).toBe('rgb(161, 43, 60)');
+		expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true);
+		await user.click(tab('Watermark'));
+		expect(screen.getByLabelText('Hex color')).toHaveProperty('value', '#FFFFFF');
+		expect(screen.getByText('Enter a six-digit hex color in Cover signature.')).toBeTruthy();
+		await user.click(tab('Cover signature'));
+		expect(screen.getByLabelText('Hex color')).toHaveProperty('value', '#abc');
+		await fireEvent.input(screen.getByLabelText('Hex color'), { target: { value: '#a12b3c' } });
 		await user.click(screen.getByRole('button', { name: 'Save' }));
-		await screen.findByRole('button', { name: 'Saved' });
+		await vi.waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true)
+		);
 
-		expect(screen.queryByRole('button', { name: 'Use cover color' })).toBeNull();
-		await user.click(screen.getByRole('button', { name: 'Reset text color' }));
-		expect(name.style.color).toBe('');
+		expect(screen.queryByRole('button', { name: 'Reset text color' })).toBeNull();
+		await user.clear(screen.getByLabelText('Hex color'));
+		expect(screen.getByText('Studio X').style.color).toBe('');
+		expect(screen.getByLabelText('Hex color')).toHaveProperty('value', '');
 		await user.click(screen.getByRole('button', { name: 'Save' }));
-		await screen.findByRole('button', { name: 'Saved' });
+		await vi.waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true)
+		);
 
 		expect(
 			fetcher.mock.calls
@@ -358,11 +378,13 @@ describe('Settings page', () => {
 		open();
 		const user = userEvent.setup();
 
-		expect(screen.getByRole('radio', { name: /Medium/ }).getAttribute('aria-checked')).toBe('true');
+		expect(screen.getByRole('radio', { name: /Medium/ })).toHaveProperty('checked', true);
 		await user.click(screen.getByRole('radio', { name: /High/ }));
 		await user.click(screen.getByRole('button', { name: 'Save' }));
 
-		await screen.findByRole('button', { name: 'Saved' });
+		await vi.waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true)
+		);
 		expect(toasts.items).toEqual([]);
 		expect(
 			JSON.parse(
@@ -413,11 +435,13 @@ describe('Settings page', () => {
 	});
 
 	it('reverts every unsaved change on Cancel', async () => {
+		const fetcher = respond(saved);
 		open();
 		const user = userEvent.setup();
 		const name = screen.getByLabelText('Studio name') as HTMLInputElement;
 
 		await user.type(name, 'Studio X');
+		await user.click(screen.getByRole('radio', { name: 'Français' }));
 		await user.click(tab('Watermark'));
 		await user.click(screen.getByRole('button', { name: 'Once' }));
 		await user.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -428,12 +452,13 @@ describe('Settings page', () => {
 		await user.click(tab('General'));
 		expect(screen.getByLabelText('Studio name')).toHaveProperty('value', '');
 
-		const reverted = await screen.findByRole('button', { name: /Reverted/ });
-
-		expect(reverted).toHaveProperty('disabled', false);
-		expect(reverted.getAttribute('aria-disabled')).toBe('true');
-		expect(screen.getByTestId('click-ripple')).toBeTruthy();
-		expect(document.body.innerHTML).not.toMatch(/translate-y/);
+		expect(screen.getByRole('radio', { name: 'English', checked: true })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Reverted' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'Cancel' })).toHaveProperty('disabled', true);
+		expect(fetcher).not.toHaveBeenCalledWith(
+			expect.stringContaining('/settings'),
+			expect.objectContaining({ method: 'PUT' })
+		);
 		expect(screen.getAllByRole('status').some((live) => live.textContent === 'Reverted')).toBe(
 			true
 		);
@@ -489,6 +514,6 @@ describe('Settings page in French', () => {
 		await userEvent.setup().click(tab('Filigrane'));
 		expect(screen.getByLabelText('Couleur du texte')).toBeTruthy();
 		expect(screen.getByLabelText('Code hexadécimal')).toBeTruthy();
-		expect(screen.getByRole('slider', { name: 'Opacité du filigrane' })).toBeTruthy();
+		expect(screen.getByRole('slider', { name: 'Opacité' })).toBeTruthy();
 	});
 });

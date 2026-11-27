@@ -17,7 +17,7 @@
 	bind:this={ref}
 	data-slot={dataSlot}
 	class={cn(
-		'size-5 shrink-0 cursor-pointer accent-foreground focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50',
+		'size-4 shrink-0 cursor-pointer accent-foreground focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50',
 		className
 	)}
 	type="checkbox"

@@ -115,6 +115,41 @@ describe('ActivityFeed', () => {
 		expect(ids(feed)).toEqual(['oldest', 'newest']);
 	});
 
+	it('drops a late page from the previous search and pages the new matches', async () => {
+		const previousPage = Promise.withResolvers<Response>();
+		const first = line('first', '2026-11-10T10:00:00Z');
+		const match = line('match', '2026-11-09T10:00:00Z');
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(page([first], 'previous'))
+			.mockReturnValueOnce(previousPage.promise)
+			.mockResolvedValueOnce(page([match], 'matching'))
+			.mockResolvedValueOnce(page([]));
+		const feed = new ActivityFeed({ fetcher: asFetch(fetcher) });
+
+		vi.useFakeTimers();
+		try {
+			feed.setSearch('Camille');
+			await vi.advanceTimersByTimeAsync(500);
+			const pending = feed.loadMore();
+			feed.setSearch('Élise');
+			await vi.advanceTimersByTimeAsync(500);
+			previousPage.resolve(page([first]));
+			await pending;
+			await feed.loadMore();
+
+			expect(fetcher.mock.calls.map(([url]) => params(url))).toEqual([
+				{ q: 'Camille' },
+				{ q: 'Camille', cursor: 'previous' },
+				{ q: 'Élise' },
+				{ q: 'Élise', cursor: 'matching' }
+			]);
+			expect(ids(feed)).toEqual(['match']);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('does not append a disconnected newest page to an incomplete oldest-first list', async () => {
 		const oldest = line('oldest', '2026-11-09T10:00:00Z');
 		const newest = line('newest', '2026-11-10T10:00:00Z');

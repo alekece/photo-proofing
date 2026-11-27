@@ -1,12 +1,12 @@
 <script lang="ts">
 	/** The studio logo, or a placeholder mark until one is uploaded. */
-	let { logo, class: className = '' }: { logo: string | null; class?: string } = $props();
+	let { logo }: { logo: string | null } = $props();
 </script>
 
 {#if logo}
-	<img src={logo} alt="" class="{className} rounded-sm bg-input object-contain" />
+	<img src={logo} alt="" class="size-5 shrink-0 rounded-sm bg-input object-contain" />
 {:else}
-	<svg viewBox="0 0 48 48" aria-hidden="true" class={className}>
+	<svg viewBox="0 0 48 48" aria-hidden="true" class="size-5 shrink-0">
 		<circle cx="24" cy="24" r="22" fill="none" stroke="currentColor" stroke-width="1.6" />
 		<path
 			d="M15 31c3-9 6-14 9-14s4 5 5 9 2 5 4 5"

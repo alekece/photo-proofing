@@ -14,6 +14,7 @@
 <script lang="ts">
 	import { STATE_LABELS } from '#lib/gallery/states.js';
 	import { cn } from '#lib/utils.js';
+	import type { Snippet } from 'svelte';
 	import type { HTMLAttributes } from 'svelte/elements';
 
 	const tones: Record<GalleryStatus, string> = {
@@ -33,51 +34,60 @@
 		archived: 'text-muted-foreground'
 	};
 
-	const workspaceTones: Partial<Record<GalleryStatus, string>> = {
-		draft: 'border-border-strong bg-border text-muted-foreground',
-		shared: 'border-workspace-green bg-inverse text-workspace-green',
-		delivered: 'border-workspace-green bg-workspace-green text-inverse',
-		archived: 'border-foreground bg-foreground text-inverse'
-	};
-
 	type Props = HTMLAttributes<HTMLSpanElement> & {
-		status: GalleryStatus;
 		dot?: boolean;
 		cover?: boolean;
 		/** The photographer workspace treatment; other consumers keep their existing palette. */
 		workspace?: boolean;
-	};
+		dataSlot?: string;
+	} & (
+			| { status: GalleryStatus; children?: never }
+			| {
+					status?: never;
+					children: Snippet;
+					'aria-label': string;
+			  }
+		);
 
 	let {
 		status,
+		children,
 		dot = false,
 		cover = false,
 		workspace = false,
+		dataSlot = 'status-chip',
 		class: className,
+		role,
 		...restProps
 	}: Props = $props();
-	const workspaceTone = $derived(workspace ? workspaceTones[status] : undefined);
 </script>
 
 <span
-	data-slot="status-chip"
+	data-slot={dataSlot}
+	role={role ?? (children ? 'img' : undefined)}
 	class={cn(
-		'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium tracking-wide',
-		workspaceTone ??
-			(cover
+		'inline-flex items-center justify-center pill',
+		status ? 'gap-1.5 border text-xs font-medium tracking-wide' : 'p-1.5',
+		workspace || !status
+			? 'border-0 bg-panel text-foreground'
+			: cover
 				? `border-transparent bg-panel/90 font-semibold ${coverTones[status]}`
-				: tones[status]),
+				: tones[status],
 		className
 	)}
 	{...restProps}
 >
-	{#if dot}<span
-			data-slot="status-chip-dot"
-			aria-hidden="true"
-			class={cn(
-				'size-[7px] rounded-full',
-				workspaceTone || cover ? 'bg-current' : statusDots[status]
-			)}
-		></span>{/if}
-	{STATE_LABELS[status]()}
+	{#if status}
+		{#if dot}<span
+				data-slot="status-chip-dot"
+				aria-hidden="true"
+				class={cn(
+					'size-[7px] rounded-full',
+					workspace || cover ? 'bg-current' : statusDots[status]
+				)}
+			></span>{/if}
+		{STATE_LABELS[status]()}
+	{:else}
+		{@render children?.()}
+	{/if}
 </span>

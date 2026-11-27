@@ -3,13 +3,11 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 
 async function signOut(page: Page) {
-	const menu = page.getByRole('button', { name: 'Account menu' });
+	const button = page.getByRole('button', { name: 'Sign out', exact: true });
 	await expect(async () => {
-		if ((await menu.getAttribute('aria-expanded')) === 'false') await menu.click();
-		await expect(menu).toHaveAttribute('aria-expanded', 'true', { timeout: 500 });
+		if (!new URL(page.url()).pathname.endsWith('/login')) await button.click({ timeout: 1000 });
+		await expect(page).toHaveURL(/\/login$/, { timeout: 1000 });
 	}).toPass({ timeout: 5000 });
-	await page.getByRole('button', { name: 'Sign out', exact: true }).click();
-	await expect(page).toHaveURL(/\/login$/);
 }
 
 test('real setup, persistent cookie, login, and revocable logout', async ({

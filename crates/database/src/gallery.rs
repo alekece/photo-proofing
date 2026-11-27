@@ -349,6 +349,10 @@ pub struct Gallery {
     pub hero_id: Option<PhotoId>,
     /// `None` means the gallery has not been shared.
     pub share_token: Option<ShareToken>,
+    /// When the private link was first created; `None` means the gallery has not been shared.
+    pub shared_at: Option<Timestamp>,
+    /// When the finished photos were delivered; `None` means they have not been.
+    pub delivered_at: Option<Timestamp>,
     /// When a client last opened the shared gallery, to within the throttle delay; `None` means
     /// not yet.
     pub last_opened_at: Option<Timestamp>,
@@ -417,6 +421,8 @@ impl FromRow<'_, PgRow> for Gallery {
             access_code: row.try_get("access_code")?,
             hero_id: row.try_get("hero_id")?,
             share_token: row.try_get("share_token")?,
+            shared_at: row.try_get("shared_at")?,
+            delivered_at: row.try_get("delivered_at")?,
             last_opened_at: row.try_get("last_opened_at")?,
             shoot_date: row.try_get("shoot_date")?,
             states,
@@ -1488,6 +1494,8 @@ mod tests {
         let recorded = shared_at(gallery.id).await;
 
         assert!(recorded.is_some());
+        assert_eq!(first.shared_at, recorded);
+        assert_eq!(first.delivered_at, None);
 
         store.share(workspace, gallery.id).await.unwrap();
 

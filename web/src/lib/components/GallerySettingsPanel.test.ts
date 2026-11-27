@@ -79,8 +79,12 @@ describe('GallerySettingsPanel', () => {
 
 	it('splits settings into General, Privacy & Protection, and Actions cards', async () => {
 		const { container } = setup();
+		const root = screen
+			.getByRole('heading', { name: 'General' })
+			.closest('[data-slot="gallery-settings"]')!;
 
-		expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
+		expect(screen.queryByRole('heading', { name: 'Settings' })).toBeNull();
+		expect(root.className).not.toContain('max-w-3xl');
 		expect(screen.getByRole('heading', { name: 'General' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Privacy & Protection' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Actions' })).toBeTruthy();
@@ -113,7 +117,7 @@ describe('GallerySettingsPanel', () => {
 	it('says a draft is not shared, offers Share link, and reveals Copy once shared', async () => {
 		const first = setup();
 
-		expect(screen.getByText('Not shared yet')).toBeTruthy();
+		expect(screen.queryByText('Not shared yet')).toBeNull();
 		await first.user.click(screen.getByRole('button', { name: 'Share link' }));
 		expect(first.onsharelink).toHaveBeenCalledOnce();
 		first.unmount();
@@ -326,6 +330,9 @@ describe('GallerySettingsPanel', () => {
 		const disabledSwitch = screen.getByRole('switch', { name: 'Require access code' });
 		expect((disabledSwitch as HTMLButtonElement).disabled).toBe(true);
 		const reason = screen.getByText('Cannot add a code after sharing.');
+		const label = screen.getByText('Require access code', { exact: true });
+		expect(reason.parentElement).toBe(label.parentElement);
+		expect(reason.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
 		expect(disabledSwitch.getAttribute('aria-describedby')).toBe(reason.id);
 		expect((await axe(sharedWithoutCode.container)).violations).toEqual([]);
 	});

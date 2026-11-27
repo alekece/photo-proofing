@@ -34,7 +34,9 @@ export class ActivityFeed {
 	readonly retrying = new SvelteSet<string>();
 	failed = $state(false);
 	filters = $state<ActivityFilters>({});
+	search = $state('');
 	sort = $state<ActivitySort>('newest');
+	#searchTimer: ReturnType<typeof setTimeout> | undefined;
 	#galleryId: string | undefined;
 	#fetcher: typeof fetch;
 	#oldestBoundary: { cursor: string; event: ActivityEvent } | undefined;
@@ -79,7 +81,30 @@ export class ActivityFeed {
 		);
 	}
 
+	setSearch(value: string): void {
+		this.search = value;
+		clearTimeout(this.#searchTimer);
+		const q = value.trim() || undefined;
+
+		if (q === this.filters.q) return;
+
+		const apply = () => {
+			const next = { ...this.filters };
+
+			if (q) next.q = q;
+			else delete next.q;
+
+			this.filters = next;
+			void this.load();
+		};
+
+		if (q) this.#searchTimer = setTimeout(apply, 250);
+		else apply();
+	}
+
 	clearFilters(): void {
+		clearTimeout(this.#searchTimer);
+		this.search = '';
 		this.filters = {};
 		void this.load();
 	}
@@ -296,6 +321,7 @@ export class ActivityFeed {
 		];
 
 		return () => {
+			clearTimeout(this.#searchTimer);
 			for (const stop of stops) stop();
 		};
 	}

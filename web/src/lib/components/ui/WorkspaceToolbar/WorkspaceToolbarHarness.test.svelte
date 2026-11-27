@@ -4,13 +4,11 @@
 	let {
 		height = 0,
 		searchable = true,
-		disabled = false,
-		onclear
+		disabled = false
 	}: {
 		height?: number;
 		searchable?: boolean;
 		disabled?: boolean;
-		onclear?: () => void;
 	} = $props();
 
 	let query = $state('');
@@ -21,7 +19,6 @@
 		? { label: 'Search', value: query, disabled, oninput: (value) => (query = value) }
 		: undefined}
 	resultsHeight={height}
-	{onclear}
 >
 	{#snippet actions()}<button type="button">Action</button>{/snippet}
 </WorkspaceToolbar>

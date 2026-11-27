@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { Eye, Maximize2 } from '@lucide/svelte';
-	import { onMount } from 'svelte';
 	import Dialog from '#lib/components/ui/Dialog/Dialog.svelte';
 	import type { Gallery } from '#lib/gallery/api.js';
 	import { previewUrl } from '#lib/gallery/photos.js';
@@ -40,11 +39,6 @@
 	let favorites = $state<string[]>([]);
 	let loaded = $state(false);
 	let failed = $state(false);
-	let closeButton = $state<HTMLButtonElement | null>(null);
-
-	onMount(() => {
-		if (variant === 'modal') closeButton?.focus();
-	});
 
 	const delivered = $derived(gallery.states.includes('delivered'));
 
@@ -160,36 +154,28 @@
 		onclose={() => onclose?.()}
 		{onkeydown}
 		label={m.preview_label()}
+		closeLabel={m.preview_close()}
+		fade
+		closeClass="text-[#efe6da] [--icon-hover-color:color-mix(in_oklab,currentColor_10%,transparent)]"
+		focusClose
 		aria-modal="true"
 		class="m-0 h-dvh max-h-dvh w-screen max-w-screen border-0 bg-[#1d1815] p-0 text-foreground open:flex open:flex-col"
 	>
-		{#snippet children(close)}
-			<PreviewFrame bind:mode={view} compactToggle toggleClass="justify-self-center">
-				{#snippet header(toggle)}
-					<header
-						class="grid grid-cols-[1fr_auto_1fr] items-center gap-3.5 border-b border-[#3b322b] bg-foreground px-4 py-2.5 text-sm font-medium text-[#efe6da] max-[700px]:grid-cols-[auto_1fr_auto] max-[700px]:gap-2 max-[700px]:px-2.5 max-[700px]:py-2"
-					>
-						<span class="flex items-center gap-2 font-semibold">
-							<Eye size={18} aria-hidden="true" /><span class="max-[700px]:hidden">
-								{m.action_preview()}
-							</span>
+		<PreviewFrame bind:mode={view} compactToggle toggleClass="justify-self-center">
+			{#snippet header(toggle)}
+				<header
+					class="grid min-h-14 grid-cols-[1fr_auto_minmax(3rem,1fr)] items-center gap-3.5 border-b border-[#3b322b] bg-foreground px-4 py-2.5 text-sm font-medium text-[#efe6da] max-[700px]:grid-cols-[auto_1fr_3rem] max-[700px]:gap-2 max-[700px]:px-2.5 max-[700px]:py-2"
+				>
+					<span class="flex items-center gap-2 font-semibold">
+						<Eye size={18} aria-hidden="true" /><span class="max-[700px]:hidden">
+							{m.action_preview()}
 						</span>
-						{@render toggle()}
-						<button
-							type="button"
-							bind:this={closeButton}
-							aria-label={m.preview_close()}
-							onclick={close}
-							class="cursor-pointer justify-self-end rounded-full border border-[#4a3f37] px-3.5 py-[7px] text-[0.8125rem] font-semibold focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-viewer-focus"
-						>
-							<span aria-hidden="true">✕</span>
-							{m.action_close()}
-						</button>
-					</header>
-				{/snippet}
+					</span>
+					{@render toggle()}
+				</header>
+			{/snippet}
 
-				{@render stage()}
-			</PreviewFrame>
-		{/snippet}
+			{@render stage()}
+		</PreviewFrame>
 	</Dialog>
 {/if}

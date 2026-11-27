@@ -7,12 +7,16 @@
 		events,
 		galleryId = 'g1',
 		active,
-		withHeader = true
+		withHeader = true,
+		onfavorites,
+		onfulldownload
 	}: {
 		events: LiveEvents;
 		galleryId?: string;
 		active?: boolean;
 		withHeader?: boolean;
+		onfavorites?: (ids: string[] | null) => void;
+		onfulldownload?: (ids: string[]) => void;
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
@@ -25,4 +29,10 @@
 </script>
 
 {#if withHeader}<header>{@render action?.()}</header>{/if}
-<FavoritesPanel {galleryId} {active} onheader={withHeader ? registerHeader : undefined} />
+<FavoritesPanel
+	{galleryId}
+	{active}
+	{onfavorites}
+	{onfulldownload}
+	onheader={withHeader ? registerHeader : undefined}
+/>

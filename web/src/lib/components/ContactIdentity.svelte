@@ -14,7 +14,7 @@
 	} = $props();
 </script>
 
-<div class="flex min-w-0 flex-1 items-start gap-2.5">
+<div class="flex min-w-0 flex-1 items-center gap-2.5">
 	<span
 		aria-hidden="true"
 		class="grid size-9 shrink-0 place-items-center rounded-full bg-border-strong/55 text-xs font-semibold tracking-wide text-foreground"

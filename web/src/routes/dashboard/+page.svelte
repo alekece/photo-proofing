@@ -5,7 +5,6 @@
 	import { afterNavigate, beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { navigating } from '$app/state';
 	import { createSessionActivity, listenForActivity } from '#lib/activity.js';
-	import Placeholder from '#lib/components/Placeholder.svelte';
 	import EmptyWorkspace from '#lib/components/EmptyWorkspace.svelte';
 	import GalleryCard from '#lib/components/GalleryCard.svelte';
 	import NewGalleryDialog from '#lib/components/NewGalleryDialog.svelte';
@@ -22,7 +21,7 @@
 	import ToolbarMenu from '#lib/components/ui/ToolbarMenu/ToolbarMenu.svelte';
 	import WorkspaceHeading from '#lib/components/ui/WorkspaceHeading/WorkspaceHeading.svelte';
 	import WorkspaceToolbar from '#lib/components/ui/WorkspaceToolbar/WorkspaceToolbar.svelte';
-	import { ArrowUpDown, Pencil, Plus, Star, Trash2 } from '@lucide/svelte';
+	import { ArrowUpDown, Pencil, Star, Trash2 } from '@lucide/svelte';
 	import GalleryStateFilter from '#lib/components/GalleryStateFilter.svelte';
 	import { deleteGallery, updateGallery, type GalleryOverview } from '#lib/gallery/api.js';
 	import { ApiError } from '#lib/http.js';
@@ -47,16 +46,14 @@
 	let bulkBusy = $state(false);
 
 	const gridClass =
-		'workspace-inset grid grid-cols-2 gap-2.5 sm:grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] sm:gap-5';
+		'workspace-inset grid grid-cols-2 gap-2.5 sm:gap-5 @min-[46rem]:grid-cols-3 @min-[68rem]:grid-cols-4';
 
 	let dialogOpen = $state(false);
 	let quickEditOpen = $state(false);
 	let deleteConfirmOpen = $state(false);
 	let query = $state('');
 	let resultsHeight = $state(0);
-	let selectionMode = $state(false);
-	// Only a same-page navigation (changing the sort) shows the loading cards.
-	let loading = $derived(
+	let sorting = $derived(
 		navigating.from?.route.id === '/dashboard' && navigating.to?.route.id === '/dashboard'
 	);
 	let selected = $state<GalleryState | null>(null);
@@ -174,6 +171,7 @@
 	});
 
 	let selectedGalleries = $derived(visible.filter((g) => selectedIds.has(g.id)));
+	let selectionMode = $derived(selectedGalleries.length > 0);
 	$effect(() => {
 		if (selectedGalleries.length === 0) {
 			quickEditOpen = false;
@@ -186,7 +184,6 @@
 
 	function toggleSelect(id: string) {
 		if (bulkBusy) return;
-		selectionMode = true;
 
 		if (selectedIds.has(id)) {
 			selectedIds.delete(id);
@@ -195,7 +192,6 @@
 
 	function clearSelection() {
 		selectedIds.clear();
-		selectionMode = false;
 	}
 
 	let hasOpenDialog = $derived(
@@ -301,7 +297,6 @@
 		}
 
 		deleteConfirmOpen = false;
-		if (selectedIds.size === 0) selectionMode = false;
 	}
 
 	let hiddenMatches = $derived(matching.length - visible.length);
@@ -323,26 +318,16 @@
 	function changeSort(sort: GallerySort) {
 		void goto(`?sort=${sort}`, { reset: false });
 	}
-	function clearAll() {
-		query = '';
-		selected = null;
-	}
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
 <svelte:head><title>{m.dashboard_head()} — PhotoProofing</title></svelte:head>
-<main class="flex flex-1 flex-col">
-	<div class="grid items-end gap-3 workspace-inset py-4 sm:grid-cols-[1fr_auto] sm:gap-6 sm:py-6">
-		<WorkspaceHeading
-			title={m.nav_galleries()}
-			count={data.galleries === null
-				? undefined
-				: m.dashboard_total_galleries({ count: visible.length })}
-		/>
-		<Button class="justify-self-start sm:justify-self-auto" onclick={() => (dialogOpen = true)}>
-			{m.dashboard_new_gallery()}
-		</Button>
-	</div>
+<main class="@container flex flex-1 flex-col">
+	<WorkspaceHeading
+		title={m.nav_galleries()}
+		class="workspace-inset"
+		create={{ label: m.dashboard_new_gallery(), onclick: () => (dialogOpen = true) }}
+	/>
 
 	{#if data.galleries !== null}
 		{@const none = all.length === 0}
@@ -354,8 +339,7 @@
 				disabled: none,
 				oninput: (value) => (query = value)
 			}}
-			resultsHeight={loading || visible.length === 0 ? 0 : resultsHeight}
-			onclear={query.trim() || selected ? clearAll : undefined}
+			resultsHeight={visible.length === 0 ? 0 : resultsHeight}
 		>
 			{#snippet filters()}
 				<GalleryStateFilter
@@ -378,16 +362,10 @@
 			{/snippet}
 		</WorkspaceToolbar>
 	{/if}
-	{#if loading}
+	{#if sorting}
 		<p class="sr-only" role="status">{m.dashboard_loading()}</p>
-		<ul class={gridClass} aria-busy="true">
-			{#each [1, 2, 3, 4] as n (n)}
-				<li class="aspect-[4/3] overflow-hidden rounded-card border border-border">
-					<Placeholder background="sheet" loading />
-				</li>
-			{/each}
-		</ul>
-	{:else if localGalleries === null}
+	{/if}
+	{#if localGalleries === null}
 		<p role="alert" class="px-3.5 sm:px-8">
 			{m.dashboard_load_failed()}
 			<Button variant="outline" onclick={() => void invalidateAll()}>{m.action_retry()}</Button>
@@ -395,7 +373,7 @@
 	{:else if all.length === 0}
 		<EmptyWorkspace />
 	{:else}
-		<ul bind:clientHeight={resultsHeight} class="{gridClass} mb-12">
+		<ul bind:clientHeight={resultsHeight} class="{gridClass} mb-12" aria-busy={sorting}>
 			{#each visible as gallery (gallery.id)}
 				<GalleryCard
 					{gallery}
@@ -420,35 +398,8 @@
 							{m.dashboard_check_spelling()}
 						{/if}
 					</p>
-					<Button variant="outline" class="mt-3.5" onclick={clearAll}>
-						{m.dashboard_clear_filters()}
-					</Button>
 				</li>
 			{/each}
-			{#if visible.length > 0}
-				<li class="min-h-36">
-					<button
-						type="button"
-						class="group grid size-full cursor-pointer content-center justify-items-center gap-2.5 rounded-card border-[1.5px] border-dashed border-[#cdbda9] bg-[radial-gradient(120%_80%_at_50%_30%,#faf5ee,transparent_70%)] text-center text-muted-foreground transition-colors duration-250 hover:border-danger hover:bg-[#f8f1e8]"
-						onclick={() => (dialogOpen = true)}
-					>
-						<span
-							class="relative mb-2 grid h-16 w-[5.375rem] place-items-center text-[#a8977f] transition duration-300 group-hover:scale-[0.88] group-hover:text-danger"
-						>
-							<i class="absolute top-0 left-0 size-3.5 border-t-2 border-l-2"></i>
-							<i class="absolute top-0 right-0 size-3.5 border-t-2 border-r-2"></i>
-							<i class="absolute bottom-0 left-0 size-3.5 border-b-2 border-l-2"></i>
-							<i class="absolute right-0 bottom-0 size-3.5 border-r-2 border-b-2"></i>
-							<Plus size={30} strokeWidth={1.4} aria-hidden="true" />
-						</span>
-						<strong
-							class="px-2 font-serif text-[1.0625rem] leading-[1.2] font-normal text-foreground italic sm:text-[1.375rem]"
-						>
-							{m.dashboard_next_client_line1()} <br />{m.dashboard_next_client_line2()}
-						</strong>
-					</button>
-				</li>
-			{/if}
 		</ul>
 	{/if}
 </main>
@@ -467,7 +418,7 @@
 		{#snippet actions()}
 			<ActionButton
 				variant="outline"
-				class="min-h-9! px-3!"
+				class="min-h-9! px-3! text-sm group-data-[rail=dashboard]/select-actions:max-lg:px-2.5!"
 				disabled={bulkBusy || !selectedGalleries.length}
 				compactOnMobile
 				pendingDelayMs={150}
@@ -489,24 +440,28 @@
 			<Button
 				variant="outline"
 				size="sm"
-				class="min-h-9! gap-1.5 px-3!"
+				class="min-h-9! gap-1.5 px-3! group-data-[rail=dashboard]/select-actions:max-lg:px-2.5!"
 				disabled={bulkBusy || !selectedGalleries.length}
 				aria-label={m.dashboard_bulk_quick_edit()}
 				onclick={() => (quickEditOpen = true)}
 			>
 				<Pencil size={15} aria-hidden="true" />
-				<span class="max-sm:sr-only">{m.dashboard_bulk_quick_edit()}</span>
+				<span class="group-data-[rail=dashboard]/select-actions:max-lg:sr-only">
+					{m.dashboard_bulk_quick_edit()}
+				</span>
 			</Button>
 			<Button
 				variant="destructive"
 				size="sm"
-				class="min-h-9! gap-1.5 px-3!"
+				class="min-h-9! gap-1.5 px-3! group-data-[rail=dashboard]/select-actions:max-lg:px-2.5!"
 				disabled={bulkBusy || !selectedGalleries.length}
 				aria-label={m.action_delete()}
 				onclick={() => (deleteConfirmOpen = true)}
 			>
 				<Trash2 size={15} aria-hidden="true" />
-				<span class="max-sm:sr-only">{m.action_delete()}</span>
+				<span class="group-data-[rail=dashboard]/select-actions:max-lg:sr-only">
+					{m.action_delete()}
+				</span>
 			</Button>
 		{/snippet}
 	</SelectActions>

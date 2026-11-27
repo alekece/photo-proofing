@@ -110,26 +110,35 @@ describe('gallerySummary', () => {
 			.join('');
 
 	it('says where each status stands', () => {
-		expect(line({ ...base, states: ['draft'] as never })).toBe('32 photos');
-		expect(line({ ...base, states: ['draft'] as never, photo_count: 1 })).toBe('1 photo');
-		expect(line({ ...base, states: ['draft'] as never, photo_count: 0 })).toBe('No photos yet');
-		expect(line(base)).toBe('12\u00a0selected');
-		expect(line({ ...base, states: ['delivered'] as never })).toBe('Final photos delivered');
+		const draft = { ...base, states: ['draft'] as never, favorite_count: 0 };
+		expect(line(draft)).toBe('32 photos');
+		expect(line({ ...draft, photo_count: 1 })).toBe('1 photo');
+		expect(line({ ...draft, photo_count: 0 })).toBe('0 photos');
+		expect(line({ ...base, favorite_count: 0 })).toBe('32 photos');
+		expect(line(base)).toBe('32 photos, 12\u00a0selected');
+		expect(line({ ...base, states: ['delivered'] as never })).toBe('32 photos, 12\u00a0selected');
 		expect(line({ ...base, states: ['delivered', 'expired'] as never })).toBe(
-			'Final photos delivered'
+			'32 photos, 12\u00a0selected'
 		);
 		expect(line({ ...base, states: ['delivered', 'archived'] as never })).toBe(
-			'32 photos · archived'
+			'32 photos, 12\u00a0selected'
 		);
 	});
 
 	it('reports how many delivered finals were downloaded', () => {
 		const delivered = { ...base, states: ['delivered'] as never, final_count: 20 };
 
-		expect(line({ ...delivered, downloaded_count: 12 })).toBe('20 finals · 12\u00a0downloaded');
-		expect(line({ ...delivered, downloaded_count: 20 })).toBe('20 finals · all downloaded');
+		expect(line({ ...delivered, downloaded_count: 12 })).toBe(
+			'32 photos, 12\u00a0selected, 20 retouched, 12\u00a0downloaded'
+		);
+		expect(line({ ...delivered, downloaded_count: 20 })).toBe(
+			'32 photos, 12\u00a0selected, 20 retouched, 20\u00a0downloaded'
+		);
 		expect(line({ ...delivered, final_count: 1, downloaded_count: 0 })).toBe(
-			'1 final · 0\u00a0downloaded'
+			'32 photos, 12\u00a0selected, 1 retouched, 0\u00a0downloaded'
+		);
+		expect(line({ ...base, final_count: 3, downloaded_count: 1 })).toBe(
+			'32 photos, 12\u00a0selected, 3 retouched, 1\u00a0downloaded'
 		);
 	});
 
@@ -172,10 +181,10 @@ describe('gallerySummary in French', () => {
 			.join('');
 
 	it('agrees with the counts', () => {
-		expect(line(base)).toBe('12\u00a0sélectionnées');
-		expect(line({ ...base, favorite_count: 1 })).toBe('1\u00a0sélectionnée');
+		expect(line(base)).toBe('32 photos, 12\u00a0sélectionnées');
+		expect(line({ ...base, favorite_count: 1 })).toBe('32 photos, 1\u00a0sélectionnée');
 		expect(
 			line({ ...base, states: ['delivered'] as never, final_count: 20, downloaded_count: 1 })
-		).toBe('20 photos retouchées · 1\u00a0téléchargée');
+		).toBe('32 photos, 12\u00a0sélectionnées, 20 retouchées, 1\u00a0téléchargée');
 	});
 });

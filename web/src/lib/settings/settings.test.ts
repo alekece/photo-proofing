@@ -70,6 +70,7 @@ it('keeps the full settings format for a mixed branding and display save', async
 
 it('maps the API settings and rejects a malformed body', () => {
 	expect(parseSettings(body)).toEqual({
+		language: 'en',
 		studioName: 'Studio',
 		studioMode: 'full_image',
 		studioPalette: 'warm',

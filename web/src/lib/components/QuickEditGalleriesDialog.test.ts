@@ -20,6 +20,8 @@ const gallery = (over: Partial<GalleryOverview> = {}): GalleryOverview => ({
 	watermark_enabled: false,
 	hero_id: null,
 	share_token: null,
+	shared_at: null,
+	delivered_at: null,
 	last_opened_at: null,
 	shoot_date: '2026-06-14',
 	states: ['draft'],
@@ -49,7 +51,8 @@ describe('QuickEditGalleriesDialog', () => {
 		});
 
 		const dialog = screen.getByRole('dialog', { name: 'Quick edit galleries' });
-		expect(dialog.className).toContain('overflow-visible');
+		expect(dialog.className).toContain('max-h-[calc(100dvh-2rem)]');
+		expect(dialog.className).toContain('overflow-hidden');
 		expect((await axe(container)).violations).toEqual([]);
 
 		const firstTitle = screen.getByDisplayValue('Martin Wedding');
@@ -64,7 +67,7 @@ describe('QuickEditGalleriesDialog', () => {
 			})
 		);
 
-		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
 
 		expect(onsave).toHaveBeenCalledOnce();
 		const edits = onsave.mock.calls[0][0];
@@ -73,6 +76,32 @@ describe('QuickEditGalleriesDialog', () => {
 		expect(edits[1].id).toBe('g2');
 		expect(edits[1].changes.shoot_date).toMatch(/^\d{4}-\d{2}-15$/);
 		await waitFor(() => expect(onclose).toHaveBeenCalledOnce());
+	});
+
+	it('caps a large batch and scrolls only the gallery rows', () => {
+		const galleries = Array.from({ length: 8 }, (_, index) =>
+			gallery({ id: `g${index}`, title: `Gallery ${index}` })
+		);
+		const { container } = render(QuickEditGalleriesDialog, {
+			galleries,
+			onsave: vi.fn(),
+			onclose: vi.fn()
+		});
+		const dialog = screen.getByRole('dialog');
+		const scroller = container.querySelector('[data-slot="quick-edit-rows"]');
+		const content = container.querySelector('[data-slot="dialog-content"]');
+		const header = container.querySelector('[data-slot="dialog-header"]');
+		const actions = container.querySelector('[data-slot="dialog-actions"]');
+
+		expect(dialog.className).toContain('max-h-[calc(100dvh-2rem)]');
+		expect(dialog.className).toContain('overflow-hidden');
+		expect(scroller?.className).toContain('overflow-y-auto');
+		expect(scroller?.className).toContain('min-h-0');
+		expect(content?.contains(scroller)).toBe(true);
+		expect(header?.contains(scroller)).toBe(false);
+		expect(actions?.contains(scroller)).toBe(false);
+		expect(actions?.firstElementChild?.className).toContain('pt-3');
+		expect(actions?.firstElementChild?.className).toContain('border-t');
 	});
 
 	it('disables validation before edits and after reverting them', async () => {
@@ -86,7 +115,7 @@ describe('QuickEditGalleriesDialog', () => {
 			onclose
 		});
 
-		const save = screen.getByRole('button', { name: 'Save changes' });
+		const save = screen.getByRole('button', { name: 'Save' });
 		expect(save).toHaveProperty('disabled', true);
 		await user.type(screen.getByDisplayValue('Unchanged'), 's{Backspace}');
 		expect(save).toHaveProperty('disabled', true);
@@ -126,13 +155,13 @@ describe('QuickEditGalleriesDialog', () => {
 		const inputs = screen.getAllByLabelText('Title');
 		await user.type(inputs[0], ' Updated');
 		await user.type(inputs[1], ' Updated');
-		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
 
 		expect((await screen.findByRole('alert')).textContent?.trim()).toBe('Could not save Two');
 		expect(screen.getAllByLabelText('Title')).toHaveLength(1);
 		expect(onclose).not.toHaveBeenCalled();
 
-		await user.click(screen.getByRole('button', { name: 'Save changes' }));
+		await user.click(screen.getByRole('button', { name: 'Save' }));
 		expect(onsave).toHaveBeenCalledWith([{ id: 'g2', changes: { title: 'Two Updated' } }]);
 		await waitFor(() => expect(onclose).toHaveBeenCalledOnce());
 	});

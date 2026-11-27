@@ -14,18 +14,18 @@ Unsplash, so it needs a network connection.
 
 ## Screens
 
-| Screen | Doc | What it covers |
-|---|---|---|
-| Dashboard | [dashboard](screens/dashboard.md) | Top section nav (`Galleries`, `Contacts`, `Activity`), greeting, gallery cards, search, status filter, sort, notifications, account menu, new gallery, empty workspace |
-| Contacts | [contacts](screens/contacts.md) | Workspace contact directory, search by name/email/phone, master-detail editor, linked gallery pills, create and delete |
-| Activity | [activity](screens/activity.md) | Day-grouped lines, filters and sort, responsive favorite grids, automatic paging and live refresh; shared with the gallery `Activity` tab |
-| Gallery | [gallery](screens/gallery.md) | Left studio rail (`Collection` + `Studio`), top Journey Wizard bar, `Photos`, `Favorites`, `Comments`, `Final`, `Design`, `Contacts` and `Settings` views, Share, Publish and Delete dialogs |
-| Photo viewer | [viewer](screens/viewer.md) | Full-screen photo, comments and favorite state; no photographer delete or download shortcuts |
-| Preview | [preview](screens/preview.md) | The client page inside the app, Desktop and Phone |
-| Settings | [settings](screens/settings.md) | Studio name and logo, watermark, cover signature |
-| Client gallery | [client](screens/client.md) | Cover, grid with hearts, favorites filter, viewer, delivered downloads |
-| Client states | [client-states](screens/client-states.md) | Photos on their way, finished photos on their way, unavailable link |
-| Sign in | [auth](screens/auth.md) | First-run setup and sign in (not redesigned) |
+| Screen         | Doc                                       | What it covers                                                                                                                                                                               |
+| -------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard      | [dashboard](screens/dashboard.md)         | Top section nav (`Galleries`, `Contacts`, `Activity`), greeting, gallery cards, search, status filter, sort, notifications, account menu, new gallery, empty workspace                       |
+| Contacts       | [contacts](screens/contacts.md)           | Workspace contact directory, search by name/email/phone, master-detail editor, linked gallery pills, create and delete                                                                       |
+| Activity       | [activity](screens/activity.md)           | Day-grouped lines, filters and sort, responsive favorite grids, automatic paging and live refresh; shared with the gallery `Activity` tab                                                    |
+| Gallery        | [gallery](screens/gallery.md)             | Left studio rail (`Collection` + `Studio`), top Journey Wizard bar, `Photos`, `Favorites`, `Comments`, `Final`, `Design`, `Contacts` and `Settings` views, Share, Publish and Delete dialogs |
+| Photo viewer   | [viewer](screens/viewer.md)               | Full-screen photo, comments and favorite state; no photographer delete or download shortcuts                                                                                                 |
+| Preview        | [preview](screens/preview.md)             | The client page inside the app, Desktop and Phone                                                                                                                                            |
+| Settings       | [settings](screens/settings.md)           | Studio name and logo, watermark, cover signature                                                                                                                                             |
+| Client gallery | [client](screens/client.md)               | Cover, grid with hearts, favorites filter, viewer, delivered downloads                                                                                                                       |
+| Client states  | [client-states](screens/client-states.md) | Photos on their way, finished photos on their way, unavailable link                                                                                                                          |
+| Sign in        | [auth](screens/auth.md)                   | First-run setup and sign in (not redesigned)                                                                                                                                                 |
 
 Each screen doc sits next to a folder of the same name holding its pictures:
 `<state>.desktop.png` (1280 × 800) and `<state>.phone.png` (390 × 844), plus `<name>.gif` clips
@@ -37,17 +37,17 @@ frames for readers that can't play a GIF.
 "Warm paper": cream and brown, image first, calm. Photos are the colour; the interface stays quiet
 around them.
 
-| Token | Value | Use |
-|---|---|---|
-| Ink | `#2b2420` | Text, primary buttons, selected state, success toasts |
-| Muted | `#6f6255` | Secondary text, labels |
-| Page | `#f4efe8` | Page background |
-| Panel | `#fbf8f3` | Cards, dialogs, menus |
-| Line | `#e0d6c8` | Borders, dividers |
-| Accent | `#b5381f` | Errors, destructive actions, over-allowance count, hearts |
-| Ok | `#3f6b4a` | Done steps, "Saved" |
-| Warning on dark | `#ffb59f` | Warnings on photos and dark surfaces |
-| Dark | `#16120f` | Viewer, preview frame, client empty states |
+| Token           | Value     | Use                                                       |
+| --------------- | --------- | --------------------------------------------------------- |
+| Ink             | `#2b2420` | Text, primary buttons, selected state, success toasts     |
+| Muted           | `#6f6255` | Secondary text, labels                                    |
+| Page            | `#f4efe8` | Page background                                           |
+| Panel           | `#fbf8f3` | Cards, dialogs, menus                                     |
+| Line            | `#e0d6c8` | Borders, dividers                                         |
+| Accent          | `#b5381f` | Errors, destructive actions, over-allowance count, hearts |
+| Ok              | `#3f6b4a` | Done steps, "Saved"                                       |
+| Warning on dark | `#ffb59f` | Warnings on photos and dark surfaces                      |
+| Dark            | `#16120f` | Viewer, preview frame, client empty states                |
 
 - **Type:** Georgia for titles, gallery names and the brand; the system UI font for everything
   else.
@@ -77,7 +77,7 @@ around them.
 - **Photo actions** (upload, delete, hero) live in the Photos tab only; Favorites and Final are
   for reviewing and downloading.
 - **Phone.** Every screen works at 390 px. On the gallery page, the studio rail collapses into a
-  compact identity bar, a 4-bar Journey row and a horizontally scrollable pill strip; dialogs stay
+  compact identity bar, a five-step Journey row and a horizontally scrollable pill strip; dialogs stay
   centred and fit the width. Hover-only controls are always visible on touch screens.
 - **Accessibility.** Keyboard reachable, visible focus, toggles use `aria-pressed` or
   `role="switch"`, dialogs trap focus and return it on close.
@@ -87,28 +87,28 @@ around them.
 Small and purposeful: motion confirms an action or gives an empty screen some life. Everything
 respects `prefers-reduced-motion`: one-shot animations become instant, loops stop at a calm frame.
 
-| Element | Trigger | What moves | Duration and easing | Reduced motion | Clip |
-|---|---|---|---|---|---|
-| Menus, dropdowns, notifications | Open | Drop 4 px and fade in | 150–180 ms, ease-out | Instant | — |
-| Dialogs | Open | Grow from 97.5 %, briefly hold at 101.2 %, then settle | 250 ms, Material standard easing `cubic-bezier(.2,0,0,1)` | Instant | — |
-| Inline panels | Open / close | Expand or collapse height and fade | 180–220 ms, ease-out / ease-in | Instant | — |
-| Selection bars | Enter / leave | Appear in place; slide down and fade on exit | Instant entrance, 180 ms exit | Instant | — |
-| List rows | Delete / remove | Shrink height and fade | 280 ms, ease-in | Instant | — |
-| Action states | Idle / saving / confirmed / reset | Crossfade label, icon and progress | 150–300 ms; Save confirmation 1.6 s | Instant state change | — |
-| Share done | Confirm Share | Photo stack flies out, green check pops, tick draws | 700 ms fly, 450 ms pop after 600 ms, 350 ms draw after 1 s | Instant check | [gallery/confirm-motion](screens/gallery/confirm-motion.gif) |
-| Toasts | Show, dismiss | Slide up in; fade down out | 250 ms in `cubic-bezier(.22,1,.36,1)`, 200 ms out ease-in | Instant | — |
-| Upload tiles | Waiting, Uploading, Processing | Indeterminate bar sweeps | 1.4 s loop, ease-in-out | Static full bar | [gallery/upload-motion](screens/gallery/upload-motion.gif) |
-| Deleted tile | Confirmed delete | Shrinks and fades | 280 ms, ease-in | Instant | — |
-| Hero photo | Page open, hero change | Fades in | 500 ms, ease-out | Instant | [gallery/hero-motion](screens/gallery/hero-motion.gif) |
-| No-hero header | Always | Warm light leak drifts across | 16 s loop | Hidden | [gallery/no-hero-motion](screens/gallery/no-hero-motion.gif) |
-| Empty dashboard | Always | Contact sheet scrolls slowly, focus box breathes, light leak sweeps | 160 s scroll, 7 s breathe, 13 s leak | Still frame, no leak | [dashboard/empty-motion](screens/dashboard/empty-motion.gif) |
-| Settings Save | Save | Button turns green, "✓ Saved" pops | 450 ms `cubic-bezier(.3,1.6,.5,1)`, shown 1.6 s | Instant | [settings/save-motion](screens/settings/save-motion.gif) |
-| Settings Cancel | Cancel | Undo icon spins back, "Reverted" | 500 ms ease-out, shown 1.4 s | Instant | [settings/revert-motion](screens/settings/revert-motion.gif) |
-| Heart | Favorite | Heart pops with a ring | 420 ms `cubic-bezier(.3,1.6,.5,1)`, 500 ms ring | Instant | [client/heart-motion](screens/client/heart-motion.gif) |
-| Heart | Unfavorite | Heart shrinks back | 250 ms, ease-out | Instant | — |
-| Favorites count | Changes | Number bumps | 300 ms, ease-out | Instant | — |
-| Client cover title | Page open | Rises 12 px and fades in | 600 ms, ease-out | Instant | — |
-| Film strip | Client empty states | Strip scrolls; frames glow softly | 60 s scroll, 9 s glow | Still, frames dimmed | [client-states/film-strip-motion](screens/client-states/film-strip-motion.gif) |
-| Viewfinder | Unavailable link | Bokeh hunts, focus box seeks, meter needle swings, "Focus not locked" blinks | 3.2 s loop | Still frame | [client-states/viewfinder-motion](screens/client-states/viewfinder-motion.gif) |
-| Viewer photo | Next or previous | Fades in | 250 ms, ease-out | Instant | — |
-| Spinner | Watermark update | Rotates | 900 ms linear loop | Static ring | — |
+| Element                         | Trigger                           | What moves                                                                   | Duration and easing                                        | Reduced motion       | Clip                                                                           |
+| ------------------------------- | --------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------ |
+| Menus, dropdowns, notifications | Open                              | Drop 4 px and fade in                                                        | 150–180 ms, ease-out                                       | Instant              | —                                                                              |
+| Dialogs                         | Open                              | Grow from 97.5 %, briefly hold at 101.2 %, then settle                       | 250 ms, Material standard easing `cubic-bezier(.2,0,0,1)`  | Instant              | —                                                                              |
+| Inline panels                   | Open / close                      | Expand or collapse height and fade                                           | 180–220 ms, ease-out / ease-in                             | Instant              | —                                                                              |
+| Selection bars                  | Enter / leave                     | Appear in place; slide down and fade on exit                                 | Instant entrance, 180 ms exit                              | Instant              | —                                                                              |
+| List rows                       | Delete / remove                   | Shrink height and fade                                                       | 280 ms, ease-in                                            | Instant              | —                                                                              |
+| Action states                   | Idle / saving / confirmed / reset | Crossfade label, icon and progress                                           | 150–300 ms; Save confirmation 1.6 s                        | Instant state change | —                                                                              |
+| Share done                      | Confirm Share                     | Photo stack flies out, green check pops, tick draws                          | 700 ms fly, 450 ms pop after 600 ms, 350 ms draw after 1 s | Instant check        | [gallery/confirm-motion](screens/gallery/confirm-motion.gif)                   |
+| Toasts                          | Show, dismiss                     | Slide up in; fade down out                                                   | 250 ms in `cubic-bezier(.22,1,.36,1)`, 200 ms out ease-in  | Instant              | —                                                                              |
+| Upload tiles                    | Waiting, Uploading, Processing    | Indeterminate bar sweeps                                                     | 1.4 s loop, ease-in-out                                    | Static full bar      | [gallery/upload-motion](screens/gallery/upload-motion.gif)                     |
+| Deleted tile                    | Confirmed delete                  | Shrinks and fades                                                            | 280 ms, ease-in                                            | Instant              | —                                                                              |
+| Hero photo                      | Page open, hero change            | Fades in                                                                     | 500 ms, ease-out                                           | Instant              | [gallery/hero-motion](screens/gallery/hero-motion.gif)                         |
+| No-hero header                  | Always                            | Warm light leak drifts across                                                | 16 s loop                                                  | Hidden               | [gallery/no-hero-motion](screens/gallery/no-hero-motion.gif)                   |
+| Empty dashboard                 | Always                            | Contact sheet scrolls slowly, focus box breathes, light leak sweeps          | 160 s scroll, 7 s breathe, 13 s leak                       | Still frame, no leak | [dashboard/empty-motion](screens/dashboard/empty-motion.gif)                   |
+| Settings Save                   | Save                              | Button turns green, "✓ Saved" pops                                           | 450 ms `cubic-bezier(.3,1.6,.5,1)`, shown 1.6 s            | Instant              | [settings/save-motion](screens/settings/save-motion.gif)                       |
+| Settings Cancel                 | Cancel                            | Undo icon spins back, "Reverted"                                             | 500 ms ease-out, shown 1.4 s                               | Instant              | [settings/revert-motion](screens/settings/revert-motion.gif)                   |
+| Heart                           | Favorite                          | Heart pops with a ring                                                       | 420 ms `cubic-bezier(.3,1.6,.5,1)`, 500 ms ring            | Instant              | [client/heart-motion](screens/client/heart-motion.gif)                         |
+| Heart                           | Unfavorite                        | Heart shrinks back                                                           | 250 ms, ease-out                                           | Instant              | —                                                                              |
+| Favorites count                 | Changes                           | Number bumps                                                                 | 300 ms, ease-out                                           | Instant              | —                                                                              |
+| Client cover title              | Page open                         | Rises 12 px and fades in                                                     | 600 ms, ease-out                                           | Instant              | —                                                                              |
+| Film strip                      | Client empty states               | Strip scrolls; frames glow softly                                            | 60 s scroll, 9 s glow                                      | Still, frames dimmed | [client-states/film-strip-motion](screens/client-states/film-strip-motion.gif) |
+| Viewfinder                      | Unavailable link                  | Bokeh hunts, focus box seeks, meter needle swings, "Focus not locked" blinks | 3.2 s loop                                                 | Still frame          | [client-states/viewfinder-motion](screens/client-states/viewfinder-motion.gif) |
+| Viewer photo                    | Next or previous                  | Fades in                                                                     | 250 ms, ease-out                                           | Instant              | —                                                                              |
+| Spinner                         | Watermark update                  | Rotates                                                                      | 900 ms linear loop                                         | Static ring          | —                                                                              |

@@ -12,10 +12,13 @@
 	let {
 		galleryId,
 		active = true,
+		openThread,
 		oncount
 	}: {
 		galleryId: string;
 		active?: boolean;
+		/** A photo whose thread opens once its comments are listed, as a link from Activity asks. */
+		openThread?: { photoId: string };
 		/** How many photos have comments, for the tab. */
 		oncount?: (count: number | null) => void;
 	} = $props();
@@ -85,6 +88,18 @@
 
 	const commented = $derived(photos.filter(({ id }) => comments.count(id) > 0));
 
+	let handled: object | undefined;
+
+	$effect(() => {
+		const request = openThread;
+
+		if (request && request !== handled && commented.some((photo) => photo.id === request.photoId)) {
+			handled = request;
+			opened.add(request.photoId);
+			expanded = request.photoId;
+		}
+	});
+
 	$effect(() => {
 		oncount?.(loaded && !failed && !comments.error ? commented.length : null);
 	});
@@ -97,13 +112,12 @@
 {/if}
 
 {#if loaded && !failed && !comments.error && commented.length === 0}
-	<EmptyState variant="plain">
-		<span class="grid size-14 place-items-center rounded-full bg-background">
-			<MessageSquare size={26} aria-hidden="true" />
-		</span>
-		<h3>{m.comments_tab_empty()}</h3>
-		<p class="text-sm">{m.comments_tab_empty_body()}</p>
-	</EmptyState>
+	<EmptyState
+		variant="plain"
+		icon={MessageSquare}
+		title={m.comments_tab_empty()}
+		description={m.comments_tab_empty_body()}
+	/>
 {:else if commented.length > 0}
 	<ul
 		aria-label={m.tab_comments()}
@@ -134,25 +148,36 @@
 					<ChevronDown
 						size={16}
 						aria-hidden="true"
-						class={expanded === photo.id ? 'rotate-180' : ''}
+						class="transition-transform duration-200 motion-reduce:transition-none {expanded ===
+						photo.id
+							? 'rotate-180'
+							: ''}"
 					/>
 				</button>
 				<div
 					id="{panelId}-{photo.id}"
-					hidden={expanded !== photo.id}
-					class="border-t border-border px-3 py-4 sm:px-5"
+					inert={expanded !== photo.id}
+					aria-hidden={expanded !== photo.id}
+					class="grid transition-[grid-template-rows,opacity] duration-250 ease-out motion-reduce:transition-none {expanded ===
+					photo.id
+						? 'grid-rows-[1fr] opacity-100'
+						: 'grid-rows-[0fr] opacity-0'}"
 				>
-					{#if opened.has(photo.id)}
-						<CommentThread
-							client={comments.client}
-							photoId={photo.id}
-							viewer="photographer"
-							inline
-							active={active && expanded === photo.id}
-							refresh={comments.revision}
-							onchange={() => void comments.refresh()}
-						/>
-					{/if}
+					<div class="min-h-0 overflow-hidden">
+						<div class="border-t border-border px-3 py-4 sm:px-5">
+							{#if opened.has(photo.id)}
+								<CommentThread
+									client={comments.client}
+									photoId={photo.id}
+									viewer="photographer"
+									inline
+									active={active && expanded === photo.id}
+									refresh={comments.revision}
+									onchange={() => void comments.refresh()}
+								/>
+							{/if}
+						</div>
+					</div>
 				</div>
 			</li>
 		{/each}

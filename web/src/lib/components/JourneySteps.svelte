@@ -1,6 +1,6 @@
 <script module lang="ts">
 	export type Step = {
-		id: 'upload' | 'share' | 'collect' | 'publish';
+		id: 'upload' | 'share' | 'collect' | 'retouch' | 'deliver';
 		label: string;
 		done: boolean;
 		fact?: string;
@@ -11,31 +11,28 @@
 
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { Check } from '@lucide/svelte';
+	import { ChevronRight } from '@lucide/svelte';
 
 	let { steps }: { steps: readonly Step[] } = $props();
 
 	const current = $derived(steps.findIndex(({ done }) => !done));
-	const stepStyle =
-		'flex flex-col items-start gap-1 rounded-control p-1 @min-[41rem]:flex-row @min-[41rem]:items-center @min-[41rem]:gap-1.5';
+	const stepStyle = 'flex w-full min-w-0 items-center gap-1.5 rounded-control p-1';
 </script>
 
 {#snippet marker(step: Step, index: number)}
 	<span
 		aria-hidden="true"
-		class="h-1 w-[1.125rem] shrink-0 rounded-xs @min-[41rem]:grid @min-[41rem]:size-6 @min-[41rem]:place-items-center @min-[41rem]:rounded-full @min-[41rem]:border-[1.5px] @min-[41rem]:text-[0.6875rem] @min-[41rem]:font-bold {step.done
+		class="grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] text-[0.6875rem] font-bold {step.done
 			? 'border-ok bg-ok text-inverse'
 			: index === current
-				? 'border-danger bg-danger @min-[41rem]:bg-golden-hour @min-[41rem]:text-danger'
-				: 'border-border-strong bg-border-strong @min-[41rem]:bg-background @min-[41rem]:text-muted-foreground'}"
+				? 'border-terracotta-border bg-terracotta-soft text-terracotta'
+				: 'border-border-strong bg-background text-muted-foreground'}"
 	>
-		<span class="hidden @min-[41rem]:inline">
-			{#if step.done}<Check size={12} strokeWidth={3} />{:else}{index + 1}{/if}
-		</span>
+		{index + 1}
 	</span>
-	<span class="flex flex-col">
+	<span class="flex min-w-0 flex-col {index === current ? '' : 'sr-only @min-[56rem]:not-sr-only'}">
 		<strong
-			class="text-[0.8125rem] leading-[1.15] {step.done || index === current
+			class="truncate text-[0.8125rem] leading-[1.15] {step.done || index === current
 				? 'font-semibold text-foreground'
 				: 'font-medium text-muted-foreground'}"
 		>
@@ -44,7 +41,7 @@
 		{#if step.done}<span class="sr-only">{m.step_done()}</span>{/if}
 		{#if step.fact}
 			<span
-				class="hidden text-[0.6875rem] leading-[1.2] @min-[41rem]:block {step.accent
+				class="hidden text-[0.6875rem] leading-[1.2] @min-[72rem]:block {step.accent
 					? 'font-extrabold text-danger'
 					: 'text-muted-foreground'}"
 				data-slot="step-fact"
@@ -55,30 +52,35 @@
 	</span>
 {/snippet}
 
-<nav aria-label={m.step_progress()} class="flex min-w-0 items-center gap-2">
-	<ol class="flex flex-wrap items-start gap-1 @min-[41rem]:items-center @min-[41rem]:gap-2">
+<nav aria-label={m.step_progress()} class="flex min-w-0 flex-1 items-center justify-center gap-2">
+	<ol class="flex min-w-0 items-center justify-center gap-1">
 		{#each steps as step, index (step.id)}
 			{#if index > 0}
 				<li
 					aria-hidden="true"
-					class="hidden h-[1.5px] w-5 shrink-0 @min-[41rem]:block {steps[index - 1].done
-						? 'bg-ok/55'
-						: 'bg-border'}"
-				></li>
+					class="shrink-0 {steps[index - 1].done
+						? index === current
+							? 'text-foreground'
+							: 'text-ok'
+						: 'text-border-strong'}"
+				>
+					<ChevronRight size={16} strokeWidth={2.5} />
+				</li>
 			{/if}
-			<li aria-current={index === current ? 'step' : undefined}>
+			<li aria-current={index === current ? 'step' : undefined} class="min-w-0">
 				{#if step.onactivate}
 					<button
 						type="button"
 						data-share-trigger={step.id === 'share' ? true : undefined}
 						aria-label={m.step_shortcut({ step: step.label })}
+						title={step.label}
 						onclick={step.onactivate}
 						class="{stepStyle} min-h-7 min-w-7 cursor-pointer text-left hover:bg-background focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
 					>
 						{@render marker(step, index)}
 					</button>
 				{:else}
-					<span class={stepStyle}>{@render marker(step, index)}</span>
+					<span class={stepStyle} title={step.label}>{@render marker(step, index)}</span>
 				{/if}
 			</li>
 		{/each}

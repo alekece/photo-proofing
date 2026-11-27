@@ -1,34 +1,37 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { ArchiveRestore } from '@lucide/svelte';
-	import type { Snippet } from 'svelte';
 	import JourneySteps, { type Step } from '#lib/components/JourneySteps.svelte';
 	import Button from '#lib/components/ui/Button/Button.svelte';
 	import type { Gallery } from '#lib/gallery/api.js';
-	import { galleryStatus } from '#lib/gallery/format.js';
+	import { formatLongDate, galleryStatus } from '#lib/gallery/format.js';
 
 	/**
-	 * Top studio bar over the gallery workspace: the 4-step actionable Journey Wizard
-	 * (`Upload → Share → Collect → Publish`, hidden when archived) and the stage actions.
+	 * Top studio bar over the gallery workspace: an actionable five-step Journey
+	 * (`Upload → Share → Collect → Import finished → Deliver`, hidden when archived).
 	 */
 	let {
 		gallery,
 		photoCount = null,
 		favoriteCount = null,
-		action,
+		finalCount = null,
+		favoritesCollected = false,
 		onupload,
 		onshare,
 		oncollect,
+		onretouch,
 		ondelivery,
 		onrestore
 	}: {
 		gallery: Gallery;
 		photoCount?: number | null;
 		favoriteCount?: number | null;
-		action?: Snippet;
+		finalCount?: number | null;
+		favoritesCollected?: boolean;
 		onupload: () => void;
 		onshare: () => void;
 		oncollect?: () => void;
+		onretouch?: () => void;
 		ondelivery: () => void;
 		onrestore?: () => void;
 	} = $props();
@@ -39,35 +42,47 @@
 	const archived = $derived(status === 'archived');
 	const photos = $derived(photoCount ?? 0);
 	const favorites = $derived(favoriteCount ?? 0);
+	const finals = $derived(finalCount ?? 0);
 	const steps = $derived<Step[]>([
 		{
 			id: 'upload',
-			label: m.action_upload(),
+			label: m.step_upload(),
 			onactivate: onupload,
-			done: photos > 0,
-			fact: photos > 0 ? m.summary_photos({ count: photos }) : m.step_add_proofs()
+			done: photos > 0 || shared,
+			fact: photos > 0 ? m.summary_photos({ count: photos }) : undefined
 		},
 		{
 			id: 'share',
-			label: m.action_share(),
-			onactivate: shared ? undefined : onshare,
+			label: m.step_share(),
+			onactivate: onshare,
 			done: shared,
-			fact: undefined
+			fact: gallery.shared_at
+				? m.step_shared_on({ date: formatLongDate(gallery.shared_at) })
+				: undefined
 		},
 		{
 			id: 'collect',
 			label: m.step_collect(),
 			onactivate: shared ? oncollect : undefined,
-			done: delivered,
-			fact: shared ? m.notification_selected({ count: favorites }) : m.step_client_picks(),
+			done: shared && (favoritesCollected || finals > 0 || delivered),
+			fact: shared ? m.notification_selected({ count: favorites }) : undefined,
 			accent: gallery.included_photos !== null && favorites > gallery.included_photos
 		},
 		{
-			id: 'publish',
-			label: delivered ? m.state_delivered() : m.stage_deliver_finals(),
+			id: 'retouch',
+			label: m.step_upload_finals(),
+			onactivate: shared ? onretouch : undefined,
+			done: shared && (finals > 0 || delivered),
+			fact: finals > 0 ? m.summary_photos({ count: finals }) : undefined
+		},
+		{
+			id: 'deliver',
+			label: m.step_deliver(),
 			onactivate: shared && !delivered ? ondelivery : undefined,
 			done: delivered,
-			fact: delivered ? undefined : m.step_upload_finals()
+			fact: gallery.delivered_at
+				? m.step_delivered_on({ date: formatLongDate(gallery.delivered_at) })
+				: undefined
 		}
 	]);
 </script>
@@ -81,14 +96,11 @@
 			<JourneySteps {steps} />
 		{/if}
 
-		{#if action || (archived && onrestore)}
+		{#if archived && onrestore}
 			<div class="ml-auto flex shrink-0 items-center gap-2">
-				{#if archived && onrestore}
-					<Button size="sm" variant="outline" onclick={onrestore}>
-						<ArchiveRestore size={16} aria-hidden="true" />{m.action_restore()}
-					</Button>
-				{/if}
-				{@render action?.()}
+				<Button size="sm" variant="outline" onclick={onrestore}>
+					<ArchiveRestore size={16} aria-hidden="true" />{m.action_restore()}
+				</Button>
 			</div>
 		{/if}
 	</div>
